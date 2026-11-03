@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem, type ReceivingAnswer, type WorkItemOrderRoute } from '../api'
 import { useStaff } from '../App'
@@ -15,7 +15,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
-import { LAB_WORK, refusedWorkText } from '../refusedWork'
+import { LAB_WORK, NO_OUTREACH, pharmacyWorkFor, refusedWorkText } from '../refusedWork'
 import {
   cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
@@ -42,7 +42,13 @@ const SERVICE_AUTH_UNAVAILABLE: ReadonlySet<string> = new Set(['EHR_SERVICE_AUTH
  * detail (gateway/nginx.conf.template), so the client's message is its generic 404
  * one. The read permissions stay seeded, so these workspaces still open.
  */
-const MODULE_NOT_IN_SERVICE = 'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'
+/** Refusals whose meaning a step must keep, in plain words (never the service's own text or code). */
+const STEP_REFUSALS: Readonly<Record<string, string>> = {
+  LAB_RESULT_SELF_VERIFICATION: 'The person who entered a result can’t check it. Ask a colleague to check it.',
+  OCR_DOCUMENT_NOT_READY: 'This document hasn’t finished its virus check yet. Try again once it has.',
+}
+
+const MODULE_NOT_IN_SERVICE = 'This part of Health ID isn’t turned on for your facility. Contact Health ID support if you need it.'
 
 /**
  * What a Lab write on work from an order another facility sent answers once the order no longer lets this laboratory
@@ -60,7 +66,8 @@ const RoutedAccession = createContext(false)
 // A refusal's message, with each field a 400 VALIDATION_FAILED names. `routed`: a Lab write on work from an order another
 // facility sent, whose 404 for writing means the order closed (ROUTED_WRITE_CLOSED).
 function errorText(error: unknown, fallback: string, routed = false) {
-  if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'A connection between Health ID services failed; retry in about 15 seconds.'
+  if (isHidApiError(error) && Object.hasOwn(STEP_REFUSALS, error.code)) return STEP_REFUSALS[error.code]!
+  if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'We couldn’t finish this just now. Wait a few seconds and try again.'
   if (isHidApiError(error) && error.status === 404 && error.code === 'API_ROUTE_NOT_FOUND') return MODULE_NOT_IN_SERVICE
   // Novu since P4c, on any action on work from an order another facility sent (SPEC-FINAL §10.2).
   if (isHidApiError(error) && error.code === 'ORDER_ROUTE_CLOSED') return 'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.'
@@ -1038,7 +1045,7 @@ function PharmacyAction({ facilityId, item, permissions, said, documents, onChan
     setBusy(true)
     try {
       if (reverse) {
-        if (!item.dispensing) throw new Error('No dispensing is available to reverse.')
+        if (!item.dispensing) throw new PlainError('No dispensing is available to reverse.')
         const current = await staffApi.dispensing(facilityId, item.dispensing.id)
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setSuccess('Dispensing reversal recorded.')
@@ -1119,7 +1126,10 @@ export function Pharmacy() {
   const notCompleted = useNotCompletedEndings(facilityId)
   const said = useRowSaid('pharmacy', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
+  // The blue Prescriptions' words for the same facts (refusedWorkText, pharmacyWorkFor), so a facility's own
+  // administrator is never told to ask themselves, and a role that sells where Sell opens is told only prescriptions
+  // are not in it.
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, pharmacyWorkFor(permissions, facilityId)))} />
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
@@ -1258,7 +1268,8 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
         await onChanged('The source patient of this job was already confirmed, so the job was reloaded.')
         return
       }
-      setError(errorText(caught, 'Patient confirmation could not be recorded.'))
+      setError(isHidApiError(caught) && caught.code === 'OCR_PATIENT_MISMATCH' ? 'The patient you chose doesn’t match the patient on the document. Check the patient and try again.'
+        : errorText(caught, 'Patient confirmation could not be recorded.'))
       focus('ocr-confirm-submit', true)
     }
     finally { setBusy(false) }
@@ -1291,10 +1302,23 @@ const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 seconds afte
 /** A publication request this page sent: the Idempotency-Key it goes with, and when OCR takes a failed one again. */
 interface PublicationAttempt { readonly key: string; retryAt: number }
 
+/**
+ * What a failed publication says, in place of OCR's stored failure code and summary: those are the services' own words
+ * ("Owning clinical service is temporarily unavailable (EHR_SERVICE_UNAVAILABLE)"), never shown (owner's rule, 1 Nov
+ * 2026). Whether it can be tried again follows, from the code, in the page's own words. The blue page says the same.
+ * A final failure is one the owning service refused, so nothing was added. One OCR attempts again claims nothing about
+ * the record: OCR stores a timeout or server error as OWNING_SERVICE_UNAVAILABLE, which can come after the owning
+ * service saved the write, and REQUEST_IN_PROGRESS while it is still working on it (docs/OPEN-QUESTIONS.md, failed
+ * publications). Told nothing was added there, someone could enter the evidence again by hand.
+ */
+const PUBLICATION_FAILED = 'Nothing was added to the patient’s record.'
+const PUBLICATION_UNFINISHED = 'Publishing to the patient’s record didn’t finish: it may have been added even so. Check the patient’s record before adding anything by hand.'
+
 function publicationRefusal(caught: unknown) {
   // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
+  // The part of the record it was going to refused it for good: said as what it means for the person, not as a service.
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'This couldn’t be added to the patient’s record, and it can’t be tried again.'
   return errorText(caught, 'Validated evidence could not be published.')
 }
 
@@ -1305,9 +1329,28 @@ const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
   DOCUMENT_ONLY: 'Kept as a validated document in the patient\'s record.',
 }
 
+/**
+ * The owning domain a review names, in the words the review form offers it: for the review's title and its Publish
+ * button, never OCR's code (DOCUMENT_ONLY, UNCLASSIFIED). A domain OCR may add later is said as not classified.
+ */
+const OCR_DOMAIN_WORDS: Readonly<Record<OcrTargetDomain, string>> = {
+  EHR: 'Clinical note', LAB: 'Historical lab evidence', PHARMACY: 'Historical medication evidence', DOCUMENT_ONLY: 'Validated document',
+  UNCLASSIFIED: 'Not classified',
+}
+const ocrDomainText = (domain: string) => Object.hasOwn(OCR_DOMAIN_WORDS, domain) ? OCR_DOMAIN_WORDS[domain as OcrTargetDomain] : OCR_DOMAIN_WORDS.UNCLASSIFIED
+
+/** An imported observation's flag in plain words, as routed results say them (OrderRoutes.tsx): never Lab's code. */
+const IMPORTED_FLAG_WORDS: Readonly<Record<string, string>> = { high: 'high', low: 'low', abnormal: 'abnormal', critical_candidate: 'possibly critical' }
+
+/** Nothing for normal or not set; a flag Lab may add later is said as flagged, never as its code. */
+function importedFlagText(abnormalFlag: string | null | undefined) {
+  if (!abnormalFlag || abnormalFlag === 'normal' || abnormalFlag === 'unknown') return ''
+  return Object.hasOwn(IMPORTED_FLAG_WORDS, abnormalFlag) ? `flagged ${IMPORTED_FLAG_WORDS[abnormalFlag]}` : 'flagged'
+}
+
 function observationText(item: LabImport['observations'][number]) {
   const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
-  const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
+  const flag = importedFlagText(item.abnormalFlag)
   // Defensive: Lab stores every imported observation as 'reported' today (hid-system ehr-api migration
   // 0017, lab.imported_observations), but a status it may add later is said, never hidden.
   const status = item.status && item.status !== 'reported' ? item.status.replaceAll('_', ' ') : ''
@@ -1374,9 +1417,10 @@ function OcrPublicationStatus({ facilityId, publication, permissions, canPublish
   facilityId: string; publication: OcrPublication; permissions: readonly string[]; canPublish: boolean; retryHere: boolean
 }) {
   const failed = publication.status === 'failed'
+  const retryable = RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '')
   const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
   const unfinished = 'OCR has not finished this publication. Refresh the job status to see whether it has.'
-  const failedText = !RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
+  const failedText = !retryable ? 'It cannot be retried.'
     : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
       : retryHere ? PUBLICATION_RETRY_WAIT
         : canPublish ? 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.' : ''
@@ -1386,8 +1430,8 @@ function OcrPublicationStatus({ facilityId, publication, permissions, canPublish
       : canPublish ? `${unfinished} If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.`
         : unfinished
   return <div className="staff-stack">
-    <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : failed ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
-    {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
+    <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : failed ? 'danger' : 'information'}>{publication.status}</Badge>{attempts}</p>
+    {failed && <p>{retryable ? PUBLICATION_UNFINISHED : PUBLICATION_FAILED}</p>}
     {failed && failedText && <p className="staff-muted">{failedText}</p>}
     {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">{unfinishedText}</p>}
     {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
@@ -1497,12 +1541,12 @@ function OcrPublicationCard({ actorId, facilityId, validation, confirmationId, p
     finally { setBusy(false) }
   }
   const action = next(publications)
-  return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {validation.targetDomain}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {ocrDomainText(validation.targetDomain)}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {historyError && <p className="staff-error" role="alert">{historyError}</p>}
     {publications === null && !historyError && <p className="staff-muted" role="status">Loading publication history…</p>}
     {publications?.map(publication => <OcrPublicationStatus key={publication.id} facilityId={facilityId} publication={publication} permissions={permissions} canPublish={request !== undefined} retryHere={action === retryId} />)}
-    {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
+    {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish as ${ocrDomainText(validation.targetDomain).toLowerCase()}`}</Button>}
     {action === retryId && <Button id={retryId} size="sm" onClick={() => void publish(true)} disabled={busy}>{busy ? 'Retrying…' : 'Retry publication'}</Button>}
   </div>
 }
@@ -1785,7 +1829,8 @@ export function Outreach() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
+  // The blue Outreach's words (NO_OUTREACH): one sentence for everyone, as Document OCR's (see NO_OUTREACH for why).
+  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusalAt(facilityId, NO_OUTREACH)} />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until it is linked to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}

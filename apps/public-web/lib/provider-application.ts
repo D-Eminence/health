@@ -1,5 +1,5 @@
 import { createRegisteredBrowserClient } from '@hid/api'
-import { createApiClient } from '@hid/http'
+import { createApiClient, PlainError } from '@hid/http'
 import { isContactEmail } from './contact-email'
 import { getEnvironment } from './env'
 
@@ -67,11 +67,11 @@ export async function startOrganizationCompletion(input: {
 }): Promise<{ accepted: true; challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }> {
   const cacRegistrationNumber = normalizeCacRegistrationNumber(input.cacRegistrationNumber)
   const administratorEmail = input.administratorEmail.trim().toLowerCase()
-  if (!CAC_PATTERN.test(cacRegistrationNumber)) throw new Error('Enter a valid CAC registration number.')
+  if (!CAC_PATTERN.test(cacRegistrationNumber)) throw new PlainError('Enter a valid CAC registration number.')
   if (!isContactEmail(administratorEmail)) {
-    throw new Error('Enter the administrator email used on the application.')
+    throw new PlainError('Enter the administrator email used on the application.')
   }
-  if (!input.turnstileToken) throw new Error('Complete the security verification.')
+  if (!input.turnstileToken) throw new PlainError('Complete the security check.')
   return publicClient().request({
     method: 'POST', path: `${COMPLETION_PATH}/start`, auth: 'none',
     body: { productCode: input.productCode, cacRegistrationNumber, administratorEmail,
@@ -80,11 +80,11 @@ export async function startOrganizationCompletion(input: {
 }
 
 export async function verifyOrganizationCompletion(challengeId: string, code: string): Promise<void> {
-  if (!/^[0-9]{6}$/.test(code)) throw new Error('Enter the six-digit email code.')
+  if (!/^[0-9]{6}$/.test(code)) throw new PlainError('Enter the six-digit email code.')
   const response = await publicClient().request<{ verified: true }>({
     method: 'POST', path: `${COMPLETION_PATH}/verify`, auth: 'none', body: { challengeId, code },
   })
-  if (response?.verified !== true) throw new Error('The email code could not be verified.')
+  if (response?.verified !== true) throw new PlainError('We couldn’t check the email code. Please try again.')
 }
 
 export function getOrganizationCompletionProfile(): Promise<OrganizationCompletionProfile> {
@@ -109,17 +109,17 @@ export function validateOrganizationProfileEntries(entries: OrganizationProfileP
 }
 
 export function missingOrganizationProfileFields(profile: OrganizationCompletionProfile, entries: OrganizationProfilePatch): OrganizationProfilePatch {
-  if (profile.status !== 'pending_verification') throw new Error('This organization profile is already awaiting review.')
+  if (profile.status !== 'pending_verification') throw new PlainError('This organization profile is already waiting for review.')
   const body: OrganizationProfilePatch = {}
   for (const name of PROFILE_FIELDS) {
     const value = entries[name]?.trim()
     if (!value) continue
-    if (profile.fields[name].source === 'qoreid') throw new Error('A QoreID-provided profile field cannot be replaced.')
+    if (profile.fields[name].source === 'qoreid') throw new PlainError('This detail came from the official company record and can’t be changed here.')
     body[name] = value
   }
-  if (Object.keys(body).length === 0) throw new Error('Enter at least one missing organization detail.')
+  if (Object.keys(body).length === 0) throw new PlainError('Enter at least one missing organization detail.')
   const invalid = Object.values(validateOrganizationProfileEntries(body))[0]
-  if (invalid) throw new Error(invalid)
+  if (invalid) throw new PlainError(invalid)
   return body
 }
 

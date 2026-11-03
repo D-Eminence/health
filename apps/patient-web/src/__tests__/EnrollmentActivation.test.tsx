@@ -86,15 +86,16 @@ describe('activation that needs the contact proved again', () => {
   })
 
   it.each([
-    ['an outage', () => new HidApiError(503, 'Health ID activation is unavailable', { code: 'ENROLLMENT_ACTIVATION_UNAVAILABLE' })],
-    ['the activation limit', () => new HidApiError(429, 'Too many enrollment requests; try again later', { code: 'ENROLLMENT_RATE_LIMITED' })],
-  ])('keeps a refusal for %s at the password step, without reading the stage again', async (_refusal, refusal) => {
+    ['an outage', () => new HidApiError(503, 'Health ID activation is unavailable', { code: 'ENROLLMENT_ACTIVATION_UNAVAILABLE' }), 'Health ID isn’t available right now. Please try again in a few minutes.'],
+    ['the activation limit', () => new HidApiError(429, 'Too many enrollment requests; try again later', { code: 'ENROLLMENT_RATE_LIMITED' }), 'You’ve tried this too many times. Please wait a few minutes and try again.'],
+  ])('keeps a refusal for %s at the password step, without reading the stage again', async (_refusal, refusal, said) => {
     api.enrollmentCurrent.mockResolvedValue({ stage: 'set_password' })
     api.enrollmentActivate.mockRejectedValue(refusal())
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     await press('Get my Health ID')
-    expect(shownText(await screen.findByRole('alert'))).toBe(refusal().message)
+    expect(shownText(await screen.findByRole('alert'))).toBe(said)
+    expect(screen.queryByText(refusal().message)).toBeNull()
     expect(screen.getByLabelText('Password')).toBeTruthy()
     expect(screen.queryByLabelText('Phone number')).toBeNull()
     expect(api.enrollmentCurrent).toHaveBeenCalledTimes(1)
@@ -127,7 +128,7 @@ describe('activation that finds the enrollment no longer at the password step', 
       .mockRejectedValueOnce(notAtPassword())
       .mockResolvedValueOnce({ stage: 'active', hidCode: 'HID-ABCDEF23' })
     await activateFromPassword()
-    expect(shownText(await screen.findByRole('alert'))).toBe('We could not reach the service. Check your connection and try again.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('We couldn’t reach Health ID. Check your connection and try again.')
     await press('Get my Health ID')
 
     const contact = await screen.findByLabelText('Phone number')
@@ -163,7 +164,7 @@ describe('activation that finds the enrollment no longer at the password step', 
     api.enrollmentCurrent.mockResolvedValue({ stage: 'set_password' })
     api.enrollmentActivate.mockRejectedValue(notAtPassword('Enrollment conditions are not complete'))
     await activateFromPassword()
-    expect(shownText(await screen.findByRole('alert'))).toBe('Enrollment conditions are not complete')
+    expect(shownText(await screen.findByRole('alert'))).toBe('We couldn’t complete that step. Please try again.')
     expect(screen.getByLabelText('Password')).toBeTruthy()
     expect(api.enrollmentCurrent).toHaveBeenCalledTimes(2)
   })
@@ -174,7 +175,7 @@ describe('activation that finds the enrollment no longer at the password step', 
       .mockResolvedValue({ stage: 'verify_contact' })
     api.enrollmentActivate.mockRejectedValue(notAtPassword())
     await activateFromPassword()
-    expect(shownText(await screen.findByRole('alert'))).toBe('Enrollment is temporarily unavailable')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Health ID isn’t available right now. Please try again in a few minutes.')
     expect(screen.getByLabelText('Password')).toBeTruthy()
 
     await press('Get my Health ID')

@@ -49,7 +49,9 @@ describe('emergency access refused by a deployment without the emergency purpose
     const said = await screen.findByRole('alert')
     // Identity answers this for any SQLSTATE 22023 activate_break_glass raises (a bad duration or
     // reason too, migration 0031), so a missing emergency purpose is likely, not certain.
-    expect(said.textContent).toMatch(/Emergency access may not be enabled for this deployment/)
+    expect(said.textContent).toBe('Emergency access may not be turned on for your facility yet, so the record was not opened. Ask your Health ID administrator to turn it on.')
+    // Never the deployment, the code or Identity's words (owner's rule, 1 Nov 2026).
+    expect(said.textContent).not.toMatch(/deployment|INVALID_CONSENT_COMMAND/)
     expect(said.textContent).not.toMatch(/is not enabled/)
     expect(said.textContent).not.toMatch(/integrity validation/)
     expect(api.lookupPatient).not.toHaveBeenCalled()
@@ -64,10 +66,11 @@ describe('emergency access refused by a deployment without the emergency purpose
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
-  it('shows any other refusal as it is', async () => {
+  it('shows any other refusal in plain words', async () => {
     api.breakGlass.mockRejectedValue(new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }))
     await activateEmergencyAccess()
-    expect((await screen.findByRole('alert')).textContent).toBe('Break-glass access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
+    expect(document.body.textContent).not.toContain('Break-glass access is not authorized')
   })
 })
 
@@ -83,6 +86,23 @@ describe('emergency access limited at a new self-signed-up facility', () => {
     await activateEmergencyAccess()
     expect((await screen.findByRole('alert')).textContent).toBe('Ikeja Care is new to Health ID: emergency access is limited to '
       + '5 times a day in its first 30 days. Contact Health ID support to lift the limit.')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Identity allows each account 10 emergency activations in a rolling hour (ehr-api migration 0031) and answers the next
+ * with 429 EMERGENCY_RATE_LIMITED (identity-api consent.service.ts).
+ */
+describe('emergency access used too often in the last hour', () => {
+  it('says so in plain words, and who to ask, without Identity’s words or the code', async () => {
+    api.breakGlass.mockRejectedValue(new HidApiError(429, 'Too many emergency activations. Contact your facility emergency access administrator.',
+      { code: 'EMERGENCY_RATE_LIMITED' }))
+    await activateEmergencyAccess()
+    const said = (await screen.findByRole('alert')).textContent
+    expect(said).toBe('You’ve used emergency access too many times in the last hour, so the record was not opened. '
+      + 'Ask your facility administrator, or try again later.')
+    expect(said).not.toMatch(/Too many emergency activations|EMERGENCY_RATE_LIMITED/)
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 })
@@ -108,6 +128,7 @@ describe('a role that cannot reach patients', () => {
     expect(reason()).toMatch(/^Your role at this facility can’t /)
     expect(reason()).not.toMatch(/identity\.|ehr\.|outreach\.|workforce\./)
     expect(reason().endsWith(ending)).toBe(true)
+    expect(reason()).not.toMatch(/identity\.|ehr\.|needs/)
   })
 
   it('asks the facility administrator when a member without workforce.manage lacks a permission', () => {
