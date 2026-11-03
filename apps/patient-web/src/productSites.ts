@@ -165,6 +165,28 @@ export function offeredHere(pathname: string, hostname: string = window.location
 }
 
 /**
+ * The pages every staff site serves that say nothing of its product, by the first part of their address under
+ * /provider: the overview, the choice of facility, its staff and joining, its subscription, its audit, its profile and HR.
+ */
+const EVERY_SITE_PAGES: ReadonlySet<string> = new Set(['', 'institutions', 'staff', 'billing', 'audit', 'facility', 'hr'])
+
+/**
+ * Whether `pathname` is one of this staff site's own product pages: a page under /provider that is neither one every
+ * staff site serves (EVERY_SITE_PAGES) nor a public staff page (PUBLIC_STAFF_PAGES). On ehr that is every other page;
+ * on a single product's site, its home and the pages below it (ownProductOf), never Patients or Access requests, which
+ * every product keeps, nor a page of the hospital EHR's, which opens the product's Home there. False on any host that
+ * is not a staff site.
+ */
+export function ownProductPage(pathname: string, hostname: string): boolean {
+  const here = siteOf(hostname)
+  const page = providerPage(pathname)
+  if (!here || here.key === 'web' || page === null) return false
+  if (EVERY_SITE_PAGES.has(page) || PUBLIC_STAFF_PAGES.has(page)) return false
+  const product = singleProductOf(here)
+  return product === null || ownProductOf(page) === product
+}
+
+/**
  * The address of a page on the site that serves it, with its query and fragment, or null when this host serves it.
  * The host is one of the fixed hostnames above; nothing of the request but the page's own address is kept.
  */

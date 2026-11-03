@@ -1,5 +1,6 @@
 import type { StaffSession } from '../../staff/api'
-import { basePath } from './pageHref'
+import { ownProductPage, siteOf } from '../../productSites'
+import { basePath, pageHrefOf } from './pageHref'
 import type { DemoRole } from './roleView'
 import { designRolesOf, samplePageOpen } from './sampleAccess'
 import type { EhrBluePage } from './types'
@@ -31,6 +32,20 @@ export function pageUsable(page: EhrBluePage, pages: readonly EhrBluePage[], ses
   if (page.permission || page.status === 'sample' || base === '') return true
   const below = pages.filter(other => other !== page && basePath(other.path).startsWith(`${base}/`))
   return below.length === 0 || below.some(other => other.permission !== undefined && pageAllowed(other, session, viewing))
+}
+
+/**
+ * Whether this session may use the product of the staff site it is on, at its active facility: it may open at least
+ * one live or partial page that the site serves as its own (productSites.ts ownProductPage) and that asks for
+ * something, a permission or its own visible(). A page every session opens (Home, a menu that only sends on) says
+ * nothing about the product. The person's own roles decide, never a demo role being viewed. Any host that is not a
+ * staff site serves every product, as before.
+ */
+export function productUsable(pages: readonly EhrBluePage[], session: StaffSession, hostname: string): boolean {
+  const here = siteOf(hostname)
+  if (!here || here.key === 'web') return true
+  return pages.some(page => page.status !== 'sample' && (Boolean(page.permission) || page.visible !== undefined)
+    && ownProductPage(pageHrefOf(page), hostname) && pageAllowed(page, session))
 }
 
 /**
