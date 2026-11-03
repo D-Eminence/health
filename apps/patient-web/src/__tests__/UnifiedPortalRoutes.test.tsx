@@ -433,7 +433,7 @@ describe('unified authenticated portal routes', () => {
     const readsBefore = calls.staffRecords.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
 
-    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/the laboratory didn’t accept it/)
+    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/but Lab refused it, so the Laboratory does not have it\./)
     expect(screen.getByText(/^Lab request saved and active in the EHR/).textContent).not.toMatch(/LAB_ACCESS_DENIED|0f2b6d0e/)
     expect(calls.staffRecords.mock.calls.length).toBeGreaterThan(readsBefore)
     expect((screen.getByRole('textbox', { name: 'Test display' }) as HTMLInputElement).value).toBe('')
