@@ -265,7 +265,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
             {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
                 record, so a real facility keeps it on Find a patient's Obtain access. Shown, as this card's steps are,
                 only to a role that may take it. */}
-            {showEmergency ? <li><ListRow onClick={() => accessStep('emergency')} leading={<IconChip size="sm" icon={Siren} tone="danger" />} title="Emergency access" subtitle="Only if they can’t consent. Time-limited and reviewed." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showEmergency ? <li><ListRow onClick={() => accessStep('emergency')} leading={<IconChip size="sm" icon={Siren} tone="danger" />} title="Emergency access" subtitle="Only if they can’t consent. Time-limited and recorded." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
           </ul>
         </Card> : <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
