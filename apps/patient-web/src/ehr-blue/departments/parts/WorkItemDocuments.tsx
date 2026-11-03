@@ -68,7 +68,7 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
   },
 }
 
-/** Today's client checks on a document (the classic Documents card's), word for word. */
+/** The client checks on a work-item document: PDF, JPEG or PNG, up to 50 MiB (no TIFF, unlike the encounter Documents card). */
 const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_BYTES = 52_428_800
 const NO_FILE = 'Select a file first.'
