@@ -104,3 +104,19 @@ export function scanStatusLabel(value: string | null | undefined): string {
     default: return ''
   }
 }
+
+const ROUTE_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
+  oral: 'by mouth', po: 'by mouth', 'by mouth': 'by mouth', sublingual: 'under the tongue', sl: 'under the tongue',
+  iv: 'into a vein', intravenous: 'into a vein', im: 'into a muscle', intramuscular: 'into a muscle',
+  sc: 'under the skin', subcut: 'under the skin', subcutaneous: 'under the skin', topical: 'on the skin',
+  inhaled: 'by breathing in', inhalation: 'by breathing in', nasal: 'into the nose', rectal: 'into the back passage', pr: 'into the back passage',
+  ophthalmic: 'into the eye', eye: 'into the eye', otic: 'into the ear', ear: 'into the ear', vaginal: 'into the vagina', pv: 'into the vagina',
+}))
+
+/**
+ * How a medicine is taken, in plain words, from its route code: "PO" or "oral" → "by mouth", "IV" → "into a vein".
+ * Null for a route code with no word here: the caller then shows the code itself, as the prescriber wrote it.
+ */
+export function routeLabel(code: string | null | undefined): string | null {
+  return ROUTE_WORDS.get((code ?? '').trim().toLowerCase()) ?? null
+}

@@ -360,8 +360,12 @@ describe('the picking view', () => {
     // Who it is for, in the same place on every record.
     expect(screen.getByRole('region', { name: 'Patient: Patient ••••6f8a10' }).textContent).toContain('Health ID not sent')
     expect(recordStatus()).toBe('To dispense')
-    expect(facts()).toEqual({ Medicine: AMOXICILLIN, Dose: '1capsule', 'How often': 'Three times daily', Route: 'oral',
+    expect(facts()).toEqual({ Medicine: AMOXICILLIN, Dose: '1capsule', 'How often': 'Three times daily', Route: 'By mouthMore details: RouteRoute code: oral',
       Instructions: 'Take with food.\nFinish the course.', Dispensed: 'No', Accepted: dateText(accepted.acceptedAt) })
+    // The route in plain words first; the prescriber's route code waits, closed, under More details (owner decision 33.4).
+    const route = screen.getByText('Route', { selector: 'dt' }).nextElementSibling!
+    expect(route.querySelector('details')?.open).toBe(false)
+    expect(screen.getByText('Pick', { selector: 'p' }).nextElementSibling?.nextElementSibling?.textContent).toMatch(/ · by mouth$/)
     // This member can't dispense or reverse: nothing is offered, and the record says why.
     expect(screen.getByText('You can’t dispense here')).toBeTruthy()
     expect(screen.queryByRole('form')).toBeNull()

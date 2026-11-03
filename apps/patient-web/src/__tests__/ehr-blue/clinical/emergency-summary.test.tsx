@@ -126,6 +126,15 @@ function entries(name: string) {
     .map(item => item.firstElementChild?.firstChild?.textContent)
 }
 
+/** What an entry's closed "More details" line holds, without its summary; undefined when it has none. */
+function moreDetails(item: HTMLElement) {
+  const details = item.querySelector('details')
+  if (!details) return undefined
+  expect(details.open).toBe(false)
+  expect(details.querySelector('summary')?.textContent).toMatch(/^More details/)
+  return details.querySelector(':scope > div')?.textContent
+}
+
 describe('the emergency summary page', () => {
   it('re-checks access under the emergency purpose, then reads the emergency records', async () => {
     await renderSummary()
@@ -364,11 +373,14 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(signed.textContent).toMatch(/Triage · Signed · version 1 · signed \d/)
     expect(signed.textContent).toContain('Alert and oriented.\nNo distress.')
     expect(within(section('Diagnoses')).getByText('Severe malaria')).toBeTruthy()
-    expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('Active · Confirmed · code ICD-10 X00')
+    expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('Active · Confirmed')
+    // The plain name leads; the ICD-10 code waits under More details (owner decision 33.4).
+    expect(moreDetails(entry('Diagnoses', 'Severe malaria'))).toBe('Code: ICD-10 X00')
     expect(within(section('Prescriptions')).getByText('Artesunate')).toBeTruthy()
     const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
-    expect(lab.textContent).toMatch(/LOINC 718-7 · Priority: Urgent · Asked for \d/)
+    expect(lab.textContent).toMatch(/Priority: Urgent · Asked for \d/)
+    expect(moreDetails(lab)).toBe('Code: LOINC 718-7')
     expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF document · 20 KB · added \d/)
   })
 
@@ -431,13 +443,45 @@ describe('the emergency summary shows every section EHR returns that the role ma
     }))
     await renderSummary()
     expect(entry('Signed notes', 'Triage note 2').textContent).toMatch(/Triage · Amended · version 2 · signed \d/)
-    expect(entry('Diagnoses', 'Sepsis').textContent).toContain('Active · Provisional · code SNOMED 91302008')
+    expect(entry('Diagnoses', 'Sepsis').textContent).toContain('Active · Provisional')
+    expect(moreDetails(entry('Diagnoses', 'Sepsis'))).toBe('Code: SNOMED 91302008')
     const lab = entry('Lab tests', 'Blood culture')
-    expect(lab.textContent).toMatch(/LOINC 600-7 · Priority: Routine · Asked for \d/)
+    expect(lab.textContent).toMatch(/Priority: Routine · Asked for \d/)
+    expect(moreDetails(lab)).toBe('Code: LOINC 600-7')
     expect(within(lab).queryByText('Routine')).toBeNull()
     // The priority is said in words, never as the raw value (the owner's rule).
-    expect(entry('Lab tests', 'Troponin').textContent).toMatch(/LOINC 6598-7 · Priority: As soon as possible · Asked for \d/)
+    expect(entry('Lab tests', 'Troponin').textContent).toMatch(/Priority: As soon as possible · Asked for \d/)
+    expect(moreDetails(entry('Lab tests', 'Troponin'))).toBe('Code: LOINC 6598-7')
     expect(entry('Lab tests', 'Troponin').textContent).not.toMatch(/asap/)
+  })
+
+  it('leads with plain names and keeps every clinical code under More details (owner decision 33.4)', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({
+      diagnoses: [{ ...diagnosis('diagnosis-7', 'Asthma', 'active', 'confirmed'), code: 'J45' },
+        { ...diagnosis('diagnosis-8', '', 'active', 'confirmed'), code: 'B54' }],
+      prescriptions: [{ ...prescription('prescription-7', 'Salbutamol', 'active'), routeCode: 'PO', medicationCodeSystem: 'RxNorm', medicationCode: '435' },
+        { ...prescription('prescription-8', 'Paracetamol', 'active'), routeCode: 'NG tube' },
+        { ...prescription('prescription-9', 'Amoxicillin', 'active'), routeCode: 'by mouth' }],
+      labRequests: [{ ...labRequest('lab-7', 'Glucose', 'active'), testCode: '2345-7' }],
+    }))
+    await renderSummary()
+    const asthma = entry('Diagnoses', 'Asthma')
+    expect(moreDetails(asthma)).toBe('Code: ICD-10 J45')
+    expect(within(asthma).getByText('More details').textContent).toBe('More details: Asthma')
+    // A diagnosis recorded with no name shows its code as its name (all there is), with nothing more under it.
+    expect(moreDetails(entry('Diagnoses', 'ICD-10 B54'))).toBeUndefined()
+    const salbutamol = entry('Prescriptions', 'Salbutamol')
+    expect(salbutamol.textContent).toMatch(/· by mouth · Twice daily/)
+    expect(salbutamol.textContent).not.toMatch(/route PO/)
+    expect(moreDetails(salbutamol)).toBe('Route code: POMedicine code: RxNorm 435')
+    // A route with no plain words here is shown as the prescriber wrote it.
+    expect(entry('Prescriptions', 'Paracetamol').textContent).toMatch(/· route NG tube · Twice daily/)
+    expect(moreDetails(entry('Prescriptions', 'Paracetamol'))).toBeUndefined()
+    // A route already in plain words has no code to add.
+    expect(moreDetails(entry('Prescriptions', 'Amoxicillin'))).toBeUndefined()
+    const glucose = entry('Lab tests', 'Glucose')
+    expect(glucose.textContent).not.toContain('2345-7 ·')
+    expect(moreDetails(glucose)).toBe('Code: LOINC 2345-7')
   })
 
   it('says a lab test entered in error is not this patient’s', async () => {
@@ -453,7 +497,8 @@ describe('the emergency summary shows every section EHR returns that the role ma
     ] }))
     await renderSummary()
     const item = entry('Prescriptions', 'Artesunate')
-    expect(item.textContent).toMatch(/Dose\s*500\s*mg\s*· route oral · Twice daily/)
+    expect(item.textContent).toMatch(/Dose\s*500\s*mg\s*· by mouth · Twice daily/)
+    expect(moreDetails(item)).toBe('Route code: oral')
     expect(item.textContent).toContain('Take with food')
     expect(entry('Prescriptions', 'Oral rehydration salts').textContent).toMatch(/Dose not recorded\s*· route not recorded · Twice daily/)
   })
@@ -671,7 +716,12 @@ describe('released Lab results in the emergency summary', () => {
     const request = entry('Lab tests', 'Haemoglobin')
     await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
-    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
+    expect(request.textContent).toContain('Haemoglobin · accepted by the lab ')
+    expect(request.textContent).not.toContain('Haemoglobin · LOINC')
+    // The lab's test code waits under its own More details, after the request's.
+    const disclosures = [...request.querySelectorAll('details')]
+    expect(disclosures.map(item => item.querySelector(':scope > div')?.textContent)).toEqual(['Code: LOINC 718-7', 'Code: LOINC 718-7'])
+    expect(disclosures.every(item => !item.open)).toBe(true)
     expect(request.textContent).toMatch(/9\.1\s*g\/dL\s*Low/)
     expect(request.textContent).toContain('Normal range: 12-16')
     expect(request.textContent).toContain('Why it changed: Recalibrated analyser')
@@ -709,7 +759,8 @@ describe('released Lab results in the emergency summary', () => {
     const request = entry('Lab tests', 'Haemoglobin')
     await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
-    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
+    expect(request.textContent).toContain('Haemoglobin · accepted by the lab ')
+    expect(request.textContent).not.toContain('Haemoglobin · LOINC')
     const result = within(request).getByText('Result 1').closest('li')!
     expect(within(result).getByText('Result 1').parentElement!.textContent).toBe('Result 1Released')
     // Main's labels: a critical candidate is the design's Critical flag; normal, unknown and the verification are not shown as raw values.
