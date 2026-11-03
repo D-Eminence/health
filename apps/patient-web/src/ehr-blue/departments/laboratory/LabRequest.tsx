@@ -41,7 +41,7 @@ export function personBanner(person: LabPerson, compact = false): ReactNode {
 
 export function subjectOf(item: LabWorkItem): LabSubject {
   const person = personOf(item)
-  return { name: person.name, banner: personBanner(person, true) }
+  return { name: person.name, banner: personBanner(person, true), named: Boolean(item.patient || walkInOf(item)) }
 }
 
 /** The five stages as a track, the current one marked: where this request is, and how far it has to go. */

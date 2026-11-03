@@ -113,7 +113,9 @@ export function factsOfRecord(accession: LabAccession | null, executions: readon
 export function nextAction(stage: LabStage, facts: StageFacts, paymentFirst: boolean): string {
   switch (stage) {
     // Nothing can be collected until the sample is registered (its accession made): the card names the step it opens on.
-    case 'collect': return paymentFirst ? 'Take payment' : facts.accessioned ? 'Collect sample' : 'Register sample'
+    // Every sample rejected: there is nothing to collect, and the request says what to do instead.
+    case 'collect': return facts.accessioned && facts.specimens.length > 0 && facts.specimens.every(status => status === 'rejected')
+      ? 'See rejected sample' : paymentFirst ? 'Take payment' : facts.accessioned ? 'Collect sample' : 'Register sample'
     case 'testing':
       if (facts.executions.includes('in_progress')) return 'Finish test'
       if (facts.specimens.includes('collected')) return 'Receive sample'

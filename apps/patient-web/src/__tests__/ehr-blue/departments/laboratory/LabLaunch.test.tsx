@@ -1,13 +1,13 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LabWorkItem } from '../../../../staff/api'
+import type { LabAccession, LabSpecimen, LabWorkItem } from '../../../../staff/api'
 import { forgetReceiving } from '../../../../staff/orderRoutes'
 import { forgetCannotCompleteServed } from '../../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
 import { Results } from '../../../../ehr-blue/departments/laboratory/Results'
-import { fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /*
  * Lab launch readiness: the Laboratory's work list, requests and Results as a real facility meets them, over today's
@@ -46,6 +46,8 @@ vi.mock('../../../../staff/api', () => {
 
 const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
 const WORK = ['lab.work-item.read']
+const ACCESSION = [...WORK, 'lab.accession.create', 'lab.accession.read']
+const CUSTODY = [...ACCESSION, 'lab.specimen.collect', 'lab.specimen.receive', 'lab.specimen.reject']
 
 const workItem = (overrides: Partial<LabWorkItem> = {}): LabWorkItem => ({
   id: 'work-item-1', patientId: PATIENT, version: 1, status: 'accepted', testName: 'Haemoglobin',
@@ -57,6 +59,25 @@ const received = (overrides: Partial<LabWorkItem> = {}) => workItem({ accessionI
 /** A work item with the stage facts the work list may send beyond today's (proposed, POINT_OF_CARE_SPEC §4). */
 type Listed = Partial<LabWorkItem> & { readonly openWork?: boolean; readonly executionStatuses?: readonly string[] }
 const listed = (overrides: Listed) => received(overrides as Partial<LabWorkItem>)
+const specimen = (status: string, overrides: Partial<LabSpecimen> = {}): LabSpecimen => ({
+  id: 'specimen-1', accessionId: 'accession-1', specimenIdentifier: 'SPC-000123', specimenType: 'Venous blood', status, version: 2,
+  ...overrides,
+})
+const accession = (specimens: LabSpecimen[]): LabAccession => ({
+  id: 'accession-1', accessionNumber: 'ACC-2026-000123', workItemId: 'work-item-1', status: 'open', specimens,
+})
+
+/* Work from an order another facility sent (Demo Hospital), as Laboratory.test.tsx's own. */
+const ROUTE_ID = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
+const routeCard = (overrides: Record<string, unknown> = {}) => ({ id: ROUTE_ID, reference: '9C1B2D3E', effectiveState: 'accepted',
+  access: 'work', orderingFacilityName: 'Demo Hospital', ordererName: 'Dr Demo Clinician', version: 3, endedKind: null, ...overrides })
+const PERSON = { fullName: 'Patient One', sex: 'female', dateOfBirth: '1990-01-01', healthIdLast4: 'AAA2' }
+const routed = (overrides: Partial<LabWorkItem> & Record<string, unknown> = {}) => workItem({ id: 'w-routed', priority: 'routine',
+  specimenStatuses: [], orderRoute: routeCard() as LabWorkItem['orderRoute'], patient: PERSON, ...overrides })
+const answer = (items: LabWorkItem[], fields: Record<string, unknown> = {}) => ({ items, crossFacilityOrders: true, crossFacilityWork: true,
+  receives: true, routesHere: { waiting: false, held: true }, lateCorrection: true, ...fields })
+const RECEIVE = [...ACCESSION, 'lab.order-route.receive']
+const CC = 'We can’t complete this order'
 
 function as(permissions: string[], overrides: Partial<FakeFacility> = {}) {
   session.facility = fakeFacility(permissions, overrides)
@@ -73,6 +94,27 @@ function renderPage(route = WORK_LIST) {
 /** A request's card button, named by its next action, then who and which tests. */
 async function findCard(test: string) {
   return screen.findByRole('button', { name: new RegExp(`, ${test}$`) })
+}
+
+/** The stage card's body: what to do now. */
+function stageCard() {
+  return document.getElementById('lab-stage-title')!.closest('section') as HTMLElement
+}
+
+async function openRecord(test = 'Haemoglobin') {
+  fireEvent.click(await findCard(test))
+  await screen.findByRole('heading', { level: 1, name: test })
+}
+
+/** Renders the page as `permissions` on a list of `item`, opens it and waits for its accession to be read. */
+async function openAccession(permissions: string[], value: LabAccession, item: LabWorkItem | ReturnType<typeof answer>) {
+  as(permissions)
+  api.labWorkItems.mockResolvedValue('items' in item ? item : { items: [item] })
+  api.labAccession.mockResolvedValue(value)
+  renderPage()
+  await openRecord()
+  await waitFor(() => expect(api.labAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1'))
+  await waitFor(() => expect(within(stageCard()).queryByText('Loading…')).toBeNull())
 }
 
 /** Each stage tab as it reads, with whether it is the one shown. */
@@ -144,5 +186,56 @@ describe('lab launch: finished work reaches Done, and Results only says what it 
     renderDept(<Results />, { route: RESULTS })
     expect(await screen.findByText('No results released yet')).toBeTruthy()
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('lab launch: sample custody', () => {
+  /** A request whose one sample is `status`, registered: the list's item and Lab's accession. */
+  const sampled = (status: string, overrides: Partial<LabWorkItem> = {}) => workItem({ accessionId: 'accession-1',
+    accessionNumber: 'ACC-2026-000123', specimenStatuses: [status], ...overrides })
+
+  it('a rejected sample says to ask the doctor for a new request, and its card says See rejected sample', async () => {
+    as(CUSTODY)
+    api.labWorkItems.mockResolvedValue({ items: [sampled('rejected')] })
+    api.labAccession.mockResolvedValue(accession([specimen('rejected')]))
+    renderPage()
+    expect((await findCard('Haemoglobin')).textContent).toMatch(/^See rejected sample:/)
+    await openRecord()
+    expect(await within(stageCard()).findByText('The sample was rejected. Ask the doctor who asked for the test to send a new request, so a new sample can be taken.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Make a new request/)
+  })
+
+  it('on an order from another facility, a rejected sample says to use “We can’t complete this order” below', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    await openAccession([...CUSTODY, ...RECEIVE], accession([specimen('rejected')]), answer([routed({ accessionId: 'accession-1',
+      accessionNumber: 'ACC-2026-000123', specimenStatuses: ['rejected'] })], { cannotComplete: true }))
+    expect(within(stageCard()).getByText('The sample was rejected. Use “We can’t complete this order” below, or call the ordering facility.')).toBeTruthy()
+    const ending = await screen.findByRole('button', { name: `${CC}: Haemoglobin, Ref 9C1B2D3E` })
+    expect(stageCard().compareDocumentPosition(ending) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Make a new request/)
+  })
+
+  it('asks to check who the person is when Lab sends no name', async () => {
+    await openAccession(CUSTODY, accession([specimen('required')]), sampled('required'))
+    fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
+    expect(within(sheet).getByText('Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.')).toBeTruthy()
+    expect(sheet.textContent).not.toMatch(/Check the name with the person/)
+  })
+
+  it('still asks to check the name when Lab sends it', async () => {
+    await openAccession(CUSTODY, accession([specimen('required')]), sampled('required', { patient: PERSON }))
+    fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
+    expect(within(sheet).getByText('Check the name with the person before you take it.')).toBeTruthy()
+    expect(sheet.textContent).not.toMatch(/didn’t send this person’s name/)
+  })
+
+  it('names the tube', async () => {
+    await openAccession(CUSTODY, accession([specimen('required')]), sampled('required'))
+    // The number is one span within the label line, so the line is matched as a whole.
+    expect(within(stageCard()).getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === 'Tube SPC-000123')).toBeTruthy()
+    // Its step keeps its name: the sample's type, then its number.
+    expect(within(stageCard()).getByRole('group', { name: 'Venous blood, SPC-000123' })).toBeTruthy()
   })
 })

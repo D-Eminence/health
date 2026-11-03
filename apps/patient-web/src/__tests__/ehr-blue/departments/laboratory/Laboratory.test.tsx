@@ -620,7 +620,7 @@ describe('registering the sample (the accession), with lab.accession.create alon
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.createLabAccession).toHaveBeenCalledTimes(1)
     expect(api.transitionSpecimen).not.toHaveBeenCalled()
-    expect(within(sample).getAllByRole('button').map(button => button.textContent)).toEqual(['Reject sample', 'Collect sample'])
+    expect(within(sample).getAllByRole('button').map(button => button.textContent)).toEqual(['Collect sample'])
     fireEvent.click(within(sample).getByRole('button', { name: 'Collect sample' }))
     const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
     expect(sheet.textContent).toContain(`Collect the Haemoglobin sample (Venous blood) from ${MASKED}?`)
@@ -680,14 +680,14 @@ describe('sample custody', () => {
   it('collects a sample waiting on its accession, confirmed, reads the record again and says so', async () => {
     const required = specimen('required')
     await openAccession(CUSTODY, accession([required]))
-    expect(within(stageCard()).getAllByRole('button').map(button => button.textContent)).toEqual(['Print label', 'Reject sample', 'Collect sample'])
+    expect(within(stageCard()).getAllByRole('button').map(button => button.textContent)).toEqual(['Print label', 'Collect sample'])
     api.transitionSpecimen.mockResolvedValue(specimen('collected', { version: 3 }))
     api.labAccession.mockResolvedValue(accession([specimen('collected', { version: 3 })]))
     fireEvent.change(within(sampleGroup('Venous blood, SPC-000123')).getByRole('textbox', { name: /^Collection notes/ }), { target: { value: 'Left arm' } })
     fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
     const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
     expect(within(sheet).getByRole('region', { name: `Patient: ${MASKED}` })).toBeTruthy()
-    expect(within(sheet).getByText('Check the name with the person before you take it.')).toBeTruthy()
+    expect(within(sheet).getByText('Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.')).toBeTruthy()
     await answerSheet('Collect the sample', 'Collect sample')
     await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
     expect(api.createLabAccession).not.toHaveBeenCalled()
@@ -721,14 +721,14 @@ describe('sample custody', () => {
     expect(await screen.findByText('Sample collected. Print the label.')).toBeTruthy()
   })
 
-  it('keeps a sample still waiting beside one already collected, with its own collect and reject, naming it in the check', async () => {
+  it('keeps a sample still waiting beside one already collected, with its own collect (no reject until it is taken), naming it in the check', async () => {
     const urine = specimen('required', { id: 'specimen-2', specimenIdentifier: 'SPC-000124', specimenType: 'Urine' })
     await openAccession(CUSTODY, accession([specimen('collected'), urine]),
       workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['collected', 'required'] }))
     expect(document.getElementById('lab-stage-title')?.textContent).toBe('Testing')
     expect(within(sampleGroup('Venous blood, SPC-000123')).getAllByRole('button').map(button => button.textContent)).toEqual(['Reject sample', 'Receive sample'])
     const waiting = sampleGroup('Urine, SPC-000124')
-    expect(within(waiting).getAllByRole('button').map(button => button.textContent)).toEqual(['Reject sample', 'Collect sample'])
+    expect(within(waiting).getAllByRole('button').map(button => button.textContent)).toEqual(['Collect sample'])
     api.transitionSpecimen.mockResolvedValue({ ...urine, status: 'collected', version: 3 })
     fireEvent.change(within(waiting).getByRole('textbox', { name: /^Collection notes/ }), { target: { value: 'Midstream' } })
     fireEvent.click(within(waiting).getByRole('button', { name: 'Collect sample' }))
@@ -740,10 +740,13 @@ describe('sample custody', () => {
   })
 
   it('is a form: Enter in its note or reason does what its main button does, and focus follows Reject sample and Cancel', async () => {
-    await openAccession(CUSTODY, accession([specimen('required')]))
-    const group = sampleGroup('Venous blood, SPC-000123')
-    fireEvent.submit(within(group).getByRole('textbox', { name: /^Collection notes/ }).closest('form')!)
+    // Only a sample already taken can be rejected (hid-system 0019:184-185), so the reject part is on the collected one.
+    const urine = specimen('collected', { id: 'specimen-2', specimenIdentifier: 'SPC-000124', specimenType: 'Urine' })
+    await openAccession(CUSTODY, accession([specimen('required'), urine]),
+      workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['required', 'collected'] }))
+    fireEvent.submit(within(sampleGroup('Venous blood, SPC-000123')).getByRole('textbox', { name: /^Collection notes/ }).closest('form')!)
     await answerSheet('Collect the sample', 'Cancel')
+    const group = sampleGroup('Urine, SPC-000124')
     press(within(group).getByRole('button', { name: 'Reject sample' }))
     const reason = within(group).getByRole('textbox', { name: 'Why reject it' })
     await waitFor(() => expect(document.activeElement).toBe(reason))
@@ -755,38 +758,22 @@ describe('sample custody', () => {
     const again = within(group).getByRole('textbox', { name: 'Why reject it' })
     fireEvent.change(again, { target: { value: ' Not labelled ' } })
     fireEvent.submit(again.closest('form')!)
-    await waitFor(() => expect(api.transitionSpecimen).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1', specimen('required'), 'reject', 'Not labelled'))
+    await waitFor(() => expect(api.transitionSpecimen).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1', urine, 'reject', 'Not labelled'))
     expect(api.transitionSpecimen).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects a sample before it is collected, asking why first, with its own reason', async () => {
-    const required = specimen('required')
-    await openAccession(CUSTODY, accession([required]))
-    api.transitionSpecimen.mockResolvedValue(specimen('rejected', { version: 3 }))
-    api.labAccession.mockResolvedValue(accession([specimen('rejected', { version: 3 })]))
-    fireEvent.change(screen.getByRole('textbox', { name: /^Collection notes/ }), { target: { value: 'Left arm' } })
-    fireEvent.click(within(stageCard()).getByRole('button', { name: 'Reject sample' }))
-    // Rejecting asks for its own reason: the collection note is not sent as one.
-    expect(within(stageCard()).queryByRole('textbox', { name: /^Collection notes/ })).toBeNull()
-    const reason = screen.getByRole('textbox', { name: 'Why reject it' })
-    expect(reason.id).toBe('lab-reject-specimen-1')
-    fireEvent.click(within(stageCard()).getAllByRole('button', { name: 'Reject sample' }).at(-1)!)
-    expect(await refusalOf(reason)).toBe('Say why, like “Haemolysed” or “Not labelled”.')
-    expect(document.activeElement).toBe(reason)
-    expect(api.transitionSpecimen).not.toHaveBeenCalled()
-    fireEvent.change(reason, { target: { value: ' Not labelled ' } })
-    fireEvent.click(within(stageCard()).getAllByRole('button', { name: 'Reject sample' }).at(-1)!)
-    await waitFor(() => expect(api.transitionSpecimen).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1', required, 'reject', 'Not labelled'))
-    expect(api.transitionSpecimen).toHaveBeenCalledTimes(1)
-    expect(await screen.findByText('Sample rejected.')).toBeTruthy()
-    expect(await within(stageCard()).findByText('The sample was rejected. Make a new request to take another.')).toBeTruthy()
+  it('offers no Reject on a sample not yet taken', async () => {
+    // Lab rejects only a sample already taken (required to collected, then collected to rejected: hid-system 0019:184-185).
+    await openAccession(CUSTODY, accession([specimen('required')]))
+    expect(within(stageCard()).queryByRole('button', { name: 'Reject sample' })).toBeNull()
+    expect(within(stageCard()).getByRole('button', { name: 'Collect sample' })).toBeTruthy()
   })
 
   it.each([
     { granted: ['lab.specimen.collect'], buttons: ['Print label', 'Collect sample'], refused: false },
-    { granted: ['lab.specimen.reject'], buttons: ['Print label', 'Reject sample'], refused: true },
+    { granted: ['lab.specimen.reject'], buttons: ['Print label'], refused: true },
     { granted: [], buttons: ['Print label'], refused: true },
-  ])('offers collecting and rejecting a waiting sample each by its own permission, refusing in plain words ($granted)', async ({ granted, buttons, refused }) => {
+  ])('offers collecting a waiting sample by its own permission and never rejecting it, refusing in plain words ($granted)', async ({ granted, buttons, refused }) => {
     await openAccession([...ACCESSION, ...granted], accession([specimen('required')]))
     expect(within(stageCard()).getAllByRole('button').map(button => button.textContent)).toEqual(buttons)
     expect(within(stageCard()).queryByText('Your role can’t collect samples. Ask a colleague who can.') !== null).toBe(refused)
@@ -838,7 +825,7 @@ describe('sample custody', () => {
 
   it('offers no step without lab.specimen permissions', async () => {
     await openAccession(ACCESSION, accession([specimen('collected')]))
-    expect(within(stageCard()).getByText('Your role can’t receive samples.')).toBeTruthy()
+    expect(within(stageCard()).getByText('Your role can’t receive samples. Ask a colleague who can.')).toBeTruthy()
     expect(within(stageCard()).queryByRole('button', { name: /sample$/ })).toBeNull()
   })
 

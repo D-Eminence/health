@@ -22,8 +22,8 @@ import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, revisionText } fr
  * record again (`onRefused`).
  */
 
-/** Who the request is for: their name, and their banner for the confirm before a save. */
-export interface LabSubject { readonly name: string; readonly banner: ReactNode }
+/** Who the request is for: their name, their banner for the confirm before a save, and whether Lab sent who they are. */
+export interface LabSubject { readonly name: string; readonly banner: ReactNode; readonly named: boolean }
 
 interface StepBase {
   readonly facilityId: string
@@ -79,11 +79,15 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
   // The check guards the step that leads to taking the sample, so it is said only to a role that can take it (register
   // it, or collect it), as today's page says it only beside Prepare accession: never beside a refusal, nor to a role that
   // can only reject a sample, which takes nothing from the person. It is said whenever Lab names the patient: on work
-  // from another facility, and on own work with its patient card (0106).
+  // from another facility, and on own work with its patient card (0113, Akos step 3).
   const acts = permissions.includes(accession ? 'lab.specimen.collect' : 'lab.accession.create')
 
+  // Lab takes one accession per request and has no step to take another sample (hid-system 0019:40), so a rejected
+  // sample ends this request's sampling: on an order from another facility, by ending the order; else by a new request.
   if (accession && required.length === 0) return rejected.length > 0
-    ? <p className="m-0 text-[15px] text-ink-2">The sample was rejected. Make a new request to take another.</p>
+    ? <p className="m-0 text-[15px] text-ink-2">{routed
+      ? 'The sample was rejected. Use “We can’t complete this order” below, or call the ordering facility.'
+      : 'The sample was rejected. Ask the doctor who asked for the test to send a new request, so a new sample can be taken.'}</p>
     : <p className="m-0 text-[15px] text-ink-2">Nothing to collect.</p>
   return <div className="flex flex-col gap-4">
     {item.patient && acts ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
@@ -155,7 +159,7 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
 // ------------------------------------------------------------- testing --
 /**
  * One sample in testing: receive it (or reject it), start its test, or finish the test running on it. A sample still
- * waiting beside one already taken (an accession of several) keeps its own collect or reject step here.
+ * waiting beside one already taken (an accession of several) keeps its own collect step here.
  */
 export function TestingStep({ facilityId, permissions, subject, routed, onDone, onRefused, specimen, accessionId, executions, executionsRead, test }: StepBase & {
   readonly specimen: LabSpecimen; readonly accessionId: string
@@ -176,15 +180,17 @@ function SpecimenLine({ specimen, status, labelId }: { readonly specimen: LabSpe
   return <p className="m-0 flex flex-wrap items-center gap-2 text-[15px] text-ink">
     <FlaskConical className="size-4 text-ink-3" aria-hidden />
     <span id={labelId && `${labelId}-type`} className="font-medium">{specimen.specimenType}{labelId ? <span className="sr-only">,</span> : null}</span>
-    <span id={labelId && `${labelId}-number`} className="text-ink-3 tabular">{specimen.specimenIdentifier}</span>
+    <span className="text-ink-3 tabular">Tube <span id={labelId && `${labelId}-number`}>{specimen.specimenIdentifier}</span></span>
     <Badge size="sm">{status}</Badge>
   </p>
 }
 
 /**
  * Each sample's custody step, by its status, as on today's Laboratory page (SpecimenAction): one waiting is collected,
- * confirmed against the patient, and one collected is received. Either may be rejected instead, with why. Each action
- * has its own permission and its own note, so one sample's note is never sent for another.
+ * confirmed against the patient, and one collected is received, or rejected instead, with why. Lab rejects only a sample
+ * already taken (required to collected, then collected to received or rejected: hid-system 0019:184-185), so one not yet
+ * taken offers no Reject. Each action has its own permission and its own note, so one sample's note is never sent for
+ * another.
  */
 const CUSTODY_STEP = {
   required: {
@@ -194,7 +200,8 @@ const CUSTODY_STEP = {
   },
   collected: {
     action: 'receive', permission: 'lab.specimen.receive', badge: 'Collected', field: 'Condition on arrival', fieldId: 'lab-receive', placeholder: 'Good',
-    maxLength: 500, button: 'Receive sample', icon: PackageCheck, done: 'Sample received. Start the test.', cant: 'Your role can’t receive samples.',
+    maxLength: 500, button: 'Receive sample', icon: PackageCheck, done: 'Sample received. Start the test.',
+    cant: 'Your role can’t receive samples. Ask a colleague who can.',
   },
 } as const
 
@@ -211,7 +218,7 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
   const [problem, setProblem] = useState('')
   const focus = useFocusById()
   const canStep = permissions.includes(next.permission)
-  const canReject = permissions.includes('lab.specimen.reject')
+  const canReject = permissions.includes('lab.specimen.reject') && specimen.status === 'collected'
   const id = specimen.id
   async function step(action: typeof next.action | 'reject') {
     if (busy) return
@@ -265,7 +272,9 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
     </form> : null}
     {next.action === 'collect' ? <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
       effect={<>Collect the <strong>{test}</strong> sample ({specimen.specimenType}) from <strong>{subject.name}</strong>?</>}
-      undo="Check the name with the person before you take it." confirmLabel="Collect sample" onConfirm={() => void step('collect')} /> : null}
+      undo={subject.named ? 'Check the name with the person before you take it.'
+        : 'Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.'}
+      confirmLabel="Collect sample" onConfirm={() => void step('collect')} /> : null}
   </div>
 }
 
