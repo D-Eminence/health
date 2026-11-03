@@ -8,8 +8,13 @@ import { listenForInstallPrompt } from './installPrompt'
 import '@fontsource-variable/figtree'
 import './index.css'
 import { applySavedTheme } from './kasuwa/interactive'
+import { takeSwitchArrival } from './siteSwitch'
 
 applySavedTheme()
+
+// A switch from another staff site (siteSwitch.ts): its `from` and `back` leave the address before the router reads it,
+// and the way back stays in memory. Nothing happens unless the build turns single sign-on on.
+takeSwitchArrival()
 
 const container = document.getElementById('root')
 if (!container) throw new Error('Missing #root element')

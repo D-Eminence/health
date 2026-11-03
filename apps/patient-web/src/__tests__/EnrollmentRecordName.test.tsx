@@ -96,7 +96,7 @@ describe('the name on the NIN record, under "NIN verified"', () => {
     const phone = await screen.findByLabelText('Phone number')
     fireEvent.change(phone, { target: { value: '+2348000000000' } })
     await press(screen.getByRole('button', { name: 'Send code' }))
-    await screen.findByText('This contact is already associated with a Health ID')
+    await screen.findByText('This email address or phone number is already used by a Health ID. Use another one, or sign in.')
     const described = phone.getAttribute('aria-describedby')?.split(' ') ?? []
     expect(described).toContain('enroll-error')
     expect(described.indexOf('enroll-error')).toBeLessThan(described.indexOf('enroll-record-name'))
@@ -202,7 +202,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     await press(button()!)
     await submitNin(UNKNOWN_NIN)
-    expect(await screen.findByText('The NIN could not be verified')).toBeTruthy()
+    expect(await screen.findByText('We couldn’t verify that NIN. Check the number and try again.')).toBeTruthy()
     await submitNin()
     await screen.findByLabelText('Phone number')
     expect(verified()?.textContent).toContain(NAME)

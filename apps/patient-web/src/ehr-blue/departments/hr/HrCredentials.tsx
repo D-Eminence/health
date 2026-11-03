@@ -22,19 +22,23 @@ import {
  * (/provider/hr/<id>, a record link from Home or the Notifications drawer) opens the list and goes back to /provider/hr:
  * the id is never looked up.
  *
- * Partial: the first list is live, each member of the facility and the licence on record for them, from today's Staff
- * read (read only; role and licence changes stay on Staff & access). The second list, "Create record", editing and the
- * credential review are sample: fictional records in this page's memory, which a reload resets. The sample half shows at
- * the demo facilities only: at a real one, a credential record created there would seem kept and is not (parity report
- * 3.2), so the page is its live list alone.
+ * Partial: one list, as the design draws it. Its live rows are each member of the facility and the licence on record for
+ * them, from today's Staff read (read only; role and licence changes stay on Staff & access); a live row shows no
+ * reference, since it would be part of the member's membership id. Its sample rows, marked "· sample" after their
+ * reference, with "Create record", editing and the credential review, are fictional records in this page's memory, which
+ * a reload resets; the sample notice opens each of them and the create form. One search, in memory, filters both. The
+ * sample rows show at the demo facilities only: at a real one, a credential record created there would seem kept and is
+ * not (parity report 3.2), so the list holds the live rows alone, once they are read.
  */
 
 const TITLE = 'HR & Credentials'
 const SAVED_ID = 'hr-saved-record'
 const CREATE_ID = 'hr-create'
 const RETRY_ID = 'hr-live-retry'
-const LIVE_LIST_ID = 'hr-live-list'
+const LIST_ID = 'hr-list'
 const NO_ACTIONS = 'Nothing else to do here.'
+/** After a sample row's reference, and found by the search. */
+const SAMPLE_MARK = 'sample'
 
 type View =
   | { kind: 'list' }
@@ -51,8 +55,7 @@ export function HrCredentials() {
   const credentials = useMemo(() => staff ? liveCredentials(staff) : [], [staff])
   const [records, setRecords] = useState<SampleRecord[]>(sampleSeed)
   const [view, setView] = useState<View>({ kind: 'list' })
-  const [liveSearch, setLiveSearch] = useState('')
-  const [sampleSearch, setSampleSearch] = useState('')
+  const [search, setSearch] = useState('')
   /** What the page last did, read out by the status line that stays mounted under every view. */
   const [announcement, setAnnouncement] = useState('')
   const focus = useFocusById()
@@ -60,12 +63,12 @@ export function HrCredentials() {
   const read = live.kind === 'failed' || live.kind === 'ready' ? live.read : null
 
   // After "Try again", once the read is answered, focus goes to what replaced the button: the button again on another
-  // refusal (whose alert is read out anew), the live list's search once it is read, or the page's title otherwise.
+  // refusal (whose alert is read out anew), the list's search once the staff are read, or the page's title otherwise.
   useLayoutEffect(() => {
     if (!retrying.current || live.kind === 'loading') return
     retrying.current = false
-    const search = document.getElementById(LIVE_LIST_ID)?.querySelector('input')
-    focus(live.kind === 'failed' ? RETRY_ID : search?.id ? [search.id, TITLE_ID] : TITLE_ID)
+    const field = live.kind === 'ready' ? document.getElementById(LIST_ID)?.querySelector('input') : null
+    focus(live.kind === 'failed' ? RETRY_ID : field?.id ? [field.id, TITLE_ID] : TITLE_ID)
   }, [live.kind, read, focus])
 
   const show = (next: View) => { setView(next); setAnnouncement(''); focus(TITLE_ID) }
@@ -73,7 +76,8 @@ export function HrCredentials() {
   const toList = (target: string) => { setView({ kind: 'list' }); setAnnouncement(''); focus([target, TITLE_ID]) }
   const announced = (content: ReactElement) => <>{content}<p className="hid-ehr-sr-only" role="status">{announcement}</p></>
 
-  // A sample view is reached only from the sample half, which a real facility does not draw; a facility switch keeps none.
+  // A sample view is reached only from a sample row or Create record, which a real facility does not draw; a facility
+  // switch keeps none.
   if (view.kind === 'new' && demo) {
     return announced(<NewRecord onBack={() => toList(CREATE_ID)} onSave={values => {
       const record = createSample(values, crypto.randomUUID(), new Date().toISOString())
@@ -94,49 +98,53 @@ export function HrCredentials() {
     if (credential) return announced(<LiveDetail credential={credential} onBack={() => toList(`hr-live-${credential.key}`)} />)
   }
 
+  // One list: the live rows, then (at a demo facility) the sample rows, each marked as such, under one search.
   const liveRows: HrRow[] = credentials
-    .filter(entry => matchesSearch(liveSearch, [entry.name, entry.staff, entry.roles, entry.status,
+    .filter(entry => matchesSearch(search, [entry.name, entry.staff, entry.roles, entry.status,
       ...entry.facts.map(fact => typeof fact.value === 'string' ? fact.value : '')]))
     .map(entry => ({
       key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, status: entry.status, updatedAt: entry.updatedAt, facts: entry.facts,
       context: <><span>{entry.staff}</span><span className="hid-ehr-dept-reference">{entry.roles}{entry.isSelf ? ' · You' : ''}</span></>,
     }))
-  const sampleRows: HrRow[] = records
-    .filter(record => matchesSearch(sampleSearch, sampleTexts(record)))
+  const sampleRecords = demo ? records : []
+  const sampleRows: HrRow[] = sampleRecords
+    .filter(record => matchesSearch(search, [...sampleTexts(record), SAMPLE_MARK]))
     .map(record => ({
-      key: record.id, linkId: `hr-sample-${record.id}`, name: record.data.name, reference: record.id.slice(0, 8), status: record.status,
-      updatedAt: record.updatedAt, facts: sampleFacts(record.data), context: staffName(record.data.staff),
+      key: record.id, sample: true, linkId: `hr-sample-${record.id}`, name: record.data.name,
+      reference: `${record.id.slice(0, 8)} · ${SAMPLE_MARK}`, status: record.status, updatedAt: record.updatedAt,
+      facts: sampleFacts(record.data), context: staffName(record.data.staff),
     }))
+  const openRow = (row: HrRow) => {
+    if (row.sample) show({ kind: 'sample', id: row.key })
+    else if (facility) show({ kind: 'live', facilityId: facility.id, key: row.key })
+  }
 
   return announced(
     <DeptPage title={<HrTitle>{TITLE}</HrTitle>}
       primaryAction={demo ? <EhrButton id={CREATE_ID} onClick={() => show({ kind: 'new' })}>Create record</EhrButton> : undefined}>
-      <LiveList live={live} rows={liveRows} total={credentials.length} search={liveSearch} onSearch={setLiveSearch}
-        onRetry={() => { if (live.kind !== 'failed') return; retrying.current = true; live.retry() }}
-        onOpen={key => { if (facility) show({ kind: 'live', facilityId: facility.id, key }) }} />
-      {demo ? <>
-        <SampleBanner />
-        <HrRecordList label="Search sample records" search={sampleSearch} onSearch={setSampleSearch} rows={sampleRows}
-          total={records.length} onOpen={id => show({ kind: 'sample', id })} sample />
-      </> : null}
+      <LiveState live={live} onRetry={() => { if (live.kind !== 'failed') return; retrying.current = true; live.retry() }} />
+      {/* At a demo facility the sample rows stay listed, searchable and open while the staff are read, as they are today;
+          the card says the live rows are loading, and they come in above the sample rows (each row keyed, so focus stays
+          where it is). At a real facility there is no list until the staff are read: the card says they are loading. */}
+      {demo || live.kind === 'ready' ? (
+        <div id={LIST_ID}>
+          <HrRecordList label={`Search ${TITLE}`} search={search} onSearch={setSearch} rows={[...liveRows, ...sampleRows]}
+            total={credentials.length + sampleRecords.length} onOpen={openRow} loading={live.kind === 'loading' ? LIVE_LOADING : undefined} />
+        </div>
+      ) : live.kind === 'loading' ? (
+        <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card" aria-label={TITLE}><EhrSkeleton label={LIVE_LOADING} /></section>
+      ) : null}
     </DeptPage>,
   )
 }
 
-/** The live list, or what stands in its place: a line on why it is not shown, its loading, or a refused read. */
-function LiveList({ live, rows, total, search, onSearch, onRetry, onOpen }: {
-  readonly live: LiveStaff
-  readonly onRetry: () => void
-  readonly rows: HrRow[]
-  readonly total: number
-  readonly search: string
-  readonly onSearch: (value: string) => void
-  readonly onOpen: (key: string) => void
-}) {
+/**
+ * What the list says about its live rows, over it: a line on why there are none, a refused read with a retry, or that
+ * Health ID support has not checked the facility yet. Nothing while the staff are read (the list card says so, over the
+ * sample rows at a demo facility, alone at a real one) or once they are read at a checked facility.
+ */
+function LiveState({ live, onRetry }: { readonly live: LiveStaff; readonly onRetry: () => void }) {
   if (live.kind === 'notice') return <DeptNotice tone={live.tone}>{live.message}</DeptNotice>
-  if (live.kind === 'loading') {
-    return <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card" aria-label={TITLE}><EhrSkeleton label={LIVE_LOADING} /></section>
-  }
   if (live.kind === 'failed') {
     return (
       <DeptNotice tone="critical" role="alert">
@@ -145,13 +153,8 @@ function LiveList({ live, rows, total, search, onSearch, onRetry, onOpen }: {
       </DeptNotice>
     )
   }
-  const pending = pendingCheckText(live.staff)
-  return (
-    <div id={LIVE_LIST_ID}>
-      {pending ? <DeptNotice title="Waiting for Health ID support">{pending}</DeptNotice> : null}
-      <HrRecordList label={`Search ${TITLE}`} search={search} onSearch={onSearch} rows={rows} total={total} onOpen={onOpen} />
-    </div>
-  )
+  const pending = live.kind === 'ready' ? pendingCheckText(live.staff) : null
+  return pending ? <DeptNotice title="Waiting for Health ID support">{pending}</DeptNotice> : null
 }
 
 /** A member's licence as a record: what Health ID holds, and no action here. */
