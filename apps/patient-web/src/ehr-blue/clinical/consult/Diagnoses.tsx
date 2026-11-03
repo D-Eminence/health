@@ -5,13 +5,13 @@ import { staffApi, type ClinicalRecord, type DiagnosisUpdate } from '../../../st
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
-import { formatWhen } from '../parts/format'
+import { formatWhen, statusWords } from '../parts/format'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
 import {
   DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_UPDATED, DIAGNOSIS_VERIFICATION_STATUSES, NO_WRITE, REASON_SHORT, RECORD_SAVED, RELOAD_FAILED,
-  diagnosisStatus, field, refusedFieldErrors, rowVersion, text,
+  diagnosisStatus, field, refusedFieldErrors, rowVersion, text, type StatusOption,
 } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
@@ -20,7 +20,8 @@ import type { RecordList } from './records'
 const ADD_FIELDS: readonly FieldDef[] = [
   { key: 'codeSystem', label: 'Code system', required: true, placeholder: 'ICD-10', maxLength: 255, row: 'code' },
   { key: 'code', label: 'Code', required: true, maxLength: 100, row: 'code' },
-  { key: 'display', label: 'Display', required: true, maxLength: 500 },
+  // Today's "Display" (Clinical.tsx:568) is the record's field name; the form says what it is.
+  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500 },
   { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
   { key: 'verificationStatus', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
@@ -28,16 +29,25 @@ const ADD_FIELDS: readonly FieldDef[] = [
 const ADD_INITIAL: FormValues = { clinicalStatus: 'active', verificationStatus: 'unconfirmed' }
 // Today's change selects open on the current values and offer no blank choice, so no empty status is ever sent
 // (Clinical.tsx DiagnosisUpdateForm).
+const VERIFICATION_CHOICES: readonly StatusOption[] = [...DIAGNOSIS_VERIFICATION_STATUSES, { value: 'entered_in_error', label: 'Entered in error' }]
 const CHANGE_FIELDS: readonly FieldDef[] = [
   { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES, blank: false },
-  { key: 'verificationStatus', label: 'Verification', choices: [...DIAGNOSIS_VERIFICATION_STATUSES, { value: 'entered_in_error', label: 'Entered in error' }], blank: false },
+  { key: 'verificationStatus', label: 'Verification', choices: VERIFICATION_CHOICES, blank: false },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
   { key: 'reason', label: 'Reason for change', required: true, maxLength: 500 },
 ]
 const NOTHING_CHANGED = 'Change the clinical status, verification or notes before saving.'
 
+/** A status as its choice says it ("Active", "Provisional"), never the stored value. */
+function choiceLabel(choices: readonly StatusOption[], value: string): string {
+  return choices.find(choice => choice.value === value)?.label ?? (value ? statusWords(value) : '')
+}
+
+/** Its code, then its clinical status and verification in words: "ICD-10 B54 · Active · Provisional". */
 function detail(record: ClinicalRecord) {
-  return `${field(record, 'codeSystem')} · ${field(record, 'code')} · ${field(record, 'clinicalStatus')} · ${field(record, 'verificationStatus').replaceAll('_', ' ')}`
+  const code = [field(record, 'codeSystem'), field(record, 'code')].filter(Boolean).join(' ')
+  return [code, choiceLabel(DIAGNOSIS_CLINICAL_STATUSES, field(record, 'clinicalStatus')), choiceLabel(VERIFICATION_CHOICES, field(record, 'verificationStatus'))]
+    .filter(Boolean).join(' · ')
 }
 
 /**
@@ -128,7 +138,7 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
       {list.items === null ? (list.loading ? <Loading label="Loading records…" /> : null) : list.items.length === 0 ? (
-        <p>No diagnoses for this encounter.</p>
+        <p>No diagnoses for this consultation.</p>
       ) : (
         <ul className="hid-ehr-clinical-history-list">
           {list.items.map(record => {

@@ -166,16 +166,16 @@ describe('Consultation record: the Notes card (item 1)', () => {
     const notes = () => within(card('Notes'))
     await waitFor(() => expect(notes().getAllByRole('listitem')).toHaveLength(2))
     expect(notes().getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Vitals', 'Handover'])
-    expect(notes().queryByText('No notes for this encounter.')).toBeNull()
+    expect(notes().queryByText('No notes for this consultation.')).toBeNull()
     // One page, nursing notes only: no consultation note was written, and the Saved record says so.
     expect(savedValues()).toMatchObject({ 'Note status': 'Not recorded', Note: 'Not recorded' })
   })
 
-  it('says "No notes for this encounter." when the visit has no notes at all', async () => {
+  it('says "No notes for this consultation." when the visit has no notes at all', async () => {
     pages['clinical-notes'] = { '': { items: [], nextCursor: null } }
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
-    expect(await within(card('Notes')).findByText('No notes for this encounter.')).toBeTruthy()
+    expect(await within(card('Notes')).findByText('No notes for this consultation.')).toBeTruthy()
   })
 
   it('item 1: signs an older note under the clinician’s typed reason after SIGN is typed, after the access re-check', async () => {
@@ -408,7 +408,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(savedValues()).toMatchObject({ 'Note status': NOTE_STATUS_ON_LATER_PAGE, Note: NOTE_ON_LATER_PAGE })
   })
 
-  it('says "No notes on this page." on an empty later notes page, keeping "No notes for this encounter." for a visit with none', async () => {
+  it('says "No notes on this page." on an empty later notes page, keeping "No notes for this consultation." for a visit with none', async () => {
     const first = [NOTE, ...many('note-p1', 49, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
     // EHR can hand back a cursor with a full page and then an empty page.
     pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: [], nextCursor: null } }
@@ -416,7 +416,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     const notes = () => within(card('Notes'))
     fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
     expect(await notes().findByText('No notes on this page.')).toBeTruthy()
-    expect(notes().queryByText('No notes for this encounter.')).toBeNull()
+    expect(notes().queryByText('No notes for this consultation.')).toBeNull()
     expect(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('status').textContent).toBe('Page 2')
   })
 
@@ -488,7 +488,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(await view().findByText('Malaria (fictional)')).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: 'dx-cursor-2', fresh: false })
     expect(view().getAllByRole('listitem')).toHaveLength(1)
-    expect(view().getByText('ICD-10 · B54 · active · provisional')).toBeTruthy()
+    expect(view().getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
     expect(pager().getByText('Page 2')).toBeTruthy()
     // A read only: nothing to change, add or update.
     expect(view().queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()

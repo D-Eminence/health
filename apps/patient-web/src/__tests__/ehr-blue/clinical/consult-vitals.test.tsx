@@ -104,7 +104,7 @@ describe('Consultation record: Vitals card', () => {
   it('says today’s sentence when the visit has no vitals', async () => {
     vitals = []
     const card = await openEncounter()
-    expect(await card.findByText('No vitals for this encounter.')).toBeTruthy()
+    expect(await card.findByText('No vitals for this consultation.')).toBeTruthy()
   })
 
   it('shows a corrected vital’s current correction, its reason and time, and what was first recorded', async () => {

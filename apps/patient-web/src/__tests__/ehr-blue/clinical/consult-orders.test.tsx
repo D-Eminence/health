@@ -260,8 +260,8 @@ describe('Connected orders', () => {
   it('says today’s empty sentences, and a refused read', async () => {
     setLists([], [])
     open(ENCOUNTER_ID)
-    expect(await screen.findByText('No prescriptions for this encounter.')).toBeTruthy()
-    expect(screen.getByText('No lab requests for this encounter.')).toBeTruthy()
+    expect(await screen.findByText('No prescriptions for this consultation.')).toBeTruthy()
+    expect(screen.getByText('No lab requests for this consultation.')).toBeTruthy()
   })
 
   it('shows a refused read in the design’s error box', async () => {

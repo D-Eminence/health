@@ -62,9 +62,9 @@ const DOCUMENT = {
 const READ_ONLY = 'You can view this record but not change it.'
 const ENDED = 'Open the patient again to keep working.'
 const STALE = new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' })
-/** Today's warnings on an encounter status change, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu). */
-const MAIN_WARNING = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
-const NOVU_WARNING = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
+/** Today's warnings on a status change (staff/routes/Clinical.tsx:82 on main, :87 on Novu), every clause, saying consultation. */
+const MAIN_WARNING = 'Cancelling this consultation also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+const NOVU_WARNING = 'Closing or cancelling this consultation does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
 /** Today's refusal of a close the role may not make (staff/routes/Clinical.tsx:94-96), whole, in plain words. */
 const RETRACTION_REFUSED = (change: string) => `You can’t ${change}: doing so would also change some of its records, and your role can’t change all of them. Nothing was changed. Ask a colleague whose role can change all of its records (usually a doctor or clinician) to make this change.`
 
@@ -282,7 +282,7 @@ describe('Consultation record', () => {
     // The draft is there and still offered for signing; a second note can be written beside it.
     expect(actions().getByRole('button', { name: 'Sign note' })).toBeTruthy()
     fireEvent.click(actions().getByRole('button', { name: 'Add notes' }))
-    expect(actions().getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
+    expect(actions().getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
     const type = actions().getByLabelText(labelled('Note type')) as HTMLInputElement
     const title = actions().getByLabelText(labelled('Title')) as HTMLInputElement
     const content = actions().getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement
@@ -325,7 +325,7 @@ describe('Consultation record', () => {
     const history = within(card('History'))
     expect(within(history.getByText('Diagnoses · Malaria (fictional)').closest('li') as HTMLElement).getByText('Refuted')).toBeTruthy()
     expect(within(history.getByText('Diagnoses · Fever (fictional)').closest('li') as HTMLElement).getByText('Active')).toBeTruthy()
-    expect(within(card('Diagnoses')).getByText('ICD-10 · B54 · active · refuted')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Refuted')).toBeTruthy()
   })
 
   it('says the role grants no access to encounter records when it holds none of the record reads', async () => {
@@ -400,6 +400,13 @@ describe('Consultation record', () => {
     expect(await screen.findByText('Loading note revisions…')).toBeTruthy()
     expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Edit draft' })).toBeNull()
+  })
+
+  it('words: says it is loading one consultation while the visit is read', async () => {
+    api.encounter.mockReturnValue(new Promise(() => {}))
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByText('Loading consultation…')).toBeTruthy()
+    expect(screen.queryByText('Loading consultations…')).toBeNull()
   })
 
   it('shows a note that cannot be read, and offers no signing', async () => {
@@ -500,7 +507,7 @@ describe('Consultation record', () => {
     expect(menuLabels()).not.toContain('Complete consultation')
   })
 
-  it('parity: shows today’s warning word for word in each status form, and ties the submit to it', async () => {
+  it('parity: shows today’s whole warning in each status form, and ties the submit to it', async () => {
     await openEncounter()
     for (const label of ['Complete consultation', 'Put on hold', 'Cancel consultation', 'Mark as entered in error']) {
       chooseMore(label)
@@ -511,7 +518,7 @@ describe('Consultation record', () => {
     }
   })
 
-  it('parity: on Novu, shows today’s Novu warning word for word, tied to the submit', async () => {
+  it('parity: on Novu, shows today’s whole Novu warning, tied to the submit', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     await openEncounter()
     chooseMore('Cancel consultation')
@@ -564,6 +571,8 @@ describe('Consultation record', () => {
     expect(screen.queryByText(ENCOUNTER_STATUS_UPDATED)).toBeNull()
     expect(submit.isConnected).toBe(true)
     expect(submit.getAttribute('aria-busy')).toBe('true')
+    // The same busy word as the note's status changes on this card.
+    expect(submit.textContent).toBe('Updating…')
     await act(async () => reread({ ...ENCOUNTER, status: 'on_hold', rowVersion: 4 }))
     expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
     expect(within(meta()).getByText('On hold')).toBeTruthy()
@@ -760,17 +769,17 @@ describe('Consultation record: diagnoses', () => {
     await openEncounter()
     const diagnoses = within(card('Diagnoses'))
     expect(diagnoses.getByText('Malaria (fictional)')).toBeTruthy()
-    expect(diagnoses.getByText('ICD-10 · B54 · active · provisional')).toBeTruthy()
+    expect(diagnoses.getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
     // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
     expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
     const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
-    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Code system', 'Code', 'Display', 'Clinical status', 'Verification', 'Notes'])
+    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Code system', 'Code', 'Diagnosis', 'Clinical status', 'Verification', 'Notes'])
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
-    fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect((await diagnoses.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Display must be shorter than or equal to 500 characters.')
-    expect(diagnoses.getByLabelText(labelled('Display')).getAttribute('aria-invalid')).toBe('true')
+    expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
 
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
@@ -801,7 +810,7 @@ describe('Consultation record: diagnoses', () => {
     records.diagnoses = []
     await openEncounter()
     // Today's empty sentence (Clinical.tsx:1808).
-    expect(await within(card('Diagnoses')).findByText('No diagnoses for this encounter.')).toBeTruthy()
+    expect(await within(card('Diagnoses')).findByText('No diagnoses for this consultation.')).toBeTruthy()
   })
 
   it('offers no change for one entered in error', async () => {
@@ -852,7 +861,7 @@ describe('Consultation record: diagnoses', () => {
       : Promise.resolve({ items: records[kind] ?? [], nextCursor: null }))
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
-    fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever (fictional)' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever (fictional)' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     await waitFor(() => expect(release).not.toBeNull())
     const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
@@ -909,7 +918,7 @@ describe('Consultation record: documents', () => {
     expect(shown).not.toMatch(/KiB|image\/|application\/|Check:|quarantine/)
   })
 
-  it('refuses a file over 50 MiB with today’s sentence, and uploads nothing', async () => {
+  it('refuses a file over 50 MB in plain words, and uploads nothing', async () => {
     await openEncounter()
     const documents = within(card('Documents'))
     const input = documents.getByLabelText(labelled('Clinical document')) as HTMLInputElement
@@ -917,7 +926,7 @@ describe('Consultation record: documents', () => {
     Object.defineProperty(large, 'size', { value: 52_428_801 })
     fireEvent.change(input, { target: { files: [large] } })
     fireEvent.click(documents.getByRole('button', { name: 'Upload document' }))
-    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')).toBeTruthy()
     expect(document.activeElement).toBe(input)
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
@@ -942,7 +951,7 @@ describe('Consultation record: documents', () => {
     expect(document.activeElement).toBe(input)
     fireEvent.change(input, { target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
     fireEvent.click(upload)
-    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')).toBeTruthy()
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
@@ -954,7 +963,7 @@ describe('Consultation record: documents', () => {
   it('shows the empty and failed states', async () => {
     api.documents.mockResolvedValue({ items: [], nextCursor: null })
     await openEncounter()
-    expect(within(card('Documents')).getByText('No documents for this encounter.')).toBeTruthy()
+    expect(within(card('Documents')).getByText('No documents for this consultation.')).toBeTruthy()
   })
 
   it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {

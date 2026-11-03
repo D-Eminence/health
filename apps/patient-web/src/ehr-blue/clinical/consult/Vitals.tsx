@@ -15,9 +15,9 @@ import {
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
-/** Today's Vitals tab: its heading and its empty list (staff/routes/Clinical.tsx:27, :1850, :1853). */
+/** Today's Vitals tab: its heading and its empty list (staff/routes/Clinical.tsx:27, :1850, :1853), saying consultation. */
 export const VITALS_TITLE = 'Vitals'
-export const NO_VITALS = 'No vitals for this encounter.'
+export const NO_VITALS = 'No vitals for this consultation.'
 /** The words the Patients page and the sidebar already use for the vitals form. */
 export const RECORD_VITALS = 'Record vitals'
 

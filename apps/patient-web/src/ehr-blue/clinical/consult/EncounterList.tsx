@@ -4,7 +4,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter, type OrderRouteKind } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { formatWhen, statusLabel } from '../parts/format'
+import { statusLabel } from '../parts/format'
 import { ErrorBox, ListHeading, Loading } from '../parts/Notices'
 import { Pager, RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
@@ -125,7 +125,6 @@ function Encounters({ chart }: { chart: Chart }) {
       { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
       { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
       { label: 'Status', value: statusLabel(encounter.status) },
-      { label: 'Started', value: formatWhen(encounter.startedAt) },
     ],
   })), [rows])
 
@@ -151,13 +150,13 @@ function Encounters({ chart }: { chart: Chart }) {
         secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ cursors, fresh: true }) }}>Refresh</EhrButton>}
       />
       <EhrCard>
-        <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />
+        <SearchField label="Search consultations" value={search} onChange={setSearch} />
         {notice ? (
           notice.alert ? <ErrorBox>{notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{notice.text}</p>
         ) : null}
         {paged ? (
           <Pager
-            label="Encounter pages"
+            label="Consultation pages"
             page={cursors.length}
             busy={loading}
             onPrevious={cursors.length >= 2 ? () => void load({ cursors: cursors.slice(0, -1), paging: true }) : undefined}
@@ -169,6 +168,8 @@ function Encounters({ chart }: { chart: Chart }) {
           <RecordTable
             caption="Consultations"
             contextHeader="Complaint"
+            // The time a consultation shows is when it started, not when it was last changed.
+            updatedHeader="Started"
             rows={filtered}
             hrefFor={row => href(row.id)}
             // No encounters is said in today's one sentence; "No matching records" is only for a search that found none.

@@ -78,7 +78,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -103,7 +103,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       <ListPaging list={list} />
       {list.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
       {list.items === null ? (list.loading ? <Loading label="Loading documents…" /> : null) : list.items.length === 0 ? (
-        <p>No documents for this encounter.</p>
+        <p>No documents for this consultation.</p>
       ) : (
         <ul className="hid-ehr-clinical-history-list">
           {list.items.map(document => (

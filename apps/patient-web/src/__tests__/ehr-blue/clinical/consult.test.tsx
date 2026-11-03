@@ -111,7 +111,7 @@ describe('Consultation list', () => {
 
     const table = await screen.findByRole('table', { name: 'Consultations' })
     // One patient's chart: the second column says what the visit was for; the patient is named once, in the banner.
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Complaint', 'Status', 'Updated', 'Actions'])
+    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Complaint', 'Status', 'Started', 'Actions'])
     const link = within(table).getByRole('link', { name: consultationLabel(ENCOUNTER) })
     expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getByText('Fever for two days')).toBeTruthy()
@@ -134,6 +134,9 @@ describe('Consultation list', () => {
     expect(within(drawer).getByRole('heading', { level: 3, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(within(drawer).getByText('Outpatient')).toBeTruthy()
     expect(within(drawer).getByText('Fever for two days')).toBeTruthy()
+    // The time shown is when the consultation started: never called an update.
+    expect(within(drawer).getByText(/^Started /)).toBeTruthy()
+    expect(within(drawer).queryByText(/updated/i)).toBeNull()
     expect(within(drawer).getByRole('button', { name: 'Open full record' })).toBeTruthy()
     fireEvent.keyDown(drawer, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
@@ -143,9 +146,9 @@ describe('Consultation list', () => {
     api.encounters.mockResolvedValue({ items: [ENCOUNTER, SECOND], nextCursor: null })
     open()
     await screen.findByRole('table', { name: 'Consultations' })
-    fireEvent.change(screen.getByLabelText('Search Consultation'), { target: { value: 'fever' } })
+    fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: 'fever' } })
     expect(screen.getAllByRole('link', { name: /^Open / })).toHaveLength(1)
-    fireEvent.change(screen.getByLabelText('Search Consultation'), { target: { value: 'nothing like this' } })
+    fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: 'nothing like this' } })
     expect(screen.getByText('No matching records')).toBeTruthy()
     expect(screen.getByText('Change your search.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
@@ -194,7 +197,7 @@ describe('Consultation list', () => {
       return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
     })
     open()
-    const pager = await screen.findByRole('navigation', { name: 'Encounter pages' })
+    const pager = await screen.findByRole('navigation', { name: 'Consultation pages' })
     expect(within(pager).getByRole('status').textContent).toBe('Page 1')
     const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
     expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
@@ -217,7 +220,7 @@ describe('Consultation list', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByText('This list changed since it was opened, so it shows the newest entries again.')).toBeTruthy()
-    expect(within(screen.getByRole('navigation', { name: 'Encounter pages' })).getByText('Page 1')).toBeTruthy()
+    expect(within(screen.getByRole('navigation', { name: 'Consultation pages' })).getByText('Page 1')).toBeTruthy()
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: true })
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
   })
@@ -225,16 +228,16 @@ describe('Consultation list', () => {
   it('hides the pager when there is one page', async () => {
     open()
     await screen.findByRole('table', { name: 'Consultations' })
-    expect(screen.queryByRole('navigation', { name: 'Encounter pages' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Consultation pages' })).toBeNull()
   })
 
-  it('parity: the pager is today’s "Encounter pages": a button that cannot act stays focusable and does nothing, and the page reached is announced', async () => {
+  it('parity: the pager is "Consultation pages": a button that cannot act stays focusable and does nothing, and the page reached is announced', async () => {
     api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) => {
       if (page.cursor === 'cursor-2') return { items: [SECOND], nextCursor: null }
       return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
     })
     open()
-    const pager = await screen.findByRole('navigation', { name: 'Encounter pages' })
+    const pager = await screen.findByRole('navigation', { name: 'Consultation pages' })
     const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
     const next = within(pager).getByRole('button', { name: 'Next page' }) as HTMLButtonElement
     // Marked unavailable, not disabled: it keeps focus, and a press reads nothing.
@@ -395,7 +398,7 @@ describe('New consultation', () => {
     const context = await screen.findByRole('region', { name: 'Allergies' })
     expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 

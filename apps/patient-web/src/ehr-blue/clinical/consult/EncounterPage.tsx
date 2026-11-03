@@ -83,7 +83,7 @@ function EncounterLoader({ chart }: { chart: Chart }) {
     return () => { current = false }
   }, [facilityId, patientId, recordId, verify])
 
-  if (loaded.phase === 'loading') return <Loading label="Loading consultations…" />
+  if (loaded.phase === 'loading') return <Loading label="Loading consultation…" />
   if (loaded.phase === 'missing') return <RecordNotFound backHref={href()} />
   if (loaded.phase === 'failed') {
     return (
@@ -387,7 +387,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     const warning = encounterClosesRecords()
     for (const transition of ENCOUNTER_TRANSITIONS[encounter.status] ?? []) {
       more.push({
-        id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck,
+        id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck, busy: UPDATING,
         // The dialog's button is the one that sends a cancel or entered in error, so it says the warning too.
         confirm: CLOSING_STATUSES.has(transition.value) ? { description: warning } : undefined, warning, run: encounterStatus(transition.value),
       })
