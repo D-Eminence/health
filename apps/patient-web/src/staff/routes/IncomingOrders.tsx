@@ -221,7 +221,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
   const id = `${service}-accepted-${result.route.id}`
   const patient = result.patient?.fullName ?? null
   const served = useWrongPatientServed() === true
-  // D18: once served, an order this facility just can't do is ended from its row in the work list below (WB3).
+  // D18: once served, an order this facility just can't do is ended where cannotCompleteBeside says: its row in the work list below, or the order opened from that list (WB3).
   const cannotComplete = useCannotCompleteServed() === true && !moved
   // Cancel gives focus back to the button that opened the form, in the commit that shows it again.
   const focus = useFocusById()
