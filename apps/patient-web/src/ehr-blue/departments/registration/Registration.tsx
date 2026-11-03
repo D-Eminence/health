@@ -126,13 +126,17 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     show(next, focusId)
   }, [clearNin, clearReview, clearEnroll, show])
 
-  /** Keeps a case as Identity last answered it, first in the list when it is new to this visit. */
-  const remember = useCallback((item: RegistrationCase) => {
+  /**
+   * Keeps a case as Identity last answered it, first in the list when it is new to this visit. `name` is the patient's
+   * name as typed to start it here (a case reopened by its reference has none); a known case keeps the name it has.
+   */
+  const remember = useCallback((item: RegistrationCase, name: string | null = null) => {
     nextSeq.current += 1
     const seq = nextSeq.current
+    const at = new Date().toISOString()
     setVisits(previous => previous.some(visit => visit.item.caseId === item.caseId)
-      ? previous.map(visit => (visit.item.caseId === item.caseId ? { ...visit, item } : visit))
-      : [{ seq, item, enrollment: null }, ...previous])
+      ? previous.map(visit => (visit.item.caseId === item.caseId ? { ...visit, item, name: visit.name ?? name } : visit))
+      : [{ seq, item, enrollment: null, name, started: name !== null, at }, ...previous])
   }, [])
   const rememberEnrollment = useCallback((caseId: string, enrollment: RegistrationEnrollment) => {
     setVisits(previous => previous.map(visit => (visit.item.caseId === caseId ? { ...visit, enrollment } : visit)))
@@ -222,7 +226,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       try {
         const detail = await staffApi.registrationCase(facilityId, result.caseId)
         if (!live.current) return
-        remember(detail)
+        remember(detail, `${firstName} ${lastName}`)
         // The design opens the saved record.
         show({ kind: 'case', caseId: detail.caseId })
       } catch {

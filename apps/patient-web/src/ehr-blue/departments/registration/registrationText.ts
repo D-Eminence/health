@@ -1,11 +1,14 @@
 import { isHidApiError } from '@hid/http'
 import type { RegistrationCase } from '../../../staff/api'
 import type { RefusedWork } from '../../../staff/refusedWork'
+import { dateText } from '../parts/format'
 
 /*
  * Today's Patient registration page (staff/routes/Registration.tsx), its rules and every word it says, ported here
  * word for word: that page is not exported in reusable pieces. Each constant names the line it comes from. The words
  * the design adds (its headings, "Create record", "Back to list", "Not collected by Health ID yet") are marked so.
+ * Screens use plain words (the owner's rule): no server terms, no case id or version on screen, except the case's
+ * reference under "More details", kept so a registration can be reopened on a later visit.
  */
 
 /** The permission that opens the page (Registration.tsx 43, 215). */
@@ -64,26 +67,26 @@ export const REGISTRATION_WORK: RefusedWork = {
   gets: new Set(['hospital', 'clinic']),
 }
 
-/** Registration.tsx 218: the page head. Today's title ends in a full stop; the design's headings have none. */
-export const EYEBROW = 'Identity operations'
+/** Registration.tsx 218: the page head, in plain words. The design's headings have no full stop. */
+export const EYEBROW = 'Patients'
 export const TITLE = 'Patient registration'
-export const DESCRIPTION = 'Verify a NIN, review possible matches, and link the verified identity to a governed Health ID. Every step is tied to your active facility and recorded by the backend.'
+export const DESCRIPTION = 'Check a patient’s NIN, look at possible matches, then give them a new Health ID or link them to the one they already have. Every step is saved for your facility.'
 
 // ---- Verification availability (Registration.tsx 220-227, 92, 106) ------------------------------------------
 
 export const AVAILABILITY_TITLE = 'Verification availability'
 export const CHECK_AGAIN = 'Check again'
 export const CHECKING = 'Checking…'
-export const CAPABILITY_LOADING = 'Checking the backend’s registration capability…'
+export const CAPABILITY_LOADING = 'Checking whether NIN checks are working…'
 export const CAPABILITY_FAILED = 'Registration capabilities could not be loaded.'
-export const ninEnabledText = (state: string) => `NIN verification is enabled in ${state} mode.`
-export const ninNotEnabledText = (state: string) =>
-  `NIN verification is ${state}. New cases cannot be started here until the backend enables a verification provider.`
+/** Whether NIN checks work, in plain words: never the server's own state for them. */
+export const NIN_ENABLED = 'NIN checks are working.'
+export const NIN_NOT_ENABLED = 'NIN checks are not available right now, so new registrations cannot be started here. Try again later.'
 
 // ---- Start with verified identity (Registration.tsx 129-161, 229-239) --------------------------------------
 
 export const START_TITLE = 'Start with verified identity'
-export const START_TEXT = 'Enter the NIN and matching demographic claims. The NIN is sent directly to the identity service and is cleared from this form after a successful response.'
+export const START_TEXT = 'Enter the patient’s NIN, with their name and date of birth as they give them. The NIN is only used for the check, and is cleared from this form once the check is done.'
 export const NIN_LABEL = 'National Identity Number'
 export const FIRST_LABEL = 'First name'
 export const LAST_LABEL = 'Last name'
@@ -98,27 +101,37 @@ export const VERIFYING = 'Verifying…'
 export const NIN_REFUSED = 'Enter the 11 digit NIN.'
 export const NAME_DATE_REFUSED = 'Enter the patient’s name and date of birth.'
 export const VERIFY_FAILED = 'NIN verification could not be completed.'
-export const CASE_CREATED = 'NIN verification created a governed registration case. Review its status before continuing.'
-export const CASE_CREATED_RELOAD = 'Case created. Reload its details before reviewing it.'
+export const CASE_CREATED = 'The NIN was checked and the registration was started. Review it before continuing.'
+export const CASE_CREATED_RELOAD = 'The registration was started, but it could not be shown. Choose Load case to open it.'
 
 // ---- Resume a registration case (Registration.tsx 110-127, 241-246) ---------------------------------------
 
-export const FIND_TEXT = 'Use the case ID supplied when verification completed. The backend does not provide a searchable case list.'
-export const CASE_ID_LABEL = 'Registration case ID'
+/**
+ * Health ID keeps no list of registrations to search, so one started on an earlier visit is reopened by its reference,
+ * which each registration shows under "More details".
+ */
+export const FIND_TEXT = 'To reopen a registration started earlier, enter its reference. Each registration shows its reference under More details.'
+export const CASE_ID_LABEL = 'Reference'
 export const LOAD_CASE = 'Load case'
 export const LOADING = 'Loading…'
 export const REFRESH_CASE = 'Refresh current case'
-export const CASE_ID_REFUSED = 'Enter a valid registration case ID.'
+export const CASE_ID_REFUSED = 'Enter the reference exactly as it is shown on the registration.'
 export const CASE_LOAD_FAILED = 'The registration case could not be loaded.'
 
 // ---- The case (Registration.tsx 248-258) -------------------------------------------------------------------------
 
-export const caseTitle = (caseId: string) => `Case ${caseId}`
-export const REVIEW_NOTICE = 'A possible existing patient was found. Only a listed candidate may be linked. This API does not support overriding the match review to create a new identity.'
+/** A case by the person's name, as typed when it was started here; one reopened by its reference has no name to show. */
+export const caseTitle = (name: string | null) => (name ? `Registration for ${name}` : 'Earlier registration')
+/** When the case was started, or reopened, on this visit to the page. */
+export const caseWhen = (started: boolean, at: string) => `${started ? 'Started' : 'Reopened'} ${dateText(at)}`
+export const MORE_DETAILS = 'More details'
+export const REFERENCE_LABEL = 'Reference'
+export const REFERENCE_HINT = 'Note this down to reopen this registration on a later visit.'
+export const REVIEW_NOTICE = 'A possible existing patient was found. Only a listed patient may be linked. A new Health ID cannot be given once a possible match has been found.'
 /** The last sentence of REVIEW_NOTICE: why the design's "Register reviewed duplicate as distinct person" is off. */
-export const NO_OVERRIDE = 'This API does not support overriding the match review to create a new identity.'
-export const CANDIDATES_UNAVAILABLE = 'Candidate details are unavailable. Refresh this case before reviewing it.'
-export const candidateLine = (dateOfBirth: string | null, patientId: string) => `Date of birth: ${dateOfBirth ?? 'Not provided'} · Patient ID: ${patientId}`
+export const NO_OVERRIDE = 'A new Health ID cannot be given once a possible match has been found.'
+export const CANDIDATES_UNAVAILABLE = 'The possible matches could not be shown. Refresh this registration before reviewing it.'
+export const candidateLine = (dateOfBirth: string | null) => `Date of birth: ${dateOfBirth ?? 'Not provided'}`
 export const candidateOption = (fullName: string, dateOfBirth: string | null) => `${fullName} · ${dateOfBirth ?? 'date unknown'}`
 export const NO_CANDIDATE_NOTICE = 'Verification found no candidate. An authorized reviewer may approve a new Health ID.'
 
@@ -153,7 +166,7 @@ export const BACK_TO_LIST = 'Back to list'
 /** workflows.tsx 69: a create view is headed "New " and the module's title. */
 export const NEW_TITLE = 'New patient registration'
 export const SAVED_RECORD = 'Saved record'
-export const NO_ACTIONS = 'No further actions for your permission and this record state.'
+export const NO_ACTIONS = 'Nothing else to do here.'
 export const NEXT_STEPS = 'Next steps'
 /** Owner decision: a design field Health ID does not take is shown, disabled, with this hint. Never sent or kept. */
 export const NOT_COLLECTED = 'Not collected by Health ID yet'
@@ -172,4 +185,4 @@ export const NO_CORRECTION = 'Health ID does not take demographic corrections on
 export const FIND_TITLE = 'Find registration case'
 export const VISIT_CAPTION = 'Registration cases'
 export const NO_VISIT_TITLE = 'No registration cases opened yet'
-export const NO_VISIT_MESSAGE = 'Cases you load or create here are listed until you leave this page.'
+export const NO_VISIT_MESSAGE = 'Registrations you start or reopen here are listed until you leave this page.'

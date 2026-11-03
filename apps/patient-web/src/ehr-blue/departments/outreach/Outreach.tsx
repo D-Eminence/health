@@ -15,8 +15,8 @@ import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignVie
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
-  ageText, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, NO_READ_PERMISSION, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
+  ageText, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
+  NO_FACILITY, NO_READ_PERMISSION, nextStepText, PENDING, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -303,7 +303,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
                           <span className="font-semibold break-words">{campaign.name}</span>
                           <span className="text-[13px] text-ink-3">{campaign.services.length ? campaign.services.join(', ') : 'No services listed'} · starts {dateText(campaign.startsAt)}</span>
                         </span>
-                        <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{statusWords(campaign.status)}</Badge>
+                        <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaignStatusLabel(campaign.status)}</Badge>
                         <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
                       </button>
                     </li>

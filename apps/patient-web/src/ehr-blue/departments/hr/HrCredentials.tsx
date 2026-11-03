@@ -34,7 +34,7 @@ const SAVED_ID = 'hr-saved-record'
 const CREATE_ID = 'hr-create'
 const RETRY_ID = 'hr-live-retry'
 const LIVE_LIST_ID = 'hr-live-list'
-const NO_ACTIONS = 'No further actions for your permission and this record state.'
+const NO_ACTIONS = 'Nothing else to do here.'
 
 type View =
   | { kind: 'list' }

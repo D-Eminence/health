@@ -177,7 +177,7 @@ describe('the live list', () => {
     expect(fact(saved, 'Employment')).toBe('Nurse')
     expect(fact(saved, 'Review')).toMatch(/^Vouched by Demo Administrator on /)
     expect(screen.getByRole('heading', { name: 'Available actions' })).toBeTruthy()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByText('Nothing else to do here.')).toBeTruthy()
     expect(screen.queryByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
