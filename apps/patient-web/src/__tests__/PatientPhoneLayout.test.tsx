@@ -28,13 +28,29 @@ describe('the share steps on a phone', () => {
         ? json({ items: [], limits: { maxOpen: 20, maxNewPerDay: 5, remainingToday: 4 } })
         : problem(404, 'NOT_FOUND', `${method} ${path}`),
       {}, { parityB4: true, at: '/access/share' })
-    const steps = within(await screen.findByRole('list', { name: /^Step 1 of 3$/ })).getAllByRole('listitem')
+    const list = await screen.findByRole('list', { name: /^Step 1 of 3$/ })
+    const steps = within(list).getAllByRole('listitem')
     expect(steps.map(step => step.textContent)).toEqual(['1Who', '2Access', '3Check'])
-    for (const step of steps.slice(0, -1)) {
-      expect(classesOf(step)).toContain('flex-auto')
-      expect(classesOf(step)).not.toContain('flex-1')
-    }
+    for (const step of steps) expect(classesOf(step)).not.toContain('flex-1')
+    // Where even that is short, as with Android's larger text in a WebView at 320px (1.15x), only "Access" gives way:
+    // "Who" does not shrink (flex-[1_0_auto]) and "Check" takes no more than its name (flex-none). Both shrinking cut
+    // both, "W…" and "Acce…".
+    expect(classesOf(steps[0]!)).toContain('flex-[1_0_auto]')
+    expect(classesOf(steps[1]!)).toContain('flex-auto')
     expect(classesOf(steps.at(-1)!)).toContain('flex-none')
+  })
+
+  it('leaves 6px between a step\'s parts on a phone, so the names stay whole up to 1.2x text at 320px', async () => {
+    // Measured in Chromium with the names and numbers enlarged: 8px gaps cut "Access" from 1.15x at 320px.
+    renderPortal(<Routes><Route path="/access/share" element={<ShareRecords />} /></Routes>,
+      (path, method) => path === '/identity/me/share-invitations' && method === 'GET'
+        ? json({ items: [], limits: { maxOpen: 20, maxNewPerDay: 5, remainingToday: 4 } })
+        : problem(404, 'NOT_FOUND', `${method} ${path}`),
+      {}, { parityB4: true, at: '/access/share' })
+    const list = await screen.findByRole('list', { name: /^Step 1 of 3$/ })
+    for (const element of [list, ...within(list).getAllByRole('listitem')]) {
+      expect(classesOf(element)).toEqual(expect.arrayContaining(['gap-1.5', 'sm:gap-2']))
+    }
   })
 })
 
