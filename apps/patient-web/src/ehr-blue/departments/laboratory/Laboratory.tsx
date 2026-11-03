@@ -23,7 +23,7 @@ import { isUrgent, urgencyRank } from '../parts/WorkQueue'
 import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
-  useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
+  readsKept, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
 } from '../parts/routedWork'
 import { usePaymentSettings } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, paysFirst } from '../pharmacy/pocFields'
@@ -153,13 +153,20 @@ export function Laboratory() {
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
-    if (chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
+    // As today (Operations.tsx notCompletedHere): where its reads ended at once, nothing of it is shown again; where
+    // they are kept, the request stays open, read only, with the ending said above it.
+    if (!readsKept(ending.result) && chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
     void list.refresh()
   }
   const pick = (value: LabStage) => setParams(previous => { const next = new URLSearchParams(previous); next.set(STAGE_PARAM, value); return next }, { replace: true })
   const siblings = chosen ? items.filter(item => item.id !== chosen.id && requestOf(item) && requestOf(item)?.id === requestOf(chosen)?.id) : []
 
-  return <div className="hid-ehr-dept-laboratory">
+  return <div className="hid-ehr-dept-laboratory flex flex-col gap-5">
+    {/* Mounted once, outside the hidden list, so an ending is said on the request it kept open as on the list (each
+        ending takes focus as it mounts: a second copy would move it to the oldest). */}
+    {notCompleted.endings.length > 0 ? <DeptEmbedded>
+      <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
+    </DeptEmbedded> : null}
     {chosen ? <LabRequest key={chosen.id} facilityId={workFacility} item={chosen} siblings={siblings} permissions={permissions} settings={settings}
       said={said.rowSaid(chosen.orderRoute?.id)} backTo={listHref} onListChanged={() => void list.refresh()}
       onEnded={ending => endedHere(chosen, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} /> : null}
@@ -177,9 +184,6 @@ export function Laboratory() {
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
         onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded> : null}
       <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
-      {notCompleted.endings.length > 0 ? <DeptEmbedded>
-        <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
-      </DeptEmbedded> : null}
       {lateCorrection ? <DeptEmbedded><LateWrongPatient service="lab" facilityId={workFacility} onEnded={endedLate} onNotCompleted={notCompletedHere}
         onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: workFacility, correction }) }} /></DeptEmbedded> : null}
       <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
