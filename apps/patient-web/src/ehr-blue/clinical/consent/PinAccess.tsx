@@ -36,9 +36,10 @@ export const DEMO_PIN_NOTE = 'Adaeze Okafor (HID-ZDEMAAA2) and Chinedu Okafor (H
  * Patient PIN access (today's "Patient PIN" method), one column. The Health ID handed over from Find a patient is
  * already in it, so the PIN field takes focus. Once the session that sent the PIN is ready again, the patient lookup
  * opens the record, and only an allowed lookup does. At a demo facility, the form first says which demo patients have a
- * PIN and where a tester gets it.
+ * PIN and where a tester gets it. `backLabel` names where the back arrow goes (its workspace's list): Access requests at
+ * `requests/pin`, Find a patient at `patients/pin`.
  */
-export function PinAccess() {
+export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel?: string }) {
   const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
@@ -98,7 +99,7 @@ export function PinAccess() {
   const pinId = `${id}-pin`
   return (
     <FormPage title="Use the patient’s Access PIN" description="Ask the patient to type their PIN. Only they should know it."
-      back={{ to: href(), label: 'Back to access requests' }}>
+      back={{ to: href(), label: backLabel }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
           {isDemoFacility(facility?.id) ? <p className="m-0 text-[13px] text-ink-3">{DEMO_PIN_NOTE}</p> : null}
@@ -117,7 +118,9 @@ export function PinAccess() {
           {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           {error ? <Alert intent="error" title="Couldn’t open the record">{error}</Alert> : null}
           <FormActions sticky={false}>
-            <Button type="submit" variant="primary" icon={KeyRound} loading={busy} disabled={!facility || unavailable !== null}
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's Verify PIN and open: focus is not lost while
+                the PIN is checked, and a second press sends nothing (submit returns while one is on its way). */}
+            <Button type="submit" variant="primary" icon={KeyRound} disabled={!facility || unavailable !== null} aria-disabled={busy || undefined}
               aria-describedby={unavailable ? 'pin-access-unavailable' : undefined}>{busy ? 'Checking…' : 'Check PIN and open'}</Button>
           </FormActions>
         </form>
