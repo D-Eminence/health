@@ -15,6 +15,7 @@ import { IncomingOrdersCard, loadLab, loadPharmacy, useIncomingServices, useWork
 import { useAccessRequests } from '../frame/attention'
 import { basePath } from '../frame/pageHref'
 import type { LabWorkItem, PharmacyWorkItem, ReceivingService } from '../../staff/api'
+import { STAGE_LABEL, stageOf } from '../departments/laboratory/stage'
 import { Activity, ChevronRight, ClipboardList, FlaskConical, Pill, RotateCcw, Search, ShieldAlert, ShieldCheck, Stethoscope, Users } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, SectionHeader, Select, StatCard, StatGroup, greeting } from '../../kasuwa/ui'
 import { Drawer } from '../../kasuwa/interactive'
@@ -86,20 +87,30 @@ export function BlueHome() {
   const incomingHere = { services: incoming.services.filter(receivedHere), unsure: incoming.unsure.filter(receivedHere),
     sure: incoming.sure.filter(receivedHere) }
   const work = [
-    ...labItems.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test', meta: `Laboratory · ${item.status.replace(/[-_]+/g, ' ')}`,
+    ...labItems.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test', meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`,
       to: '/provider/laboratory', icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
     ...rxItems.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine', meta: 'Pharmacy · to dispense',
       to: '/provider/pharmacy', icon: Pill, urgent: false })),
   ]
   const attention = [
     ...(pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
-      title: `${pending} access request${pending === 1 ? '' : 's'} waiting`, subtitle: 'Review and send them on' }] : []),
+      title: `${pending} access request${pending === 1 ? '' : 's'} waiting`, subtitle: 'Waiting for the patient to answer' }] : []),
     ...(activePatient && patientTo ? [{ key: 'patient', to: patientTo, icon: Stethoscope, tone: 'brand' as const,
       title: activePatient.lookup.patient.fullName ?? activePatient.hid,
       subtitle: activePatient.purpose === 'emergency' ? 'Open now · emergency access, view only' : 'Open now · continue where you left off' }] : []),
     ...(urgentLab > 0 ? [{ key: 'urgent-lab', to: '/provider/laboratory', icon: FlaskConical, tone: 'danger' as const,
       title: `${urgentLab} urgent lab test${urgentLab === 1 ? '' : 's'}`, subtitle: 'Accepted and waiting to be run' }] : []),
   ]
+  // "All clear" only for what was read: the access requests (when this role reads them) and, at a demo facility, the
+  // laboratory work. While a read is still on its way Home says it is loading; after one fails it does not say all clear.
+  const readsRequests = permissions.includes('identity.consent.write')
+  const requestsRead = readsRequests ? access.state : 'ready'
+  const labState = demo && lab ? labRead.state : 'ready'
+  const checking = requestsRead === 'loading' || requestsRead === 'none' || labState === 'loading'
+  const allClear = !checking && requestsRead === 'ready' && labState === 'ready'
+  const clearWords = [readsRequests ? 'No requests waiting' : null, 'no patient open', demo && lab ? 'nothing urgent' : null]
+    .filter(Boolean).join(', ')
+  const clearDescription = `${clearWords.charAt(0).toUpperCase()}${clearWords.slice(1)}.`
   const firstName = name.replace(/^(dr|mr|mrs|ms|nurse)\.?\s+/i, match => match).split(' ').slice(0, 2).join(' ')
 
   const stats = [
@@ -126,8 +137,10 @@ export function BlueHome() {
           {access.state === 'failed' && <Alert intent="error" title="Couldn’t load access requests"
             action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{access.message}</Alert>}
           {attention.length === 0
-            ? access.state === 'loading' ? <Card><LoadingRows rows={1} label="Loading what needs attention" /></Card>
-              : <EmptyState compact icon={ShieldCheck} title="All clear" description="No requests waiting, no patient open, nothing urgent." />
+            ? checking ? <Card><LoadingRows rows={1} label="Loading what needs attention" /></Card>
+              : allClear ? <EmptyState compact icon={ShieldCheck} title="All clear" description={clearDescription} />
+                // A failed access-request read already says so above, with Try again.
+                : requestsRead === 'failed' ? null : <p className="m-0 px-1 text-[13px] text-ink-3">We couldn’t check everything that needs attention just now.</p>
             : <Card><ul className="m-0 list-none divide-y divide-line p-0">{attention.map(a => <li key={a.key}>
                 <ListRow to={a.to} leading={<IconChip size="sm" icon={a.icon} tone={a.tone} />} title={a.title} subtitle={a.subtitle}
                   trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul></Card>}

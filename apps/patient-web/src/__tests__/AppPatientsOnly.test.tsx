@@ -193,7 +193,7 @@ describe('elsewhere, every staff page stays each site’s own', () => {
       serveFrom(hostname)
       open('/provider/sign-in')
       expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
-      expect(screen.getByRole('textbox', { name: 'Email' })).toBeTruthy()
+      expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
       expect(replace).not.toHaveBeenCalled()
       expect(screen.queryByText('Opening Health ID EHR…')).toBeNull()
     })

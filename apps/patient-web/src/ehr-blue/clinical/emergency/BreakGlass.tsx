@@ -22,7 +22,7 @@ type FieldKey = (typeof FIELDS)[number]
 type Problems = Partial<Record<FieldKey, string>>
 
 /** The acknowledgement, naming the expiry today's break-glass request asks for. */
-export const ACKNOWLEDGE = `I understand the patient is told, every view is reviewed, and access ends after ${EMERGENCY_MINUTES} minutes.`
+export const ACKNOWLEDGE = `I understand the patient is told, every opening is recorded, and access ends after ${EMERGENCY_MINUTES} minutes.`
 
 /** The open emergency patient, with the way back to their emergency summary. */
 export function CurrentEmergency() {
@@ -154,7 +154,7 @@ export function BreakGlassCard() {
             className="font-medium tracking-[.06em] uppercase" aria-invalid={problems.hid ? true : undefined} aria-describedby={describe('hid', true)}
             onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); changed('hid') }} />
         </Field>
-        <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the review."
+        <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the record of this opening."
           hintId={`${controlId('reason')}-hint`} error={errorFor('reason')} errorId={`${controlId('reason')}-error`}>
           <Textarea id={controlId('reason')} required rows={3} maxLength={REASON_MAX} value={reason}
             aria-invalid={problems.reason ? true : undefined} aria-describedby={describe('reason', true)}

@@ -25,9 +25,14 @@ export const REASON_MAX = 500
 
 /** Patients.tsx:243, the emergency notice, before and after the Novu sentence (Patients.tsx:46). */
 export const NOTICE_WHEN = 'Only when the patient can’t consent and care can’t wait'
-export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
-export const EMERGENCY_CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
-export const NOTICE_AFTER = 'You see this facility’s finished visits, signed notes, diagnoses, prescriptions, lab requests and documents. You can’t change anything.'
+export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
+/** Patients.tsx:47: only verified contacts the patient chose to notify are told, and only while the alerts are on. */
+export const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
+/**
+ * Patients.tsx:244, as the emergency summary is (EmergencySummary.tsx): each section is shown only to a role that may
+ * read it, vital signs are not shown, and documents are listed but not opened.
+ */
+export const NOTICE_AFTER = 'You see this facility’s finished visits and signed notes, and the diagnoses, prescriptions, lab tests and documents your role may read. It shows no vital signs and opens no files. You can’t change anything.'
 
 export function emergencyNotice(novu: boolean): string {
   return novu ? `${NOTICE_BEFORE} ${EMERGENCY_CONTACTS_TOLD} ${NOTICE_AFTER}` : `${NOTICE_BEFORE} ${NOTICE_AFTER}`
