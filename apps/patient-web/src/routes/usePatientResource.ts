@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { isHidApiError } from '@hid/http'
+import { plainErrorText } from '@hid/http'
 import { PatientResourcesContext } from '../resourceCache'
 
 /**
@@ -33,7 +33,7 @@ export function usePatientResource<T>(load: (signal?: AbortSignal) => Promise<T>
       setData(value)
       resources?.cache.write(key, account, value)
     }).catch(reason => {
-      if (!controller.signal.aborted) setError(isHidApiError(reason) ? reason.message : 'We could not load this information.')
+      if (!controller.signal.aborted) setError(plainErrorText(reason, 'We couldn’t load this right now. Check your connection and try again.'))
     }).finally(() => {
       if (controller.signal.aborted) return
       setLoading(false)

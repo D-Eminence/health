@@ -8,7 +8,7 @@ import { SESSION, facility, json, openStaffApp, serve, sessionAt } from '../../f
 /*
  * Outreach inside the blue EHR's frame, as today's page opens it: with campaign or registration read, each reading only
  * what it allows, and listed in the sidebar with registration read (staff/navigation.ts). With neither, its address says
- * what it needs. Every account, facility, campaign and case is fictional.
+ * Outreach isn't available yet, asking nobody. Every account, facility, campaign and case is fictional.
  */
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => {
@@ -80,14 +80,16 @@ describe('a membership with registration read', () => {
 })
 
 describe('a membership with neither', () => {
-  it('says at its address what Outreach needs, reading nothing', async () => {
+  it('says at its address that Outreach isn’t available yet, asking nobody and reading nothing', async () => {
     const demo = demoOutreach(['ehr.encounter.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/outreach')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
     expect(within(nav).queryByRole('link', { name: 'Outreach' })).toBeNull()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Outreach unavailable')
-    expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeDefined()
+    expect(screen.getByText('Outreach isn’t available at your facility yet.')).toBeDefined()
+    expect(screen.queryByText(/Ask your facility administrator/)).toBeNull()
+    expect(screen.queryByText(/read permission/)).toBeNull()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
     expect(sent.filter(request => request.route === CAMPAIGNS || request.route === CASES)).toHaveLength(0)
   })

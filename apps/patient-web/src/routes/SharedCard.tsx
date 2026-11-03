@@ -151,7 +151,7 @@ export function SharedCardPage() {
   return <main className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="w-full max-w-md">
     <EmptyState icon={Lock} titleAs="h1" title="This isn’t available yet"
       description="Opening a shared Health ID card from a link isn’t available yet. No health information is shown here."
-      action={<Button href="https://healthid.ng">About Health ID</Button>} /></div></main>
+      action={<Button href="https://healthidentitydirectory.com/patients">About Health ID</Button>} /></div></main>
 }
 
 /** The patient's own card as the email and the provider's page will show it. */
