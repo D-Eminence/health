@@ -1420,6 +1420,9 @@ describe('Where each order stands, under its row in the orders list', () => {
     ['the wrong patient', { effectiveState: 'completed', acceptedAt: ACCEPTED_AT, completedAt: ENDED_AT, endedAt: ENDED_AT, endedKind: 'wrong_patient' },
       /^Demo Laboratory reports that the results it released belong to someone else, and has ended it\. Do not use them\.$/, 'caution'],
     ['withdrawn by the patient', { effectiveState: 'withdrawn', endedAt: ENDED_AT, endedKind: 'patient' }, /^Patient One stopped it in the Health ID app\.$/, 'neutral'],
+    ['not accepted in time', { effectiveState: 'expired' }, /^Not accepted by Demo Laboratory within 7 days\. Send it elsewhere\.$/, 'caution'],
+    ['accepted with nothing back in time', { effectiveState: 'expired', acceptedAt: ACCEPTED_AT },
+      /^Accepted by Demo Laboratory on .+; nothing came back within 30 days\.$/, 'caution'],
   ])('says a lab request %s, in today’s words and tone', async (_name, state, words, tone) => {
     setLists([], [labRequest({ status: 'active', rowVersion: 3, orderRoute: route(state) })], { crossFacilityOrders: true })
     const { row } = await rowOf('Laboratory · Haemoglobin')
@@ -1436,12 +1439,16 @@ describe('Where each order stands, under its row in the orders list', () => {
   })
 
   it('says nothing more for an order never sent elsewhere, one whose route the EHR did not send, or a malformed route', async () => {
-    setLists([prescription({ orderRoute: null })], [labRequest({ orderRoute: { id: ROUTE, effectiveState: 'sent' } })], { crossFacilityOrders: true })
+    setLists([prescription({ orderRoute: null })], [labRequest({ orderRoute: { id: ROUTE, effectiveState: 'sent' } }),
+      labRequest({ id: 'c0000000-0000-4000-8000-000000000002', testDisplay: 'Blood glucose' })], { crossFacilityOrders: true })
     const { link, row } = await rowOf('Pharmacy · Amoxicillin')
     expect(link.getAttribute('aria-describedby')).toBeNull()
     expect(row.querySelector('.hid-ehr-clinical-orders-row-route')).toBeNull()
-    const lab = screen.getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li')!
-    expect(lab.querySelector('.hid-ehr-clinical-orders-row-route')).toBeNull()
+    for (const name of ['Laboratory · Haemoglobin', 'Laboratory · Blood glucose']) {
+      const lab = screen.getByRole('link', { name })
+      expect(lab.getAttribute('aria-describedby')).toBeNull()
+      expect(lab.closest('li')!.querySelector('.hid-ehr-clinical-orders-row-route')).toBeNull()
+    }
     expect(screen.queryByText(/^Sent to /)).toBeNull()
   })
 
@@ -1461,6 +1468,14 @@ describe('Where each order stands, under its row in the orders list', () => {
     expect(row.textContent).not.toMatch(/paused/)
   })
 
+  it('names the other facility in words when the EHR sent no name, for a state this website does not know', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'paused_there',
+      receivingFacility: { id: LABORATORY_ID, name: null, available: true } }) })], { crossFacilityOrders: true })
+    const { row } = await rowOf('Laboratory · Haemoglobin')
+    expect(within(row).getByText('Sent to the other facility. This page can’t show what became of it: contact the other facility to check.')).toBeTruthy()
+    expect(row.textContent).not.toMatch(/null|undefined|paused/)
+  })
+
   it('says the same for a state this website does not know on the order’s page, beside Send to Lab', async () => {
     // Not a bare "Sent to Demo Laboratory.": the page also offers Send to Lab, so it must not read as still on its way there.
     staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
@@ -1471,6 +1486,19 @@ describe('Where each order stands, under its row in the orders list', () => {
     expect(screen.queryByText('Sent to Demo Laboratory.')).toBeNull()
     expect(screen.getByRole('button', { name: 'Send to Lab' })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/superseded/)
+  })
+
+  it('says the same for an earlier route in a state this website does not know, in the order’s details', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'declined', declineReason: 'test_not_offered' }) })], { crossFacilityOrders: true })
+    const attestation = { textVersion: 'v1', attestedByName: 'Demo Clinician', attestedAt: '2026-10-20T10:00:00.000Z', receivingFacilityName: 'Demo Laboratory' }
+    routes.routes.mockResolvedValue({ items: [
+      { ...route({ effectiveState: 'declined', declineReason: 'test_not_offered' }), attestation, events: [], results: [] },
+      { ...route({ id: 'd0000000-0000-4000-8000-000000000002', effectiveState: 'paused_there' }), attestation, events: [], results: [] },
+    ] })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'Show details and results' }))
+    expect(await screen.findByText(`Earlier: ${UNKNOWN_STATE}`)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/paused/)
   })
 
   it('draws the order page’s status line in the same tone as the row’s', async () => {
