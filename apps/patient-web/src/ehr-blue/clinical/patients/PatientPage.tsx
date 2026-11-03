@@ -15,10 +15,14 @@ import type { PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
+import { opensInProduct, productOf } from '../../frame/product'
+import { segmentOf } from '../parts/segments'
 import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
+/** Said where a lab's or a pharmacy's site hides every next step: those pages are the hospital EHR's alone. */
+export const ON_HOSPITAL_EHR = 'Charts, visits and emergency access are on the Hospital EHR.'
 
 function sexText(value: string | undefined) {
   if (!value) return ''
@@ -174,6 +178,18 @@ function PatientRecord({ chart }: { chart: Chart }) {
   // writes with (Consultation's ehr.encounter.write; Triage's ehr.vital.read and ehr.vital.write): no dead-end step.
   const mayStart = !readOnly && chart.can('ehr.encounter.write')
   const mayRecordVitals = !readOnly && chart.can('ehr.vital.read', 'ehr.vital.write')
+  // A step leads only to a page this site opens: on a single product's site (lab., pharmacy.) Consultation, Triage,
+  // Emergency and the samples are the hospital EHR's, and the frame would send the person back to Home (product.ts).
+  // The product is decided as the frame decides it. In a hospital's EHR every page opens.
+  const product = productOf(window.location.hostname, permissions)
+  const opens = (workspace: string) => opensInProduct(product, segmentOf(workspace))
+  const showChart = mayOpenChart && opens('consult')
+  const showStart = mayStart && opens('consult')
+  const showVitals = mayRecordVitals && opens('triage')
+  const showWalkIn = isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') && opens('journey')
+  const showEmergency = isDemoFacility(chart.facilityId) && emergencyUnavailable === null && opens('emergency')
+  const showSummary = opens('emergency')
+  const noSteps = !showStart && !showVitals && !showWalkIn && !mayOpenConsent && !showEmergency
 
   /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
   function openConsent() {
@@ -227,8 +243,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
       <div className="flex min-w-0 flex-col gap-5">
         <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
-          actions={emergency ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button>
-            : mayOpenChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
+          actions={emergency ? (showSummary ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button> : undefined)
+            : showChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
         {/* Read only, said once. */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
@@ -238,17 +254,18 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
         {!emergency ? <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
+          {product !== 'ehr' && noSteps ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">{ON_HOSPITAL_EHR}</p> : null}
           <ul className="m-0 list-none divide-y divide-line p-0">
-            {mayStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
-            {mayRecordVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities, and only to a design role
                 that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
-            {isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showWalkIn ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
                 record, so a real facility keeps it on Find a patient's Obtain access. Shown, as this card's steps are,
                 only to a role that may take it. */}
-            {isDemoFacility(chart.facilityId) && emergencyUnavailable === null ? <li><ListRow onClick={() => accessStep('emergency')} leading={<IconChip size="sm" icon={Siren} tone="danger" />} title="Emergency access" subtitle="Only if they can’t consent. Time-limited and reviewed." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showEmergency ? <li><ListRow onClick={() => accessStep('emergency')} leading={<IconChip size="sm" icon={Siren} tone="danger" />} title="Emergency access" subtitle="Only if they can’t consent. Time-limited and reviewed." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
           </ul>
         </Card> : <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
@@ -267,7 +284,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
             </li>
           </ul>
         </Card>}
-        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={mayStart} /> : null}
+        {/* Each visit opens in Consultation, so the list shows only where Consultation opens. */}
+        {!emergency && chart.can('ehr.encounter.read') && opens('consult') ? <EncounterHistory chart={chart} canStart={showStart} /> : null}
       </div>
     </div>
   )

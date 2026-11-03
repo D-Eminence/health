@@ -6,7 +6,7 @@ import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
-import { productOf } from '../../frame/product'
+import { opensInProduct, productOf } from '../../frame/product'
 import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
@@ -77,7 +77,11 @@ function PatientList() {
   // Registration stays in the EHR only (the owner's decision): on a single product's site (lab., pharmacy., outreach.,
   // migrate.) Find a patient offers no "Register a patient", whatever the role holds. The product is decided as the
   // frame decides it (frame/product.ts), so this page and the menu always agree.
-  const registers = can('identity.registration.write') && productOf(window.location.hostname, permissions) === 'ehr'
+  const product = productOf(window.location.hostname, permissions)
+  const registers = can('identity.registration.write') && product === 'ehr'
+  // Emergency access is the hospital EHR's page: a single product's site (lab., pharmacy.) does not open it, and the
+  // frame would send the person back to Home, so it is not offered there. The PIN (a Patients page) opens everywhere.
+  const offersEmergency = opensInProduct(product, 'emergency')
   // Registration hands over the new Health ID (location state), so the next step is one press of Find; otherwise
   // today's field starts at HID- and is normalized as it changes.
   const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : HEALTH_ID_PREFIX })
@@ -161,7 +165,7 @@ function PatientList() {
    * goes.
    */
   function otherWay(target: 'pin' | 'emergency') {
-    if (busy || !facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable)) return
+    if (busy || !facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable || !offersEmergency)) return
     const normalized = normalizeHealthIdInput(hid)
     const reads = target === 'pin' || can('identity.break-glass.write')
     if (reads && healthIdProblem(normalized) === null) offerHealthId(normalized, facility.id, setActivePatient)
@@ -197,12 +201,12 @@ function PatientList() {
           <h2 id="patients-other-access" className="m-0 mb-3 text-title-3 text-ink">Obtain access</h2>
           {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
           {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
-          {emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
-          <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-2">
+          {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
+          <ul className={cx('m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5', offersEmergency && '@xl:grid-cols-2')}>
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." busy={busy}
               unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
-            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger busy={busy}
-              unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} />
+            {offersEmergency ? <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger busy={busy}
+              unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} /> : null}
           </ul>
         </div>
 
