@@ -131,6 +131,12 @@ describe('the country in About you', () => {
     // Not a country's code: shown as Health ID holds it, not as "Unknown Region".
     ['ZZ', 'ZZ'],
     ['XX', 'XX'],
+    // Codes left for users to assign (ISO 3166-1: AA, QM to QZ, XA to XZ): the browser names some of them
+    // ("Pseudo-Accents", "Outlying Oceania"), none a country.
+    ['XA', 'XA'],
+    ['xb', 'xb'],
+    ['QO', 'QO'],
+    ['AA', 'AA'],
     [' NG ', 'Nigeria'],
   ])('shows %j as %j', (held, shown) => {
     expect(countryName(held)).toBe(shown)
