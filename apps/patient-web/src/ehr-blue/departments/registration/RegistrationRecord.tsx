@@ -83,9 +83,10 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const patientsHref = usePatientsHref()
   // The patient's Health ID once the case has one, or the account just made gives one.
   const hid = enrollment?.hid ?? registration.patient?.hid ?? null
-  const findPatient = hid && patientsHref ? hid : null
-  const nextHere = registration.patient ? next : []
   const completed = COMPLETED.has(registration.status)
+  // Registration.tsx 207-208, 265: only a completed case hands its patient on to Patients.
+  const findPatient = completed && hid && patientsHref ? hid : null
+  const nextHere = registration.patient ? next : []
   const candidates = registration.candidates ?? []
   // Registration.tsx 253, 255, 256: who may decide, and what this state of the case allows.
   const offered: Record<OpenForm, boolean> = {

@@ -1009,6 +1009,13 @@ describe('Open in Patients', () => {
     expect(await screen.findByText('Patients was handed {"hid":"HID-ZDEMAAA2"}')).toBeTruthy()
   })
 
+  it('is not offered for a rejected case, even one with a patient', async () => {
+    session.permissions = [WRITE, APPROVE, READ]
+    api.registrationCase.mockResolvedValue({ ...linked, status: 'rejected' })
+    await findCaseWith([PATIENTS])
+    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+  })
+
   it('is not offered to a role that cannot open Patients', async () => {
     session.permissions = [WRITE, APPROVE]
     api.registrationCase.mockResolvedValue(linked)
