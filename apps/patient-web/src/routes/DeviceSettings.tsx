@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isConnectionFailure, isHidApiError } from '@hid/http'
 import { useSession } from '../session'
 import { Alert, Button, Card, cx } from '../kasuwa/ui'
 import { usePatientResource } from './usePatientResource'
-import { useActionFocus } from './actionFocus'
+import { useActionFocus, useRetryFocus } from './actionFocus'
+import { LoadProblem } from './profileParts'
+import { ItemName } from '../ItemName'
+import { LoadingRows } from '../kasuwa/parts'
 import { learnWebPushServed, useWebPushServed } from '../webPushServed'
 import { withSubscribed, withoutSubscription, type WebPushState } from '../webPush'
 import { isAppleBrowserTab, runningInstalled } from '../deviceKind'
@@ -75,10 +78,17 @@ type TurnOnOutcome = 'on' | 'denied' | 'dismissed'
  */
 export function DeviceNotificationsCard() {
   const { api } = useSession()
+  // Whether the last read failed in a way that may pass (Identity failing or busy, or no connection): the card then says
+  // it could not load this setting, with Try again (PPS-15). A refusal, or an answer that is not the contract's, still
+  // hides it, saying nothing, as a 404 does.
+  const mayPass = useRef(false)
   const load = useCallback((signal?: AbortSignal) => api.webPush(signal).then(value => {
+    mayPass.current = false
     learnWebPushServed(true)
     return value
   }, (caught: unknown) => {
+    mayPass.current = isConnectionFailure(caught)
+      || (isHidApiError(caught) && (caught.status >= 500 || caught.status === 429 || caught.status === 408))
     if (isHidApiError(caught) && caught.status === 404) { learnWebPushServed(false); return null }
     throw caught
   }), [api])
@@ -94,9 +104,15 @@ export function DeviceNotificationsCard() {
   const rekeyed = useRef(false)
   const working = useRef(false)
   const focusAfter = useActionFocus()
+  const retryFocus = useRetryFocus(heading)
   const data = server.data
   const { replace } = server
   const offered = served === true && data !== null
+  // Once the card has said it could not load this setting, it stays while Try again reads it and this browser's side
+  // is read, so its heading keeps focus.
+  const failed = server.error !== null && mayPass.current
+  const [unreadShown, setUnreadShown] = useState(false)
+  if (failed && !unreadShown) setUnreadShown(true)
 
   // This browser's side, read once Identity offers push, and again when the patient comes back to the page (after
   // allowing notifications in the browser's site settings, for one).
@@ -154,13 +170,15 @@ export function DeviceNotificationsCard() {
     }).finally(() => { working.current = false })
   }, [data, reading, subscribe])
 
-  if (served !== true || data === null || reading === null) return null
-  const state = stateOf(data, reading)
+  const ready = served === true && data !== null && reading !== null
+  const unread = !ready && (failed || (unreadShown && (server.loading || (served === true && data !== null))))
+  if (!ready && !unread) return null
+  const state = ready ? stateOf(data, reading) : null
   const on = state === 'on'
   const withSwitch = state === 'denied' || state === 'on' || state === 'off'
 
   const toggle = async () => {
-    if (busy || working.current) return
+    if (busy || working.current || !data) return
     working.current = true
     setBusy(true); setError(null); setNotice(null)
     let device: PushDevice | null = null
@@ -199,7 +217,7 @@ export function DeviceNotificationsCard() {
     <div className="flex items-start gap-4">
       <div className="min-w-0 flex-1">
         <h3 ref={heading} tabIndex={-1} id="device-notifications-heading" className="m-0 text-title-3 text-ink outline-none">Notifications on this device</h3>
-        <p id="device-notifications-state" className="m-0 mt-1 text-[13px] text-ink-3">{stateText(state)}</p>
+        {state && <p id="device-notifications-state" className="m-0 mt-1 text-[13px] text-ink-3">{stateText(state)}</p>}
       </div>
       {withSwitch && <button ref={control} type="button" role="switch" aria-checked={on}
         aria-labelledby="device-notifications-heading" aria-describedby="device-notifications-state device-notifications-sign-out"
@@ -210,6 +228,10 @@ export function DeviceNotificationsCard() {
           <span className={cx('inline-block size-5 rounded-full bg-white shadow-[var(--shadow-xs)] transition-transform', on ? 'translate-x-[22px]' : 'translate-x-0.5')} /></span>
       </button>}
     </div>
+    {/* Its read failed (PPS-15): said, with Try again; while that reads, a loading line. */}
+    {!ready && server.error && <LoadProblem what="this setting" error={server.error} buttonRef={retryFocus.button}
+      onRetry={() => retryFocus.retry(server.reload)} name={<ItemName>loading notifications on this device</ItemName>} />}
+    {!ready && !server.error && <div className="-mx-5"><LoadingRows rows={1} label="Loading this setting" /></div>}
     {withSwitch && <p id="device-notifications-sign-out" className="m-0 text-[12px] text-ink-3">Signing out turns this off.</p>}
     {error && <Alert intent="error" size="sm">{error}</Alert>}
     <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>

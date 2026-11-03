@@ -126,11 +126,14 @@ describe('while the completion and Insurance & hospital are first read (PPS-06)'
 
   it('shows a loading line in Insurance & hospital while Try again reads it', async () => {
     const second = deferred()
-    let reads = 0
-    renderPortal(<ProfilePage />, b3Gateway({ 'GET /identity/me/profile-details': () => ++reads === 1
-      ? problem(503, 'UPSTREAM_UNAVAILABLE', 'Down') : second.promise }), {}, { parityB3: true })
+    // Failing until Try again (the client may ask again by itself before it gives up).
+    let fail = true
+    renderPortal(<ProfilePage />, b3Gateway({ 'GET /identity/me/profile-details': () => fail
+      ? problem(500, 'INTERNAL', 'Down') : second.promise }), {}, { parityB3: true })
     const coverage = await openSection('Insurance & hospital')
-    await press(await within(coverage).findByRole('button', { name: 'Try again loading your insurance and hospital' }))
+    const retry = await within(coverage).findByRole('button', { name: 'Try again loading your insurance and hospital' })
+    fail = false
+    await press(retry)
     const loading = within(coverage).getByRole('status', { name: 'Loading your insurance and hospital' })
     // A first read's status is not inside a busy region (LoadingAnnounced.test.tsx).
     expect(loading.closest('[aria-busy="true"]')).toBeNull()

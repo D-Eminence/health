@@ -331,23 +331,21 @@ describe('a section of the profile', () => {
 })
 
 describe('a link to a section of the profile', () => {
-  it('opens it in the commit that shows it, after its read, with focus on its heading\'s button', async () => {
+  it('opens it at once, while it is still read, with focus on its heading\'s button, which keeps focus once it is read', async () => {
+    // Insurance & hospital holds its place while it is first read (PPS-06), so a link to it lands there at once.
     let answer!: () => void
     const read = new Promise<void>(resolve => { answer = resolve })
-    atProfile('/profile#coverage', gateway({ 'GET /identity/me/profile-details': async () => { await read; return json(details) } }))
-    await screen.findByRole('heading', { name: 'About you' })
-    expect(screen.queryByRole('heading', { name: 'Insurance & hospital' })).toBeNull()
     const shown = focusWhenShown(() => document.querySelector<HTMLElement>('#coverage h2 > button'))
-    // Answered outside act, as a fetch's answer arrives: React renders the section in one task, and runs effects later.
-    environment.IS_REACT_ACT_ENVIRONMENT = false
-    answer()
+    atProfile('/profile#coverage', gateway({ 'GET /identity/me/profile-details': async () => { await read; return json(details) } }))
     const { element, focused } = await shown
     expect(element.getAttribute('aria-expanded')).toBe('true')
     expect(focused).toBe(element)
-    environment.IS_REACT_ACT_ENVIRONMENT = undefined
+    expect(within(content('Insurance & hospital')).getByRole('status', { name: 'Loading your insurance and hospital' })).toBeTruthy()
+    await act(async () => { answer() })
+    expect(await within(content('Insurance & hospital')).findByRole('textbox', { name: HMO })).toBeTruthy()
+    expect(document.activeElement).toBe(element)
     await allShown()
     expect(SECTIONS.filter(isOpen)).toEqual(['Insurance & hospital'])
-    expect(within(content('Insurance & hospital')).getByRole('textbox', { name: HMO })).toBeTruthy()
   })
 
   it.each([

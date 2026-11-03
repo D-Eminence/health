@@ -13,6 +13,7 @@ import { useAnnounceProfileChange } from '../profileChange'
 import { useSession } from '../session'
 import { HealthIdCode } from './HealthIdCode'
 import { useActionFocus } from './actionFocus'
+import { ButtonR } from './profileParts'
 import { initialsOf, useObjectUrl, usePatientPhoto } from './ProfilePhoto'
 
 /**
@@ -49,6 +50,15 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   const preview = useObjectUrl(prepared)
   const [busy, setBusy] = useState<'preparing' | 'saving' | 'removing' | null>(null)
   const [open, setOpen] = useState(false)
+  // What a save or removal came to: said politely under the card once it is done (PPS-05), and in the drawer, tied to
+  // the button that failed, when it was not.
+  const [outcome, setOutcome] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const saveButton = useRef<HTMLButtonElement>(null)
+  const removeButton = useRef<HTMLButtonElement>(null)
+  // The toast of a failure, taken down as the next try starts: it no longer says how things are.
+  const failureToast = useRef<string | null>(null)
+  const clearFailure = () => { setFailure(null); if (failureToast.current) toast.dismiss(failureToast.current); failureToast.current = null }
   const { api } = useSession()
   const toast = useToast()
   const announce = useAnnounceProfileChange()
@@ -68,37 +78,45 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    setBusy('preparing'); setOpen(true)
+    setBusy('preparing'); setOpen(true); setOutcome(null); clearFailure()
     try { setPrepared(await reencodePhoto(file)) }
     catch (cause) {
       setOpen(false)
       toast.error({ title: 'That picture can’t be used', message: cause instanceof PhotoProblem ? cause.message : 'Choose a JPEG or PNG photo.' })
     } finally { setBusy(null) }
   }
-  const close = () => { if (busy === 'saving' || busy === 'removing') return; setOpen(false); setPrepared(null) }
+  const close = () => { if (busy === 'saving' || busy === 'removing') return; setOpen(false); setPrepared(null); setFailure(null) }
   const save = async () => {
     if (!prepared || busy) return
-    setBusy('saving')
+    setBusy('saving'); setOutcome(null); clearFailure()
     try {
       await api.savePhoto(await base64Of(prepared))
       await onChanged?.(); void photo.reload(); announce()
-      // The card shows the new photo: that is the result, so no toast repeats it.
-      setOpen(false); setPrepared(null)
+      // The card shows the new photo; a polite line under it says so, and focus goes to the photo control on it.
+      setOpen(false); setPrepared(null); setOutcome('Your photo was saved.')
+      focusAfter(() => picker.current)
     } catch (cause) {
-      toast.error({ title: 'Couldn’t save your photo', message: isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? 'Choose a JPEG or PNG photo.' : plainErrorText(cause, 'Please try again.') })
+      const reason = isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? 'Choose a JPEG or PNG photo.' : plainErrorText(cause, 'Please try again.')
+      failureToast.current = toast.error({ title: 'Couldn’t save your photo', message: reason })
+      // The drawer stays open with the photo to save again: focus goes back to Save photo, which names why.
+      setFailure(`Your photo wasn’t saved. ${reason}`)
+      focusAfter(() => saveButton.current)
     } finally { setBusy(null) }
   }
   const remove = async () => {
     if (busy) return
-    setBusy('removing')
+    setBusy('removing'); setOutcome(null); clearFailure()
     try {
       await api.removePhoto(); photo.forget()
       await onChanged?.(); announce()
-      setOpen(false); setPrepared(null)
+      setOpen(false); setPrepared(null); setOutcome('Your photo was removed.')
       // "Remove photo" goes with the photo: focus goes to the photo control, which now adds one.
       focusAfter(() => picker.current)
     } catch (cause) {
-      toast.error({ title: 'Couldn’t remove your photo', message: plainErrorText(cause, 'Please try again.') })
+      const reason = plainErrorText(cause, 'Please try again.')
+      failureToast.current = toast.error({ title: 'Couldn’t remove your photo', message: reason })
+      setFailure(`Your photo wasn’t removed. ${reason}`)
+      focusAfter(() => removeButton.current)
     } finally { setBusy(null) }
   }
 
@@ -121,9 +139,12 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
           aria-label={photo.url ? 'Change the photo on your card' : 'Add a photo to your card'} onChange={event => void choose(event)} />
       </label> : undefined} face={face} />
 
+    {/* What the last save or removal came to, mounted throughout so each is read out (PPS-05). */}
+    {editable && <p role="status" className="m-0 text-center text-[13px] text-ink-2 empty:hidden">{outcome}</p>}
+
     {/* The photo is changed on the card; removing it is one step away, under it, and asked again in the drawer. */}
     {editable && photo.url && <Button size="sm" variant="ghost" icon={Trash2} className="self-center" disabled={busy !== null}
-      onClick={() => { setPrepared(null); setOpen(true) }}>Remove photo</Button>}
+      onClick={() => { setPrepared(null); setOutcome(null); clearFailure(); setOpen(true) }}>Remove photo</Button>}
 
     {links.length > 0 && <div className="flex gap-2">
       {links.includes('share') && <Button to={shareTo} variant={sharePrimary ? 'primary' : 'secondary'} icon={Share2} className="flex-1">Share records</Button>}
@@ -142,9 +163,11 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
     <Drawer open={open} onClose={close} title="Your card photo" icon={<IconChip icon={Camera} tone="brand" />}
       description="Clinicians see it when you share your records, so they know it’s you."
       footer={<>
-        {photo.url && <Button variant="danger" icon={Trash2} className="mr-auto" loading={busy === 'removing'} disabled={busy !== null} onClick={() => void remove()}>Remove</Button>}
+        {photo.url && <ButtonR ref={removeButton} variant="danger" icon={Trash2} className="mr-auto" loading={busy === 'removing'} disabled={busy !== null}
+          aria-describedby={failure && !prepared ? 'card-photo-failure' : undefined} onClick={() => void remove()}>Remove</ButtonR>}
         <Button disabled={busy === 'saving' || busy === 'removing'} onClick={() => picker.current?.click()}>Choose another</Button>
-        <Button variant="primary" loading={busy === 'saving'} disabled={!prepared || busy !== null} onClick={() => void save()}>Save photo</Button></>}>
+        <ButtonR ref={saveButton} variant="primary" loading={busy === 'saving'} disabled={!prepared || busy !== null}
+          aria-describedby={failure && prepared ? 'card-photo-failure' : undefined} onClick={() => void save()}>Save photo</ButtonR></>}>
       <div className="flex flex-col items-center gap-4 py-2">
         <div className="relative size-44 overflow-hidden rounded-2xl bg-tray ring-1 ring-line">
           {preview ? <img src={preview} alt="Your new photo, cropped to a square" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
@@ -152,6 +175,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
             : <span role="status" className="absolute inset-0 flex items-center justify-center text-[13px] text-ink-3">{busy === 'preparing' ? 'Preparing your photo…' : 'No photo chosen'}</span>}
         </div>
         <p className="m-0 max-w-xs text-center text-[13px] text-ink-3">A clear photo of your face, like a passport photo. It’s cropped to a square, and nothing else from the file is sent.</p>
+        {/* Said by the toast as it happens; kept here, as Save photo's or Remove's description, while the drawer is open. */}
+        {failure && <p id="card-photo-failure" className="m-0 max-w-xs text-center text-[13px] font-medium text-danger-ink">{failure}</p>}
       </div>
     </Drawer>
   </div>
@@ -246,15 +271,24 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
       {/* The holder: name, NIN and the ID. */}
       <div className="absolute right-[7.5cqw] bottom-[6.5cqw] left-[7.5cqw] flex items-end justify-between gap-[4cqw]">
         <div className="min-w-0">
-          <p className="m-0 flex items-center gap-[1.2cqw] truncate text-[3.2cqw] leading-none font-medium tracking-[.12em] text-white/90 uppercase">{name}
-            {verified !== null && (verified ? <BadgeCheck className="size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
-              : <CircleAlert className="size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
+          {/* The whole name, always (HCS-05): it wraps to a second line rather than being cut off, a step smaller when it
+              is long, its lines balanced so the first stays clear of the photo's pill; the NIN mark stays beside its last
+              line, outside the wrapped text. The ID's line below keeps its place. */}
+          <div className="flex items-end gap-[1.2cqw]">
+            <p className={cx('m-0 line-clamp-2 min-w-0 leading-[1.18] font-medium tracking-[.12em] text-balance [overflow-wrap:anywhere] text-white/90 uppercase',
+              name.length > LONG_NAME ? 'text-[2.8cqw]' : 'text-[3.2cqw]')}>{name}</p>
+            {verified !== null && (verified ? <BadgeCheck className="mb-[.1cqw] size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
+              : <CircleAlert className="mb-[.1cqw] size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}
+          </div>
           <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-note]:text-[3cqw] [&_.patient-hid-note]:tracking-normal [&_.patient-hid-note]:text-white/80">{hid}</div>
         </div>
       </div>
     </section>
   </div>
 }
+
+/** Names longer than this are printed a step smaller on the card, so most fit on one line and the rest on two. */
+const LONG_NAME = 26
 
 /** Blood group and genotype as the card prints them, each only where it is known. */
 export function cardFacts(bloodGroup?: string | null, genotype?: string | null): Array<readonly [string, string]> {

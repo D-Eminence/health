@@ -125,3 +125,23 @@ export function patientAccessStatusLabel(value: string | null | undefined): stri
   const key = (value ?? '').trim().toLowerCase()
   return Object.hasOwn(PATIENT_ACCESS_STATUSES, key) ? PATIENT_ACCESS_STATUSES[key]! : 'Closed'
 }
+
+const GENDERS: Readonly<Record<string, string>> = { female: 'Female', male: 'Male', intersex: 'Intersex', other: 'Other' }
+
+/**
+ * The gender on the profile in words: "Female", "Male", "Intersex", "Other". "unknown" (one of the sign-up's choices)
+ * and none both read "Not given", as every detail not there does; any other value in plain words, never as stored.
+ */
+export function genderLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase()
+  if (!key || key === 'unknown') return 'Not given'
+  return Object.hasOwn(GENDERS, key) ? GENDERS[key]! : plainCode(key)
+}
+
+/** The country on the profile by its name ("Nigeria"), never its two-letter code; "Not given" for none. */
+export function countryLabel(value: string | null | undefined): string {
+  const text = (value ?? '').trim()
+  if (!text) return 'Not given'
+  if (!/^[a-z]{2}$/i.test(text)) return text
+  try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(text.toUpperCase()) ?? text.toUpperCase() } catch { return text.toUpperCase() }
+}

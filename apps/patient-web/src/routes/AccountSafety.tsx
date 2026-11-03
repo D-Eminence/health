@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isHidApiError, plainErrorText } from '@hid/http'
+import { isConnectionFailure, isHidApiError, plainErrorText } from '@hid/http'
 import {
   EMERGENCY_CONTACT_RELATIONSHIPS, type AccountDeletionBlockedReason, type AccountDeletionRequested, type AccountDeletionStatus,
   type EmergencyContact, type EmergencyContactChannel, type EmergencyContactRelationship, type EmergencyContactsAvailability,
@@ -20,6 +20,7 @@ import { LoadingRows } from '../kasuwa/parts'
 import { UserPlus } from 'lucide-react'
 import { PATIENT_REFUSALS, SAY } from '../copy'
 import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved } from './profileParts'
+import { needsRecentSignIn, SignInAgain } from './SignInAgain'
 
 /*
  * Patient-facing account deletion and emergency-contact management. The
@@ -79,6 +80,17 @@ function deletionProblem(cause: unknown, fallback: string) {
       return 'For your safety, you can’t delete your account for 24 hours after you recover it.'
     default: return problem(cause, fallback)
   }
+}
+
+/**
+ * A deletion confirmation that did not go through (PPS-12). Refused (a 4xx answer), the account was not deleted, and
+ * that is said first. With no answer, or a failure on Identity's side, it may have gone through: that is not claimed
+ * either way, and the status read again after it shows a scheduled deletion if there is one.
+ */
+function confirmationProblem(cause: unknown) {
+  const refused = isHidApiError(cause) && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && !isConnectionFailure(cause)
+  return refused ? `Your account wasn’t deleted. ${deletionProblem(cause, 'Please start again.')}`
+    : `We couldn’t confirm the deletion. ${deletionProblem(cause, 'Please check below, and start again if it isn’t scheduled.')}`
 }
 
 const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
@@ -503,8 +515,11 @@ export function AccountDeletionCard() {
   const status = usePatientResource<AccountDeletionStatus | null>(load, 'account-deletion')
   const served = useAccountDeletionServed()
   const [retried, setRetried] = useState(false)
-  const [busy, setBusy] = useState(false)
+  // What runs (Continue, Delete my account, or a cancel): only its button shows busy.
+  const [working, setWorking] = useState<'request' | 'confirm' | 'cancel' | null>(null)
+  const busy = working !== null
   const [error, setError] = useState<string | null>(null)
+  const [signInAgain, setSignInAgain] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
   const [pending, setPending] = useState<AccountDeletionRequested | null>(null)
@@ -525,19 +540,19 @@ export function AccountDeletionCard() {
 
   const request = async () => {
     if (busy || !acknowledged) return
-    setBusy(true); setError(null); setNotice(null)
+    setWorking('request'); setError(null); setSignInAgain(false); setNotice(null)
     // On success the confirmation opens with focus in its phrase field.
     try { setPending(await api.requestAccountDeletion()); setPhrase('') }
     catch (cause) {
-      setError(deletionProblem(cause, 'Couldn’t start deleting your account. Try again.'))
+      setError(deletionProblem(cause, 'Couldn’t start deleting your account. Try again.')); setSignInAgain(needsRecentSignIn(cause))
       focusAfter(() => proceedButton.current)
-    } finally { setBusy(false) }
+    } finally { setWorking(null) }
   }
 
   const confirm = async (event: FormEvent) => {
     event.preventDefault()
     if (busy || !pending || phrase.trim().toUpperCase() !== CONFIRMATION_PHRASE) return
-    setBusy(true); setError(null); setNotice(null)
+    setWorking('confirm'); setError(null); setSignInAgain(false); setNotice(null)
     try {
       const result = await api.confirmAccountDeletion(pending.requestId, pending.confirmationToken, phrase)
       setPending(null); setPhrase(''); setAcknowledged(false)
@@ -545,21 +560,22 @@ export function AccountDeletionCard() {
       else { await status.reload(); focusAfter(() => heading.current) }
     } catch (cause) {
       setPending(null); setPhrase('')
-      setError(deletionProblem(cause, 'Your account wasn’t deleted. Please start again.'))
+      setError(confirmationProblem(cause)); setSignInAgain(needsRecentSignIn(cause))
+      // The status read again says whether a deletion is scheduled, where the answer was lost.
       await status.reload()
       focusAfter(() => heading.current)
-    } finally { setBusy(false) }
+    } finally { setWorking(null) }
   }
 
   const cancel = async (requestId: string, control: HTMLElement) => {
     if (busy) return
-    setBusy(true); setError(null); setNotice(null)
+    setWorking('cancel'); setError(null); setSignInAgain(false); setNotice(null)
     try {
       await api.cancelAccountDeletion(requestId); setPending(null); setNotice('Deletion cancelled. Your account stays open.')
       await status.reload()
       focusAfter(() => heading.current)
-    } catch (cause) { setError(problem(cause, 'Couldn’t cancel. Try again.')); focusAfter(() => control) }
-    finally { setBusy(false) }
+    } catch (cause) { setError(problem(cause, 'Couldn’t cancel. Try again.')); setSignInAgain(needsRecentSignIn(cause)); focusAfter(() => control) }
+    finally { setWorking(null) }
   }
 
   const finish = async () => {
@@ -592,6 +608,7 @@ export function AccountDeletionCard() {
   return <ProfileSection id="account-deletion" title="Delete account" tone="danger" headingRef={heading}
     headingId="account-deletion-heading" state={status.error ? 'Could not load' : scheduled ? 'Scheduled' : null}>
     {error && <Problem>{error}</Problem>}
+    {error && signInAgain && <SignInAgain at="account-deletion" />}
     <Saved>{notice}</Saved>
     {status.loading && !status.data && <LoadingRows rows={1} label="Checking your account" />}
     {status.error && <LoadProblem what="this" error={status.error} buttonRef={retryFocus.button}
@@ -609,14 +626,17 @@ export function AccountDeletionCard() {
         {!pending ? <>
           <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-ink"><input type="checkbox" className="size-5 shrink-0 accent-[var(--color-danger)]" checked={acknowledged}
             onChange={event => setAcknowledged(event.target.checked)} />I understand what deleting my account means</label>
-          <Hint>{SAY.signInAgain}</Hint>
-          <ButtonR ref={proceedButton} variant="destructive" className="self-start" disabled={busy || status.loading || !acknowledged} onClick={() => void request()}>Continue to delete account</ButtonR>
+          {/* The rule, as the Access PIN states it: how to sign in again is said, with a button, only if it is refused. */}
+          <Hint>You must have signed in within the last 10 minutes to delete your account.</Hint>
+          <ButtonR ref={proceedButton} variant="destructive" className="self-start" loading={working === 'request'} disabled={busy || status.loading || !acknowledged}
+            onClick={() => void request()}>{working === 'request' ? 'Starting…' : 'Continue to delete account'}</ButtonR>
         </> : <form className="flex flex-col gap-4" onSubmit={event => void confirm(event)}>
           <Field label={`Type ${CONFIRMATION_PHRASE} to confirm`} htmlFor="account-deletion-phrase" hintId="account-deletion-phrase-hint" hint={`Finish before ${watDateTime(pending.confirmationExpiresAt)}.`}>
             <Input id="account-deletion-phrase" autoFocus required autoComplete="off" spellCheck={false} value={phrase}
               onChange={event => setPhrase(event.target.value)} aria-describedby="account-deletion-phrase-hint" /></Field>
           <Actions>
-            <Button type="submit" variant="destructive" disabled={busy || phrase.trim().toUpperCase() !== CONFIRMATION_PHRASE}>Delete my account</Button>
+            <Button type="submit" variant="destructive" loading={working === 'confirm'} disabled={busy || phrase.trim().toUpperCase() !== CONFIRMATION_PHRASE}>
+              {working === 'confirm' ? 'Deleting…' : 'Delete my account'}</Button>
             <Button disabled={busy} onClick={event => void cancel(pending.requestId, event.currentTarget as HTMLElement)}>Keep my account</Button>
           </Actions>
         </form>}
