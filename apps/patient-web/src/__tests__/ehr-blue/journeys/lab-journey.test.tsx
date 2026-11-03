@@ -85,7 +85,7 @@ async function scientistTestsAndSaves(named: boolean) {
   fireEvent.click(await screen.findByRole('button', { name: 'Collect sample' }))
   const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
   if (named) expect(within(sheet).getByText('Check the name with the person before you take it.')).toBeTruthy()
-  else expect(within(sheet).getByText('Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.')).toBeTruthy()
+  else expect(within(sheet).getByText('Health ID didn’t send this person’s name. Before you take the sample, confirm who they are with the doctor or nurse who asked for the test.')).toBeTruthy()
   await confirmSheet('Collect the sample', 'Collect sample')
   fireEvent.click(await screen.findByRole('button', { name: 'Receive sample' }))
   fireEvent.change(await screen.findByRole('textbox', { name: 'What is being done' }), { target: { value: 'Run on the analyser' } })

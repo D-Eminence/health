@@ -83,7 +83,8 @@ export function RoutedWorkPaused({ items, crossFacilityWork, receives }: {
 }) {
   const listed = Boolean(items?.some(item => item.orderRoute))
   if (crossFacilityWork !== false || !(receives || listed)) return null
-  return <DeptNotice tone="critical">{listed ? 'Work on orders from other facilities is paused by Health ID. You can still read them.'
+  // While paused, Health ID refuses every read and write on such work (hid-system 0086 order_route_item_access 'paused').
+  return <DeptNotice tone="critical">{listed ? 'Work on orders from other facilities is paused by Health ID. Until it resumes they can’t be opened or worked on. They are not cancelled.'
     : 'Work on orders from other facilities is paused by Health ID: any you accepted are hidden from this list until it resumes. '
       + 'They are not cancelled.'}</DeptNotice>
 }

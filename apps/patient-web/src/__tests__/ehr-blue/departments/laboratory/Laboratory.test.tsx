@@ -687,7 +687,7 @@ describe('sample custody', () => {
     fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
     const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
     expect(within(sheet).getByRole('region', { name: `Patient: ${MASKED}` })).toBeTruthy()
-    expect(within(sheet).getByText('Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.')).toBeTruthy()
+    expect(within(sheet).getByText('Health ID didn’t send this person’s name. Before you take the sample, confirm who they are with the doctor or nurse who asked for the test.')).toBeTruthy()
     await answerSheet('Collect the sample', 'Collect sample')
     await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
     expect(api.createLabAccession).not.toHaveBeenCalled()
@@ -1250,7 +1250,7 @@ describe('work from another facility', () => {
   it('says work on orders from other facilities is paused', async () => {
     api.labWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     renderPage()
-    expect(await screen.findByText('Work on orders from other facilities is paused by Health ID. You can still read them.')).toBeTruthy()
+    expect(await screen.findByText('Work on orders from other facilities is paused by Health ID. Until it resumes they can’t be opened or worked on. They are not cancelled.')).toBeTruthy()
   })
 
   it('shows Incoming at a laboratory that receives orders, and reads it', async () => {

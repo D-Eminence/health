@@ -260,7 +260,7 @@ describe('lab launch: sample custody', () => {
     await openAccession(CUSTODY, accession([specimen('required')]), sampled('required'))
     fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
     const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
-    expect(within(sheet).getByText('Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.')).toBeTruthy()
+    expect(within(sheet).getByText('Health ID didn’t send this person’s name. Before you take the sample, confirm who they are with the doctor or nurse who asked for the test.')).toBeTruthy()
     expect(sheet.textContent).not.toMatch(/Check the name with the person/)
   })
 
@@ -418,11 +418,26 @@ describe('lab launch: lists and pages in plain words (loading, empty, access, cl
 
   it.each([
     ['collect', 'No one is waiting for a sample'], ['testing', 'No samples being tested'], ['enter', 'No results to enter'],
-    ['check', 'No results to check'], ['done', 'Nothing finished yet'],
+    ['check', 'No results to check'], ['done', 'Finished requests aren’t listed here yet'],
   ])('says an empty %s stage in plain words, never "today"', async (stage, title) => {
     renderPage(`${WORK_LIST}?stage=${stage}`)
     expect(await screen.findByText(title)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/today|Nothing in /)
+  })
+
+  it('says Done can’t list finished requests while the list can’t tell, and where to find them', async () => {
+    // hid-system 34d69557 sends no stage past the sample: a released request stays under Testing.
+    api.labWorkItems.mockResolvedValue({ items: [received()] })
+    const { unmount } = renderPage(`${WORK_LIST}?stage=done`)
+    expect(await screen.findByText('Finished requests aren’t listed here yet')).toBeTruthy()
+    expect(screen.getByText('For now a finished request still shows under Testing. Open it there to see its result.')).toBeTruthy()
+    expect(screen.queryByText('Nothing finished yet')).toBeNull()
+    unmount()
+    // Once Lab says what is finished, an empty Done means nothing is.
+    api.labWorkItems.mockResolvedValue({ items: [listed({ openWork: true })] })
+    renderPage(`${WORK_LIST}?stage=done`)
+    expect(await screen.findByText('Nothing finished yet')).toBeTruthy()
+    expect(screen.queryByText(/still shows under Testing/)).toBeNull()
   })
 
   it('on a hospital, says a request shows once you have access to the patient, with Find the patient', async () => {
@@ -430,9 +445,16 @@ describe('lab launch: lists and pages in plain words (loading, empty, access, cl
     const { unmount } = renderPage()
     const note = (await screen.findByText(/^A doctor’s request shows here once you have access to that patient\./)).closest('div') as HTMLElement
     expect(note.textContent?.replace(/\s+/g, ' ')).toBe('A doctor’s request shows here once you have access to that patient. Find the patient, '
-      + 'then use their Access PIN or ask them in the Health ID app.')
+      + 'then ask them to approve your access in the Health ID app.')
     expect(within(note).getByRole('link', { name: 'Find the patient' }).getAttribute('href')).toBe('/provider/patients')
     unmount()
+    // Only a role that may use an Access PIN (doctor, clinician, nurse) is sent to one.
+    as([...WORK, 'identity.patient.read', 'identity.patient-access-pin.verify'], { name: 'Riverside Teaching Hospital (fictional)', roles: ['nurse'] })
+    const pin = renderPage()
+    const withPin = (await screen.findByText(/^A doctor’s request shows here once you have access to that patient\./)).closest('div') as HTMLElement
+    expect(withPin.textContent?.replace(/\s+/g, ' ')).toBe('A doctor’s request shows here once you have access to that patient. Find the patient, '
+      + 'then use their Access PIN or ask them in the Health ID app.')
+    pin.unmount()
     // A laboratory of its own (signed itself up) gets no doctor's requests from its own facility: nothing is said.
     as([...WORK, 'identity.patient.read'], { selfService: { review: 'reviewed', organizationType: 'laboratory' } })
     renderPage()

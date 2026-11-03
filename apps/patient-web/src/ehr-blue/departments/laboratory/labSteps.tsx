@@ -273,7 +273,7 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
     {next.action === 'collect' ? <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
       effect={<>Collect the <strong>{test}</strong> sample ({specimen.specimenType}) from <strong>{subject.name}</strong>?</>}
       undo={subject.named ? 'Check the name with the person before you take it.'
-        : 'Health ID didn’t send this person’s name. Check who they are against the request before you take the sample.'}
+        : 'Health ID didn’t send this person’s name. Before you take the sample, confirm who they are with the doctor or nurse who asked for the test.'}
       confirmLabel="Collect sample" onConfirm={() => void step('collect')} /> : null}
   </div>
 }

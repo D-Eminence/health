@@ -31,7 +31,7 @@ import { usePaymentSettings } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, paysFirst } from '../pharmacy/pocFields'
 import { LabRequest } from './LabRequest'
 import {
-  ageSex, byUrgencyThenWait, factsOfItem, nextAction, personOf, requestOf, stageOf, STAGE_LABEL, STAGES, waitedText, type LabStage,
+  ageSex, byUrgencyThenWait, factsOfItem, listSaysStage, nextAction, personOf, requestOf, stageOf, STAGE_LABEL, STAGES, waitedText, type LabStage,
 } from './stage'
 
 /** The work list's address; a request opens below it (`/work/:id`), so Back and a refresh keep the place. */
@@ -109,6 +109,8 @@ export function Laboratory() {
   })
   const groups = groupsOf(searched)
   const count = (stage: LabStage) => groups.filter(group => group.stage === stage).length
+  // Today's work list sends nothing past the sample, so it can't tell what is finished (as on Results).
+  const listsStage = items.some(listSaysStage)
   const asked = params.get(STAGE_PARAM)
   // With no stage in the address: the first with work waiting, else Waiting for sample.
   const stage: LabStage = isStage(asked) ? asked : STAGES.find(value => value !== 'done' && groupsOf(items).some(group => group.stage === value)) ?? 'collect'
@@ -190,10 +192,11 @@ export function Laboratory() {
         </>} />
       <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
       {/* Lab lists a doctor's request at this facility only to someone holding their own access to that patient (hid-system
-          0086 lab.work_item_allows, a grant per member): said where the lab is part of the facility, not a lab of its own. */}
+          0086 lab.work_item_allows, a grant per member): said where the lab is part of the facility, not a lab of its own.
+          The Access PIN is offered only to a role that may use it (0033: doctor, clinician and nurse). */}
       {permissions.includes('identity.patient.read') && selfServiceType(facility) !== 'laboratory' ? <DeptNotice>A doctor’s request shows here
-        once you have access to that patient. <Link to="/provider/patients">Find the patient</Link>, then use their Access PIN or ask them in
-        the Health ID app.</DeptNotice> : null}
+        once you have access to that patient. <Link to="/provider/patients">Find the patient</Link>, then {permissions.includes('identity.patient-access-pin.verify')
+          ? 'use their Access PIN or ask them in the Health ID app' : 'ask them to approve your access in the Health ID app'}.</DeptNotice> : null}
       {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
         onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded> : null}
@@ -211,8 +214,10 @@ export function Laboratory() {
           onChange={event => setSearch(event.target.value)} className="@4xl:w-80" />
       </div>
       <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
-        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : EMPTY_TITLE[stage],
-          description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
+        empty={shown.length === 0 ? { icon: FlaskConical,
+          title: search.trim() ? 'Nothing matches' : stage === 'done' && !listsStage ? 'Finished requests aren’t listed here yet' : EMPTY_TITLE[stage],
+          description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.'
+            : stage === 'done' && !listsStage ? 'For now a finished request still shows under Testing. Open it there to see its result.' : undefined } : null}>
         <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}
             below={group.items.map(item => {

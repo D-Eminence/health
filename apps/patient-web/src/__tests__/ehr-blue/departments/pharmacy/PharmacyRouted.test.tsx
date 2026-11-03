@@ -153,9 +153,9 @@ describe('work between facilities paused', () => {
   it('says so above the list and on the record while such work is listed', async () => {
     api.pharmacyWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     await renderList()
-    expect(screen.getByText('Work on orders from other facilities is paused by Health ID. You can still read them.')).toBeTruthy()
+    expect(screen.getByText('Work on orders from other facilities is paused by Health ID. Until it resumes they can’t be opened or worked on. They are not cancelled.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: NAME }))
-    expect(screen.getAllByText('Work on orders from other facilities is paused by Health ID. You can still read them.').filter(notice => !notice.closest('[hidden]'))).toHaveLength(1)
+    expect(screen.getAllByText('Work on orders from other facilities is paused by Health ID. Until it resumes they can’t be opened or worked on. They are not cancelled.').filter(notice => !notice.closest('[hidden]'))).toHaveLength(1)
   })
 
   it('says accepted work is hidden, not cancelled, at a pharmacy with none listed', async () => {
