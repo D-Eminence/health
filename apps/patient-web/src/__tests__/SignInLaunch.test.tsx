@@ -89,14 +89,14 @@ describe('a refused sign-in (SO-03)', () => {
     expect(screen.getByLabelText('Password').getAttribute('aria-invalid')).toBe('true')
   })
 
-  it('moves focus to the refusal itself when it is not about what was typed', async () => {
+  it('says a refusal that is not about what was typed as an alert, with focus back at the first field', async () => {
     openSignIn(path => path === '/auth/patient/login' ? problem(503, 'IDENTITY_SERVICE_UNAVAILABLE', 'down') : problem(500, 'UNEXPECTED', path))
     fill()
     await pressSignIn()
-    const focused = document.activeElement as HTMLElement
-    expect(focused.getAttribute('tabindex')).toBe('-1')
-    expect(focused.textContent).toMatch(/Please try again|could not be completed|Try again/)
+    expect(document.activeElement).toBe(screen.getByLabelText('Email, phone or Health ID'))
+    expect(screen.getByRole('alert').textContent).toMatch(/try again/i)
     expect(screen.getByLabelText('Password').getAttribute('aria-invalid')).toBeNull()
+    expect(screen.getByLabelText('Email, phone or Health ID').getAttribute('aria-describedby')).toBeNull()
   })
 
   it('drops the marks once another sign-in is tried and accepted', async () => {
@@ -160,6 +160,11 @@ describe('a session that ended (HCS-06)', () => {
   it('says the patient was signed out because the session ended, as an alert', () => {
     openSignIn(path => problem(500, 'UNEXPECTED', path), { session: { sessionEnded: true } })
     expect(within(screen.getByRole('alert')).getByText('You were signed out because your session ended. Sign in again to continue.')).toBeTruthy()
+  })
+
+  it('takes focus to the page\'s heading when the patient arrives with focus lost, so the notice is found', () => {
+    openSignIn(path => problem(500, 'UNEXPECTED', path), { session: { sessionEnded: true } })
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Welcome back.' }))
   })
 
   it('says it once: another tab\'s sign-out is said instead when that is why', () => {

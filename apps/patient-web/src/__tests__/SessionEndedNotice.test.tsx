@@ -41,7 +41,8 @@ function Probe() {
 }
 
 async function signedIn(routes: Record<string, Array<() => Response>>) {
-  serve({ 'GET /api/v1/auth/session': [patient], ...routes })
+  // The page reads the session when it opens, and a sign-out asks again.
+  serve({ 'GET /api/v1/auth/session': [patient, patient], ...routes })
   render(<SessionProvider><Probe /></SessionProvider>)
   await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'))
   expect(screen.getByTestId('ended').textContent).toBe('false')
