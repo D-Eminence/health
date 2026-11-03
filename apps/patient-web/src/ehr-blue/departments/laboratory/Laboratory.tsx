@@ -197,7 +197,7 @@ export function Laboratory() {
           onChange={event => setSearch(event.target.value)} className="@4xl:w-80" />
       </div>
       <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
-        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet today' : `Nothing in ${STAGE_LABEL[stage]}`,
+        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet' : `Nothing in ${STAGE_LABEL[stage]}`,
           description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
         <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}

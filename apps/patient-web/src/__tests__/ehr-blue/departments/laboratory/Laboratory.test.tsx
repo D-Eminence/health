@@ -352,6 +352,11 @@ describe('the work list', () => {
     expect(await screen.findByText('Nothing in Waiting for sample')).toBeTruthy()
     expect(screen.getByText('New requests show here.')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
+    // Done is not only today's work, so its empty state does not say "today".
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Stage' })).getByRole('button', { name: /^Done/ }))
+    expect(screen.getByText('Nothing done yet')).toBeTruthy()
+    expect(screen.queryByText(/today/i)).toBeNull()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Stage' })).getByRole('button', { name: /^Waiting for sample/ }))
     api.labWorkItems.mockResolvedValue({ items: [workItem()] })
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await findCard('Haemoglobin')).toBeTruthy()

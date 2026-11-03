@@ -47,8 +47,10 @@ export function subjectOf(item: LabWorkItem): LabSubject {
 /** The five stages as a track, the current one marked: where this request is, and how far it has to go. */
 function StageTrack({ stage }: { readonly stage: LabStage }) {
   const at = STAGES.indexOf(stage)
-  return <ol aria-label="Progress" className="m-0 grid list-none grid-cols-5 gap-1 p-0">
-    {STAGES.map((step, index) => <li key={step} aria-current={index === at ? 'step' : undefined} className="flex min-w-0 flex-col gap-1.5">
+  // Five equal steps in a row; on a narrow phone (320px) a step keeps room for its longest word and the rest wrap.
+  return <ol aria-label="Progress" className="m-0 flex list-none flex-wrap gap-x-1 gap-y-2 p-0">
+    {STAGES.map((step, index) => <li key={step} aria-current={index === at ? 'step' : undefined}
+      className="flex min-w-[4.5rem] flex-1 basis-0 flex-col gap-1.5">
       <span aria-hidden="true" className={cx('h-1 rounded-full', index < at || stage === 'done' ? 'bg-success' : index === at ? 'bg-brand-fill' : 'bg-line-strong')} />
       <span className={cx('break-words text-[12px] leading-tight font-medium', index === at ? 'text-ink' : 'text-ink-3')}>
         {index < at || stage === 'done' ? <Check className="mr-0.5 inline size-3" aria-hidden /> : null}{STAGE_LABEL[step]}
