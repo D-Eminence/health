@@ -66,7 +66,7 @@ function StageTrack({ stage }: { readonly stage: LabStage }) {
  * comes before the sample, and what is known of it. Work from an order another facility sent keeps its checks and
  * endings (wrong patient, can't complete), and is read only once the order has closed.
  */
-export function LabRequest({ facilityId, item, siblings, permissions: granted, settings, said, backTo, onListChanged, onEnded, onNotCompleted, onReread }: {
+export function LabRequest({ facilityId, item, siblings, permissions: granted, settings, said, ended = false, backTo, onListChanged, onEnded, onNotCompleted, onReread }: {
   readonly facilityId: string
   readonly item: LabWorkItem
   /** The other tests asked for on the same request. */
@@ -75,6 +75,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   readonly settings: PaymentSettings | null
   /** What an ending's refusal said, kept when the list read again no longer offers the form. */
   readonly said: string | null
+  /** This page has just ended the order as can't complete, keeping its reads: read only now, before the list says so. */
+  readonly ended?: boolean
   readonly backTo: string
   readonly onListChanged: () => void
   readonly onEnded: (ending: WrongPatientEnding) => void
@@ -82,7 +84,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   readonly onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
 }) {
   const route = item.orderRoute
-  const closed = routeClosedForWork(route)
+  const closed = ended || routeClosedForWork(route)
   const permissions = useMemo(() => closed ? granted.filter(permission => !LAB_WRITE_PERMISSIONS.has(permission)) : granted, [closed, granted])
   const person = personOf(item)
   const subject = useMemo(() => subjectOf(item), [item])
@@ -153,7 +155,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
     {/* Focusable, so focus can be put on what a refused ending said once its form is gone. */}
     {said && route ? <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice> : null}
     {route ? <DeptEmbedded className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></DeptEmbedded> : null}
-    {closed ? <Alert intent="warning">This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.</Alert> : null}
+    {/* Not announced while the page says the ending this page has just made, with focus on it. */}
+    {closed ? <Alert intent="warning" live={!ended}>This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.</Alert> : null}
     <div role="status" aria-live="polite">{notice ? <p className="m-0 inline-flex items-center gap-2 text-[15px] font-medium text-success-ink">
       <Check className="size-4" aria-hidden />{notice}</p> : null}</div>
 
@@ -238,7 +241,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       </ul>
     </Card> : null}
 
-    {route && wrongPatientOffered(route, permissions, 'lab') ? <DeptEmbedded className="hid-ehr-dept-laboratory-endings">
+    {!ended && route && wrongPatientOffered(route, permissions, 'lab') ? <DeptEmbedded className="hid-ehr-dept-laboratory-endings">
       <OrderEndingActions base={`lab-${item.id}`} service="lab" facilityId={facilityId}
         route={{ id: route.id, version: route.version, reference: route.reference }} title={test}
         patient={item.patient?.fullName ?? null} ordering={route.orderingFacilityName ?? 'The ordering facility'}
