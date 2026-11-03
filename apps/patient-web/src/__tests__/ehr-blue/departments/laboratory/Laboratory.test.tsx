@@ -10,6 +10,7 @@ import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
 import { labPages, laboratoryPage } from '../../../../ehr-blue/departments/laboratory/page'
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * The Laboratory's work list and requests as the owner rebuilt them (laboratory/work by stage tabs, a request at
@@ -368,7 +369,8 @@ describe('the work list', () => {
     renderPage()
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Couldn’t load the work list')).toBeTruthy()
-    expect(within(alert).getByText('The service is temporarily unavailable. Please try again shortly.')).toBeTruthy()
+    expect(within(alert).getByText(SAID_UNAVAILABLE)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('The service is temporarily unavailable')
     expect(screen.queryByText('Nothing in Waiting for sample')).toBeNull()
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await findCard('Haemoglobin')).toBeTruthy()
@@ -378,7 +380,8 @@ describe('the work list', () => {
   it('says the module is not in service when the gateway has no Lab route', async () => {
     api.labWorkItems.mockRejectedValue(problem(404, 'API_ROUTE_NOT_FOUND', 'Not found'))
     renderPage()
-    expect((await screen.findByRole('alert')).textContent).toMatch(/This workspace is not in service on this Health ID deployment/)
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_NOT_TURNED_ON)
+    expect(document.body.textContent).not.toContain('deployment')
   })
 
   it('shows each request as a card with its one next action, masked patients only', async () => {
@@ -564,6 +567,7 @@ describe('registering the sample (the accession), with lab.accession.create alon
     fireEvent.click(within(card).getByRole('button', { name: 'Register sample' }))
     await waitFor(() => expect(alertsIn(card)).toEqual(['Error: The sample could not be registered. Refresh the list and try again.']))
     expect(card.textContent).not.toMatch(/accessionable|LAB_/)
+    expect(document.body.textContent).not.toContain('Lab work item is not accessionable at this facility')
     // A conflict fails the same way when tried again, so the list is read again at once.
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
     expect(alertsIn(stageCard())).toEqual(['Error: The sample could not be registered. Refresh the list and try again.'])
@@ -602,7 +606,8 @@ describe('registering the sample (the accession), with lab.accession.create alon
     press(register)
     expect(api.createLabAccession).toHaveBeenCalledTimes(1)
     await act(async () => { pending.reject(problem(503, 'SERVICE_UNAVAILABLE', 'Upstream lab-service timed out')) })
-    await waitFor(() => expect(alertsIn(card)).toEqual(['Error: The sample could not be registered. Refresh the list and try again.']))
+    // The words every page shares for Health ID being unavailable (plainErrorText), never the service's.
+    await waitFor(() => expect(alertsIn(card)).toEqual([`Error: ${SAID_UNAVAILABLE}`]))
     expect(card.textContent).not.toMatch(/Upstream|SERVICE_/)
     expect(register.getAttribute('aria-disabled')).toBeNull()
     expect(document.activeElement).toBe(register)
@@ -663,7 +668,8 @@ describe('the accession', () => {
     renderPage()
     await openRecord()
     const alert = (await screen.findByText('Couldn’t load this request')).closest('[role="alert"]') as HTMLElement
-    expect(within(alert).getByText('Lab operation is not authorized')).toBeTruthy()
+    expect(within(alert).getByText(SAID_REFUSED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Lab operation is not authorized')
     expect(screen.queryByRole('button', { name: 'Collect sample' })).toBeNull()
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('button', { name: 'Collect sample' })).toBeTruthy()
@@ -803,8 +809,9 @@ describe('sample custody', () => {
     api.transitionSpecimen.mockRejectedValue(problem(412, 'VERSION_CONFLICT', 'Specimen changed since it was loaded'))
     fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
     await answerSheet('Collect the sample', 'Collect sample')
-    await waitFor(() => expect(alertsIn(stageCard())).toEqual(['Error: The sample could not be updated. Refresh and try again.']))
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual([`Error: ${SAID_CHANGED}`]))
     expect(stageCard().textContent).not.toMatch(/Specimen changed|VERSION_CONFLICT/)
+    expect(document.body.textContent).not.toContain('Specimen changed since it was loaded')
     expect(api.labAccession).toHaveBeenCalledTimes(1)
   })
 
@@ -831,7 +838,8 @@ describe('sample custody', () => {
     press(receive)
     expect(api.transitionSpecimen).toHaveBeenCalledTimes(1)
     await act(async () => { pending.reject(problem(503, 'SERVICE_UNAVAILABLE', 'Upstream lab-service timed out')) })
-    await waitFor(() => expect(alertsIn(stageCard())).toEqual(['Error: The sample could not be updated. Refresh and try again.']))
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual([`Error: ${SAID_UNAVAILABLE}`]))
+    expect(stageCard().textContent).not.toMatch(/Upstream|SERVICE_/)
     expect(document.activeElement).toBe(receive)
   })
 
@@ -1131,7 +1139,8 @@ describe('testing and results', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Check & release' })
     fireEvent.change(within(sheet).getByRole('textbox', { name: 'What you checked' }), { target: { value: 'Review' } })
     await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check & release' })) })
-    expect((await within(card).findByRole('alert')).textContent).toContain('The person who entered a result cannot verify it')
+    expect((await within(card).findByRole('alert')).textContent).toContain('The person who entered a result can’t check it. Ask a colleague to check it.')
+    expect(document.body.textContent).not.toContain('LAB_RESULT_SELF_VERIFICATION')
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
     expect(api.releaseLabResult).not.toHaveBeenCalled()
     expect(within(card).getByText('7.1')).toBeTruthy()

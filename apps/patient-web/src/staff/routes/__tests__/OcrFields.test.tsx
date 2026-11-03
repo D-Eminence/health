@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * What the OCR page's fields say to assistive technology, and what they let a
@@ -142,7 +143,8 @@ describe('OCR IDs are UUIDs', () => {
     const documentId = screen.getByLabelText(/^Document ID/)
     fireEvent.change(documentId, { target: { value: DOCUMENT } })
     await press(screen.getByRole('button', { name: 'Find job' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('OCR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('OCR is unavailable.')
     fireEvent.change(documentId, { target: { value: 'DOC-2024-0001' } })
     await press(screen.getByRole('button', { name: 'Find job' }))
     await waitFor(() => expect(documentId.getAttribute('aria-invalid')).toBe('true'))
@@ -155,7 +157,8 @@ describe('OCR IDs are UUIDs', () => {
     const patient = screen.getByLabelText(/^Patient ID/)
     fireEvent.change(patient, { target: { value: PATIENT } })
     await press(screen.getByRole('button', { name: 'Create extraction job' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('OCR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('OCR is unavailable.')
     fireEvent.change(patient, { target: { value: 'HID-ABCDEF' } })
     await press(screen.getByRole('button', { name: 'Create extraction job' }))
     await waitFor(() => expect(patient.getAttribute('aria-invalid')).toBe('true'))
