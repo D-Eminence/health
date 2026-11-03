@@ -50,7 +50,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, fileSizeLabel, fileTypeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -61,13 +61,6 @@ function date(value: string | null | undefined) {
 function dateTime(value: string) {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
-}
-
-/** A system code shown in plain words: "outpatient_visit" reads as "Outpatient visit". */
-function plainCode(value: string | null | undefined) {
-  if (!value) return 'Not recorded'
-  const words = value.replace(/[_-]+/g, ' ').trim()
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /** " for 60 minutes", " for 2 hours", " for 7 days": how long a facility asks for, in words; nothing when unknown. */

@@ -256,8 +256,22 @@ describe('what the overview counts', () => {
 
   it('lists the latest signed notes and encounters, newest first, never an unsigned note', () => {
     const answer = { ...records, notes: [...records.notes, { ...records.notes[0]!, id: 'note-2', title: 'Draft', signedAt: null }] } as unknown as PatientRecords
-    expect(providerContributions(answer).map(row => [row.kind, row.title])).toEqual([['Clinical note', 'Malaria review'], ['Encounter', 'Outpatient visit']])
+    expect(providerContributions(answer).map(row => [row.kind, row.title])).toEqual([['Doctor’s note', 'Malaria review'], ['Visit', 'Outpatient visit']])
     expect(providerContributions({ encounters: 'x' } as unknown as PatientRecords)).toEqual([])
+  })
+
+  it('names each contribution as the Records page does: a note’s own title as written, else its type in words, and a visit as a visit', async () => {
+    const notes = [
+      { ...records.notes[0]!, id: 'note-a', title: '', noteType: 'progress_note', signedAt: at(97) },
+      { ...records.notes[0]!, id: 'note-b', title: 'Follow-up: BP_check', signedAt: at(96) },
+    ]
+    renderPortal(<Overview />, gateway({ '/ehr/me/records': () => json({ ...records, notes }) }), {}, parity)
+    const contributions = await region('Latest from your providers')
+    expect(await contributions.findByText('Follow-up: BP_check')).toBeTruthy()
+    expect(contributions.getByText('Progress note')).toBeTruthy()
+    expect(contributions.queryByText(/progress_note|Encounter/)).toBeNull()
+    expect(contributions.getAllByText(/^Visit · /)).toHaveLength(1)
+    expect(contributions.getAllByText(/^Doctor’s note · /)).toHaveLength(2)
   })
 
   it('needs attention only for what it can say', () => {

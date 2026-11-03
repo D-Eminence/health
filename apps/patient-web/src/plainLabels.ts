@@ -104,3 +104,10 @@ export function scanStatusLabel(value: string | null | undefined): string {
     default: return ''
   }
 }
+
+/** A system code shown in plain words: "outpatient_visit" reads as "Outpatient visit"; "Not recorded" for none. */
+export function plainCode(value: string | null | undefined): string {
+  if (!value) return 'Not recorded'
+  const words = value.replace(/[_-]+/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
