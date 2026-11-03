@@ -9,13 +9,15 @@ import { DeptNotice } from '../parts/DeptNotice'
 import type { Product } from '../../frame/product'
 import { resolveStaffProductHostname } from '../../../productHostname'
 import { demoFacilitySite } from '../../blueFacilities'
+import { OnePersonLab } from './OnePersonLab'
 
 /*
  * Facility profile (target admin/facility.png), read-only: the working facility as today's staff session reports it
  * (staff/api.ts Facility: its name and, at a facility that signed itself up, Health ID support's check and the
  * facility's type). Health ID has no read or write for the rest of the target's profile, so each of those fields says it
  * is not available, and nothing is saved. As the target draws it, the page ends with the verification banner and
- * "Verification history". No request is made.
+ * "Verification history". The one request is the facility administrator's One-person lab switch (OnePersonLab.tsx),
+ * for holders of organization.manage only.
  */
 
 const NOT_AVAILABLE = 'Not recorded'
@@ -152,6 +154,7 @@ export function FacilityProfile() {
         <p className="hid-ehr-dept-muted">{NOT_AVAILABLE}.</p>
       </DeptSection>
       <Verification name={facility.name} review={review} type={type} />
+      <OnePersonLab key={facility.id} facilityId={facility.id} permissions={facility.permissions} />
       <DeptSection title="Verification history">
         <p className="hid-ehr-dept-muted">{NOT_AVAILABLE}.</p>
       </DeptSection>

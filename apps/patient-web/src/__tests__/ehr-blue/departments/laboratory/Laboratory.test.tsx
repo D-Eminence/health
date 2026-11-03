@@ -1255,6 +1255,158 @@ describe('testing and results', () => {
     expect(document.body.textContent).not.toContain(refusal.code)
     expect(api.releaseLabResult).not.toHaveBeenCalled()
   })
+
+  // One-person lab (owner decision 33.3, hid-system 0111): Lab's result reads say whether the facility is a one-person lab
+  // and whether the reader entered the version. With neither key, the step is today's.
+  describe('one-person lab', () => {
+    const SELF_HINT = 'You entered this result. Your lab works as a one-person lab, so you can check it yourself. Say why.'
+    const mine = (onePersonLab: boolean | undefined, enteredByYou = true) => draftResult({
+      ...(onePersonLab === undefined ? {} : { onePersonLab }), revisions: [revision({ enteredByYou })] })
+
+    async function openSelfCheck() {
+      const result = mine(true)
+      api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+      const card = await openReceived()
+      fireEvent.click(within(card).getByRole('button', { name: 'Check it yourself' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Check it yourself' })
+      return { result, card, sheet, reason: within(sheet).getByRole('textbox', { name: 'Why you are checking it yourself' }) as HTMLTextAreaElement }
+    }
+
+    it('offers the person who entered it to check it themselves, with a reason of 10 to 500 characters sent exactly as typed', async () => {
+      api.verifyLabResult.mockResolvedValue(verifiedResult())
+      const { result, card, sheet, reason } = await openSelfCheck()
+      expect(within(card).getByText(SELF_HINT)).toBeTruthy()
+      expect(within(card).queryByRole('button', { name: 'Verify result version' })).toBeNull()
+      expect(within(sheet).getByText(/^Check version 1 /).textContent).toBe(`Check version 1 of the Hemoglobin result for ${MASKED} yourself?`)
+      expect(reason.id).toBe('lab-self-check-reason-execution-1')
+      expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent)
+        .toBe(`${SELF_HINT} 0 of 500 characters; at least 10.`)
+      fireEvent.change(reason, { target: { value: '  Too short ' } })
+      expect(document.getElementById('lab-self-check-reason-execution-1-hint')?.textContent).toContain('9 of 500 characters')
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Check it yourself' }))
+      expect(await refusalOf(reason)).toBe('Enter a reason of 10 to 500 characters.')
+      expect(api.verifyLabResult).not.toHaveBeenCalled()
+      fireEvent.change(reason, { target: { value: ' Only scientist on duty tonight ' } })
+      await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check it yourself' })) })
+      expect(await screen.findByText('You checked this result yourself. Your reason is recorded with it. Release it in the next step.')).toBeTruthy()
+      expect(api.verifyLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, result, ' Only scientist on duty tonight ', { selfCheck: true })
+      expect(api.releaseLabResult).not.toHaveBeenCalled()
+    })
+
+    it('tells the person who entered it, before they try, that a second person must check it at a two-person lab', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution({ result: mine(false) })] })
+      const card = await openReceived()
+      expect(within(card).getByText(/^A second person must check this result\./).textContent)
+        .toBe('A second person must check this result. You entered it, so a colleague who can verify results checks it.')
+      expect(within(card).queryByRole('button', { name: /verify|check it yourself/i })).toBeNull()
+      expect(within(card).queryByText(SELF_HINT)).toBeNull()
+    })
+
+    it.each([
+      ['someone else entered it at a one-person lab', mine(true, false)],
+      ['someone else entered it at a two-person lab', mine(false, false)],
+      ['Lab sends neither key (an older image)', draftResult()],
+    ])('keeps today’s verify when %s', async (_, result) => {
+      api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+      api.verifyLabResult.mockResolvedValue(verifiedResult())
+      const card = await openReceived()
+      expect(within(card).queryByRole('button', { name: 'Check it yourself' })).toBeNull()
+      expect(within(card).queryByText(/second person/)).toBeNull()
+      fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+      fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: ' Review ' } })
+      await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
+      expect(await screen.findByText('This exact result version was verified.')).toBeTruthy()
+      // No self-check is asked: an image before 0111 would refuse the field.
+      expect(api.verifyLabResult.mock.calls).toEqual([[DEMO_LABORATORY_ID, result, 'Review']])
+    })
+
+    it('treats an absent onePersonLab as off even when the version says the reader entered it', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution({ result: mine(undefined) })] })
+      const card = await openReceived()
+      expect(within(card).getByRole('button', { name: 'Verify result version' })).toBeTruthy()
+      expect(within(card).queryByText(/second person/)).toBeNull()
+    })
+
+    it.each([
+      ['LAB_RESULT_SECOND_CHECK_REQUIRED', 409, 'Error: A second person must check this result.'],
+      ['LAB_RESULT_SELF_CHECK_NOT_YOURS', 409, 'Error: Someone else entered this result; check it normally.'],
+    ])('says a refused self-check (%s) in plain words on the step', async (code, status, said) => {
+      api.verifyLabResult.mockRejectedValue(problem(status, code, 'Service words that are never shown'))
+      const { card, sheet, reason } = await openSelfCheck()
+      fireEvent.change(reason, { target: { value: 'Only scientist on duty tonight' } })
+      await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check it yourself' })) })
+      await waitFor(() => expect(alertsIn(card)).toEqual([said]))
+      expect(document.body.textContent).not.toContain('Service words that are never shown')
+      expect(document.body.textContent).not.toContain(code)
+    })
+
+    it.each([
+      ['LAB_RESULT_SELF_CHECK_REASON_REQUIRED', 409, 'You entered this result. Type why you are checking it yourself.'],
+      ['LAB_RESULT_SELF_CHECK_REASON_INVALID', 400, 'The reason must be 10 to 500 characters.'],
+    ])('says a refused reason (%s) at the reason, with the sheet still open', async (code, status, said) => {
+      api.verifyLabResult.mockRejectedValue(problem(status, code, 'Service words that are never shown'))
+      const { sheet, reason } = await openSelfCheck()
+      fireEvent.change(reason, { target: { value: 'Only scientist on duty tonight' } })
+      await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check it yourself' })) })
+      expect(await refusalOf(reason)).toBe(said)
+      expect(screen.getByRole('dialog', { name: 'Check it yourself' })).toBeTruthy()
+      expect(document.body.textContent).not.toContain(code)
+    })
+
+    it('says on the release step that the same scientist checked it', async () => {
+      const result = draftResult({ status: 'verified_not_released', verificationStatus: 'verified', onePersonLab: true,
+        revisions: [revision({ verificationStatus: 'verified', releaseStatus: 'verified_not_released', enteredByYou: true,
+          checkedBySamePerson: true, selfCheckReason: 'Only scientist on duty tonight' })] })
+      api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+      const card = await openReceived()
+      expect(within(card).getByText('Checked by the same scientist who entered it.')).toBeTruthy()
+      expect(within(card).getByRole('button', { name: 'Release result version' })).toBeTruthy()
+    })
+
+    /** A sibling test in the same request, already released: Lab carries the switch on its result, as it really sends it. */
+    const sibling = (onePersonLab?: boolean) => execution({ id: 'execution-2', requestedTestId: 'requested-test-2',
+      test: { codeSystem: 'LOINC', code: '789-8', name: 'Red cell count' },
+      result: { ...publishedResult(), id: 'result-2', executionId: 'execution-2', ...(onePersonLab === undefined ? {} : { onePersonLab }) } })
+
+    it('tells staff before they enter a first result at a two-person lab, read from a sibling result', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution(), sibling(false)] })
+      await openReceived()
+      const form = screen.getByRole('form', { name: 'Enter result: Hemoglobin' })
+      expect(within(form).getByText('A second person must check this result after it is saved.')).toBeTruthy()
+    })
+
+    it.each([['on', true], ['absent', undefined]])('says nothing of a second person on the enter step when a sibling result says the switch is %s', async (_, onePersonLab) => {
+      api.labExecutions.mockResolvedValue({ items: [execution(), sibling(onePersonLab)] })
+      await openReceived()
+      const form = screen.getByRole('form', { name: 'Enter result: Hemoglobin' })
+      expect(within(form).queryByText(/second person/)).toBeNull()
+    })
+
+    it('keeps today\'s enter step for a first entry when no result in the request says anything yet', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution()] })
+      await openReceived()
+      const form = screen.getByRole('form', { name: 'Enter result: Hemoglobin' })
+      expect(within(form).queryByText(/second person/)).toBeNull()
+    })
+
+    it('shows in the history which version the same scientist checked, and why', async () => {
+      const result = publishedResult()
+      api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+      api.labResultHistory.mockResolvedValue({ ...result, onePersonLab: true, revisions: [
+        revision({ verificationStatus: 'verified', releaseStatus: 'released', enteredByYou: true, checkedBySamePerson: true,
+          selfCheckReason: 'Only scientist on duty tonight' }),
+        revision({ version: 2, numericValue: 7.4, correctionReason: 'Transcription error', enteredByYou: false, checkedBySamePerson: null,
+          selfCheckReason: null }),
+      ] })
+      await openReceived()
+      const history = cardOf(/^Preserved versions & amendments/)
+      fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+      await within(history).findByText('Version 1 · released')
+      expect(within(history).getAllByText('Checked by the same scientist who entered it')).toHaveLength(1)
+      expect(within(history).getByText('Their reason: Only scientist on duty tonight')).toBeTruthy()
+    })
+  })
 })
 
 /* Work from orders other facilities sent here. */

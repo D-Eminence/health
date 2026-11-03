@@ -137,6 +137,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   const toEnter = record.executions.filter(execution => execution.status === 'completed' && !execution.result)
   const toCheck = record.executions.filter(execution => execution.result?.status === 'entered_unverified' || execution.result?.status === 'verified_not_released')
   const released = record.executions.filter(execution => execution.result?.status === 'released')
+  // Lab carries the One-person lab switch on each result, not on the execution; a first entry reads it from a sibling.
+  const facilityOnePerson = record.executions.map(execution => execution.result?.onePersonLab).find(value => typeof value === 'boolean')
   const canCorrect = (execution: LabExecution) => Boolean(execution.result) && permissions.includes('lab.result.correct')
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
@@ -178,7 +180,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
           || specimen.status === 'received').map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen}
             accessionId={accession.id} test={test} executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
         {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
-          ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} />)
+          ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} facilityOnePerson={facilityOnePerson} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}
         {stage === 'check' && !record.hidden ? toCheck.map(execution => <CheckStep key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} {...step} execution={execution} />) : null}
         {stage === 'done' && !record.hidden ? <>
