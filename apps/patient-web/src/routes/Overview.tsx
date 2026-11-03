@@ -211,7 +211,7 @@ export function Overview() {
   // The column is drawn once what goes at its top is known: the requests waiting, and what the profile lacks (its
   // completion, once its sources have answered). Drawn before, the tiles moved down as each arrived (HCS-09). Once drawn,
   // it stays: a read again (a notice came, or Try again) never takes it away.
-  const topKnown = answered(requests) && (!shown || !completionServed(shown) || completion !== null)
+  const topKnown = shown ? answered(requests) && (!completionServed(shown) || completion !== null) : false
   const [drawn, setDrawn] = useState(false)
   if (topKnown && !drawn) setDrawn(true)
   // Activity is loading until both its reads have answered once: until then, its empty sentence would say no one has
