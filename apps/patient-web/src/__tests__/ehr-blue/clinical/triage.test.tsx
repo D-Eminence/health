@@ -6,6 +6,7 @@ import { TriageWorkspace, triageStatus } from '../../../ehr-blue/clinical/triage
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { vitalName } from '../../../ehr-blue/clinical/triage/vitals'
+import { SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Triage & Vitals: the open patient's vitals (today's records of kind "vitals", per encounter) in the design's list,
@@ -199,12 +200,14 @@ describe('Triage & Vitals list', () => {
   it('shows a refused encounter read, and a refused vitals read', async () => {
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     const view = open()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     view.unmount()
     api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
     api.records.mockRejectedValue(new HidApiError(403, 'This role may not read vitals.', { code: 'FORBIDDEN' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe('This role may not read vitals.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('This role may not read vitals.')
   })
 
   it('pages through the encounters with today’s cursors, re-checking access each time', async () => {
@@ -529,8 +532,11 @@ describe('New triage & vitals', () => {
     type(form, 'Pulse (bpm)', '90')
     fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
     const alert = await within(form).findByRole('alert')
-    expect(alert.textContent).toBe('One or more request fields are invalid. Pulse bpm must not be greater than 350.')
-    expect(described(input(form, 'Pulse (bpm)'))).toContain('Pulse bpm must not be greater than 350.')
+    expect(alert.textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    // At the field: a plain hint for the limit, never the field's internal name or the validator's words.
+    expect(described(input(form, 'Pulse (bpm)'))).toContain('Enter 350 or less.')
+    expect(document.body.textContent).not.toMatch(/Pulse bpm must|greater than 350/)
     fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
     await screen.findByText('Clinical record saved.')
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
@@ -616,7 +622,8 @@ describe('Triage & Vitals record', () => {
     view.unmount()
     api.encounter.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open(RECORD)
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
   })
 
   it('amends as today’s correction: full replacement values, the version and the reason, after the access re-check', async () => {
@@ -730,7 +737,8 @@ describe('Triage & Vitals record', () => {
     type(form, 'Pulse (bpm)', '78')
     type(form, 'Reason for correction', 'Repeat reading')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
-    expect((await within(form).findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
     await screen.findByText('Vital correction saved.')
     expect(api.correctVital.mock.calls[1]![5]).toBe(api.correctVital.mock.calls[0]![5])
@@ -759,7 +767,8 @@ describe('Triage & Vitals record', () => {
     vitals = [{ ...VITAL, currentCorrectionNo: 1, rowVersion: '2' }]
     api.vitalCorrections.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     const view = open(RECORD)
-    expect((await screen.findByRole('alert')).textContent).toBe('These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(`These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. ${SAID_UNAVAILABLE}`)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(screen.queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
     // Where the design puts it: after the empty action list, as a note.
     const none = screen.getByText('Nothing more to do here.')
@@ -925,7 +934,8 @@ describe('Triage & Vitals record', () => {
     expect(await within(history()).findByText('Loading records…')).toBeTruthy()
     await act(async () => notesRead.resolve({ items: [OBSERVATION], nextCursor: null }))
     expect(within(history()).queryByText('Loading records…')).toBeNull()
-    expect(within(history()).getByRole('alert').textContent).toBe('This role may not read prescriptions.')
+    expect(within(history()).getByRole('alert').textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('This role may not read prescriptions.')
     // The other rows still show, and the record itself is unaffected.
     expect(historyRows().map(row => row[0])).toEqual([consultationLabel(ENCOUNTER), 'Laboratory · Full blood count', `Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`])
     expect(within(saved()).getByText('120/80')).toBeTruthy()
@@ -958,7 +968,7 @@ describe('Triage & Vitals record', () => {
     refuseFirst = true
     fireEvent.click(within(pages).getByRole('button', { name: 'Previous page' }))
     const failed = await within(pages).findByRole('alert')
-    expect(failed.textContent).toContain('The page could not be loaded.')
+    expect(failed.textContent).toContain(`The page could not be loaded. ${SAID_UNAVAILABLE}`)
     expect(within(history()).getByText(`Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`)).toBeTruthy()
     expect(within(pages).getByText('Page 2')).toBeTruthy()
     // The record itself is unaffected, and no cursor reaches the address.

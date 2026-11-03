@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { assertSignedStorageUrl } from '@hid/http'
+import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { Button, Card, Field, Input } from '@hid/ui'
 import {
   documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, learnDocumentTypesFrom, useDocumentTypesServed,
@@ -207,7 +207,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (caught) {
-      setOpenError(caught instanceof Error && caught.message ? caught.message : OPEN_FAILED)
+      // In plain words, never the backend's or the browser's (a link that is not a signed storage link says OPEN_FAILED).
+      setOpenError(plainErrorText(caught, OPEN_FAILED, { audience: 'facility' }))
     } finally {
       setOpening(null)
     }
@@ -244,7 +245,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
       if (canRead && shown.current) await read()
     } catch (caught) {
       // The backend's refusal of a lab result on this host (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE) in the core's words; those
-      // words are about lab results, so any other type's refusal keeps the backend's own.
+      // words are about lab results, so any other type's refusal is said in plain words (refusalText), never the backend's.
       const typeRefused = said.type === 'lab_result' ? documentTypeRefusalText(caught) : null
       setAttachError(typeRefused ?? refusalText(caught, ATTACH_FAILED))
       focus(submitId, true)

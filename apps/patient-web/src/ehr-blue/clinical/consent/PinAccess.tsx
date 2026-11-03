@@ -12,8 +12,19 @@ import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
   useOpenPatient,
 } from './access'
+import { PlainError, plainErrorText } from '@hid/http'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
+const PIN_NOT_RIGHT = 'That PIN isn’t right. Check it with the patient and try again.'
+/**
+ * A PIN check Identity refused, in plain words. Identity answers every failed check with 403 PATIENT_PIN_ACCESS_DENIED
+ * (identity-api consent.service.ts), so a wrong PIN, an unknown Health ID and paused PIN checks read the same; the older
+ * PATIENT_ACCESS_PIN_INVALID reads the same too.
+ */
+const PIN_REFUSALS: Readonly<Record<string, string>> = {
+  PATIENT_PIN_ACCESS_DENIED: PIN_NOT_RIGHT,
+  PATIENT_ACCESS_PIN_INVALID: PIN_NOT_RIGHT,
+}
 
 /**
  * At the demo facilities only: which demo patients have an Access PIN, where a tester gets it, what to use for the others,
@@ -72,12 +83,12 @@ export function PinAccess() {
     // The record opens after the grant only while the session that obtained it is ready.
     const sentIn = staffSessionGeneration()
     try {
-      if (!facility) throw new Error('Select a facility first.')
+      if (!facility) throw new PlainError('Select a facility first.')
       await staffApi.verifyPin(facility.id, normalized, compactPin)
       await untilStaffSessionReady(sentIn)
       if (await openPatient(normalized, 'direct-care')) navigate(href.to('patients', 'open'))
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Something went wrong. Please try again.')
+      setError(plainErrorText(caught, 'Something went wrong. Please try again.', { codes: PIN_REFUSALS, audience: 'facility' }))
     } finally {
       setBusy(false)
     }

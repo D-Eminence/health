@@ -99,12 +99,13 @@ describe('patient access-request commands', () => {
   })
 
   // P4c review (Identity, as main): approving needs a sign-in within 10 minutes and no OTP account recovery in the last
-  // 24 hours. The page says Identity's own words, and the request stays pending with Approve and Deny still offered.
+  // 24 hours. The page says it in plain words (never Identity's), and the request stays pending with Approve and Deny still offered.
   it.each([
-    ['PATIENT_RECENT_AUTH_REQUIRED', 'For your security, sign out, sign in again, and approve within 10 minutes.'],
+    ['PATIENT_RECENT_AUTH_REQUIRED', 'For your security, sign out, sign in again, and approve within 10 minutes.',
+      'For your safety, sign out, sign in again, then come back within 10 minutes.'],
     ['PATIENT_RECENT_RECOVERY_HOLD', 'This account was recovered with a verification code less than 24 hours ago; new access '
-      + 'approvals are available again once that period ends'],
-  ])('says why Identity refused an approval (%s), and keeps the request pending', async (code, detail) => {
+      + 'approvals are available again once that period ends', 'For your safety, this isn’t available for 24 hours after you recover your account.'],
+  ])('says why Identity refused an approval (%s), and keeps the request pending', async (code, detail, said) => {
     const { api, sent } = client((path, method) => {
       if (path.endsWith('/me/access-requests')) return json([pending])
       if (path.endsWith('/me/access-history')) return json({ items: [] })
@@ -119,7 +120,8 @@ describe('patient access-request commands', () => {
     const approve = drawer.getByRole('button', { name: /^Approve/ })
     approve.focus()
     fireEvent.click(approve)
-    expect((await screen.findByRole('alert')).textContent).toContain(detail)
+    expect((await screen.findByRole('alert')).textContent).toContain(said)
+    expect(screen.getByRole('alert').textContent).not.toContain(detail)
     expect(screen.queryByText('Lagos General can see your records now.')).toBeNull()
     expect(sent.filter(request => request.method === 'POST')).toHaveLength(1)
     // Still pending: the drawer stays with Approve and Deny, and focus is back on Approve.

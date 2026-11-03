@@ -155,7 +155,8 @@ describe('the overview with patient parity served', () => {
     let failed = true
     renderPortal(<Overview />, gateway({ '/ehr/me/records': () => failed ? problem(503, 'UPSTREAM_UNAVAILABLE', 'Records are unavailable.') : json(records) }), {}, parity)
     const contributions = await region('Latest from your providers')
-    expect((await contributions.findByRole('alert')).textContent).toContain('Records are unavailable.')
+    expect((await contributions.findByRole('alert')).textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(contributions.queryByText(/Records are unavailable/)).toBeNull()
     expect(screen.getByRole('heading', { name: 'Activity' })).toBeTruthy()
     failed = false
     await press(contributions.getByRole('button', { name: 'Try again loading recent provider contributions' }))

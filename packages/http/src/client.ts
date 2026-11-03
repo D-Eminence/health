@@ -18,7 +18,8 @@ import {
   fallbackMessageForStatus,
   isRetryableStatus,
 } from './errors'
-import { isLowSignalMessage, parseErrorEnvelope, parseJsonBody, unwrapData } from './envelope'
+import { parseErrorEnvelope, parseJsonBody, unwrapData } from './envelope'
+import { PLAIN } from './plain'
 import {
   DEFAULT_READ_RETRY,
   NO_RETRY,
@@ -365,7 +366,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       })
     } catch (error) {
       if (spec.signal?.aborted) {
-        throw new HidApiError(0, 'The request was cancelled.', {
+        throw new HidApiError(0, PLAIN.stopped, {
           code: 'REQUEST_CANCELLED',
           requestId,
           retryable: false,
@@ -380,7 +381,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
           cause: error,
         })
       }
-      throw new HidApiError(0, 'We could not reach the service. Check your connection and try again.', {
+      throw new HidApiError(0, PLAIN.network, {
         code: 'NETWORK_ERROR',
         requestId,
         retryable: true,
@@ -405,12 +406,11 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         status: response.status,
         headerRequestId,
       })
-      const message = isLowSignalMessage(envelope.message)
-        ? fallbackMessageForStatus(response.status)
-        : envelope.message
-
-      const error = new HidApiError(response.status, message, {
+      // The message is always the frontend's own plain sentence: the server's words are kept as `detail` for code that
+      // reads them and are never shown (owner's rule, 1 Nov 2026).
+      const error = new HidApiError(response.status, fallbackMessageForStatus(response.status), {
         code: envelope.code,
+        detail: envelope.detail,
         requestId: envelope.requestId ?? requestId,
         retryable: envelope.retryable ?? isRetryableStatus(response.status),
         details: envelope.details,
@@ -435,7 +435,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     if (response.status === 204 || rawBody.trim() === '') return undefined as T
 
     if (payload === null && rawBody.trim() !== '') {
-      throw new HidApiError(502, 'The service returned an unreadable response.', {
+      throw new HidApiError(502, PLAIN.unavailable, {
         code: 'INVALID_RESPONSE',
         requestId: headerRequestId ?? requestId,
         retryable: true,
@@ -524,7 +524,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     return new Promise<T>((resolve, reject) => {
       const onAbort = () => {
         leave()
-        reject(new HidApiError(0, 'The request was cancelled.', {
+        reject(new HidApiError(0, PLAIN.stopped, {
           code: 'REQUEST_CANCELLED', requestId, retryable: false,
         }))
       }

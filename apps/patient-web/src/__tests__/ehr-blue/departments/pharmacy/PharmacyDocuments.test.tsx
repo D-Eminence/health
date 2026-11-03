@@ -6,6 +6,7 @@ import { documentTypesServed, forgetDocumentTypesServed } from '../../../../docu
 import type * as DocumentTypesModule from '../../../../documentTypes'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_REFUSED } from '../../../said'
 import {
   accepted, AMOXICILLIN, CREATE, deferred, dispensed, DISPENSING_READ, expectNoFullPatientIds, METFORMIN, otherActions, PATIENT_A, PATIENT_B,
   PRESCRIPTIONS, prescriptionCard, READ, recorded, REVERSE, routeCard, showTab,
@@ -219,15 +220,18 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
     expect(api.uploadWorkItemDocument).not.toHaveBeenCalled()
   })
 
-  it('says a refusal in the backend’s own words: the lab-result wording is the Lab card’s only', async () => {
+  it('says a refusal in plain words, never the backend’s: the lab-result wording is the Lab card’s only', async () => {
     api.uploadWorkItemDocument.mockRejectedValueOnce(new HidApiError(403, 'Pharmacy document access is not authorized', { code: 'FORBIDDEN' }))
     await openRecord()
     choose(png())
     attach()
-    expect((await within(card()).findByRole('alert')).textContent).toBe('Pharmacy document access is not authorized')
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Pharmacy document access is not authorized')
     api.uploadWorkItemDocument.mockRejectedValueOnce(new HidApiError(403, 'This document type is not allowed here', { code: 'DOCUMENT_TYPE_NOT_ALLOWED_HERE' }))
     attach()
-    await waitFor(() => expect(within(card()).getByRole('alert').textContent).toBe('This document type is not allowed here'))
+    await waitFor(() => expect(api.uploadWorkItemDocument).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(within(card()).getByRole('alert').textContent).toBe(SAID_REFUSED))
+    expect(document.body.textContent).not.toMatch(/This document type is not allowed here|Lab results can be uploaded/)
     expect(within(card()).queryByText(ATTACHED)).toBeNull()
   })
 })

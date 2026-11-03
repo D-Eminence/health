@@ -101,7 +101,7 @@ describe('patient password recovery', () => {
     await enterCode(code, '000000')
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(code.getAttribute('aria-invalid')).toBe('true')
-    expect(described(code)).toBe('Enter the 6-digit code we sent. | The verification code is invalid or expired')
+    expect(described(code)).toBe('Enter the 6-digit code we sent. | That code is wrong or has expired. Check the latest message, or start again for a new code.')
     // Focus moved to the field, whose description says it: an alert as well would be spoken twice.
     expect(screen.queryByRole('alert')).toBeNull()
 
@@ -121,7 +121,7 @@ describe('patient password recovery', () => {
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(code.getAttribute('aria-invalid')).toBeNull()
     expect(described(code)).toBe('Enter the 6-digit code we sent.')
-    expect(shownText(screen.getByRole('alert'))).toBe('Too many attempts. Try again later.')
+    expect(shownText(screen.getByRole('alert'))).toBe('You’ve tried this too many times. Please wait a few minutes and try again.')
   })
 
   it('opening the page moves no focus', () => {
@@ -141,7 +141,7 @@ describe('patient password recovery', () => {
     code.focus()
     await act(async () => { fireEvent.submit(code.closest('form') as HTMLFormElement) })
     expect(api.recoveryVerify).toHaveBeenCalledTimes(2)
-    expect(shownText(await screen.findByRole('alert'))).toBe('The verification code is invalid or expired')
+    expect(shownText(await screen.findByRole('alert'))).toBe('That code is wrong or has expired. Check the latest message, or start again for a new code.')
     expect(code.getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(code)
   })
@@ -159,7 +159,7 @@ describe('patient password recovery', () => {
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBeNull()
     expect(described(password)).toBe('At least 12 characters. Tap Show to check it.')
-    expect(shownText(screen.getByRole('alert'))).toBe('The verification code is invalid or expired')
+    expect(shownText(screen.getByRole('alert'))).toBe('That code is wrong or has expired. Check the latest message, or start again for a new code.')
   })
 
   it('a missing security check (400 TURNSTILE_REQUIRED) is not about the identifier', async () => {
@@ -171,7 +171,7 @@ describe('patient password recovery', () => {
     await press('Send code')
     await waitFor(() => expect(document.activeElement).toBe(identifier))
     expect(identifier.getAttribute('aria-invalid')).toBeNull()
-    expect(shownText(screen.getByRole('alert'))).toBe('Complete the security check and try again.')
+    expect(shownText(screen.getByRole('alert'))).toBe('Please complete the security check, then try again.')
   })
 
   it('leaves focus where the person moved it while the step was running', async () => {
@@ -218,7 +218,7 @@ describe('provider and platform password recovery', () => {
     const confirm = screen.getByLabelText('Confirm new password')
     confirm.focus()
     await act(async () => { refuse(new HidApiError(429, 'Too many attempts. Try again later.')) })
-    expect(screen.getByRole('alert').textContent).toBe('Too many attempts. Try again later.')
+    expect(screen.getByRole('alert').textContent).toBe('You’ve tried this too many times. Please wait a few minutes and try again.')
     expect(document.activeElement).toBe(confirm)
   })
 
@@ -268,7 +268,8 @@ describe('provider and platform password recovery', () => {
     await press('Send recovery code')
     await waitFor(() => expect(document.activeElement).toBe(email))
     expect(email.getAttribute('aria-invalid')).toBe('true')
-    expect(described(email)).toContain('identifier must be an email')
+    expect(described(email)).toContain('Check what you entered and try again.')
+    expect(document.body.textContent).not.toMatch(/identifier must be|VALIDATION_FAILED/)
   })
 
   it('a completed reset moves focus to its confirmation', async () => {
@@ -322,7 +323,7 @@ describe('patient enrollment', () => {
     await press('Continue')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
-    expect(described(nin)).toContain('The NIN could not be verified')
+    expect(described(nin)).toContain('We couldn’t verify that NIN. Check the number and try again.')
     expect(described(nin)).toContain('It isn’t stored in this browser.')
   })
 
@@ -377,7 +378,7 @@ describe('patient enrollment', () => {
     await waitFor(() => expect(contact.getAttribute('aria-invalid')).toBe('true'))
     expect(document.activeElement).toBe(contact)
     // The page's error, which a kasuwa Alert opens with its intent, read as the field's description.
-    expect(described(contact)).toBe('Error: This contact is already associated with a Health ID')
+    expect(described(contact)).toBe('Error: This email address or phone number is already used by a Health ID. Use another one, or sign in.')
   })
 
   it("'Request another code' cannot be used while a code is being checked", async () => {

@@ -360,7 +360,7 @@ describe('unified authenticated portal routes', () => {
     open('/provider')
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Could not reach the service.')
+    expect((await screen.findByRole('alert')).textContent).toContain('We couldn’t sign you out. Please try again.')
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider')
   })
 
@@ -416,7 +416,7 @@ describe('unified authenticated portal routes', () => {
     // hid-system #56: the request is committed and active; Lab refused it.
     calls.staffCreateRecord.mockRejectedValue(new HidApiError(409,
       'Lab request 0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved',
-      { code: 'LAB_HANDOFF_REFUSED' }))
+      { code: 'LAB_HANDOFF_REFUSED', detail: 'Lab request 0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved' }))
 
     open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABC234' } })
@@ -429,7 +429,8 @@ describe('unified authenticated portal routes', () => {
     const readsBefore = calls.staffRecords.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
 
-    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/Lab refused it \(LAB_ACCESS_DENIED\)/)
+    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/the laboratory didn’t accept it/)
+    expect(screen.getByText(/^Lab request saved and active in the EHR/).textContent).not.toMatch(/LAB_ACCESS_DENIED|0f2b6d0e/)
     expect(calls.staffRecords.mock.calls.length).toBeGreaterThan(readsBefore)
     expect((screen.getByRole('textbox', { name: 'Test display' }) as HTMLInputElement).value).toBe('')
     expect(document.body.textContent).not.toMatch(/0f2b6d0e/)

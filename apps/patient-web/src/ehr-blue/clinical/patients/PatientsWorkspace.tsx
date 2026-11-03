@@ -18,6 +18,7 @@ import {
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
+import { plainErrorText } from '@hid/http'
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
@@ -105,7 +106,7 @@ function PatientList() {
     try {
       if (await openPatient(candidate, 'direct-care')) navigate(href('open'))
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Patient access could not be verified.'
+      const message = plainErrorText(caught, 'Patient access could not be verified.', { audience: 'facility' })
       // The refused Health ID goes in the field (a refused share's too), so "Obtain access" hands over the patient the
       // panel names.
       if (isRefusedLookup(caught)) {

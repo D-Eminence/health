@@ -10,6 +10,7 @@ import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
 import { consultationLabel } from '../../../plainLabels'
+import { SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Patients ("Find a patient"): the Health ID search (today's governed access), the patient open now and that patient's
@@ -109,6 +110,8 @@ function searchField() {
 }
 
 const findButton = () => screen.getByRole('button', { name: 'Find' }) as HTMLButtonElement
+// A role's missing permission is never named (owner's rule, 1 Nov 2026): the role can't, and who to ask, in the action's
+// own words (today's METHOD_ROUTES).
 const REQUEST_UNAVAILABLE = 'Your role at this facility can’t send access requests. Ask your facility administrator.'
 const EMERGENCY_UNAVAILABLE = 'Your role at this facility can’t open emergency access. Ask your facility administrator.'
 const WRITES = ['ehr.encounter.write', 'ehr.vital.read', 'ehr.vital.write']
@@ -203,7 +206,8 @@ describe('Find a patient', () => {
     const panel = await refusedPanel()
     // In the search card, under the search.
     expect(panel.parentElement!.contains(searchField())).toBe(true)
-    expect(within(panel).getByText('Patient access is not authorized')).toBeTruthy()
+    expect(within(panel).getByText(SAID_REFUSED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Patient access is not authorized')
     // Ask the patient only: the PIN and emergency access are Obtain access's, for the Health ID still in the field.
     expect(tileTitles(panel)).toEqual(['Ask the patient'])
     expect(searchField().value).toBe(PATIENT_HID)
@@ -309,7 +313,8 @@ describe('Find a patient', () => {
     fireEvent.click(findButton())
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t check access')
-    expect(alert.textContent).toContain('Identity is unavailable')
+    expect(alert.textContent).toContain(SAID_UNAVAILABLE)
+    expect(alert.textContent).not.toContain('Identity is unavailable')
     expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
   })
 
@@ -554,13 +559,14 @@ describe('The open patient’s page', () => {
   })
 
   it('keeps the patient open and says why when ending access is refused', async () => {
-    api.closeGrant.mockRejectedValue(new HidApiError(409, 'This access had already ended', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Consent command conflicts with grant state', { code: 'CONSENT_COMMAND_CONFLICT' }))
     staff.activePatient = activePatient()
     open('/open')
     fireEvent.click(screen.getByRole('button', { name: 'End my access' }))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t end access')
-    expect(alert.textContent).toContain('This access had already ended')
+    expect(alert.textContent).toContain('This access had already ended.')
+    expect(alert.textContent).not.toMatch(/Consent command|CONSENT_COMMAND_CONFLICT/)
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     expect(screen.getByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
   })
@@ -845,7 +851,8 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     api.sharedWithMe.mockRejectedValue(new HidApiError(503, '', { code: 'SERVICE_UNAVAILABLE' }))
     api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [] })
     open()
-    expect(await screen.findByText('The patients shared with you could not be loaded.')).toBeTruthy()
+    expect(await screen.findByText(SAID_UNAVAILABLE)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('SERVICE_UNAVAILABLE')
   })
 
   it('another facility drops what Accept did, and what it refused, at the one before', async () => {

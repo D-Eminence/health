@@ -187,7 +187,8 @@ describe('hid-system cookie transport', () => {
     ])
     await expect(client.get('/api/v1/commercial/pricing')).resolves.toEqual({ data: [{ product_slug: 'ehr' }] })
     await expect(client.post('/api/v1/commercial/demo-requests', {})).rejects.toMatchObject({
-      status: 400, code: 'VALIDATION_FAILED', message: problem.detail,
+      status: 400, code: 'VALIDATION_FAILED', detail: problem.detail,
+      message: 'Some details weren’t accepted. Check them and try again.',
       requestId: 'abc-123', details: problem.errors,
     })
   })

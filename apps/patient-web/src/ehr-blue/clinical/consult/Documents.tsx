@@ -1,4 +1,4 @@
-import { assertSignedStorageUrl } from '@hid/http'
+import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { EhrButton, EhrCard, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
@@ -93,7 +93,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Document could not be opened.')
+      setError(plainErrorText(caught, 'Document could not be opened.', { audience: 'facility' }))
     } finally {
       setOpening(null)
     }
@@ -124,7 +124,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       if (failure !== null) setError(`${RELOAD_FAILED} ${failure}`.trim())
     } catch (caught) {
       // A lab result from a host other than the EHR, Lab or Migrate is refused (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE).
-      setError(documentTypeRefusalText(caught) ?? (caught instanceof Error && caught.message ? caught.message : 'Document could not be uploaded.'))
+      setError(documentTypeRefusalText(caught) ?? plainErrorText(caught, 'Document could not be uploaded.', { audience: 'facility' }))
     } finally {
       sending.current = false
       setUploading(false)

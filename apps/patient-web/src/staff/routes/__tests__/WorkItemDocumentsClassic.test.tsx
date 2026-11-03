@@ -10,6 +10,7 @@ import { forgetWrongPatientServed } from '../../../wrongPatientServed'
 import { forgetReceiving } from '../../orderRoutes'
 import { setStaffSessionReady } from '../../session'
 import { Laboratory, Pharmacy } from '../Operations'
+import { SAID_REFUSED } from '../../../__tests__/said'
 
 /**
  * The work item documents on the classic Laboratory and Pharmacy pages ("Use the classic EHR"): "Result documents" on a
@@ -33,6 +34,8 @@ const network = vi.hoisted(() => {
     /** What upload-intents answers instead of an intent: a refusal's status and body. */
     refuse: null as { status: number; body: Record<string, unknown> } | null,
     download: 'https://storage.example.test/bucket/document-1?X-Amz-Signature=demo',
+    /** What the download answers instead of its link: a refusal's status and body. */
+    downloadRefused: null as { status: number; body: Record<string, unknown> } | null,
     sent: [] as Array<{ method: string; url: URL; body: unknown; headers: Headers }>,
   }
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -49,7 +52,9 @@ const network = vi.hoisted(() => {
       return json({ id: 'accession-1', accessionNumber: 'ACC-2026-000123', workItemId: 'work-item-1', status: 'open', specimens: [] })
     }
     if (method === 'GET' && url.pathname === '/api/v1/ehr/documents') return json({ items: state.documents, nextCursor: null, documentTypes: true })
-    if (method === 'GET' && url.pathname === '/api/v1/ehr/documents/document-1/download') return json({ url: state.download, expiresInSeconds: 300 })
+    if (method === 'GET' && url.pathname === '/api/v1/ehr/documents/document-1/download') {
+      return state.downloadRefused ? json(state.downloadRefused.body, state.downloadRefused.status) : json({ url: state.download, expiresInSeconds: 300 })
+    }
     if (method === 'POST' && url.pathname === '/api/v1/ehr/documents/upload-intents') {
       if (state.refuse) return json(state.refuse.body, state.refuse.status)
       const { mediaType } = JSON.parse(String(init?.body)) as { mediaType: string }
@@ -195,6 +200,7 @@ beforeEach(() => {
   network.documents = []
   network.refuse = null
   network.download = 'https://storage.example.test/bucket/document-1?X-Amz-Signature=demo'
+  network.downloadRefused = null
   host.name = 'lab.healthidentitydirectory.com'
   open.mockReset()
   vi.spyOn(window, 'open').mockImplementation(open)
@@ -422,6 +428,16 @@ describe('switch on: Result documents on a Lab work item', () => {
     const shown = await openLabDocuments()
     fireEvent.click(await within(shown).findByRole('button', { name: 'Open file' }))
     expect((await within(shown).findByRole('alert')).textContent).toBe('Document could not be opened.')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('says a refused open in the words every facility page shares, never the backend’s', async () => {
+    network.downloadRefused = { status: 403, body: { code: 'FORBIDDEN', message: 'Download denied: membership m-0001 lacks lab.document.read' } }
+    renderPage('lab')
+    const shown = await openLabDocuments()
+    fireEvent.click(await within(shown).findByRole('button', { name: 'Open file' }))
+    expect((await within(shown).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toMatch(/Download denied|m-0001|lab\.document\.read|FORBIDDEN/)
     expect(open).not.toHaveBeenCalled()
   })
 
@@ -663,14 +679,15 @@ describe('switch on: Prescription sheets on a Pharmacy work item', () => {
     for (const request of gateway()) expect(`${request.url.href} ${String(request.body ?? '')}`).not.toMatch(/encounterId|labWorkItemId/)
   })
 
-  it('keeps the backend’s own words for a prescription sheet it refuses: the lab-result words are not about it', async () => {
+  it('says a refused prescription sheet in plain words, never the backend’s: the lab-result words are not about it', async () => {
     network.refuse = { status: 403, body: { code: 'DOCUMENT_TYPE_NOT_ALLOWED_HERE', message: 'Prescription sheets are not accepted here' } }
     renderPage('pharmacy')
     const shown = await openSheets()
     await within(shown).findByText('prescription-sheet.png')
     choose(shown, /^Prescription sheet file/, png())
     send(shown, 'Attach prescription sheet')
-    expect((await within(shown).findByRole('alert')).textContent).toBe('Prescription sheets are not accepted here')
+    expect((await within(shown).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toMatch(/Prescription sheets are not accepted here|Lab results can be uploaded/)
     expect(within(shown).queryByText(SHEET_ATTACHED)).toBeNull()
   })
 

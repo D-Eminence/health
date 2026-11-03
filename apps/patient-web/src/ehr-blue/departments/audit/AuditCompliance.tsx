@@ -2,13 +2,14 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { EhrButton, EhrEmptyState, EhrField, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../../../staff/api'
+import { AUDIT_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { focusIsLost } from '../../../staff/focus'
 import { auditRow, matchesAuditSearch, type AuditRow } from '../../../audit/auditRow'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSearch } from '../parts/DeptSearch'
-import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
+import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 
 /*
@@ -26,7 +27,7 @@ import { dateText } from '../parts/format'
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
 type LoadedPage = { facilityId: string; cursor: string | undefined; page: FacilityAuditPage }
-/** A refused read: 403 (this membership may not review audit events) or another failure, in words. */
+/** A refused read: 403 (said at render, as the refusal is, by who reads it) or another failure, in words. */
 type LoadProblem = { facilityId: string; cursor: string | undefined; forbidden: boolean; message: string }
 /** Where focus goes once the read a button started has answered, if that button is gone by then. */
 type FocusAfter = { facilityId: string; pressed: string; settledAt: number }
@@ -46,9 +47,12 @@ const OUTCOMES = [
 
 const LOAD_FAILED = 'Audit events could not be loaded. Try again.'
 
-/** A failed read in the page's own words, never the server's: only a fault between services has its own sentence. */
+/**
+ * A failed read in plain words, never the server's: errorText gives the words every page shares (no connection, Health
+ * ID unavailable, a fault between services), and otherwise the page's own sentence.
+ */
 function loadProblemText(caught: unknown): string {
-  return isHidApiError(caught) && SERVICE_AUTH_UNAVAILABLE.has(caught.code) ? errorText(caught, LOAD_FAILED) : LOAD_FAILED
+  return errorText(caught, LOAD_FAILED)
 }
 
 /** When it happened, as the department pages write a time ("26 Oct 2026, 12:41"), or that it is not available. */
@@ -86,9 +90,9 @@ export function AuditCompliance() {
   const cursor = cursors[cursors.length - 1]
   const page = loaded?.facilityId === facilityId && loaded.cursor === cursor ? loaded.page : null
   const current = problem?.facilityId === facilityId && problem.cursor === cursor ? problem : null
-  const error = !current ? '' : current.forbidden
-    ? `Your membership at ${facility?.name ?? 'this facility'} can’t review audit events. Ask your facility administrator for audit access.`
-    : current.message
+  // Refused on reading: the refusal's own words, by who reads them (refusedWorkText), as the classic page says it, so a
+  // facility's own administrator is never told to ask themselves, and the page says one thing whichever refuses first.
+  const error = !current ? '' : current.forbidden ? refusedWorkText(facility, facility?.permissions ?? [], AUDIT_WORK) : current.message
   // No answer yet for this page: its read is starting or running.
   const waiting = !page && !error
   const busy = loading || waiting
@@ -124,9 +128,9 @@ export function AuditCompliance() {
   if (!facility || !allowed) {
     return (
       <DeptPage title="Audit trail">
-        {/* The same words as the page's refusal (page.tsx) and the classic page: no permission named. */}
+        {/* The same words as the page's refusal (page.tsx) and the classic page, by who reads them: no permission named. */}
         <DeptNotice role="status">{facility
-          ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
+          ? refusedWorkText(facility, facility.permissions, AUDIT_WORK)
           : 'Choose the facility you are working at to review its audit events.'}</DeptNotice>
       </DeptPage>
     )
