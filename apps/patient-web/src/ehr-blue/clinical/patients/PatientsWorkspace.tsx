@@ -27,7 +27,7 @@ export const patientsStatus: EhrBluePageStatus = 'live'
  * Patients: search by Health ID (today's access rules), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
  * identity.consent.write, which the frame asks for External record access). Under the search, "Obtain access" always
- * offers the patient's Access PIN and emergency access, as today's "Obtain access" card does, so a patient Find opens at
+ * offers the patient's Access PIN and (on sites that open it) emergency access, as today's "Obtain access" card does, so a patient Find opens at
  * once (the demo patients' seeded share) can still be opened by PIN or for an emergency. Ask the patient leads the group,
  * as today's Request method leads its card. A refused lookup adds only which patient and why: every way in stays in the
  * one group, for the Health ID in the field. There is no list of every patient: Health ID shows a patient only once
