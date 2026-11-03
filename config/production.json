@@ -16,7 +16,7 @@
   },
   "chat": {
     "supportChatEnabled": true,
-    "patientChatEnabled": true,
+    "patientChatEnabled": false,
     "supportContact": "mailto:support@healthidentitydirectory.com"
   },
   "backend_contract": "novu-v1"
