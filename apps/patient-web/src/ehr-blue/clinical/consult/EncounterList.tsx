@@ -12,7 +12,6 @@ import {
   FIRST_PAGE, NEW_TITLE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
 } from './encounters'
 import { orderPath, type OrderKind } from './orders'
-import { TodaySections } from './TodaySections'
 
 /**
  * The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). An
@@ -48,7 +47,7 @@ function isRecordId(value: unknown): value is string {
  * encounterId, kind: 'lab_request' | 'prescription', orderId }, staff/routes/Clinical.tsx linkedOrder). Its page's
  * address, only for direct care and the patient open now, as today; any other link is ignored.
  */
-function useLinkedOrder(chart: Chart | null): string | null {
+export function useLinkedOrder(chart: Chart | null): string | null {
   const state: unknown = useLocation().state
   const href = useWorkspaceHref()
   if (!chart || chart.purpose !== 'direct-care') return null
@@ -178,8 +177,6 @@ function Encounters({ chart }: { chart: Chart }) {
           />
         )}
       </EhrCard>
-      {/* Today's chart sections, as on today's Clinical page: shown with or without an encounter here (direct care only). */}
-      <TodaySections chart={chart} />
     </>
   )
 }

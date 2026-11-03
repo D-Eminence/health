@@ -316,8 +316,9 @@ describe('Consultation list', () => {
       expect(address()).toBe(`REPLACE /provider/clinical/${ENCOUNTER_ID}/orders/${ours}/${orderId} null`)
       expect(address()).not.toContain(PATIENT_ID)
       expect(address()).not.toContain(PATIENT_HID)
-      // The list is not read on the way.
+      // The list is not read on the way, nor the chart sections under it.
       expect(api.encounters).not.toHaveBeenCalled()
+      expect(api.reportedHealthProfile).not.toHaveBeenCalled()
       view.unmount()
     }
   })
@@ -329,6 +330,8 @@ describe('Consultation list', () => {
       expect(await screen.findByRole('table', { name: 'Consultations' })).toBeTruthy()
       expect(screen.queryByText('Order pages part')).toBeNull()
       expect(address()).toMatch(/^POP \/provider\/clinical /)
+      // The list as ever, with today's chart sections under it.
+      expect(document.querySelector('.hid-ehr-clinical-today')).not.toBeNull()
       view.unmount()
     }
   })

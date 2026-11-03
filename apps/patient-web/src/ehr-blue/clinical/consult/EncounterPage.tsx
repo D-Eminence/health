@@ -30,7 +30,6 @@ import {
 import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
 import { KINDS, learnFrom } from './orders/orders'
-import { TodaySections } from './TodaySections'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
 import { VitalsCard } from './Vitals'
 
@@ -511,7 +510,6 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {reads.documents ? (
         <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
       ) : null}
-      <TodaySections chart={chart} />
       <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
       </HistoryCard>

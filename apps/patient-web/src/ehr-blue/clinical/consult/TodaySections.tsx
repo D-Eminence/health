@@ -8,10 +8,11 @@ import type { Chart } from '../parts/chart'
 import { useClinical } from '../parts/Workspace'
 
 /**
- * Today's chart sections, on the encounter page: staff imported history, the patient assistant, "Reported by the
- * patient" and the imported medical history. Each is today's own component, with today's reads, permission checks,
- * build switches and keys (staff/routes/Clinical.tsx), so a previous actor, facility, patient or permission set never
- * survives; clinical.css draws them in the design's card style. Direct care only, as today.
+ * Today's chart sections, below the consultation list and a visit (mounted once for both, ConsultWorkspace): staff
+ * imported history, the patient assistant, "Reported by the patient" and the imported medical history. Each is today's
+ * own component, with today's reads, permission checks, build switches and keys (staff/routes/Clinical.tsx), so a
+ * previous actor, facility, patient or permission set never survives; each key names its section, so React keeps the
+ * sections apart while they stay mounted. clinical.css draws them in the design's card style. Direct care only, as today.
  */
 export function TodaySections({ chart }: { chart: Chart }) {
   const { state, facility, permissions } = useClinical()
@@ -25,7 +26,7 @@ export function TodaySections({ chart }: { chart: Chart }) {
     <div className="hid-ehr-clinical-today">
       {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
       {!novu && permissions.includes('ehr.imported-history.read')
-        ? <StaffImportedHistory key={key} facilityId={facility.id} patientId={chart.patientId} /> : null}
+        ? <StaffImportedHistory key={`staff-imported-history:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
       {permissions.includes(novu ? 'ehr.note.read' : 'ehr.record-chat.use') && staffPatientChatEnabled() ? (
         <StaffPatientChat
           key={chatKey}
@@ -36,10 +37,10 @@ export function TodaySections({ chart }: { chart: Chart }) {
           hid={chart.patient.hid}
         />
       ) : null}
-      {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={key} facilityId={facility.id} patientId={chart.patientId} /> : null}
+      {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={`reported-health:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
       {permissions.includes('ehr.note.read') && importedRecordsEnabled() ? (
         <ImportedPatientHistory
-          key={key}
+          key={`imported-records:${key}`}
           facilityId={facility.id}
           patientId={chart.patientId}
           purpose="direct-care"
