@@ -120,3 +120,12 @@ Migrate: (6) numbers: records processing 0104, scanner 0105, support check 0106,
 - Owner on Migrate screens: "make this simplify. staff should not type. just easier as we concluded" -> no typed IDs and no JSON anywhere in Migrate: staff pick the patient and the document, the AI reads it, each found item shows with its page snippet and Accept / Change / Remove, then Publish.
 - Note: the container restarted ~10:44 UTC; workflows wad2knc02, w73fm6nzo, wmsx972a8 died mid-run; finishing them in a new batch workflow.
 - ~11:30 UTC 3 Nov decision 34 (Migrate design, owner "all recommended"): the chosen flow (from the patient's chart; "Is this Amina's paper?" first; item cards Accept/Change/Remove; one Publish; "Prescribe from this scan" only by an EHR prescriber; doctors/clinicians correct later). (1) the first access request or Access PIN also covers bringing in paper records for 24 h, said clearly to the patient; under-18s still refused; (2) the Health ID from the card (or a tap under Shared with you) is the only thing typed, until the "patients seen here in the last 30 days" list; (3) one person (doctor, clinician or nurse) may check and publish; no Accept-all for medicines, allergies, labs; (4) papers with only a folder number may be published after staff confirm with the patient, stronger warning, who confirmed recorded, one-step withdrawal.
+
+## 35. 48-hour sessions started (3 Nov 2026, 12:04 UTC)
+- B Migrate AI reading (hid-system): session_01VG3TB1ge3dQHuHciEWGc5d, migration 0110
+- C Migrate items/checking/publishing (hid-system): session_01VG3TB1itEkCVKm15G65ZZk, migrations 0107-0109
+- D Migrate website (health): session_01VG3TB4GnSXEY8aNXxHxTUj
+- E EHR parity (health, + hid-system backend): session_01VG3TB5CJ62WtanEaJPhCtG, migration 0111
+- A DevOps waits for the owner's AWS SigV4 secret (new session needed after it is added)
+- Numbers re-sequenced: 0104 records processing, 0105 scanner, 0106 support check (sup-be, built), 0107-0109 Session C, 0110 Session B, 0111 Session E, 0112 SSO, 0113-0118 Akos steps 3-8. Renumber at release if the release order changes.
+- All sessions tagged hid-48h; they report to this session via send_message.

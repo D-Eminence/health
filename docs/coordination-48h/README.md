@@ -1,5 +1,7 @@
 # Coordination notes for the 48-hour push (not product code)
 
+**Read `ADDENDUM-2026-11-03.md` first. It has the owner's go-ahead, migration numbers, reporting, the 24-hour wording and permission names, and it wins over the briefs.**
+
 Shared notes for the parallel Claude Code sessions, owner-approved, 3 November 2026. They are not part of the website build and should never be merged.
 
 - `owner-decisions.md`: the owner's decisions log. Each decision is final unless the owner changes it.
