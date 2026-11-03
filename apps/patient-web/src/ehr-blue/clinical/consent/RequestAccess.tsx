@@ -159,7 +159,10 @@ export function RequestAccess() {
           {formError ? <Alert intent="error" title="Couldn’t send the request">{formError}</Alert> : null}
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           <FormActions sticky={false}>
-            <Button type="submit" variant="primary" icon={Send} loading={busy} disabled={!facility || unavailable !== null}
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as Check PIN and open does: focus is not lost while the
+                request is sent, and a second press sends nothing (submit returns while one is on its way). */}
+            <Button type="submit" variant="primary" icon={Send} disabled={!facility || unavailable !== null}
+              aria-disabled={busy || undefined} aria-busy={busy || undefined}
               aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Working…' : 'Send access request'}</Button>
           </FormActions>
         </form>

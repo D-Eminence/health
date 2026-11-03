@@ -507,6 +507,26 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect(shownText(await screen.findByRole('alert'))).toContain('The request couldn’t be sent. Please try again.')
   })
 
+  it('parity: Send access request keeps focus while the request is sent (aria-disabled, not disabled), and a second press sends nothing', async () => {
+    let answer: (value: unknown) => void = () => {}
+    api.requestAccess.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    open('/new')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
+    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
+    const button = screen.getByRole('button', { name: SEND }) as HTMLButtonElement
+    button.focus()
+    await act(async () => { fireEvent.click(button) })
+    expect(button.textContent).toBe('Working…')
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    await act(async () => { fireEvent.click(button) })
+    expect(api.requestAccess).toHaveBeenCalledTimes(1)
+    await act(async () => { answer(request()) })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+  })
+
   it('says in plain words that the role can’t ask patients for access, naming no permission, and offers no submit', () => {
     staff.permissions = ['identity.patient.read']
     open('/new')
@@ -696,6 +716,24 @@ describe('An access request’s page', () => {
     await act(async () => { finish({}) })
     expect(await screen.findByText('Access was closed.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
+  })
+
+  it('parity: Close access keeps focus while the close is sent (aria-disabled, not disabled)', async () => {
+    let finish: (value: unknown) => void = () => {}
+    api.closeGrant.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    open('/r0000000-0000-4000-8000-000000000002')
+    const button = await screen.findByRole('button', { name: 'Close access' }) as HTMLButtonElement
+    button.focus()
+    await act(async () => { fireEvent.click(button) })
+    expect(button.textContent).toBe('Closing…')
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    await act(async () => { fireEvent.click(button) })
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
+    api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, effectiveStatus: 'closed' }])
+    await act(async () => { finish({}) })
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
   })
 
   it('says an access that had already ended was refreshed', async () => {
