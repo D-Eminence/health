@@ -20,6 +20,12 @@ import { dateText } from '../parts/format'
  * details, and names no actor or membership. The search and the outcome filter are today's too, over the page loaded
  * only, drawn as the target's list search.
  *
+ * Layout (design audit, #64): under the heading's line (Refresh beside it) and the intro, the page is one list card
+ * ('hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card', DeptSearch's): the search and outcome filter at its top,
+ * then every event of the page loaded that they match (all of them as the page opens), with Newer and Older events
+ * under them. The request log (health#70) is never a row. The target draws no Refresh, search or filter, but all three
+ * stay for good (owner decision 2 Nov 2026).
+ *
  * Each event reads as a plain sentence (owner rule of 1 Nov 2026, docs/AUDIT_ACTION_LABELS.md): what was done, by whom,
  * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the classic page too. The action code, the
  * correlation ID and the resource type are never shown; the search still finds an event by its code.
