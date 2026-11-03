@@ -15,7 +15,7 @@ type PagesModule = { readonly pages?: readonly EhrBluePage[] }
 const FRAME_MODULE = './frame/pages.ts'
 
 export { basePath, pageHrefOf }
-export { pageAllowed, pageTabs } from './frame/pageAccess'
+export { pageAllowed, pageTabs, pageUsable } from './frame/pageAccess'
 
 export function collectPages(modules: Readonly<Record<string, PagesModule>>): EhrBluePage[] {
   const frame = modules[FRAME_MODULE]?.pages ?? []
