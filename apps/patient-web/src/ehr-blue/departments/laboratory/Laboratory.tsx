@@ -6,7 +6,7 @@ import { Badge, Button, Card, EmptyState, FilterTabs, Input, PageHeader } from '
 import { staffApi, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { selfServiceType } from '../../../staff/staffAccess'
-import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
+import { cannotCompleteOffered, holdsReceivePermission, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
 import { CannotCompleteEndings, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
@@ -237,8 +237,10 @@ function RequestCard({ group, settings, onOpen, below }: {
   const urgent = group.items.some(item => isUrgent(item.priority))
   const bill = billOf(first)
   const owing = group.stage === 'collect' && paysFirst(settings, 'lab') && billOwing(bill)
-  const action = nextAction(group.stage, factsOfItem(first), owing)
-  const waited = waitedText(first.acceptedAt)
+  // An ended order from another facility is read only: its card names no step, and it is not waiting.
+  const ended = group.items.every(item => routeClosedForWork(item.orderRoute))
+  const action = ended ? 'See what was recorded' : nextAction(group.stage, factsOfItem(first), owing)
+  const waited = ended ? null : waitedText(first.acceptedAt)
   const details = [ageSex(person), person.healthId ?? (person.hidText === 'No Health ID' ? null : person.hidText)].filter(Boolean).join(' · ')
   return <Card as="li" className="@container flex min-w-0 flex-col gap-3 p-4">
     <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
@@ -254,7 +256,7 @@ function RequestCard({ group, settings, onOpen, below }: {
     <p className="m-0 text-[15px] font-medium text-ink break-words">{group.items.map(item => item.testName ?? 'Lab test').join(' · ')}</p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <span className="inline-flex items-center gap-1.5 text-caption text-ink-3 tabular">
-        <Clock className="size-3.5" aria-hidden />{waited ? `Waiting ${waited}` : 'Just in'}{requestOf(first) ? ` · ${requestOf(first)!.number}` : ''}
+        <Clock className="size-3.5" aria-hidden />{waited ? `Waiting ${waited}` : ended ? 'Ended' : 'Just in'}{requestOf(first) ? ` · ${requestOf(first)!.number}` : ''}
       </span>
       <Button id={`lab-${first.id}-record`} variant="soft" onClick={() => onOpen(first)} className="whitespace-nowrap @max-xs:w-full">
         {action}<span className="sr-only">: {person.name}, {group.items.map(item => item.testName ?? 'Lab test').join(', ')}</span>

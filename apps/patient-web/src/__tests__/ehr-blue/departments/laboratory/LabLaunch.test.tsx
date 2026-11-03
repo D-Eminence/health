@@ -452,6 +452,70 @@ describe('lab launch: lists and pages in plain words (loading, empty, access, cl
     expect(within(stageCard()).queryByRole('button', { name: /^(Collect|Reject) sample$/ })).toBeNull()
   })
 
+  describe('an order from another facility that has ended', () => {
+    /** A routed request with its sample at `statuses`, ended (as after "We can't complete this order", its reads kept). */
+    const ended = (statuses: string[]) => answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: statuses,
+      orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'receiving_unable', version: 4 }) as LabWorkItem['orderRoute'] })])
+
+    it.each([
+      ['a sample taken, not yet received', ['collected'], [specimen('collected')], []],
+      ['a test still running', ['received'], [specimen('received')], [execution({ status: 'in_progress', completedAt: null, version: 1 })]],
+      ['a finished test with no result', ['received'], [specimen('received')], [execution()]],
+      ['a result to check', ['received'], [specimen('received')], [execution({ result: draftResult() })]],
+      ['a correction to check', ['received'], [specimen('received')], [execution({ result: correctionOfReleased() })]],
+    ])('with %s, offers no step and names no one who could still act', async (_, statuses, specimens, executions) => {
+      as([...CUSTODY, ...PROCESSING, 'lab.result.revise-released'])
+      api.labWorkItems.mockResolvedValue(ended(statuses))
+      api.labAccession.mockResolvedValue(accession(specimens))
+      api.labExecutions.mockResolvedValue({ items: executions })
+      renderPage()
+      await openRecord()
+      await waitFor(() => expect(api.labAccession).toHaveBeenCalled())
+      expect(await within(stageCard()).findByText('Nothing more can be done on this order.')).toBeTruthy()
+      await waitFor(() => expect(within(stageCard()).queryByText('Loading…')).toBeNull())
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+      // Lab refuses every write on it (ORDER_ROUTE_CLOSED): no step blames the role, or waits for someone else.
+      expect(stageCard().textContent).not.toMatch(/Your role can’t|Ask a colleague|Waiting for someone who can|is running/)
+      // Only the sample's label can still be printed.
+      expect(within(stageCard()).queryAllByRole('button').map(button => button.textContent)).toEqual(['Print label'])
+      expect(within(stageCard()).queryByRole('form')).toBeNull()
+    })
+
+    it('shows a result waiting to be checked as never released, and a correction as not reaching the clinician', async () => {
+      as([...CUSTODY, ...PROCESSING, 'lab.result.revise-released'])
+      api.labWorkItems.mockResolvedValue(ended(['received']))
+      api.labAccession.mockResolvedValue(accession([specimen('received')]))
+      api.labExecutions.mockResolvedValue({ items: [execution({ result: correctionOfReleased() })] })
+      renderPage()
+      await openRecord()
+      await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release'))
+      expect(await within(stageCard()).findByText('11.7')).toBeTruthy()
+      expect(within(stageCard()).getByText('Never released.')).toBeTruthy()
+      expect(within(stageCard()).getByText('This corrects a result that was already released. The clinician still sees the earlier result.')).toBeTruthy()
+      expect(stageCard().textContent).not.toMatch(/Until this one is released/)
+    })
+
+    it('its card on the work list names no step and says it ended, not how long it waits', async () => {
+      as([...CUSTODY, ...PROCESSING])
+      api.labWorkItems.mockResolvedValue(ended(['collected']))
+      renderPage()
+      const button = await findCard('Haemoglobin')
+      expect(button.textContent).toMatch(/^See what was recorded:/)
+      const card = button.closest('li') as HTMLElement
+      expect(within(card).getByText(/^Ended/)).toBeTruthy()
+      expect(card.textContent).not.toMatch(/Waiting|Receive sample|Just in/)
+    })
+
+    it('a card of work still open keeps its step and its wait', async () => {
+      as([...CUSTODY, ...PROCESSING])
+      api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['collected'] })]))
+      renderPage()
+      const button = await findCard('Haemoglobin')
+      expect(button.textContent).toMatch(/^Receive sample:/)
+      expect((button.closest('li') as HTMLElement).textContent).toMatch(/Waiting \d/)
+    })
+  })
+
   it('shows no stage track while the results can’t be read', async () => {
     as(PROCESSING)
     api.labExecutions.mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
