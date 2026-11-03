@@ -1415,3 +1415,36 @@ describe('the patient and the priority on this facility\'s own work', () => {
     expect(requestFacts().Priority).toBe('Urgent')
   })
 })
+
+/*
+ * Audit rank 3: payment setup is a point-of-care route Health ID does not serve yet (commerce/served.ts). The work list
+ * reads it at the demo facilities only, as Pharmacy does, so a real lab sends no request that fails and no test waits
+ * for payment. The real facility here is fictional.
+ */
+describe('payment settings', () => {
+  const REAL_LAB = 'a1000000-0000-4000-8000-0000000000aa'
+  const SETTINGS = { wherePaid: 'cashier', methods: ['cash'], payBefore: { pharmacy: false, lab: true }, allowDeferredFor: [], hmos: [],
+    dayCloseBy: 'facility', tills: [], version: 1 }
+  const owed = workItem({ bill: { billId: 'bill-1', status: 'unpaid', dueKobo: 250_000, receiptNumber: null } } as Partial<LabWorkItem>)
+
+  it('are not read at a real lab, so an unpaid test is not held for payment', async () => {
+    as(WORK, { id: REAL_LAB, name: 'Riverside Lab (fictional)' })
+    api.labWorkItems.mockResolvedValue({ items: [owed] })
+    const paymentSettings = vi.fn(async () => ({ ok: true, data: SETTINGS }))
+    commerceApi.paymentSettings = paymentSettings
+    renderPage()
+    expect(await findCard('Haemoglobin')).toBeTruthy()
+    await act(async () => {})
+    expect(paymentSettings).not.toHaveBeenCalled()
+    expect(cardButton('Haemoglobin').textContent).not.toMatch(/Take payment/)
+  })
+
+  it('are read at a demo lab, where an unpaid test waits for payment first', async () => {
+    api.labWorkItems.mockResolvedValue({ items: [owed] })
+    const paymentSettings = vi.fn(async () => ({ ok: true, data: SETTINGS }))
+    commerceApi.paymentSettings = paymentSettings
+    renderPage()
+    await waitFor(() => expect(paymentSettings).toHaveBeenCalled())
+    await waitFor(() => expect(cardButton('Haemoglobin').textContent).toMatch(/Take payment/))
+  })
+})
