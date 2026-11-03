@@ -290,13 +290,16 @@ const TONES = { information: 'info', success: 'positive', warning: 'caution', ne
 const STATES_IN_WORDS: ReadonlySet<string> = new Set(['sent', 'accepted', 'completed', 'declined', 'withdrawn', 'expired', 'cancelled'])
 
 /**
- * Where a sent order stands, in today's words and tone (routeStatusText): on the order's page and under its row in the
- * list. A state this website does not know says only where the order went, where today's line would print the stored
- * state itself: no code is shown on a facility screen.
+ * Where a sent order stands, in today's words and tone (routeStatusText): on the order's page, in its earlier routes
+ * and under its row in the list. For a state this website does not know, today's line prints the stored state itself;
+ * here no code is shown on a facility screen. The line says where the order went, that this page can't show what
+ * became of it, and to check with that facility, so it does not read as still on its way there (and nothing is sent
+ * twice unchecked). Neutral, as today's line.
  */
 export function routeStatus(route: OrderRouteSummary, patient: string): ReturnType<typeof routeStatusText> {
   if (STATES_IN_WORDS.has(route.effectiveState)) return routeStatusText(route, patient)
-  return { tone: 'neutral', text: `Sent to ${route.receivingFacility.name?.trim() || 'the other facility'}.` }
+  const facility = route.receivingFacility.name?.trim() || 'the other facility'
+  return { tone: 'neutral', text: `Sent to ${facility}. This page can’t show what became of it: contact ${facility} to check.` }
 }
 
 /** The class of that line, in the tone of its state. */

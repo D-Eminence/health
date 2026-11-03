@@ -1379,6 +1379,8 @@ describe('Sending to another facility, and what it reported', () => {
 describe('Where each order stands, under its row in the orders list', () => {
   const ACCEPTED_AT = '2026-10-21T10:00:00.000Z'
   const ENDED_AT = '2026-10-22T10:00:00.000Z'
+  /** The line for a route state this website does not know: where it went, and to check with it. */
+  const UNKNOWN_STATE = 'Sent to Demo Laboratory. This page can’t show what became of it: contact Demo Laboratory to check.'
 
   beforeEach(() => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
@@ -1452,19 +1454,23 @@ describe('Where each order stands, under its row in the orders list', () => {
     expect(link.getAttribute('aria-describedby')).toBeNull()
   })
 
-  it('says only where it went for a state this website does not know: no stored state on the row', async () => {
+  it('says where it went for a state this website does not know, and to check with it: no stored state on the row', async () => {
     setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'paused_there' }) })], { crossFacilityOrders: true })
     const { row } = await rowOf('Laboratory · Haemoglobin')
-    expect(within(row).getByText('Sent to Demo Laboratory.').className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-neutral')
+    expect(within(row).getByText(UNKNOWN_STATE).className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-neutral')
     expect(row.textContent).not.toMatch(/paused/)
   })
 
-  it('says only where it went for a state this website does not know on the order’s page too, in the same line', async () => {
-    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'paused_there' }) })], { crossFacilityOrders: true })
+  it('says the same for a state this website does not know on the order’s page, beside Send to Lab', async () => {
+    // Not a bare "Sent to Demo Laboratory.": the page also offers Send to Lab, so it must not read as still on its way there.
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'superseded' }) })], { crossFacilityOrders: true })
     await openOrder('laboratory', LAB)
     expect(screen.getByRole('heading', { level: 2, name: 'Sent to another laboratory' })).toBeTruthy()
-    expect(screen.getByText('Sent to Demo Laboratory.').className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-neutral')
-    expect(document.body.textContent).not.toMatch(/paused/)
+    expect(screen.getByText(UNKNOWN_STATE).className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-neutral')
+    expect(screen.queryByText('Sent to Demo Laboratory.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send to Lab' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/superseded/)
   })
 
   it('draws the order page’s status line in the same tone as the row’s', async () => {
