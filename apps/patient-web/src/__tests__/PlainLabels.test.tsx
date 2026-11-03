@@ -3,7 +3,8 @@ import { screen } from '@testing-library/react'
 import type { AccessRequest } from '../api'
 import { AccessPage } from '../routes/Portal'
 import {
-  accessLevelLabel, consultationLabel, dayLabel, fileSizeLabel, fileTypeLabel, scanStatusLabel, visitClassLabel, visitStatusLabel,
+  accessLevelLabel, consultationLabel, dayLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, scanStatusLabel, visitClassLabel,
+  visitStatusLabel,
 } from '../plainLabels'
 import { json, press, renderPortal } from './portalHarness'
 
@@ -102,5 +103,14 @@ describe('the patient’s Access page', () => {
     expect(screen.queryByText(/admin.override/i)).toBeNull()
     expect(screen.getAllByRole('button', { name: /^End access for Lagos General, Can view and add records, / })).toHaveLength(1)
 
+  })
+})
+
+describe('access status for the patient', () => {
+  it('says the owner’s words, case aside, and a plain word for anything else', () => {
+    expect(['Revoked', 'denied', 'EXPIRED', 'active', 'pending'].map(patientAccessStatusLabel))
+      .toEqual(['Ended', 'You said no', 'Time ran out', 'Active', 'Waiting for you'])
+    expect(patientAccessStatusLabel('superseded_by_admin')).toBe('Closed')
+    expect(patientAccessStatusLabel(null)).toBe('Closed')
   })
 })

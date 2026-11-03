@@ -1,5 +1,5 @@
 import { createRegisteredBrowserClient } from '@hid/api'
-import { createApiClient } from '@hid/http'
+import { createApiClient, PlainError } from '@hid/http'
 import { getEnvironment } from './env'
 
 export type ProductCode = 'identity' | 'ehr' | 'laboratory' | 'pharmacy' | 'migrate' | 'outreach' | 'api' | 'general'
@@ -62,7 +62,7 @@ function isPricedProduct(slug: string): slug is PublicPrice['product_slug'] {
  * cannot hide the prices of the products the site does present.
  */
 export function parsePublicPrices(value: unknown): PublicPrice[] {
-  if (!isObject(value) || !Array.isArray(value.data)) throw new Error('Pricing is temporarily unavailable.')
+  if (!isObject(value) || !Array.isArray(value.data)) throw new PlainError('Pricing is temporarily unavailable.')
   return value.data.flatMap((item: unknown) => {
     if (!isObject(item) || typeof item.product_slug !== 'string'
       || typeof item.context !== 'string' || typeof item.visibility !== 'string'
@@ -71,10 +71,10 @@ export function parsePublicPrices(value: unknown): PublicPrice[] {
       || !(item.amount_minor === null || (Number.isSafeInteger(item.amount_minor) && Number(item.amount_minor) >= 0))
       || !(item.billing_period === null || typeof item.billing_period === 'string')
       || !(item.unit === null || typeof item.unit === 'string')) {
-      throw new Error('Pricing is temporarily unavailable.')
+      throw new PlainError('Pricing is temporarily unavailable.')
     }
     if (['fixed', 'starting_from'].includes(item.visibility) !== (item.amount_minor !== null)) {
-      throw new Error('Pricing is temporarily unavailable.')
+      throw new PlainError('Pricing is temporarily unavailable.')
     }
     return isPricedProduct(item.product_slug) ? [item as unknown as PublicPrice] : []
   })
@@ -103,6 +103,6 @@ export async function submitDemoRequest(body: DemoSubmission, idempotencyKey: st
     headers: { 'Idempotency-Key': idempotencyKey },
   })
   if (!isObject(payload) || payload.accepted !== true) {
-    throw new Error('The request could not be confirmed. Please try again.')
+    throw new PlainError('The request could not be confirmed. Please try again.')
   }
 }

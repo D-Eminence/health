@@ -145,9 +145,9 @@ export const billingSample: SampleDefinition = {
     return { values: { unitCents: String(unit), totalCents: String(unit * Number(values.quantity ?? record.values.quantity ?? 0)) } }
   },
   actions: [
-    { id: 'issue', label: 'Issue invoice', from: ['draft'], to: 'issued' },
+    { id: 'issue', label: 'Issue invoice', from: ['draft'], to: 'issued', permission: 'approve' },
     {
-      id: 'pay', label: 'Record simulated payment', from: ['issued', 'partial'], to: 'partial',
+      id: 'pay', label: 'Record simulated payment', from: ['issued', 'partial'], to: 'partial', permission: 'collect-payment',
       fields: [
         { key: 'amount', label: 'Amount (currency units)', type: 'number' },
         { key: 'method', label: 'Method', options: ['Cash', 'Transfer', 'Card', 'Insurance'] },
@@ -155,10 +155,10 @@ export const billingSample: SampleDefinition = {
       ],
     },
     {
-      id: 'refund', label: 'Refund payment', from: ['paid', 'partial'], to: 'partial',
+      id: 'refund', label: 'Refund payment', from: ['paid', 'partial'], to: 'partial', permission: 'refund',
       fields: [{ key: 'amount', label: 'Refund amount', type: 'number' }, reason],
     },
-    { id: 'void', label: 'Void invoice', from: ['draft', 'issued'], to: 'void', fields: [reason] },
+    { id: 'void', label: 'Void invoice', from: ['draft', 'issued'], to: 'void', fields: [reason], permission: 'approve' },
   ],
   apply: ({ record, records, action, values }) => {
     const { paid, due } = balance(record)
@@ -208,14 +208,14 @@ export const insuranceSample: SampleDefinition = {
     { key: 'support', label: 'Supporting service records', type: 'textarea' },
   ],
   actions: [
-    { id: 'submit', label: 'Submit simulated claim', from: ['draft', 'rejected'], to: 'submitted' },
+    { id: 'submit', label: 'Submit simulated claim', from: ['draft', 'rejected'], to: 'submitted', permission: 'create' },
     {
-      id: 'approve', label: 'Record payer decision', from: ['submitted'], to: 'approved',
+      id: 'approve', label: 'Record payer decision', from: ['submitted'], to: 'approved', permission: 'approve',
       fields: [{ key: 'approvedAmount', label: 'Approved amount', type: 'number' }, { key: 'review', label: 'Local fixture decision' }],
     },
-    { id: 'reject', label: 'Record rejection', from: ['submitted'], to: 'rejected', fields: [reason] },
+    { id: 'reject', label: 'Record rejection', from: ['submitted'], to: 'rejected', fields: [reason], permission: 'approve' },
     {
-      id: 'settle', label: 'Record simulated settlement', from: ['approved'], to: 'settled',
+      id: 'settle', label: 'Record simulated settlement', from: ['approved'], to: 'settled', permission: 'collect-payment',
       fields: [{ key: 'amount', label: 'Received amount', type: 'number' }, { key: 'reference', label: 'Unique settlement reference' }],
     },
   ],

@@ -4,12 +4,12 @@ import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
-import { SAY, WORDS } from '../copy'
+import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
@@ -22,6 +22,7 @@ import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
 import { usePatientEntriesServed } from '../patientEntriesServed'
+import { sectionsShown } from './recordSections'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -49,7 +50,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, fileSizeLabel, fileTypeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
 
 function date(value: string | null | undefined) {
@@ -61,13 +62,6 @@ function date(value: string | null | undefined) {
 function dateTime(value: string) {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
-}
-
-/** A system code shown in plain words: "outpatient_visit" reads as "Outpatient visit". */
-function plainCode(value: string | null | undefined) {
-  if (!value) return 'Not recorded'
-  const words = value.replace(/[_-]+/g, ' ').trim()
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /** " for 60 minutes", " for 2 hours", " for 7 days": how long a facility asks for, in words; nothing when unknown. */
@@ -108,7 +102,7 @@ export function PortalShell() {
     setSigningOut(true); setError(null)
     try { await signOut(); navigate('/sign-in', { replace: true }) }
     catch (reason) {
-      setError(isHidApiError(reason) ? reason.message : 'Sign-out failed. Please try again.')
+      setError(plainErrorText(reason, PLAIN.signOutFailed))
     } finally { setSigningOut(false) }
   }
 
@@ -138,6 +132,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   useOnProfileChange(() => { void profile.reload().then(() => photo.reload()) })
   const share = useShareServed()
   const shareTo = share === true ? '/access/share' : '/access'
+  // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
+  const adds = usePatientEntriesServed() === true
   const name = shown?.fullName ?? 'Your Health ID'
   const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
   const nav: NavGroup[] = [
@@ -164,8 +160,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     headerActions={<NotificationBell />}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
-      { to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true },
-      { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2 },
+      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true }] : []),
+      { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
       { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
       { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
     ] }}>
@@ -296,24 +292,26 @@ const SECTION_NAMES: Readonly<Record<RecordSection, string>> = {
   encounters: 'visits', notes: 'doctor’s notes', vitals: 'vital signs', diagnoses: 'diagnoses',
   prescriptions: 'prescriptions', labRequests: 'lab tests', documents: 'documents',
 }
-const ALL_SECTIONS = 'Everything your doctors and hospitals have signed, newest first.'
 const WITHHELD = 'Not shared with you yet.'
 
 /** The opening line until the record is read: what it holds is not known yet. */
 const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
 
 /**
- * The page's opening line. An EHR with hid-system #52 names what it released to
- * the patient, and only that is promised; one before it sends every section.
+ * The page's opening line: only what the page shows (recordSections.ts), never more. An EHR with hid-system #52 names
+ * what it released to the patient, and only that is named; one that names nothing (production's) is said to send every
+ * section the page shows. Older records are named whenever the answer carries them, as the page then shows them.
  * Nothing is named while the record is read, or when it could not be.
  */
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
-  if (usesNovuBackend()) return 'Your visits, doctor’s notes and older records.'
-  if (!data.released) return ALL_SECTIONS
-  const names = data.released.filter(section => section in SECTION_NAMES).map(section => SECTION_NAMES[section])
+  const shown = sectionsShown()
+  // The older records (records kept from before) are shown whenever the answer carries them, so they are named too.
+  const older = data.importedRecords !== undefined ? ['older records'] : []
+  const names = [...(data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section]), ...older]
   if (names.length === 0) return 'Nothing in your record is shared with you yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  if (!data.released) return `Your ${listed}, newest first.`
   return `Your ${listed}.${data.withheld?.length ? ' Other parts aren’t shared with you yet.' : ''}`
 }
 
@@ -576,10 +574,6 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
   </>
 }
 
-/** The sections each backend sends: Novu serves encounters and notes, and imported history with them. */
-const sectionsShown = (): RecordSection[] => usesNovuBackend() ? ['encounters', 'notes']
-  : ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents']
-
 export function RecordsPage() {
   const { api } = useSession()
   useDocumentTitle('Health records · Health ID')
@@ -633,7 +627,7 @@ export function RecordsPage() {
 
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} title="Records" description={recordsIntro(records.error ? null : data)}
-      actions={<Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />
+      actions={ownServed === true ? <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button> : undefined} />
     <PageState what="your records" loading={records.loading} error={records.error} hasData={data !== null}
       onRetry={() => recordsRetry.retry(records.reload)} retryRef={recordsRetry.button}>{null}</PageState>
     {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
@@ -663,8 +657,9 @@ export function RecordsPage() {
     {ready && <>
       {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
-        description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.' : 'Records from your providers appear here. You can add your own too, from any hospital, with a photo of the paper.'}
-        action={searching ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
+        description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
+          : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
+        action={searching || ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
     <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
@@ -744,7 +739,7 @@ export function AccessPage() {
       else toast.success({ title: 'Denied', message: `Nothing was shared with ${facility}.` })
       focusAfter(() => requestsHeading.current)
     } catch (cause) {
-      toast.error({ title: 'That didn’t go through', message: isHidApiError(cause) ? cause.message : 'The request could not be updated.' })
+      toast.error({ title: 'That didn’t go through', message: plainErrorText(cause, 'The request could not be updated.', { codes: PATIENT_REFUSALS }) })
       focusAfter(() => document.getElementById(decision === 'approve' ? `approve-${id}` : `deny-reason-${id}`)
         ?? document.querySelector<HTMLElement>('input[name="deny-reason-choice"]:checked'))
     } finally { setWorking(null) }
@@ -761,7 +756,7 @@ export function AccessPage() {
       toast.success({ title: 'Access ended', message: `${who ? grantee(who) : 'They'} can no longer see your records.` })
       focusAfter(() => historyHeading.current)
     } catch (cause) {
-      toast.error({ title: 'Couldn’t end access', message: isHidApiError(cause) ? cause.message : SAY.tryAgain })
+      toast.error({ title: 'Couldn’t end access', message: plainErrorText(cause, SAY.tryAgain, { codes: PATIENT_REFUSALS }) })
       focusAfter(byId(`revoke-reason-${grantId}`))
     } finally { setRevokeBusy(false) }
   }
@@ -812,7 +807,7 @@ export function AccessPage() {
                 <span className="block text-[13px] text-ink-3">{pending ? `Wants to see your records${forHowLong(item.requestedDurationMinutes)} · ` : ''}{timeAgo(item.requestedAt)}</span>
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
-                : <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>}{' '}
+                : <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>}{' '}
               <ItemName>the request from {item.facilityName}, {dateTime(item.requestedAt)}</ItemName>
             </button>
           </li> })}
@@ -839,7 +834,7 @@ export function AccessPage() {
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
-              <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>
+              <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
               {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
             </div>
           </li>)}
@@ -867,7 +862,7 @@ export function AccessPage() {
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
-          {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{plainCode(open.status)}</Badge></dd></div>}
+          {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{patientAccessStatusLabel(open.status)}</Badge></dd></div>}
         </dl>
         {open.status.toLowerCase() === 'pending' && !denying && <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />{SAY.everyViewRecorded} You can end access at any time.</p>}
         {denying && <form id="deny-form" className="flex flex-col gap-3" onSubmit={event => { event.preventDefault(); confirmDenial(open.accessRequestId) }}>
@@ -945,7 +940,7 @@ export function NotificationsPage() {
     // The row changes from unread to read: that is the result, so no toast says it again.
     try { await api.markNotificationRead(id); await notifications.reload(); void settle(); focusAfter(() => heading.current) }
     catch (cause) {
-      toast.error({ title: 'Couldn’t mark it as read', message: isHidApiError(cause) ? cause.message : 'Notification could not be updated.' })
+      toast.error({ title: 'Couldn’t mark it as read', message: plainErrorText(cause, 'Notification could not be updated.') })
       focusAfter(() => document.getElementById(`mark-read-${id}`))
     } finally { setWorking(null) }
   }
@@ -1013,7 +1008,7 @@ function ImportedNotificationsCard() {
       void settle()
       focusAfter(() => heading.current)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Couldn’t mark it as read. Try again.')
+      setError(plainErrorText(cause, 'Couldn’t mark it as read. Try again.'))
       focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
     } finally { setWorking(null) }
   }
@@ -1024,7 +1019,7 @@ function ImportedNotificationsCard() {
       setOlder(current => [...current, ...page])
       if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Couldn’t load older notifications. Try again.')
+      setError(plainErrorText(cause, 'Couldn’t load older notifications. Try again.'))
     } finally { setWorking(null); focusAfter(() => document.getElementById('imported-notifications-older') ?? heading.current) }
   }
 
@@ -1053,9 +1048,10 @@ function ImportedNotificationsCard() {
  * so 'sign in again' alone does not say how, as on account deletion.
  */
 function pinProblem(cause: unknown, fallback: string) {
-  if (!isHidApiError(cause)) return fallback
-  return cause.code === 'PATIENT_RECENT_AUTH_REQUIRED'
-    ? SAY.signInAgain : cause.message
+  return plainErrorText(cause, fallback, { codes: {
+    PATIENT_RECENT_AUTH_REQUIRED: SAY.signInAgain,
+    PATIENT_RECENT_RECOVERY_HOLD: 'For your safety, you can’t change your Access PIN for 24 hours after you recover your account.',
+  }, statuses: { 400: 'Your PIN must be 4 to 8 digits.' } })
 }
 
 /**
