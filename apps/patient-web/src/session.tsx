@@ -24,6 +24,13 @@ interface SessionContextValue {
    * Sign-in says so. A sign-in that ended on its own (expired, revoked) is not this.
    */
   readonly signedOutElsewhere: boolean
+  /**
+   * This tab's patient session ended while the patient was using the portal: a request was refused for want of a live
+   * sign-in and could not be renewed (expired, revoked), or the browser's sign-in changed (`signedOutElsewhere` then
+   * says so). Sign-in can explain it and return them to the page they were on (RequireAccess keeps it). A sign-out the
+   * patient asked for, or a visit that opens with no sign-in, is not this. Cleared by the next sign-in.
+   */
+  readonly sessionEnded: boolean
   readonly retrySessionCheck: () => void
   readonly signIn: (email: string, password: string, turnstileToken: string) => Promise<void>
   readonly acceptGoogleSession: (session: PatientSession) => void
@@ -106,6 +113,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [otherPortalSession, setOtherPortalSession] = useState(false)
   const [signedOutElsewhere, setSignedOutElsewhere] = useState(false)
+  const [endedInUse, setEndedInUse] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
   const otherPortal = useRef(false)
   useEffect(() => { otherPortal.current = otherPortalSession }, [otherPortalSession])
@@ -134,7 +142,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // question about the session and a refresh judge their own 401 (api.ts), so
       // the session read that finds the access token expired, before the refresh
       // that restores it, does not end it.
-      onUnauthorized: () => { if (store.getState().status === 'authenticated') store.clear() },
+      onUnauthorized: () => { if (store.getState().status === 'authenticated') { setEndedInUse(true); store.clear() } },
       refreshSession: async () => {
         // The patient this tab shows. A refresh answers for whichever sign-in the
         // browser holds now, another patient's from another tab included.
@@ -221,6 +229,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSessionError(null)
         setOtherPortalSession(false)
         setSignedOutElsewhere(false)
+        setEndedInUse(false)
       } catch (error) {
         if (!active) return
         if (refused || (isHidApiError(error) && error.status === 401)) {
@@ -260,6 +269,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Only the session asked about: a sign-in made in this tab meanwhile stays.
       if (store.getState().principal?.subjectId !== subject) return
       setSignedOutElsewhere(elsewhere)
+      setEndedInUse(true)
       store.clear()
     }
     const ask = async (): Promise<void> => {
@@ -352,7 +362,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [api, store])
 
   const value = useMemo<SessionContextValue>(() => ({
-    state, api, sessionError, otherPortalSession, signedOutElsewhere,
+    state, api, sessionError, otherPortalSession, signedOutElsewhere, sessionEnded: endedInUse,
     retrySessionCheck: () => { setSessionError(null); setCheckKey(value => value + 1) },
     // A patient sign-in or sign-out replaces the session cookies this origin's other
     // tabs use, a provider's among them: they are told, naming no one.
@@ -365,6 +375,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSessionError(null)
         setOtherPortalSession(false)
         setSignedOutElsewhere(false)
+        setEndedInUse(false)
       } finally { announceSessionChange() }
     },
     acceptGoogleSession: session => {
@@ -373,6 +384,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSessionError(null)
         setOtherPortalSession(false)
         setSignedOutElsewhere(false)
+        setEndedInUse(false)
       } finally { announceSessionChange() }
     },
     takeUpActivatedSession: async () => {
@@ -382,6 +394,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSessionError(null)
         setOtherPortalSession(false)
         setSignedOutElsewhere(false)
+        setEndedInUse(false)
         return true
       } catch {
         // Not read (an outage, or cookies the browser did not keep), or not a patient's: the patient signs in.
@@ -401,6 +414,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
     signOut: async () => {
       const signedIn = store.getState().principal?.subjectId
+      // A sign-out the patient asked for: their session did not end by itself.
+      const signedOutHere = () => { setEndedInUse(false); store.clear() }
       await turnOffDevicePush(api)
       try {
         await api.logout(signedIn)
@@ -408,7 +423,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // The browser holds a provider's sign-in now, which Identity neither ended
         // nor changed: this patient's has already left it. Nothing changed for the
         // other tabs to hear about.
-        if (heldByOtherPortal(error)) { store.clear(); return }
+        if (heldByOtherPortal(error)) { signedOutHere(); return }
         if (!isHidApiError(error) || error.status !== 401) throw error
         // Logout needs the 15-minute access token. After a longer idle the
         // session is restored once so the server ends it, but only if it is
@@ -420,20 +435,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // A refused refresh leaves no session of this patient's in this browser
           // to end, a provider's sign-in refused as SESSION_CLIENT_MISMATCH included.
           if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
-            store.clear()
+            signedOutHere()
             return
           }
           throw refreshError
         }
         if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) {
           try { await api.logout(signedIn) }
-          catch (repeated) { if (heldByOtherPortal(repeated)) { store.clear(); return } throw repeated }
+          catch (repeated) { if (heldByOtherPortal(repeated)) { signedOutHere(); return } throw repeated }
         }
       }
-      store.clear()
+      signedOutHere()
       announceSessionChange()
     },
-  }), [state, api, sessionError, otherPortalSession, signedOutElsewhere, store])
+  }), [state, api, sessionError, otherPortalSession, signedOutElsewhere, endedInUse, store])
 
   return <SessionContext.Provider value={value}><PatientResourcesContext.Provider value={cached}>{children}</PatientResourcesContext.Provider></SessionContext.Provider>
 }
@@ -452,6 +467,7 @@ export function createTestSessionValue(principal: AuthPrincipal | null, api: Pat
     sessionError: null,
     otherPortalSession: false,
     signedOutElsewhere: false,
+    sessionEnded: false,
     retrySessionCheck: () => {},
     signIn: async () => {},
     acceptGoogleSession: () => {},

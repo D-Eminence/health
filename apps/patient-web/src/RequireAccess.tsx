@@ -8,19 +8,30 @@
  */
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
 import { focusLost, focusPageHeading } from './pageFocus'
+import { useDocumentTitle } from './authSteps'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement
   readonly children: ReactNode
 }
 
+/** Names the tab while a session state is shown, and gives the name back as it goes. */
+function TabTitle({ title }: { title: string }) {
+  useDocumentTitle(title)
+  return null
+}
+
+/** Where sign-in may take the patient back to: the page they asked for (RequireAccess's redirect keeps it). */
+export interface SignInFrom { readonly pathname: string; readonly search: string; readonly hash: string }
+
 export function RequireAccess({ requirement, children }: RequireAccessProps) {
   const { state, sessionError, retrySessionCheck } = useSession()
+  const { pathname, search, hash } = useLocation()
   const decision = evaluateAccess(state, requirement)
   // 'Try again' is replaced while the session is checked again: focus then goes to
   // the page that opens, or to the new 'Try again' when the check fails again (PR-04).
@@ -47,22 +58,33 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
 
     case 'pending':
       // The session is still resolving. Redirecting here would bounce a
-      // signed-in patient to the sign-in screen on every page load.
+      // signed-in patient to the sign-in screen on every page load. A check that
+      // failed says so plainly, with one full-size way on: Try again. The check
+      // also fails for an outage, not only a lost connection, so it blames none.
       return (
         <main className="patient-page">
           <BrandLogo className="patient-state-logo" />
           {sessionError ? <div role="alert" className="patient-access-state">
+            <TabTitle title="Couldn’t check your session · Health ID" />
             <h1>We could not check your session</h1>
-            <p>Try again in a moment.</p>
-            <button ref={retryButton} type="button" onClick={() => { retried.current = true; checking.current = false; retrySessionCheck() }}>Try again</button>
+            <p>Nothing in your account has changed. Try again in a moment.</p>
+            <div className="patient-state-actions">
+              <button ref={retryButton} type="button" className="patient-primary-button"
+                onClick={() => { retried.current = true; checking.current = false; retrySessionCheck() }}>Try again</button>
+            </div>
           </div> : <div role="status" aria-live="polite" className="patient-access-state">
+            <TabTitle title="Checking your session · Health ID" />
             <h1>Checking your session…</h1>
           </div>}
         </main>
       )
 
-    case 'sign-in-required':
-      return <Navigate to="/sign-in" replace />
+    case 'sign-in-required': {
+      // The page the patient asked for goes with them (router state, never the
+      // address), so sign-in can bring them back to it.
+      const from: SignInFrom = { pathname, search, hash }
+      return <Navigate to="/sign-in" replace state={{ from }} />
+    }
 
     case 'mfa-required':
       return <Navigate to="/verify" replace />

@@ -82,7 +82,7 @@ describe('patient portal pages', () => {
 
   it('moves focus to the overview\'s heading from a page that does not exist', async () => {
     open('/no-such-page')
-    await press(await screen.findByRole('link', { name: 'Go to overview' }))
+    await press(await screen.findByRole('link', { name: 'Go to Home' }))
     // Home greets the patient by name.
     await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Ada$/ })
     expect(document.activeElement).toBe(pageHeading())
