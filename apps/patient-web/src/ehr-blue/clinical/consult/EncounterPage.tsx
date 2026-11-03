@@ -100,8 +100,11 @@ interface ActionDef {
   readonly id: string
   readonly label: string
   readonly fields: readonly FieldDef[]
-  /** The design's decision dialog: `word` asks for it typed (SIGN). */
-  readonly confirm?: { readonly word?: string }
+  /**
+   * The design's decision dialog: `word` asks for it typed (SIGN); `description` is what it says, when the change does
+   * more than change this record (a closing status: today's warning, which today's submit is described by).
+   */
+  readonly confirm?: { readonly word?: string; readonly description?: string }
   readonly warning?: string
   /** A plain line under the fields (today's "Notes are saved as drafts…"). */
   readonly hint?: string
@@ -129,7 +132,7 @@ const writeCheck = (values: FormValues): FieldErrors => {
   return errors
 }
 
-type Asking = { readonly label: string; readonly word?: string; readonly answer: (yes: boolean) => void }
+type Asking = { readonly label: string; readonly word?: string; readonly description?: string; readonly answer: (yes: boolean) => void }
 /** One step of a save: it keeps its idempotency key while its input is unchanged, and is never sent again once done. */
 type SaveStep = { readonly signature: string; readonly key: string; done: boolean }
 
@@ -214,7 +217,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     if (failures.length > 0) setPageError(`${RELOAD_FAILED} ${failures[0]}`.trim())
   }
   const begin = () => { setSuccess(''); setPageError('') }
-  const ask = (label: string, word?: string) => new Promise<boolean>(answer => setAsking({ label, word, answer }))
+  const ask = (label: string, word?: string, description?: string) => new Promise<boolean>(answer => setAsking({ label, word, description, answer }))
   /**
    * A form left after its note change was saved but its diagnosis was not: the note is read again (its new version),
    * and the next change starts afresh.
@@ -381,10 +384,12 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, validate: writeCheck, run: writeNote })
   }
   if (writes.encounter) {
+    const warning = encounterClosesRecords()
     for (const transition of ENCOUNTER_TRANSITIONS[encounter.status] ?? []) {
       more.push({
         id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck,
-        confirm: CLOSING_STATUSES.has(transition.value) ? {} : undefined, warning: encounterClosesRecords(), run: encounterStatus(transition.value),
+        // The dialog's button is the one that sends a cancel or entered in error, so it says the warning too.
+        confirm: CLOSING_STATUSES.has(transition.value) ? { description: warning } : undefined, warning, run: encounterStatus(transition.value),
       })
     }
   }
@@ -401,7 +406,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   }
 
   const submitAction = (chosen: ActionDef) => async (values: FormValues): Promise<SubmitOutcome> => {
-    if (chosen.confirm && !(await ask(chosen.label, chosen.confirm.word))) return false
+    if (chosen.confirm && !(await ask(chosen.label, chosen.confirm.word, chosen.confirm.description))) return false
     return chosen.run(values)
   }
 
@@ -518,6 +523,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         open={asking !== null}
         label={asking?.label ?? ''}
         word={asking?.word}
+        description={asking?.description}
         onConfirm={() => { asking?.answer(true); setAsking(null) }}
         onCancel={() => { asking?.answer(false); setAsking(null) }}
       />

@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { ENCOUNTER_STATUS_UPDATED, REVISION_RECORDED } from '../../../ehr-blue/clinical/consult/encounters'
+import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
@@ -64,6 +65,8 @@ const STALE = new HidApiError(412, 'The record changed since it was read.', { co
 /** Today's warnings on an encounter status change, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu). */
 const MAIN_WARNING = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
 const NOVU_WARNING = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
+/** Today's refusal of a close the role may not make (staff/routes/Clinical.tsx:94-96), whole, in plain words. */
+const RETRACTION_REFUSED = (change: string) => `You can’t ${change}: doing so would also change some of its records, and your role can’t change all of them. Nothing was changed. Ask a colleague whose role can change all of its records (usually a doctor or clinician) to make this change.`
 
 let records: Record<string, unknown[]>
 
@@ -613,7 +616,60 @@ describe('Consultation record', () => {
     expect(within(dialog()).getByRole('heading', { name: 'Cancel consultation?' })).toBeTruthy()
     expect(within(dialog()).queryByLabelText(/Type .* to confirm/)).toBeNull()
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel consultation' }))
-    expect((await actions().findByRole('alert')).textContent).toBe('You can’t cancel this consultation: it holds records your role can’t change. Nothing was changed. Ask a doctor or clinician to do it.')
+    expect((await actions().findByRole('alert')).textContent).toBe(RETRACTION_REFUSED('cancel this consultation'))
+  })
+
+  it.each([
+    ['Cancel consultation', 'cancelled', 'cancel this consultation'],
+    ['Mark as entered in error', 'entered_in_error', 'mark this consultation entered in error'],
+  ])('parity: a refused "%s" says why, whole, and changes and reads nothing, the form kept', async (label, status, change) => {
+    api.updateEncounter.mockRejectedValue(new HidApiError(403, 'Cancelling or retracting this encounter changes records you may not write', { code: 'ENCOUNTER_RETRACTION_NOT_PERMITTED' }))
+    await openEncounter()
+    await act(async () => {})
+    const reads = () => [api.encounter, api.encounters, api.records, api.documents, api.noteRevisions].map(read => read.mock.calls.length)
+    const before = reads()
+    chooseMore(label)
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
+    fireEvent.click(submitOf(label))
+    fireEvent.click(within(dialog()).getByRole('button', { name: label }))
+    // Today's refusal, whole (staff/routes/Clinical.tsx:94-96), in the form, and never the service's own words.
+    expect((await actions().findByRole('alert')).textContent).toBe(RETRACTION_REFUSED(change))
+    expect(document.body.textContent).not.toContain('records you may not write')
+    expect(api.updateEncounter).toHaveBeenCalledTimes(1)
+    expect(api.updateEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, { expectedRowVersion: 3, changeReason: 'Opened on the wrong patient', status })
+    // Not a stale consultation: nothing is read again, nothing is said to have changed, and it is as it was.
+    expect(reads()).toEqual(before)
+    expect(screen.queryByText(ENCOUNTER_STATUS_UPDATED)).toBeNull()
+    expect(within(meta()).getByText('In progress')).toBeTruthy()
+    // The form stays open with the reason, to be shown to a colleague or changed, and the change is still offered.
+    expect((actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement).value).toBe('Opened on the wrong patient')
+    expect(submitOf(label).getAttribute('aria-busy')).toBeNull()
+    expect(menuLabels()).toContain(label)
+  })
+
+  it.each([
+    ['main', 'Cancel consultation', '', MAIN_WARNING],
+    ['main', 'Mark as entered in error', '', MAIN_WARNING],
+    ['Novu', 'Cancel consultation', 'novu-v1', NOVU_WARNING],
+  ])('parity (%s): the dialog that sends "%s" says today’s whole warning, not only that the record changes', async (_backend, label, contract, warning) => {
+    if (contract) vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    await openEncounter()
+    chooseMore(label)
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Booked in error' } })
+    fireEvent.click(submitOf(label))
+    const said = document.getElementById(dialog().getAttribute('aria-describedby')!)!
+    expect(said.textContent).toBe(warning)
+    expect(within(dialog()).queryByText(CONFIRM_BODY)).toBeNull()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    expect(api.updateEncounter).not.toHaveBeenCalled()
+  })
+
+  it('parity: the dialogs for changes that close no records keep the design’s sentence', async () => {
+    await openEncounter()
+    openSign()
+    fireEvent.click(submitOf('Sign note'))
+    expect(within(dialog()).getByText(CONFIRM_BODY)).toBeTruthy()
+    expect(within(dialog()).queryByText(MAIN_WARNING)).toBeNull()
   })
 
   it('re-reads an encounter that changed meanwhile and says so', async () => {

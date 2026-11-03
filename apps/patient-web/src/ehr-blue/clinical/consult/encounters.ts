@@ -50,8 +50,13 @@ export function encounterClosesRecords(): string {
   return usesNovuBackend() ? NOVU_ENCOUNTER_CLOSES_RECORDS : MAIN_ENCOUNTER_CLOSES_RECORDS
 }
 
+/**
+ * Today's refusal of a cancel or entered in error that would also change records the role may not change
+ * (staff/routes/Clinical.tsx:94-96, :1560-1562), whole and in plain words: why, that nothing was changed, and who can
+ * make the change. It names no kind of record, as EHR's refusal names none.
+ */
 export function retractionNotPermitted(status: string): string {
-  return `You can’t ${status === 'cancelled' ? 'cancel this consultation' : 'mark this consultation entered in error'}: it holds records your role can’t change. Nothing was changed. Ask a doctor or clinician to do it.`
+  return `You can’t ${status === 'cancelled' ? 'cancel this consultation' : 'mark this consultation entered in error'}: doing so would also change some of its records, and your role can’t change all of them. Nothing was changed. Ask a colleague whose role can change all of its records (usually a doctor or clinician) to make this change.`
 }
 
 /**

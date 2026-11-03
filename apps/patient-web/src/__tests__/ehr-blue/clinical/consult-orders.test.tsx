@@ -1823,3 +1823,49 @@ describe('Keyboard and roles', () => {
     expect(document.activeElement).toBe(field('Medication'))
   })
 })
+
+describe('parity: an order’s status form and its dialog say the warning', () => {
+  const PHARMACY_NOT_TOLD = /^Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy\./
+
+  it.each(['Put on hold', 'Cancel order', 'Mark entered in error'])('ties "Update status" to Pharmacy’s warning when "%s" is chosen (Clinical.tsx:617-620)', async name => {
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name }))
+    const warning = screen.getByText(PHARMACY_NOT_TOLD)
+    expect(warning.id).not.toBe('')
+    expect(screen.getByRole('button', { name: 'Update status' }).getAttribute('aria-describedby')).toBe(warning.id)
+  })
+
+  it('ties a routed order’s change to what it does at the other facility', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3, orderRoute: route({ kind: 'prescription', effectiveState: 'accepted', acceptedAt: '2026-10-30T10:00:00.000Z', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    const warning = screen.getByText(/^Changing it withdraws it from Demo Pharmacy, or cancels it there if Demo Pharmacy has accepted it/)
+    expect(screen.getByRole('button', { name: 'Update status' }).getAttribute('aria-describedby')).toBe(warning.id)
+    expect(screen.queryByText(PHARMACY_NOT_TOLD)).toBeNull()
+  })
+
+  it('"Cancel order?" says Pharmacy’s warning', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    change('Reason for change', 'Prescribed in error')
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel order?' })
+    expect(document.getElementById(dialog.getAttribute('aria-describedby')!)!.textContent).toMatch(PHARMACY_NOT_TOLD)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  it('a draft has no warning: its submit is described by nothing, and its dialog keeps the design’s sentence', async () => {
+    setLists([prescription({ status: 'draft', rowVersion: 1 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    expect(screen.getByRole('button', { name: 'Update status' }).getAttribute('aria-describedby')).toBeNull()
+    change('Reason for change', 'Prescribed in error')
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel order?' })
+    expect(within(dialog).getByText('Check the details first. This changes the saved record; the change is kept in its history.')).toBeTruthy()
+  })
+})
