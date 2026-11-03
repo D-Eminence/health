@@ -2173,7 +2173,7 @@ describe('"Try again" beside "The change was saved, but the records could not be
     expect(screen.getByText('Active')).toBeTruthy()
   })
 
-  it('says it is busy while it reads, keeping focus, and a second press reads nothing more; no change starts meanwhile', async () => {
+  it('says it is busy while it reads, keeping focus, and a second press reads nothing more; no status change starts meanwhile', async () => {
     const read = await activateUnread()
     const held = deferred<void>()
     api.records.mockImplementation(async (...args: Parameters<typeof read>) => { await held.promise; return read(...args) })
@@ -2196,6 +2196,21 @@ describe('"Try again" beside "The change was saved, but the records could not be
     await act(async () => held.answer())
     await waitFor(() => expect(sentence()).toBeNull())
     expect(document.activeElement?.textContent).toBe('Actions')
+  })
+
+  it('leaves focus where it was moved while Try again reads: only focus on Try again, or on nothing, goes to Actions', async () => {
+    const read = await activateUnread()
+    const held = deferred<void>()
+    api.records.mockImplementation(async (...args: Parameters<typeof read>) => { await held.promise; return read(...args) })
+    const button = tryAgain()
+    button.focus()
+    fireEvent.click(button)
+    const back = screen.getByRole('button', { name: 'Back to consultation' })
+    back.focus()
+    await act(async () => held.answer())
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(screen.getByText('Active')).toBeTruthy()
+    expect(document.activeElement).toBe(back)
   })
 
   it('keeps the outcome of a change made while Try again reads: a later failure of that read does not bring the sentence back', async () => {

@@ -183,10 +183,11 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   }
 
   /**
-   * "Try again": the order read again, fresh, as the change read it, with no access re-check (reads need none). No
-   * change starts while it reads. The sentence stays until the order is read, then goes, focus moving from Try again
-   * to "Actions"; a change made meanwhile says its own outcome, which this never replaces. A try that fails says the
-   * sentence again, so it is announced even in the same words.
+   * "Try again": the order read again, fresh, as the change read it, with no access re-check (reads need none). While
+   * it reads, the actions are locked, as after any change (a withdrawal is not, as today's is not). The sentence stays
+   * until the order is read, then goes, focus moving from Try again to "Actions"; a change made meanwhile says its own
+   * outcome, which this never replaces. A try that fails says the sentence again, so it is announced even in the same
+   * words.
    */
   const tryAgain = async (event: { readonly currentTarget: HTMLButtonElement }) => {
     const button = event.currentTarget
