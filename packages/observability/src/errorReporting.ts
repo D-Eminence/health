@@ -30,6 +30,8 @@ const NATIVE_CODE = '[native code]'
 const FUNCTION_NAME = /^[\w$.<>[\] ]{1,80}$/
 const SCRIPT_PATH = /\.[mc]?js$/
 const ANONYMOUS = '<anonymous>'
+/** What Chrome writes before the message on a stack's first line: nothing, or the error's name and ": ". */
+const MESSAGE_PREFIX = /^(?:[^\n]{1,100}: )?$/
 
 const TYPE_NAME = /^[A-Za-z_$][\w$.]{0,59}$/
 const BUILD_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -345,14 +347,17 @@ function isError(value: unknown): value is Error {
 }
 
 /**
- * The stack without the message. Chrome starts a stack with the message, which may be anything the page held, and a
- * message line shaped like a frame would otherwise be read as one.
+ * The stack without the message. Chrome starts a stack with "<name>: <message>", and the message may be anything the
+ * page held: a message line shaped like a frame would otherwise be read as one. Firefox and Safari start with a frame,
+ * so the message is removed only from the start, never from wherever it first appears.
  */
 function stackWithoutMessage(error: Error): string {
   const stack = read(() => error.stack)
   if (typeof stack !== 'string') return ''
   const message = read(() => error.message)
-  return typeof message === 'string' && message !== '' ? stack.replace(message, '') : stack
+  if (typeof message !== 'string' || message === '') return stack
+  const start = stack.indexOf(message)
+  return start >= 0 && MESSAGE_PREFIX.test(stack.slice(0, start)) ? stack.slice(start + message.length) : stack
 }
 
 function plainName(value: string, pattern: RegExp, fallback: string): string {
