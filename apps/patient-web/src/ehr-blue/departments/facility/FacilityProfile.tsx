@@ -8,6 +8,7 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptFacts } from '../parts/DeptRecord'
 import { countText } from '../parts/format'
+import { permissionWords } from './permissionWords'
 
 /*
  * Facility profile (target admin/facility.png), read-only: the working facility as today's staff session reports it
@@ -93,6 +94,8 @@ export function FacilityProfile() {
   const type = novu ? selfServiceType(facility) : null
   const roles = roleNames(facility.roles)
   const permissions = facility.permissions
+  // Plain words only: a permission's code never shows (one with no words here is counted as "Other access").
+  const permissionList = permissionWords(permissions)
 
   return (
     <DeptPage title="Facility profile" className="hid-ehr-dept-facility">
@@ -142,9 +145,9 @@ export function FacilityProfile() {
           { label: 'Your primary facility', value: facility.isPrimary ? 'Yes' : 'No' },
           { label: 'Your permissions here', value: permissions.length === 0 ? 'None' : (
             <details className="hid-ehr-dept-facility-permissions">
-              <summary>{countText(permissions.length, 'permission')}</summary>
+              <summary>{countText(permissionList.length, 'permission')}</summary>
               <ul className="hid-ehr-dept-facility-codes">
-                {permissions.map(code => <li key={code} className="hid-ehr-dept-mono">{code}</li>)}
+                {permissionList.map(words => <li key={words}>{words}</li>)}
               </ul>
             </details>
           ) },

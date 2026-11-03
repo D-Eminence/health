@@ -31,7 +31,7 @@ vi.mock('../../../../staff/api', () => ({
 }))
 
 const NOT_AVAILABLE = 'Not recorded'
-const PERMISSIONS = ['audit.read', 'workforce.manage', 'identity.patient.read']
+const PERMISSIONS = ['audit.read', 'workforce.manage', 'identity.patient.read', 'reports.unknown', 'something.new']
 const HOSPITAL = fakeFacility(PERMISSIONS, { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['org_admin'], code: 'DEMO-HOSP' })
 
 /** A field's value: the dd after the dt that names it. */
@@ -96,13 +96,16 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(valueOf('Your roles here', facts)).toBe('Facility administrator')
     expect(valueOf('Your primary facility', facts)).toBe('Yes')
 
-    const summary = within(facts).getByText('3 permissions')
+    // Plain words, never a permission's code: ones with no words are counted once as "Other access".
+    const summary = within(facts).getByText('4 permissions')
     expect(summary.tagName).toBe('SUMMARY')
     const disclosure = summary.closest('details') as HTMLDetailsElement
     expect(disclosure.open).toBe(false)
     fireEvent.click(summary)
     expect(disclosure.open).toBe(true)
-    expect(within(disclosure).getAllByRole('listitem').map(item => item.textContent)).toEqual(PERMISSIONS)
+    expect(within(disclosure).getAllByRole('listitem').map(item => item.textContent))
+      .toEqual(['See the facility audit', 'Manage staff and access', 'See patients who gave access', 'Other access'])
+    for (const code of PERMISSIONS) expect(facts.textContent).not.toContain(code)
   })
 
   it('says when the facility has no code, no roles or no permissions, and is not the member’s primary facility', () => {

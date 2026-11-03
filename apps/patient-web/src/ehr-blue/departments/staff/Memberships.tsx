@@ -3,7 +3,8 @@ import { toast } from '@hid/ui'
 import { EhrButton, EhrDialog, EhrDrawer, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { facilityStaffApi, type FacilityStaffMember } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { heldRoleNames, licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber } from '../../../staff/staffAccess'
+import { heldRoleNames, licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber,
+  roleNameInSentence } from '../../../staff/staffAccess'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import { RoleFields } from './InviteCard'
@@ -126,12 +127,13 @@ function MemberAccess({ member, shared, onDirty, onClose }: {
   async function changeRole() {
     setBusy(true)
     try {
-      await facilityStaffApi.changeRole(facilityId, member, { role,
+      const changed = await facilityStaffApi.changeRole(facilityId, member, { role,
         ...(body ? { licenceBody: body, licenceNumber: normalizeLicenceNumber(number) } : {}), reason: reason.trim(),
         currentPassword: password })
-      toast.success('Access updated')
       onClose()
-      done([editButton(id), IDS.members])
+      // The new role is a fact to keep on the page, as on the classic Staff page: said in the banner, with no toast.
+      done([editButton(id), IDS.members],
+        { tone: 'info', text: `${member.name} is now ${roleNameInSentence(changed.roleCode || role)} at ${facilityName}.` })
     } catch (caught) { setPassword(''); setError(refused(caught)) }
     finally { setBusy(false) }
   }
