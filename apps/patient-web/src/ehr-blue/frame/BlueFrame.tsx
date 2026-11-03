@@ -7,7 +7,7 @@ import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui
 import { useStaff } from '../../staff/App'
 import { FacilityCheckCard, ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
-import { roleNames } from '../../staff/staffAccess'
+import { roleNames, selfServiceReview } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
@@ -323,8 +323,9 @@ export function BlueFrame() {
               <RedirectNotice />
               <ReviewBanner />
               {/* A lab, pharmacy or outreach on its own may land on its own first page and never see Home's card. */}
-              {/* Only above its own pages: it leaves when another page opens, and its "Done" is not shown again. */}
-              {product !== 'ehr' && facility && match && (basePath(match.page.path) === info.home || basePath(match.page.path).startsWith(`${info.home}/`))
+              {/* Only above its own pages: it leaves when another page opens, and its "Done" is not shown again. While the
+                  check is pending the banner above already says so, so only the "Done" card shows here. */}
+              {product !== 'ehr' && facility && match && selfServiceReview(facility) !== 'pending' && (basePath(match.page.path) === info.home || basePath(match.page.path).startsWith(`${info.home}/`))
                 ? <FacilityCheckCard facility={facility} /> : null}
               <BillingBanner />
               {tabs.length > 0 ? (
