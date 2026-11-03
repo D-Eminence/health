@@ -347,6 +347,37 @@ describe('we can’t complete this order, once served', () => {
     expect(screen.queryByRole('button', { name: /^Dispense$|^We can’t|isn’t the order’s patient/ })).toBeNull()
   })
 
+  // The Accepted panel is today's, embedded unchanged; here the action is on the record opened from the list (area 8, row 36).
+  it('says, in the Accepted panel’s “This isn’t the order’s patient”, to open the order from the list below and use it there', async () => {
+    working(PHARMACIST, { review: 'reviewed', organizationType: 'pharmacy' })
+    routes.incoming.mockResolvedValueOnce({ items: [{ id: ROUTE_ID, reference: '9C1B2D3E', version: 1, effectiveState: 'sent',
+      orderingFacilityName: 'Demo Hospital', orderer: { name: 'Dr Demo Prescriber', licenceBody: null },
+      medication: { codeSystem: null, code: null, display: NAME }, doseQuantity: '250', doseUnit: 'mg', routeCode: 'oral',
+      frequency: 'Three times daily', startsOn: '2026-10-20', endsOn: '2026-10-27', prescribedAt: '2026-10-20T08:55:00.000Z',
+      sentAt: '2026-10-20T09:00:00.000Z', respondBy: '2026-10-27T09:00:00.000Z', acceptLocked: false, attemptsLeft: 5 }],
+    crossFacilityOrders: true, crossFacilityWork: true })
+    routes.accept.mockResolvedValue({ route: { id: ROUTE_ID, version: 3, effectiveState: 'accepted' }, workItemId: 'e5f6a7b8-routed-1',
+      patient: { fullName: 'Patient One', sex: 'female', dateOfBirth: '1990-01-01', healthIdLast4: 'AAA2' }, clinicalInformation: null,
+      instructions: null, orderer: { licenceBody: null, licenceNumber: null }, replayed: false })
+    api.pharmacyWorkItems.mockResolvedValueOnce(served([accepted])).mockResolvedValue(served([routed(), accepted]))
+    renderPage()
+    const incoming = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section') as HTMLElement
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    fireEvent.change(within(incoming).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-ZDEMAAA2' } })
+    fireEvent.change(within(incoming).getByLabelText(/^Reason for accepting/), { target: { value: 'Patient at the counter with their card' } })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    await within(incoming).findByText(`Accepted: ${NAME}.`)
+    const listed = await screen.findByRole('button', { name: NAME })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    expect(within(incoming).getByText('If you can’t complete it for another reason, don’t use this: close this, open the order '
+      + 'from the list below, and use “We can’t complete this order” there.')).toBeTruthy()
+    expect(within(incoming).queryByText(/on its row in the work list below/)).toBeNull()
+    // The words are true here: the order is listed below the panel, opens its record, and the record offers the action.
+    expect(incoming.compareDocumentPosition(listed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(listed)
+    expect(await within(otherActions()).findByRole('button', { name: CC })).toBeTruthy()
+  })
+
   it('adds to the cap that an order past it can be ended from “Correct an order that has ended”', async () => {
     const many = Array.from({ length: 200 }, (_, n) => ({ ...accepted, id: `${String(n).padStart(8, '0')}-w` }))
     api.pharmacyWorkItems.mockResolvedValue(served(many))
