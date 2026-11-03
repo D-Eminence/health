@@ -870,7 +870,7 @@ describe('Consultation record: documents', () => {
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
-    expect(await documents.findByText('Uploaded.')).toBeTruthy()
+    expect(await documents.findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
     expect(api.uploadDocument).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, file)
     expect(api.documents).toHaveBeenCalledTimes(2)
   })

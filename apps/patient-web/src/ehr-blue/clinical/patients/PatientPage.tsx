@@ -214,8 +214,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm font-semibold text-ink">{emergency ? 'Emergency access' : 'You have access'}</p>
               {expires ? <p className="m-0 text-[12px] text-ink-3">Until {formatWhen(expires)}</p> : null}
-              {/* Direct care from the patient's own OK also covers bringing in paper records while it lasts: adults only. */}
-              {!emergency && isAdult(facts.dateOfBirth) ? <p className="m-0 mt-1 text-[12px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
+              {/* Direct care from the patient's own OK also covers bringing in paper records while it lasts: adults only, to a role
+                  that brings them in, on a grant that allows adding to the record (never emergency, which is read-only). */}
+              {!readOnly && permissions.includes('ocr.job.read') && isAdult(facts.dateOfBirth) ? <p className="m-0 mt-1 text-[12px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
             </div>
           </div>
           {/* What the patient entered in their Health ID portal: labelled as theirs, not a clinical finding. */}

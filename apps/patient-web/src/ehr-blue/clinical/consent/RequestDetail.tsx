@@ -24,10 +24,11 @@ export function OutcomeBadge({ request }: { request: AccessRequest }) {
 /** What the outcome means for the clinician, said once, with its one next step. */
 function StateNote({ request }: { request: AccessRequest }) {
   const href = useWorkspaceHref()
-  const { activePatient } = useClinical()
-  // The paper records line only once this patient's age is known here (their record is open) and they are an adult.
-  const open = activePatient?.lookup.patient.patientId === request.patientId ? activePatient : null
-  const coversPaper = open !== null && isAdult(open.lookup.patient.dateOfBirth)
+  const { activePatient, permissions } = useClinical()
+  // The paper records line only once this patient's age is known here (their record is open for direct care) and they
+  // are an adult, to a role that brings in paper records, on a request that allows adding to the record.
+  const open = activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === request.patientId ? activePatient : null
+  const coversPaper = open !== null && request.scope === 'write_records' && permissions.includes('ocr.job.read') && isAdult(open.lookup.patient.dateOfBirth)
   const key = request.effectiveStatus ?? request.status
   if (key === 'pending') return <Alert intent="info" live={false} title="Waiting for the patient">You can see their records once they approve.</Alert>
   if (key === 'active' || key === 'approved') {
