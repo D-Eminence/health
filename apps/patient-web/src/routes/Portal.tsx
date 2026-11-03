@@ -51,6 +51,7 @@ import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { countryName } from '../profileParity'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -250,7 +251,7 @@ export function ProfilePage() {
           <ProfileSection id="bio-data" title={WORDS.aboutYou}>
             <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3" aria-busy={profile.loading || undefined}>
               {([['Full name', shown.fullName], ['Date of birth', date(shown.dateOfBirth)], ['Gender', shown.gender || 'Not given'],
-                ['State', shown.state || 'Not given'], ['Country', shown.country || 'Not given']] as const).map(([term, value]) =>
+                ['State', shown.state || 'Not given'], ['Country', shown.country?.trim() ? countryName(shown.country) : 'Not given']] as const).map(([term, value]) =>
                 <div key={term} className={term === 'Full name' ? 'col-span-2' : undefined}><dt className="text-[13px] text-ink-3">{term}</dt>
                   <dd className="m-0 mt-0.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}
             </dl>
