@@ -321,6 +321,14 @@ describe('buildEvent', () => {
     expect(text).not.toMatch(/"(?:message|value|request|user|breadcrumbs|contexts|extra|modules|server_name|fingerprint|transaction)"/)
   })
 
+  it('leaves the frames alone when the stack does not start with the message, as in Firefox and Safari', () => {
+    const stack = 'loadPatient@https://app.example/assets/a.js:10:20\nrun@https://app.example/assets/a.js:11:5'
+    expect(event(errorWithStack('TypeError', 'a', stack)).exception.values[0]?.stacktrace?.frames).toEqual(parseStack(stack))
+    const chrome = `ChunkLoadError: a\n    at loadPatient (https://app.example/assets/a.js:10:20)`
+    expect(event(errorWithStack('ChunkLoadError', 'a', chrome)).exception.values[0]?.stacktrace?.frames)
+      .toEqual([{ filename: 'https://app.example/assets/a.js', function: 'loadPatient', lineno: 10, colno: 20 }])
+  })
+
   it('names a route even when handed a raw path', () => {
     const built = buildEvent({ error: new Error('x'), route: `/card/abc123?token=s3cret`, build: 'b', environment: 'staging', mechanism: 'react' })
     expect(built.tags.route).toBe('/card/:id')
