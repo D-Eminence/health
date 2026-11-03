@@ -196,7 +196,7 @@ describe('the blue frame', () => {
     await openDemo('/provider/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     expect(where()).toBe('/provider/not-a-page')
-    expect(screen.getByText('This provider page is unavailable.')).toBeDefined()
+    expect(screen.getByText('We can’t find that page.')).toBeDefined()
     await waitFor(() => expect(document.title).toBe('Page not found · Health ID EHR'))
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
     expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
@@ -237,7 +237,7 @@ describe('the blue frame', () => {
     const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])] })
     await openStaffApp('/provider/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
-    expect(screen.getByText('This provider page is unavailable.')).toBeDefined()
+    expect(screen.getByText('We can’t find that page.')).toBeDefined()
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
     expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
     expect(within(page).getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
@@ -262,19 +262,18 @@ describe('the blue frame', () => {
     expect(sent.some(call => call.route === 'POST /api/v1/auth/logout')).toBe(true)
   })
 
-  it('switches facility from the account menu with today\'s switch, and says a refusal in today\'s words', async () => {
+  it('switches facility from the account menu in one step, with today\'s switch, and says a refusal in today\'s words', async () => {
     const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
     const sent = await openDemo('/provider/whats-left', ['identity.consent.write'], {
       [FACILITY]: [() => problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at the facility.'), sessionAt(lab, [lab])],
       [LAB_WORK]: [() => json({ items: [] })],
     })
     switchFacilityTo('Demo Hospital', 'Demo Laboratory')
-    await waitFor(() => expect(where()).toBe('/provider/institutions'))
-    expect(screen.getByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Work at Demo Laboratory' }))
     expect(await screen.findByRole('alert')).toBeDefined()
     expect(screen.getByRole('alert').textContent).toContain('You are no longer active at Demo Laboratory. Choose another facility.')
-    fireEvent.click(screen.getByRole('button', { name: 'Work at Demo Laboratory' }))
+    expect(where()).toBe('/provider/whats-left')
+    expect(screen.queryByRole('heading', { level: 1, name: 'Switch facility' })).toBeNull()
+    switchFacilityTo('Demo Hospital', 'Demo Laboratory')
     // Demo Laboratory holds only the laboratory's permission: it is the Lab product, whose home is its queue.
     await waitFor(() => expect(where()).toBe('/provider/laboratory'))
     expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: DEMO_LABORATORY }, { facilityId: DEMO_LABORATORY }])
