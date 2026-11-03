@@ -49,10 +49,12 @@ function validityText(field: VitalField, validity: ValidityState): string | null
  * The first problem takes focus; a field's problem clears as it changes. The visit chosen stays chosen, and offered,
  * while another page of visits is shown, as today's encounter being documented does (Clinical.tsx:1288-1292, :1795).
  */
-export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, hint, submitLabel, onSubmit, children }: {
+export function VitalsForm({ mode, visits = [], initialVisit = null, visitHint, current, groupLabel, hint, submitLabel, onSubmit, children }: {
   mode: 'record' | 'correct'
   /** The visits on the page of visits shown. */
   visits?: readonly Encounter[]
+  /** The visit chosen when the form opens (the consultation it was opened from), if any. */
+  initialVisit?: Encounter | null
   /** Under the visit, given the visit chosen (null when none), which may be on another page. */
   visitHint?: (chosen: Encounter | null) => ReactNode
   /** The values a correction starts from and must change. */
@@ -66,7 +68,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
 }) {
   const id = useId()
   const groupErrorId = `${id}-values-error`
-  const [visit, setVisit] = useState<Encounter | null>(null)
+  const [visit, setVisit] = useState<Encounter | null>(initialVisit)
   const [values, setValues] = useState(() => startValues(current))
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})

@@ -12,7 +12,6 @@ import {
   FIRST_PAGE, NEW_TITLE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
 } from './encounters'
 import { orderPath, type OrderKind } from './orders'
-import { TodaySections } from './TodaySections'
 
 /**
  * The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). An
@@ -48,7 +47,7 @@ function isRecordId(value: unknown): value is string {
  * encounterId, kind: 'lab_request' | 'prescription', orderId }, staff/routes/Clinical.tsx linkedOrder). Its page's
  * address, only for direct care and the patient open now, as today; any other link is ignored.
  */
-function useLinkedOrder(chart: Chart | null): string | null {
+export function useLinkedOrder(chart: Chart | null): string | null {
   const state: unknown = useLocation().state
   const href = useWorkspaceHref()
   if (!chart || chart.purpose !== 'direct-care') return null
@@ -126,14 +125,14 @@ function Encounters({ chart }: { chart: Chart }) {
       { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
       { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
       { label: 'Status', value: statusLabel(encounter.status) },
-      { label: 'Started', value: formatWhen(encounter.startedAt) },
     ],
   })), [rows])
 
   const filtered = useMemo(() => {
     const words = search.trim().toLowerCase()
     if (!words) return tableRows
-    return tableRows.filter(row => [row.name, row.id, row.context, statusLabel(row.status), ...row.details.map(detail => String(detail.value))]
+    // The time shown in the Started column is searched too, as it was while the quick view repeated it.
+    return tableRows.filter(row => [row.name, row.id, row.context, statusLabel(row.status), formatWhen(row.updated), ...row.details.map(detail => String(detail.value))]
       .join(' ').toLowerCase().includes(words))
   }, [search, tableRows])
 
@@ -152,13 +151,13 @@ function Encounters({ chart }: { chart: Chart }) {
         secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ cursors, fresh: true }) }}>Refresh</EhrButton>}
       />
       <EhrCard>
-        <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />
+        <SearchField label="Search consultations" value={search} onChange={setSearch} />
         {notice ? (
           notice.alert ? <ErrorBox>{notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{notice.text}</p>
         ) : null}
         {paged ? (
           <Pager
-            label="Encounter pages"
+            label="Consultation pages"
             page={cursors.length}
             busy={loading}
             onPrevious={cursors.length >= 2 ? () => void load({ cursors: cursors.slice(0, -1), paging: true }) : undefined}
@@ -170,6 +169,8 @@ function Encounters({ chart }: { chart: Chart }) {
           <RecordTable
             caption="Consultations"
             contextHeader="Complaint"
+            // The time a consultation shows is when it started, not when it was last changed.
+            updatedHeader="Started"
             rows={filtered}
             hrefFor={row => href(row.id)}
             // No encounters is said in today's one sentence; "No matching records" is only for a search that found none.
@@ -178,8 +179,6 @@ function Encounters({ chart }: { chart: Chart }) {
           />
         )}
       </EhrCard>
-      {/* Today's chart sections, as on today's Clinical page: shown with or without an encounter here (direct care only). */}
-      <TodaySections chart={chart} />
     </>
   )
 }

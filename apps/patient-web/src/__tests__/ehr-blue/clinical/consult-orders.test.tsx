@@ -3,6 +3,9 @@ import { HidApiError } from '@hid/http'
 import { Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONNECTED_ORDERS_NOTE, EncounterOrderPages, EncounterOrders, orderPath } from '../../../ehr-blue/clinical/consult/orders'
+import { learnFrom } from '../../../ehr-blue/clinical/consult/orders/orders'
+import { useRecordList } from '../../../ehr-blue/clinical/consult/records'
+import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
 import { ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
@@ -109,9 +112,17 @@ function EncounterStub() {
   const chart = useChart()
   const { recordId = '' } = useParams()
   if (!chart) return <p>No patient open</p>
+  return <OrdersStub chart={chart} encounterId={recordId} />
+}
+
+/** The visit page's two order lists, read as it reads them (direct care only: emergency never reaches the visit page). */
+function OrdersStub({ chart, encounterId }: { chart: Chart; encounterId: string }) {
+  const direct = chart.purpose === 'direct-care'
+  const pharmacy = useRecordList(chart, encounterId, 'prescriptions', direct && chart.can('ehr.prescription.read'), learnFrom)
+  const laboratory = useRecordList(chart, encounterId, 'lab-requests', direct && chart.can('ehr.lab-request.read'), learnFrom)
   return (
     <section aria-label="Available actions">
-      <EncounterOrders chart={chart} encounter={{ id: recordId, patientId: PATIENT_ID, facilityId: staff.facilityId ?? FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }} />
+      <EncounterOrders chart={chart} lists={{ pharmacy, laboratory }} encounter={{ id: encounterId, patientId: PATIENT_ID, facilityId: staff.facilityId ?? FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }} />
     </section>
   )
 }
@@ -250,8 +261,8 @@ describe('Connected orders', () => {
   it('says today’s empty sentences, and a refused read', async () => {
     setLists([], [])
     open(ENCOUNTER_ID)
-    expect(await screen.findByText('No prescriptions for this encounter.')).toBeTruthy()
-    expect(screen.getByText('No lab requests for this encounter.')).toBeTruthy()
+    expect(await screen.findByText('No prescriptions for this consultation.')).toBeTruthy()
+    expect(screen.getByText('No lab requests for this consultation.')).toBeTruthy()
   })
 
   it('shows a refused read in the design’s error box', async () => {
@@ -259,6 +270,8 @@ describe('Connected orders', () => {
     open(ENCOUNTER_ID)
     expect((await screen.findAllByRole('alert'))[0]!.textContent).toBe(SAID_UNAVAILABLE)
     expect(document.body.textContent).not.toContain('Records are unavailable')
+    // A read that failed is not still loading.
+    expect(screen.queryByText('Loading records…')).toBeNull()
   })
 
   it('shows nothing of orders for an emergency patient, and the order pages show the read-only notice', async () => {
@@ -1832,5 +1845,51 @@ describe('Keyboard and roles', () => {
     expect(screen.getByRole('button', { name: 'Back to list' }).getAttribute('type')).toBe('button')
     await act(async () => { fireEvent.submit(save.closest('form')!) })
     expect(document.activeElement).toBe(field('Medication'))
+  })
+})
+
+describe('parity: an order’s status form and its dialog say the warning', () => {
+  const PHARMACY_NOT_TOLD = /^Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy\./
+
+  it.each(['Put on hold', 'Cancel order', 'Mark entered in error'])('ties "Update status" to Pharmacy’s warning when "%s" is chosen (Clinical.tsx:617-620)', async name => {
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name }))
+    const warning = screen.getByText(PHARMACY_NOT_TOLD)
+    expect(warning.id).not.toBe('')
+    expect(screen.getByRole('button', { name: 'Update status' }).getAttribute('aria-describedby')).toBe(warning.id)
+  })
+
+  it('ties a routed order’s change to what it does at the other facility', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3, orderRoute: route({ kind: 'prescription', effectiveState: 'accepted', acceptedAt: '2026-10-30T10:00:00.000Z', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    const warning = screen.getByText(/^Changing it withdraws it from Demo Pharmacy, or cancels it there if Demo Pharmacy has accepted it/)
+    expect(screen.getByRole('button', { name: 'Update status' }).getAttribute('aria-describedby')).toBe(warning.id)
+    expect(screen.queryByText(PHARMACY_NOT_TOLD)).toBeNull()
+  })
+
+  it('"Cancel order?" says Pharmacy’s warning', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    change('Reason for change', 'Prescribed in error')
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel order?' })
+    expect(document.getElementById(dialog.getAttribute('aria-describedby')!)!.textContent).toMatch(PHARMACY_NOT_TOLD)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  it('a draft has no warning: its submit is described by nothing, and its dialog keeps the design’s sentence', async () => {
+    setLists([prescription({ status: 'draft', rowVersion: 1 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    expect(screen.getByRole('button', { name: 'Update status' }).getAttribute('aria-describedby')).toBeNull()
+    change('Reason for change', 'Prescribed in error')
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel order?' })
+    expect(within(dialog).getByText('Check the details first. This changes the saved record; the change is kept in its history.')).toBeTruthy()
   })
 })

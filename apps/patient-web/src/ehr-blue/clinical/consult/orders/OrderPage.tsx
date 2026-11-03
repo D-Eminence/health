@@ -91,7 +91,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const [selected, setSelected] = useState<string | null>(null)
   const [resultsOpen, setResultsOpen] = useState(false)
   const [resultsRevision, setResultsRevision] = useState(0)
-  const [asking, setAsking] = useState<{ label: string; answer: (yes: boolean) => void } | null>(null)
+  const [asking, setAsking] = useState<{ label: string; description?: string; answer: (yes: boolean) => void } | null>(null)
   const [focusIds, setFocusIds] = useState<readonly string[] | null>(null)
   const pharmacyAttempt = useRef<{ reason: string; key: string } | null>(null)
   const labAttempt = useRef<string | null>(null)
@@ -208,7 +208,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     ...(results ? [{ id: 'results', label: resultsOpen ? 'Hide released results' : 'View released results', toggle: true }] : []),
   ]
 
-  const confirm = (label: string) => new Promise<boolean>(answer => setAsking({ label, answer }))
+  const confirm = (label: string, description?: string) => new Promise<boolean>(answer => setAsking({ label, description, answer }))
 
   /** A saved lab request Lab does not hold, or holds at another version: the change stands, so it is said as a warning. */
   const labWarning = (said: string, reloaded: Reload, { sendable = true, listChanged = false } = {}) => {
@@ -321,8 +321,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   const statusForm = (option: StatusOption) => {
     const label = statusLabel(option)
+    const warningId = `order-status-${option.value}-warning`
     const submit = async (values: FormValues): Promise<SubmitOutcome> => {
-      if (option.value === 'cancelled' && !(await confirm(label))) return false
+      // "Cancel order?" says the form's warning (Pharmacy not told, or the other facility's change), when it has one.
+      if (option.value === 'cancelled' && !(await confirm(label, warning))) return false
       try {
         await changeStatus(option.value, reason(values))
       } catch (caught) {
@@ -342,9 +344,11 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
           submitLabel="Update status"
           busyLabel="Updating…"
           disabled={reloading}
+          // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:617-620).
+          describedBy={warning ? warningId : undefined}
           onSubmit={submit}
         >
-          {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
+          {warning ? <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
         </RecordForm>
       </div>
     )
@@ -486,6 +490,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? 'Cancel order'}
+        description={asking?.description}
         onConfirm={() => { asking?.answer(true); setAsking(null) }}
         onCancel={() => { asking?.answer(false); setAsking(null) }}
       />
