@@ -1,5 +1,5 @@
 import { isHidApiError } from '@hid/http'
-import type { LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
+import type { LabAbnormalFlag, LabResult, LabResultRevision } from '../../../staff/api'
 import type { FlagLevel } from '../../../kasuwa/parts'
 
 /*
@@ -55,6 +55,17 @@ export function flagLevel(flag: LabAbnormalFlag): FlagLevel | null {
 export function revisionText(revision: LabResultRevision): string {
   return revision.resultType === 'numeric' ? String(revision.numericValue ?? '') : revision.textValue ?? ''
 }
+
+/**
+ * Lab keeps a check, release or correction reason only of 3 to 500 characters (hid-system 0020:84, 0021:32 and 43); a
+ * shorter one fails there as a fault (a 500), so it is refused here first, at its field.
+ */
+export const REASON_MIN = 3
+export const REASON_SHORT = 'Write at least 3 characters.'
+
+/** A correction waiting to be checked: until it is released, everyone outside the lab still sees the earlier result. */
+export const correctionWaiting = (result: LabResult | null | undefined) => Boolean(result
+  && result.currentReleasedVersion != null && result.currentReleasedVersion !== result.currentVersion)
 
 export type LabResultsHiddenReason = 'denied' | 'unverified' | 'signedOut'
 

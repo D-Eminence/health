@@ -12,7 +12,7 @@ import { useFocusById } from '../../../staff/focus'
 import { sampleCheckText } from '../../../staff/orderRoutes'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
-import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, revisionText } from './labText'
+import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, REASON_MIN, REASON_SHORT, revisionText } from './labText'
 
 /*
  * The lab's steps on one request, each the one thing to do at its stage, in the shared parts: register the sample (the
@@ -372,6 +372,7 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
     // A number without its unit can't be read safely (mg/dL or mmol/L?): the unit is required.
     if (kind === 'numeric' && !unit.trim()) found.unit = 'Enter the unit, like g/dL or mmol/L.'
     if (result && !reason.trim()) found.reason = 'Say why it is changed.'
+    else if (result && reason.trim().length < REASON_MIN) found.reason = REASON_SHORT
     setErrors(found); setProblem('')
     const first = (['value', 'unit', 'reason'] as const).find(field => found[field])
     if (first) { document.getElementById(`lab-${first}-${id}`)?.focus(); return }
@@ -447,7 +448,7 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
     </FormActions>
     <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={result ? 'Save the correction' : 'Save the result'} subject={subject.banner} busy={busy}
       effect={<>Save <strong className="tabular">{value.trim()}{unit.trim() ? ` ${unit.trim()}` : ''}</strong> as the {execution.test.name} result for <strong>{subject.name}</strong>?</>}
-      undo="It is checked and released in the next step; until then only the lab sees it." confirmLabel={result ? 'Save correction' : 'Save result'} onConfirm={() => void save()} />
+      undo="Someone other than you must check it before it is released. Until then only the lab sees it." confirmLabel={result ? 'Save correction' : 'Save result'} onConfirm={() => void save()} />
   </form>
 }
 

@@ -23,7 +23,7 @@ import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
 import { useLabRecord } from './labRecord'
 import { Labels, usePrint } from './labPrint'
 import { CheckStep, CollectStep, ResultForm, ResultHistory, ResultValue, TestingStep, type LabSubject } from './labSteps'
-import { LAB_RESULTS_HIDDEN, stampText } from './labText'
+import { correctionWaiting, LAB_RESULTS_HIDDEN, stampText } from './labText'
 import {
   ageSex, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
 } from './stage'
@@ -178,7 +178,18 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
           ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}
-        {stage === 'check' && !record.hidden ? toCheck.map(execution => <CheckStep key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} {...step} execution={execution} />) : null}
+        {/* A result waiting to be checked can be corrected first (a new version, checked in its turn), as on today's page
+            (Operations.tsx ExecutionCard): whoever spots a mistake before release fixes it instead of checking it. A
+            correction of a released result says, above its check, that the clinician still sees the earlier one. */}
+        {stage === 'check' && !record.hidden ? toCheck.map(execution => <div key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} className="flex flex-col gap-3">
+          {correctionWaiting(execution.result) ? <Alert intent="warning" size="sm">This corrects a result that was already released. Until this one is
+            released, the clinician still sees the earlier result.</Alert> : null}
+          <CheckStep {...step} execution={execution} />
+          {canCorrect(execution) && correcting !== execution.id ? <Button variant="ghost" icon={Pencil} className="self-start" onClick={() => setCorrecting(execution.id)}>
+            Correct<span className="sr-only">: {execution.test.name}</span></Button> : null}
+          {correcting === execution.id ? <ResultForm {...step} execution={execution} result={execution.result} onCancel={() => setCorrecting(null)}
+            onDone={message => { setCorrecting(null); done(message) }} /> : null}
+        </div>) : null}
         {stage === 'done' && !record.hidden ? <>
           {released.length > 0 ? <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
             {released.map(execution => <li key={execution.id} className="flex flex-col gap-3 py-3 first:pt-0">

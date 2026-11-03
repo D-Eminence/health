@@ -13,7 +13,7 @@ import { outsideOf } from '../pharmacy/pocFields'
 import { personBanner, subjectOf } from './LabRequest'
 import { useLabRecord } from './labRecord'
 import { ResultSlip, usePrint, type SlipLine } from './labPrint'
-import { flagLevel, LAB_RESULTS_HIDDEN, revisionText, stampText } from './labText'
+import { correctionWaiting, flagLevel, LAB_RESULTS_HIDDEN, revisionText, stampText } from './labText'
 import { ShareResult } from './ShareResult'
 import { ageSex, listSaysStage, personOf, releasedAtOf, requestOf, stageOf } from './stage'
 
@@ -106,6 +106,9 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
   const outside = outsideOf(item)
   const record = useLabRecord(facilityId, item.accessionId, permissions.includes('lab.accession.read'), permissions.includes('lab.execution.read'))
   const released = record.executions.flatMap(execution => { const revision = releasedOf(execution); return revision ? [{ execution, revision }] : [] })
+  // A correction waiting to be checked: the released value shown is the one being corrected, so it is not given out.
+  const correcting = record.executions.filter(execution => correctionWaiting(execution.result))
+  const givable = released.length > 0 && correcting.length === 0
   const { print, area } = usePrint()
   // Sharing a result is a point-of-care route Health ID does not serve yet: offered only where it may answer (commerce/served.ts).
   const canShare = pointOfCareOpen(facilityId) && permissions.includes('lab.result.share') && Boolean(item.accessionId)
@@ -121,8 +124,11 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}>
     {personBanner(person)}
     <Card>
-      <CardHeader as="h2" title="Result" actions={released.length > 0 ? <Button icon={Printer} onClick={() => print('slip', slip)}>Print</Button> : undefined} />
+      <CardHeader as="h2" title="Result" actions={givable ? <Button icon={Printer} onClick={() => print('slip', slip)}>Print</Button> : undefined} />
       <div className="flex flex-col gap-4 p-5">
+        {correcting.length > 0 ? <Alert intent="warning" title="A correction is waiting to be checked">
+          {correcting.map(execution => execution.test.name).join(', ')}: the result below is being corrected. Don’t print or give it out until the
+          correction is checked and released.</Alert> : null}
         {record.error ? <Alert intent="error" title="Couldn’t load the result" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Try again</Button>}>{record.error}</Alert> : null}
         {record.hidden ? <Alert intent="warning" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Refresh</Button>}>{LAB_RESULTS_HIDDEN[record.hidden]}</Alert> : null}
         {record.loading && released.length === 0 ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
@@ -137,7 +143,7 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
         </ul> : null}
       </div>
     </Card>
-    {canShare && released.length > 0 ? <Card>
+    {canShare && givable ? <Card>
       <CardHeader as="h2" title="Give the result" description="A link to this result only. The patient also sees it on their Health ID, if they have one." />
       <div className="flex flex-col gap-4 p-5">
         <div className="flex flex-col gap-2">

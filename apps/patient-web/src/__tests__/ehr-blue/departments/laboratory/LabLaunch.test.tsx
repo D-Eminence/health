@@ -1,6 +1,6 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LabAccession, LabSpecimen, LabWorkItem } from '../../../../staff/api'
+import type { LabAccession, LabExecution, LabResult, LabResultRevision, LabSpecimen, LabWorkItem } from '../../../../staff/api'
 import { forgetReceiving } from '../../../../staff/orderRoutes'
 import { forgetCannotCompleteServed } from '../../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../../lateCorrectionServed'
@@ -48,6 +48,8 @@ const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
 const WORK = ['lab.work-item.read']
 const ACCESSION = [...WORK, 'lab.accession.create', 'lab.accession.read']
 const CUSTODY = [...ACCESSION, 'lab.specimen.collect', 'lab.specimen.receive', 'lab.specimen.reject']
+const PROCESSING = [...ACCESSION, 'lab.execution.read', 'lab.execution.start', 'lab.execution.complete', 'lab.result.enter',
+  'lab.result.correct', 'lab.result.verify', 'lab.result.release', 'lab.result.released.read']
 
 const workItem = (overrides: Partial<LabWorkItem> = {}): LabWorkItem => ({
   id: 'work-item-1', patientId: PATIENT, version: 1, status: 'accepted', testName: 'Haemoglobin',
@@ -65,6 +67,27 @@ const specimen = (status: string, overrides: Partial<LabSpecimen> = {}): LabSpec
 })
 const accession = (specimens: LabSpecimen[]): LabAccession => ({
   id: 'accession-1', accessionNumber: 'ACC-2026-000123', workItemId: 'work-item-1', status: 'open', specimens,
+})
+const revision = (overrides: Partial<LabResultRevision> = {}): LabResultRevision => ({
+  version: 1, resultType: 'numeric', numericValue: 7.1, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5',
+  abnormalFlag: 'low', entrySource: 'manual', verificationStatus: 'unverified', releaseStatus: 'not_released',
+  enteredAt: '2026-10-09T10:00:00.000Z', correctionReason: null, ...overrides,
+})
+const draftResult = (overrides: Partial<LabResult> = {}): LabResult => ({
+  id: 'result-1', executionId: 'execution-1', status: 'entered_unverified', verificationStatus: 'unverified',
+  currentVersion: 1, currentReleasedVersion: null, revisions: [revision()], ...overrides,
+})
+const publishedResult = () => draftResult({ status: 'released', verificationStatus: 'verified', currentReleasedVersion: 1,
+  revisions: [revision({ verificationStatus: 'verified', releaseStatus: 'released', releasedAt: '2026-10-09T12:00:00.000Z' })] })
+/** A correction (version 2) of a released result (version 1), saved and waiting to be checked. */
+const correctionOfReleased = () => draftResult({ currentVersion: 2, currentReleasedVersion: 1, revisions: [
+  revision({ verificationStatus: 'verified', releaseStatus: 'released', releasedAt: '2026-10-09T12:00:00.000Z' }),
+  revision({ version: 2, numericValue: 11.7, correctionReason: 'Typed 7.1 for 11.7' })] })
+const execution = (overrides: Partial<LabExecution> = {}): LabExecution => ({
+  id: 'execution-1', accessionId: 'accession-1', specimenId: 'specimen-1', requestedTestId: 'requested-test-1',
+  test: { codeSystem: 'LOINC', code: '718-7', name: 'Hemoglobin' }, patientId: PATIENT, facilityId: DEMO_LABORATORY_ID,
+  status: 'completed', method: 'Automated haematology analyser', startedAt: '2026-10-09T09:00:00.000Z',
+  completedAt: '2026-10-09T09:30:00.000Z', version: 2, result: null, ...overrides,
 })
 
 /* Work from an order another facility sent (Demo Hospital), as Laboratory.test.tsx's own. */
@@ -115,6 +138,18 @@ async function openAccession(permissions: string[], value: LabAccession, item: L
   await openRecord()
   await waitFor(() => expect(api.labAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1'))
   await waitFor(() => expect(within(stageCard()).queryByText('Loading…')).toBeNull())
+}
+
+async function refusalOf(control: HTMLElement) {
+  await waitFor(() => expect(control.getAttribute('aria-invalid')).toBe('true'))
+  return document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent
+}
+
+/** Answers a confirm sheet, by its title, with its confirm (or Cancel). */
+async function answerSheet(title: string, answer: string) {
+  const sheet = await screen.findByRole('dialog', { name: title })
+  await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: answer })) })
+  return sheet
 }
 
 /** Each stage tab as it reads, with whether it is the one shown. */
@@ -237,5 +272,109 @@ describe('lab launch: sample custody', () => {
     expect(within(stageCard()).getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === 'Tube SPC-000123')).toBeTruthy()
     // Its step keeps its name: the sample's type, then its number.
     expect(within(stageCard()).getByRole('group', { name: 'Venous blood, SPC-000123' })).toBeTruthy()
+  })
+})
+
+describe('lab launch: results (warn before saving, reasons Lab keeps, correct before release, never give out a value being corrected)', () => {
+  /** Opens a request whose one sample is received, as Laboratory.test.tsx's openReceived, and returns its stage card. */
+  async function openReceived(permissions: string[] = PROCESSING) {
+    await openAccession(permissions, accession([specimen('received')]), received())
+    if (permissions.includes('lab.execution.read')) await waitFor(() => expect(api.labExecutions).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'specimen-1'))
+    return stageCard()
+  }
+
+  it('tells the person saving a result that someone else must check it before it is released', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution()] })
+    const card = await openReceived()
+    const form = within(card).getByRole('form', { name: 'Enter result: Hemoglobin' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Result' }), { target: { value: '12.4' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Unit' }), { target: { value: 'g/dL' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save result' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Save the result' })
+    expect(within(sheet).getByText('Someone other than you must check it before it is released. Until then only the lab sees it.')).toBeTruthy()
+    expect(sheet.textContent).not.toMatch(/patient (can )?sees?/i)
+  })
+
+  it('refuses a correction reason shorter than Lab keeps (3 characters), at its field, and sends nothing', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    const card = await openReceived([...PROCESSING, 'lab.result.revise-released'])
+    fireEvent.click(within(card).getByRole('button', { name: 'Correct: Hemoglobin' }))
+    const form = screen.getByRole('form', { name: 'Correct result: Hemoglobin' })
+    const reason = within(form).getByRole('textbox', { name: 'Why it is changed' })
+    fireEvent.change(reason, { target: { value: 'no' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    expect(await refusalOf(reason)).toBe('Write at least 3 characters.')
+    expect(document.activeElement).toBe(reason)
+    expect(screen.queryByRole('dialog', { name: 'Save the correction' })).toBeNull()
+    expect(api.correctLabResult).not.toHaveBeenCalled()
+  })
+
+  it('corrects a result still waiting to be checked, as a new version, instead of checking a wrong one', async () => {
+    const result = draftResult()
+    const done = execution({ result })
+    api.labExecutions.mockResolvedValue({ items: [done] })
+    api.correctLabResult.mockResolvedValue(draftResult({ currentVersion: 2 }))
+    const card = await openReceived()
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release')
+    fireEvent.click(within(card).getByRole('button', { name: 'Correct: Hemoglobin' }))
+    const form = screen.getByRole('form', { name: 'Correct result: Hemoglobin' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Result' }), { target: { value: '11.7' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Why it is changed' }), { target: { value: 'Typed 7.1 for 11.7' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    await answerSheet('Save the correction', 'Save correction')
+    expect(await screen.findByText('Correction saved. Check and release it.')).toBeTruthy()
+    expect(api.correctLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, done, result,
+      { resultType: 'numeric', numericValue: 11.7, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low' }, 'Typed 7.1 for 11.7', 'correction')
+    expect(api.verifyLabResult).not.toHaveBeenCalled()
+    expect(api.releaseLabResult).not.toHaveBeenCalled()
+  })
+
+  it('says a correction waiting to be checked replaces a released result, which the clinician still sees until then', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: correctionOfReleased() })] })
+    const card = await openReceived()
+    expect(within(card).getByText('11.7')).toBeTruthy()
+    const warning = within(card).getByText(/^This corrects a result that was already released\./)
+    expect(warning.textContent?.replace(/\s+/g, ' '))
+      .toBe('This corrects a result that was already released. Until this one is released, the clinician still sees the earlier result.')
+    // Said above the check it is about, inside the stage card.
+    const check = within(card).getByRole('button', { name: 'Check & release' })
+    expect(warning.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('says nothing of a correction on a first result waiting to be checked', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
+    const card = await openReceived()
+    expect(within(card).getByRole('button', { name: 'Check & release' })).toBeTruthy()
+    expect(card.textContent).not.toMatch(/already released/)
+  })
+
+  describe('giving a result out (laboratory/results)', () => {
+    async function openResult(result: LabResult) {
+      as([...PROCESSING, 'lab.result.share'])
+      api.labWorkItems.mockResolvedValue({ items: [received()] })
+      api.labAccession.mockResolvedValue(accession([specimen('received')]))
+      api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+      renderDept(<Results />, { route: `${RESULTS}/work-item-1` })
+      await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })
+      await waitFor(() => expect(api.labExecutions).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'specimen-1'))
+    }
+
+    it('prints a released result with nothing waiting', async () => {
+      await openResult(publishedResult())
+      expect(await screen.findByRole('button', { name: 'Print' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Give the result' })).toBeTruthy()
+      expect(screen.queryByText('A correction is waiting to be checked')).toBeNull()
+    })
+
+    it('warns and offers no Print while a correction of the released result waits to be checked', async () => {
+      await openResult(correctionOfReleased())
+      expect(await screen.findByText('A correction is waiting to be checked')).toBeTruthy()
+      expect(screen.getByText(/^Hemoglobin: the result below is being corrected\./).textContent?.replace(/\s+/g, ' '))
+        .toBe('Hemoglobin: the result below is being corrected. Don’t print or give it out until the correction is checked and released.')
+      // The released value is still the one shown, but it is not given out.
+      expect(screen.getByText('7.1')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Print' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Give the result' })).toBeNull()
+    })
   })
 })
