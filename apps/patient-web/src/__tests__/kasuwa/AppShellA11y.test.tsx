@@ -51,6 +51,8 @@ const renderShell = (at = '/', props: Parameters<typeof Shell>[0] = {}) =>
   render(<MemoryRouter initialEntries={[at]}><Shell {...props} /></MemoryRouter>)
 const where = () => screen.getByTestId('where').textContent
 const account = () => screen.getByRole('button', { name: 'Ada Obi: account' })
+/** What the shell's polite live region says (a sign-out under way). */
+const said = () => document.querySelector('aside [aria-live="polite"]')?.textContent
 const switcher = () => screen.getAllByRole('button', { name: /Ada Obi/ }).find(button => button.getAttribute('aria-label') === null)!
 
 afterEach(() => { document.title = '' })
@@ -132,7 +134,7 @@ describe('signing out from the account menu', () => {
     expect(document.activeElement).toBe(account())
     expect(account().getAttribute('aria-busy')).toBe('true')
     expect(account().parentElement?.textContent).toContain('Signing out…')
-    expect(screen.getByRole('status').textContent).toBe('Signing out…')
+    expect(said()).toBe('Signing out…')
   })
 
   it('sends one sign-out however often Sign out is pressed meanwhile', () => {
@@ -158,7 +160,7 @@ describe('signing out from the account menu', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
     expect(document.activeElement).toBe(account())
     expect(account().getAttribute('aria-busy')).toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('')
+    expect(said()).toBe('')
   })
 })
 
@@ -189,6 +191,26 @@ describe('the ➕ sheet on a phone', () => {
     fireEvent.click(plus)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(document.activeElement).toBe(plus)
+  })
+
+  it('keeps focus on an item whose destination changes while the sheet is open', () => {
+    // The portal learns whether sharing is served after the shell is shown: "Share my records" then goes elsewhere.
+    function Changing({ shareTo }: { shareTo: string }) {
+      return <AppShell brand={<a href="/">Health ID home</a>} switcher={{ name: 'Ada Obi', subtitle: 'Patient portal' }} nav={[{ items: TABS }]} tabs={TABS}
+        person={{ name: 'Ada Obi', detail: 'ada.obi@example.test' }} onSignOut={() => undefined}
+        create={{ label: 'Add or share', items: [
+          { to: '/records?add=record', label: 'Add a record', hint: 'A visit or result', icon: FilePlus2, main: true },
+          { to: shareTo, label: 'Share my records', hint: 'Let a hospital see them', icon: HeartPulse },
+        ] }}><h1>Home</h1></AppShell>
+    }
+    const { rerender } = render(<MemoryRouter><Changing shareTo="/access" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'Add or share' }))
+    const share = screen.getByRole('link', { name: /Share my records/ })
+    share.focus()
+    rerender(<MemoryRouter><Changing shareTo="/access/share" /></MemoryRouter>)
+    expect(document.activeElement).toBe(share)
+    expect(share.isConnected).toBe(true)
+    expect(share.getAttribute('href')).toBe('/access/share')
   })
 
   it('leaves focus to the page an item opens, not on ➕', () => {
