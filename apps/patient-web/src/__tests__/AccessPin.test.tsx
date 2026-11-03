@@ -53,6 +53,7 @@ describe('patient Access PIN', () => {
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '87654321' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Remove PIN' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Remove your Access PIN?' })).getByRole('button', { name: 'Remove PIN' }))
 
     expect(await screen.findByText('PIN removed.')).toBeTruthy()
     expect(await screen.findByText('Not set')).toBeTruthy()
@@ -95,6 +96,7 @@ describe('patient Access PIN', () => {
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Remove PIN' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Remove your Access PIN?' })).getByRole('button', { name: 'Remove PIN' }))
 
     expect(shownText(await screen.findByRole('alert'))).toBe(SAY.signInAgain)
     expect(SAY.signInAgain).toContain('sign out, sign in again, then come back within 10 minutes')

@@ -69,7 +69,7 @@ async function allShown() {
 const click = (element: HTMLElement) => act(async () => { fireEvent.click(element) })
 /** "More", at the end of the profile, which holds Delete account, once it is shown. */
 async function moreOf() {
-  const more = (await screen.findByText('More')).closest('details') as HTMLDetailsElement
+  const more = (await screen.findByText(/^More/, { selector: 'summary' })).closest('details') as HTMLDetailsElement
   await waitFor(() => expect(more.hidden).toBe(false))
   return more
 }
@@ -199,7 +199,7 @@ describe('a section of the profile', () => {
     // Out of the way: More is closed (a browser shows nothing in a closed <details> but its summary).
     const more = await moreOf()
     expect(more.open).toBe(false)
-    expect(more.querySelector('summary')?.textContent).toBe('More')
+    expect(more.querySelector('summary')?.textContent).toBe('More: delete your account')
     await click(more.querySelector('summary') as HTMLElement)
     expect(more.open).toBe(true)
     const order = screen.getAllByRole('heading', { level: 2 })
@@ -207,7 +207,8 @@ describe('a section of the profile', () => {
     expect(more.contains(heading('Delete account'))).toBe(true)
     const card = within(heading('Delete account').closest('section') as HTMLElement)
     expect(card.getByText('This signs you out everywhere and removes your Access PIN, share invites, emergency contacts and the access you gave. Your Health ID and medical records are kept. You have 14 days to change your mind; after that, it can’t be undone.')).toBeTruthy()
-    expect(card.getByText(SAY.signInAgain)).toBeTruthy()
+    expect(card.getByText('You must have signed in within the last 10 minutes to delete your account.')).toBeTruthy()
+    expect(card.queryByText(SAY.signInAgain)).toBeNull()
     expect(card.getByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
   })
 

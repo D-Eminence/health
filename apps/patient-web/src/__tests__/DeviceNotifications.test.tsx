@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { NotificationsPage, ProfilePage } from '../routes/Portal'
 import { forgetWebPushServed, webPushServed } from '../webPushServed'
 import type { BrowserPushSubscription, PushSupport, TurnOnResult } from '../pushDevice'
@@ -118,6 +118,30 @@ describe('Notifications on this device, where Identity does not offer it', () =>
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(fake.calls).toEqual([])
+  })
+})
+
+describe('Notifications on this device, when Identity could not be read (PPS-15)', () => {
+  it.each([
+    ['a failure (500)', () => problem(500, 'INTERNAL', 'Push settings are broken')],
+    ['an outage (503)', () => problem(503, 'UPSTREAM_UNAVAILABLE', 'Identity is down')],
+  ])('says so after %s, in its own card under Settings, with Try again that shows the switch', async (_name, failure) => {
+    let fail = true
+    page(() => fail ? failure() : json(pushState()))
+    expect(await ready()).toBeTruthy()
+    const heading = await screen.findByRole('heading', { name: HEADING })
+    const card = heading.closest('[data-setting]') as HTMLElement
+    expect(card).not.toBeNull()
+    expect(screen.getByRole('heading', { name: 'Settings' }).closest('section')?.contains(card)).toBe(true)
+    const problemShown = within(card).getByRole('alert')
+    expect(problemShown.textContent).toContain('Couldn’t load this setting')
+    expect(problemShown.textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(problemShown.textContent).not.toMatch(/INTERNAL|UPSTREAM|broken|down/)
+    fail = false
+    await press(within(card).getByRole('button', { name: /^Try again/ }))
+    expect(await screen.findByRole('switch', { name: HEADING })).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: HEADING })))
+    expect(fake.calls).toContain('support')
   })
 })
 

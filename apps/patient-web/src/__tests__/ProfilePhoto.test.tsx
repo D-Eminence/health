@@ -5,7 +5,7 @@ import type { PatientProfile } from '../api'
 import { PHOTO_SIDE, PHOTO_SIDES, base64Of, photoBody, reencodePhoto, withoutJpegMetadata } from '../photoImage'
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
 import { PortalShell, ProfilePage } from '../routes/Portal'
-import { json, openSection, press, problem, profile, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
+import { described, json, openSection, press, problem, profile, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 import { ToastProvider } from '../kasuwa/toast'
 
 vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
@@ -491,5 +491,80 @@ describe('the shell', () => {
     await waitFor(() => expect(card.textContent).toContain('AE'))
     expect(card.querySelector('img')).toBeNull()
     expect(sent.some(request => request.path === '/identity/me/photo')).toBe(false)
+  })
+})
+
+/**
+ * After Save photo or Remove (PPS-05, HCS-15): Chromium moves focus off a focused button as it is disabled while its
+ * request runs (jsdom does not, so `inChromium` does it here). A failure leaves the drawer open with focus back on the
+ * button that failed, and the reason tied to it; a success is said in a polite status under the card, with focus on
+ * the card's photo control.
+ */
+async function inChromium(button: HTMLElement) {
+  await press(button)
+  const control = button as HTMLButtonElement
+  if (!control.disabled) return
+  control.disabled = false
+  control.blur()
+  control.disabled = true
+}
+/** An answer held until the test releases it. */
+function held() {
+  let release!: (response: Response) => void
+  const promise = new Promise<Response>(done => { release = done })
+  return { promise, release }
+}
+const PHOTO_STATUS = (text: string) => screen.findByText(text, { selector: '[role="status"]' })
+
+describe('after Save photo or Remove', () => {
+  it('keeps the drawer open after a failed save, with focus back on Save photo and the reason tied to it', async () => {
+    const answer = held()
+    profilePage(gateway(false, { put: () => answer.promise as unknown as Response }))
+    ;(await photoCard()).getByLabelText(ADD).focus()
+    await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
+    const save = await screen.findByRole('button', { name: 'Save photo' }) as HTMLButtonElement
+    await waitFor(() => expect(save.disabled).toBe(false))
+    await inChromium(save)
+    expect(document.activeElement).toBe(document.body)
+    await act(async () => { answer.release(problem(503, 'UPSTREAM_UNAVAILABLE', 'Identity is down')) })
+    expect(shownText(await screen.findByRole('alert'))).toBe('Couldn’t save your photoHealth ID isn’t available right now. Please try again in a few minutes.')
+    expect(screen.getByRole('dialog', { name: 'Your card photo' })).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save photo' })))
+    expect(described(screen.getByRole('button', { name: 'Save photo' }))).toBe('Your photo wasn’t saved. Health ID isn’t available right now. Please try again in a few minutes.')
+  })
+
+  it('says the photo was saved, politely, under the card, with focus on the card\'s photo control', async () => {
+    profilePage(gateway(false))
+    ;(await photoCard()).getByLabelText(ADD).focus()
+    await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
+    const save = await screen.findByRole('button', { name: 'Save photo' }) as HTMLButtonElement
+    await waitFor(() => expect(save.disabled).toBe(false))
+    await inChromium(save)
+    await savedAndClosed()
+    expect(await PHOTO_STATUS('Your photo was saved.')).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(CHANGE)))
+  })
+
+  it('keeps the drawer open after a failed removal, with focus back on Remove', async () => {
+    const answer = held()
+    profilePage(gateway(true, { del: () => answer.promise as unknown as Response }))
+    await cardPhoto()
+    await press(screen.getByRole('button', { name: 'Remove photo' }))
+    await inChromium(within(await screen.findByRole('dialog', { name: 'Your card photo' })).getByRole('button', { name: 'Remove' }))
+    expect(document.activeElement).toBe(document.body)
+    await act(async () => { answer.release(problem(503, 'UPSTREAM_UNAVAILABLE', 'Identity is down')) })
+    expect(shownText(await screen.findByRole('alert'))).toBe('Couldn’t remove your photoHealth ID isn’t available right now. Please try again in a few minutes.')
+    expect(screen.getByRole('dialog', { name: 'Your card photo' })).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' })))
+  })
+
+  it('says the photo was removed, politely, under the card', async () => {
+    profilePage(gateway(true))
+    await cardPhoto()
+    await press(screen.getByRole('button', { name: 'Remove photo' }))
+    await inChromium(within(await screen.findByRole('dialog', { name: 'Your card photo' })).getByRole('button', { name: 'Remove' }))
+    await savedAndClosed()
+    expect(await PHOTO_STATUS('Your photo was removed.')).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(ADD)))
   })
 })
