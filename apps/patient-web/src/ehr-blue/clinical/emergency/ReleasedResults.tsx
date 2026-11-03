@@ -7,6 +7,7 @@ import { staffApi, type LabAbnormalFlag, type LabOrderReleasedResults, type LabR
 import { refusalText } from '../../../staff/fieldProblem'
 import { revisionValue, skipsVersions } from '../../../staff/labRevisions'
 import { formatWhen } from '../parts/format'
+import { codeText, MoreDetails } from '../parts/MoreDetails'
 
 /** Today's words for a refused released-results read (Clinical.tsx releasedResultsRefusal). */
 export function releasedResultsRefusal(caught: unknown): string {
@@ -89,8 +90,11 @@ export function ReleasedResults({ facilityId, requestId }: { facilityId: string;
           {error ? <Alert intent="error" size="sm" title="Couldn’t load results">{error}</Alert> : null}
           {released ? released.results.length === 0 ? <p className="m-0 text-[13px] text-ink-3">No results released yet.</p> : (
             <>
-              {/* The test with its code system and code (Clinical.tsx:935). */}
-              <p className="m-0 text-[13px] text-ink-3">{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by the lab {when(released.acceptedAt)}</p>
+              {/* The test by name; its code system and code (Clinical.tsx:935) under More details (owner decision 33.4). */}
+              <p className="m-0 text-[13px] text-ink-3">{released.test.name?.trim() || codeText(released.test.codeSystem, released.test.code)} · accepted by the lab {when(released.acceptedAt)}</p>
+              {released.test.name?.trim() && codeText(released.test.codeSystem, released.test.code) ? (
+                <MoreDetails about={released.test.name}><span>Code: {codeText(released.test.codeSystem, released.test.code)}</span></MoreDetails>
+              ) : null}
               <ul className="m-0 flex list-none flex-col gap-3 p-0">
                 {released.results.map((result, index) => (
                   <li key={result.id} className="flex flex-col gap-2">

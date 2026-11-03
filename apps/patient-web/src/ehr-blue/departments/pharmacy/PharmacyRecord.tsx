@@ -3,6 +3,8 @@ import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, U
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
+import { MoreDetails } from '../../clinical/parts/MoreDetails'
+import { routeLabel } from '../../../plainLabels'
 import { HidApiError, isHidApiError, PlainError } from '@hid/http'
 import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
@@ -80,6 +82,23 @@ function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string)
 }
 
 /**
+ * How the medicine is taken, in plain words first ("By mouth"), with the prescriber's route code under More details
+ * (owner decision 33.4). A route code with no plain words here is shown as written.
+ */
+function RouteValue({ code }: { readonly code: string | null | undefined }) {
+  const written = code?.trim() ?? ''
+  const plain = routeLabel(written)
+  if (!written) return <>Not recorded</>
+  if (!plain) return <>{written}</>
+  return (
+    <span className="flex flex-col gap-1">
+      <span>{plain.charAt(0).toUpperCase() + plain.slice(1)}</span>
+      {written.toLowerCase() !== plain ? <MoreDetails about="Route"><span>Route code: {written}</span></MoreDetails> : null}
+    </span>
+  )
+}
+
+/**
  * A prescription's saved fields. The dose is always shown with its unit, a decimal with its leading zero. Its priority,
  * how long it is for and how much to hand over are listed only when the prescription carries them (proposed hid-system
  * 0107); today's backend sends none, and the list is as it was.
@@ -95,7 +114,7 @@ export function recordFacts(item: PharmacyWorkItem, status: string, withPatient 
     { label: 'Dose', value: item.doseQuantity == null ? 'Not recorded' : <Value value={item.doseQuantity} unit={item.doseUnit || 'unit not recorded'} /> },
     { label: 'How often', value: item.frequency || 'Not recorded' },
     ...(duration ? [{ label: 'How long', value: duration }] : []),
-    { label: 'Route', value: item.routeCode || 'Not recorded' },
+    { label: 'Route', value: <RouteValue code={item.routeCode} /> },
     ...(prescribed ? [{ label: 'Quantity to give', value: <Value value={prescribed.quantity} unit={prescribed.unit ?? 'unit not recorded'} /> }] : []),
     ...(item.instructions ? [{ label: 'Instructions', value: item.instructions }] : []),
     { label: 'Dispensed', value: item.dispensing ? (item.dispensing.reversed ? 'Reversed' : 'Yes') : 'No' },
@@ -308,7 +327,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       {/* The page's heading names the medicine as prescribed; this says what to look for on the shelf. */}
       <p className="m-0 text-[13px] font-medium text-ink-3">Pick</p>
       <p className="m-0 text-[20px] font-semibold leading-tight text-ink break-words"><Breakable text={drugName} /></p>
-      <p className="m-0 text-[16px] font-medium text-ink-2">{[strength, FORM_WORD[form], item.routeCode].filter(Boolean).join(' · ')}</p>
+      <p className="m-0 text-[16px] font-medium text-ink-2">{[strength, FORM_WORD[form], routeLabel(item.routeCode) ?? item.routeCode?.trim()].filter(Boolean).join(' · ')}</p>
       <p className="m-0 text-[13px] text-ink-3">Accepted {dateText(item.acceptedAt)}</p>
       {stock || (bill !== undefined && !waitsForPayment) ? <div className="mt-1 flex flex-wrap items-center gap-2">
         {stock ? <StockLine stock={stock} /> : null}
