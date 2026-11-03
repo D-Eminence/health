@@ -264,8 +264,25 @@ describe('Ask the patient for access (once New external record access)', () => {
     fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '90' } })
     fireEvent.submit(form)
     expect(await screen.findByText('Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.')).toBeTruthy()
-    expect(screen.getByText('Enter a number of minutes from 1 to 60.')).toBeTruthy()
+    expect(screen.getByText('Enter a number of minutes from 5 to 60.')).toBeTruthy()
     expect(api.requestAccess).not.toHaveBeenCalled()
+  })
+
+  it('asks for at least 5 minutes, as Health ID refuses less, and says so before sending', async () => {
+    open('/new')
+    const duration = screen.getByLabelText(DURATION) as HTMLInputElement
+    expect(duration.min).toBe('5')
+    expect(duration.max).toBe('60')
+    expect(screen.getByText('From 5 to 60 minutes.')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
+    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
+    fireEvent.change(duration, { target: { value: '4' } })
+    fireEvent.submit(duration.closest('form')!)
+    expect(await screen.findByText('Enter a number of minutes from 5 to 60.')).toBeTruthy()
+    expect(api.requestAccess).not.toHaveBeenCalled()
+    fireEvent.change(duration, { target: { value: '5' } })
+    fireEvent.submit(duration.closest('form')!)
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 5))
   })
 
   it('sends the request with the chosen scope and duration, and opens it waiting for the patient', async () => {
