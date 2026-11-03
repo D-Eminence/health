@@ -6,6 +6,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { screen } from '@testing-library/react'
 import { AppErrorBoundary } from '../AppErrorBoundary'
+import type * as ErrorReportingModule from '../errorReporting'
 
 /**
  * Error reporting in the portal (owner's approval, 2026-11-03): it starts only when the build carries a DSN, and a
@@ -17,7 +18,7 @@ const DSN = `https://${KEY}@o12345.ingest.us.sentry.io/4504123456789`
 const HEALTH_ID = 'HID-ADA2345'
 const EMAIL = 'ada@example.com'
 
-type Reporting = typeof import('../errorReporting')
+type Reporting = typeof ErrorReportingModule
 type Reporter = NonNullable<ReturnType<Reporting['startPortalErrorReporting']>>
 
 const started: Reporter[] = []

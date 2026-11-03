@@ -78,7 +78,9 @@ describe('public site error reporting', () => {
     expect(body).not.toContain('abc123')
 
     unmount()
-    window.dispatchEvent(new ErrorEvent('error', { error: new RangeError('later'), message: 'later' }))
+    // An event with no error object: a reporter still listening would send it (as NonErrorThrow), and the test runner
+    // does not rethrow it as uncaught once nothing listens.
+    window.dispatchEvent(new ErrorEvent('error', { message: 'later' }))
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
