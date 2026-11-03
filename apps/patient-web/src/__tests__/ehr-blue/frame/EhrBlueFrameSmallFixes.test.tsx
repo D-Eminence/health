@@ -65,9 +65,10 @@ describe('the Facility check on a product site', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     await openLab('/provider', ['lab.work-item.read'], { selfService: { review: 'reviewed', organizationType: 'laboratory' } } as never)
     await waitFor(() => expect(where()).toBe('/provider/laboratory'))
-    expect(await screen.findByRole('heading', { name: 'Facility check' })).toBeDefined()
-    expect(screen.getByText('Done')).toBeDefined()
-    expect(screen.getByText(/Health ID support has checked Demo Laboratory/)).toBeDefined()
+    const check = (await screen.findByRole('heading', { name: 'Facility check' })).closest('.staff-card') as HTMLElement
+    // Within the card: the lab's own page may have a "Done" tab of its own.
+    expect(within(check).getByText('Done')).toBeDefined()
+    expect(within(check).getByText(/Health ID support has checked Demo Laboratory/)).toBeDefined()
   })
 
   it('is shown once on Home', async () => {
