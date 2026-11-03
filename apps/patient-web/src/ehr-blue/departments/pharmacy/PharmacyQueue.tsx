@@ -76,13 +76,18 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
 }
 
 /**
- * How long a prescription has waited, as a sentence: "Waiting 25 min", "Waiting since yesterday", "Waiting since 8 Oct";
+ * How long a prescription has waited, as a sentence: "Waiting 25 min", "Waiting 2 days", "Waiting since 8 Oct";
  * "Just accepted" in its first minute. Never "Waiting yesterday" or "Waiting 8 Oct".
  */
 export function waitingText(acceptedAt: string, now = Date.now()): string {
   const ago = timeAgo(acceptedAt, now)
   if (!ago) return ''
   if (ago === 'just now') return 'Just accepted'
+  // timeAgo's "yesterday" is any time 24 to 48 hours ago, which can be two calendar days back: say the days instead.
+  if (ago === 'yesterday') {
+    const days = Math.round((now - Date.parse(acceptedAt)) / 86_400_000)
+    return `Waiting ${days} day${days === 1 ? '' : 's'}`
+  }
   return ago.endsWith(' ago') ? `Waiting ${ago.slice(0, -' ago'.length)}` : `Waiting since ${ago}`
 }
 

@@ -102,8 +102,11 @@ describe('how long a prescription has waited', () => {
     expect(waitingText('2026-11-03T11:59:40Z', now)).toBe('Just accepted')
     expect(waitingText('2026-11-03T11:35:00Z', now)).toBe('Waiting 25 min')
     expect(waitingText('2026-11-03T09:00:00Z', now)).toBe('Waiting 3 h')
-    expect(waitingText('2026-11-02T06:00:00Z', now)).toBe('Waiting since yesterday')
+    // A wait of one or two days is said in days, never as "since yesterday": 47 hours back is the day before yesterday.
+    expect(waitingText('2026-11-02T06:00:00Z', now)).toBe('Waiting 1 day')
+    expect(waitingText('2026-11-01T13:00:00Z', now)).toBe('Waiting 2 days')
     expect(waitingText('2026-10-31T12:00:00Z', now)).toBe('Waiting 3 days')
-    expect(waitingText('2026-10-08T09:30:00Z', now)).toBe('Waiting since 8 Oct')
+    // Noon UTC is 8 or 9 Oct wherever the test runs.
+    expect(waitingText('2026-10-08T12:00:00Z', now)).toMatch(/^Waiting since [89] Oct$/)
   })
 })
