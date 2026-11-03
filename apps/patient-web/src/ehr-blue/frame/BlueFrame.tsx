@@ -93,7 +93,9 @@ export function navigationGroups(pages: readonly EhrBluePage[], product: Product
  * every address it may open: Pharmacy's own address opens for everyone and only sends on to its pages, so it is no
  * reason to link to the Pharmacy's site for a role that may open none of them. None on a host that is not a Health ID
  * site, which serves every page. With single sign-on on, each link says which site and page it leaves (siteSwitch.ts
- * switchHref: `backPath`, when it passes the check); off, it is today's siteHref.
+ * switchHref: `backPath`, when it passes the check); off, it is today's siteHref. The only link from a product site to
+ * the EHR site is Demo Hospital's "Open Hospital EHR" button below (FacilityOnAnotherSite): the owner's one named
+ * exception, demo only (2 Nov 2026, productSites.ts). This group never adds one.
  */
 export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string | null = null): NavGroup | null {
   const hostname = window.location.hostname
@@ -128,6 +130,9 @@ function switchBackPath(pathname: string, page: EhrBluePage | null): string {
  * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
  * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility. With single sign-on on,
  * that site signs them in through the sign-in site they already used, so the page no longer warns of a second sign-in.
+ * For Demo Hospital on the Lab or Migrate site its button is "Open Hospital EHR": the owner's one named cross-site
+ * exception, demo only (2 Nov 2026, productSites.ts). Real facilities never reach this page (demoFacilitySite is null
+ * for them).
  */
 function FacilityOnAnotherSite({ facility, site, href, choosing }: { facility: string; site: Site; href: string; choosing: boolean }) {
   const where = switchingOn() ? `${facility} is on ${SITE_PRODUCT_NAMES[site.key]}.`

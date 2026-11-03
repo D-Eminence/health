@@ -16,6 +16,11 @@ import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
  * the frame opens the product's Home in its place: no product site sends anyone to the EHR site. Patient registration
  * stays in the hospital EHR. The admin site, and any host that is not a Health ID site (local, preview), serve every
  * address, as before.
+ *
+ * The one named exception (owner, 2 Nov 2026; demo only): Demo Hospital opened on the Lab or Migrate site shows its
+ * "Open Hospital EHR" button (ehr-blue/frame/BlueFrame.tsx FacilityOnAnotherSite, blueFacilities.ts demoFacilitySite),
+ * because the sealed demo tenant's hospital works only on the EHR site. It is the only link from a product site to the
+ * EHR site; no real facility gets one, and no other link may be added on its strength.
  */
 export type SiteKey = 'web' | StaffProductKey
 

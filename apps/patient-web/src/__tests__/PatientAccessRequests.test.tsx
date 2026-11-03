@@ -166,3 +166,37 @@ describe('patient access-request commands', () => {
     expect(sent.filter(request => request.method === 'POST').map(request => request.body)).toEqual([{ reason: 'Not now' }])
   })
 })
+
+describe('access status in words', () => {
+  it('says each request’s and each access’s status in the patient’s words, never the status word itself', async () => {
+    const grant = (id: string, status: string, facilityName: string) => ({ consentGrantId: id, scope: 'read_records', purpose: 'direct-care',
+      status, startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T11:00:00Z', reason: null, facilityName, breakGlass: false, patientRevocable: false })
+    const { api } = client(path => {
+      if (path.endsWith('/me/access-requests')) return json([
+        { ...pending, accessRequestId: 'r-1', facilityName: 'Lagos General', status: 'denied' },
+        { ...pending, accessRequestId: 'r-2', facilityName: 'Ikeja Clinic', status: 'expired' },
+      ])
+      if (path.endsWith('/me/access-history')) return json({ items: [
+        grant('g-1', 'active', 'Yaba Hospital'), grant('g-2', 'revoked', 'Surulere Lab'), grant('g-3', 'expired', 'Ojota Pharmacy'),
+        grant('g-4', 'pending', 'Ikoyi Clinic'),
+      ] })
+      return json({}, 404)
+    })
+    render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
+      kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
+    }, api)}><ToastProvider><AccessPage /></ToastProvider></SessionContext.Provider></MemoryRouter>)
+    const row = async (name: RegExp) => (await screen.findByRole('button', { name })).textContent
+    expect(await row(/^Lagos General/)).toContain('You said no')
+    expect(await row(/^Ikeja Clinic/)).toContain('Time ran out')
+    fireEvent.click(screen.getByRole('button', { name: /^Lagos General/ }))
+    expect(within(screen.getByRole('dialog', { name: 'Lagos General' })).getByText('You said no')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Who has access/ }))
+    const item = async (name: string) => (await screen.findByText(name)).closest('li')!.textContent
+    expect(await item('Yaba Hospital')).toContain('Active')
+    expect(await item('Surulere Lab')).toContain('Ended')
+    expect(await item('Ojota Pharmacy')).toContain('Time ran out')
+    expect(await item('Ikoyi Clinic')).toContain('Waiting for you')
+    expect(document.body.textContent).not.toMatch(/Denied|Revoked|Expired|Pending/)
+  })
+})

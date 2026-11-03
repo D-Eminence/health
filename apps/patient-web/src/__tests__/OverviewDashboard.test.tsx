@@ -100,11 +100,20 @@ describe('the overview with patient parity served', () => {
     expect(card.queryByRole('button', { name: 'Copy HID' })).toBeNull()
   })
 
-  it('prints on the card what the patient entered, and shows the four tiles with the active accesses', async () => {
+  it('prints on the card what the patient entered, and shows only the tiles for what the backend sends, with the active accesses', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     await waitFor(() => expect(facts()).toEqual([['Blood', 'B+'], ['Genotype', 'AA'], ['Allergy', 'Shellfish']]))
-    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['0Documents', '/records?tab=documents'],
-      ['1Facility with access', '/access'], ['0Medicines', '/records?tab=prescriptions']]))
+    // Production (Novu) sends visits and notes only: no Documents or Medicines tile that could only ever say 0.
+    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['1Facility with access', '/access']]))
+  })
+
+  it('shows the Documents and Medicines tiles where the backend sends documents and prescriptions', async () => {
+    novu.on = false
+    try {
+      renderPortal(<Overview />, gateway(), {}, parity)
+      await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['0Documents', '/records?tab=documents'],
+        ['1Facility with access', '/access'], ['0Medicines', '/records?tab=prescriptions']]))
+    } finally { novu.on = true }
   })
 
   it('prints what the patient kept in hid-1.0 while they have entered nothing', async () => {
@@ -199,7 +208,7 @@ describe('the overview on today\'s backend', () => {
   it('shows no completion, health facts, health-information link or NIN badge where none is served, and asks nothing more', async () => {
     const { sent } = renderPortal(<Overview />, gateway({ '/identity/me': () => json(profile) }))
     await screen.findByText('HID-ABC234')
-    await waitFor(() => expect(tiles()[2]).toEqual(['1Facility with access', '/access']))
+    await waitFor(() => expect(tiles().at(-1)).toEqual(['1Facility with access', '/access']))
     expect(facts()).toEqual([])
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.queryByText(/% done/)).toBeNull()
@@ -248,8 +257,22 @@ describe('what the overview counts', () => {
 
   it('lists the latest signed notes and encounters, newest first, never an unsigned note', () => {
     const answer = { ...records, notes: [...records.notes, { ...records.notes[0]!, id: 'note-2', title: 'Draft', signedAt: null }] } as unknown as PatientRecords
-    expect(providerContributions(answer).map(row => [row.kind, row.title])).toEqual([['Clinical note', 'Malaria review'], ['Encounter', 'Outpatient visit']])
+    expect(providerContributions(answer).map(row => [row.kind, row.title])).toEqual([['Doctor’s note', 'Malaria review'], ['Visit', 'Outpatient visit']])
     expect(providerContributions({ encounters: 'x' } as unknown as PatientRecords)).toEqual([])
+  })
+
+  it('names each contribution as the Records page does: a note’s own title as written, else its type in words, and a visit as a visit', async () => {
+    const notes = [
+      { ...records.notes[0]!, id: 'note-a', title: '', noteType: 'progress_note', signedAt: at(97) },
+      { ...records.notes[0]!, id: 'note-b', title: 'Follow-up: BP_check', signedAt: at(96) },
+    ]
+    renderPortal(<Overview />, gateway({ '/ehr/me/records': () => json({ ...records, notes }) }), {}, parity)
+    const contributions = await region('Latest from your providers')
+    expect(await contributions.findByText('Follow-up: BP_check')).toBeTruthy()
+    expect(contributions.getByText('Progress note')).toBeTruthy()
+    expect(contributions.queryByText(/progress_note|Encounter/)).toBeNull()
+    expect(contributions.getAllByText(/^Visit · /)).toHaveLength(1)
+    expect(contributions.getAllByText(/^Doctor’s note · /)).toHaveLength(2)
   })
 
   it('needs attention only for what it can say', () => {

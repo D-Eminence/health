@@ -154,7 +154,7 @@ describe('access and consent', () => {
     await inChromium(drawer().getByRole('button', { name: 'Deny' }))
     expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(row))
-    expect(row.textContent).toContain('Denied')
+    expect(row.textContent).toContain('You said no')
   })
 
   it('opens the ending of access with focus in its reason, cancels back to End access, and confirms to the heading', async () => {

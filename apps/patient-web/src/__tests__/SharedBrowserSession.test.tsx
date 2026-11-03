@@ -552,14 +552,14 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
 
-  it('sign-in stops saying a provider is signed in once the provider signs out in another tab', async () => {
+  it('sign-in stops saying another account is signed in once the provider signs out in another tab', async () => {
     vi.stubGlobal('BroadcastChannel', TabBus)
     const identity = fakeIdentity()
     identity.install()
     identity.signIn('staff')
     const { App } = await import('../App')
     render(<MemoryRouter initialEntries={['/sign-in']}><App /></MemoryRouter>)
-    const note = /^A provider sign-in is active in this browser\. Signing in here replaces it\./
+    const note = 'Another Health ID account is signed in on this browser. Signing in here signs it out.'
     expect(await screen.findByText(note)).toBeTruthy()
 
     identity.signOutElsewhere()
