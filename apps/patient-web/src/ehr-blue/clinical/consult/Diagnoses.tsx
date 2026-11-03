@@ -27,6 +27,14 @@ const ADD_FIELDS: readonly FieldDef[] = [
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
 ]
 const ADD_INITIAL: FormValues = { clinicalStatus: 'active', verificationStatus: 'unconfirmed' }
+
+/**
+ * A refusal's sentences lead with the record's field name ("Display must be shorter than…"); the form calls that field
+ * "Diagnosis", so a sentence led by it says so. Only a sentence's first word changes, and words without it are kept.
+ */
+function asTheFormSays(said: string): string {
+  return said.replace(/(^|[.!?] )Display\b/g, '$1Diagnosis')
+}
 // Today's change selects open on the current values and offer no blank choice, so no empty status is ever sent
 // (Clinical.tsx DiagnosisUpdateForm).
 const VERIFICATION_CHOICES: readonly StatusOption[] = [...DIAGNOSIS_VERIFICATION_STATUSES, { value: 'entered_in_error', label: 'Entered in error' }]
@@ -89,9 +97,10 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
       await chart.verify()
       await staffApi.createRecord(facilityId, patientId, encounterId, 'diagnoses', body, attempt.current.key)
     } catch (caught) {
+      const fieldErrors = refusedFieldErrors(caught, { codeSystem: 'codeSystem', code: 'code', display: 'display', clinicalStatus: 'clinicalStatus', verificationStatus: 'verificationStatus', notes: 'notes' })
       return {
-        formError: refusalText(caught, 'Record could not be saved.'),
-        fieldErrors: refusedFieldErrors(caught, { codeSystem: 'codeSystem', code: 'code', display: 'display', clinicalStatus: 'clinicalStatus', verificationStatus: 'verificationStatus', notes: 'notes' }),
+        formError: asTheFormSays(refusalText(caught, 'Record could not be saved.')),
+        fieldErrors: fieldErrors.display ? { ...fieldErrors, display: asTheFormSays(fieldErrors.display) } : fieldErrors,
       }
     }
     attempt.current = null

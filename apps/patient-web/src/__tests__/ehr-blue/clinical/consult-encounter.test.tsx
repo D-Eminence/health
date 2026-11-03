@@ -799,8 +799,10 @@ describe('Consultation record: diagnoses', () => {
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
-    expect((await diagnoses.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Display must be shorter than or equal to 500 characters.')
+    // The field is named as the form names it, never by the record's field name.
+    expect((await diagnoses.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Diagnosis must be shorter than or equal to 500 characters.')
     expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
+    expect(card('Diagnoses').textContent).not.toContain('Display')
 
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
