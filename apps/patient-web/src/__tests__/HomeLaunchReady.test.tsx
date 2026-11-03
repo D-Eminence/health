@@ -216,6 +216,21 @@ describe('HCS-09: Home while it loads', () => {
   })
 })
 
+describe('HCS-09: the requests answering before the profile', () => {
+  it('still waits for what the profile lacks before drawing the tiles', async () => {
+    const me = deferred()
+    const contacts = deferred()
+    renderPortal(<Overview />, gateway({ '/identity/me': () => me.promise, '/identity/me/emergency-contacts': () => contacts.promise }), {}, served)
+    // The requests answer while the profile is still being read.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    await act(async () => { me.resolve(json(patient)) })
+    await screen.findByRole('region', { name: CARD })
+    expect(tiles()).toBeNull()
+    await act(async () => { contacts.resolve(json([])) })
+    await waitFor(() => expect(tiles()).not.toBeNull())
+  })
+})
+
 describe('HCS-10: the patient\'s own actions in Activity', () => {
   it('says whom the patient gave access, and whose access they ended', () => {
     const own: AccessLogPage = { nextBefore: null, events: [
