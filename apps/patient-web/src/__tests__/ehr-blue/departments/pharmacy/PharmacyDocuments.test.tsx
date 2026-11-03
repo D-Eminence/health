@@ -52,7 +52,7 @@ vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test',
 const DOC_READ = 'pharmacy.document.read'
 const DOC_WRITE = 'pharmacy.document.write'
 const DOCUMENTS = [READ, CREATE, DOC_READ, DOC_WRITE]
-const HINT = 'PDF, JPEG, PNG or TIFF, up to 50 MiB.'
+const HINT = 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.'
 const ATTACHED = 'Prescription sheet attached. It can be opened once its virus scan is clean.'
 
 const sheet = (overrides: Partial<DocumentRecord> = {}): DocumentRecord => ({
@@ -215,7 +215,7 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
     await openRecord()
     choose(new File(['Demo Pharmacy'], 'notes.txt', { type: 'text/plain' }))
     attach()
-    expect(await within(card()).findByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(await within(card()).findByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
     expect(api.uploadWorkItemDocument).not.toHaveBeenCalled()
   })
 

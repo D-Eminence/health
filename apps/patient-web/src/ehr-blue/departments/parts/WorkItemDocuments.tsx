@@ -18,7 +18,7 @@ import { errorText } from './errors'
  * The documents kept on one Lab or Pharmacy work item (the owner's rule of 31 Oct, documentTypes.ts): a laboratory
  * attaches a lab result to its Lab work item and a pharmacy a prescription sheet to its Pharmacy work item, since lab
  * and pharmacy staff open no encounters. The file goes up exactly as chosen (staffApi.uploadWorkItemDocument PUTs the
- * File itself), and the backend scans it, and reads a lab result by OCR once the scan is clean; the page only says so.
+ * File itself), and the backend checks it for viruses. Nothing reads it automatically today, so the page promises no reading.
  *
  * Dormant until the backend serves it: the card shows only once a Lab or Pharmacy work list (or the EHR's document list)
  * has answered `documentTypes: true`, on a host that may upload the kind's type, to a member who may read or attach the
@@ -52,8 +52,7 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
     empty: 'No result documents yet.',
     file: 'Lab result file',
     submit: 'Attach result document',
-    hint: 'PDF, JPEG, PNG or TIFF, up to 50 MiB. Images are kept exactly as uploaded, and Health ID reads a lab result by '
-      + 'itself once its virus scan is clean.',
+    hint: 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.',
     attached: 'Result document attached. It can be opened once its virus scan is clean.',
   },
   pharmacy: {
@@ -64,16 +63,16 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
     empty: 'No prescription sheets yet.',
     file: 'Prescription sheet file',
     submit: 'Attach prescription sheet',
-    hint: 'PDF, JPEG, PNG or TIFF, up to 50 MiB.',
+    hint: 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.',
     attached: 'Prescription sheet attached. It can be opened once its virus scan is clean.',
   },
 }
 
 /** Today's client checks on a document (the classic Documents card's), word for word. */
-const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
+const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_BYTES = 52_428_800
 const NO_FILE = 'Select a file first.'
-const WRONG_FILE = 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'
+const WRONG_FILE = 'Use PDF, JPEG or PNG, up to 50 MiB.'
 const LOAD_FAILED = 'Documents could not be loaded.'
 const ATTACH_FAILED = 'The document could not be attached.'
 const OPEN_FAILED = 'The document could not be opened.'
@@ -273,7 +272,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
         onSubmit={event => void attach(event)}>
         <Field label={<>{said.file}<span aria-hidden="true"> *</span></>} htmlFor={fileId} error={error} errorId={`${fileId}-error`}
           hint={said.hint} hintId={`${fileId}-hint`}>
-          <input id={fileId} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required
+          <input id={fileId} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required
             aria-invalid={error ? true : undefined} aria-describedby={error ? `${fileId}-error` : `${fileId}-hint`}
             onChange={() => setProblem(null)}
             className="block w-full min-w-0 text-[14px] text-ink-2 file:mr-3 file:h-10 file:cursor-pointer file:rounded-md file:border-0 file:bg-surface file:px-4 file:text-sm file:font-medium file:text-ink file:ring-1 file:ring-line-strong file:ring-inset hover:file:bg-subtle" />

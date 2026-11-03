@@ -17,8 +17,8 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../session'
  * EHR"), with the same rules as the blue card (ehr-blue/departments/parts/WorkItemDocuments.tsx) in the classic page's
  * parts: a laboratory attaches a lab result to its Lab work item and a pharmacy a prescription sheet to its Pharmacy work
  * item (the owner's rule of 31 Oct, documentTypes.ts), since lab and pharmacy staff open no encounters. The file goes up
- * exactly as chosen (staffApi.uploadWorkItemDocument PUTs the File itself); the backend scans it, and reads a lab result
- * by itself once the scan is clean. The page only says so.
+ * exactly as chosen (staffApi.uploadWorkItemDocument PUTs the File itself); the backend checks it for viruses.
+ * Nothing reads it automatically today, so the page promises no reading.
  *
  * Dormant until the backend serves it: nothing of it shows until a Lab or Pharmacy work list (or the EHR's document list)
  * has answered `documentTypes: true`, on a host that may upload the kind's type, to a member who may read or attach the
@@ -50,8 +50,7 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
     empty: 'No result documents yet.',
     file: 'Lab result file',
     submit: 'Attach result document',
-    hint: 'PDF, JPEG, PNG or TIFF, up to 50 MiB. Images are kept exactly as uploaded, and Health ID reads a lab result by '
-      + 'itself once its virus scan is clean.',
+    hint: 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.',
     attached: 'Result document attached. It can be opened once its virus scan is clean.',
   },
   pharmacy: {
@@ -62,16 +61,16 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
     empty: 'No prescription sheets yet.',
     file: 'Prescription sheet file',
     submit: 'Attach prescription sheet',
-    hint: 'PDF, JPEG, PNG or TIFF, up to 50 MiB.',
+    hint: 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.',
     attached: 'Prescription sheet attached. It can be opened once its virus scan is clean.',
   },
 }
 
 /** Today's client checks on a document (the classic Documents card's), word for word. */
-const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
+const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_BYTES = 52_428_800
 const NO_FILE = 'Select a file first.'
-const WRONG_FILE = 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'
+const WRONG_FILE = 'Use PDF, JPEG or PNG, up to 50 MiB.'
 const LOAD_FAILED = 'Documents could not be loaded.'
 const ATTACH_FAILED = 'Document could not be attached.'
 const OPEN_FAILED = 'Document could not be opened.'
@@ -280,7 +279,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
     {canWrite && !writable && <p className="staff-muted">{CLOSED}</p>}
     {attachable && <form className="staff-form" aria-label={said.submit} noValidate onSubmit={event => void attach(event)}>
       <Field label={said.file} htmlFor={fileId} hint={said.hint} error={problems.error(fileId)} required>
-        <Input id={fileId} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required
+        <Input id={fileId} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required
           onChange={() => problems.clear()} {...problems.control(fileId)} />
       </Field>
       {attachError && <p role="alert" className="staff-error">{attachError}</p>}
