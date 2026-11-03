@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
-  DEMO_HOSPITAL, DEMO_LABORATORY, LAB_WORK, REQUESTS, SESSION, facility, homeHeading, json, openStaffApp, serve, sessionAt, where, withFramePages,
+  DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REQUESTS, SESSION, type Answer, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt,
+  switchFacilityTo, where, withFramePages,
 } from './blueHarness'
 
 /**
@@ -20,13 +21,14 @@ afterEach(() => {
 const LAB_HOST = 'lab.healthidentitydirectory.com'
 const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, () => answer)
 
-async function openLab(path: string, permissions: readonly string[], extra: Partial<ReturnType<typeof facility>> = {}) {
+async function openLab(path: string, permissions: readonly string[], extra: Partial<ReturnType<typeof facility>> = {}, routes: Record<string, Answer[]> = {}) {
   jsdom.reconfigure({ url: `https://${LAB_HOST}${path}` })
   const lab = { ...facility(DEMO_LABORATORY, 'Demo Laboratory', permissions), ...extra } as ReturnType<typeof facility>
   const other = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
-  serve({ [SESSION]: [sessionAt(lab, [lab, other])], [LAB_WORK]: many(() => json({ items: [] })), [REQUESTS]: many(() => json([])) })
+  const sent = serve({ [SESSION]: [sessionAt(lab, [lab, other])], [LAB_WORK]: many(() => json({ items: [] })), [REQUESTS]: many(() => json([])), ...routes })
   await openStaffApp(path)
   await screen.findByRole('navigation', { name: 'Main navigation' })
+  return sent
 }
 
 describe('the browser tab on a product site', () => {
@@ -34,6 +36,9 @@ describe('the browser tab on a product site', () => {
     await openLab('/provider/institutions', ['lab.work-item.read'])
     expect(await screen.findByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
     await waitFor(() => expect(document.title).toBe('Choose workspace · Health ID Lab'))
+    // The page itself names the product too, not the hospital EHR.
+    expect(screen.getByText('Health ID · Lab')).toBeDefined()
+    expect(screen.queryByText('Health ID · Hospital EHR')).toBeNull()
   })
 
   it('names a clinical page with the product, not the EHR', async () => {
@@ -79,5 +84,48 @@ describe('the Facility check on a product site', () => {
     await screen.findByRole('heading', { level: 1, name: homeHeading() })
     expect(where()).toBe('/provider')
     expect(await screen.findAllByRole('heading', { name: 'Facility check' })).toHaveLength(1)
+  })
+
+  it('leaves when another page opens, and its "Done" is not shown again', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    await openLab('/provider', ['lab.work-item.read', 'identity.patient.read'], { selfService: { review: 'reviewed', organizationType: 'laboratory' } } as never)
+    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
+    expect(await screen.findByRole('heading', { name: 'Facility check' })).toBeDefined()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Patients' }))
+    await waitFor(() => expect(where()).toBe('/provider/patients'))
+    expect(screen.queryByRole('heading', { name: 'Facility check' })).toBeNull()
+    // Back on the lab's first page: "Done" was said once, and is not said again.
+    fireEvent.click(screen.getAllByRole('link', { name: 'Health ID Lab home' })[0]!)
+    await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
+    expect(screen.queryByRole('heading', { name: 'Facility check' })).toBeNull()
+  })
+})
+
+describe('switching facility from the account menu on a product site', () => {
+  it('says a refusal in plain words, never the server\'s, and leaves it behind when another page opens', async () => {
+    await openLab('/provider/patients', ['lab.work-item.read', 'identity.patient.read'], {},
+      { [FACILITY]: [() => problem(500, 'INTERNAL_ERROR', 'Upstream identity store timed out (trace 42).')] })
+    switchFacilityTo('Demo Laboratory', 'Demo Hospital')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('That facility couldn’t be opened. Try again, or choose another facility.')
+    expect(alert.textContent).not.toContain('Upstream')
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Choose workspace' }))
+    await waitFor(() => expect(where()).toBe('/provider/institutions'))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('sends one switch at a time, and says the facility is opening', async () => {
+    let answer: (response: Response) => void = () => {}
+    const sent = await openLab('/provider/patients', ['lab.work-item.read', 'identity.patient.read'], {},
+      { [FACILITY]: [() => new Promise<Response>(resolve => { answer = resolve })] })
+    switchFacilityTo('Demo Laboratory', 'Demo Hospital')
+    fireEvent.click(screen.getByRole('button', { name: /^Demo Laboratory/ }))
+    const waiting = screen.getByRole('button', { name: /Demo Hospital/ }) as HTMLButtonElement
+    expect(waiting.disabled).toBe(true)
+    expect(waiting.textContent).toContain('Opening…')
+    fireEvent.click(waiting)
+    await waitFor(() => expect(sent.filter(call => call.route === FACILITY)).toHaveLength(1))
+    answer(problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at the facility.'))
+    expect(await screen.findByRole('alert')).toBeDefined()
   })
 })

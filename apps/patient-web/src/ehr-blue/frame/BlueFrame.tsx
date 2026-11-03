@@ -143,8 +143,12 @@ export function BlueFrame() {
   const [signOutError, setSignOutError] = useState('')
   // Switching facility from the account menu: one step, as Choose workspace's own button (an open patient asks first).
   const [switchError, setSwitchError] = useState('')
+  // The facility being opened: one switch at a time, as Choose workspace's own buttons wait for theirs.
+  const [switching, setSwitching] = useState<string | null>(null)
   const { viewing } = useRoleView()
   useFocusOnPageChange(pageRef, lock !== null)
+  // A refused switch is said where it was tried: another page opened leaves it behind.
+  useEffect(() => setSwitchError(''), [location.pathname])
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
@@ -199,11 +203,14 @@ export function BlueFrame() {
 
   function switchTo(id: string, name: string) {
     // An open patient record closes on a switch: Choose workspace says so before anything changes.
+    if (switching) return
     if (activePatient) { navigate('/provider/institutions'); return }
     setSwitchError('')
+    setSwitching(id)
     selectFacility(id)
       .then(switched => { if (switched) navigate('/provider') })
       .catch((caught: unknown) => setSwitchError(facilityRefusal(caught, name)))
+      .finally(() => setSwitching(null))
   }
 
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
@@ -284,9 +291,9 @@ export function BlueFrame() {
               subtitle: `${roles}${isDemoFacility(facility?.id) ? ' · Demo facility' : ''}`,
               avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-fill text-white"><info.icon className="size-5" /></span>,
               menu: close => <ul className="m-0 list-none p-0">
-                {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) switchTo(f.id, f.name) }}
-                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
+                {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) switchTo(f.id, f.name) }} disabled={switching !== null}
+                  className="flex w-full cursor-pointer disabled:cursor-wait items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === switching ? <span className="text-ink-3">Opening…</span> : null}{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
                 <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li>
               </ul>,
             }}
@@ -316,7 +323,9 @@ export function BlueFrame() {
               <RedirectNotice />
               <ReviewBanner />
               {/* A lab, pharmacy or outreach on its own may land on its own first page and never see Home's card. */}
-              {product !== 'ehr' && facility && match?.page.path !== '' ? <FacilityCheckCard facility={facility} /> : null}
+              {/* Only above its own pages: it leaves when another page opens, and its "Done" is not shown again. */}
+              {product !== 'ehr' && facility && match && (basePath(match.page.path) === info.home || basePath(match.page.path).startsWith(`${info.home}/`))
+                ? <FacilityCheckCard facility={facility} /> : null}
               <BillingBanner />
               {tabs.length > 0 ? (
                 <EhrModuleTabs
