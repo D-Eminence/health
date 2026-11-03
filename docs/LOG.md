@@ -2787,3 +2787,14 @@ Novu only; every page, route, label and note below is behind `usesNovuBackend()`
 - **Public privacy notice** (P4 leftover 4): an application no longer "does not create a staff account"; facility sign-up creates the facility and its administrator's account, and support reviews every new facility.
 - **Registry and boundaries.** Sixteen routes added as `proposed`, Novu only (nine staff, three public, four console); `admin.selfServiceFacilityReview` needs both permissions.
 - **Not verified live.** Component, API and contract tests and both builds; no run against a deployed Identity.
+
+## 2026-11-02: patient pages at phone width, from the preview walkthrough
+
+A walkthrough of the signed-in patient pages in headless Chromium against the mock gateway (`npm run dev:mock` with the patient app), at 320, 360, 390 and 1366px, found no sideways scroll, no UUID, reference, code or permission name on screen, and four layout problems, fixed here. The Support chat launcher over form fields is a separate change.
+
+- **Share, the steps.** "Access" was cut to "Acc…" at 320px (37 of its 42px): the three steps had equal shares. Each step now takes its name's width, the lines between them what is left (7px each at 320px), and the last, with no line after it, no more.
+- **Profile, a section's state.** "Saved 20 Oct 2026, 07:00" kept its width beside "Health information" and left the title 49px at 320px (89 at 360, 119 at 390), on two lines. The state now sits at the end of the title's row where both fit, as on a desktop, and under the title where they do not.
+- **About you, email and phone.** The masked email (122px) had 83px beside Change at 320px and ran under the button. The value now keeps at least 8rem beside its name, and Change goes to a line of its own where both do not fit (320 and 360px); a longer address wraps within its line. Measured with "a•••@example.test" and a 52-character unverified address, with Verify and Change: nothing under a button at 320 to 1366px.
+- **About you, Country** showed "NG". A two-letter code is now shown by its name ("Nigeria", from the browser's region names); anything else as held, since hid-system's `patients.country` is free text (a promoted hid-1.0 account keeps what it had), and so is a code with no name ("ZZ", "XX").
+- **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
+- **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.

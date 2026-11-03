@@ -247,21 +247,24 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
   </KField>
   const row = (label: string, value: ReactNode, actions: ReactNode) => <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
     <dt className="w-16 shrink-0 text-[13px] text-ink-3">{label}</dt>
-    <dd className="m-0 flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-medium text-ink">{value}</dd>
+    {/* At least 8rem beside its name, not an equal share of none: where that and the buttons do not fit on one line, as
+        at 320 and 360px, the buttons go to a line of their own instead of over the value, which a long address left
+        under Change. The value keeps its line beside its name, and a value longer still wraps within it. */}
+    <dd className="m-0 flex min-w-0 flex-[1_1_8rem] flex-wrap items-center gap-2 text-sm font-medium text-ink">{value}</dd>
     {step.kind === 'idle' && <dd className="m-0 flex gap-2">{actions}</dd>}
   </div>
 
   return <div id="contact-details" aria-busy={busy || undefined} className="flex flex-col gap-3">
     <Saved>{notice}</Saved>
     <dl className="m-0 divide-y divide-line">
-      {row('Email', <>{profile.email ? maskEmail(profile.email) : 'None'}
+      {row('Email', <><span className="min-w-0 [overflow-wrap:anywhere]">{profile.email ? maskEmail(profile.email) : 'None'}</span>
         {/* Health ID sends nothing to an address that was never confirmed (one kept from hid-1.0). */}
         {profile.email && profile.emailVerified === false && <Badge size="sm" tone="warn">Not verified</Badge>}</>, <>
         {unverified && <Button id="contact-verify-email" size="sm" variant="soft" disabled={busy}
           onClick={() => open('email', true)}>Verify <ItemName>email address</ItemName></Button>}
         <Button id="contact-change-email" size="sm" disabled={busy}
           onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></Button></>)}
-      {row('Phone', <>{profile.phone ? maskPhone(profile.phone) : 'None'}
+      {row('Phone', <><span className="min-w-0 [overflow-wrap:anywhere]">{profile.phone ? maskPhone(profile.phone) : 'None'}</span>
         {profile.phone && <Badge size="sm" tone={profile.phoneVerified ? 'success' : 'warn'}>{profile.phoneVerified ? 'Verified' : 'Not verified'}</Badge>}</>,
         <Button id="contact-change-phone" size="sm" disabled={busy}
           onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></Button>)}

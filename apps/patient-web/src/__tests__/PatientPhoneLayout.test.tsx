@@ -88,9 +88,12 @@ describe('the email and phone in About you on a phone', () => {
     const email = within(contact).getByText('a•••@example.test')
     expect(classesOf(email)).toEqual(expect.arrayContaining(['min-w-0', '[overflow-wrap:anywhere]']))
     const value = email.closest('dd')!
-    // Its natural width, not an equal share of none (flex-1): the row (flex-wrap) moves Change to a line of its own.
-    expect(classesOf(value)).toContain('flex-auto')
+    // At least 8rem beside "Email", not an equal share of none (flex-1): where that and Change do not fit on one line,
+    // the row (flex-wrap) moves Change to a line of its own. Its natural width instead (flex-auto) left "Phone" alone on
+    // its line at 320px, the number and its badge going under it.
+    expect(classesOf(value)).toContain('flex-[1_1_8rem]')
     expect(classesOf(value)).not.toContain('flex-1')
+    expect(classesOf(value.parentElement)).toContain('flex-wrap')
     const phone = within(contact).getByText('+234 •••• 4567')
     expect(classesOf(phone)).toEqual(expect.arrayContaining(['min-w-0', '[overflow-wrap:anywhere]']))
   })
