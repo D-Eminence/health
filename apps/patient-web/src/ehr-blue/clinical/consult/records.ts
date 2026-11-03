@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { learnDocumentTypesFrom } from '../../../documentTypes'
 import { staffApi, type ClinicalRecord, type DocumentRecord, type NoteRevision, type Page, type RecordKind } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import { FIRST_PAGE, RESTARTED, readPage, useLatest, type Cursors } from './encounters'
+import { plainErrorText } from '@hid/http'
 
 /** Today's notice beside a list: the restart after a cursor EHR no longer accepts (status), or a failed page move (alert). */
 export type ListNotice = { readonly text: string; readonly alert: boolean }
@@ -71,7 +73,7 @@ function blank<T>(scope: string): Shown<T> {
 
 /** Today's failed page move, beside the list. */
 export function pageFailed(caught: unknown): string {
-  return `The page could not be loaded. ${refusalText(caught, '')}`.trim()
+  return `The page could not be loaded. ${plainErrorText(caught, 'Try again.', { audience: 'facility' })}`
 }
 
 function usePagedList<T>(scope: string, enabled: boolean, reader: Reader<T>, fallback: string): RecordList<T> {
@@ -111,7 +113,7 @@ function usePagedList<T>(scope: string, enabled: boolean, reader: Reader<T>, fal
       if (run !== sequence.current) return null
       requested.current = { scope, cursors: before }
       if (mode === 'initial' || mode === 'refresh') {
-        const error = mode === 'initial' ? (caught instanceof Error ? caught.message : fallback) : refusalText(caught, fallback)
+        const error = mode === 'initial' ? (plainErrorText(caught, fallback, { audience: 'facility' })) : refusalText(caught, fallback)
         setState(current => ({ ...(current.scope === scope ? current : blank<T>(scope)), error }))
       } else if (mode === 'page') {
         setState(current => current.scope === scope ? { ...current, notice: { text: pageFailed(caught), alert: true } } : current)
@@ -174,7 +176,8 @@ export function useRecordList(chart: Chart, encounterId: string, kind: RecordKin
 /**
  * The encounter's documents. Today's read (`documents(facility, patient, encounter)`, `.items`) takes no cursor, so
  * what it answers is paged here, 50 to a page, with the same pager; moving between pages reads nothing. When EHR says
- * it holds more than it answered (`nextCursor`), `truncated` says so.
+ * it holds more than it answered (`nextCursor`), `truncated` says so. Each answer also teaches the page whether the
+ * document types are served, as blue Migrate's and today's Documents reads do.
  */
 export function useDocumentList(chart: Chart, encounterId: string, enabled: boolean): RecordList<DocumentRecord> {
   const { facilityId, patientId } = chart
@@ -182,6 +185,8 @@ export function useDocumentList(chart: Chart, encounterId: string, enabled: bool
   const held = useRef<{ scope: string; page: Page<DocumentRecord> } | null>(null)
   const readAll = async () => {
     const page = await staffApi.documents(facilityId, patientId, encounterId)
+    // Its answer says whether the backend serves the document types (`documentTypes: true`, documentTypes.ts).
+    learnDocumentTypesFrom(page)
     held.current = { scope, page }
     return page
   }

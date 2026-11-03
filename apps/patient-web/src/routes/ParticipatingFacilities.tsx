@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
+import { usesNovuBackend } from '../backendContract'
 import { buttonClass } from '../kasuwa/ui'
 import { AuthLayout } from '../AuthLayout'
 import { useDocumentTitle } from '../authSteps'
@@ -10,8 +11,16 @@ import { FacilityList } from './enrollment/FacilityList'
  * person who cannot use the phone linked to their NIN can prove in person that
  * it is theirs, and what to bring. Nothing is sent but the public list read;
  * the registration itself starts on the patient's own phone at /enroll.
+ *
+ * Production's Identity (Novu) has no list of participating facilities: there the page could only say it couldn't
+ * load, with a Try again that never works. An old link to it opens registration instead, which is what the person came
+ * for; nothing is read.
  */
 export function ParticipatingFacilitiesPage() {
+  return usesNovuBackend() ? <Navigate to="/enroll" replace /> : <FacilitiesPage />
+}
+
+function FacilitiesPage() {
   const { api } = useSession()
   useDocumentTitle('Participating facilities · Health ID')
   return <AuthLayout brandTo="/" title="Register at a healthcare facility" titleId="facilities-title"

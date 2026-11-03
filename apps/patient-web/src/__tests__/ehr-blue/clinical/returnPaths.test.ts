@@ -272,11 +272,11 @@ describe('clinicalReturnPath is dark', () => {
     return imported.some(specifier => specifier.startsWith('.') && resolve(dirname(file), specifier) === clinicalModule)
   }
 
-  it('is called by nothing in the app yet, so every page works exactly as today until the sign-in hand-off uses it', () => {
+  it('is called only by the sign-in hand-off (sso/handOff.ts), itself dark until VITE_HID_SSO, so every page works as today until then', () => {
     const files = sources(src)
     expect(files.length).toBeGreaterThan(100)
     const callers = files.filter(file => !file.endsWith(join('clinical', 'returnPaths.ts')) && usesClinicalModule(file))
-    expect(callers.map(file => relative(src, file))).toEqual([])
+    expect(callers.map(file => relative(src, file))).toEqual([join('sso', 'handOff.ts')])
   })
 
   it('would see a caller that imports the clinical module, and not the blue EHR\'s page list of the same name', () => {

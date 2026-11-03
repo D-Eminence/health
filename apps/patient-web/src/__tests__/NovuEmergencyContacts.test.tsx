@@ -232,9 +232,9 @@ describe('sending a code', () => {
 
   it.each([
     ['removed elsewhere (404 EMERGENCY_CONTACT_NOT_FOUND)', [] as EmergencyContact[],
-      () => problem(404, 'EMERGENCY_CONTACT_NOT_FOUND', 'The emergency contact is unavailable'), 'The emergency contact is unavailable'],
+      () => problem(404, 'EMERGENCY_CONTACT_NOT_FOUND', 'The emergency contact is unavailable'), 'This contact was removed. The list below is up to date.'],
     ['verified elsewhere (409 EMERGENCY_CONTACT_ALREADY_VERIFIED)', [verified()],
-      () => problem(409, 'EMERGENCY_CONTACT_ALREADY_VERIFIED', 'This contact is already verified'), 'This contact is already verified'],
+      () => problem(409, 'EMERGENCY_CONTACT_ALREADY_VERIFIED', 'This contact is already verified'), 'This contact is already verified. The list below is up to date.'],
   ])('reads the list again for a contact %s, and closes its code form', async (_label, after, refusal, text) => {
     const backend = on([contact()])
     let sends = 0
@@ -393,7 +393,7 @@ describe('an edit the list no longer matches', () => {
     await press(await screen.findByRole('button', { name: /^Edit/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi O.' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect(shownText(await screen.findByRole('alert'))).toBe('The emergency contact is unavailable')
+    expect(shownText(await screen.findByRole('alert'))).toBe('This contact was removed. The list below is up to date.')
     expect(await screen.findByText('No emergency contacts yet.')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     expect(reads(sent, LIST)).toBe(2)
@@ -477,7 +477,8 @@ describe('a failed read (state D)', () => {
       return json([contact()])
     })
     const retry = await screen.findByRole('button', { name: 'Try again' })
-    expect(screen.getByRole('alert').textContent).toContain('A required platform service is temporarily unavailable.')
+    expect(screen.getByRole('alert').textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(screen.getByRole('alert').textContent).not.toContain('platform service')
     expect(reads(sent, LIST)).toBe(0)
     await press(retry)
     // The card it was on stays while the read runs.
