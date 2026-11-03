@@ -11,6 +11,7 @@ import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
 import { WorkItemDocuments } from '../../../../ehr-blue/departments/parts/WorkItemDocuments'
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_NETWORK, SAID_REFUSED } from '../../../said'
 
 /**
  * "Result documents" on the blue Laboratory request (the owner's rule of 31 Oct, documentTypes.ts), as the redesign lays
@@ -219,9 +220,9 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(api.workItemDocuments).toHaveBeenCalledWith(DEMO_LABORATORY_ID, PATIENT, { kind: 'lab', id: 'work-item-1' })
     const [clean, scanning] = within(documents).getAllByRole('listitem')
     expect(within(clean!).getByText('Lab result')).toBeTruthy()
-    expect(within(clean!).getByText('image/jpeg · 20 KiB · scan: clean')).toBeTruthy()
+    expect(within(clean!).getByText('JPEG image · 20 KB · Checked')).toBeTruthy()
     expect(within(scanning!).getByText('haemoglobin-report.pdf')).toBeTruthy()
-    expect(within(scanning!).getByText('application/pdf · 100 KiB · scan: pending')).toBeTruthy()
+    expect(within(scanning!).getByText('PDF document · 100 KB · Being checked for viruses')).toBeTruthy()
     // "Open file" only once the virus scan is clean.
     expect(within(clean!).getByRole('button', { name: 'Open file' })).toBeTruthy()
     expect(within(scanning!).queryByRole('button', { name: 'Open file' })).toBeNull()
@@ -259,7 +260,8 @@ describe('served, for a member who reads and attaches lab documents', () => {
     backToList()
     api.workItemDocuments.mockRejectedValueOnce(new HidApiError(403, 'Lab document access is not authorized', { code: 'FORBIDDEN' }))
     await openRecord()
-    expect((await within(card()).findByRole('alert')).textContent).toBe('Lab document access is not authorized')
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(window.document.body.textContent).not.toContain('Lab document access is not authorized')
   })
 
   it('reads them once for each request opened, not again when a step reads the work list again under it', async () => {
@@ -321,9 +323,28 @@ describe('served, for a member who reads and attaches lab documents', () => {
     await openRecord()
     const [unknown, initiated] = await within(card()).findAllByRole('listitem')
     expect(unknown!.textContent).not.toMatch(/Lab result|Clinical document|imaging/i)
-    expect(within(initiated!).getByText('image/png · 20 KiB')).toBeTruthy()
+    expect(within(initiated!).getByText('PNG image · 20 KB')).toBeTruthy()
     expect(within(initiated!).getByText(/Upload not completed\. Only the person who started it can finish it: attach the file again\./)).toBeTruthy()
     expect(within(initiated!).queryByRole('button', { name: 'Open file' })).toBeNull()
+  })
+
+  it('says each file’s type, size and check in plain words, never its media type, byte count or scan code', async () => {
+    api.workItemDocuments.mockResolvedValue(page([
+      document({ id: 'd-pdf', fileName: 'report.pdf', mediaType: 'application/pdf', sizeBytes: 1_468_006, scanStatus: 'infected' }),
+      document({ id: 'd-tiff', fileName: 'scan.tif', mediaType: 'image/tiff', sizeBytes: 0, scanStatus: 'failed' }),
+      document({ id: 'd-odd', fileName: 'odd.bin', mediaType: 'application/x-strange', sizeBytes: 'not a size', scanStatus: 'no_scanner_here' }),
+    ]))
+    renderPage()
+    await openRecord()
+    const [pdf, tiff, odd] = await within(card()).findAllByRole('listitem')
+    expect(within(pdf!).getByText('PDF document · 1.4 MB · Blocked: virus found')).toBeTruthy()
+    expect(within(tiff!).getByText('TIFF image · 0 KB · Couldn’t be checked')).toBeTruthy()
+    // A type or check this page does not know is not named: no raw words in their place.
+    expect(within(odd!).getByText('File · Size unavailable')).toBeTruthy()
+    const text = card().textContent ?? ''
+    for (const raw of ['application/', 'image/', 'scan:', 'KiB', '1468006', 'infected', 'no_scanner_here', 'no scanner here']) {
+      expect(text).not.toContain(raw)
+    }
   })
 
   it('opens a clean document from its signed storage link, in a tab of its own', async () => {
@@ -344,6 +365,21 @@ describe('served, for a member who reads and attaches lab documents', () => {
     await within(card()).findByText('full-blood-count.jpg')
     fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
     expect((await within(card()).findByRole('alert')).textContent).toBe('The document could not be opened.')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('says a refused or failed open in plain words, never the backend’s or the browser’s', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    api.documentDownload.mockRejectedValueOnce(new HidApiError(403, 'Download denied: membership m-0001 lacks lab.document.read', { code: 'FORBIDDEN' }))
+    renderPage()
+    await openRecord()
+    await within(card()).findByText('full-blood-count.jpg')
+    fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    api.documentDownload.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
+    await waitFor(() => expect(within(card()).getByRole('alert').textContent).toBe(SAID_NETWORK))
+    expect(window.document.body.textContent).not.toMatch(/Download denied|m-0001|lab\.document\.read|FORBIDDEN|Failed to fetch/)
     expect(open).not.toHaveBeenCalled()
   })
 
@@ -445,13 +481,14 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(within(card()).getByRole('button', { name: 'Attach result document' })).toBeTruthy()
   })
 
-  it('says any other refusal in the backend’s words', async () => {
+  it('says any other refusal in plain words, never the backend’s', async () => {
     api.uploadWorkItemDocument.mockRejectedValue(new HidApiError(413, 'The file is too large', { code: 'DOCUMENT_TOO_LARGE' }))
     renderPage()
     await openRecord()
     choose(jpeg())
     attach()
-    expect((await within(card()).findByRole('alert')).textContent).toBe('The file is too large')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('This file is too large. Choose a smaller file and try again.')
+    expect(window.document.body.textContent).not.toMatch(/The file is too large|DOCUMENT_TOO_LARGE/)
   })
 })
 

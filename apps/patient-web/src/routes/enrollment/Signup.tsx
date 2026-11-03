@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { isHidApiError, retryAfterSeconds } from '@hid/http'
+import { isHidApiError, plainErrorText, retryAfterSeconds } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { SIGNUP_GENDERS, type EnrollmentActivation, type EnrollmentSignupDetails, type SignupGender } from '../../api'
 import { AuthLayout } from '../../AuthLayout'
@@ -54,6 +54,8 @@ export const SIGNUP_PROBLEMS: Record<DetailsField, string> = {
   terms: 'Agree to the Terms of Service and Privacy Policy to create an account.',
 }
 export const PASSWORD_RULE = 'Choose a password of at least 12 characters.'
+/** A password the server refused: the rule again, and a hint that a common password is refused too. */
+const PASSWORD_REFUSED = 'This password can’t be used. Choose a password of at least 12 characters that isn’t easy to guess.'
 /** 409 PATIENT_EMAIL_ALREADY_REGISTERED; shown with a link to sign in. */
 export const EMAIL_TAKEN = 'This email address already has a Health ID account.'
 /** 409 PATIENT_PHONE_ALREADY_REGISTERED. */
@@ -191,11 +193,11 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     setStep('details'); setVerified(false); setChallengeId(null); setMaskedContact(''); setCode(''); resend.reset()
     setFieldErrors(errors); setError(message); setErrorAlert(alert)
   }
-  /** A refusal not about a field of the step: said as an alert, with Identity's own words where it has them. */
+  /** A refusal not about a field of the step: said as an alert, in plain words (never Identity's own text). */
   const sayRefusal = (reason: unknown, fallback: string) => {
     if (registrationClosed(reason)) return sayError(REGISTRATION_CLOSED)
     if (temporarilyUnavailable(reason)) return sayError(STEP_UNAVAILABLE)
-    sayError(isHidApiError(reason) ? reason.message : fallback)
+    sayError(plainErrorText(reason, fallback))
   }
 
   const submitDetails = (event: FormEvent) => {
@@ -226,8 +228,9 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     if (enrollmentEnded(reason)) return backToDetails({}, SIGNUP_ENDED)
     setStep('password')
     if (isHidApiError(reason) && (reason.status === 400 || reason.status === 422)) {
-      setFieldErrors({ password: reason.message }); setError(null); setErrorAlert(true)
-      if (fromField) sayError(reason.message)
+      // The password was refused: the rule it must meet, in the page's own words.
+      setFieldErrors({ password: PASSWORD_REFUSED }); setError(null); setErrorAlert(true)
+      if (fromField) sayError(PASSWORD_REFUSED)
       return
     }
     sayRefusal(reason, 'We could not create your account just now. Try again.')

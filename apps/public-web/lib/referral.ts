@@ -1,5 +1,6 @@
 import type { DemoSubmission } from './commercial-api'
 import { isContactEmail } from './contact-email'
+import { PlainError } from '@hid/http'
 
 /**
  * A facility referral ("Earn with Health ID").
@@ -127,7 +128,7 @@ export function referralMessage(request: ReferralRequest): string {
 export function toReferralSubmission(request: ReferralRequest, sourcePage: string, turnstileToken: string): DemoSubmission {
   const errors = validateReferral(request)
   if (Object.keys(errors).length > 0 || !turnstileToken) {
-    throw new Error('Complete the form and verification before submitting.')
+    throw new PlainError('Complete the form and the security check before sending.')
   }
   return {
     contactName: request.referrerName.trim(),

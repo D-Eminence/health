@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CommerceResult } from './api'
+import { plainErrorText } from '@hid/http'
 
 export type CommerceRead<T> =
   | { status: 'loading'; data: T | null; error: null }
@@ -31,7 +32,7 @@ export function useCommerceRead<T>(key: string | null, loader: (signal: AbortSig
     }, (caught: unknown) => {
       if (controller.signal.aborted) return
       setState(previous => ({ key, read: { status: 'error', data: previous.key === key ? previous.read.data : null,
-        error: caught instanceof Error && caught.message ? caught.message : 'Something went wrong. Try again.' } }))
+        error: plainErrorText(caught, 'We couldn’t load this. Check your connection and try again.', { audience: 'facility' }) } }))
     })
     return () => controller.abort()
   }, [key, round])

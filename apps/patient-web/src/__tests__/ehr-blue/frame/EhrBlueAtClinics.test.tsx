@@ -259,4 +259,18 @@ describe('at a clinic, with the clinic switch on', () => {
     expect(logout?.headers.get('X-HID-Client')).toBe('staff-web')
     expect(sent.filter(call => call.route === SESSION).every(call => call.headers.get('X-HID-Client') === null)).toBe(true)
   })
+
+  it('says a sign-out the server refused in plain words, never the server’s own text or code', async () => {
+    const refused = () => problem(503, 'SESSION_STORE_UNAVAILABLE', 'Redis cluster session-store-2 timed out at /api/v1/auth/logout')
+    serve({ [SESSION]: [sessionAt(riverside(), [riverside()])], [LOGOUT]: [refused, refused, refused, refused] })
+    await openStaffApp('/provider')
+    await expectBlueHome()
+    fireEvent.click(accountButton())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Couldn’t sign out')
+    expect(alert.textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(document.body.textContent).not.toMatch(/Redis|session-store|SESSION_STORE_UNAVAILABLE|\/api\/|503/)
+    expect(where()).toBe('/provider')
+  })
 })
