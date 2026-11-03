@@ -1193,15 +1193,27 @@ describe('testing and results', () => {
       expect(within(card).getByRole('button', { name: 'Release result version' })).toBeTruthy()
     })
 
-    it('tells staff before they enter a result at a two-person lab, only when Lab says so', async () => {
-      api.labExecutions.mockResolvedValue({ items: [execution({ onePersonLab: false })] })
+    /** A sibling test in the same request, already released: Lab carries the switch on its result, as it really sends it. */
+    const sibling = (onePersonLab?: boolean) => execution({ id: 'execution-2', requestedTestId: 'requested-test-2',
+      test: { codeSystem: 'LOINC', code: '789-8', name: 'Red cell count' },
+      result: { ...publishedResult(), id: 'result-2', executionId: 'execution-2', ...(onePersonLab === undefined ? {} : { onePersonLab }) } })
+
+    it('tells staff before they enter a first result at a two-person lab, read from a sibling result', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution(), sibling(false)] })
       await openReceived()
       const form = screen.getByRole('form', { name: 'Enter result: Hemoglobin' })
       expect(within(form).getByText('A second person must check this result after it is saved.')).toBeTruthy()
     })
 
-    it.each([['on', true], ['absent', undefined]])('says nothing of a second person on the enter step when the switch is %s', async (_, onePersonLab) => {
-      api.labExecutions.mockResolvedValue({ items: [execution(onePersonLab === undefined ? {} : { onePersonLab })] })
+    it.each([['on', true], ['absent', undefined]])('says nothing of a second person on the enter step when a sibling result says the switch is %s', async (_, onePersonLab) => {
+      api.labExecutions.mockResolvedValue({ items: [execution(), sibling(onePersonLab)] })
+      await openReceived()
+      const form = screen.getByRole('form', { name: 'Enter result: Hemoglobin' })
+      expect(within(form).queryByText(/second person/)).toBeNull()
+    })
+
+    it('keeps today\'s enter step for a first entry when no result in the request says anything yet', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution()] })
       await openReceived()
       const form = screen.getByRole('form', { name: 'Enter result: Hemoglobin' })
       expect(within(form).queryByText(/second person/)).toBeNull()

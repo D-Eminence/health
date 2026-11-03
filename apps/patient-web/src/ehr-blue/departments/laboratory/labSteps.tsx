@@ -275,8 +275,10 @@ type ResultErrors = Partial<Record<'value' | 'unit' | 'reason', string>>
  * Enter a result, or correct one (a new, unverified version; earlier and released versions are kept). A number needs
  * its unit; the flag follows the reference range until it is chosen by hand. Confirmed against the patient.
  */
-export function ResultForm({ facilityId, subject, routed, onDone, onRefused, execution, result, onCancel }: Omit<StepBase, 'permissions'> & {
+export function ResultForm({ facilityId, subject, routed, onDone, onRefused, execution, result, onCancel, facilityOnePerson }: Omit<StepBase, 'permissions'> & {
   readonly execution: LabExecution; readonly result: LabResult | null; readonly onCancel?: () => void
+  /** The facility's switch as another result in the same record carries it (Lab sends it on results, not executions). */
+  readonly facilityOnePerson?: boolean
 }) {
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   const id = execution.id
@@ -299,7 +301,8 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
   }
   const auto = !chosen && kind === 'numeric' && flagFromRange(value, range) !== null
   // Told before the result is entered (audit rank 22), only when Lab says the facility is two-person; else today's form.
-  const twoPerson = (result?.onePersonLab ?? execution.onePersonLab) === false
+  // A first entry has no result of its own yet, so the switch comes from a sibling result in the same record.
+  const twoPerson = (result?.onePersonLab ?? execution.onePersonLab ?? facilityOnePerson) === false
 
   function check(event: FormEvent) {
     event.preventDefault()
