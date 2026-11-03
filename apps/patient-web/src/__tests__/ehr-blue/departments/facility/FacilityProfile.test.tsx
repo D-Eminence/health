@@ -33,7 +33,7 @@ vi.mock('../../../../staff/api', () => ({
 }))
 
 const NOT_AVAILABLE = 'Not recorded'
-const PERMISSIONS = ['audit.read', 'workforce.manage', 'identity.patient.read', 'reports.unknown', 'something.new']
+const PERMISSIONS = ['audit.read', 'workforce.manage', 'identity.patient.read']
 const HOSPITAL = fakeFacility(PERMISSIONS, { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['org_admin'], code: 'DEMO-HOSP' })
 
 /** A field's value: the dd after the dt that names it. */
