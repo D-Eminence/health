@@ -15,7 +15,7 @@ import { useLabRecord } from './labRecord'
 import { ResultSlip, usePrint, type SlipLine } from './labPrint'
 import { flagLevel, LAB_RESULTS_HIDDEN, revisionText, stampText } from './labText'
 import { ShareResult } from './ShareResult'
-import { ageSex, personOf, releasedAtOf, requestOf, stageOf } from './stage'
+import { ageSex, listSaysStage, personOf, releasedAtOf, requestOf, stageOf } from './stage'
 
 const RESULTS_HREF = '/provider/laboratory/results'
 
@@ -45,6 +45,8 @@ export function Results() {
   const [search, setSearch] = useState('')
   const id = openId(location.pathname)
   const items = (read.value?.items ?? []).filter(item => stageOf(item) === 'done')
+  // Today's work list sends no stage past the sample, so it can't say which results are released: then this list says so, not "none".
+  const listsResults = (read.value?.items ?? []).some(listSaysStage)
   const chosen = id ? read.value?.items.find(item => item.id === id) ?? null : null
   const last = useRef(id)
   useLayoutEffect(() => {
@@ -70,8 +72,9 @@ export function Results() {
       <Input icon={Search} type="search" aria-label="Search results" placeholder="Name, phone, test or number" value={search}
         onChange={event => setSearch(event.target.value)} className="@3xl:max-w-md" />
       <PageState loading={read.loading} error={read.error || null} hasData={read.value !== null} onRetry={() => void read.refresh()} what="results" rows={4}
-        empty={shown.length === 0 ? { icon: FileText, title: search.trim() ? 'Nothing matches' : 'No results released yet',
-          description: search.trim() ? 'Check the spelling.' : 'Results show here once they are checked and released.' } : null}>
+        empty={shown.length === 0 ? { icon: FileText, title: search.trim() ? 'Nothing matches' : listsResults ? 'No results released yet' : 'Results aren’t listed here yet',
+          description: search.trim() ? 'Check the spelling.' : listsResults ? 'Results show here once they are checked and released.'
+            : 'Open a request from the Work list to see its result and give it to the patient.' } : null}>
         <ul aria-label="Released results" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(item => {
             const person = personOf(item)

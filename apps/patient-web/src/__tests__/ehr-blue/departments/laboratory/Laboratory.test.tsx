@@ -415,7 +415,7 @@ describe('the work list', () => {
     expect(within(stages).getAllByRole('button').map(stage => [stage.textContent, stage.getAttribute('aria-pressed')])).toEqual([
       ['Waiting for sample0', 'false'], ['Testing2', 'true'], ['Enter results0', 'false'], ['Check & release0', 'false'], ['Done0', 'false']])
     expect(cardButton('Collected test').textContent).toMatch(/^Receive sample:/)
-    expect(cardButton('Received test').textContent).toMatch(/^Start test:/)
+    expect(cardButton('Received test').textContent).toMatch(/^Continue:/)
     fireEvent.click(within(stages).getByRole('button', { name: /^Waiting for sample/ }))
     expect(where()).toBe(`${WORK_LIST}?stage=collect`)
     expect(screen.getByText('Nothing in Waiting for sample')).toBeTruthy()

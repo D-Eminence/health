@@ -39,6 +39,12 @@ interface LabRequestFields {
   readonly executionStatuses?: readonly LabExecution['status'][]
   readonly resultStatuses?: readonly LabResult['status'][]
   readonly releasedAt?: string | null
+  /**
+   * Lab's own answer to "is there work left on this request" (lab-work-items.service.ts WORK_LIST_QUERY open_work):
+   * false once every test it asks for has a released result that is not marked entered in error. Proposed; today's Lab
+   * computes it to sort the list but does not send it.
+   */
+  readonly openWork?: boolean
 }
 const fields = (item: object) => item as LabRequestFields
 
@@ -54,6 +60,10 @@ export interface StageFacts {
   readonly results: readonly LabResult['status'][]
   /** Lab's own status of the work item, when there is one. */
   readonly status?: string
+  /** Lab's openWork, when it sends it: false means every test has its released result. */
+  readonly open?: boolean
+  /** Whether the tests' statuses were known (read on the record, or sent on the work item): false on today's work list. */
+  readonly testsKnown?: boolean
 }
 
 const FINISHED_WORK: ReadonlySet<string> = new Set(['completed', 'resulted', 'released', 'reported'])
@@ -66,6 +76,7 @@ export function stageFrom(facts: StageFacts): LabStage {
   if (facts.executions.includes('in_progress')) return 'testing'
   if (results.length > 0 && results.every(status => status === 'released')) return 'done'
   if (facts.status && FINISHED_WORK.has(facts.status.toLowerCase())) return 'done'
+  if (facts.open === false) return 'done'
   if (!facts.accessioned) return 'collect'
   if (facts.specimens.some(status => status === 'collected' || status === 'received')) return 'testing'
   return 'collect'
@@ -76,10 +87,18 @@ export function factsOfItem(item: LabWorkItem): StageFacts {
   return {
     accessioned: Boolean(item.accessionId), specimens: item.specimenStatuses ?? [],
     executions: fields(item).executionStatuses ?? [], results: fields(item).resultStatuses ?? [], status: item.status,
+    open: fields(item).openWork, testsKnown: Array.isArray(fields(item).executionStatuses),
   }
 }
 
 export const stageOf = (item: LabWorkItem): LabStage => stageFrom(factsOfItem(item))
+
+/**
+ * Whether the work list says this item's stage past the sample: its tests' or results' statuses, or Lab's openWork
+ * (proposed, POINT_OF_CARE_SPEC §4; today's list sends none of them, so it can't tell which results are released).
+ */
+export const listSaysStage = (item: LabWorkItem): boolean => Array.isArray(fields(item).executionStatuses)
+  || Array.isArray(fields(item).resultStatuses) || typeof fields(item).openWork === 'boolean'
 
 /** An accession's facts, as the record page reads it: its samples and each received sample's tests and results. */
 export function factsOfRecord(accession: LabAccession | null, executions: readonly LabExecution[], status?: string): StageFacts {
@@ -98,7 +117,9 @@ export function nextAction(stage: LabStage, facts: StageFacts, paymentFirst: boo
     case 'testing':
       if (facts.executions.includes('in_progress')) return 'Finish test'
       if (facts.specimens.includes('collected')) return 'Receive sample'
-      return 'Start test'
+      // The work list doesn't say whether a received sample's test has started, finished or has its result: the card
+      // opens the request, which reads them, instead of naming a step that may be done.
+      return facts.testsKnown === false ? 'Continue' : 'Start test'
     case 'enter': return 'Enter results'
     case 'check': return 'Check & release'
     case 'done': return 'Give result'
