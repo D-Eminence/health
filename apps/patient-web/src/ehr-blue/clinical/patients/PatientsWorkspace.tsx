@@ -201,7 +201,7 @@ function PatientList() {
           <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-2">
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." busy={busy}
               unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
-            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and recorded." danger busy={busy}
+            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger busy={busy}
               unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} />
           </ul>
         </div>
