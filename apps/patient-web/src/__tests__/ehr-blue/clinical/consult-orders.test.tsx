@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RELOAD_FAILED } from '../../../ehr-blue/clinical/consult/encounters'
 import { CONNECTED_ORDERS_NOTE, EncounterOrderPages, EncounterOrders, orderPath } from '../../../ehr-blue/clinical/consult/orders'
 import { learnFrom } from '../../../ehr-blue/clinical/consult/orders/orders'
 import { useRecordList } from '../../../ehr-blue/clinical/consult/records'
@@ -2078,5 +2079,175 @@ describe('parity: an order’s status form and its dialog say the warning', () =
     fireEvent.submit(field('Reason for change').closest('form')!)
     const dialog = await screen.findByRole('alertdialog', { name: 'Cancel order?' })
     expect(within(dialog).getByText('Check the details first. This changes the saved record; the change is kept in its history.')).toBeTruthy()
+  })
+})
+
+/**
+ * Classic keeps an order as last read when its read after a change fails, and says the change was saved but the records
+ * could not be reloaded. The order's page keeps that, with "Try again" beside the sentence, as the visit page does.
+ */
+describe('"Try again" beside "The change was saved, but the records could not be reloaded." on an order’s page', () => {
+  const sentence = () => screen.queryAllByRole('alert').find(alert => alert.textContent?.startsWith(RELOAD_FAILED)) ?? null
+  const tryAgain = () => within(sentence()!).getByRole('button', { name: 'Try again' })
+
+  /** Activates the draft prescription while EHR answers no read of it: the page says the change was saved. */
+  async function activateUnread() {
+    await openOrder('pharmacy', RX)
+    const read = api.records.getMockImplementation()!
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    api.records.mockRejectedValue(UNAVAILABLE())
+    submitWith('Reason for change')
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    // EHR now holds it active; the page shows the draft it last read.
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    return read
+  }
+
+  it('is offered only beside that sentence, once, in its alert: never on opening, nor beside another failure', async () => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // Pharmacy did not take it, and the order's read after that failed: the page says only that, in today's words.
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Not eligible', { code: 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE' }))
+    api.records.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', 'Patient collecting today')
+    submitWith('Reason')
+    expect(await screen.findByText('This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy '
+      + 'did not accept it. The list could not be reloaded; refresh it to see the prescription.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // A status change whose read fails: the sentence, with Try again beside it.
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    change('Reason for change', 'Waiting for results')
+    submitWith('Reason for change')
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    expect(sentence()!.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.Try again`)
+    expect(screen.getAllByRole('button', { name: 'Try again' })).toEqual([tryAgain()])
+  })
+
+  it('reads the order again fresh, without an access re-check: it shows its new status, the sentence goes, and focus goes to Actions', async () => {
+    const read = await activateUnread()
+    expect(screen.getByText('Draft')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeTruthy()
+    api.records.mockImplementation(read)
+    const reads = api.records.mock.calls.length
+    const checks = api.lookupPatient.mock.calls.length
+    const button = tryAgain()
+    button.focus()
+    fireEvent.click(button)
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(api.records.mock.calls.slice(reads)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true }]])
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
+    expect(screen.getByText('Active')).toBeTruthy()
+    expect(screen.queryByText('Draft')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Activate' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Put on hold' }).getAttribute('aria-disabled')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // What the change said stays said.
+    expect(screen.getByText('Prescription status updated.')).toBeTruthy()
+    expect(document.activeElement?.textContent).toBe('Actions')
+  })
+
+  it('keeps the sentence, said anew, and the order as last read, when Try again fails too; a later one that succeeds clears it', async () => {
+    const read = await activateUnread()
+    const before = sentence()!.querySelector('p')!
+    const button = tryAgain()
+    button.focus()
+    const reads = api.records.mock.calls.length
+    fireEvent.click(button)
+    await waitFor(() => expect(api.records.mock.calls.length).toBe(reads + 1))
+    await waitFor(() => expect(button.getAttribute('aria-busy')).toBeNull())
+    expect(screen.getAllByRole('alert').filter(alert => alert.textContent?.startsWith(RELOAD_FAILED))).toHaveLength(1)
+    expect(sentence()!.querySelector('p')).not.toBe(before)
+    expect(sentence()!.querySelector('p')!.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.`)
+    expect(tryAgain()).toBe(button)
+    expect(document.activeElement).toBe(button)
+    expect(screen.getByText('Draft')).toBeTruthy()
+    api.records.mockImplementation(read)
+    fireEvent.click(button)
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(screen.getByText('Active')).toBeTruthy()
+  })
+
+  it('says it is busy while it reads, keeping focus, and a second press reads nothing more; no change starts meanwhile', async () => {
+    const read = await activateUnread()
+    const held = deferred<void>()
+    api.records.mockImplementation(async (...args: Parameters<typeof read>) => { await held.promise; return read(...args) })
+    const button = tryAgain()
+    button.focus()
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    expect(document.activeElement).toBe(button)
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true }))
+    const reads = api.records.mock.calls.length
+    fireEvent.click(button)
+    await act(async () => {})
+    expect(api.records.mock.calls.length).toBe(reads)
+    // The sentence stays while it reads, and no change starts from the version shown.
+    expect(sentence()).not.toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(screen.getByRole('button', { name: 'Cancel order' }).getAttribute('aria-disabled')).toBe('true')
+    await act(async () => held.answer())
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(document.activeElement?.textContent).toBe('Actions')
+  })
+
+  it('keeps the outcome of a change made while Try again reads: a later failure of that read does not bring the sentence back', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route() })], { crossFacilityOrders: true })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    change('Reason for change', 'Waiting for the patient')
+    api.records.mockRejectedValue(UNAVAILABLE())
+    submitWith('Reason for change')
+    expect(await screen.findByText('Lab request status updated.')).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    const held = deferred<void>()
+    api.records.mockImplementation(async () => { await held.promise; throw UNAVAILABLE() })
+    fireEvent.click(tryAgain())
+    // Meanwhile a withdrawal is refused: the page says that change's own outcome.
+    routes.withdraw.mockRejectedValue(new Error('Network error'))
+    fireEvent.change(field('Withdraw it from Demo Laboratory'), { target: { value: 'patient_request' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+    expect(await screen.findByText('Network error')).toBeTruthy()
+    expect(sentence()).toBeNull()
+    await act(async () => held.answer())
+    await act(async () => {})
+    expect(sentence()).toBeNull()
+    expect(screen.getByText('Network error')).toBeTruthy()
+  })
+
+  it('after a create whose order could not be read, reads it again and shows it, the create’s outcome still said', async () => {
+    const read = api.records.getMockImplementation()!
+    api.records.mockRejectedValue(UNAVAILABLE())
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const save = await screen.findByRole('button', { name: 'Save draft' })
+    change('Medication', 'Amoxicillin')
+    change('Dose quantity', '500')
+    change('Dose unit', 'mg')
+    change('Frequency', 'Twice daily')
+    change('Instructions', 'After meals')
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(), 'Save prescription')
+    await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.Try again`))
+    expect(screen.getAllByRole('button', { name: 'Try again' })).toEqual([tryAgain()])
+    expect(screen.getByText('Clinical record saved.')).toBeTruthy()
+    api.records.mockImplementation(read)
+    const reads = api.records.mock.calls.length
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(tryAgain())
+    expect(await screen.findByRole('heading', { level: 1, name: 'Amoxicillin' })).toBeTruthy()
+    expect(sentence()).toBeNull()
+    expect(api.records.mock.calls.slice(reads)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true }]])
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
+    expect(screen.getByText('Draft')).toBeTruthy()
+    expect(screen.getByText('Clinical record saved.')).toBeTruthy()
   })
 })
