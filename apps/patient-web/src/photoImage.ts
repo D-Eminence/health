@@ -1,4 +1,5 @@
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from './profileParity'
+import { PlainError } from '@hid/http'
 
 /**
  * The profile photo as the portal sends it (hid-1.0 parity B3, the lead's decisions): whatever JPEG or PNG the patient
@@ -25,7 +26,7 @@ const QUALITIES = [0.86, 0.75, 0.62, 0.5] as const
 export type PhotoType = 'image/jpeg' | 'image/png'
 
 /** Why a chosen picture can't be used, in words the page shows as they are. */
-export class PhotoProblem extends Error {
+export class PhotoProblem extends PlainError {
   constructor(message: string) {
     super(message)
     this.name = 'PhotoProblem'

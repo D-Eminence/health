@@ -157,7 +157,7 @@ describe('access and consent', () => {
     await inChromium(drawer().getByRole('button', { name: 'Deny' }))
     expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(row))
-    expect(row.textContent).toContain('Denied')
+    expect(row.textContent).toContain('You said no')
   })
 
   it('opens the ending of access with focus in its reason, cancels back to End access, and confirms to the heading', async () => {
@@ -296,7 +296,7 @@ describe('pages that load once', () => {
     expect(focused()).toBe(account)
     await act(async () => { answer.resolve(json({})) })
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Sign-out is unavailable right now.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
     await waitFor(() => expect(focused()).toBe(account))
   })
 })

@@ -169,36 +169,38 @@ describe('unified authenticated portal routes', () => {
     open('/profile')
 
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
-    expect(await screen.findByText(/^A provider sign-in is active in this browser\. Signing in here replaces it\./)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(await screen.findByText('Another Health ID account is signed in on this browser. Signing in here signs it out.')).toBeTruthy()
+    // app. is for patients only: nothing sends them to a staff site.
+    expect(screen.queryByRole('link', { name: /provider/i })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/provider/i)
     expect(screen.queryByText(/could not check your session/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(calls.patientSession).toHaveBeenCalledOnce()
     expect(calls.staffSession).not.toHaveBeenCalled()
   })
 
-  it('asks for the provider portal\'s sign-out, with no retry loop, when enrollment is refused for a provider\'s sign-in', async () => {
+  it('asks for the other account\'s sign-out, with no retry loop, when enrollment is refused for a provider\'s sign-in', async () => {
     calls.patientSession.mockResolvedValue({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1', roles: [], permissions: [] } })
     calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
       { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
     open('/enroll')
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.')
-    // The alert is the message: the note's link and button are not inside it.
-    expect(within(alert).queryAllByRole('link')).toEqual([])
-    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(alert.textContent).toBe('Another Health ID account is signed in on this browser. Sign it out where it was used, then press Check again.')
+    // The alert is the message, and app. is for patients only: no link to a staff site.
+    expect(within(screen.getByRole('group', { name: /signed in/ })).queryAllByRole('link')).toEqual([])
+    expect(document.body.textContent).not.toMatch(/provider/i)
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
     expect(screen.queryByText(/could not check for an enrollment/)).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
   })
 
-  it('checks again once the provider portal was signed out elsewhere, as the note asks, and opens the NIN step', async () => {
+  it('checks again once the other account was signed out elsewhere, as the note asks, and opens the NIN step', async () => {
     calls.patientSession.mockResolvedValueOnce({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1', roles: [], permissions: [] } })
     calls.patientEnrollmentCurrent.mockRejectedValueOnce(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
       { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
     open('/enroll')
-    expect((await screen.findByRole('alert')).textContent).toContain('A provider sign-in is active in this browser.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Another Health ID account is signed in on this browser.')
 
     // The provider signs out in another tab; the next checks find no sign-in and no enrollment.
     const check = screen.getByRole('button', { name: 'Check again' })
@@ -207,7 +209,7 @@ describe('unified authenticated portal routes', () => {
 
     const nin = await screen.findByRole('textbox', { name: 'National Identification Number (NIN)' })
     await waitFor(() => expect(document.activeElement).toBe(nin))
-    expect(screen.queryByText(/Sign out of the provider portal/)).toBeNull()
+    expect(screen.queryByText(/Another Health ID account/)).toBeNull()
     expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
     expect(calls.patientSession).toHaveBeenCalledTimes(2)
   })
@@ -250,8 +252,10 @@ describe('unified authenticated portal routes', () => {
     open('/enroll')
 
     expect((await screen.findByRole('alert')).textContent)
-      .toBe('This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.')
-    expect(screen.getByText('If a patient is signed in, Check again opens the patient portal, where you can sign out.')).toBeTruthy()
+      .toBe('This browser is still signed in to Health ID. Sign out before starting a new Health ID.')
+    expect(screen.getByText('If you’re signed in, Check again opens your account, where you can sign out.')).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: /signed in/ })).queryAllByRole('link')).toEqual([])
+    expect(document.body.textContent).not.toMatch(/provider/i)
     // A link to the portal would only reach sign-in: this tab has no patient session to open it with.
     expect(screen.queryByRole('link', { name: 'Go to the patient portal' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
@@ -360,7 +364,7 @@ describe('unified authenticated portal routes', () => {
     open('/provider')
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Could not reach the service.')
+    expect((await screen.findByRole('alert')).textContent).toContain('We couldn’t sign you out. Please try again.')
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider')
   })
 
@@ -416,7 +420,7 @@ describe('unified authenticated portal routes', () => {
     // hid-system #56: the request is committed and active; Lab refused it.
     calls.staffCreateRecord.mockRejectedValue(new HidApiError(409,
       'Lab request 0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved',
-      { code: 'LAB_HANDOFF_REFUSED' }))
+      { code: 'LAB_HANDOFF_REFUSED', detail: 'Lab request 0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved' }))
 
     open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABC234' } })
@@ -429,7 +433,8 @@ describe('unified authenticated portal routes', () => {
     const readsBefore = calls.staffRecords.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
 
-    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/Lab refused it \(LAB_ACCESS_DENIED\)/)
+    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/the laboratory didn’t accept it/)
+    expect(screen.getByText(/^Lab request saved and active in the EHR/).textContent).not.toMatch(/LAB_ACCESS_DENIED|0f2b6d0e/)
     expect(calls.staffRecords.mock.calls.length).toBeGreaterThan(readsBefore)
     expect((screen.getByRole('textbox', { name: 'Test display' }) as HTMLInputElement).value).toBe('')
     expect(document.body.textContent).not.toMatch(/0f2b6d0e/)

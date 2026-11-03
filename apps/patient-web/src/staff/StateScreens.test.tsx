@@ -147,19 +147,20 @@ describe('PEHR-13: every provider state screen has a main landmark and an h1', (
 })
 
 /*
- * The Laboratory's and Paper records' refusals (and Health ID Migrate's, which leads only to Paper records) named the
- * permission they lack. Screens name no permission (the owner's rule), so they say in plain words, as the blue pages do,
- * what the role doesn't include, or for Paper records, that it isn't part of the role; before a facility
- * is chosen there is no role there yet, so they ask for one.
+ * The Laboratory's, Paper records' and Outreach's refusals (and Health ID Migrate's, which leads only to Paper records)
+ * named the permission they lack. Screens name no permission (the owner's rule), so they say in plain words, as the blue
+ * pages do, what the role doesn't include, or for Paper records, that it isn't part of the role, and for Outreach, which no
+ * role holds yet, that it isn't available; before a facility is chosen there is no role there yet, so they ask for one.
  */
-describe('the Laboratory and Paper records refusals name no permission', () => {
-  const PERMISSION_WORDS = /permission|membership|work-item|OCR job read|lab\.work-item\.read|ocr\.job\.read/i
+describe('the Laboratory, Paper records and Outreach refusals name no permission', () => {
+  const PERMISSION_WORDS = /permission|membership|work-item|OCR job read|lab\.work-item\.read|ocr\.job\.read|outreach\./i
   const LAB = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
   const OCR = 'Bringing in paper records isn’t part of your role at this facility.'
   const PAGES = [
     ['/provider/laboratory', 'Laboratory unavailable', LAB],
     ['/provider/ocr', 'Paper records unavailable', OCR],
     ['/provider/migrate', 'Migration workspace unavailable', OCR],
+    ['/provider/outreach', 'Outreach unavailable', 'Outreach isn’t available at your facility yet.'],
   ] as const
 
   it.each(PAGES)('%s, for a role without it, says so plainly', async (path, title, sentence) => {

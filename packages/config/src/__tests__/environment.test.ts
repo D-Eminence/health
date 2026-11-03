@@ -83,3 +83,29 @@ describe('resolveEnvironment', () => {
     expect(Object.isFrozen(resolved)).toBe(true)
   })
 })
+
+/**
+ * Single sign-on on auth. (contract v2): dark by default. Only an explicit 1 (or true) turns the hand-off on; anything
+ * that is not one of the accepted values fails the configuration rather than being read either way.
+ */
+describe('ssoEnabled', () => {
+  it('is off when the setting is unset, empty, 0 or false', () => {
+    expect(resolveEnvironment(env(), PREFIX).ssoEnabled).toBe(false)
+    for (const value of ['', '0', 'false']) expect(resolveEnvironment(env({ VITE_HID_SSO: value }), PREFIX).ssoEnabled).toBe(false)
+  })
+
+  it('is on only for 1 or true', () => {
+    expect(resolveEnvironment(env({ VITE_HID_SSO: '1' }), PREFIX).ssoEnabled).toBe(true)
+    expect(resolveEnvironment(env({ VITE_HID_SSO: 'true' }), PREFIX).ssoEnabled).toBe(true)
+  })
+
+  it.each(['yes', 'on', 'TRUE', ' 1', '1 ', '2', 'enabled'])('refuses %j, failing the whole configuration', value => {
+    expect(() => resolveEnvironment(env({ VITE_HID_SSO: value }), PREFIX)).toThrow(/VITE_HID_SSO must be 1 or 0/)
+  })
+
+  it('reads the setting with the caller’s prefix only', () => {
+    expect(resolveEnvironment(env({ NEXT_PUBLIC_HID_SSO: '1' }), PREFIX).ssoEnabled).toBe(false)
+    expect(resolveEnvironment({ NEXT_PUBLIC_HID_ENVIRONMENT: 'staging', NEXT_PUBLIC_HID_API_BASE_URL: 'https://gateway.staging.example/api',
+      NEXT_PUBLIC_HID_APP_ORIGIN: 'https://patient.staging.example', NEXT_PUBLIC_HID_SSO: '1' }, 'NEXT_PUBLIC_HID_').ssoEnabled).toBe(true)
+  })
+})
