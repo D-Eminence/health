@@ -1,10 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Clock, FlaskConical, Plus, RotateCcw, Search } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Badge, Button, Card, EmptyState, FilterTabs, Input, PageHeader } from '../../../kasuwa/ui'
 import { staffApi, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { selfServiceType } from '../../../staff/staffAccess'
 import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
@@ -14,6 +15,7 @@ import { useLateCorrectionServed } from '../../../lateCorrectionServed'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import type { PaymentSettings } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -37,6 +39,12 @@ export const WORK_HREF = '/provider/laboratory/work'
 const STAGE_PARAM = 'stage'
 
 const isStage = (value: string | null): value is LabStage => value !== null && (STAGES as readonly string[]).includes(value)
+
+/** What each stage says with nothing in it. Lab's list has no day limit (done work stays, newest first), so never "today". */
+const EMPTY_TITLE: Readonly<Record<LabStage, string>> = {
+  collect: 'No one is waiting for a sample', testing: 'No samples being tested', enter: 'No results to enter',
+  check: 'No results to check', done: 'Nothing finished yet',
+}
 
 /** The request open in the address, if any. */
 function openId(pathname: string): string | null {
@@ -177,9 +185,15 @@ export function Laboratory() {
           {/* Busy while the list is read, but never disabled: a disabled button would lose the focus it has. */}
           <Button icon={RotateCcw} aria-busy={list.loading || undefined} aria-disabled={list.loading || undefined}
             onClick={() => { if (!list.loading) void list.refresh() }}>Refresh</Button>
-          {permissions.includes('lab.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new">New request</Button> : null}
+          {/* New request is point of care, which Health ID does not serve yet: offered only where it may answer (commerce/served.ts). */}
+          {permissions.includes('lab.walk-in.create') && pointOfCareOpen(facilityId) ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new">New request</Button> : null}
         </>} />
       <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
+      {/* Lab lists a doctor's request at this facility only to someone holding their own access to that patient (hid-system
+          0086 lab.work_item_allows, a grant per member): said where the lab is part of the facility, not a lab of its own. */}
+      {permissions.includes('identity.patient.read') && selfServiceType(facility) !== 'laboratory' ? <DeptNotice>A doctor’s request shows here
+        once you have access to that patient. <Link to="/provider/patients">Find the patient</Link>, then use their Access PIN or ask them in
+        the Health ID app.</DeptNotice> : null}
       {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
         onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded> : null}
@@ -192,12 +206,12 @@ export function Laboratory() {
 
       <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <FilterTabs<LabStage> label="Stage" value={stage} onChange={pick}
-          options={STAGES.map(value => ({ value, label: STAGE_LABEL[value], count: count(value) }))} />
+          options={STAGES.map(value => ({ value, label: STAGE_LABEL[value], count: list.items ? count(value) : undefined }))} />
         <Input icon={Search} type="search" aria-label="Search the work list" placeholder="Name, phone, test or number" value={search}
           onChange={event => setSearch(event.target.value)} className="@4xl:w-80" />
       </div>
       <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
-        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet today' : `Nothing in ${STAGE_LABEL[stage]}`,
+        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : EMPTY_TITLE[stage],
           description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
         <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}

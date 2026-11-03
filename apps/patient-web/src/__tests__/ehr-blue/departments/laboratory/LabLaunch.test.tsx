@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
 import type { LabAccession, LabExecution, LabResult, LabResultRevision, LabSpecimen, LabWorkItem } from '../../../../staff/api'
 import { forgetReceiving } from '../../../../staff/orderRoutes'
 import { forgetCannotCompleteServed } from '../../../../cannotCompleteServed'
@@ -45,6 +46,9 @@ vi.mock('../../../../staff/api', () => {
 })
 
 const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
+/** A facility that is not one of the demo tenant's (blueFacilities.ts), where point of care is not served. */
+const REAL_LAB = 'f7000000-0000-4000-8000-0000000000aa'
+const problem = (status: number, code: string, message: string) => new HidApiError(status, message, { code })
 const WORK = ['lab.work-item.read']
 const ACCESSION = [...WORK, 'lab.accession.create', 'lab.accession.read']
 const CUSTODY = [...ACCESSION, 'lab.specimen.collect', 'lab.specimen.receive', 'lab.specimen.reject']
@@ -376,5 +380,114 @@ describe('lab launch: results (warn before saving, reasons Lab keeps, correct be
       expect(screen.queryByRole('button', { name: 'Print' })).toBeNull()
       expect(screen.queryByRole('heading', { name: 'Give the result' })).toBeNull()
     })
+  })
+})
+
+describe('lab launch: lists and pages in plain words (loading, empty, access, closed, cap)', () => {
+  it('shows no stage counts while the work list could not be read', async () => {
+    api.labWorkItems.mockRejectedValueOnce(problem(503, 'SERVICE_UNAVAILABLE', 'Unavailable'))
+    renderPage()
+    const alert = await screen.findByRole('alert')
+    // A failed read says nothing of how much is waiting: no stage reads 0.
+    expect(stageTabs()).toEqual([['Waiting for sample', 'true'], ['Testing', 'false'], ['Enter results', 'false'],
+      ['Check & release', 'false'], ['Done', 'false']])
+    expect(screen.queryByText('No one is waiting for a sample')).toBeNull()
+    // Read again, the counts are said.
+    api.labWorkItems.mockResolvedValue({ items: [workItem()] })
+    fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+    await findCard('Haemoglobin')
+    expect(stageTabs().map(([text]) => text)).toEqual(['Waiting for sample1', 'Testing0', 'Enter results0', 'Check & release0', 'Done0'])
+  })
+
+  it('offers New request only where point of care is open', async () => {
+    as([...WORK, 'lab.walk-in.create'], { id: REAL_LAB })
+    api.labWorkItems.mockResolvedValue({ items: [workItem()] })
+    const { unmount } = renderPage()
+    await findCard('Haemoglobin')
+    expect(screen.queryByRole('link', { name: 'New request' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New request' })).toBeNull()
+    unmount()
+    // At the demo laboratory, where it may answer, it stays.
+    as([...WORK, 'lab.walk-in.create'])
+    renderPage()
+    await findCard('Haemoglobin')
+    expect(screen.getByRole('link', { name: 'New request' }).getAttribute('href')).toBe('/provider/laboratory/new')
+  })
+
+  it.each([
+    ['collect', 'No one is waiting for a sample'], ['testing', 'No samples being tested'], ['enter', 'No results to enter'],
+    ['check', 'No results to check'], ['done', 'Nothing finished yet'],
+  ])('says an empty %s stage in plain words, never "today"', async (stage, title) => {
+    renderPage(`${WORK_LIST}?stage=${stage}`)
+    expect(await screen.findByText(title)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/today|Nothing in /)
+  })
+
+  it('on a hospital, says a request shows once you have access to the patient, with Find the patient', async () => {
+    as([...WORK, 'identity.patient.read'], { name: 'Riverside Teaching Hospital (fictional)', roles: ['lab_scientist'] })
+    const { unmount } = renderPage()
+    const note = (await screen.findByText(/^A doctor’s request shows here once you have access to that patient\./)).closest('div') as HTMLElement
+    expect(note.textContent?.replace(/\s+/g, ' ')).toBe('A doctor’s request shows here once you have access to that patient. Find the patient, '
+      + 'then use their Access PIN or ask them in the Health ID app.')
+    expect(within(note).getByRole('link', { name: 'Find the patient' }).getAttribute('href')).toBe('/provider/patients')
+    unmount()
+    // A laboratory of its own (signed itself up) gets no doctor's requests from its own facility: nothing is said.
+    as([...WORK, 'identity.patient.read'], { selfService: { review: 'reviewed', organizationType: 'laboratory' } })
+    renderPage()
+    expect(await screen.findByText('No one is waiting for a sample')).toBeTruthy()
+    expect(screen.queryByText(/A doctor’s request shows here/)).toBeNull()
+  })
+
+  it('says nothing more can be done on a closed order from another facility', async () => {
+    as(CUSTODY)
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['required'],
+      orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'order_changed' }) as LabWorkItem['orderRoute'] })]))
+    api.labAccession.mockResolvedValue(accession([specimen('required')]))
+    renderPage()
+    await openRecord()
+    await waitFor(() => expect(api.labAccession).toHaveBeenCalled())
+    expect(await within(stageCard()).findByText('Nothing more can be done on this order.')).toBeTruthy()
+    expect(within(stageCard()).queryByRole('button', { name: /^(Collect|Reject) sample$/ })).toBeNull()
+  })
+
+  it('shows no stage track while the results can’t be read', async () => {
+    as(PROCESSING)
+    api.labExecutions.mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
+    await openAccession(PROCESSING, accession([specimen('received')]), received())
+    expect(await screen.findByText('You can’t see lab results for this patient right now. They stay hidden until your access is back.')).toBeTruthy()
+    expect(screen.queryByRole('list', { name: 'Progress' })).toBeNull()
+  })
+
+  it('a finished request says nothing of waiting', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    await openAccession(PROCESSING, accession([specimen('received')]), received())
+    await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done'))
+    const record = screen.getByRole('heading', { level: 1, name: 'Haemoglobin' }).closest('[data-layout="column"]') as HTMLElement
+    const request = screen.getByRole('heading', { level: 2, name: 'Request' }).closest('section') as HTMLElement
+    expect(record.textContent).not.toMatch(/waiting \d|waiting just now/i)
+    expect(within(request).queryByText('Waiting')).toBeNull()
+    // The track still names every stage, each done.
+    expect(within(screen.getByRole('list', { name: 'Progress' })).getAllByRole('listitem')).toHaveLength(5)
+  })
+
+  it('a request still in the lab says how long it has waited', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
+    await openAccession(PROCESSING, accession([specimen('received')]), received())
+    await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release'))
+    const request = screen.getByRole('heading', { level: 2, name: 'Request' }).closest('section') as HTMLElement
+    expect(within(request).getByText('Waiting')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Haemoglobin' }).closest('[data-layout="column"]')?.textContent).toMatch(/waiting \d/)
+  })
+
+  it('the lab’s result page says “Normal range:” and claims nothing about the patient’s Health ID', async () => {
+    as([...PROCESSING, 'lab.result.share'])
+    api.labWorkItems.mockResolvedValue({ items: [received()] })
+    api.labAccession.mockResolvedValue(accession([specimen('received')]))
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    renderDept(<Results />, { route: `${RESULTS}/work-item-1` })
+    await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })
+    expect(await screen.findByText(/^Normal range: 12\.0-15\.5/)).toBeTruthy()
+    expect(screen.getByText('A link to this result only.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/on their Health ID/)
   })
 })

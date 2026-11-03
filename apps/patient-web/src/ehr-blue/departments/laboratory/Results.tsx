@@ -137,14 +137,14 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
           {released.map(({ execution, revision }) => <li key={execution.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
             <span className="text-[15px] font-medium text-ink">{execution.test.name}</span>
             <span className="text-[19px]"><Value value={revisionText(revision)} unit={revision.unit} flag={flagLevel(revision.abnormalFlag)} /></span>
-            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range ${revision.referenceRange}` : null,
+            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range: ${revision.referenceRange}` : null,
               revision.releasedAt ? `Released ${stampText(revision.releasedAt)}` : null].filter(Boolean).join(' · ')}</span>
           </li>)}
         </ul> : null}
       </div>
     </Card>
     {canShare && givable ? <Card>
-      <CardHeader as="h2" title="Give the result" description="A link to this result only. The patient also sees it on their Health ID, if they have one." />
+      <CardHeader as="h2" title="Give the result" description="A link to this result only." />
       <div className="flex flex-col gap-4 p-5">
         <div className="flex flex-col gap-2">
           <h3 className="m-0 text-[15px] font-semibold text-ink">To {person.name}</h3>

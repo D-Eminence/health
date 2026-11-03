@@ -139,13 +139,15 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
   const defaultReason = walkIn?.clinicalNote ?? (outside ? `Asked for by ${outside.prescriberName}` : walkIn ? 'Walk-in request' : '')
+  // How long it has waited, only while it waits: a finished request is not waiting.
+  const waited = stage === 'done' ? null : waitedText(item.acceptedAt)
 
   return <FormPage wide back={{ to: backTo, label: 'Back to the work list' }}
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}
-    description={[isUrgent(item.priority) ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
-      .filter(Boolean).join(' · ') || undefined}>
+    description={[isUrgent(item.priority) ? 'Urgent' : null, waited ? `waiting ${waited}` : null].filter(Boolean).join(' · ') || undefined}>
     {personBanner(person)}
-    <StageTrack stage={stage} />
+    {/* With its results hidden the stage can't be told, so no track claims one. */}
+    {record.hidden ? null : <StageTrack stage={stage} />}
     {/* Focusable, so focus can be put on what a refused ending said once its form is gone. */}
     {said && route ? <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice> : null}
     {route ? <DeptEmbedded className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></DeptEmbedded> : null}
@@ -170,6 +172,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {stage === 'collect' && !closed && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
           defaultType={sampleGuess} defaultReason={defaultReason} onRegistered={value => setMade(value)} onListChanged={onListChanged} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
+        {closed && stage !== 'done' ? <p className="m-0 text-[15px] text-ink-2">Nothing more can be done on this order.</p> : null}
         {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. A sample
             still waiting beside one taken keeps its step, since each sample is collected on its own. */}
         {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'required' || specimen.status === 'collected'
@@ -224,7 +227,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         walkIn?.clinicalNote ? ['Clinical note', walkIn.clinicalNote] : null,
         outside ? ['Referred by', [outside.prescriberName, outside.facilityName].filter(Boolean).join(', ')] : null,
         route?.ordererName ? ['Ordered by', route.ordererName + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '')] : null,
-        ['Waiting', waitedText(item.acceptedAt) ?? 'Not known'],
+        stage === 'done' ? null : ['Waiting', waited ?? 'Not known'],
       ]} />
     </Card>
 

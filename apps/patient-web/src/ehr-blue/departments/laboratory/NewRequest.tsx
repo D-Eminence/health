@@ -283,7 +283,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
         </div>
       </div>
     </Card> : null}
-    {finished && created && !basics.healthId ? <OfferHealthId facilityId={facilityId} billId={created.bill.id} name={patient.name} /> : null}
+    {finished && created && !basics.healthId ? <OfferHealthId facilityId={facilityId} billId={created.bill.id} /> : null}
   </FormPage>
 }
 
@@ -583,7 +583,7 @@ function CollectNow({ facilityId, permissions, created, tests, patient, banner, 
  * After the request, never before: a Health ID for someone who has none (the facility registration flow), then the
  * request's bill and its work joined to it (POST bills/:billId/patient).
  */
-function OfferHealthId({ facilityId, billId, name }: { readonly facilityId: string; readonly billId: string; readonly name: string }) {
+function OfferHealthId({ facilityId, billId }: { readonly facilityId: string; readonly billId: string }) {
   const [open, setOpen] = useState(false)
   const [made, setMade] = useState<{ hid: string; name: string; email: string | null } | null>(null)
   const [joined, setJoined] = useState<'yes' | 'off' | string | null>(null)
@@ -599,7 +599,7 @@ function OfferHealthId({ facilityId, billId, name }: { readonly facilityId: stri
         <span aria-hidden="true" className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-ink"><UserPlus className="size-5" /></span>
         <div className="min-w-0">
           <h2 className="m-0 text-title-3 text-ink">Give them a Health ID</h2>
-          <p className="m-0 text-[14px] text-ink-2">Optional. {name}’s results then also show on their Health ID, at any facility.</p>
+          <p className="m-0 text-[14px] text-ink-2">Optional. This request and its results are then kept with their Health ID record.</p>
         </div>
       </div>
       {made ? <>

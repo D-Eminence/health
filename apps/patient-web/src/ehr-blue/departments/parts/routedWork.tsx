@@ -49,14 +49,15 @@ export function RoutedWorkLines({ route }: { readonly route: LabWorkItem['orderR
 }
 
 /**
- * Lab and Pharmacy list at most this many work items, oldest accepted first, and offer no further page. Neither filters
- * by status, so once a facility has this many, a newer one cannot be reached from here.
+ * Lab and Pharmacy list at most this many work items and offer no further page. Both list work still to do first, oldest
+ * accepted first, then finished work, newest first (hid-system lab-work-items.service.ts and pharmacy.service.ts list
+ * queries), so finished work leaves the list first; only once more than this many are still to do does the newest wait.
  */
 export const WORK_LIST_CAP = 200
 
 export function WorkListCap({ count, children }: { readonly count: number; readonly children?: ReactNode }) {
   if (count < WORK_LIST_CAP) return null
-  return <><DeptNotice>This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</DeptNotice>
+  return <><DeptNotice>This list shows at most {WORK_LIST_CAP} requests: work still to do first, oldest first, then finished work, newest first. If more than {WORK_LIST_CAP} are still to do, the newest wait off the list until older ones are finished. Tell your facility administrator if a request is missing.</DeptNotice>
     {children}</>
 }
 
@@ -82,7 +83,7 @@ export function RoutedWorkPaused({ items, crossFacilityWork, receives }: {
 }) {
   const listed = Boolean(items?.some(item => item.orderRoute))
   if (crossFacilityWork !== false || !(receives || listed)) return null
-  return <DeptNotice tone="critical">{listed ? 'Work on orders from other facilities is paused by Health ID.'
+  return <DeptNotice tone="critical">{listed ? 'Work on orders from other facilities is paused by Health ID. You can still read them.'
     : 'Work on orders from other facilities is paused by Health ID: any you accepted are hidden from this list until it resumes. '
       + 'They are not cancelled.'}</DeptNotice>
 }

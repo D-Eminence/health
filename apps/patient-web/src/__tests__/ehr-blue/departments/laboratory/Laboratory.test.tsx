@@ -54,9 +54,9 @@ const CUSTODY = [...ACCESSION, 'lab.specimen.collect', 'lab.specimen.receive', '
 const PROCESSING = [...ACCESSION, 'lab.execution.read', 'lab.execution.start', 'lab.execution.complete', 'lab.result.enter',
   'lab.result.correct', 'lab.result.verify', 'lab.result.release', 'lab.result.released.read']
 const DENIED = 'You can’t see lab results for this patient right now. They stay hidden until your access is back.'
-const CAP = 'This list can show only the 200 oldest accepted work items. Any item accepted after them is not shown and cannot be '
-  + 'reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility '
-  + 'administrator about orders not listed here.'
+const CAP = 'This list shows at most 200 requests: work still to do first, oldest first, then finished work, newest first. If more '
+  + 'than 200 are still to do, the newest wait off the list until older ones are finished. Tell your facility administrator if '
+  + 'a request is missing.'
 
 const problem = (status: number, code: string, message: string) => new HidApiError(status, message, { code })
 
@@ -348,7 +348,7 @@ describe('the work list', () => {
 
   it('says there is no lab work yet, and reads the list again from its Refresh', async () => {
     renderPage()
-    expect(await screen.findByText('Nothing in Waiting for sample')).toBeTruthy()
+    expect(await screen.findByText('No one is waiting for a sample')).toBeTruthy()
     expect(screen.getByText('New requests show here.')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     api.labWorkItems.mockResolvedValue({ items: [workItem()] })
@@ -418,7 +418,7 @@ describe('the work list', () => {
     expect(cardButton('Received test').textContent).toMatch(/^Continue:/)
     fireEvent.click(within(stages).getByRole('button', { name: /^Waiting for sample/ }))
     expect(where()).toBe(`${WORK_LIST}?stage=collect`)
-    expect(screen.getByText('Nothing in Waiting for sample')).toBeTruthy()
+    expect(screen.getByText('No one is waiting for a sample')).toBeTruthy()
   })
 
   it('searches what is listed, and says when nothing matches', async () => {
@@ -1250,7 +1250,7 @@ describe('work from another facility', () => {
   it('says work on orders from other facilities is paused', async () => {
     api.labWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     renderPage()
-    expect(await screen.findByText('Work on orders from other facilities is paused by Health ID.')).toBeTruthy()
+    expect(await screen.findByText('Work on orders from other facilities is paused by Health ID. You can still read them.')).toBeTruthy()
   })
 
   it('shows Incoming at a laboratory that receives orders, and reads it', async () => {
