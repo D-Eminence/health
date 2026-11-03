@@ -2787,3 +2787,48 @@ Novu only; every page, route, label and note below is behind `usesNovuBackend()`
 - **Public privacy notice** (P4 leftover 4): an application no longer "does not create a staff account"; facility sign-up creates the facility and its administrator's account, and support reviews every new facility.
 - **Registry and boundaries.** Sixteen routes added as `proposed`, Novu only (nine staff, three public, four console); `admin.selfServiceFacilityReview` needs both permissions.
 - **Not verified live.** Component, API and contract tests and both builds; no run against a deployed Identity.
+
+## 2026-11-03: Home and the Health ID card made ready for launch
+
+The launch audit's findings for Home, the Health ID and the shared-card pages (`Overview.tsx`, `HealthIdCode.tsx`,
+`SharedCard.tsx`). Tests first (`HomeLaunchReady.test.tsx`, `SharedCard.test.tsx`, `HealthIdCode.test.tsx`), then the
+fixes. Home still promises no lab results, medicines, diagnoses or vitals, and Add a record is not touched here.
+
+- **HCS-04.** When blood group, genotype and allergies can't be read, Home says so under the card with Try again, so
+  the card never reads as if no allergy is recorded. Once they load, focus goes to the card.
+- **HCS-07.** A failed check for access requests is said, with Try again, instead of showing none waiting. A failed
+  read of who viewed or changed the record is said inside Activity, with Try again; Activity shows what did load and
+  never says "nothing here" then.
+- **HCS-08.** The tiles say "Loading" to a screen reader while they load (no bare "…"), and after a failed read show a
+  dash with "Couldn't load" under it.
+- **HCS-09.** Activity and the providers card say they are loading and are marked busy while they read. The column
+  with the tiles is drawn once the requests waiting and what the profile lacks are known, so the tiles no longer move
+  down as late reads arrive (checked in Chromium: drawn once, at one place).
+- **HCS-10.** The patient's own actions read as theirs on Home: "You gave Lagos General Hospital access", "You ended
+  Ikeja Clinic's access".
+- **HCS-18.** The patient's card preview says when the card or the records can't be loaded, with Try again and Back to
+  Access & sharing, instead of "Loading…" for ever (behind the switch below).
+- **HCS-19.** The page a shared link opens says "This link can't be opened", with no "yet", and its one link is the
+  public site, healthidentitydirectory.com (www.staging. on staging), in the same tab. healthid.ng is gone.
+- **HCS-03.** The preview of a provider page that no provider can open is off (`CARD_LINK_OPENS`, false until Health ID
+  sends the one-time code): /card/preview opens Access & sharing. When it is turned on, the preview shows the share
+  just made, passed in the navigation state, and makes up no level or end date.
+- **HCS-20.** Each Try again on Home reads once however fast it is pressed again, and leaves focus on the heading of
+  what loaded, on the card, or on the new Try again when it failed again (`useRetryOnce`, `foundTarget` in
+  `actionFocus.ts`).
+- **HCS-23.** The card's Health ID tells a screen reader that pressing it copies; "Health ID copied." clears after three
+  seconds (the advice to copy by hand stays until the next try).
+- **HCS-24.** Home's empty sections use the shared empty state, with what will appear and the next step ("Show your
+  Health ID card at your next visit").
+- **HCS-28.** An empty profile answer says "We couldn't read your Health ID" with Try again and Email support. Before,
+  an answer with no body stopped the page (`profileSources.ts` now reads it as no profile).
+- **SO-14.** At the end of sign-up the new Health ID stays on one line at 320px, a little smaller, with Copy under it
+  when both do not fit (checked in Chromium at 320, 360, 390 and 1366).
+- **Left for later, in files #107 changes.** HCS-01 (no Documents or Medicines tile where the backend does not serve
+  them) and HCS-27 (the waiting-request notices as notes, not alerts, with "Review the request from …") are ready but
+  change what `OverviewDashboard.test.tsx` asserts; they follow once #107 is on main. In `ShareRecords.tsx`, the done
+  step's "Preview what they see…" link still shows (it now opens Access & sharing) and should go, or pass the share's
+  level and end date, with the card link. In `HealthIdCard.tsx`, the card could also print "Health details
+  unavailable" (HCS-04's optional part), and HCS-05 and HCS-15 wait. In `AccessLog.tsx`, the Access page's own log
+  still reads "You: Got access to your record" (SA-13).
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
