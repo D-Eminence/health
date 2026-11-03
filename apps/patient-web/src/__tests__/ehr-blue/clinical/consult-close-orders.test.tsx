@@ -293,6 +293,41 @@ describe('"Try again" beside "The change was saved, but the records could not be
     expect(orders().getAllByText('Cancelled')).toHaveLength(2)
   })
 
+  it('reads again only the lists whose last read failed: a list read on one try is not read on the next', async () => {
+    const read = await cancelUnread()
+    api.records.mockImplementation(async (...args: Parameters<typeof read>) => {
+      if (args[3] === 'lab-requests') throw UNAVAILABLE()
+      return read(...args)
+    })
+    const labs = readsOf('lab-requests').length
+    fireEvent.click(tryAgain())
+    await waitFor(() => expect(readsOf('lab-requests')).toHaveLength(labs + 1))
+    await waitFor(() => expect(tryAgain().getAttribute('aria-busy')).toBeNull())
+    expect(orders().getByText('Cancelled')).toBeTruthy()
+    api.records.mockImplementation(read)
+    const before = api.records.mock.calls.length
+    fireEvent.click(tryAgain())
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(api.records.mock.calls.slice(before).map(call => call[3])).toEqual(['lab-requests'])
+    expect(orders().getAllByText('Cancelled')).toHaveLength(2)
+  })
+
+  it('says the sentence anew when Try again fails in the same words, so it is announced again, and focus stays on Try again', async () => {
+    await cancelUnread()
+    const said = () => sentence()!.querySelector('p')!
+    const before = said()
+    const button = tryAgain()
+    button.focus()
+    const reads = readsOf('prescriptions').length
+    fireEvent.click(button)
+    await waitFor(() => expect(readsOf('prescriptions')).toHaveLength(reads + 1))
+    await waitFor(() => expect(button.getAttribute('aria-busy')).toBeNull())
+    expect(said()).not.toBe(before)
+    expect(said().textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.`)
+    expect(tryAgain()).toBe(button)
+    expect(document.activeElement).toBe(button)
+  })
+
   it('says it is busy while it reads, keeping focus, and a second press reads nothing more; then focus goes to Actions', async () => {
     const read = await cancelUnread()
     let release!: () => void
