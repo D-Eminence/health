@@ -1,10 +1,11 @@
 # Migrate paper records: routes the website needs (proposal from Session D, 3 Nov 2026)
 
-Status: **proposal**. The website builds against these shapes in the mock gateway (`dev/mock-gateway/paperRecords.mjs`)
+Status: **agreed with Sessions B and C through the coordinator (3 Nov 2026)**; changes from B and C are folded in below. The website builds against these shapes in the mock gateway (`dev/mock-gateway/paperRecords.mjs`)
 until Sessions B and C ship the real routes. Any change agreed with B/C through the coordinator is made here first,
 then in the mock and the website.
 
-Every route is under `/api/v1`, with `X-Facility-ID`. Reads and writes about one patient send
+In every `/ocr/paper-records/:id/...` route, `:id` is the paper's **document id** (Session C), so a paper has an id as soon
+as it is uploaded, before reading starts. Every route is under `/api/v1`, with `X-Facility-ID`. Reads and writes about one patient send
 `X-Purpose-Of-Use: direct-care` (the chart's access) unless marked `healthcare-operations` (records processing, 0104).
 Errors keep today's `{ code, message }` body; the website never shows `message` or `code` to staff, only its own plain
 sentence chosen by `code`. Times are ISO 8601 UTC. IDs are opaque strings and are never shown on screen.
@@ -54,7 +55,7 @@ Same three steps as today's document upload (`sendDocument`), with no `encounter
   "takenBy": { "name": "Nurse Ada Obi" },
   "status": "checking_for_viruses | reading | ready_to_check | published | couldnt_read | withdrawn",
   "checkBy": "2026-11-04T10:14:00Z | null",
-  "failure": "unreadable | virus_found | reading_paused | other | null",
+  "failure": "virus_found | scan_failed | unreadable | access_ended | under_18 | allowance_used_up | check_time_passed | reading_failed | null",
   "canRetry": true,
   "published": { "at": "...", "by": { "name": "..." }, "counts": { "medicine": 3, "diagnosis": 2, "allergy": 1, "note": 1, "lab_result": 0, "vital": 0 } } ,
   "version": 4
@@ -87,6 +88,10 @@ Same three steps as today's document upload (`sendDocument`), with no `encounter
     "box": { "page": 1, "x": 0.12, "y": 0.41, "w": 0.6, "h": 0.05 },
     "confidence": "clear | check_carefully",
     "checkReason": "handwriting | low_confidence | flagged_page | null",
+    "checkReasons": ["handwriting"],
+    "lineIds": ["opaque"],
+    "page": 1,
+    "readBy": "first_pass | re_read",
     "fields": { "kind-specific values, see section 6" },
     "prescription": { "prescriberAsWritten": "Dr Bello", "dateAsWritten": "2 Oct 2026" }
   }],
@@ -105,6 +110,17 @@ Same three steps as today's document upload (`sendDocument`), with no `encounter
 
 `added` items: `{ clientId, kind, box, fields }` (staff tapped where it is on the page and picked values).
 
+`POST /ocr/paper-records/:id/identity` body `{ expectedVersion, answer: "this_patient | wrong_patient", confirmedWithPatient }`
+→ `200 { version }`. The "Is this {name}'s paper?" step. `confirmedWithPatient` is required for a paper with only a
+folder number (stronger warning; who confirmed is recorded). `identity.match` is worked out by the server (Session C);
+the website only shows it. `wrong_patient` stops the paper.
+
+`POST /ocr/paper-records/:id/validate` body `{ expectedDraftVersion }` → `200 { ok, undecided: ["<itemId>"], problems: [{ itemId, code }] }`.
+Checks the whole set of decisions without publishing, to show what is left before Publish.
+
+Checking and publishing need `ocr.job.read`, `ocr.job.write`, `ocr.patient.confirm`, `ocr.validation.write` and
+`ocr.publication.write`.
+
 ## 5. Publish (Session C)
 
 `POST /ocr/paper-records/:id/publish` header `Idempotency-Key`, body `{ expectedDraftVersion }` → `200`
@@ -122,9 +138,9 @@ the server holds the per-item key).
 
 | kind | fields |
 | --- | --- |
-| medicine | `name`, `code?`, `strength?`, `dose?`, `frequency?` (`once_daily, twice_daily, three_times_daily, four_times_daily, as_needed, other`), `duration?`, `status` (`still_taking, finished, stopped, not_known`), `writtenAsPrescription` |
-| diagnosis | `name`, `code?`, `certainty` (`confirmed, possible, ruled_out`) |
-| allergy | `substance`, `reaction?`, `severity?` (`mild, moderate, severe, not_known`) |
+| medicine | `name`, `code?`, `strength?`, `dose?`, `frequency?` (`once_daily, twice_daily, three_times_daily, four_times_daily, as_needed, other`), `duration?`, `status` (`taking, finished, stopped, unknown`), `writtenAsPrescription` |
+| diagnosis | `name`, `code?`, `status` (`confirmed, possible, ruled_out`) |
+| allergy | `substance`, `reaction?`, `severity` (`mild, moderate, severe, unknown`) |
 | note | `text` |
 | lab_result | `test`, `code?`, `value`, `unit?`, `flag?` |
 | vital | `type` (`blood_pressure, temperature, pulse, weight, height, oxygen`), `value`, `unit` |
@@ -137,12 +153,15 @@ the server holds the per-item key).
 { "id": "opaque", "kind": "medicine", "plain": "Amoxicillin 500 mg, three times a day", "dateAsWritten": "2/10/26",
   "paperRecordId": "opaque", "publishedAt": "...", "publishedBy": { "name": "Nurse Ada Obi" },
   "prescription": { "prescriberAsWritten": "Dr Bello", "dateAsWritten": "2 Oct 2026" } ,
-  "enteredInError": { "at": "...", "by": { "name": "..." }, "reason": "wrong_item | wrong_patient | listed_twice | other" } ,
+  "enteredInError": { "at": "...", "by": { "name": "..." }, "reason": "wrong_value | wrong_patient | not_on_paper | duplicate | other" } ,
   "version": 1 }
 ```
 
-- `POST /ehr/paper-record-items/:id/entered-in-error` body `{ expectedVersion, reason }` (permission
-  `ehr.import.correct`, doctors and clinicians only).
+- Reading the chart group needs `ehr.paper_records.read` (doctor, clinician, nurse). Lab results and vitals from paper
+  sit here too, as imported values, not in the lab's own tables: one chart read and one way to correct them.
+- `POST /ehr/paper-record-items/:id/entered-in-error` body `{ expectedVersion, reason }` (reason
+  `wrong_value | wrong_patient | not_on_paper | duplicate | other`; permission `ehr.paper_records.correct`, doctors and
+  clinicians only).
 - `POST /ocr/paper-records/:id/withdraw` body `{ expectedVersion, reason: "wrong_patient" }` (same permission; tells
   the facility; nothing deleted).
 - "Prescribe from this scan" needs no new route: the website opens the usual prescription form filled from the item
