@@ -221,9 +221,9 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(api.workItemDocuments).toHaveBeenCalledWith(DEMO_LABORATORY_ID, PATIENT, { kind: 'lab', id: 'work-item-1' })
     const [clean, scanning] = within(documents).getAllByRole('listitem')
     expect(within(clean!).getByText('Lab result')).toBeTruthy()
-    expect(within(clean!).getByText('image/jpeg · 20 KiB · scan: clean')).toBeTruthy()
+    expect(within(clean!).getByText('JPEG image · 20 KB · Checked')).toBeTruthy()
     expect(within(scanning!).getByText('haemoglobin-report.pdf')).toBeTruthy()
-    expect(within(scanning!).getByText('application/pdf · 100 KiB · scan: pending')).toBeTruthy()
+    expect(within(scanning!).getByText('PDF document · 100 KB · Being checked for viruses')).toBeTruthy()
     // "Open file" only once the virus scan is clean.
     expect(within(clean!).getByRole('button', { name: 'Open file' })).toBeTruthy()
     expect(within(scanning!).queryByRole('button', { name: 'Open file' })).toBeNull()
@@ -324,9 +324,28 @@ describe('served, for a member who reads and attaches lab documents', () => {
     await openRecord()
     const [unknown, initiated] = await within(card()).findAllByRole('listitem')
     expect(unknown!.textContent).not.toMatch(/Lab result|Clinical document|imaging/i)
-    expect(within(initiated!).getByText('image/png · 20 KiB')).toBeTruthy()
+    expect(within(initiated!).getByText('PNG image · 20 KB')).toBeTruthy()
     expect(within(initiated!).getByText(/Upload not completed\. Only the person who started it can finish it: attach the file again\./)).toBeTruthy()
     expect(within(initiated!).queryByRole('button', { name: 'Open file' })).toBeNull()
+  })
+
+  it('says each file’s type, size and check in plain words, never its media type, byte count or scan code', async () => {
+    api.workItemDocuments.mockResolvedValue(page([
+      document({ id: 'd-pdf', fileName: 'report.pdf', mediaType: 'application/pdf', sizeBytes: 1_468_006, scanStatus: 'infected' }),
+      document({ id: 'd-tiff', fileName: 'scan.tif', mediaType: 'image/tiff', sizeBytes: 0, scanStatus: 'failed' }),
+      document({ id: 'd-odd', fileName: 'odd.bin', mediaType: 'application/x-strange', sizeBytes: 'not a size', scanStatus: 'no_scanner_here' }),
+    ]))
+    renderPage()
+    await openRecord()
+    const [pdf, tiff, odd] = await within(card()).findAllByRole('listitem')
+    expect(within(pdf!).getByText('PDF document · 1.4 MB · Blocked: virus found')).toBeTruthy()
+    expect(within(tiff!).getByText('TIFF image · 0 KB · Couldn’t be checked')).toBeTruthy()
+    // A type or check this page does not know is not named: no raw words in their place.
+    expect(within(odd!).getByText('File · Size unavailable')).toBeTruthy()
+    const text = card().textContent ?? ''
+    for (const raw of ['application/', 'image/', 'scan:', 'KiB', '1468006', 'infected', 'no_scanner_here', 'no scanner here']) {
+      expect(text).not.toContain(raw)
+    }
   })
 
   it('opens a clean document from its signed storage link, in a tab of its own', async () => {

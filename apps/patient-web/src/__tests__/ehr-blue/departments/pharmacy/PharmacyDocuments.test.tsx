@@ -143,7 +143,7 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
     expect(api.workItemDocuments).toHaveBeenCalledTimes(1)
     expect(api.workItemDocuments).toHaveBeenCalledWith(DEMO_PHARMACY_ID, PATIENT_A, { kind: 'pharmacy', id: accepted.id })
     expect(within(documents).getByText('Prescription sheet')).toBeTruthy()
-    expect(within(documents).getByText('image/png · 40 KiB · scan: clean')).toBeTruthy()
+    expect(within(documents).getByText('PNG image · 40 KB · Checked')).toBeTruthy()
     expect(within(documents).getByRole('button', { name: 'Open file' })).toBeTruthy()
     // A supporting card with its own h2, in the record's side column, after the Prescription card.
     expect(screen.getByRole('heading', { level: 2, name: 'Prescription sheets' })).toBeTruthy()
@@ -168,7 +168,7 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
   it('offers no Open file until the virus scan is clean, and says when there are none', async () => {
     api.workItemDocuments.mockResolvedValueOnce(page([sheet({ scanStatus: 'pending' })]))
     await openRecord()
-    expect(await within(card()).findByText('image/png · 40 KiB · scan: pending')).toBeTruthy()
+    expect(await within(card()).findByText('PNG image · 40 KB · Being checked for viruses')).toBeTruthy()
     expect(within(card()).queryByRole('button', { name: 'Open file' })).toBeNull()
     backToList()
     api.workItemDocuments.mockResolvedValueOnce(page([]))
