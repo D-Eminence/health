@@ -19,7 +19,7 @@ const TABS: readonly NavItem[] = [
 
 function Where() {
   const { pathname, search, hash } = useLocation()
-  return <output data-testid="where">{`${pathname}${search}${hash}`}</output>
+  return <span data-testid="where">{`${pathname}${search}${hash}`}</span>
 }
 
 function Page({ title }: { title: string }) {
@@ -116,37 +116,38 @@ describe('the account menu (⋯) and the switcher', () => {
 })
 
 describe('signing out from the account menu', () => {
-  function SlowSignOut() {
+  function SlowSignOut({ onSignOut = () => undefined }: { onSignOut?: () => void }) {
     const [signingOut, setSigningOut] = useState(false)
-    return <MemoryRouter><Shell signingOut={signingOut} onSignOut={() => setSigningOut(true)} /></MemoryRouter>
+    return <MemoryRouter><Shell signingOut={signingOut} onSignOut={() => { onSignOut(); setSigningOut(true) }} /></MemoryRouter>
   }
 
-  it('keeps the menu open, says it is signing out, and keeps focus on the busy button', () => {
+  it('closes the menu onto ⋯, which shows the sign-out is under way, and says so once', () => {
     render(<SlowSignOut />)
     fireEvent.click(account())
     const signOut = screen.getByRole('button', { name: 'Sign out' })
     signOut.focus()
     fireEvent.click(signOut)
-    const busy = screen.getByRole('button', { name: 'Signing out…' })
-    expect(busy.getAttribute('aria-busy')).toBe('true')
-    expect(document.activeElement).toBe(busy)
+    // Focus stays where the person was, on ⋯, which is busy; the row beside it says what is happening.
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
+    expect(document.activeElement).toBe(account())
+    expect(account().getAttribute('aria-busy')).toBe('true')
+    expect(account().parentElement?.textContent).toContain('Signing out…')
     expect(screen.getByRole('status').textContent).toBe('Signing out…')
   })
 
-  it('sends one sign-out however often the busy button is pressed', () => {
+  it('sends one sign-out however often Sign out is pressed meanwhile', () => {
     let calls = 0
-    function Counting() {
-      const [signingOut, setSigningOut] = useState(false)
-      return <MemoryRouter><Shell signingOut={signingOut} onSignOut={() => { calls += 1; setSigningOut(true) }} /></MemoryRouter>
-    }
-    render(<Counting />)
+    render(<SlowSignOut onSignOut={() => { calls += 1 }} />)
     fireEvent.click(account())
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Signing out…' }))
+    fireEvent.click(account())
+    const again = screen.getByRole('button', { name: 'Signing out…' }) as HTMLButtonElement
+    expect(again.disabled).toBe(true)
+    fireEvent.click(again)
     expect(calls).toBe(1)
   })
 
-  it('closes the menu and gives focus back to ⋯ when signing out ends without leaving (it failed)', () => {
+  it('keeps focus on ⋯ and stops showing progress when signing out ends without leaving (it failed)', async () => {
     function Failing() {
       const [signingOut, setSigningOut] = useState(false)
       return <MemoryRouter><Shell signingOut={signingOut} onSignOut={() => { setSigningOut(true); setTimeout(() => setSigningOut(false), 0) }} /></MemoryRouter>
@@ -154,10 +155,10 @@ describe('signing out from the account menu', () => {
     render(<Failing />)
     fireEvent.click(account())
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
-    return act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) }).then(() => {
-      expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
-      expect(document.activeElement).toBe(account())
-    })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
+    expect(document.activeElement).toBe(account())
+    expect(account().getAttribute('aria-busy')).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('')
   })
 })
 
