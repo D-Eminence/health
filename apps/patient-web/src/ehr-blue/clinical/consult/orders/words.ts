@@ -78,7 +78,7 @@ export function labDraftWarning(sendingElsewhere: boolean, canSendToLab: boolean
 
 const LAB_REFUSALS: ReadonlySet<number> = new Set([400, 403, 409])
 
-/** Clinical.tsx `handoffNames`: the saved request and Lab's code a 409 LAB_HANDOFF_REFUSED names (never shown). */
+/** Clinical.tsx `handoffNames`: the saved request and Lab's code a 409 LAB_HANDOFF_REFUSED's detail names (never shown). */
 export function handoffNames(message: string) {
   const named = /Lab request ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) is saved and active in the EHR, but Lab refused it \(([A-Z][A-Z0-9_]{0,63})\)/i.exec(message)
   return { requestId: named?.[1], code: named?.[2] }
@@ -141,7 +141,7 @@ export function labSendRefusal(caught: unknown): LabSendRefusal {
   if (caught.status === 502 || caught.code === 'LAB_HANDOFF_UNCONFIRMED') return { retry: true,
     text: 'Lab did not confirm that it accepted this request, so the Laboratory may not have it: send again.' }
   if (caught.status === 0 || caught.status === 408 || caught.status >= 500) return { retry: true,
-    text: `${refusalText(caught, 'The service did not answer.')} The request may not have reached Lab: send it again.` }
+    text: 'We couldn’t reach the laboratory, so the request may not have been sent. Send it again.' }
   if (caught.status === 404) return { reload: true, sendable: false,
     text: 'The EHR did not find this lab request to send, or cannot send a saved request to Lab. Contact the laboratory if the test is still needed.' }
   if (caught.status === 401) return { text: refusalText(caught, 'Sign in again to send this request to Lab.') }
@@ -169,8 +169,8 @@ export function prescriptionChanged(caught: unknown): string | null {
 export function releasedResultsRefusal(caught: unknown): string {
   if (!isHidApiError(caught)) return refusalText(caught, 'Released results could not be loaded.')
   if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
-    ? 'Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'
-    : 'Released results are not available from this Lab service.'
+    ? 'The laboratory hasn’t accepted this request here yet, or your access to this patient doesn’t cover it.'
+    : 'This laboratory doesn’t share results here yet.'
   if (caught.status === 403) return 'You can’t see this request’s lab results here.'
   return refusalText(caught, 'Released results could not be loaded.')
 }

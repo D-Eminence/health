@@ -504,6 +504,6 @@ it('opens nothing when the workspace cannot take the session verify answered wit
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify' })) })
 
   await stepShown('Welcome back.')
-  expect(await alertText()).toBe('A staff account is required for this portal.')
+  expect(await alertText()).toBe('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
   expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
 })

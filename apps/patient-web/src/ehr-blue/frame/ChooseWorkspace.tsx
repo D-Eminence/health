@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
 import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
@@ -23,8 +23,8 @@ const WHY: Record<WorkspaceQuestion, string> = {
 /** A choice Identity refused, in words the person can act on (today's facilityRefusal). */
 export function facilityRefusal(caught: unknown, facility: string): string {
   if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
-  // Never the server's own words: anything else is said plainly.
-  return 'That facility couldn’t be opened. Try again, or choose another facility.'
+  // Never the server's own words: the shared helper says anything else plainly.
+  return plainErrorText(caught, 'That facility couldn’t be opened. Try again, or choose another facility.', { audience: 'facility' })
 }
 
 /**
@@ -67,7 +67,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   async function leave() {
     setSignOutError('')
     try { await signOut() }
-    catch (caught) { setSignOutError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    catch (caught) { setSignOutError(plainErrorText(caught, PLAIN.signOutFailed)) }
   }
 
   return (

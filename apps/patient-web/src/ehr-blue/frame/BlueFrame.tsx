@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Navigate, Route, Routes, UNSAFE_RouteContext, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
-import { Activity, Check, ExternalLink, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
+import { Activity, ArrowLeft, Check, ExternalLink, Hospital, House, Search, ShieldCheck, ShieldX, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
+import type { StaffSession } from '../../staff/api'
 import { FacilityCheckCard, ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { roleNames, selfServiceReview } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
+import { otherStaffSites, ownProductPage, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
+import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, opensInProduct, productHere, productLists, type Product } from './product'
-import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
+import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
+import { productUsable } from './pageAccess'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { facilityRefusal } from './ChooseWorkspace'
@@ -27,6 +30,7 @@ import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
+import { PLAIN, plainErrorText } from '@hid/http'
 
 /**
  * The design's Clinical group holds 17 pages: too many to scan (Hick's Law, Miller's 7 ± 2). The sidebar splits it
@@ -86,30 +90,90 @@ export function navigationGroups(pages: readonly EhrBluePage[], product: Product
  * The sidebar's links to the other Health ID sites that serve live pages this session may open (productSites.ts): each
  * product is on its own site, and only another product's own pages are served elsewhere. A product site keeps the
  * hospital EHR's pages and opens its own Home in their place, so it never links to the EHR site. Sample pages are the
- * hospital EHR's design, not a reason to link anywhere. None on a host that is not a Health ID site, which serves every
- * page.
+ * hospital EHR's design, not a reason to link anywhere. `pages` are the pages this session can use (pageUsable), not
+ * every address it may open: Pharmacy's own address opens for everyone and only sends on to its pages, so it is no
+ * reason to link to the Pharmacy's site for a role that may open none of them. None on a host that is not a Health ID
+ * site, which serves every page. With single sign-on on, each link says which site and page it leaves (siteSwitch.ts
+ * switchHref: `backPath`, when it passes the check); off, it is today's siteHref. The only link from a product site to
+ * the EHR site is Demo Hospital's "Open Hospital EHR" button below (FacilityOnAnotherSite): the owner's one named
+ * exception, demo only (2 Nov 2026, productSites.ts). This group never adds one.
  */
-export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null {
-  const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf))
+export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string | null = null): NavGroup | null {
+  const hostname = window.location.hostname
+  const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
   return sites.length === 0 ? null : {
     title: 'Other Health ID sites',
     collapsible: true,
     defaultOpen: true,
-    items: sites.map(site => ({ to: siteHref(site), label: SITE_NAMES[site.key], icon: ExternalLink, external: true })),
+    items: sites.map(site => ({ to: switchHref(site, hostname, backPath), label: SITE_NAMES[site.key], icon: ExternalLink, external: true })),
   }
 }
 
 /**
- * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
- * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility.
+ * Of the other sites the sidebar links to, those whose product this session may use at its facility (pageAccess.ts
+ * productUsable): a site listed only for a page that asks for nothing (the pharmacy's menu) is left out.
  */
-function FacilityOnAnotherSite({ facility, site, choosing }: { facility: string; site: Site; choosing: boolean }) {
+function usableSites(pages: readonly EhrBluePage[], session: StaffSession, hostname: string, backPath: string | null): UsableSite[] {
+  return otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
+    .filter(site => productUsable(BLUE_PAGES, session, site.hostname))
+    .map(site => ({ key: site.key, name: SITE_NAMES[site.key], href: switchHref(site, hostname, backPath) }))
+}
+
+/**
+ * The page a link to another site says this one is: the blue page's own address, without anything below it (a record's
+ * id stays here), else the address itself. siteSwitch.ts checks it again before any link carries it.
+ */
+function switchBackPath(pathname: string, page: EhrBluePage | null): string {
+  return page ? pageHrefOf(page) : pathname
+}
+
+/**
+ * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
+ * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility. With single sign-on on,
+ * that site signs them in through the sign-in site they already used, so the page no longer warns of a second sign-in.
+ * For Demo Hospital on the Lab or Migrate site its button is "Open Hospital EHR": the owner's one named cross-site
+ * exception, demo only (2 Nov 2026, productSites.ts). Real facilities never reach this page (demoFacilitySite is null
+ * for them).
+ */
+function FacilityOnAnotherSite({ facility, site, href, choosing }: { facility: string; site: Site; href: string; choosing: boolean }) {
+  const where = switchingOn() ? `${facility} is on ${SITE_PRODUCT_NAMES[site.key]}.`
+    : `${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately.`
   return <EmptyState titleAs="h1" icon={ExternalLink} title={`${facility} works on ${SITE_NAMES[site.key]}`}
-    description={`${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately.${choosing ? ' To work at another facility here, choose it.' : ''}`}
+    description={`${where}${choosing ? ' To work at another facility here, choose it.' : ''}`}
     action={<div className="flex flex-wrap justify-center gap-2">
-      <Button href={siteHref(site)} variant="primary">Open {SITE_NAMES[site.key]}</Button>
+      <Button href={href} variant="primary">Open {SITE_NAMES[site.key]}</Button>
       {choosing ? <Button to="/provider/institutions">Choose workspace</Button> : null}
     </div>} />
+}
+
+/** "Back to <site>" after a switch (siteSwitch.ts): the page left, on that site's own hostname. */
+function SwitchBackLink({ arrival }: { arrival: SwitchArrival }) {
+  return <a href={arrival.href} className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-brand-ink no-underline hover:underline">
+    <ArrowLeft className="size-4 shrink-0" aria-hidden /><span className="truncate">Back to {arrival.name}</span></a>
+}
+
+/** Another staff site this session may use, as a link to it (siteSwitch.ts switchHref). */
+interface UsableSite { readonly key: Site['key']; readonly name: string; readonly href: string }
+
+/**
+ * Signed in, at a facility whose roles give this person nothing of this site's product (pageAccess.ts productUsable):
+ * the page says so, and offers the way back to the site they came from, never a sign-in. Without one in memory (an
+ * address typed, the sign-in hand-off's round trip, which leaves the page, or an arrival from the EHR site, which a
+ * product's site never links back to), it offers the other staff sites whose product the same roles do open (a
+ * product's site never links to the EHR site, #113), or none. The pages every staff site serves (staff, audit,
+ * subscription) still open from the sidebar where the roles allow them.
+ */
+function ProductNotForAccount({ product, facility, arrival, usable, choosing }: {
+  product: string; facility: string; arrival: SwitchArrival | null; usable: readonly UsableSite[]; choosing: boolean
+}) {
+  const onward = arrival ? [] : usable
+  return <EmptyState titleAs="h1" icon={ShieldX} title={`Your account can't use ${product} at this facility.`}
+    description={`You are signed in, but your role at ${facility} does not include ${product}. An administrator at ${facility} can give you access.${choosing ? ' To work at another facility, choose it.' : ''}`}
+    action={arrival || onward.length > 0 || choosing ? <div className="flex flex-wrap justify-center gap-2">
+      {arrival ? <Button href={arrival.href} variant="primary">Back to {arrival.name}</Button> : null}
+      {onward.map((site, index) => <Button key={site.key} href={site.href} variant={index === 0 ? 'primary' : undefined}>Open {site.name}</Button>)}
+      {choosing ? <Button to="/provider/institutions">Choose workspace</Button> : null}
+    </div> : undefined} />
 }
 
 /**
@@ -175,7 +239,14 @@ export function BlueFrame() {
   // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
   // opens, so none of them leads to a page the frame sends to the product's Home (below).
   const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
-  const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
+  // With single sign-on on, a staff site whose product this session may not use at its facility says so on the
+  // product's own pages and Home, in place of each page's refusal (siteSwitch.ts, pageAccess.ts productUsable).
+  const hostname = window.location.hostname
+  const here = siteOf(hostname)
+  const cannotUse = switchingOn() && session !== null && here !== null
+    && (/^\/provider\/?$/.test(location.pathname) || ownProductPage(location.pathname, hostname))
+    && !productUsable(BLUE_PAGES, session, hostname)
+  const shownTitle = cannotUse ? 'No access' : match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
     if (lock === null && session) document.title = `${shownTitle} · Health ID ${info.name}`
@@ -197,7 +268,7 @@ export function BlueFrame() {
     setSignOutError('')
     setSigningOut(true)
     signOut()
-      .catch((caught: unknown) => setSignOutError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.'))
+      .catch((caught: unknown) => setSignOutError(plainErrorText(caught, PLAIN.signOutFailed)))
       .finally(() => setSigningOut(false))
   }
 
@@ -231,8 +302,14 @@ export function BlueFrame() {
   // A demo facility works on its own site (productSites.ts): opened on another, the page says so and opens nothing.
   const demoSite = demoFacilitySite(facility?.id)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null
+  const backPath = switchBackPath(location.pathname, match?.page ?? null)
+  const arrival = switchArrival()
   const content = facilitySite
-    ? <FacilityOnAnotherSite facility={facility?.name ?? 'This facility'} site={facilitySite} choosing={session.actor.facilities.length > 1} />
+    ? <FacilityOnAnotherSite facility={facility?.name ?? 'This facility'} site={facilitySite} href={switchHref(facilitySite, hostname, backPath)}
+      choosing={session.actor.facilities.length > 1} />
+    : cannotUse && here
+    ? <ProductNotForAccount product={SITE_NAMES[here.key]} facility={facility?.name ?? 'this facility'} arrival={arrival}
+      usable={usableSites(allowed, session, hostname, backPath)} choosing={session.actor.facilities.length > 1} />
     : match
     ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
@@ -269,7 +346,7 @@ export function BlueFrame() {
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   // Each product on its own site: the other sites that serve the rest of what this session may open.
-  const otherSites = otherSitesGroup(allowed)
+  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
   if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
@@ -303,6 +380,7 @@ export function BlueFrame() {
             signingOut={signingOut}
             headerStart={<>
               <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label={`Health ID ${info.name} home`}><BrandLogo className="h-7 w-auto" /></a>
+              {arrival ? <SwitchBackLink arrival={arrival} /> : null}
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
             headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /></div>}

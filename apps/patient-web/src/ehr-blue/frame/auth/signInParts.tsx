@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { getEnvironment } from '../../../staff/env'
 import type { StaffSession } from '../../../staff/api'
 import { loadTurnstileScript, turnstileSize } from '../../../Turnstile'
@@ -17,11 +17,21 @@ import { Alert } from '../../../kasuwa/ui'
  * these move into one shared module both import (README.md), and the copies go.
  */
 
-/** What the page says for a refused password step: the portal's words for the MFA refusals, otherwise Identity's own. */
+/** The sign-in step's own words: a refused password, and anything else that stopped it. Never Identity's text. */
+export const SIGN_IN_FAILED = 'We couldn’t sign you in. Check your connection and try again.'
+export const SIGN_IN_CODES: Readonly<Record<string, string>> = {
+  NO_ACTIVE_FACILITY_MEMBERSHIP: 'You aren’t active at any facility yet. Ask your facility administrator for access.',
+}
+export const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
+  400: 'Check your email address and password, then try again.',
+  401: 'That email address or password isn’t right. Try again.',
+}
+
+/** What the page says for a refused password step: the portal's words for the MFA refusals, otherwise plain words. */
 export function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
-  return caught instanceof Error ? caught.message : 'Sign in failed.'
+  return plainErrorText(caught, SIGN_IN_FAILED, { codes: SIGN_IN_CODES, statuses: SIGN_IN_STATUSES, audience: 'facility' })
 }
 
 /** Where a sign-in lands: an invitation carried through it, the page to return to, the product host's page, else Overview. */

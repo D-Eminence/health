@@ -61,6 +61,8 @@ const NOT_ON_MAIN = [
   // hid-1.0 patient parity B4 (hid-system 0095, Novu only): sharing with a clinician and invitations by email.
   'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
   'identity.shareInvitationConfirm', 'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
+  // Single sign-on on auth. (ADR-070, proposed): the product's sign-out answering the provider's end-session address.
+  'auth.ssoLogout',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

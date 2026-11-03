@@ -114,13 +114,14 @@ describe('the password step', () => {
 
   // STAFF_MFA_FACTOR_UNPROVEN, the other right-password refusal, is said in the portal's words (StaffMfaSignIn.test.tsx).
   it.each([
-    ['NO_ACTIVE_FACILITY_MEMBERSHIP', 'Your account has no active facility membership. Ask your organization administrator for access.'],
-  ])('shows Identity\'s own words for a right password it refuses (403 %s), and stays', async (code, detail) => {
+    ['NO_ACTIVE_FACILITY_MEMBERSHIP', 'Your account has no active facility membership. Ask your organization administrator for access.',
+      'You aren’t active at any facility yet. Ask your facility administrator for access.'],
+  ])('says a right password it refuses (403 %s) in plain words, and stays', async (code, detail, said) => {
     const calls = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [() => problem(403, code, detail)] })
     await openSignIn()
     signIn()
 
-    expect((await screen.findByRole('alert')).textContent).toBe(detail)
+    expect((await screen.findByRole('alert')).textContent).toBe(said)
     expect(screen.getByTestId('where').textContent).toBe('/provider/sign-in')
     expect(calls).toEqual([SESSION, REFRESH, LOGIN])
   })
@@ -130,7 +131,7 @@ describe('the password step', () => {
     await openSignIn()
     signIn()
 
-    expect((await screen.findByRole('alert')).textContent).toBe('The service returned an unreadable response.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Health ID isn’t available right now. Please try again in a few minutes.')
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
     expect(calls).toEqual([SESSION, REFRESH, LOGIN])
   })
@@ -225,7 +226,7 @@ describe('the second step and completeSignIn', () => {
     await openProvider()
 
     expect(() => act(() => { staff.completeSignIn({ actor: { kind: 'patient', id: 'patient-1', roles: [], permissions: [], facilities: [] } }) }))
-      .toThrow('A staff account is required for this portal.')
+      .toThrow('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
     expect(screen.getByTestId('status').textContent).toBe('signed-out')
     expect(TabChannel.posted).toEqual([])
   })

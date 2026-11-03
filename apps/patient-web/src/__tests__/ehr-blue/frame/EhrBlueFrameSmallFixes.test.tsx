@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { PLAIN } from '@hid/http'
 import {
   DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REQUESTS, SESSION, type Answer, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt,
   switchFacilityTo, where, withFramePages,
@@ -107,7 +108,7 @@ describe('switching facility from the account menu on a product site', () => {
       { [FACILITY]: [() => problem(500, 'INTERNAL_ERROR', 'Upstream identity store timed out (trace 42).')] })
     switchFacilityTo('Demo Laboratory', 'Demo Hospital')
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('That facility couldn’t be opened. Try again, or choose another facility.')
+    expect(alert.textContent).toContain(PLAIN.unavailable)
     expect(alert.textContent).not.toContain('Upstream')
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Choose workspace' }))
     await waitFor(() => expect(where()).toBe('/provider/institutions'))

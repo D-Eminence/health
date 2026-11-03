@@ -7,6 +7,7 @@ import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../sta
 import { useStaff } from '../../../staff/App'
 import { useFocusById } from '../../../staff/focus'
 import { focusLost } from '../../../pageFocus'
+import { NO_OUTREACH } from '../../../staff/refusedWork'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { dateText, matchesSearch } from '../parts/format'
@@ -16,7 +17,7 @@ import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
   ageText, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, NO_READ_PERMISSION, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
+  NO_FACILITY, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -347,9 +348,11 @@ function CaseCard({ item, campaign, canLink, onOpen }: {
 }
 
 /**
- * What Outreach says to a membership with neither campaign nor registration read, in today's words (staff/routes/
- * Operations.tsx Outreach); the frame shows it at the address.
+ * What Outreach says to a membership with neither campaign nor registration read, as the classic page does
+ * (staff/routes/Operations.tsx Outreach); the frame shows it at the address. Screens name no permission (the owner's
+ * rule), and no role holds Outreach on hid-system main (migration 0091), so like Document OCR it says to everyone that
+ * it isn't available yet, asking nobody (NO_OUTREACH, the owner's answer of 2 November).
  */
 export function OutreachRefusal() {
-  return <DeptUnavailable title="Outreach unavailable" message={NO_READ_PERMISSION} />
+  return <DeptUnavailable title="Outreach unavailable" message={NO_OUTREACH} />
 }

@@ -78,7 +78,7 @@ export interface CommandPaletteProps {
   readonly onOpenChange?: (open: boolean) => void
   readonly onSelect?: (item: CommandPaletteItem) => void
   readonly loading?: boolean
-  /** A truthy value exposes a retry state without treating errors as data. */
+  /** A truthy value shows the palette's own plain retry state; its text is never shown. */
   readonly error?: ReactNode | boolean
   readonly onRetry?: () => void
   readonly placeholder?: string
@@ -477,7 +477,7 @@ export function CommandPalette({
               ) : error ? (
                 <div className="waya-command__state" role="alert">
                   <strong>We couldn’t load the results.</strong>
-                  <span>{typeof error === 'string' ? error : 'Please check your connection and try again.'}</span>
+                  <span>Please check your connection and try again.</span>
                   {onRetry ? <button type="button" className="waya-command__retry" onClick={onRetry}>Try again</button> : null}
                 </div>
               ) : visibleItems.length ? (
