@@ -85,8 +85,8 @@ describe('patient health records', () => {
       documents: [{ id: 'doc-1', encounterId: 'enc-1', facilityId: 'facility-1', fileName: 'scan.pdf', mediaType: 'application/pdf', sizeBytes: 2048, classification: 'clinical', status: 'uploaded', createdAt: '2026-10-08T10:15:00Z' }],
       limit: 100,
     })
-    expect(await screen.findByText('Ambulatory')).toBeTruthy()
-    expect(card('Visits').getByText('Ambulatory')).toBeTruthy()
+    expect(await screen.findByText('Outpatient visit')).toBeTruthy()
+    expect(card('Visits').getByText('Outpatient visit')).toBeTruthy()
     expect(card('Clinical notes').getByText('Doing well.')).toBeTruthy()
     expect(card('Vitals').getByText('Temp 36.8°C')).toBeTruthy()
     expect(card('Diagnoses').getByText('Upper respiratory infection')).toBeTruthy()
@@ -161,6 +161,12 @@ describe('patient health records', () => {
     const heading = await screen.findByRole('heading', { name: 'Records' })
     await screen.findByRole('button', { name: /try again/i })
     expect(intro(heading)).not.toMatch(/vitals|diagnoses|prescriptions|medicines|lab|documents/i)
+  })
+
+  it('names what the page shows from an EHR that names no released parts, never promising "everything" signed', async () => {
+    renderRecords(empty)
+    expect(await screen.findByText('Your visits, doctor’s notes, vital signs, diagnoses, prescriptions, lab tests and documents, newest first.')).toBeTruthy()
+    expect(screen.queryByText(/Everything/)).toBeNull()
   })
 
   it('describes only the released parts of the record', async () => {

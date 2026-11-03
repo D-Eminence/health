@@ -40,6 +40,13 @@ export interface SampleAction {
   /** The status it leaves the record in, unless the definition's `apply` works out another. */
   readonly to: string
   readonly fields?: readonly SampleField[]
+  /**
+   * The verb the viewer needs in the definition's design module to be offered the action ('approve',
+   * 'collect-payment'), as the design's catalogue names it (design/ehr-target src/catalog.ts). Where the catalogue
+   * names none, its record view asks for 'edit', so every definition here names one. Unset: offered to anyone who may
+   * open the page.
+   */
+  readonly permission?: string
 }
 
 /** A stock batch on a Stock record. */
@@ -100,13 +107,22 @@ export type SampleApplied =
   | { readonly status?: string; readonly values?: SampleValues; readonly state?: SampleState }
 
 export interface SampleDefinition {
-  /** The design's module id ('billing', 'inventory'), which keys the page and seeds its new records' ids. Not its path. */
+  /**
+   * The design's module id ('billing', 'inventory'), which keys the page, names the module the design's grants are
+   * checked in (its actions' verbs, "create" for Create record) and seeds its new records' ids. Not its path.
+   */
   readonly id: string
   readonly title: string
   /** Records belong to a patient: the create form asks for one first. */
   readonly patient?: boolean
   /** The status a new record starts in. */
   readonly initial: string
+  /**
+   * Offers "Edit record" in "Saved record" while the record keeps the status it was created in. Left unset on every
+   * workspace today: the design's record views have no such button (Patient billing, Policies, Stock, Procurement,
+   * Service catalogue), so a record changes only through its actions.
+   */
+  readonly editable?: boolean
   readonly fields: readonly SampleField[]
   readonly actions: readonly SampleAction[]
   /** Values a new form starts with, as the design's forms do (quantity 1, units per pack 1). */

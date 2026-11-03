@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
+import { SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, renderPage } from './harness'
 
 /**
@@ -161,7 +162,8 @@ describe('the emergency summary page', () => {
     open()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t load the emergency summary')
-    expect(alert.textContent).toContain('EHR is unavailable')
+    expect(alert.textContent).toContain(SAID_UNAVAILABLE)
+    expect(alert.textContent).not.toContain('EHR is unavailable')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     expect(banner()).toBeTruthy()
     api.emergencyRecords.mockResolvedValue(summary())
@@ -179,10 +181,11 @@ describe('the emergency summary page', () => {
     expect(alert.textContent).toContain('Please try again.')
   })
 
-  it('shows a refused summary read as it is', async () => {
+  it('shows a refused summary read in plain words', async () => {
     api.emergencyRecords.mockRejectedValue(new HidApiError(403, 'Emergency access is not permitted', { code: 'FORBIDDEN' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toContain('Emergency access is not permitted')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toMatch(/Emergency access is not permitted|FORBIDDEN/)
   })
 
   it.each([403, 404])('ends access when the re-check is refused with %s, and says so', async status => {
@@ -199,7 +202,8 @@ describe('the emergency summary page', () => {
   it('keeps the patient open when Identity cannot answer the re-check', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(503, 'Identity is unavailable'))
     open()
-    expect((await screen.findByRole('alert')).textContent).toContain('Identity is unavailable')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Identity is unavailable')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     expect(api.emergencyRecords).not.toHaveBeenCalled()
   })
@@ -314,12 +318,13 @@ describe('ending my emergency access', () => {
   })
 
   it('shows a refused close and keeps the patient open', async () => {
-    api.closeGrant.mockRejectedValue(new HidApiError(409, 'This access had already ended', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Consent command conflicts with grant state', { code: 'CONSENT_COMMAND_CONFLICT' }))
     await renderSummary()
     const button = await end()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t end access')
-    expect(alert.textContent).toContain('This access had already ended')
+    expect(alert.textContent).toContain('This access had already ended.')
+    expect(alert.textContent).not.toMatch(/Consent command|CONSENT_COMMAND_CONFLICT/)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(button)
     expect(button.getAttribute('aria-disabled')).toBeNull()
@@ -340,13 +345,14 @@ describe('ending my emergency access', () => {
     expect(screen.queryByRole('button', { name: 'End emergency access' })).toBeNull()
   })
 
-  it('is disabled, with the reason, without identity.consent.write', async () => {
+  it('is disabled, with the plain reason (no permission named), without identity.consent.write', async () => {
     staff.permissions = EVERY_READ.filter(permission => permission !== 'identity.consent.write')
     await renderSummary()
     const button = screen.getByRole('button', { name: 'End emergency access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot end your access: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role at this facility can’t end your access. Ask your facility administrator.')
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
@@ -358,7 +364,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     for (const name of ['Finished visits', 'Signed notes', 'Diagnoses', 'Prescriptions', 'Lab tests', 'Documents']) {
       expect(screen.getByRole('heading', { level: 2, name })).toBeTruthy()
     }
-    expect(entry('Finished visits', 'Emergency').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
+    expect(entry('Finished visits', 'Emergency visit').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
     const signed = entry('Signed notes', 'Triage note 1')
     expect(signed.textContent).toMatch(/Triage · Signed · version 1 · signed \d/)
     expect(signed.textContent).toContain('Alert and oriented.\nNo distress.')
@@ -368,7 +374,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
     expect(lab.textContent).toMatch(/LOINC 718-7 · Priority: Urgent · Asked for \d/)
-    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF · 20 KB · added \d/)
+    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF document · 20 KB · added \d/)
   })
 
   it.each([
@@ -738,5 +744,15 @@ describe('released Lab results in the emergency summary', () => {
     staff.permissions = [...EVERY_READ]
     await renderSummary()
     expect(screen.queryByRole('button', { name: 'Show results' })).toBeNull()
+  })
+})
+
+/** Owner, 2 November: a refusal never shows Lab's code in brackets ("... (LAB_ACCESS_DENIED)"). */
+describe('released results refusal', () => {
+  it('says why in plain words, without the code', async () => {
+    const { releasedResultsRefusal } = await import('../../../ehr-blue/clinical/emergency/ReleasedResults')
+    const text = releasedResultsRefusal(new HidApiError(403, 'Forbidden', { code: 'LAB_ACCESS_DENIED' }))
+    expect(text).toBe('You can’t see this test’s results here.')
+    expect(text).not.toMatch(/LAB_|\(/)
   })
 })

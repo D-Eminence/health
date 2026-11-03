@@ -63,6 +63,8 @@ const NOT_ON_MAIN = [
   'identity.shareInvitationConfirm', 'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   'identity.facilitySettings', 'identity.facilityOnePersonLab',
+  // Single sign-on on auth. (ADR-070, proposed): the product's sign-out answering the provider's end-session address.
+  'auth.ssoLogout',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

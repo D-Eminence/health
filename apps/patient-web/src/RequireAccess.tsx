@@ -13,6 +13,8 @@ import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
 import { focusLost, focusPageHeading } from './pageFocus'
+import { portalHandsOff } from './sso/singleSignOn'
+import { PortalSignInHandOff } from './sso/SignInHandOff'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement
@@ -62,7 +64,8 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
       )
 
     case 'sign-in-required':
-      return <Navigate to="/sign-in" replace />
+      // With single sign-on on, on app., the whole tab goes to auth. and back to this page when it may (contract v2).
+      return portalHandsOff() ? <PortalSignInHandOff /> : <Navigate to="/sign-in" replace />
 
     case 'mfa-required':
       return <Navigate to="/verify" replace />

@@ -1,5 +1,6 @@
-import { isHidApiError } from '@hid/http'
 import type { RegistrationCase } from '../../../staff/api'
+import type { RefusedWork } from '../../../staff/refusedWork'
+import { registrationErrorText } from '../../../staff/registrationFlow'
 
 /*
  * Today's Patient registration page (staff/routes/Registration.tsx), its rules and every word it says, ported here
@@ -19,9 +20,9 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export const COMPLETED: ReadonlySet<RegistrationCase['status']> = new Set<RegistrationCase['status']>(
   ['approved_new_identity', 'linked_existing', 'resolved_existing_identity'])
 
-/** A refusal's own message, or the step's fallback (Registration.tsx 12-14). Not refusalText: today says no more. */
+/** A refusal in plain words, or the step's own fallback (Registration.tsx 12-14). Never Identity's own text. */
 export function safeError(error: unknown, fallback: string) {
-  return isHidApiError(error) ? error.message : fallback
+  return registrationErrorText(error, fallback)
 }
 
 /** The case's status in words (Registration.tsx 16-26). */
@@ -46,9 +47,22 @@ export function candidatesText(registration: RegistrationCase) {
 
 // ---- The page and its refusal -----------------------------------------------------------------------------------
 
-/** Registration.tsx 215: the page's own refusal, also the frame's at the address. */
+/** Registration.tsx 215: the heading of the page's own refusal, also the frame's at the address. */
 export const UNAVAILABLE_TITLE = 'Registration unavailable'
-export const UNAVAILABLE_MESSAGE = 'This facility membership needs identity registration write permission.'
+/**
+ * The work the refusal names, in a sentence refusedWorkText (staff/refusedWork.ts) writes by who reads it. Screens name
+ * no permission (the owner's rule), so it replaces today's words, which named the one lacking. Receptionists and records
+ * officers both register patients (the owner's answer, 2 Nov 2026), so a facility's own administrator is told to add
+ * either, and everyone else to ask the administrator for either role. Only a hospital or a clinic gets it: sign-up
+ * promises the clinical record to them alone (ProviderEnrollment.tsx ORGANIZATION_TYPE_NOTES). A laboratory or pharmacy
+ * never does, as registration stays in the EHR (the owner's rule); an "other" facility agrees its access with Health ID
+ * support, so the refusal never promises it: there, nobody is told to ask for either role, as neither would bring it.
+ * Nor is someone who holds one of them already.
+ */
+export const REGISTRATION_WORK: RefusedWork = {
+  name: 'Patient registration', work: 'registering patients', doneBy: ['receptionist', 'records_officer'], askForRole: true,
+  gets: new Set(['hospital', 'clinic']),
+}
 
 /** Registration.tsx 218: the page head. Today's title ends in a full stop; the design's headings have none. */
 export const EYEBROW = 'Identity operations'

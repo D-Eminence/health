@@ -3,9 +3,10 @@ import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, U
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
-import { HidApiError, isHidApiError } from '@hid/http'
+import { HidApiError, isHidApiError, PlainError } from '@hid/http'
 import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
+import { refusalText } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
 import { useFieldProblems } from '../../../staff/useFieldProblems'
 import { cannotCompleteOffered, handOverCheckText, priorityLabel, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
@@ -20,6 +21,7 @@ import { errorText, MODULE_NOT_IN_SERVICE } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel, RoutedWorkLines, RoutedWorkPaused } from '../parts/routedWork'
 import { isUrgent, PriorityBadge, statusTitle } from '../parts/WorkQueue'
+import { WorkItemDocuments } from '../parts/WorkItemDocuments'
 import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
@@ -29,6 +31,7 @@ import {
 } from './pharmacyText'
 import type { PaymentSettings, WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { PaidLine, PaymentStep, StockLine } from './pointOfCare'
 import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
@@ -47,8 +50,8 @@ interface Failure { readonly text: string; readonly retry: boolean }
  * recorded as handed over must never look like a passing glitch. A refusal for the role says Pharmacy's own refusal
  * with the work refused (`refusedFor`, pharmacyRefusalText), so a facility's own administrator is never told to ask
  * themselves. The page's sentences for a closed order, paused work, a workspace not in service or a fault between
- * services also go by code (errorText), given the error without the server's message or the fields it names. Anything
- * else says ACTION_FAILED.
+ * services also go by code (errorText), given the error without the server's words or the fields it names. Anything
+ * else says ACTION_FAILED, never the words every page shares for its status: those don't say what failed.
  */
 function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string) => string): Failure {
   if (!isHidApiError(caught)) return { text: ACTION_FAILED, retry: true }
@@ -68,7 +71,10 @@ function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string)
         + 'Prescriptions, refresh the list and open it again before you hand anything over.', retry: false }
       break
   }
-  const text = errorText(new HidApiError(caught.status, ACTION_FAILED, { code: caught.code }), ACTION_FAILED)
+  const bare = new HidApiError(caught.status, ACTION_FAILED, { code: caught.code })
+  // errorText says what it has no sentence of its own for in the words every page shares for the status (refusalText).
+  const own = errorText(bare, ACTION_FAILED)
+  const text = own === refusalText(bare, ACTION_FAILED) ? ACTION_FAILED : own
   // Pressing again can't help a closed order (its sentence says to refresh the list) or a workspace not in service.
   return { text, retry: caught.code !== 'ORDER_ROUTE_CLOSED' && text !== MODULE_NOT_IN_SERVICE }
 }
@@ -220,7 +226,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     onBusy(true)
     try {
       if (reverse) {
-        if (!item.dispensing) throw new Error('No dispensing is available to reverse.')
+        if (!item.dispensing) throw new PlainError('No dispensing is available to reverse.')
         const current = await staffApi.dispensing(facilityId, item.dispensing.id)
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setDone(null)
@@ -265,7 +271,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const waitsForPayment = canDispense && !done && paysFirst(settings, 'pharmacy') && billOwing(bill)
   const stock = stockOf(item)
   const outOfStock = canDispense && !done && stock !== null && stock.onHand <= 0
-  const canReceiveStock = permissions.includes('pharmacy.stock.manage')
+  // Stock is a point-of-care page, shown only where its routes may answer (commerce/served.ts).
+  const canReceiveStock = pointOfCareOpen(facilityId) && permissions.includes('pharmacy.stock.manage')
   const paymentHeading = `pharmacy-${item.id}-payment`
 
   function tick(step: CheckStep, on: boolean) {
@@ -470,6 +477,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
           <div className="p-5"><DeptFacts facts={recordFacts(item, status)} />
             {route && <div className="hid-ehr-dept-pharmacy-route"><RoutedWorkLines route={route} /></div>}</div>
         </Card>
+        {/* Its prescription sheets, beside the prescription, once the backend serves them (dormant until then): never
+            written once its order from another facility has closed. */}
+        <WorkItemDocuments kind="pharmacy" facilityId={facilityId} workItemId={item.id} patientId={item.patientId}
+          permissions={permissions} writable={!closed} />
         {otherActions}
       </div>
     </div>

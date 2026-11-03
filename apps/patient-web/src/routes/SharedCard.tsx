@@ -11,6 +11,7 @@ import { useProfileSources } from './profileSources'
 import { initialsOf, usePatientPhoto } from './ProfilePhoto'
 import { CardFace, allergyItems, cardFacts } from './HealthIdCard'
 import { ninVerifiedOf } from './NinVerificationCard'
+import { fileTypeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import logoSrc from '../../../public-web/public/brand/logo.png'
 
 /**
@@ -90,9 +91,9 @@ function rowsOf(records: PatientRecords, key: SectionKey): Array<{ id: string; t
     case 'prescriptions': return listOf(records, key).map(p => ({ id: p.id, title: p.medicationDisplay, meta: [p.doseQuantity != null ? `${p.doseQuantity} ${p.doseUnit ?? ''}`.trim() : '', p.frequency, words(p.status)].filter(Boolean).join(' · '), detail: p.instructions }))
     case 'labRequests': return listOf(records, key).map(l => ({ id: l.id, title: l.testDisplay, meta: [words(l.status), day(l.createdAt)].filter(Boolean).join(' · '), detail: l.clinicalInformation }))
     case 'vitals': return listOf(records, key).map(v => ({ id: v.id, title: [v.systolicMmhg != null ? `BP ${v.systolicMmhg}/${v.diastolicMmhg}` : '', v.temperatureC != null ? `${v.temperatureC}°C` : '', v.pulseBpm != null ? `Pulse ${v.pulseBpm}` : '', v.oxygenSaturationPercent != null ? `SpO₂ ${v.oxygenSaturationPercent}%` : ''].filter(Boolean).join(' · ') || 'Vitals', meta: day(v.recordedAt) }))
-    case 'encounters': return listOf(records, key).map(e => ({ id: e.id, title: words(e.encounterType), meta: [words(e.status), day(e.startedAt)].filter(Boolean).join(' · ') }))
+    case 'encounters': return listOf(records, key).map(e => ({ id: e.id, title: visitClassLabel(e.encounterType), meta: [visitStatusLabel(e.status), day(e.startedAt)].filter(Boolean).join(' · ') }))
     case 'notes': return listOf(records, key).map(n => ({ id: n.id, title: n.title || words(n.noteType), meta: day(n.signedAt), detail: n.content }))
-    case 'documents': return listOf(records, key).map(d => ({ id: d.id, title: d.fileName, meta: [d.mediaType, day(d.createdAt)].filter(Boolean).join(' · ') }))
+    case 'documents': return listOf(records, key).map(d => ({ id: d.id, title: d.fileName, meta: [fileTypeLabel(d.mediaType), day(d.createdAt)].filter(Boolean).join(' · ') }))
     default: return []
   }
 }
@@ -150,7 +151,7 @@ export function SharedCardPage() {
   return <main className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="w-full max-w-md">
     <EmptyState icon={Lock} titleAs="h1" title="This isn’t available yet"
       description="Opening a shared Health ID card from a link isn’t available yet. No health information is shown here."
-      action={<Button href="https://healthid.ng">About Health ID</Button>} /></div></main>
+      action={<Button href="https://healthidentitydirectory.com/patients">About Health ID</Button>} /></div></main>
 }
 
 /** The patient's own card as the email and the provider's page will show it. */

@@ -8,7 +8,7 @@ import {
 const { request } = vi.hoisted(() => ({ request: vi.fn() }))
 
 vi.mock('@hid/api', () => ({ createRegisteredBrowserClient: () => ({ request }) }))
-vi.mock('@hid/http', () => ({ createApiClient: () => ({}) }))
+vi.mock('@hid/http', async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), createApiClient: () => ({}) }))
 vi.mock('@/lib/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'http://localhost:3100' }) }))
 
 beforeEach(() => request.mockReset())
@@ -57,7 +57,7 @@ describe('provider application routes and contract', () => {
     expect(missingOrganizationProfileFields(profile, { entityType: '  Limited company  ' }))
       .toEqual({ entityType: 'Limited company' })
     expect(() => missingOrganizationProfileFields(profile, { companyName: 'Changed name' }))
-      .toThrow(/QoreID-provided/)
+      .toThrow(/came from the official company record/)
     await saveOrganizationCompletionProfile(profile, { entityType: '  Limited company  ' })
     expect(request).toHaveBeenNthCalledWith(3, {
       method: 'PATCH', path: '/api/v1/identity/organization-applications/completion/profile', auth: 'none',

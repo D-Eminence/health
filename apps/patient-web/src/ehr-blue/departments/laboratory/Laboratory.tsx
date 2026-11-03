@@ -20,6 +20,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { isUrgent, urgencyRank } from '../parts/WorkQueue'
+import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
   useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
@@ -80,6 +81,8 @@ export function Laboratory() {
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
+  // A work list answering `documentTypes: true` lets an open request show its result documents (documentTypes.ts).
+  useLearnDocumentTypesServed(read.value)
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'lab')
   const cannotServed = useCannotCompleteServed()
   const [ended, setEnded] = useState<Said | null>(null)

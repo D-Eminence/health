@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
+import { SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * Patient documents on the blue Migrate page: a document captured into the patient's documents on an encounter, as
@@ -112,13 +113,18 @@ describe('Patient documents: an encounter\'s documents', () => {
     expect(api.documents).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT, ENCOUNTER)
     expect(within(card()).getByText('Patient One · HID-ZDEMAAA2')).toBeTruthy()
     expect((within(card()).getByLabelText('Encounter') as HTMLSelectElement).value).toBe(ENCOUNTER)
+    // The visit in plain words: its kind and where it is, never the raw class or status (owner, 2 November).
+    expect([...(within(card()).getByLabelText('Encounter') as HTMLSelectElement).options].map(option => option.textContent))
+      .toEqual(expect.arrayContaining([expect.stringMatching(/^Outpatient visit · started .+ · In progress$/)]))
+    expect(card().textContent).not.toMatch(/KiB|application\/|image\/|scan clean|in progress/)
     const cleanRow = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
-    expect(within(cleanRow).getByText('scan clean')).toBeTruthy()
-    expect(within(cleanRow).getByText('application/pdf · 20 KiB')).toBeTruthy()
+    expect(within(cleanRow).getByText('Checked')).toBeTruthy()
+    expect(within(cleanRow).getByText('PDF document · 20 KB')).toBeTruthy()
     expect((within(cleanRow).getByRole('button', { name: 'Open file' }) as HTMLButtonElement).disabled).toBe(false)
     expect(within(cleanRow).getByRole('button', { name: 'Extract with OCR' })).toBeTruthy()
     const pendingRow = screen.getByText('lab-report.png').closest('tr') as HTMLElement
-    expect(within(pendingRow).getByText('scan pending')).toBeTruthy()
+    expect(within(pendingRow).getByText('Being checked for viruses')).toBeTruthy()
+    expect(within(pendingRow).getByText(/^PNG image · /)).toBeTruthy()
     expect((within(pendingRow).getByRole('button', { name: 'Open file' }) as HTMLButtonElement).disabled).toBe(true)
     expect(within(pendingRow).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
     const initiatedRow = screen.getByText('referral.pdf').closest('tr') as HTMLElement
@@ -175,7 +181,8 @@ describe('Patient documents: an encounter\'s documents', () => {
   it('says when encounters cannot be loaded', async () => {
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR service is unavailable', { code: 'EHR_SERVICE_UNAVAILABLE' }))
     renderDept(<Migrate />)
-    expect((await within(card()).findByRole('alert')).textContent).toBe('EHR service is unavailable')
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR service is unavailable')
   })
 
   it('closes the patient when access has ended, and says so', async () => {
@@ -241,7 +248,8 @@ describe('Patient documents: capturing a document', () => {
     api.uploadDocument.mockRejectedValue(new HidApiError(413, 'The file is too large', { code: 'DOCUMENT_TOO_LARGE' }))
     const submit = screen.getByRole('button', { name: 'Upload document' })
     await press(submit)
-    expect((await within(card()).findByRole('alert')).textContent).toBe('The file is too large')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('This file is too large. Choose a smaller file and try again.')
+    expect(document.body.textContent).not.toContain('The file is too large')
     await waitFor(() => expect(focused()).toBe(submit))
   })
 

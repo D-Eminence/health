@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { SAMPLE_CLINICIANS, SAMPLE_DEFINITIONS, SAMPLE_NURSES, SAMPLE_WORKSPACE_IDS, type SampleField } from '../../../ehr-blue/clinical/sample/definitions'
+import type * as RoleView from '../../../ehr-blue/frame/roleView'
+import type { DemoRole } from '../../../ehr-blue/frame/roleView'
 import { ENCOUNTERS, IDS, PATIENTS, type SampleValue } from '../../../ehr-blue/clinical/sample/seed'
 import { applySampleAction, createSampleRecord, listedRecords, recordName, sampleState } from '../../../ehr-blue/clinical/sample/store'
 import { SampleCreate, SampleDetail, SampleList, SampleWorkspace, resetSampleStore } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
-import { labelled, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, labelled, renderPage } from './harness'
 
 /**
  * Every sample definition (the 14 workspaces and the emergency board): its list, new and record pages render, every
@@ -15,7 +17,9 @@ import { labelled, renderPage } from './harness'
  */
 
 const touched = vi.hoisted(() => ({ api: false }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true), facilityId: undefined as string | undefined }))
+/** The demo role whose Home is being viewed (frame/roleView.tsx), or null for the harness's doctor (the design's Doctor). */
+const roleView = vi.hoisted(() => ({ viewing: null as DemoRole | null }))
 
 vi.mock('../../../staff/api', () => {
   touched.api = true
@@ -25,8 +29,29 @@ vi.mock('../../../staff/App', async () => {
   const harness = await import('./harness')
   return { useStaff: () => harness.staffValue(staff as never) }
 })
+vi.mock('../../../ehr-blue/frame/roleView', async importOriginal => ({
+  ...await importOriginal<typeof RoleView>(),
+  useRoleView: () => ({ viewing: roleView.viewing, view: () => {} }),
+}))
 
-beforeEach(() => resetSampleStore())
+beforeEach(() => {
+  resetSampleStore()
+  staff.facilityId = undefined
+  roleView.viewing = null
+})
+
+/**
+ * A design role that may do every action the workspace's first record allows (audit item 16, design permissions(role)),
+ * viewed at a demo facility: the Doctor may do them all but radiology's ("edit", the Radiology Reporter's), the
+ * referral's acceptance ("approve", the Medical Director's) and the blood bank's (the Lab Manager's).
+ */
+const ACTING_ROLE: Readonly<Partial<Record<string, DemoRole>>> = {
+  radiology: 'Radiology Reporter', referrals: 'Medical Director', bloodbank: 'Lab Manager',
+}
+/** A design role that may create in each workspace whose create page the harness's doctor may not open (audit 16). */
+const CREATING_ROLE: Readonly<Partial<Record<string, DemoRole>>> = {
+  bloodbank: 'Lab Manager', 'ward-config': 'Hospital Admin',
+}
 
 const ALL = [...SAMPLE_WORKSPACE_IDS, 'emergency'] as const
 
@@ -63,6 +88,8 @@ describe.each(ALL)('%s', id => {
   })
 
   it('renders its new page with every catalogue field', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    roleView.viewing = CREATING_ROLE[id] ?? 'Doctor'
     open(id, '/new')
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(`New ${definition.title.toLowerCase()}`)
@@ -77,6 +104,8 @@ describe.each(ALL)('%s', id => {
 
   it('renders its first record with saved values, its actions (each opening its form), history and versions', () => {
     const record = listedRecords(sampleState(), definition)[0]!
+    staff.facilityId = DEMO_HOSPITAL_ID
+    roleView.viewing = ACTING_ROLE[id] ?? 'Doctor'
     open(id, `/${record.id}`)
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(recordName(record))
@@ -84,6 +113,7 @@ describe.each(ALL)('%s', id => {
     expect(Boolean(screen.queryByRole('heading', { name: 'History' }))).toBe(Boolean(record.patientId))
     expect(Boolean(screen.queryByRole('heading', { name: 'Earlier versions' }))).toBe(record.versions.length > 0)
     const available = definition.actions.filter(action => action.from.includes(record.status))
+    expect(within(actionsCard()).queryAllByRole('button', { expanded: false }).map(button => button.textContent)).toEqual(available.map(action => action.label))
     if (available.length === 0) expect(within(actionsCard()).getByText('Nothing more to do here.')).toBeTruthy()
     for (const action of available) {
       fireEvent.click(within(actionsCard()).getByRole('button', { name: action.label, expanded: false }))

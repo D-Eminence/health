@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Select } from '@hid/ui'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../api'
 import { useStaff } from '../App'
 import { UNAVAILABLE, useFocusById } from '../focus'
+import { accessLevelLabel } from '../../plainLabels'
 
 /** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 const OUTCOMES: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
@@ -33,20 +34,20 @@ export function outcome(request: AccessRequest) {
 export function accessRequestsError(caught: unknown): string {
   if (isHidApiError(caught)) {
     if (caught.code === 'CONSENT_COMMAND_DENIED' || caught.code === 'PERMISSION_DENIED') {
-      return 'Your role at this facility cannot list access requests. Ask an administrator to review your assignment.'
+      return 'Your role here can’t see access requests. Ask your facility administrator if you need to.'
     }
     if (caught.code === 'FACILITY_ACCESS_DENIED' || caught.code === 'FACILITY_REQUIRED') {
-      return 'Select a facility where you are an active member to see your access requests.'
+      return 'Choose a facility you work at to see your access requests.'
     }
   }
-  return caught instanceof Error ? caught.message : 'Requests could not be loaded.'
+  return plainErrorText(caught, 'We couldn’t load your access requests. Please try again.', { audience: 'facility' })
 }
 
 function closeError(caught: unknown): string {
   if (isHidApiError(caught) && (caught.code === 'CONSENT_RESOURCE_NOT_FOUND' || caught.code === 'CONSENT_COMMAND_CONFLICT')) {
     return 'This access had already ended. The list has been refreshed.'
   }
-  return caught instanceof Error ? caught.message : 'Access could not be closed.'
+  return plainErrorText(caught, 'We couldn’t end this access. Please try again.', { audience: 'facility' })
 }
 
 export function AccessRequests() {
@@ -119,7 +120,7 @@ export function AccessRequests() {
     {/* Mounted throughout, so what a close says is announced. */}
     <div id="access-requests-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && !requests && <p className="staff-muted">Loading requests…</p>}</div>
     {requests && requests.length === 0 && <EmptyState title={status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'} description="Requests you send for this facility will appear here." />}
-    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{new Date(request.requestedAt).toLocaleString()}</td><td data-label="Patient context">Patient ••••{request.patientId.slice(-4)}</td><td data-label="Scope">{request.scope.replace('_', ' ')}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
+    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{new Date(request.requestedAt).toLocaleString()}</td><td data-label="Patient context">Patient ••••{request.patientId.slice(-4)}</td><td data-label="Scope">{accessLevelLabel(request.scope)}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
       {request.authorizationMethod && <small className="staff-muted"> {request.authorizationMethod === 'patient_access_pin' ? 'Patient PIN' : 'Patient approval'}</small>}
       {request.effectiveStatus === 'active' && request.grantExpiresAt && <small className="staff-muted"> until {new Date(request.grantExpiresAt).toLocaleString()}</small>}
       {request.status === 'denied' && request.deniedReason && <small className="staff-muted"> {request.deniedReason}</small>}

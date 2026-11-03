@@ -3,7 +3,7 @@ import { EmptyState, Field, Input, Select } from '@hid/ui'
 import { CircleCheck, RotateCcw, ShieldCheck } from 'lucide-react'
 import { Alert, Button as KButton, Card as KCard } from '../../kasuwa/ui'
 import { FormActions, FormPage, Step } from '../../kasuwa/parts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { staffApi, type AssistedDocumentType, type AssistedVerificationInput } from '../api'
 import { useStaff } from '../App'
 import { BUSY, useFocusById } from '../focus'
@@ -207,7 +207,6 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
 
   function answer(caught: unknown, form: HTMLFormElement, typedDateOfBirth: boolean) {
     const code = isHidApiError(caught) ? caught.code : ''
-    const message = caught instanceof Error ? caught.message : ''
     switch (code) {
       case 'ASSISTED_VERIFICATION_NOT_MATCHED': {
         const fields = isHidApiError(caught) && caught.fields ? caught.fields : {}
@@ -217,14 +216,14 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
       }
       case 'NIN_ALREADY_REGISTERED':
         setValues(EMPTY)
-        setStage({ kind: 'registered', detail: message })
+        setStage({ kind: 'registered', detail: '' })
         focus('in-person-registered-title')
         return
       case 'DESK_CODE_NOT_FOUND':
-        problems.refuse('in-person-desk-code', message || 'No sign-up is waiting for this code. Ask them to show the code again.')
+        problems.refuse('in-person-desk-code', 'No sign-up is waiting for this code. Ask them to show the code again.')
         return
       case 'DESK_CODE_INVALID':
-        problems.refuse('in-person-desk-code', message || DESK_CODE_ENTRY)
+        problems.refuse('in-person-desk-code', DESK_CODE_ENTRY)
         return
       case 'ASSISTED_VERIFICATION_STALE':
         problems.refuse('in-person-desk-code', STALE)
@@ -238,7 +237,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         setError('Your role here can’t check patients in person. Ask your administrator.')
         return
       case 'ASSISTED_REGISTRATION_DISABLED':
-        setError(`${message || 'Registration at a facility is not available.'} Nothing was recorded.`)
+        setError('Registration at a facility is not available. Nothing was recorded.')
         return
       case 'IDEMPOTENCY_KEY_REUSED':
         setError('This was already sent with different details. Check them and try again.')
@@ -253,8 +252,8 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         return
     }
     if (outcomeUnknown(caught)) { setError(RETRY); return }
-    // Any other refusal says what Identity said: a 4xx detail is written for the person using the client.
-    setError(message || 'The check could not be completed.')
+    // Any other refusal in plain words: never Identity's own text (owner's rule, 1 Nov 2026).
+    setError(plainErrorText(caught, 'The check could not be completed.', { codes: { ASSISTED_VERIFICATION_LIMITED: 'The daily limit of in-person checks has been reached. Try again later.' }, audience: 'facility' }))
   }
 
   function another() {

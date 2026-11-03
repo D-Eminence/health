@@ -39,12 +39,21 @@ export const COMMAND_FAILED = 'Something went wrong. Please try again.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
 export const ACCESS_CLOSED = 'Your access has ended.'
 export const CLOSE_FAILED = 'Couldn’t end your access. Please try again.'
+/** A close refused because the access had already ended (409 CONSENT_COMMAND_CONFLICT, 404 CONSENT_RESOURCE_NOT_FOUND). */
+export const CLOSE_REFUSALS: Readonly<Record<string, string>> = {
+  CONSENT_COMMAND_CONFLICT: 'This access had already ended.',
+  CONSENT_RESOURCE_NOT_FOUND: 'This access had already ended.',
+}
 
 /**
  * The break-glass duration today's client sends (staff/api.ts breakGlass: durationMinutes 30). The design's
  * acknowledgement names the expiry, so it names this one.
  */
 export const EMERGENCY_MINUTES = 30
+
+/** Patients.tsx: an account that opened emergency access 10 times in the last hour (429 EMERGENCY_RATE_LIMITED). */
+export const EMERGENCY_RATE_LIMITED = 'You’ve used emergency access too many times in the last hour, so the record was not '
+  + 'opened. Ask your facility administrator, or try again later.'
 
 /** Patients.tsx:184-204: today's words for the break-glass refusals it knows; null for any other (shown as sent). */
 export function breakGlassRefusal(caught: unknown, facilityName: string): string | null {
@@ -56,6 +65,8 @@ export function breakGlassRefusal(caught: unknown, facilityName: string): string
     return `${facilityName} is new to Health ID: emergency access is limited to 5 times a day in its first `
       + '30 days. Contact Health ID support to lift the limit.'
   }
+  // Identity's per-account limit: 10 activations in a rolling hour (ehr-api migration 0031).
+  if (caught.status === 429 && caught.code === 'EMERGENCY_RATE_LIMITED') return EMERGENCY_RATE_LIMITED
   if (caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
     return 'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'
   }
@@ -70,7 +81,7 @@ export const EMERGENCY_ACCESS: AccessAction = {
   routes: [{ route: 'access.breakGlass', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }],
-  action: 'activate emergency access',
+  action: 'open emergency access',
 }
 
 /** Patients.tsx:48. */
@@ -84,21 +95,16 @@ export function whoToAsk(administrator: Administrator): string {
     + 'clinical access when it checks your facility: add your licence on the Staff page.'
   if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
     + 'clinical access; ask them, or invite a colleague who holds this role.'
-  return 'Ask your organization administrator.'
+  return 'Ask your facility administrator.'
 }
 
-/** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. */
+/** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: AccessAction, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
-  const required = new Set(needs.flatMap(item => item.required))
-  const missing = needs.flatMap(item => {
-    const lacking = item.required.filter(permission => !permissions.includes(permission))
-    return lacking.length ? [`${lacking.join(' and ')}${item.purpose ? ` ${item.purpose}` : ''}`] : []
-  })
-  const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
-  return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. ${whoToAsk(administrator)}`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
+  // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
+  return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
+    : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`
 }
 
 /**

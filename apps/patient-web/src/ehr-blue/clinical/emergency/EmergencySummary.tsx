@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { usesNovuBackend } from '../../../backendContract'
+import { fileTypeLabel, visitClassLabel } from '../../../plainLabels'
 import { staffApi, type EmergencyRecords, type EmergencySection } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { priorityLabel } from '../../../staff/orderRoutes'
@@ -10,8 +11,9 @@ import { selfServiceReview } from '../../../staff/staffAccess'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
+import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, CLOSE_REFUSALS, actionUnavailable } from './access'
 import { ReleasedResults } from './ReleasedResults'
+import { plainErrorText } from '@hid/http'
 
 /** Today's emergency summary wording (Clinical.tsx EmergencySummary), word for word. */
 export const SUMMARY_EYEBROW = 'Emergency summary'
@@ -64,12 +66,9 @@ function fileSize(value: number | string | null | undefined): string {
   return count >= 1024 * 1024 ? `${(count / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(count / 1024)).toLocaleString()} KB`
 }
 
-/** A file type in words: "PDF", "Image", else the subtype in capitals. */
+/** A file type in words ("JPEG image", "PDF document"), else "File": never the media type. */
 function fileKind(mediaType: string | null | undefined): string {
-  if (!mediaType) return 'File'
-  if (mediaType === 'application/pdf') return 'PDF'
-  if (mediaType.startsWith('image/')) return 'Image'
-  return (mediaType.split('/')[1] ?? mediaType).split(/[.+-]/)[0]!.toUpperCase()
+  return fileTypeLabel(mediaType)
 }
 
 const words = (value: string) => { const text = value.replaceAll('_', ' '); return text.charAt(0).toUpperCase() + text.slice(1) }
@@ -145,7 +144,7 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
       {released('vitals') ? <Alert intent="info" size="sm" live={false}>{VITALS_NOTICE}</Alert> : null}
       <SummarySection title="Finished visits" items={summary.encounters} {...sectionProps('encounters')}
         empty="No finished visits at this facility." render={item => <>
-          <Head>{words(item.encounterType)}</Head>
+          <Head>{visitClassLabel(item.encounterType)}</Head>
           <span>{formatWhen(item.startedAt)}{item.endedAt ? ` to ${formatWhen(item.endedAt)}` : ''}</span>
         </>} />
       <SummarySection title="Signed notes" items={summary.notes} {...sectionProps('notes')}
@@ -264,7 +263,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setCloseError(caught instanceof Error && caught.message ? caught.message : CLOSE_FAILED)
+      setCloseError(plainErrorText(caught, CLOSE_FAILED, { codes: CLOSE_REFUSALS, audience: 'facility' }))
       return
     } finally {
       closing.current = false
