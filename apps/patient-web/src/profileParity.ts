@@ -191,14 +191,15 @@ export function maskPhone(phone: string): string {
 /**
  * The patient's country by its name ("Nigeria") where Health ID holds a two-letter code ("NG", as the preview's
  * patient has). hid-system's patients.country is free text (a promoted hid-1.0 account keeps what it had), so anything
- * else is shown as held, as is a code with no country's name: "ZZ" (which the browser calls "Unknown Region") and the
- * codes left for private use, which it gives back unchanged.
+ * else is shown as held, as is a code no country has: those ISO 3166-1 leaves for users to assign (AA, QM to QZ, XA to
+ * XZ, ZZ), some of which the browser names anyway ("Pseudo-Accents", "Outlying Oceania", "Unknown Region"), and any
+ * other the browser has no name for.
  */
 export function countryName(country: string): string {
   const held = country.trim()
   if (!/^[a-z]{2}$/i.test(held)) return held
   const code = held.toUpperCase()
-  if (code === 'ZZ') return held
+  if (/^(AA|Q[M-Z]|X[A-Z]|ZZ)$/.test(code)) return held
   try {
     const name = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' }).of(code)
     return name && name !== code ? name : held
