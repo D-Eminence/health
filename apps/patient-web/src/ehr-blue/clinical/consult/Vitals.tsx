@@ -32,7 +32,7 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
   chart: Chart
   encounterId: string
   list: RecordList<ClinicalRecord>
-  /** The role may add vitals (with write access to the patient): the card links to the vitals form, where the visit is chosen. */
+  /** The role may add vitals (with write access to the patient): the card links to the vitals form, with this visit chosen. */
   canRecord: boolean
 }) {
   const href = useWorkspaceHref()
@@ -42,7 +42,9 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
   return (
     <EhrCard
       title={VITALS_TITLE}
-      actions={canRecord ? <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')}>{RECORD_VITALS}</Link> : undefined}
+      // Today's Add vitals saves to the encounter shown (Clinical.tsx:1898): the form opens with this visit chosen. Only
+      // its record id goes, in router state, as Home's order link and the OCR hand-off do; never in the address.
+      actions={canRecord ? <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')} state={{ visitId: encounterId }}>{RECORD_VITALS}</Link> : undefined}
     >
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />

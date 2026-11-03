@@ -1,12 +1,14 @@
-import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
+import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import { TriageWorkspace } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
 import { CORRECTION_UNREAD, LOADING_CORRECTION, RETRACTED_TEXT } from '../../../ehr-blue/clinical/triage/vitals'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { consultationLabel } from '../../../plainLabels'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, renderPage } from './harness'
+import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
 
 /**
  * Consultation, one encounter: the Vitals card, today's Vitals tab (staff/routes/Clinical.tsx:1849-1858) on the
@@ -77,6 +79,30 @@ async function openEncounter() {
 
 function vitalsReads() {
   return api.records.mock.calls.filter(call => call[3] === 'vitals')
+}
+
+/** The memory router's address (window.location never moves under MemoryRouter). */
+function Address() {
+  const location = useLocation()
+  return <p data-testid="address">{`${location.pathname}${location.search}${location.hash}`}</p>
+}
+
+/** The visit page with Triage & Vitals beside it, under the address shown. */
+function renderWithTriage(entry: InitialEntry = `/provider/clinical/${ENCOUNTER_ID}`) {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <Address />
+      <Routes>
+        <Route path="/provider/clinical/*" element={<ConsultWorkspace />} />
+        <Route path="/provider/triage/*" element={<TriageWorkspace />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+/** The Vitals card, once shown. */
+async function vitalsCard() {
+  return within(await screen.findByRole('heading', { level: 2, name: 'Vitals' }).then(heading => heading.closest('section') as HTMLElement))
 }
 
 describe('Consultation record: Vitals card', () => {
@@ -199,5 +225,26 @@ describe('Consultation record: Vitals card', () => {
     card = await openEncounter()
     await screen.findByText('You can view this record but not change it.')
     expect(card.queryByRole('link', { name: 'Record vitals' })).toBeNull()
+  })
+
+  it('opens the vitals form from "Record vitals" with this visit chosen, the visit going in router state only', async () => {
+    staff.permissions = [...READS, 'ehr.vital.write']
+    renderWithTriage()
+    const card = await vitalsCard()
+    fireEvent.click(await card.findByRole('link', { name: 'Record vitals' }))
+    // Today's Add vitals saves to the encounter shown (staff/routes/Clinical.tsx:1898).
+    const visit = await screen.findByLabelText(labelled('Visit')) as HTMLSelectElement
+    expect(visit.value).toBe(ENCOUNTER_ID)
+    expect(screen.getByTestId('address').textContent).toBe('/provider/triage/new')
+  })
+
+  it('chooses the visit it was handed only when it is one of this patient’s visits read', async () => {
+    staff.permissions = [...READS, 'ehr.vital.write']
+    renderWithTriage({ pathname: '/provider/triage/new', state: { visitId: OTHER.id } })
+    expect((await screen.findByLabelText(labelled('Visit')) as HTMLSelectElement).value).toBe(OTHER.id)
+    cleanup()
+    renderWithTriage({ pathname: '/provider/triage/new', state: { visitId: 'e9999999-0000-4000-8000-000000000009' } })
+    // Not one of them: the clinician chooses, as before.
+    expect((await screen.findByLabelText(labelled('Visit')) as HTMLSelectElement).value).toBe('')
   })
 })
