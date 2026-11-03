@@ -29,7 +29,8 @@ vi.mock('../../App', () => ({
 // The error the client builds from the gateway's body (packages/http envelope.ts, errors.ts).
 const GENERIC_NOT_FOUND = 'We could not find what you were looking for.'
 const routeClosed = () => new HidApiError(404, GENERIC_NOT_FOUND, { code: 'API_ROUTE_NOT_FOUND' })
-const NOT_IN_SERVICE = 'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'
+// Plain words, never the deployment or the gateway's own (owner's rule, 1 Nov 2026).
+const NOT_IN_SERVICE = 'This part of Health ID isn’t turned on for your facility. Contact Health ID support if you need it.'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -71,10 +72,11 @@ describe('a workspace whose module the gateway has closed', () => {
     expect(await alerts()).toEqual([NOT_IN_SERVICE])
   })
 
-  it('keeps the message of a 404 the module itself sent', async () => {
+  it('says a 404 the module itself sent as not found, in plain words', async () => {
     permissions.value = ['lab.work-item.read']
     api.labWorkItems.mockRejectedValue(new HidApiError(404, 'Lab work item was not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }))
     render(<Laboratory />)
-    expect(await alerts()).toEqual(['Lab work item was not found'])
+    expect(await alerts()).toEqual(['We couldn’t find what you were looking for. It may have been moved or removed.'])
+    expect(document.body.textContent).not.toContain('Lab work item was not found')
   })
 })

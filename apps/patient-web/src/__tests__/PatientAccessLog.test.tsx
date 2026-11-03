@@ -125,7 +125,7 @@ describe('who viewed or changed your record', () => {
     let fail = true
     await accessPage(() => fail ? problem(400, 'INVALID_CURSOR', 'The access log could not be read.') : json({ events: [event(1)], nextBefore: null }))
     const card = await section()
-    expect(await within(card).findByText('The access log could not be read.')).toBeTruthy()
+    expect(await within(card).findByText('We couldn’t load this right now. Check your connection and try again.')).toBeTruthy()
     fail = false
     await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Try again' })) })
     expect(await within(card).findByText('Dr Clinician 1 at Lagos General')).toBeTruthy()
@@ -140,7 +140,7 @@ describe('who viewed or changed your record', () => {
     const more = within(card).getByRole('button', { name: 'Show more' })
     more.focus()
     await act(async () => { fireEvent.click(more) })
-    expect(shownText(await within(card).findByRole('alert'))).toBe('Older events could not be read.')
+    expect(shownText(await within(card).findByRole('alert'))).toBe('Couldn’t load more. Try again.')
     expect(within(card).getAllByRole('listitem')).toHaveLength(1)
     expect(document.activeElement).toBe(more)
   })

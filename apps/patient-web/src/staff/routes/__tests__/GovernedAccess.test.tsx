@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { AccessRequests } from '../AccessRequests'
 import { Clinical } from '../Clinical'
 import { Patients } from '../Patients'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * The governed-access loop: the clinician's own request list, closing the
@@ -80,7 +81,8 @@ describe('the clinician’s access requests', () => {
     api.listAccessRequests.mockRejectedValue(new HidApiError(403, 'The consent command is not authorized',
       { code: 'CONSENT_COMMAND_DENIED' }))
     render(<AccessRequests />)
-    expect((await screen.findByRole('alert')).textContent).toMatch(/cannot list access requests/)
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role here can’t see access requests. Ask your facility administrator if you need to.')
+    expect(document.body.textContent).not.toContain('The consent command is not authorized')
   })
 })
 
@@ -170,13 +172,15 @@ describe('closing the grant that opened a record', () => {
 
   // POST /identity/consent-grants/:grantId/close requires identity.consent.write
   // (hid-system identity consent.controller.ts; contracts registry access.closeOwnGrant).
-  it('is unavailable to a role without identity.consent.write, and says why', () => {
+  it('is unavailable to a role without identity.consent.write, and says why in plain words', () => {
     staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify', 'ehr.encounter.read', 'ehr.note.read']
     staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup('c0000000-0000-4000-8000-000000000001') }
     render(<MemoryRouter><Patients /></MemoryRouter>)
     const close = screen.getByRole('button', { name: 'Close my grant' }) as HTMLButtonElement
     expect(close.disabled).toBe(true)
-    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.consent\.write/)
+    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('Your role at this facility can’t close this grant. Ask your facility administrator.')
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     fireEvent.click(close)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
@@ -243,13 +247,15 @@ describe('an open record whose access has ended', () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(status, message))
     render(<MemoryRouter><Clinical /></MemoryRouter>)
     await waitFor(() => expect(staff.setActivePatient).toHaveBeenCalledWith(null))
-    expect(await screen.findByText(/Patient access has ended/)).toBeTruthy()
+    expect(await screen.findByText('Your access to this patient has ended. Open the patient again to keep working.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain(message)
   })
 
   it('keeps the record open when the access check could not be made', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(503, 'Identity is unavailable', { code: 'IDENTITY_SERVICE_UNAVAILABLE' }))
     render(<MemoryRouter><Clinical /></MemoryRouter>)
-    expect(await screen.findByText('Identity is unavailable')).toBeTruthy()
+    expect(await screen.findByText(SAID_UNAVAILABLE)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Identity is unavailable')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 })

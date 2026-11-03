@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
+import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * The blue Migrate page: today's Document OCR flow (staff/routes/Operations.tsx Ocr) in the design's list, new and
@@ -229,7 +230,8 @@ describe('Migrate list view', () => {
     renderMigrate()
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
-    expect((await screen.findByRole('alert')).textContent).toBe('The service could not complete the request.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('The service could not complete the request.')
     await waitFor(() => expect(focused()).toBe(button('Find job')))
     expect(screen.queryByText('No OCR job for this document')).toBeNull()
   })
@@ -239,7 +241,8 @@ describe('Migrate list view', () => {
     renderMigrate()
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
-    expect((await screen.findByRole('alert')).textContent).toBe('This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_NOT_TURNED_ON)
+    expect(document.body.textContent).not.toContain('deployment')
   })
 })
 
@@ -289,7 +292,8 @@ describe('Migrate record view', () => {
   it('says when the review evidence cannot be loaded', async () => {
     api.ocrValidations.mockRejectedValue(new HidApiError(403, 'OCR access is not authorized', { code: 'OCR_ACCESS_DENIED' }))
     await findJob(awaiting)
-    expect((await screen.findByRole('alert')).textContent).toBe('OCR access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('OCR access is not authorized')
   })
 
   it('Back to list shows the job in the list, with focus on its name, and Quick view shows its facts', async () => {
@@ -360,7 +364,8 @@ describe('Migrate record view', () => {
     await findJob(awaiting)
     api.findOcrJob.mockRejectedValue(unavailable())
     await press(button('Refresh status'))
-    expect((await screen.findByRole('alert')).textContent).toBe('The service could not complete the request.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('The service could not complete the request.')
     await waitFor(() => expect(focused()).toBe(button('Find job')))
   })
 })
@@ -419,7 +424,8 @@ describe('Migrate: creating a job (New document job)', () => {
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
     await press(button('Save record'))
-    expect((await screen.findByRole('alert')).textContent).toBe('The service could not complete the request.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('The service could not complete the request.')
     expect(api.createOcrJob).not.toHaveBeenCalled()
     await waitFor(() => expect(focused()).toBe(button('Save record')))
   })
@@ -431,7 +437,8 @@ describe('Migrate: creating a job (New document job)', () => {
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
     await press(button('Save record'))
-    expect((await screen.findByRole('alert')).textContent).toBe('The document is not virus scan clean')
+    expect((await screen.findByRole('alert')).textContent).toBe('This document hasn’t finished its virus check yet. Try again once it has.')
+    expect(document.body.textContent).not.toContain('The document is not virus scan clean')
     expect(screen.getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(button('Save record')))
   })
@@ -555,7 +562,8 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     api.validateOcrJob.mockRejectedValue(new HidApiError(409, 'The job changed since it was read', { code: 'OCR_JOB_VERSION_CONFLICT' }))
     const submit = within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' })
     await press(submit)
-    expect((await screen.findByRole('alert')).textContent).toBe('The job changed since it was read')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The job changed since it was read')
     await waitFor(() => expect(focused()).toBe(submit))
     expect((screen.getByLabelText(/^Review reason/) as HTMLTextAreaElement).value).toBe('Checked against the scanned page')
     expect(statusRegion().textContent).toBe('')
@@ -570,7 +578,8 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     await press(within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' }))
     await waitFor(() => expect(focused()).toBe(button('Find job')))
     expect(statusRegion().textContent).toBe('Review recorded.')
-    expect(screen.getByRole('alert').textContent).toBe('The service could not complete the request.')
+    expect(screen.getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('The service could not complete the request.')
   })
 
   it('confirm: moves focus to the review and publication history', async () => {

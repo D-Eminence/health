@@ -6,7 +6,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -17,6 +17,9 @@ import {
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction } from '../productHostname'
+import {
+  DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
+} from '../documentTypes'
 
 export interface Facility {
   id: string
@@ -93,7 +96,7 @@ function loginResult(answer: unknown): StaffLoginResult {
     return { kind: 'challenge', challenge: { status: read.status, expiresAt: read.expiresAt } }
   }
   if (typeof read?.actor?.id === 'string') return { kind: 'session', session: read as StaffSession }
-  throw new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE', retryable: false })
+  throw new HidApiError(502, 'We couldn’t sign you in just now. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
 }
 
 /** The enrolment code was emailed to the account's address. `expiresAt` is the challenge's, not the code's. */
@@ -278,7 +281,20 @@ export function isRequestLogEvent(event: { readonly action: string; readonly res
   return event.action.startsWith('api.')
 }
 
-/** The page the facility audit read returns: seven fields per event, the request log left out, the cursor kept. */
+/**
+ * Whether a lab.result.verify event was a One-person lab self-check (hid-system 0111): its details carry selfCheck: true.
+ * Nothing else of the details is kept.
+ */
+function wasSelfCheck(event: FacilityAuditEvent): boolean {
+  if (event.action !== 'lab.result.verify') return false
+  const details = (event as { details?: unknown }).details
+  return typeof details === 'object' && details !== null && (details as { selfCheck?: unknown }).selfCheck === true
+}
+
+/**
+ * The page the facility audit read returns: seven fields per event (and, for a self-checked lab result, that mark), the
+ * request log left out, the cursor kept.
+ */
 export function facilityAuditPageFrom(page: FacilityAuditPage): FacilityAuditPage {
   return {
     nextBeforeSequenceId: page.nextBeforeSequenceId,
@@ -290,6 +306,7 @@ export function facilityAuditPageFrom(page: FacilityAuditPage): FacilityAuditPag
       action: event.action,
       outcome: event.outcome,
       resourceType: event.resourceType,
+      ...(wasSelfCheck(event) ? { selfCheck: true as const } : {}),
     })),
   }
 }
@@ -303,6 +320,8 @@ export interface FacilityAuditEvent {
   action: string
   outcome: 'success' | 'denied' | 'failure'
   resourceType: string | null
+  /** A lab result checked by the person who entered it (One-person lab); absent otherwise. */
+  selfCheck?: true
 }
 
 export interface FacilityAuditPage {
@@ -492,18 +511,83 @@ export interface EmergencyRecords {
 
 /**
  * A clinical document as EHR's list returns it (document.service.ts list):
- * size_bytes is selected as text.
+ * size_bytes is selected as text. Once the backend serves the document types
+ * (documentTypes.ts), each also says its type, and one uploaded on a Lab or
+ * Pharmacy work item names that work item instead of an encounter (its
+ * encounterId is then null). Read the type with documentTypeOf.
  */
 export interface DocumentRecord {
   id: string
   patientId: string
-  encounterId: string
+  encounterId: string | null
   fileName: string
   mediaType: string
   sizeBytes: number | string
   status: string
   scanStatus: string
   createdAt: string
+  documentType?: string
+  labWorkItemId?: string | null
+  pharmacyWorkItemId?: string | null
+}
+
+/** A document list's answer. With the document types it also answers `documentTypes: true` (an earlier backend, nothing). */
+export interface DocumentPage extends Page<DocumentRecord> {
+  documentTypes?: boolean
+}
+
+/** The Lab or Pharmacy work item a laboratory's or pharmacy's document is kept on (lab and pharmacy staff open no encounters). */
+export interface DocumentWorkItem {
+  kind: 'lab' | 'pharmacy'
+  id: string
+}
+
+/** Where a document is kept: exactly one of an encounter, a Lab work item or a Pharmacy work item. */
+type DocumentPlace = { encounterId: string } | { labWorkItemId: string } | { pharmacyWorkItemId: string }
+
+function workItemPlace(workItem: DocumentWorkItem): DocumentPlace {
+  return workItem.kind === 'lab' ? { labWorkItemId: workItem.id } : { pharmacyWorkItemId: workItem.id }
+}
+
+/** Refused here, before any request, while the backend has not said it serves the document types. */
+function assertDocumentTypesServed(documentType?: DocumentType): void {
+  if (documentTypesServed() === true && (documentType === undefined || isDocumentType(documentType))) return
+  throw new HidApiError(400, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, { code: DOCUMENT_TYPES_NOT_SERVED, retryable: false })
+}
+
+/**
+ * Uploads one file to the EHR's document store, kept at `place`. The upload
+ * intent's body is today's eight fields with the encounter, and `documentType`
+ * only when one is given, so an upload without one sends exactly what it always
+ * has. The file is stored exactly as chosen: its SHA-256 is taken of its exact
+ * bytes, and the File itself is the storage PUT's body, never re-encoded.
+ */
+async function sendDocument(facilityId: string, patientId: string, place: DocumentPlace, file: File, documentType?: DocumentType) {
+  // Every step runs only while the session the upload started in is ready: each
+  // waits while that session is checked, unconfirmed or away, and the upload is
+  // abandoned once it has ended (another account signed in, or signed out), so
+  // a document is never completed as the next account. The storage PUT is
+  // cancelled with the session. The server's own ownership check is separate.
+  const sentIn = staffSessionGeneration()
+  const signal = staffSessionSignal()
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const sha256Hex = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  await untilStaffSessionReady(sentIn)
+  const intent = await client.post<{
+    document: { id: string }
+    upload: { method: 'PUT'; url: string; requiredHeaders: Record<string, string>; expiresInSeconds: number }
+  }>('/api/v1/ehr/documents/upload-intents', {
+    patientId, ...place, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
+    sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
+    ...(documentType === undefined ? {} : { documentType }),
+  }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
+  await untilStaffSessionReady(sentIn)
+  await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
+    allowLocalHttp: getEnvironment().name === 'local' })
+  await untilStaffSessionReady(sentIn)
+  await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
+    { headers: facilityHeaders(facilityId) })
+  return intent.document.id
 }
 
 export interface LabWorkItem {
@@ -603,6 +687,14 @@ export interface LabResultRevision {
   /** When this revision was released; null until then. Sent since hid-system #51. */
   releasedAt?: string | null
   correctionReason: string | null
+  /**
+   * One-person lab (owner decision 33.3, hid-system 0111). Lab staff reads only: whether the reader entered this
+   * revision, and the typed reason of a self-check (null otherwise). Missing on an older image.
+   */
+  enteredByYou?: boolean
+  selfCheckReason?: string | null
+  /** Whether it was checked by the person who entered it; null until checked. Also on released-only reads. */
+  checkedBySamePerson?: boolean | null
 }
 
 export interface LabResult {
@@ -613,6 +705,11 @@ export interface LabResult {
   currentVersion: number
   currentReleasedVersion: number | null
   revisions: LabResultRevision[]
+  /**
+   * Whether the reader's own facility works as a one-person lab (hid-system 0111), on Lab staff reads only. Missing on an
+   * older image, which is read as off with today's screen.
+   */
+  onePersonLab?: boolean
 }
 
 /**
@@ -647,6 +744,8 @@ export interface LabExecution {
   completedAt: string | null
   version: number
   result: LabResult | null
+  /** The facility's One-person lab switch, if Lab ever sends it with the execution (today only the result carries it). */
+  onePersonLab?: boolean
 }
 
 export type LabResultValue = {
@@ -1291,7 +1390,7 @@ function refreshStaffSession(): Promise<StaffSession> {
 }
 
 function sessionEnded(cause?: HidApiError): HidApiError {
-  return new HidApiError(401, 'Your session has ended. Sign in again to continue.',
+  return new HidApiError(401, 'Your session has ended. Please sign in again.',
     { code: 'AUTHENTICATION_REQUIRED', requestId: cause?.requestId, retryable: false, cause })
 }
 
@@ -1382,7 +1481,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
     if (actorId === null) return
     const found = await checkStaffSession(actorId, sentIn)
     if (staffSessionGeneration() !== sentIn || found === 'ended') return
-    if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
+    if (found === 'unknown') throw new PlainError(PLAIN.signOutFailed)
   }
   for (let attempt = 1; ; attempt += 1) {
     try { await signOutInTurn(() => stillThisAccount(actorId), () => client.post<null>('/api/v1/auth/logout')); return }
@@ -1393,7 +1492,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
       if (!endsStaffSession(error)) throw error
     }
     if (staffSessionGeneration() !== sentIn) return
-    if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+    if (attempt === SIGN_OUT_ATTEMPTS) throw new PlainError(PLAIN.signOutFailed)
     try { await restoreStaffSession(actorId) }
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return
@@ -1588,6 +1687,17 @@ export const providerEnrollmentApi = {
 
 /** What an invitation email's delivery came to: sent, refused by the address, or not confirmed (P4b). */
 export type StaffDeliveryOutcome = 'accepted' | 'definitive_failure' | 'unknown' | 'pending'
+
+/**
+ * GET /api/v1/identity/facility-settings (hid-system 0111): the facility's One-person lab switch (owner decision 33.3),
+ * off until its administrator turns it on, with who last changed it, when and why.
+ */
+export interface FacilitySettings {
+  onePersonLab: { enabled: boolean; changedAt: string | null; changedByName: string | null; reason: string | null }
+}
+
+/** The answer to switching One-person lab on or off. */
+export interface OnePersonLabChange { enabled: boolean; changedAt: string; settingId: string }
 
 /** A member of a self-signed-up facility (GET …/facility-staff, P4b): licence numbers come as their last 4 characters. */
 export interface FacilityStaffMember {
@@ -1799,6 +1909,15 @@ export const staffApi = {
     } catch (error) { if (endsStaffSession(error)) reportStaffSessionEnded(sentIn); throw error }
   },
 
+  // The facility's own settings (hid-system 0111): today One-person lab. organization.manage at the facility; a 404 is an
+  // image before 0111, and the page then shows nothing of it.
+  facilitySettings: (facilityId: string) =>
+    client.get<FacilitySettings>('/api/v1/identity/facility-settings',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
+    client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+
   facilityAudit: async (facilityId: string, beforeSequenceId?: string): Promise<FacilityAuditPage> => {
     const page = await client.get<FacilityAuditPage>('/api/v1/audit/events', {
       query: { limit: 50, ...(beforeSequenceId ? { beforeSequenceId } : {}) },
@@ -1984,38 +2103,35 @@ export const staffApi = {
     client.post<NoteRevision>(`${encounterPath(patientId, encounterId)}/clinical-notes/${encodeURIComponent(noteId)}/revisions`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   documents: (facilityId: string, patientId: string, encounterId: string) =>
-    client.get<Page<DocumentRecord>>('/api/v1/ehr/documents', {
+    client.get<DocumentPage>('/api/v1/ehr/documents', {
       query: { patientId, encounterId }, headers: facilityHeaders(facilityId),
     }),
+  // The documents kept on one Lab or Pharmacy work item (lab.document.read or
+  // pharmacy.document.read). Read only once the backend has said it serves the
+  // document types; before then it is refused here and nothing is sent.
+  async workItemDocuments(facilityId: string, patientId: string, workItem: DocumentWorkItem) {
+    assertDocumentTypesServed()
+    return client.get<DocumentPage>('/api/v1/ehr/documents', {
+      query: { patientId, ...workItemPlace(workItem) }, headers: facilityHeaders(facilityId),
+    })
+  },
   // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
   documentDownload: (facilityId: string, documentId: string) =>
     client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
-  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
-    // Every step runs only while the session the upload started in is ready: each
-    // waits while that session is checked, unconfirmed or away, and the upload is
-    // abandoned once it has ended (another account signed in, or signed out), so
-    // a document is never completed as the next account. The storage PUT is
-    // cancelled with the session. The server's own ownership check is separate.
-    const sentIn = staffSessionGeneration()
-    const signal = staffSessionSignal()
-    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
-    const sha256Hex = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
-    await untilStaffSessionReady(sentIn)
-    const intent = await client.post<{
-      document: { id: string }
-      upload: { method: 'PUT'; url: string; requiredHeaders: Record<string, string>; expiresInSeconds: number }
-    }>('/api/v1/ehr/documents/upload-intents', {
-      patientId, encounterId, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
-      sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
-    }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
-    await untilStaffSessionReady(sentIn)
-    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
-      allowLocalHttp: getEnvironment().name === 'local' })
-    await untilStaffSessionReady(sentIn)
-    await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
-      { headers: facilityHeaders(facilityId) })
-    return intent.document.id
+  // Without a type, exactly today's upload. A type is sent only when given, and
+  // only once the backend has said it serves the types; before then it is
+  // refused here and nothing is sent.
+  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File, documentType?: DocumentType) {
+    if (documentType !== undefined) assertDocumentTypesServed(documentType)
+    return sendDocument(facilityId, patientId, { encounterId }, file, documentType)
+  },
+  // A laboratory's or pharmacy's upload, kept on its Lab or Pharmacy work item
+  // instead of an encounter (lab.document.write or pharmacy.document.write),
+  // with its type. Refused here, and nothing sent, until the backend serves it.
+  async uploadWorkItemDocument(facilityId: string, patientId: string, workItem: DocumentWorkItem, file: File, documentType: DocumentType) {
+    assertDocumentTypesServed(documentType)
+    return sendDocument(facilityId, patientId, workItemPlace(workItem), file, documentType)
   },
 
   labWorkItems: (facilityId: string) =>
@@ -2059,9 +2175,12 @@ export const staffApi = {
       { expectedExecutionVersion: execution.version, expectedResultVersion: result.currentVersion,
         ...value, reason, revisionKind },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
-  verifyLabResult: (facilityId: string, result: LabResult, reason: string) =>
+  // A self-check (One-person lab, hid-system 0111) sends selfCheck: true with the reason exactly as typed. An image
+  // before 0111 refuses the field, so it is sent only when the result read says onePersonLab: true.
+  verifyLabResult: (facilityId: string, result: LabResult, reason: string, options?: { selfCheck: true }) =>
     client.post<LabResult>(`/api/v1/lab/results/${encodeURIComponent(result.id)}/verify`,
-      { expectedResultVersion: result.currentVersion, occurredAt: new Date().toISOString(), reason },
+      { expectedResultVersion: result.currentVersion, occurredAt: new Date().toISOString(), reason,
+        ...(options?.selfCheck && result.onePersonLab === true ? { selfCheck: true } : {}) },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
   releaseLabResult: (facilityId: string, result: LabResult, reason: string) =>
     client.post<LabResult>(`/api/v1/lab/results/${encodeURIComponent(result.id)}/release`,

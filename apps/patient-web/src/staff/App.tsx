@@ -2,15 +2,12 @@ import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useL
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
-import { isHidApiError } from '@hid/http'
-import {
-  staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment,
-  type StaffSession,
-} from './api'
+import { isHidApiError, PLAIN, PlainError, plainErrorText } from '@hid/http'
+import { staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment, type StaffSession } from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
   announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
-  setStaffSessionFacilities, setStaffSessionReady, staffSessionEndReason, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
+  setStaffSessionFacilities, setStaffSessionReady, staffReturnPath, staffSessionEndReason, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
   type StaffSessionEndReason,
 } from './session'
 import { SignIn, STAFF_MFA_NOTICE } from './routes/SignIn'
@@ -34,7 +31,8 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
-import { blueForAll, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -325,7 +323,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         session = await staffApi.refresh()
       }
       if (!current()) return
-      if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
+      if (session.actor.kind === 'patient') throw new PlainError('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
       setState({ status: 'ready', session })
       askIfHeardWhileOpening()
     } catch (error) {
@@ -333,7 +331,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (endsStaffSession(error)) {
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
       } else {
-        setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
+        setState({ status: 'error', session: null, error: plainErrorText(error, 'We couldn’t check that you’re signed in. Please try again.', { audience: 'facility' }) })
       }
     }
   }, [setState, setLock, startPeriod, askIfHeardWhileOpening])
@@ -361,7 +359,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   function completeSignIn(session: StaffSession) {
-    if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
+    if (session.actor.kind === 'patient') throw new PlainError('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
     startStaffSessionGeneration()
     startPeriod()
     away.current = null
@@ -449,7 +447,7 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
     setError('')
     setSigningOut(true)
     try { await signOut() }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    catch (caught) { setError(plainErrorText(caught, PLAIN.signOutFailed)) }
     finally { setSigningOut(false) }
   }
 
@@ -476,8 +474,12 @@ function Gate({ children }: { children: ReactNode }) {
   if (state.status === 'signed-out') {
     // Signed out on the join page (an invitation's link, Novu, P4b), the sign-in comes back to it; the link itself
     // waits in this page's memory (invitationCapture.ts), never in the return address.
-    const joining = usesNovuBackend() && pathname.replace(/\/+$/, '').toLowerCase() === STAFF_JOIN_PATH
-    const productRoute = joining ? STAFF_JOIN_PATH : resolveStaffProductHostname(window.location.hostname)?.route
+    const asked = pathname.replace(/\/+$/, '').toLowerCase()
+    const joining = usesNovuBackend() && asked === STAFF_JOIN_PATH
+    // On a product site, the sign-in comes back to the page asked for when it may (each site signs in on its own, so a
+    // link from another product lands here), else to the site's own page.
+    const product = resolveStaffProductHostname(window.location.hostname)?.route
+    const productRoute = joining ? STAFF_JOIN_PATH : product && (staffReturnPath(asked) ?? product)
     const signInPath = productRoute ? `/provider/sign-in?returnTo=${encodeURIComponent(productRoute)}` : '/provider/sign-in'
     return <Navigate to={signInPath} replace />
   }
@@ -489,12 +491,12 @@ function Gate({ children }: { children: ReactNode }) {
 
 /**
  * A choice or switch of facility that Identity refused, in words the person can act
- * on. Its own detail for 403 FACILITY_ACCESS_DENIED speaks of "the actor"; the
+ * on, never Identity's own text. Its detail for 403 FACILITY_ACCESS_DENIED speaks of "the actor"; the
  * facility is no longer one of theirs (the membership ended since the list was read).
  */
 function facilityRefusal(caught: unknown, facility: string): string {
   if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
-  return caught instanceof Error ? caught.message : 'Facility could not be selected.'
+  return plainErrorText(caught, 'We couldn’t open that facility. Please try again.', { audience: 'facility' })
 }
 
 /** Why the facility question is asked: as Identity reports the selection, or 'lost' (see SessionState). */
@@ -623,6 +625,16 @@ function ProviderTitle() {
   return null
 }
 
+/**
+ * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in
+ * again (each site keeps its own sign-in). Nothing opens here; another facility can be chosen under “Working at”.
+ */
+function FacilityOnAnotherSite({ facility, site }: { facility: string; site: Site }) {
+  return <EmptyState titleAs="h1" title={`${facility} works on ${SITE_NAMES[site.key]}`}
+    description={`${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately. To work at another facility here, choose it under “Working at”.`}
+    action={<a className="staff-text-link" href={siteHref(site)}>Open {SITE_NAMES[site.key]} →</a>} />
+}
+
 function Shell() {
   const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const [facilityError, setFacilityError] = useState('')
@@ -672,9 +684,21 @@ function Shell() {
   if (!classic && showsBlueEhr(state.session.actor, choiceNeeded !== null)) {
     return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Health ID EHR…</p></main>}><EhrBlueApp /></Suspense>
   }
+  // Each product works on its own (owner, 2026-11-02): on a product site, a page of the sidebar's that its product does
+  // not open (one of the hospital EHR's, typed or a sign-in's return address) opens this site's Overview instead, as the
+  // blue frame opens the product's Home. The page never mounts, so it reads nothing. Any other address is left to the
+  // routes below (Page not found).
+  const asked = pathname.replace(/\/+$/, '').toLowerCase()
+  if (navigation.some(item => item.to === asked) && !offeredHere(pathname)) return <Navigate to="/provider" replace />
   const { actor } = state.session
   const currentFacility = actor.facility
-  const visible = visibleNavigation(currentFacility)
+  // Each product on its own site (productSites.ts): the sidebar lists what this site's product opens, and links to the
+  // other products' sites for their own pages the facility may open. A demo facility works on its own site.
+  const permitted = visibleNavigation(currentFacility)
+  const visible = permitted.filter(item => offeredHere(item.to))
+  const otherSites = otherStaffSites(permitted.map(item => item.to))
+  const demoSite = demoFacilitySite(currentFacility?.id)
+  const facilitySite = demoSite ? siteElsewhere(demoSite) : null
   const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
   const chosenId = choice?.from === choosingFrom ? choice.to : currentFacility?.id ?? ''
   const chosen = chosenId !== (currentFacility?.id ?? '') ? actor.facilities.find(facility => facility.id === chosenId) : undefined
@@ -706,7 +730,7 @@ function Shell() {
     setSignOutError('')
     setSigningOut(true)
     try { await signOut() }
-    catch (error) { setSignOutError(error instanceof Error ? error.message : 'Sign-out could not be completed.') }
+    catch (error) { setSignOutError(plainErrorText(error, PLAIN.signOutFailed)) }
     finally { setSigningOut(false) }
   }
 
@@ -740,12 +764,18 @@ function Shell() {
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
         </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
+        {otherSites.length > 0 && <nav className="staff-nav staff-nav-sites" aria-labelledby="staff-nav-sites-title" onFocus={revealFocusedLink}>
+          <p id="staff-nav-sites-title" className="staff-nav-sites-title">Other Health ID sites</p>
+          {otherSites.map(site => <a key={site.key} className="staff-nav-link" href={siteHref(site)}>{SITE_NAMES[site.key]}<span className="staff-nav-meta">{SITE_PRODUCT_NAMES[site.key]}</span></a>)}
+        </nav>}
         <div className="staff-sidebar-footer"><Badge tone="information">{(usesNovuBackend() ? roleLabels(actor.roles) : actor.roles.join(', ')) || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}
       {/* Hidden itself while the workspace is locked: only the session check's main is exposed then. */}
       <main ref={main} className="staff-main" hidden={lock !== null}>{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
         {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
-        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <><ReviewBanner /><BillingBanner /><Outlet /></>}</main>
+        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} />
+          : facilitySite ? <FacilityOnAnotherSite facility={currentFacility?.name ?? 'This facility'} site={facilitySite} />
+            : <><ReviewBanner /><BillingBanner /><Outlet /></>}</main>
     </div>
   </div>
 }

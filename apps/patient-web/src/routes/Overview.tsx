@@ -24,6 +24,8 @@ import { neverSaved } from './HealthInformation'
 import { useOnNotificationChange } from '../notificationBadge'
 import { useShareProbe } from './ShareRecords'
 import { ButtonR } from './profileParts'
+import { plainCode, visitClassLabel } from '../plainLabels'
+import { sectionsShown } from './recordSections'
 
 /**
  * The home dashboard as hid-1.0 had it (HomeDashboard.tsx; hid-1.0 parity B3, contract D): the profile card with the
@@ -67,15 +69,21 @@ export function recentActivity(log: AccessLogPage | null | undefined, notices: P
   return [...events, ...inbox].sort((a, b) => stamp(b.at) - stamp(a.at)).slice(0, rows)
 }
 
-export interface ContributionRow { id: string; at: string | null; kind: string; title: string }
+/** What a contribution is, as the page says it. */
+const VISIT = 'Visit', NOTE = 'Doctor’s note'
+export interface ContributionRow { id: string; at: string | null; kind: typeof VISIT | typeof NOTE; title: string }
 
-/** The latest completed encounters and signed notes from the patient's providers, newest first; never a note's content. */
+/**
+ * The latest completed encounters and signed notes from the patient's providers, newest first; never a note's content.
+ * Each is named in the Records page's words: a visit by its kind, a note by its own title, else its type in words.
+ */
 export function providerContributions(records: PatientRecords | null | undefined, rows = RECENT_ROWS): ContributionRow[] {
   const encounters = list<PatientRecords['encounters'][number]>(records?.encounters).filter(item => typeof item?.id === 'string')
-    .map((item): ContributionRow => ({ id: `encounter-${item.id}`, at: item.endedAt ?? item.startedAt ?? null, kind: 'Encounter',
-      title: typeof item.encounterType === 'string' ? item.encounterType.replace(/_/g, ' ') : 'Encounter' }))
+    .map((item): ContributionRow => ({ id: `encounter-${item.id}`, at: item.endedAt ?? item.startedAt ?? null, kind: VISIT,
+      title: visitClassLabel(typeof item.encounterType === 'string' ? item.encounterType : null) }))
   const notes = list<PatientRecords['notes'][number]>(records?.notes).filter(item => typeof item?.id === 'string' && item.signedAt)
-    .map((item): ContributionRow => ({ id: `note-${item.id}`, at: item.signedAt, kind: 'Clinical note', title: item.title || item.noteType || 'Clinical note' }))
+    .map((item): ContributionRow => ({ id: `note-${item.id}`, at: item.signedAt, kind: NOTE,
+      title: item.title || (item.noteType ? plainCode(item.noteType) : NOTE) }))
   const time = (row: ContributionRow) => { const value = stamp(row.at); return Number.isNaN(value) ? -Infinity : value }
   return [...encounters, ...notes].sort((a, b) => time(b) - time(a)).slice(0, rows)
 }
@@ -155,6 +163,9 @@ export function Overview() {
   const checklist = completion && completion.percent < 100 ? CHECKLIST.filter(c => steps.some(item => item.key === c.key)) : []
   const active = history.data && !history.error ? activeAccesses(history.data) : null
   const counts = records.data && !records.error ? recordCounts(records.data) : null
+  // A tile only for a section the backend sends (recordSections.ts): production sends no documents or prescriptions, and
+  // a tile there could only ever say 0. Each comes back by itself once the backend sends it.
+  const sections = sectionsShown()
 
   const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
   // The heading is there while the profile is read, as the page's own: a link that opened Home takes focus to it
@@ -207,9 +218,9 @@ export function Overview() {
         {/* Blood group, genotype and allergies are on the card; these say what the record holds. */}
         <StatGroup label="Your record at a glance">
           <StatCard icon={FolderHeart} tone="brand" label="Records" value={counts ? counts.records : '…'} to="/records" />
-          <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records?tab=documents" />
+          {sections.includes('documents') && <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records?tab=documents" />}
           <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access" />
-          <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records?tab=prescriptions" />
+          {sections.includes('prescriptions') && <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records?tab=prescriptions" />}
         </StatGroup>
 
         <Card aria-labelledby="overview-contributions" aria-busy={(records.loading && records.data !== null) || undefined}>
@@ -219,8 +230,8 @@ export function Overview() {
             : records.error ? <div className="p-5"><Alert intent="error" title="Couldn't load your records" action={<Button size="sm" onClick={() => void records.reload()}>Try again <ItemName>loading recent provider contributions</ItemName></Button>}>{records.error}</Alert></div>
             : contributions.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Visits and notes appear here once a provider signs them.</p>
             : <ul className="m-0 list-none divide-y divide-line p-0">{contributions.map(row => <li key={row.id}>
-                <ListRow to="/records" leading={<IconChip size="sm" icon={row.kind === 'Clinical note' ? NotebookPen : Stethoscope} />}
-                  title={plain(row.title)} subtitle={[KIND_WORDS[row.kind] ?? row.kind, when(row.at, false)].filter(Boolean).join(' · ')} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>}
+                <ListRow to="/records" leading={<IconChip size="sm" icon={row.kind === NOTE ? NotebookPen : Stethoscope} />}
+                  title={row.title} subtitle={[row.kind, when(row.at, false)].filter(Boolean).join(' · ')} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>}
         </Card>
       </div>
 
@@ -248,8 +259,6 @@ const CHECKLIST: ReadonlyArray<{ key: CompletionKey; label: string; to: string }
 
 const ATTENTION_KEY: Readonly<Record<string, CompletionKey>> = { nin: 'nin', 'emergency-contact': 'emergencyContact' }
 const ATTENTION_ICON: Readonly<Record<string, Icon>> = { requests: ShieldAlert, nin: BadgeCheck, completion: IdCard, 'emergency-contact': PhoneCall }
-/** The plain word for each kind of contribution. */
-const KIND_WORDS: Readonly<Record<string, string>> = { Encounter: 'Visit', 'Clinical note': 'Doctor’s note' }
 /** Each note's button names what it does. */
 const ATTENTION_ACTION: Readonly<Record<string, string>> = { requests: 'Review', nin: 'Verify NIN', completion: 'Finish profile', 'emergency-contact': 'Add contact' }
 const ATTENTION_HINT: Readonly<Record<string, string>> = {
@@ -266,8 +275,6 @@ function forHowLong(minutes: number | null | undefined) {
   if (minutes % 60 === 0 && minutes > 60) return unit(minutes / 60, 'hour')
   return unit(minutes, 'minute')
 }
-
-const plain = (text: string) => { const t = text.replace(/[_-]+/g, ' ').trim(); return t.charAt(0).toUpperCase() + t.slice(1) }
 
 function PageSkeletonRows() {
   return <div className="divide-y divide-line">{[0, 1, 2].map(i => <div key={i} className="flex items-center gap-4 px-5 py-4"><div className="size-8 animate-pulse rounded-full bg-hover" /><div className="flex-1 space-y-2"><div className="h-3.5 w-1/3 animate-pulse rounded-md bg-hover" /><div className="h-3 w-1/4 animate-pulse rounded-md bg-hover" /></div></div>)}</div>

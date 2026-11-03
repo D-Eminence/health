@@ -294,8 +294,10 @@ export function Select({ className, children, controlSize = 'md', ...rest }: Rea
 }
 
 /* ---- Lists ---- */
-export function ListRow({ to, leading, title, subtitle, trailing, className, onClick }: {
+export function ListRow({ to, leading, title, subtitle, trailing, className, onClick, disabled, describedBy }: {
   to?: string; leading?: ReactNode; title: ReactNode; subtitle?: ReactNode; trailing?: ReactNode; className?: string; onClick?: () => void
+  /** A button row only: turned off, pointing (`describedBy`, an element id) to why. */
+  disabled?: boolean; describedBy?: string
 }) {
   const inner = <>
     {leading}
@@ -305,9 +307,10 @@ export function ListRow({ to, leading, title, subtitle, trailing, className, onC
     </div>
     {trailing && <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">{trailing}</div>}
   </>
-  const cls = cx('flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5', (to || onClick) && 'no-underline transition-colors hover:bg-subtle', className)
+  const cls = cx('flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5', (to || onClick) && 'no-underline transition-colors', (to || onClick) && !disabled && 'hover:bg-subtle', className)
   if (to) return <Link to={to} className={cls}>{inner}</Link>
-  if (onClick) return <button type="button" onClick={onClick} className={cx(cls, 'w-full border-0 bg-transparent text-left')}>{inner}</button>
+  if (onClick) return <button type="button" onClick={onClick} disabled={disabled} aria-describedby={describedBy}
+    className={cx(cls, 'w-full border-0 bg-transparent text-left', disabled && 'cursor-not-allowed opacity-60')}>{inner}</button>
   return <div className={cls}>{inner}</div>
 }
 

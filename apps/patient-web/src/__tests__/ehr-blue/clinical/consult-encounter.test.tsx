@@ -7,6 +7,8 @@ import { ENCOUNTER_STATUS_UPDATED, REVISION_RECORDED } from '../../../ehr-blue/c
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { consultationLabel } from '../../../plainLabels'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, one encounter: the design's record page (Saved record, Available actions with the typed SIGN
@@ -96,7 +98,7 @@ afterEach(() => {
 
 async function openEncounter() {
   renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-  expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
   // The note's content, once read (in the Note card, and in an earlier version too).
   expect((await screen.findAllByText('Cough for three days.', { exact: false })).length).toBeGreaterThan(0)
 }
@@ -225,17 +227,17 @@ describe('Consultation record', () => {
     expect(history.getByText('Only records your role can see are listed.')).toBeTruthy()
     const row = (name: string) => history.getByText(name).closest('li') as HTMLElement
     const link = (name: string) => history.getByRole('link', { name }).getAttribute('href')
-    expect(link('Consultation · e2222222')).toBe(`/provider/clinical/${OTHER.id}`)
+    expect(link(consultationLabel(OTHER))).toBe(`/provider/clinical/${OTHER.id}`)
     for (const label of ['Notes · Consultation note', 'Diagnoses · Malaria (fictional)', 'Documents · referral-letter.pdf']) {
       expect(history.getByText(label).tagName).toBe('SPAN')
     }
     expect(within(row('Notes · Consultation note')).getByText('Draft')).toBeTruthy()
     // A nursing observation is not a clinical note row: it links to its own page, as the nursing pages name it.
     expect(history.queryByText('Notes · Vitals')).toBeNull()
-    expect(link('Nursing observations · b1c6ef36')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${observation.id}`)
-    expect(within(row('Nursing observations · b1c6ef36')).getByText('Signed')).toBeTruthy()
-    expect(link('Vitals · vital-1')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-1`)
-    expect(within(row('Vitals · vital-1')).getByText('Final')).toBeTruthy()
+    expect(link(`Nursing observations · ${formatWhen(observation.createdAt)}`)).toBe(`/provider/nursing/${ENCOUNTER_ID}~${observation.id}`)
+    expect(within(row(`Nursing observations · ${formatWhen(observation.createdAt)}`)).getByText('Signed')).toBeTruthy()
+    expect(link(`Vitals · ${formatWhen(VITAL.createdAt)}`)).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-1`)
+    expect(within(row(`Vitals · ${formatWhen(VITAL.createdAt)}`)).getByText('Final')).toBeTruthy()
     expect(link('Pharmacy · Amoxicillin (fictional)')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/rx-1`)
     expect(link('Laboratory · Malaria smear (fictional)')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/lab-1`)
     for (const href of history.getAllByRole('link').map(item => item.getAttribute('href') ?? '')) {
@@ -254,20 +256,20 @@ describe('Consultation record', () => {
     const pages = await history().findByRole('group', { name: 'Triage & Vitals' })
     expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
     expect(within(pages).getByText('Page 1')).toBeTruthy()
-    expect(history().getByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+    expect(history().getByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
 
     fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
-    const link = await history().findByRole('link', { name: 'Vitals · vital-2' })
+    const link = await history().findByRole('link', { name: `Vitals · ${formatWhen(later.createdAt)}` })
     expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-2`)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
     expect(within(pages).getByText('Page 2')).toBeTruthy()
-    expect(history().queryByRole('link', { name: 'Vitals · vital-1' })).toBeNull()
+    expect(history().queryByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeNull()
     expect(window.location.href).not.toContain('vitals-2')
   })
 
   it('shows no vitals pager while the encounter’s vitals fit on one page', async () => {
     await openEncounter()
-    expect(history().getByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+    expect(history().getByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
     expect(history().queryByRole('group', { name: 'Triage & Vitals' })).toBeNull()
   })
 
@@ -326,7 +328,7 @@ describe('Consultation record', () => {
   it('says the role grants no access to encounter records when it holds none of the record reads', async () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(screen.getByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeTruthy()
     expect(api.records).not.toHaveBeenCalled()
     expect(api.documents).not.toHaveBeenCalled()
@@ -335,7 +337,7 @@ describe('Consultation record', () => {
   it('does not say so when the role holds one record read', async () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+    expect(await screen.findByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
     expect(screen.queryByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeNull()
   })
 
@@ -399,7 +401,8 @@ describe('Consultation record', () => {
   it('shows a note that cannot be read, and offers no signing', async () => {
     api.noteRevisions.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull()
   })
 
@@ -410,7 +413,8 @@ describe('Consultation record', () => {
     fireEvent.click(submitOf('Sign note'))
     fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
-    expect((await actions().findByRole('alert')).textContent).toBe('The record changed since it was read.')
+    expect((await actions().findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The record changed since it was read.')
   })
 
   it('item 7: edits the unsigned draft as a new revision under the clinician’s typed reason, prefilled with its content', async () => {
@@ -448,7 +452,8 @@ describe('Consultation record', () => {
     fireEvent.change(actions().getByLabelText(labelled('Reason')), { target: { value: 'Duration corrected' } })
     api.addNoteRevision.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     fireEvent.click(save())
-    expect((await actions().findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await actions().findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     fireEvent.click(save())
     expect(await screen.findByText('A new note revision was recorded.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-1',
@@ -596,7 +601,8 @@ describe('Consultation record', () => {
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
     fireEvent.click(submitOf('Put on hold'))
     expect(await screen.findByText('Consultation updated.')).toBeTruthy()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     // The change's own answer is still shown.
     expect(within(meta()).getByText('On hold')).toBeTruthy()
   })
@@ -710,7 +716,9 @@ describe('Consultation record: diagnoses', () => {
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
-    expect((await diagnoses.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Display must be shorter than or equal to 500 characters.')
+    expect((await diagnoses.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    expect(document.body.textContent).not.toContain('shorter than or equal to 500 characters')
     expect(diagnoses.getByLabelText(labelled('Display')).getAttribute('aria-invalid')).toBe('true')
 
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
@@ -812,7 +820,7 @@ describe('Consultation record: documents', () => {
     const opened = vi.spyOn(window, 'open').mockReturnValue(null)
     await openEncounter()
     const documents = within(card('Documents'))
-    expect(documents.getByText('PDF · 20 KiB · Checked')).toBeTruthy()
+    expect(documents.getByText('PDF document · 20 KB · Checked')).toBeTruthy()
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(documents.getByRole('button', { name: 'Open file referral-letter.pdf' }))
     await waitFor(() => expect(opened).toHaveBeenCalledWith('https://storage.example.test/doc-1?signature=x', '_blank', 'noopener,noreferrer'))
@@ -829,21 +837,25 @@ describe('Consultation record: documents', () => {
     expect(documents.queryByText(/scan:/)).toBeNull()
   })
 
-  it('states each size in KiB, as it is counted, with an empty file as 0 KiB, as today', async () => {
+  it('states each file’s type and size in plain words, never the media type, the scan code or KiB', async () => {
     api.documents.mockResolvedValue({ items: [
       { ...DOCUMENT, id: 'doc-2', fileName: 'empty-form.pdf', sizeBytes: 0 },
       { ...DOCUMENT, id: 'doc-3', fileName: 'chest-film.tiff', mediaType: 'image/tiff', sizeBytes: '1572864' },
       { ...DOCUMENT, id: 'doc-4', fileName: 'unsized-letter.pdf', sizeBytes: '' },
+      { ...DOCUMENT, id: 'doc-5', fileName: 'wound.jpg', mediaType: 'image/jpeg', sizeBytes: 57344, scanStatus: 'pending' },
+      { ...DOCUMENT, id: 'doc-6', fileName: 'notes.bin', mediaType: 'application/x-unknown', sizeBytes: 1024, scanStatus: 'infected' },
+      { ...DOCUMENT, id: 'doc-7', fileName: 'odd.png', mediaType: 'image/png', sizeBytes: 2048, scanStatus: 'quarantine_review' },
     ], nextCursor: null })
     await openEncounter()
-    // Today's fileSize groups digits in the runner's locale (toLocaleString() with no locale): 1,536 in English, 1.536
-    // in German. Each row is read with the runner's 1536 written as 1,536, so the checks below hold in any locale.
-    const local1536 = (1536).toLocaleString()
-    const row = async (fileName: string) => ((await within(card('Documents')).findByText(fileName)).closest('li') as HTMLElement).textContent?.replace(local1536, '1,536')
-    expect(await row('empty-form.pdf')).toContain(' · 0 KiB · ')
-    expect(await row('chest-film.tiff')).toContain(' · 1,536 KiB · ')
-    expect(await row('unsized-letter.pdf')).toContain(' · Size unknown · ')
-    expect(within(card('Documents')).queryByText(/\d KB|\d MB/)).toBeNull()
+    const row = async (fileName: string) => ((await within(card('Documents')).findByText(fileName)).closest('li') as HTMLElement).textContent
+    expect(await row('empty-form.pdf')).toContain('PDF document · 0 KB · Checked')
+    expect(await row('chest-film.tiff')).toContain('TIFF image · 1.5 MB · Checked')
+    expect(await row('unsized-letter.pdf')).toContain('PDF document · Size unknown · Checked')
+    expect(await row('wound.jpg')).toContain('JPEG image · 56 KB · Being checked for viruses')
+    expect(await row('notes.bin')).toContain('File · 1 KB · Blocked: virus found')
+    expect(await row('odd.png')).toContain('PNG image · 2 KB')
+    const shown = card('Documents').textContent ?? ''
+    expect(shown).not.toMatch(/KiB|image\/|application\/|Check:|quarantine/)
   })
 
   it('refuses a file over 50 MiB with today’s sentence, and uploads nothing', async () => {
@@ -897,7 +909,7 @@ describe('Consultation record: documents', () => {
   it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {
     staff.permissions = [...ALL, 'ocr.job.read']
     renderWithOcr()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const link = await within(card('Documents')).findByRole('link', { name: 'Extract with OCR' })
     // The address names no record, patient or facility: today's route, and the ids in router state.
     expect(link.getAttribute('href')).toBe('/provider/ocr')
@@ -932,7 +944,8 @@ describe('Consultation record: documents', () => {
     api.documents.mockRejectedValue(new HidApiError(503, 'Documents are unavailable.', { code: 'UNAVAILABLE' }))
     await openEncounter()
     await act(async () => {})
-    expect(within(card('Documents')).getByRole('alert').textContent).toBe('Documents are unavailable.')
+    expect(within(card('Documents')).getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Documents are unavailable.')
   })
 })
 
@@ -991,7 +1004,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
   it('offers no "Add notes" to a role that may write notes but not read them', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     await screen.findByRole('heading', { level: 2, name: 'Actions' })
     expect(actions().queryByRole('button', { name: 'Add notes' })).toBeNull()
   })
@@ -1016,7 +1029,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     api.createRecord.mockRejectedValueOnce(UNAVAILABLE())
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(save())
-    expect((await saved.findByRole('alert')).textContent).toContain('EHR is unavailable.')
+    expect((await saved.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     // The revision is in, and the page says so; each save re-checked access first.
     expect(screen.getByText('A new note revision was recorded.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
@@ -1045,7 +1059,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
     api.createRecord.mockRejectedValueOnce(UNAVAILABLE())
     fireEvent.click(saved.getByRole('button', { name: 'Save draft' }))
-    expect((await saved.findByRole('alert')).textContent).toContain('EHR is unavailable.')
+    expect((await saved.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(api.records).not.toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
     records['clinical-notes'] = [{ ...NOTE, rowVersion: 3 }]
     fireEvent.click(saved.getByRole('button', { name: 'Cancel editing' }))
@@ -1182,7 +1197,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     api.documents.mockRejectedValue(new HidApiError(403, 'Your role cannot read documents for this patient.', { code: 'PERMISSION_DENIED' }))
     await openEncounter()
     await waitFor(() => expect(history().getAllByRole('alert')).toHaveLength(2))
-    expect(history().getAllByRole('alert').map(alert => alert.textContent)).toEqual(['Vitals are unavailable.', 'Your role cannot read documents for this patient.'])
+    expect(history().getAllByRole('alert').map(alert => alert.textContent)).toEqual([SAID_UNAVAILABLE, SAID_REFUSED])
+    expect(document.body.textContent).not.toMatch(/Vitals are unavailable|Your role cannot read documents/)
   })
 
   it('says a failure two history lists share once', async () => {
@@ -1192,7 +1208,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     })
     api.documents.mockRejectedValue(UNAVAILABLE())
     await openEncounter()
-    await waitFor(() => expect(history().getByRole('alert').textContent).toBe('EHR is unavailable.'))
+    await waitFor(() => expect(history().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE))
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(history().getAllByRole('alert')).toHaveLength(1)
   })
 })

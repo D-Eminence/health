@@ -83,7 +83,8 @@ export function inProduct(product: Product, path: string): boolean {
 /**
  * Whether this product's workspace offers a page: the frame lists only these (each still under its own permission), and
  * What's left shows only these, so a lab's, pharmacy's, outreach team's or migration site never offers the hospital's
- * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own.
+ * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own. (The frame
+ * lists Home there only to a session that may not open that page, as /provider stays on Home for it: BlueFrame.tsx.)
  */
 export function productLists(product: Product, path: string): boolean {
   return inProduct(product, path) && (product === 'ehr' || path !== '')
@@ -111,8 +112,8 @@ const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 
 /**
  * Whether this product's workspace opens a page at its address; the frame sends any other to the product's Home. Home
- * itself opens (it goes on to the product's own page), as do the pages the product lists and those above. Every other
- * page is the hospital EHR's: Patient registration (the EHR's only, owner rule), In-person check, Consultation,
+ * itself opens (it goes on to the product's own page, or stays Home where this session may not open that page), as do
+ * the pages the product lists and those above. Every other page is the hospital EHR's: Patient registration (the EHR's only, owner rule), In-person check, Consultation,
  * Emergency, the samples.
  */
 export function opensInProduct(product: Product, path: string): boolean {

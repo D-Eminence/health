@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem, staffApi } from '../api'
 import { Pharmacy } from './Operations'
+import { pharmacyRefusalText } from '../../ehr-blue/departments/pharmacy/pharmacyText'
+import { SAID_CHANGED, SAID_NOT_FOUND, SAID_REFUSED, SAID_UNAVAILABLE } from '../../__tests__/said'
 
 /**
  * The provider Pharmacy page: the accepted-prescription work list, full
@@ -19,13 +21,14 @@ const api = vi.hoisted(() => ({
   reverseDispensing: vi.fn<StaffApi['reverseDispensing']>(),
 }))
 /** The staff session the page sees; each test may change it before rendering. */
-const staff = vi.hoisted(() => ({ ready: true, facilityId: 'facility-1' as string | null, permissions: [] as string[] }))
+const staff = vi.hoisted(() => ({ ready: true, facilityId: 'facility-1' as string | null, permissions: [] as string[],
+  selfService: undefined as { review: string; organizationType: string } | undefined }))
 
 vi.mock('../App', () => ({
   useStaff: () => ({
     state: staff.ready
       ? { status: 'ready', session: { actor: { facility: staff.facilityId === null ? undefined : {
-        id: staff.facilityId, membershipId: 'member-1', permissions: staff.permissions,
+        id: staff.facilityId, membershipId: 'member-1', permissions: staff.permissions, ...(staff.selfService ? { selfService: staff.selfService } : {}),
       } } } }
       : { status: 'loading', session: null },
   }),
@@ -157,6 +160,7 @@ beforeEach(() => {
   staff.ready = true
   staff.facilityId = FACILITY
   staff.permissions = [WORK_ITEM_READ]
+  staff.selfService = undefined
   api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, dispensed, reversed] })
   api.dispense.mockResolvedValue({ id: 'dispensing-new' })
   api.dispensing.mockResolvedValue({ id: 'dispensing-2', version: 5 })
@@ -164,9 +168,14 @@ beforeEach(() => {
 })
 
 describe('Pharmacy page access', () => {
-  function expectUnavailable() {
+  // Screens name no permission (the owner's rule): at a facility, what the role there doesn't include, in the blue
+  // Pharmacy's words; before a facility is chosen there is no role yet, so it asks for one.
+  const NO_PHARMACY_WORK = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+  const CHOOSE_FACILITY = 'Choose a facility under “Working at” first.'
+  function expectUnavailable(sentence: string) {
     expect(screen.getByRole('heading', { name: 'Pharmacy unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs pharmacy work-item read permission.')).toBeTruthy()
+    expect(screen.getByText(sentence)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|work-item|pharmacy\.work-item\.read/i)
     expect(screen.queryByRole('heading', { name: 'Pharmacy' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh work' })).toBeNull()
     expect(api.pharmacyWorkItems).not.toHaveBeenCalled()
@@ -179,7 +188,7 @@ describe('Pharmacy page access', () => {
     staff.permissions = [DISPENSING_CREATE, DISPENSING_READ, DISPENSING_REVERSE]
     render(<Pharmacy />)
 
-    expectUnavailable()
+    expectUnavailable(NO_PHARMACY_WORK)
   })
 
   it.each([
@@ -190,7 +199,76 @@ describe('Pharmacy page access', () => {
     arrange()
     render(<Pharmacy />)
 
-    expectUnavailable()
+    expectUnavailable(CHOOSE_FACILITY)
+  })
+
+  /*
+   * Who reads the refusal (#104's rule): the blue Pharmacy's own words for the same facts, from one rule
+   * (staff/refusedWork.ts), so a facility's own administrator is never told to ask themselves here either. Every
+   * facility is fictional.
+   */
+  describe('by who reads it, as the blue Pharmacy says it', () => {
+    const ROLE = 'Your role at this facility doesn’t include pharmacy work.'
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    it.each([
+      ['the administrator of a checked pharmacy', ['workforce.manage'], { review: 'reviewed', organizationType: 'pharmacy' }, `${ROLE} Add a pharmacist on the Staff page.`],
+      ['the administrator of a checked hospital', ['workforce.manage'], { review: 'reviewed', organizationType: 'hospital' }, `${ROLE} Add a pharmacist on the Staff page.`],
+      ['the administrator of a checked laboratory, which will not get Pharmacy', ['workforce.manage'], { review: 'reviewed', organizationType: 'laboratory' }, ROLE],
+      ['the administrator of a pharmacy being checked', ['workforce.manage'], { review: 'pending', organizationType: 'pharmacy' }, 'Pharmacy opens once Health ID support has checked your facility.'],
+      ['anyone else at a checked pharmacy', [DISPENSING_READ], { review: 'reviewed', organizationType: 'pharmacy' }, NO_PHARMACY_WORK],
+      ['an administrator at a facility Health ID support manages', ['workforce.manage'], undefined, NO_PHARMACY_WORK],
+    ])('%s', (_reader, permissions, selfService, sentence) => {
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Pharmacy />)
+      expectUnavailable(sentence)
+      expect(sentence).toBe(pharmacyRefusalText('pharmacy work', { selfService, roles: [] }, permissions))
+    })
+
+    it.each(['', 'main-v1'])('the administrator of a checked pharmacy on today’s backend (%j): told to ask its administrator', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      staff.permissions = ['workforce.manage']
+      staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+      render(<Pharmacy />)
+      expectUnavailable(NO_PHARMACY_WORK)
+    })
+
+    /*
+     * A role that sells, or takes payment, does pharmacy work where those pages open: like the blue Prescriptions, only
+     * prescriptions are not in it. They open at the demo facilities only (ehr-blue/departments/commerce/served.ts), so at
+     * a real facility the same role has no Pharmacy page, and both portals say its role doesn't include pharmacy work.
+     */
+    const PRESCRIPTIONS = 'Your role at this facility doesn’t include prescriptions.'
+    const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
+    it.each([
+      ['a seller at a checked pharmacy', ['pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' }, `${PRESCRIPTIONS} Ask your facility administrator.`],
+      ['a cashier at a hospital Health ID support manages', ['billing.bill.read'], undefined, `${PRESCRIPTIONS} Ask your facility administrator.`],
+      ['the administrator of a checked pharmacy who sells', ['workforce.manage', 'pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' },
+        `${PRESCRIPTIONS} Add a pharmacist on the Staff page.`],
+    ])('%s, at a demo facility: the blue Prescriptions’ words', (_reader, permissions, selfService, sentence) => {
+      staff.facilityId = DEMO_PHARMACY
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Pharmacy />)
+      expectUnavailable(sentence)
+      expect(sentence).toBe(pharmacyRefusalText('prescriptions', { selfService, roles: [] }, permissions))
+    })
+
+    it.each([
+      ['a seller at a checked pharmacy', ['pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' }, NO_PHARMACY_WORK],
+      ['a stock keeper and cashier at a hospital Health ID support manages', ['pharmacy.stock.read', 'billing.bill.read'], undefined, NO_PHARMACY_WORK],
+      ['the administrator of a checked pharmacy who sells', ['workforce.manage', 'pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' },
+        `${ROLE} Add a pharmacist on the Staff page.`],
+    ])('%s, at a real facility, where Sell and the other pages do not open: the blue Prescriptions’ words there', (_reader, permissions, selfService, sentence) => {
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Pharmacy />)
+      expectUnavailable(sentence)
+      expect(document.body.textContent).not.toMatch(/include prescriptions/)
+      expect(sentence).toBe(pharmacyRefusalText('pharmacy work', { selfService, roles: [] }, permissions))
+    })
   })
 })
 
@@ -239,7 +317,8 @@ describe('accepted prescription work list', () => {
       .mockResolvedValueOnce({ items: [accepted] })
     render(<Pharmacy />)
 
-    expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(WORK_UNAVAILABLE)
     expect(screen.queryByRole('heading', { name: 'No accepted prescriptions' })).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.queryByText(AMOXICILLIN)).toBeNull()
@@ -257,7 +336,8 @@ describe('accepted prescription work list', () => {
     api.pharmacyWorkItems.mockRejectedValueOnce(new HidApiError(403, message, { code: 'PERMISSION_DENIED' }))
     render(<Pharmacy />)
 
-    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain(message)
     for (const medication of [AMOXICILLIN, METFORMIN, SALBUTAMOL]) expect(screen.queryByText(medication)).toBeNull()
     expect(document.body.textContent).not.toContain('Patient ••••')
     expect(screen.queryByRole('heading', { name: 'No accepted prescriptions' })).toBeNull()
@@ -304,7 +384,8 @@ describe('accepted prescription work list', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(WORK_UNAVAILABLE)
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
   })
@@ -540,10 +621,11 @@ describe('full dispensing', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported'],
-    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT],
-  ])('shows a %i dispensing failure without a success notice', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, SAID_REFUSED],
+    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported',
+      'Pharmacy action could not be recorded.'],
+    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT, SAID_CHANGED],
+  ])('shows a %i dispensing failure without a success notice, in plain words', async (status, code, message, shown) => {
     api.dispense.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     render(<Pharmacy />)
     const item = await findItem(AMOXICILLIN)
@@ -551,7 +633,8 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', reason: 'Full course dispensed at counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(message)
+    expect((await within(item).findByRole('alert')).textContent).toBe(shown)
+    expect(document.body.textContent).not.toContain(message)
     expect(within(item).queryByText('Dispensing recorded.')).toBeNull()
     expect(within(item).getByText('Accepted')).toBeTruthy()
     expect(within(item).getByRole('button', { name: 'Record full dispensing' }).hasAttribute('disabled')).toBe(false)
@@ -613,7 +696,8 @@ describe('full dispensing', () => {
 
     fillDispensing(item, { quantity: '21', reason })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
-    expect((await within(item).findByRole('alert')).textContent).toBe(WORK_ITEM_VERSION_CONFLICT)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(WORK_ITEM_VERSION_CONFLICT)
 
     const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
@@ -643,7 +727,8 @@ describe('full dispensing', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
     await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
-    expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(WORK_UNAVAILABLE)
     expect(within(item).queryByRole('alert')).toBeNull()
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
     // The reload failed, so the page still shows the last list it loaded rather than guessing.
@@ -733,7 +818,8 @@ describe('dispensing reversal', () => {
 
     fillReversal(item, reason)
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
-    expect((await within(item).findByRole('alert')).textContent).toBe(DISPENSING_VERSION_CONFLICT)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(DISPENSING_VERSION_CONFLICT)
 
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
@@ -781,7 +867,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, 'Medication returned unopened by the patient')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(DISPENSING_VERSION_CONFLICT)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(DISPENSING_VERSION_CONFLICT)
     expect(within(item).queryByText('Dispensing reversal recorded.')).toBeNull()
     expect(within(item).getByText('Dispensed')).toBeTruthy()
     expect(within(item).getByRole('button', { name: 'Reverse dispensing' }).hasAttribute('disabled')).toBe(false)
@@ -790,9 +877,9 @@ describe('dispensing reversal', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found'],
-  ])('does not attempt the reversal when the current dispensing cannot be read (%i)', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, SAID_REFUSED],
+    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found', SAID_NOT_FOUND],
+  ])('does not attempt the reversal when the current dispensing cannot be read (%i)', async (status, code, message, shown) => {
     api.dispensing.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     render(<Pharmacy />)
     const item = await findItem(METFORMIN)
@@ -800,7 +887,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, 'Medication returned unopened by the patient')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(message)
+    expect((await within(item).findByRole('alert')).textContent).toBe(shown)
+    expect(document.body.textContent).not.toContain(message)
     expect(within(item).queryByText('Dispensing reversal recorded.')).toBeNull()
     expect(within(item).getByText('Dispensed')).toBeTruthy()
     expect(within(item).getByRole('button', { name: 'Reverse dispensing' }).hasAttribute('disabled')).toBe(false)
@@ -830,7 +918,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, reason)
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(ACCESS_DENIED)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain(ACCESS_DENIED)
     expect(confirmation(item)).toBe('')
     expect(within(item).queryByText('Dispensing recorded.')).toBeNull()
     expect(api.dispensing).toHaveBeenCalledWith(FACILITY, 'dispensing-9')

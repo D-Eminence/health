@@ -3,10 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
-import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
+import { pharmacyPage, pharmacyPages } from '../../../../ehr-blue/departments/pharmacy/page'
+import { pointOfCareShown } from '../../../../ehr-blue/departments/commerce/served'
+import { OTHER_PHARMACY_PAGE_PERMISSIONS } from '../../../../staff/refusedWork'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
+import { PharmacyRecord, type PharmacyRecordProps } from '../../../../ehr-blue/departments/pharmacy/PharmacyRecord'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
 import { DEMO_HOSPITAL_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 import {
   accepted, ALL, AMOXICILLIN, CREATE, deferred, dispensed, expectNoFullPatientIds, facts, IBUPROFEN, METFORMIN, otherActions,
   otherFacilityItem, pickCard, PRESCRIPTIONS, READ, recordStatus, reversed, row, SALBUTAMOL, showTab, Where,
@@ -71,12 +75,33 @@ async function renderList() {
   await screen.findByRole('button', { name: AMOXICILLIN })
 }
 
+/** A fictional facility that is not one of the demo facilities. */
+const REAL_PHARMACY_ID = 'f0000000-0000-4000-8000-000000000003'
+
+/** One prescription's record on its own, as the list opens it, at Demo Pharmacy unless `props` says otherwise. */
+function renderRecord(item: PharmacyWorkItem, permissions: readonly string[], props: Partial<PharmacyRecordProps> = {}) {
+  const noop = () => {}
+  return renderDept(<PharmacyRecord facilityId={DEMO_PHARMACY_ID} item={item} permissions={permissions} undispensable={false}
+    onUndispensable={noop} said={null} holds={false} onChanged={async () => {}} onBusy={noop} onEnded={noop} onNotCompleted={noop}
+    onReread={async () => {}} {...props} />, { route: `${PRESCRIPTIONS}/${item.id}` })
+}
+
 describe('the page entry', () => {
   it('is listed, partial, in the Pharmacy group for members who read pharmacy work, and says today’s refusal to others in plain words', () => {
     expect(pharmacyPage).toMatchObject({ path: 'pharmacy/prescriptions/*', group: 'Pharmacy', label: 'Prescriptions', permission: READ, status: 'partial' })
     renderDept(<>{pharmacyPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBeTruthy()
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.')).toBeTruthy()
+  })
+
+  /*
+   * The classic Pharmacy chooses its words from the same list without loading these pages (staff/refusedWork.ts
+   * pharmacyWorkFor), and counts it only where the point-of-care pages open, as each of these shows only there.
+   */
+  it('names the other pages’ permissions as the classic Pharmacy reads them, and where they open, so both refusals name the same work', () => {
+    const others = pharmacyPages.filter(page => page !== pharmacyPage && page.permission !== undefined)
+    expect([...OTHER_PHARMACY_PAGE_PERMISSIONS].sort()).toEqual(others.map(page => page.permission).sort())
+    for (const page of others) expect(page.visible).toBe(pointOfCareShown)
   })
 })
 
@@ -237,7 +262,8 @@ describe('the queue', () => {
     renderPage()
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Couldn’t load prescriptions')).toBeTruthy()
-    expect(within(alert).getByText('You do not have permission to do that.')).toBeTruthy()
+    expect(within(alert).getByText(SAID_REFUSED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('You do not have permission to do that.')
     expect(screen.queryByText('Nothing waiting to dispense')).toBeNull()
     expect(document.body.textContent).not.toContain('Patient ••••')
     expectNoFullPatientIds()
@@ -248,14 +274,14 @@ describe('the queue', () => {
 
   it.each([
     ['a rejection with no message', { status: 0 }, 'Prescriptions could not be loaded. Please retry.'],
-    ['Pharmacy switched off on this deployment', new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }),
-      'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'],
-    ['a fault between Health ID services', new HidApiError(503, 'Upstream', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
+    ['Pharmacy switched off on this deployment', new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }), SAID_NOT_TURNED_ON],
+    ['a fault between Health ID services', new HidApiError(503, 'Upstream', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
   ])('says %s plainly', async (_case, refusal, text) => {
     api.pharmacyWorkItems.mockRejectedValueOnce(refusal)
     renderPage()
     expect(within(await screen.findByRole('alert')).getByText(text)).toBeTruthy()
+    // Never the gateway's words, a code or a word about deployments or services (owner's rule, 1 Nov 2026).
+    expect(document.body.textContent).not.toMatch(/Upstream|API_ROUTE|SERVICE_AUTH|deployment|between Health ID services/)
   })
 
   it('keeps the list on screen while it is read again, and when that read fails', async () => {
@@ -268,7 +294,8 @@ describe('the queue', () => {
     await act(async () => { reload.reject(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' })) })
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Couldn’t refresh prescriptions')).toBeTruthy()
-    expect(alert.textContent).toContain('Pharmacy work is temporarily unavailable. What is shown may be out of date.')
+    expect(alert.textContent).toContain(`${SAID_UNAVAILABLE} What is shown may be out of date.`)
+    expect(alert.textContent).not.toContain('Pharmacy work is temporarily unavailable.')
     expect(screen.getByRole('button', { name: AMOXICILLIN })).toBeTruthy()
   })
 })
@@ -416,15 +443,31 @@ describe('payment first', () => {
   const owed = { ...accepted, bill: { billId: 'bill-1', status: 'unpaid', dueKobo: 250_000, receiptNumber: null } } as PharmacyWorkItem
   const paid = { id: 'bill-1', number: 'B-0001', status: 'paid', dueKobo: 0, receiptNumber: 'R-0001' }
 
-  it('waits for payment where it comes first: no Dispense until the bill is paid, then the picking view', async () => {
+  // Payment setup's address is proposed, not served (parity report 3.1 #20): the list never asks for it, so opening it
+  // sends no request that fails, and nothing waits for payment, as today.
+  it('reads no payment settings, so nothing waits for payment even where it would come first', async () => {
     working(ALL)
     api.pharmacyWorkItems.mockResolvedValue({ items: [owed] })
-    commerceApi.paymentSettings = vi.fn(async () => ({ ok: true, data: settings }))
-    const bill = vi.fn(async () => ({ ok: false, notAvailable: true }))
+    const paymentSettings = vi.fn(async () => ({ ok: true, data: settings }))
+    commerceApi.paymentSettings = paymentSettings
+    const bill = vi.fn(async () => ({ ok: true, data: paid }))
     commerceApi.bill = bill
     await renderList()
     expect(within(row(AMOXICILLIN)).getByText(/Unpaid/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    expect(screen.getByRole('form', { name: 'Dispense' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Payment first' })).toBeNull()
+    await act(async () => {})
+    expect(paymentSettings).not.toHaveBeenCalled()
+    expect(bill).not.toHaveBeenCalled()
+  })
+
+  // The record keeps its payment step for when Health ID serves payment setup and the list passes the settings again.
+  it('waits for payment on the record where it comes first: no Dispense until the bill is paid, then the picking view', async () => {
+    working(ALL)
+    const bill = vi.fn(async () => ({ ok: false, notAvailable: true }))
+    commerceApi.bill = bill
+    renderRecord(owed, ALL, { settings: settings as never })
     expect(await screen.findByRole('heading', { name: 'Payment first' })).toBeTruthy()
     expect(screen.queryByRole('form', { name: 'Dispense' })).toBeNull()
     expect(screen.getByText('Ask the patient to pay at the cashier with this bill number. Then check again.')).toBeTruthy()
@@ -435,14 +478,25 @@ describe('payment first', () => {
     expect(bill).toHaveBeenLastCalledWith(DEMO_PHARMACY_ID, 'bill-1')
     expect(api.dispense).not.toHaveBeenCalled()
   })
+})
 
-  it('gates nothing where payments aren’t set up (404)', async () => {
-    working(ALL)
-    api.pharmacyWorkItems.mockResolvedValue({ items: [owed] })
-    await renderList()
-    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
-    expect(screen.getByRole('form', { name: 'Dispense' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Payment first' })).toBeNull()
+describe('out of stock', () => {
+  const STOCK_MANAGE = 'pharmacy.stock.manage'
+  const empty = { ...accepted, stock: { onHand: 0, unit: 'capsules' } } as PharmacyWorkItem
+
+  it('offers Receive stock at a demo pharmacy to members who manage stock', () => {
+    working([...ALL, STOCK_MANAGE])
+    renderRecord(empty, [...ALL, STOCK_MANAGE])
+    expect(screen.getByRole('heading', { name: 'Out of stock' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Receive stock' }).getAttribute('href')).toBe('/provider/pharmacy/stock/receive')
+  })
+
+  // Stock is a point-of-care page, shown only at the demo facilities until Health ID serves it (commerce/served.ts).
+  it('offers no Receive stock at a real facility, whatever it holds', () => {
+    working([...ALL, STOCK_MANAGE], { id: REAL_PHARMACY_ID, name: 'Riverside Pharmacy (fictional)' })
+    renderRecord(empty, [...ALL, STOCK_MANAGE], { facilityId: REAL_PHARMACY_ID })
+    expect(screen.getByRole('heading', { name: 'Out of stock' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Receive stock' })).toBeNull()
   })
 })
 

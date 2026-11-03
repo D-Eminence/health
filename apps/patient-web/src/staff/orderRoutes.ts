@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, isPlainError } from '@hid/http'
 import type {
   CorrectableOrderRoute, CorrectableOrderRouteDetails, Facility, LabCannotCompleteReason, OrderRouteDeclineReason,
   OrderRouteDiscoveredBy, OrderRouteKind, OrderRouteNotCompleted, OrderRouteNotCompletedFacts, OrderRoutePatient, OrderRouteSummary,
@@ -365,8 +365,9 @@ function unanswered(error: unknown): boolean {
 export function sendRefusal(error: unknown, kind: OrderRouteKind, facility: string, patient: string):
   { text: string; outdated?: boolean; reload?: boolean; unanswered?: boolean } {
   const where = destinationWord(kind)
-  // A refusal made here before sending (the record's version unreadable, patient access ended) says itself.
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  // A refusal made here before sending (the record's version unreadable, patient access ended) says itself, in the
+  // page's own plain words (a PlainError). No other error's message is shown: a JavaScript error gets the last line below.
+  if (isPlainError(error)) return { text: error.message }
   if (isCode(error, 'ORDER_ROUTE_ATTESTATION_OUTDATED')) return { outdated: true, text: 'The wording changed. Read it again and confirm.' }
   if (isCode(error, 'ORDER_ROUTE_DESTINATION_INELIGIBLE')) return { text: `${facility} can’t receive this order on Health ID at the moment. Choose another ${where}.` }
   if (isCode(error, 'ORDER_ROUTE_DESTINATION_BUSY')) return { text: `${facility} has too many orders waiting to be accepted. Choose another ${where}, or phone them.` }
@@ -479,7 +480,7 @@ export function forgetReceiving(): void {
 
 /** What a refused withdrawal means. */
 export function withdrawRefusal(error: unknown): { text: string; reload?: boolean } {
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isPlainError(error)) return { text: error.message }
   if (isCode(error, 'ORDER_ROUTE_NOT_PENDING') || (isHidApiError(error) && error.status === 412)) return { reload: true,
     text: 'It is no longer waiting to be accepted, so it was not withdrawn. The list has been reloaded.' }
   if (isCode(error, 'ORDER_ROUTE_NOT_FOUND')) return { reload: true, text: 'This order route was not found. The list has been reloaded.' }
@@ -529,7 +530,7 @@ export function receivedWord(service: 'lab' | 'pharmacy'): string {
  */
 export function acceptRefusal(error: unknown, orderingFacility: string, facility: string, named = true):
   { text: string; reload?: boolean; field?: 'identifier' | 'reason' | 'reference' } {
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isPlainError(error)) return { text: error.message }
   if (isCode(error, 'ORDER_ROUTE_PATIENT_MISMATCH')) {
     // A date of birth given without the order's reference does not name the order (P4c review): the counter may have
     // picked another patient's order, and that wrong date does not count against this order's five tries.
@@ -695,7 +696,7 @@ export function wrongPatientOffered(route: WorkItemOrderRoute | null | undefined
 export function wrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string,
   late: { reference: string | null } | null = null):
   { text: string; reload?: boolean; stale?: boolean; unanswered?: boolean } {
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isPlainError(error)) return { text: error.message }
   // With the late correction served (D17, `late`), an order that has ended can still be withdrawn from "Correct an order
   // that has ended" until its date; until then, today's words (D15).
   if (isCode(error, 'ORDER_ROUTE_ALREADY_ENDED')) return { reload: true, text: 'This order has already ended, so it can’t be '
@@ -840,7 +841,7 @@ export function cannotCompleteOffered(route: WorkItemOrderRoute | null | undefin
  */
 export function cannotCompleteRefusal(error: unknown, service: ReceivingService, ordering: string, reference: string | null):
   { text: string; reload?: boolean; stale?: boolean; critical?: boolean; missing?: boolean; unanswered?: boolean } {
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isPlainError(error)) return { text: error.message }
   const lab = service === 'lab'
   if (isCode(error, 'ORDER_ROUTE_ALREADY_ENDED')) return { reload: true, text: 'This order has already ended, so it can’t be '
     + 'ended here. If you accepted it for the wrong person, use “Correct an order that has ended” above the work list, with '
@@ -953,7 +954,7 @@ export function cannotCompleteEndedLines({ service, title, reference, patient, o
 
 /** What a refused decline means. */
 export function declineRefusal(error: unknown): { text: string; reload?: boolean } {
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isPlainError(error)) return { text: error.message }
   if (isCode(error, 'ORDER_ROUTE_NOT_PENDING') || (isHidApiError(error) && (error.status === 412 || error.status === 404))) {
     return { reload: true, text: 'This order is no longer waiting, so it was not declined. The list has been reloaded.' }
   }
@@ -1147,7 +1148,7 @@ const LATE_PAUSED = 'Health ID has paused work on orders from other facilities, 
  */
 export function lateWrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string,
   correctableUntil: string | null | undefined): { text: string; reload?: boolean; stale?: boolean; unanswered?: boolean } {
-  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isPlainError(error)) return { text: error.message }
   if (isCode(error, 'ORDER_ROUTE_CORRECTION_TOO_LATE')) return { reload: true, text: tooLateText(correctableUntil, ordering) }
   if (isCode(error, 'ORDER_ROUTE_STILL_OPEN')) return { reload: true,
     text: 'This order is still open. If you accepted it for the wrong person, report it here.' }

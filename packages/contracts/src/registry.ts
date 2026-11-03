@@ -139,6 +139,13 @@ const SELF_SERVICE_SESSION = 'On Novu since P4b each facility that signed itself
 /** The staff routes' shared rules (P4b SPEC 6.3-6.5). */
 const STAFF_ROUTE = `${STAFF_P4B_NOVU} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, `
   + 'CSRF on POST; only at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise).'
+/**
+ * One-person lab (owner decision 33.3, hid-system 0111): a facility's own settings, read and switched by its
+ * administrator. Off at every facility until switched on.
+ */
+const FACILITY_SETTINGS_ROUTE = 'hid-system 0111 (claude/ehr-e-lab-one-person-release); not served by hid-system main (404, '
+  + 'which the Facility profile takes as "show nothing"). Staff session with X-Facility-ID (healthcare-operations) and '
+  + 'organization.manage there; CSRF on POST.'
 const STAFF_INVITATIONS_CLOSED = '423 STAFF_INVITATIONS_UNAVAILABLE while invitations are switched off.'
 /**
  * Cross-facility orders (P4c, owner's fifth and sixth decisions): a clinician sends a lab request or prescription to a
@@ -380,6 +387,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.session','auth','/api/v1/auth/session',G,false,undefined,SELF_SERVICE_SESSION),
   r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,`Requires refresh cookie and CSRF header. ${SELF_SERVICE_SESSION}`),
   r('auth.logout','auth','/api/v1/auth/logout',P),
+  // A product's sign-out with single sign-on on auth. (ADR-070, contract v2 item 4); the browser never calls the start,
+  // callback or back-channel routes, which are navigations and server-to-server calls.
+  proposed(r('auth.ssoLogout','auth','/api/v1/auth/sso/logout',P,false,undefined,
+    'Single sign-on (ADR-070, proposed): not served by hid-system main, where it answers 404, as it does on a host that is '
+    + 'not a single sign-on client. Runs the sign-out of auth.logout, with its checks, then answers 200 { endSessionUrl }: '
+    + 'the provider\'s end-session address, for the browser to open.')),
   r('auth.facility','auth','/api/v1/auth/facility',P,false,undefined,SELF_SERVICE_SESSION),
   r('auth.otpStart','auth','/api/v1/auth/otp/start',P,true),
   r('auth.otpVerify','auth','/api/v1/auth/otp/verify',P,true),
@@ -548,6 +561,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
     + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
     + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
+  // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
+  proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
+    `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `
+    + 'changed). 403 PERMISSION_DENIED or FACILITY_SETTING_PERMISSION_DENIED; 503 FACILITY_SETTINGS_UNAVAILABLE.')),
+  proposed(r('identity.facilityOnePersonLab','identity','/api/v1/identity/facility-settings/one-person-lab',P,false,
+    one('POST','organization.manage'),
+    `${FACILITY_SETTINGS_ROUTE} Body { enabled, reason (10 to 500 characters after trimming) }; 200 { enabled, changedAt, `
+    + 'settingId }, audited identity.facility.one-person-lab.on or .off. 400 VALIDATION_FAILED, FACILITY_SETTING_REASON_INVALID, '
+    + 'FACILITY_SETTING_INVALID; 403 PERMISSION_DENIED, FACILITY_SETTING_PERMISSION_DENIED; 409 FACILITY_SETTING_UNCHANGED; '
+    + '503 FACILITY_SETTINGS_UNAVAILABLE.')),
   proposed(r('identity.staffInvitationCreate','identity','/api/v1/identity/staff-invitations',P,false,one('POST','workforce.manage'),
     `${STAFF_ROUTE} After support's review (409 FACILITY_REVIEW_PENDING before). Idempotency-Key (16 to 128, starting `
     + 'with a letter or digit) and body { name, email, role, licenceBody?, licenceNumber?, attested: true, '
@@ -743,10 +766,47 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §2); no backend serves it. Public: the link in the email a provider '
     + 'receives when a patient shares. Answers { card, sharedBy, recipientEmail, level, duration, expiresAt, records } while the share '
     + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
+  // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes
+  // in it, then each photo or file goes up under it as staff uploads do (an upload link, a PUT of the exact bytes to it, a
+  // confirm). Until a backend serves them, and while patient uploads are off, each answers 404 NOT_FOUND (off looks the same
+  // as not built), and the portal sends no file at all. The entries are listed in ehr.myRecords' own answer, under
+  // `patientEntries`: there is no list route. The portal says each refusal in its own fixed words, by status and code
+  // alone, and never shows the server's.
   proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
-    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md); no backend serves it. Patient sessions only. POST { kind, title, '
-    + 'facilityName, occurredOn, notes, attachments[{ fileName, mediaType, sizeBytes, contentBase64 }] } answers 201 { id }. A record the '
-    + 'patient adds themselves, kept apart from clinicians\' and shown as "added by you". Until served it answers 404 and nothing is saved.')),
+    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only, no facility. POST '
+    + '(Idempotency-Key, one per Save) { kind, title, facilityName, occurredOn, notes }, a JSON body of at most 8000 bytes with no file '
+    + 'in it, answers 201 { entry }; the same key with the same body replays it. A record the patient adds themselves, kept apart from '
+    + 'clinicians\' and shown as "added by you". Not read back here: ehr.myRecords lists the entries under patientEntries [{ id, source: '
+    + '\'patient\', kind, title, facilityName, occurredOn, notes, createdAt, documents[] }], newest first, removed entries left out; that '
+    + 'key, or a 201, says served. Until then the Save answers 404 NOT_FOUND and nothing is saved. While patient uploads are off (before '
+    + 'NDPA sign-off or migration 0110) the records answer leaves out patientEntries and every patient-entry route answers exactly as if '
+    + 'it were not built (404 NOT_FOUND): off must look the same as not built. The backend must not send patientEntries until uploads are '
+    + 'cleared under the NDPA: that one served signal turns on both the entries list and uploads.')),
+  proposed(r('ehr.myPatientEntryUploadIntent','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents',P,false,undefined,
+    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. Idempotency-Key, one per file. Body { fileName, '
+    + 'mediaType: application/pdf | image/jpeg | image/png, sizeBytes (1 to 10485760 bytes; at most 5 files per entry), sha256Hex }; the server '
+    + 'sets the patient, classification and retention. 201 { document: { id, status: \'initiated\', scanStatus: \'pending\' }, upload: '
+    + '{ method: \'PUT\', url, requiredHeaders, expiresInSeconds } }, the staff shape: the exact bytes are PUT to upload.url, no cookies. '
+    + 'The same key before that document is confirmed answers 201 again for it, with a link still valid; once it is confirmed, 409 '
+    + 'PATIENT_DOCUMENT_ALREADY_UPLOADED with { document: { id, status, scanStatus } }: the file is uploaded, and the portal sends no PUT '
+    + 'and no confirm. At most 10 files per patient per Lagos calendar day (Africa/Lagos), across all their entries: each new key answered '
+    + '201 counts once, confirmed or not, and a removed entry\'s files still count. A new key past them answers 429 '
+    + 'PATIENT_DOCUMENT_DAILY_LIMIT and opens no document, with Retry-After (the seconds until the next Lagos midnight; the portal does not '
+    + 'depend on it); a replayed key is never refused for it. The portal checks each file\'s first 8 bytes against its type before it is '
+    + 'listed (JPEG FF D8 FF, PNG 89 50 4E 47 0D 0A 1A 0A, PDF %PDF-). A photo arrives without its metadata (EXIF and GPS, XMP, IPTC, '
+    + 'C2PA, comments, text chunks), taken out in the browser without re-encoding; the server must not rely on that.')),
+  proposed(r('ehr.myPatientEntryDocumentComplete','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/:documentId/complete',P,false,undefined,
+    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only; only the account that asked for the link. No body. '
+    + 'The server checks the stored object\'s size and SHA-256 against sizeBytes and sha256Hex, and its leading bytes against mediaType '
+    + '(JPEG FF D8 FF, PNG 89 50 4E 47 0D 0A 1A 0A, PDF %PDF-), not the request\'s Content-Type: 200 { document: { id, status, '
+    + 'scanStatus } }; 409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE for a missing object or a size or SHA-256 that does not match (the portal '
+    + 'offers Try again); 409 PATIENT_DOCUMENT_TYPE_MISMATCH for leading bytes that are not mediaType\'s (the portal says the file isn\'t a '
+    + 'JPEG, PNG or PDF, with no Try again).')),
+  proposed(r('ehr.myPatientEntryWithdraw','ehr','/api/v1/ehr/me/patient-entries/:entryId/withdraw',P,false,undefined,
+    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. No body. 200 { entry: { id, status: \'withdrawn\', '
+    + 'withdrawnAt } }, and a replay answers the same: the entry and its files are gone from the list, the patient chat and every staff '
+    + 'read. Nothing is erased, so the portal says "Removed from your records", never "deleted". An id that is not one of the patient\'s '
+    + 'entries answers 404 PATIENT_ENTRY_NOT_FOUND: the portal says the record has already been removed and reads the records again.')),
   proposed(r('ehr.myImportedAttachment','ehr','/api/v1/ehr/me/imported-attachments/:fileId/download',G,false,undefined,
     `${NOT_ON_MAIN} Offered only when ehr.myRecords carries importedRecords, which main's does not.`)),
   proposed(r('ehr.importedRecords','ehr','/api/v1/ehr/patients/:patientId/imported-records',G,false,one('GET','ehr.note.read'),
@@ -856,7 +916,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.completeExecution','lab','/api/v1/lab/executions/:executionId/complete',P,false,one('POST','lab.execution.complete')),
   r('lab.results','lab','/api/v1/lab/executions/:executionId/results',P,false,one('POST','lab.result.enter')),
   r('lab.correctResult','lab','/api/v1/lab/executions/:executionId/results/:resultId/corrections',P,false,one('POST','lab.result.correct')),
-  r('lab.verifyResult','lab','/api/v1/lab/results/:resultId/verify',P,false,one('POST','lab.result.verify')),
+  r('lab.verifyResult','lab','/api/v1/lab/results/:resultId/verify',P,false,one('POST','lab.result.verify'),
+    'Body { expectedResultVersion, occurredAt, reason }. From hid-system 0111 (One-person lab, not on main yet) also '
+    + 'selfCheck?: true, sent only when the result read says onePersonLab: true (an older image refuses the field); 409 '
+    + 'LAB_RESULT_SECOND_CHECK_REQUIRED, LAB_RESULT_SELF_CHECK_REASON_REQUIRED, LAB_RESULT_SELF_CHECK_NOT_YOURS; 400 '
+    + 'LAB_RESULT_SELF_CHECK_REASON_INVALID.'),
   r('lab.releaseResult','lab','/api/v1/lab/results/:resultId/release',P,false,one('POST','lab.result.release')),
   r('lab.resultHistory','lab','/api/v1/lab/results/:resultId/history',G,false,one('GET','lab.result.released.read')),
   // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.

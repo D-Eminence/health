@@ -1,5 +1,6 @@
 import type { DemoSubmission } from './commercial-api'
 import { isContactEmail } from './contact-email'
+import { PlainError } from '@hid/http'
 
 /** Public contact address used on informational pages. Demo forms submit to the API. */
 export const DEMO_INBOX = 'hello@healthidentitydirectory.com'
@@ -79,7 +80,7 @@ export function toDemoSubmission(
 ): DemoSubmission {
   const errors = validateDemoRequest(request)
   if (Object.keys(errors).length > 0 || !request.service || !turnstileToken) {
-    throw new Error('Complete the form and verification before submitting.')
+    throw new PlainError('Complete the form and the security check before sending.')
   }
   const role = request.role === 'Other' ? request.otherRole.trim() : request.role.trim()
   return {

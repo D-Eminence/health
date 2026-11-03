@@ -2,8 +2,11 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { MemoryRouter } from 'react-router-dom'
-import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
+import type { ReactElement } from 'react'
+import { DEMO_HOSPITAL_ID, renderDept, type FakeFacility } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
+import { registrationPage } from '../../../../ehr-blue/departments/registration/page'
+import { SAID_CHANGED, SAID_NOT_FOUND, SAID_REFUSED } from '../../../said'
 
 /*
  * The blue Patient registration page: the design's patients workspace (list, "New patients" form, saved record with
@@ -12,12 +15,19 @@ import { PatientRegistration } from '../../../../ehr-blue/departments/registrati
  * Every person, case and number here is fictional: Patient One, NIN 00000000000, example.test.
  */
 
-const session = vi.hoisted(() => ({ permissions: [] as string[], facility: 'hospital' as 'hospital' | 'other' | 'none' }))
+const session = vi.hoisted(() => ({
+  permissions: [] as string[], facility: 'hospital' as 'hospital' | 'other' | 'none',
+  // Set only for a facility that signed itself up (P4b): where it stands with Health ID support, and its kind.
+  selfService: undefined as FakeFacility['selfService'],
+  // The member's roles there: a records officer, who registers patients, unless a case says otherwise.
+  roles: ['records_officer'],
+}))
 vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../harness')
   return {
     useStaff: () => staffContext(session.facility === 'none' ? undefined : fakeFacility(session.permissions, {
-      id: session.facility === 'other' ? '98d00002-0000-4000-8000-000000000004' : hospital, name: 'Demo Hospital', roles: ['records_officer'],
+      id: session.facility === 'other' ? '98d00002-0000-4000-8000-000000000004' : hospital, name: 'Demo Hospital', roles: session.roles,
+      ...(session.selfService ? { selfService: session.selfService } : {}),
     })),
   }
 })
@@ -59,6 +69,8 @@ beforeEach(() => {
   unprovided.clear()
   session.permissions = [WRITE, APPROVE]
   session.facility = 'hospital'
+  session.selfService = undefined
+  session.roles = ['records_officer']
   api.registrationCapabilities.mockResolvedValue(ENABLED)
   setItem = vi.spyOn(Storage.prototype, 'setItem')
 })
@@ -117,18 +129,137 @@ async function findCase(caseId = CASE) {
 const actions = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
 
+/**
+ * The refusal for a role that doesn't register patients, at a facility Health ID support manages or for anyone else. It
+ * names the two roles that do, by their words in the role list (owner's answer, 2 Nov 2026).
+ */
+const REFUSAL = 'Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.'
+/** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
+const PERMISSION_WORDS = /permission|membership|registration write|identity\.registration\.write/i
+/** A role code such as records_officer: the roles are named by their words, never their codes. */
+const ROLE_CODES = /\b[a-z]+(?:_[a-z]+)+\b/
+
 describe('who can open Patient registration', () => {
+  // Refused as a nurse: a role that does not register patients, so being told which roles do could help.
+  beforeEach(() => { session.roles = ['nurse'] })
+
   it.each([
     ['without identity registration write', 'hospital' as const, [APPROVE]],
     ['without a facility', 'none' as const, [WRITE, APPROVE]],
-  ])('%s: today\'s refusal, and nothing is read', (_name, facility, permissions) => {
+  ])('%s: a plain refusal that names no permission, and nothing is read', (_name, facility, permissions) => {
     session.facility = facility
     session.permissions = permissions
     renderDept(<PatientRegistration />)
     expect(heading().textContent).toBe('Registration unavailable')
-    expect(screen.getByText('This facility membership needs identity registration write permission.')).toBeTruthy()
+    expect(screen.getByText(REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+    expect(document.body.textContent).not.toMatch(ROLE_CODES)
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(api.registrationCapabilities).not.toHaveBeenCalled()
+  })
+
+  it('refuses at its address in the frame in the same words', () => {
+    session.permissions = [APPROVE]
+    renderDept(<>{registrationPage.refusal}</>)
+    expect(heading().textContent).toBe('Registration unavailable')
+    expect(screen.getByText(REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+    expect(document.body.textContent).not.toMatch(ROLE_CODES)
+  })
+
+  /*
+   * Who reads what (#104's rule, shared as refusedWorkText): the administrator of a facility that signed itself up is
+   * never told to ask the facility administrator, which they are. Only a hospital or a clinic is promised registration:
+   * a laboratory or pharmacy never gets it (it stays in the EHR, the owner's rule), and an "other" facility agrees its
+   * access with Health ID support. Every facility here is fictional.
+   */
+  describe('by who reads it', () => {
+    /** A self-signed-up facility's administrator whose role holds no registration (it manages the facility's staff). */
+    const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.campaign.read']
+    /** What the same administrator holds while Health ID support checks the facility (staff/refusedWork's tests). */
+    const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',
+      'outreach.campaign.read', 'outreach.campaign.write']
+    const ROLE_SENTENCE = 'Your role at this facility doesn’t include registering patients.'
+    /** Told to ask, naming no role: where neither role would help. */
+    const ASK_ONLY = `${ROLE_SENTENCE} Ask your facility administrator.`
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    /** The refusal as `permissions` reads it, on the page and at its address, the same both times; nothing is read. */
+    function refusalAs(permissions: string[], selfService?: FakeFacility['selfService']) {
+      session.permissions = permissions
+      session.selfService = selfService
+      const said = ([<PatientRegistration key="page" />, registrationPage.refusal] as ReactElement[]).map(element => {
+        const { unmount } = renderDept(element)
+        expect(heading().textContent).toBe('Registration unavailable')
+        expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+        expect(document.body.textContent).not.toMatch(ROLE_CODES)
+        const text = document.querySelector('.hid-ehr-state-message')?.textContent
+        unmount()
+        return text
+      })
+      expect(said[1]).toBe(said[0])
+      expect(api.registrationCapabilities).not.toHaveBeenCalled()
+      return said[0]
+    }
+
+    // Both roles register patients (owner's answer, 2 Nov 2026), so the administrator may add either.
+    it.each(['hospital', 'clinic'])('the administrator of a checked %s: the role sentence and the step that is theirs, adding a receptionist or a records officer', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType }))
+        .toBe(`${ROLE_SENTENCE} Add a receptionist or a records officer on the Staff page.`)
+    })
+
+    it.each([
+      ['checked', 'laboratory', 'reviewed', ADMINISTRATOR], ['checked', 'pharmacy', 'reviewed', ADMINISTRATOR],
+      ['checked', 'other', 'reviewed', ADMINISTRATOR],
+      ['being checked', 'laboratory', 'pending', AWAITING_REVIEW], ['being checked', 'pharmacy', 'pending', AWAITING_REVIEW],
+      ['being checked', 'other', 'pending', AWAITING_REVIEW],
+    ])('the administrator of a %s %s, which is not promised registration: the role sentence only', (_checked, organizationType, review, permissions) => {
+      expect(refusalAs(permissions, { review, organizationType })).toBe(ROLE_SENTENCE)
+    })
+
+    it.each(['hospital', 'clinic'])('the administrator of a %s Health ID support is still checking: registration opens after the check', organizationType => {
+      expect(refusalAs(AWAITING_REVIEW, { review: 'pending', organizationType })).toBe('Patient registration opens once Health ID support has checked your facility.')
+    })
+
+    it.each(['hospital', 'clinic'])('anyone else at a %s Health ID support is still checking: registration opens after the check', organizationType => {
+      expect(refusalAs([APPROVE], { review: 'pending', organizationType })).toBe('Patient registration opens once Health ID support has checked your facility.')
+    })
+
+    it.each(['hospital', 'clinic'])('anyone else at a checked %s: told to ask its administrator for either role', organizationType => {
+      expect(refusalAs([APPROVE], { review: 'reviewed', organizationType })).toBe(REFUSAL)
+    })
+
+    it('anyone else at a facility Health ID support manages: told to ask its administrator for either role', () => {
+      expect(refusalAs([APPROVE])).toBe(REFUSAL)
+    })
+
+    // Neither role brings registration to a laboratory, pharmacy or "other" facility, so nobody there is sent to ask for one.
+    it.each([
+      ['checked', 'laboratory', 'reviewed'], ['checked', 'pharmacy', 'reviewed'], ['checked', 'other', 'reviewed'],
+      ['being checked', 'laboratory', 'pending'], ['being checked', 'pharmacy', 'pending'], ['being checked', 'other', 'pending'],
+    ])('anyone else at a %s %s, which is not promised registration: told to ask its administrator, naming no role', (_checked, organizationType, review) => {
+      expect(refusalAs([APPROVE], { review, organizationType })).toBe(ASK_ONLY)
+    })
+
+    // A records officer without the work (a facility's own grants can differ) is not told to ask for the role they hold.
+    it.each([
+      ['at a checked hospital', { review: 'reviewed', organizationType: 'hospital' }],
+      ['at a facility Health ID support manages', undefined],
+    ])('a records officer who does not hold registration, %s: told to ask its administrator, naming no role', (_where, selfService) => {
+      session.roles = ['records_officer']
+      expect(refusalAs([APPROVE], selfService)).toBe(ASK_ONLY)
+    })
+
+    it('an administrator at a facility Health ID support manages: told to ask its administrator for either role', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(REFUSAL)
+    })
+
+    // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
+    it.each(['', 'main-v1'])('the administrator of a checked hospital on today’s backend (%j): told to ask its administrator for either role', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(REFUSAL)
+    })
   })
 })
 
@@ -156,12 +287,13 @@ describe('the list view', () => {
   })
 
   it.each([
-    ['a refusal, in its own words', new HidApiError(403, 'This membership cannot verify identities.', { code: 'FORBIDDEN' }), 'This membership cannot verify identities.'],
+    ['a refusal, in plain words', new HidApiError(403, 'This membership cannot verify identities.', { code: 'FORBIDDEN' }), SAID_REFUSED],
     ['anything else, in today\'s fallback', new Error('network down'), 'Registration capabilities could not be loaded.'],
   ])('a capability read that fails: %s', async (_name, failure, words) => {
     api.registrationCapabilities.mockRejectedValue(failure)
     renderDept(<PatientRegistration />)
     expect((await screen.findByRole('alert')).textContent).toBe(words)
+    expect(document.body.textContent).not.toContain(failure.message)
   })
 
   it('Check again reads once, stays focusable while it reads, and keeps focus', async () => {
@@ -328,7 +460,8 @@ describe('the new record form', () => {
     await openNew()
     fillNin()
     fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
-    expect(await screen.findByText('The identity claims did not match.')).toBeTruthy()
+    expect(await screen.findByText('The details don’t match the NIN record. Check the name and date of birth, then try again.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/identity claims|NIN_MISMATCH/)
     fireEvent.input(screen.getByLabelText(/^First name/), { target: { value: 'Patient A' } })
     fireEvent.change(screen.getByRole('combobox', { name: 'Gender (optional)' }), { target: { value: 'female' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
@@ -386,7 +519,7 @@ describe('Find registration case', () => {
   })
 
   it.each([
-    ['a refusal, in its own words', new HidApiError(404, 'Registration case not found.', { code: 'NOT_FOUND' }), 'Registration case not found.'],
+    ['a refusal, in plain words', new HidApiError(404, 'Registration case not found.', { code: 'NOT_FOUND' }), SAID_NOT_FOUND],
     ['anything else, in today\'s fallback', new Error('network down'), 'The registration case could not be loaded.'],
   ])('a load that fails: %s, at the card', async (_name, failure, words) => {
     api.registrationCase.mockRejectedValue(failure)
@@ -394,6 +527,7 @@ describe('Find registration case', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Registration case ID' }), { target: { value: `  ${CASE} ` } })
     fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
     expect((await screen.findByRole('alert')).textContent).toBe(words)
+    expect(document.body.textContent).not.toContain(failure.message)
     expect(api.registrationCase).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, CASE)
     expect(heading().textContent).toBe('Patient registration')
   })
@@ -621,7 +755,7 @@ describe('the case record', () => {
     expect(document.activeElement).toBe(heading())
   })
 
-  it('a decision refused in Identity\'s words', async () => {
+  it('a decision refused in plain words, never Identity\'s', async () => {
     api.registrationCase.mockResolvedValue(pending())
     api.approveNewRegistration.mockRejectedValue(new HidApiError(409, 'The case changed. Refresh it.', { code: 'VERSION_CONFLICT' }))
     await findCase()
@@ -629,7 +763,8 @@ describe('the case record', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Approval reason' }), { target: { value: 'No candidate after verification' } })
     fireEvent.click(within(screen.getByRole('form', { name: 'Approve new Health ID' })).getByRole('button', { name: 'Approve new Health ID' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('The case changed. Refresh it.')
+    expect(alert.textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The case changed. Refresh it.')
     expect(screen.getByRole('form', { name: 'Approve new Health ID' }).contains(alert)).toBe(true)
   })
 

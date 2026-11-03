@@ -5,13 +5,8 @@ import { Flag, LoadingRows, Value, type FlagLevel } from '../../../kasuwa/parts'
 import { Alert, Badge, Button } from '../../../kasuwa/ui'
 import { staffApi, type LabAbnormalFlag, type LabOrderReleasedResults, type LabResultRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { revisionValue, skipsVersions } from '../../../staff/labRevisions'
+import { revisionValue, sameScientistCheck, skipsVersions } from '../../../staff/labRevisions'
 import { formatWhen } from '../parts/format'
-
-/** A code from Lab as EHR reports it (Clinical.tsx labCode), or nothing. */
-function labCode(value: unknown): string | undefined {
-  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : undefined
-}
 
 /** Today's words for a refused released-results read (Clinical.tsx releasedResultsRefusal). */
 export function releasedResultsRefusal(caught: unknown): string {
@@ -19,7 +14,7 @@ export function releasedResultsRefusal(caught: unknown): string {
   if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
     ? 'The lab hasn’t taken this test here yet, or your access doesn’t cover it.'
     : 'This lab doesn’t share results yet.'
-  if (caught.status === 403) return `You can’t see this test’s results here${labCode(caught.code) ? ` (${caught.code})` : ''}.`
+  if (caught.status === 403) return 'You can’t see this test’s results here.'
   return refusalText(caught, 'Please try again.')
 }
 
@@ -30,11 +25,14 @@ function when(value: string | null | undefined) {
 const FLAGS: Partial<Record<LabAbnormalFlag, FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal', critical_candidate: 'critical' }
 const RELEASE: Record<LabResultRevision['releaseStatus'], string> = { released: 'Released', verified_not_released: 'Checked, not released', not_released: 'Not released' }
 
-/** A Lab result's released revisions: the value with its unit and flag, then when it was entered and released. */
+/**
+ * A Lab result's released revisions: the value with its unit and flag, then when it was entered and released, and whether
+ * the scientist who entered it also checked it (One-person lab).
+ */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
   return (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
-      {revisions.map(revision => (
+      {revisions.map(revision => { const same = sameScientistCheck(revision); return (
         <li key={revision.version} className="flex flex-col gap-1 rounded-lg bg-subtle px-3 py-2.5 text-[13px] text-ink-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium text-ink">Version {revision.version}</span>
@@ -47,8 +45,11 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
           {revision.referenceRange ? <span>Normal range: {revision.referenceRange}</span> : null}
           <span>Entered {when(revision.enteredAt)}{revision.releasedAt ? ` · released ${when(revision.releasedAt)}` : ''}</span>
           {revision.correctionReason ? <span>Why it changed: {revision.correctionReason}</span> : null}
+          {/* One-person lab: the ordering clinician sees that the scientist who entered it also checked it. */}
+          {same ? <span className="font-medium text-ink">{same.text}</span> : null}
+          {same?.reason ? <span>Their reason: {same.reason}</span> : null}
         </li>
-      ))}
+      ) })}
     </ul>
   )
 }

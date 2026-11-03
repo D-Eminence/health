@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -6,7 +6,6 @@ import { orderRoutesApi, staffApi, type SavedRecord } from '../../../../staff/ap
 import { refusalSentences, refusalText, refusedFields } from '../../../../staff/fieldProblem'
 import { sendRefusal } from '../../../../staff/orderRoutes'
 import { choiceProblem, NO_DESTINATION, savedNotSent, type DestinationChoice, type RouteContext } from '../../../../staff/routes/OrderRoutes'
-import { shortId } from '../../parts/format'
 import { ChartBanner, type Chart } from '../../parts/chart'
 import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
@@ -115,8 +114,8 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
 }
 
 /** The consultation the order belongs to (the patient is in the banner above, and confirmed before saving). */
-function OrderContext({ encounterId }: { encounterId: string }) {
-  return <p className="hid-ehr-clinical-note">For consultation {shortId(encounterId)}</p>
+function OrderContext() {
+  return <p className="hid-ehr-clinical-note">For this consultation</p>
 }
 
 /** "Send this lab request for Adaeze Okafor?": the patient, compact, and what saving does, before anything is sent. */
@@ -214,7 +213,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
     }
     const key = attempt.key(JSON.stringify(['prescriptions', values]))
     try {
-      if (!chart.canWrite) throw new Error(NO_CHANGES)
+      if (!chart.canWrite) throw new PlainError(NO_CHANGES)
       await chart.verify()
       const saved = await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'prescriptions', body, key)
       attempt.clear()
@@ -232,7 +231,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
 
   return (
     <EhrCard>
-      <OrderContext encounterId={encounterId} />
+      <OrderContext />
       <RecordedAllergies chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
@@ -348,12 +347,12 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
       if (!handoff) {
         const items = await reload()
         const said = refusalText(caught, 'The lab request could not be created.')
-        throw new Error(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
+        throw new PlainError(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
       }
-      const named = handoffNames(caught.message)
+      const named = handoffNames(caught.detail ?? '')
       attempt.clear()
       const text = caught.code === 'LAB_HANDOFF_REFUSED'
-        ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
+        ? `Lab request saved and active in the EHR, but Lab refused it, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`
       const warning = { text, what: 'request', listChanged: false }
       if (named.requestId) return open(named.requestId, { warning })
@@ -429,7 +428,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
     }
     const key = attempt.key(JSON.stringify(['lab-requests', values, priority, handling]))
     try {
-      if (!chart.canWrite) throw new Error(NO_CHANGES)
+      if (!chart.canWrite) throw new PlainError(NO_CHANGES)
       await chart.verify()
       if (toAnother && choice.destination && choice.attestation) await createAndSend(body, key, choice.destination, choice.attestation.version)
       else await create(body, key)
@@ -444,7 +443,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
 
   return (
     <EhrCard>
-      <OrderContext encounterId={encounterId} />
+      <OrderContext />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       {sheet}
