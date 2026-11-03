@@ -120,6 +120,29 @@ describe('the Orders card on the visit page', () => {
     expect(readsOf('lab-requests')[1]![4]).toEqual({ cursor: undefined, fresh: true })
   })
 
+  it('says the change is made only once the orders it changed are read again, as today’s page does', async () => {
+    await openVisit()
+    changed = 'cancelled'
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'cancelled', rowVersion: 4 })
+    const read = api.records.getMockImplementation()!
+    let answer!: () => void
+    const held = new Promise<void>(resolve => { answer = resolve })
+    api.records.mockImplementation(async (...args: Parameters<typeof read>) => {
+      if (args[3] === 'prescriptions' && (args[4] as { fresh?: boolean } | undefined)?.fresh) await held
+      return read(...args)
+    })
+    change('Cancel consultation')
+    await waitFor(() => expect(readsOf('prescriptions')).toHaveLength(2))
+    await act(async () => {})
+    // Today's order (staff/routes/Clinical.tsx:1576-1584): while the prescriptions are read again, nothing says it is done.
+    expect(screen.queryByText(ENCOUNTER_STATUS_UPDATED)).toBeNull()
+    await act(async () => answer())
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    // When it says so, every order already shows as EHR now holds it.
+    expect(orders().getAllByText('Cancelled')).toHaveLength(2)
+    expect(orders().queryByText('Active')).toBeNull()
+  })
+
   it('says the change was saved but the orders could not be read again, as today’s page says it', async () => {
     await openVisit()
     changed = 'cancelled'

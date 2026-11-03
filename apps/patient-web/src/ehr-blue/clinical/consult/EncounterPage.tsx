@@ -352,8 +352,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       if (read === encounterReads.current) setPageError(refusalText(caught, ENCOUNTERS_FAILED))
     }
     if (shown && read === encounterReads.current) setEncounter(shown)
-    finish(ENCOUNTER_STATUS_UPDATED)
+    // A cancel or entered in error changes the visit's records too: today's page says the change only once they are read
+    // again (Clinical.tsx:1576-1584), so no card still shows a record as it was when the page says it is done.
     if (CLOSING_STATUSES.has(status)) await reloaded(...[notes, diagnoses, vitals, prescriptions, labs, documents].map(list => list.reload()))
+    finish(ENCOUNTER_STATUS_UPDATED)
   }
 
   // A new diagnosis may be typed with a note change (New consultation's fields, optional).
