@@ -139,8 +139,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
   const defaultReason = walkIn?.clinicalNote ?? (outside ? `Asked for by ${outside.prescriberName}` : walkIn ? 'Walk-in request' : '')
-  // How long it has waited, only while it waits: a finished request is not waiting.
-  const waited = stage === 'done' ? null : waitedText(item.acceptedAt)
+  // How long it has waited, only while it waits: a finished request, or an ended order, is not waiting.
+  const waited = stage === 'done' || closed ? null : waitedText(item.acceptedAt)
 
   return <FormPage wide back={{ to: backTo, label: 'Back to the work list' }}
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}
@@ -234,7 +234,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         walkIn?.clinicalNote ? ['Clinical note', walkIn.clinicalNote] : null,
         outside ? ['Referred by', [outside.prescriberName, outside.facilityName].filter(Boolean).join(', ')] : null,
         route?.ordererName ? ['Ordered by', route.ordererName + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '')] : null,
-        stage === 'done' ? null : ['Waiting', waited ?? 'Not known'],
+        stage === 'done' || closed ? null : ['Waiting', waited ?? 'Not known'],
       ]} />
     </Card>
 

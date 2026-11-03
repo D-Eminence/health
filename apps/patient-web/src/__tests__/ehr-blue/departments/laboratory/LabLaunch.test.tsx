@@ -192,7 +192,11 @@ describe('lab launch: finished work reaches Done, and Results only says what it 
     expect(stageTabs()).toEqual([['Waiting for sample0', 'false'], ['Testing1', 'true'], ['Enter results0', 'false'],
       ['Check & release0', 'false'], ['Done1', 'false']])
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Stage' })).getByRole('button', { name: /^Done/ }))
-    expect((await findCard('Finished test')).textContent).toMatch(/^Give result:/)
+    const finished = await findCard('Finished test')
+    expect(finished.textContent).toMatch(/^Give result:/)
+    // Finished work is not waiting.
+    expect(within(finished.closest('li') as HTMLElement).getByText('Finished')).toBeTruthy()
+    expect((finished.closest('li') as HTMLElement).textContent).not.toMatch(/Waiting|Just in/)
     unmount()
 
     renderDept(<Results />, { route: RESULTS })
@@ -597,6 +601,20 @@ describe('lab launch: lists and pages in plain words (loading, empty, access, cl
       const card = button.closest('li') as HTMLElement
       expect(within(card).getByText(/^Ended/)).toBeTruthy()
       expect(card.textContent).not.toMatch(/Waiting|Receive sample|Just in/)
+    })
+
+    it('its request says nothing of waiting', async () => {
+      as([...CUSTODY, ...PROCESSING])
+      api.labWorkItems.mockResolvedValue(ended(['received']))
+      api.labAccession.mockResolvedValue(accession([specimen('received')]))
+      api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
+      renderPage()
+      await openRecord()
+      await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release'))
+      const record = screen.getByRole('heading', { level: 1, name: 'Haemoglobin' }).closest('[data-layout="column"]') as HTMLElement
+      const request = screen.getByRole('heading', { level: 2, name: 'Request' }).closest('section') as HTMLElement
+      expect(record.textContent).not.toMatch(/waiting \d|waiting just now/i)
+      expect(within(request).queryByText('Waiting')).toBeNull()
     })
 
     it('a card of work still open keeps its step and its wait', async () => {
