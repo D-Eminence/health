@@ -249,7 +249,7 @@ describe('Patient documents with types: once served', () => {
     expect(typeField()!.value).toBe('lab_result')
   })
 
-  it('says any other refusal in the backend\'s words, as today, and leaves focus where the person went meanwhile', async () => {
+  it('says any other refusal in plain words, never the backend\'s, and leaves focus where the person went meanwhile', async () => {
     await openDocuments()
     fireEvent.change(fileField(), { target: { files: [image()] } })
     const refuse = uploadRefusedLater()
@@ -257,7 +257,8 @@ describe('Patient documents with types: once served', () => {
     await waitFor(() => expect(api.uploadDocument).toHaveBeenCalledTimes(1))
     act(() => { typeField()!.focus() })
     await act(async () => { refuse(new HidApiError(413, 'The file is too large', { code: 'DOCUMENT_TOO_LARGE' })) })
-    expect((await within(card()).findByRole('alert')).textContent).toBe('The file is too large')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('This file is too large. Choose a smaller file and try again.')
+    expect(document.body.textContent).not.toMatch(/The file is too large|DOCUMENT_TOO_LARGE/)
     expect(document.activeElement).toBe(typeField())
   })
 

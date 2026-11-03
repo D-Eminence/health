@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { SAID_CHANGED, SAID_REFUSED } from '../../../__tests__/said'
 
 /**
  * Prescriptions as hid-system EHR takes them (ehr/prescriptions/prescriptions.controller.ts,
@@ -197,7 +198,8 @@ describe('changing the status of a prescription Pharmacy may hold', () => {
 
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', 'rx-1',
       { expectedRowVersion: 3, changeReason: 'Allergy reported', status: 'cancelled' }))
-    expect(await within(form).findByText('Prescription changed since it was loaded')).toBeTruthy()
+    expect(await within(form).findByText(SAID_CHANGED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Prescription changed since it was loaded')
     expect(descriptions(within(form).getByRole('button', { name: 'Update status' }))).toContain('Pharmacy is not told of this change')
   })
 
@@ -371,7 +373,8 @@ describe('sending a prescription to Pharmacy', () => {
     const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
     type(form, 'Reason', 'Patient collecting today')
     fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
-    expect(await within(form).findByText('Network error')).toBeTruthy()
+    expect(await within(form).findByText('Send to Pharmacy could not be completed.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Network error')
 
     fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
     await waitFor(() => expect(api.acceptPrescription).toHaveBeenCalledTimes(2))
@@ -386,7 +389,8 @@ describe('sending a prescription to Pharmacy', () => {
     const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
     type(form, 'Reason', 'Patient collecting today')
     fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
-    expect(await within(form).findByText('Pharmacy access is not authorized')).toBeTruthy()
+    expect(await within(form).findByText(SAID_REFUSED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Pharmacy access is not authorized')
     expect(screen.queryByText('Pharmacy accepted this exact prescription version.')).toBeNull()
   })
 

@@ -30,7 +30,8 @@ const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
  * Opened by its address without the permission: today's refusal in plain words (pharmacyRefusalText), and nothing is
  * read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions are not
  * in it: only where that page opens, so not at a real facility while those pages show at the demo facilities only
- * (commerce/served.ts). There a seller or a stock reader is told their role doesn’t include pharmacy work.
+ * (commerce/served.ts). There a seller or a stock reader is told their role doesn’t include pharmacy work. The sentence
+ * is staff/refusedWork.ts refusedWorkText's, by who reads it, as the classic Pharmacy page's is.
  */
 function PharmacyUnavailable() {
   const { state } = useStaff()

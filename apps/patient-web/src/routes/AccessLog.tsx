@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Button, Card } from '../kasuwa/ui'
 import { LoadingRows } from '../kasuwa/parts'
 import { LoadProblem, Problem } from './profileParts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import type { AccessLogAction, AccessLogEvent, AccessLogPage } from '../accessLog'
 import { useSession } from '../session'
 import { useOnNotificationChange } from '../notificationBadge'
@@ -137,7 +137,7 @@ export function AccessLogCard() {
       focusAfter(() => list.current?.querySelectorAll<HTMLElement>('li[tabindex]')[before]
         ?? document.getElementById('access-log-more') ?? heading.current)
     } catch (cause) {
-      setMoreError(isHidApiError(cause) ? cause.message : 'Couldn’t load more. Try again.')
+      setMoreError(plainErrorText(cause, 'Couldn’t load more. Try again.'))
       focusAfter(() => document.getElementById('access-log-more'))
     } finally { setLoadingMore(false) }
   }

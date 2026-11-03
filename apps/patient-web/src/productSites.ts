@@ -16,6 +16,11 @@ import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
  * the frame opens the product's Home in its place: no product site sends anyone to the EHR site. Patient registration
  * stays in the hospital EHR. The admin site, and any host that is not a Health ID site (local, preview), serve every
  * address, as before.
+ *
+ * The one named exception (owner, 2 Nov 2026; demo only): Demo Hospital opened on the Lab or Migrate site shows its
+ * "Open Hospital EHR" button (ehr-blue/frame/BlueFrame.tsx FacilityOnAnotherSite, blueFacilities.ts demoFacilitySite),
+ * because the sealed demo tenant's hospital works only on the EHR site. It is the only link from a product site to the
+ * EHR site; no real facility gets one, and no other link may be added on its strength.
  */
 export type SiteKey = 'web' | StaffProductKey
 
@@ -162,6 +167,28 @@ export function offeredHere(pathname: string, hostname: string = window.location
   const product = here ? singleProductOf(here) : null
   const page = providerPage(pathname)
   return !product || page === null || opensInProduct(product, page)
+}
+
+/**
+ * The pages every staff site serves that say nothing of its product, by the first part of their address under
+ * /provider: the overview, the choice of facility, its staff and joining, its subscription, its audit, its profile and HR.
+ */
+const EVERY_SITE_PAGES: ReadonlySet<string> = new Set(['', 'institutions', 'staff', 'billing', 'audit', 'facility', 'hr'])
+
+/**
+ * Whether `pathname` is one of this staff site's own product pages: a page under /provider that is neither one every
+ * staff site serves (EVERY_SITE_PAGES) nor a public staff page (PUBLIC_STAFF_PAGES). On ehr that is every other page;
+ * on a single product's site, its home and the pages below it (ownProductOf), never Patients or Access requests, which
+ * every product keeps, nor a page of the hospital EHR's, which opens the product's Home there. False on any host that
+ * is not a staff site.
+ */
+export function ownProductPage(pathname: string, hostname: string): boolean {
+  const here = siteOf(hostname)
+  const page = providerPage(pathname)
+  if (!here || here.key === 'web' || page === null) return false
+  if (EVERY_SITE_PAGES.has(page) || PUBLIC_STAFF_PAGES.has(page)) return false
+  const product = singleProductOf(here)
+  return product === null || ownProductOf(page) === product
 }
 
 /**

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Check, ExternalLink, Paperclip } from 'lucide-react'
-import { assertSignedStorageUrl } from '@hid/http'
+import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { Button, Card, CardHeader, Field, cx } from '../../../kasuwa/ui'
 import {
   documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, learnDocumentTypesFrom, useDocumentTypesServed,
   type DocumentType,
 } from '../../../documentTypes'
+import { fileSizeLabel, fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { staffApi, type DocumentRecord } from '../../../staff/api'
 import { getEnvironment } from '../../../staff/env'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
@@ -114,20 +115,14 @@ export function WorkItemDocuments({ kind, facilityId, workItemId, patientId, per
     workItemId={workItemId} patientId={patientId} canRead={canRead} canWrite={canWrite && writable} />
 }
 
-/** A file size as EHR sends it, a number or text, in KiB. */
-function fileSize(value: number | string | null | undefined): string {
-  const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
-}
-
-function words(value: string): string {
-  return value.replaceAll('_', ' ').toLowerCase()
-}
-
-/** A listed document's media type, size and virus scan, as the classic Documents card says them. */
+/**
+ * A listed document's file type, size and virus check in plain words ("PDF document · 20 KB · Checked"), as the OCR
+ * documents list says them (plainLabels.ts): never its media type, a byte count or a scan code. An upload not completed
+ * has no check to tell; a check this page does not know is not named.
+ */
 function documentLine(document: DocumentRecord): string {
-  const scan = document.status === 'initiated' ? '' : ` · scan: ${words(document.scanStatus)}`
-  return `${document.mediaType} · ${fileSize(document.sizeBytes)}${scan}`
+  const scan = document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)
+  return [fileTypeLabel(document.mediaType), fileSizeLabel(document.sizeBytes, 'Size unavailable'), scan].filter(Boolean).join(' · ')
 }
 
 /**
@@ -185,7 +180,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (caught) {
-      setOpenError(caught instanceof Error && caught.message ? caught.message : OPEN_FAILED)
+      // In plain words, never the backend's or the browser's (a link that is not a signed storage link says OPEN_FAILED).
+      setOpenError(plainErrorText(caught, OPEN_FAILED, { audience: 'facility' }))
     } finally {
       setOpening(null)
     }
@@ -228,7 +224,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
       if (canRead && shown.current) await read()
     } catch (caught) {
       // The backend's refusal of a lab result on this host (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE) in the core's words; those
-      // words are about lab results, so any other type's refusal keeps the backend's own.
+      // words are about lab results, so any other type's refusal is said in plain words (errorText), never the backend's.
       const typeRefused = said.type === 'lab_result' ? documentTypeRefusalText(caught) : null
       setAttachError(typeRefused ?? errorText(caught, ATTACH_FAILED))
       focus(submitId, true)
