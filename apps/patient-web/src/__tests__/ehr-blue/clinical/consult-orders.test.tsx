@@ -3,6 +3,9 @@ import { HidApiError } from '@hid/http'
 import { Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONNECTED_ORDERS_NOTE, EncounterOrderPages, EncounterOrders, orderPath } from '../../../ehr-blue/clinical/consult/orders'
+import { learnFrom } from '../../../ehr-blue/clinical/consult/orders/orders'
+import { useRecordList } from '../../../ehr-blue/clinical/consult/records'
+import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
 import { ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
@@ -108,9 +111,17 @@ function EncounterStub() {
   const chart = useChart()
   const { recordId = '' } = useParams()
   if (!chart) return <p>No patient open</p>
+  return <OrdersStub chart={chart} encounterId={recordId} />
+}
+
+/** The visit page's two order lists, read as it reads them (direct care only: emergency never reaches the visit page). */
+function OrdersStub({ chart, encounterId }: { chart: Chart; encounterId: string }) {
+  const direct = chart.purpose === 'direct-care'
+  const pharmacy = useRecordList(chart, encounterId, 'prescriptions', direct && chart.can('ehr.prescription.read'), learnFrom)
+  const laboratory = useRecordList(chart, encounterId, 'lab-requests', direct && chart.can('ehr.lab-request.read'), learnFrom)
   return (
     <section aria-label="Available actions">
-      <EncounterOrders chart={chart} encounter={{ id: recordId, patientId: PATIENT_ID, facilityId: staff.facilityId ?? FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }} />
+      <EncounterOrders chart={chart} lists={{ pharmacy, laboratory }} encounter={{ id: encounterId, patientId: PATIENT_ID, facilityId: staff.facilityId ?? FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }} />
     </section>
   )
 }
@@ -257,6 +268,8 @@ describe('Connected orders', () => {
     api.records.mockRejectedValue(new HidApiError(503, 'Records are unavailable'))
     open(ENCOUNTER_ID)
     expect((await screen.findAllByRole('alert'))[0]!.textContent).toBe('Records are unavailable')
+    // A read that failed is not still loading.
+    expect(screen.queryByText('Loading records…')).toBeNull()
   })
 
   it('shows nothing of orders for an emergency patient, and the order pages show the read-only notice', async () => {

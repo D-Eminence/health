@@ -506,7 +506,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no
           empty card. */}
       {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId)) ? (
-        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} /></EhrCard>
+        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
       ) : null}
       {reads.documents ? (
         <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
