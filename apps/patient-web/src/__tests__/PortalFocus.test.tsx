@@ -115,6 +115,8 @@ describe('access and consent', () => {
     let reads = 0
     const { sent } = access((path, method) => {
       if (path === '/identity/me/access-history') return json({ items: [] })
+      // The profile, read for the paper records line: not one of the list's reads.
+      if (path === '/identity/me') return json({})
       if (method === 'POST') return json({ accessRequestId: request.accessRequestId, status: 'approved' })
       return ++reads === 1 ? json([request]) : reloaded.promise
     })

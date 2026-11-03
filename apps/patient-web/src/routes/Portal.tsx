@@ -696,8 +696,28 @@ function sharedAs(item: HistoryItem) {
   return level || duration ? ['Shared by you', level, duration].filter(Boolean).join(' · ') : null
 }
 
+/** What approving a request also allows, word for word as decided (coordinator, 3 Nov 2026). */
+export function paperRecordsOnApproval(facilityName: string): string {
+  return `Approving also lets ${facilityName} add your old paper records to your Health ID for 24 hours after you approve.`
+}
+
+/** What an Access PIN allows, word for word as decided (coordinator, 3 Nov 2026). */
+export const PIN_COVERS = 'A hospital you give it to can use it to open your records. For 24 hours after they use it, they can also add your old paper records to your Health ID.'
+
+/** Whether a date of birth is 18 or more years ago; false when unknown. */
+function isAdult(dateOfBirth: string | null | undefined, now = new Date()): boolean {
+  if (!dateOfBirth) return false
+  const born = new Date(dateOfBirth)
+  if (Number.isNaN(born.getTime())) return false
+  const eighteenth = new Date(Date.UTC(born.getUTCFullYear() + 18, born.getUTCMonth(), born.getUTCDate()))
+  return now.getTime() >= eighteenth.getTime()
+}
+
 export function AccessPage() {
   const { api } = useSession()
+  // Only to say the paper records rule to an adult: the profile's date of birth. Nothing shows until it is known.
+  const profile = usePatientResource(api.profile)
+  const adult = isAdult(profile.data?.dateOfBirth)
   useDocumentTitle('Access and consent · Health ID')
   const toast = useToast()
   const requests = usePatientResource(api.accessRequests)
@@ -869,6 +889,9 @@ export function AccessPage() {
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{plainCode(open.status)}</Badge></dd></div>}
         </dl>
         {open.status.toLowerCase() === 'pending' && !denying && <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />{SAY.everyViewRecorded} You can end access at any time.</p>}
+        {/* The 24-hour paper records rule (records processing, 0104): the first OK also covers bringing in paper records.
+            Said only to an adult, as under-18s are refused paper records; not said while the age is unknown. */}
+        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsOnApproval(open.facilityName)}</p>}
         {denying && <form id="deny-form" className="flex flex-col gap-3" onSubmit={event => { event.preventDefault(); confirmDenial(open.accessRequestId) }}>
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
             <legend className="mb-1 p-0 text-sm font-medium text-ink">Why are you saying no? <span className="font-normal text-ink-3">They see this.</span></legend>
@@ -1105,7 +1128,7 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     <h3 ref={pinHeading} tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Access PIN</h3>
     <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-busy={loading || undefined}>
       <Badge size="sm" tone={profile.accessPinConfigured ? 'success' : 'neutral'}>{profile.accessPinConfigured ? 'Set' : 'Not set'}</Badge>
-      A hospital you give it to can use it to open your records.</p>
+      {PIN_COVERS}</p>
     <Saved>{notice}</Saved>
     <form onSubmit={event => void configurePin(event)} className="flex flex-wrap items-start gap-2">
       <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
