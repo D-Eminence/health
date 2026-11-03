@@ -57,7 +57,9 @@ describe('Access requests without identity.consent.write', () => {
     await opened
     expect(await screen.findByRole('heading', { level: 1, name: 'Access requests' })).toBeDefined()
     const alert = screen.getByRole('alert')
-    expect(alert.textContent).toContain('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')
+    // Today's list refusal in plain words (staff/routes/AccessRequests.tsx accessRequestsError), never a permission's name.
+    expect(alert.textContent).toContain('Your role here can’t see access requests. Ask your facility administrator if you need to.')
+    expect(document.body.textContent).not.toMatch(NO_PERMISSION_NAME)
     expect(where()).toBe('/provider/requests')
     expect(screen.queryByText(DENIED_NOTICE)).toBeNull()
     expect(sent.some(call => call.route === REQUESTS)).toBe(false)
@@ -68,7 +70,9 @@ describe('Access requests without identity.consent.write', () => {
     await opened
     expect(await screen.findByRole('heading', { level: 1, name: 'Access requests' })).toBeDefined()
     const alert = screen.getByRole('alert')
-    expect(alert.textContent).toContain('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')
+    // Today's list refusal in plain words (staff/routes/AccessRequests.tsx accessRequestsError), never a permission's name.
+    expect(alert.textContent).toContain('Your role here can’t see access requests. Ask your facility administrator if you need to.')
+    expect(document.body.textContent).not.toMatch(NO_PERMISSION_NAME)
     expect(where()).toBe('/provider/requests/r0000000-0000-4000-8000-000000000001')
     expect(screen.queryByText(DENIED_NOTICE)).toBeNull()
     expect(sent.some(call => call.route === REQUESTS)).toBe(false)

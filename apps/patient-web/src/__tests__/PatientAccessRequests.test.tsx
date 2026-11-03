@@ -99,12 +99,13 @@ describe('patient access-request commands', () => {
   })
 
   // P4c review (Identity, as main): approving needs a sign-in within 10 minutes and no OTP account recovery in the last
-  // 24 hours. The page says Identity's own words, and the request stays pending with Approve and Deny still offered.
+  // 24 hours. The page says it in plain words (never Identity's), and the request stays pending with Approve and Deny still offered.
   it.each([
-    ['PATIENT_RECENT_AUTH_REQUIRED', 'For your security, sign out, sign in again, and approve within 10 minutes.'],
+    ['PATIENT_RECENT_AUTH_REQUIRED', 'For your security, sign out, sign in again, and approve within 10 minutes.',
+      'For your safety, sign out, sign in again, then come back within 10 minutes.'],
     ['PATIENT_RECENT_RECOVERY_HOLD', 'This account was recovered with a verification code less than 24 hours ago; new access '
-      + 'approvals are available again once that period ends'],
-  ])('says why Identity refused an approval (%s), and keeps the request pending', async (code, detail) => {
+      + 'approvals are available again once that period ends', 'For your safety, this isn’t available for 24 hours after you recover your account.'],
+  ])('says why Identity refused an approval (%s), and keeps the request pending', async (code, detail, said) => {
     const { api, sent } = client((path, method) => {
       if (path.endsWith('/me/access-requests')) return json([pending])
       if (path.endsWith('/me/access-history')) return json({ items: [] })
@@ -119,7 +120,8 @@ describe('patient access-request commands', () => {
     const approve = drawer.getByRole('button', { name: /^Approve/ })
     approve.focus()
     fireEvent.click(approve)
-    expect((await screen.findByRole('alert')).textContent).toContain(detail)
+    expect((await screen.findByRole('alert')).textContent).toContain(said)
+    expect(screen.getByRole('alert').textContent).not.toContain(detail)
     expect(screen.queryByText('Lagos General can see your records now.')).toBeNull()
     expect(sent.filter(request => request.method === 'POST')).toHaveLength(1)
     // Still pending: the drawer stays with Approve and Deny, and focus is back on Approve.
@@ -162,5 +164,39 @@ describe('patient access-request commands', () => {
     fireEvent.click(drawer.getByRole('button', { name: 'Deny' }))
     expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
     expect(sent.filter(request => request.method === 'POST').map(request => request.body)).toEqual([{ reason: 'Not now' }])
+  })
+})
+
+describe('access status in words', () => {
+  it('says each request’s and each access’s status in the patient’s words, never the status word itself', async () => {
+    const grant = (id: string, status: string, facilityName: string) => ({ consentGrantId: id, scope: 'read_records', purpose: 'direct-care',
+      status, startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T11:00:00Z', reason: null, facilityName, breakGlass: false, patientRevocable: false })
+    const { api } = client(path => {
+      if (path.endsWith('/me/access-requests')) return json([
+        { ...pending, accessRequestId: 'r-1', facilityName: 'Lagos General', status: 'denied' },
+        { ...pending, accessRequestId: 'r-2', facilityName: 'Ikeja Clinic', status: 'expired' },
+      ])
+      if (path.endsWith('/me/access-history')) return json({ items: [
+        grant('g-1', 'active', 'Yaba Hospital'), grant('g-2', 'revoked', 'Surulere Lab'), grant('g-3', 'expired', 'Ojota Pharmacy'),
+        grant('g-4', 'pending', 'Ikoyi Clinic'),
+      ] })
+      return json({}, 404)
+    })
+    render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
+      kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
+    }, api)}><ToastProvider><AccessPage /></ToastProvider></SessionContext.Provider></MemoryRouter>)
+    const row = async (name: RegExp) => (await screen.findByRole('button', { name })).textContent
+    expect(await row(/^Lagos General/)).toContain('You said no')
+    expect(await row(/^Ikeja Clinic/)).toContain('Time ran out')
+    fireEvent.click(screen.getByRole('button', { name: /^Lagos General/ }))
+    expect(within(screen.getByRole('dialog', { name: 'Lagos General' })).getByText('You said no')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Who has access/ }))
+    const item = async (name: string) => (await screen.findByText(name)).closest('li')!.textContent
+    expect(await item('Yaba Hospital')).toContain('Active')
+    expect(await item('Surulere Lab')).toContain('Ended')
+    expect(await item('Ojota Pharmacy')).toContain('Time ran out')
+    expect(await item('Ikoyi Clinic')).toContain('Waiting for you')
+    expect(document.body.textContent).not.toMatch(/Denied|Revoked|Expired|Pending/)
   })
 })
