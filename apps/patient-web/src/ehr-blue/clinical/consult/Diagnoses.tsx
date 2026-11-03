@@ -10,7 +10,7 @@ import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
 import {
-  DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_UPDATED, DIAGNOSIS_VERIFICATION_STATUSES, NO_WRITE, REASON_SHORT, RECORD_SAVED, RELOAD_FAILED,
+  DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_UPDATED, DIAGNOSIS_VERIFICATION_STATUSES, NO_WRITE, REASON_SHORT, RECORD_SAVED,
   diagnosisStatus, field, refusedFieldErrors, rowVersion, text, type StatusOption,
 } from './encounters'
 import { ListPaging } from './Notes'
@@ -63,13 +63,14 @@ function detail(record: ClinicalRecord) {
  * this diagnosis" while it is not entered in error, and "Add diagnoses". Every change re-checks access first and is
  * kept in the history; a new diagnosis shows the first page again, a change the page shown (today's reads).
  */
-export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onError }: {
+export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onReloadFailed }: {
   chart: Chart
   encounterId: string
   list: RecordList<ClinicalRecord>
   canWrite: boolean
   onSaved: (message: string) => void
-  onError: (message: string) => void
+  /** The list's read after a change failed (`first`: its first page): the page says the change was saved. */
+  onReloadFailed: (failure: string, first: boolean) => void
 }) {
   const [changing, setChanging] = useState<string | null>(null)
   const [added, setAdded] = useState(0)
@@ -79,7 +80,7 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
   const afterChange = async (message: string, first: boolean) => {
     onSaved(message)
     const failure = await list.reload(first)
-    if (failure !== null) onError(`${RELOAD_FAILED} ${failure}`.trim())
+    if (failure !== null) onReloadFailed(failure, first)
   }
 
   const add = async (values: FormValues): Promise<SubmitOutcome> => {
