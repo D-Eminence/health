@@ -41,6 +41,9 @@ export function BackToTop() {
       hidden={!visible}
       className={cx(
         'fixed right-4 bottom-4 z-40 grid h-[38px] w-[38px] place-items-center rounded-(--radius-button) border border-brand bg-brand text-white transition-colors hover:bg-brand-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:right-7 sm:bottom-7',
+        // Above the Support chat launcher, which shares the corner (48px tall, 16 to 20px up): on a phone it covered
+        // the round launcher, and a tap on the chat icon scrolled to the top.
+        '[:root:has(.hid-chat-launcher)_&]:bottom-[calc(max(20px,env(safe-area-inset-bottom))+60px)]',
       )}
     >
       <HealthIcon name="up" size={16} />

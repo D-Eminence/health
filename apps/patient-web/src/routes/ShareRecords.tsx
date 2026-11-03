@@ -212,11 +212,12 @@ function ShareFlow() {
   const problemKey = (first: boolean) => alerts(first) ? `alert-${problemAlert}` : 'quiet'
   const problemRole = (first: boolean) => alerts(first) ? 'alert' : undefined
   // The step's buttons, given as [secondary, primary]: a row on the right with the primary rightmost from 640px; on
-  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach).
+  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach),
+  // ending 8px or more before the Support chat launcher where it is on the page (the card is 16px in from the edge).
   const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div" className={footer ? 'overflow-visible!' : undefined}>
     {number && <Stepper at={number} />}
     <div className="flex flex-col gap-5 p-5">{body}</div>
-    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)]">{footer}</div>}
+    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)] max-sm:[:root:has(.hid-chat-launcher)_&]:pr-[60px]">{footer}</div>}
   </Card>
 
   if (step === 'search') {
