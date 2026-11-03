@@ -117,8 +117,8 @@ describe('role names shown to staff', () => {
     ['clinician', 'Clinician'], ['nurse', 'Nurse'], ['lab', 'Laboratory scientist'], ['pharmacist', 'Pharmacist'],
     ['receptionist', 'Receptionist'], ['records_officer', 'Records officer'], ['billing', 'Billing officer'],
     ['outreach_officer', 'Outreach officer'],
-    // A fictional code the list does not name: the classic portal shows it as it is.
-    ['porter', 'porter'],
+    // A fictional code the list does not name: the classic portal never shows it as it is (owner's rule, 1 Nov 2026).
+    ['porter', 'Staff'], ['constructor', 'Staff'],
   ])('%s reads “%s”', (code, label) => {
     expect(roleLabel(code)).toBe(label)
   })
@@ -128,6 +128,12 @@ describe('role names shown to staff', () => {
     expect(roleInSentence('lab')).toBe('a laboratory scientist')
     expect(roleInSentence('org_admin')).toBe('a facility administrator')
     expect(roleInSentence('outreach_officer')).toBe('an outreach officer')
+    expect(roleInSentence('porter')).toBe('a staff member')
+  })
+
+  it('has one wording for a role in a sentence, in the classic portal and the blue EHR', () => {
+    expect(roleNameInSentence).toBe(roleInSentence)
+    expect(roleLabel).toBe(roleName)
   })
 })
 

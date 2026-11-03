@@ -314,7 +314,7 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
     expect(staff.signOut).not.toHaveBeenCalled()
   })
 
-  it('directs a person who already has a Health ID to account recovery, with the reference, and shows no Health ID', async () => {
+  it('directs a person who already has a Health ID to account recovery, in plain words, and shows no Health ID or reference', async () => {
     const detail = 'This person already has a Health ID. Direct them to account recovery. If they say they never registered, ask Health ID support to review, quoting reference corr-original.'
     api.assistedVerification.mockRejectedValueOnce(problem(409, 'NIN_ALREADY_REGISTERED', detail))
     render(<InPersonCheck />)
@@ -322,7 +322,8 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
     submit()
     const heading = await screen.findByRole('heading', { name: 'They already have a Health ID' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(screen.getByText(detail)).toBeTruthy()
+    expect(screen.queryByText(detail)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/corr-original/)
     expect(screen.getByText(/Don’t register them again/)).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: DESK_CODE })).toBeNull()
     expect(document.body.textContent).not.toMatch(/HID-|Synthetic-Ada|Okafor/)
@@ -332,9 +333,9 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
 
   it.each([
     ['404 DESK_CODE_NOT_FOUND', problem(404, 'DESK_CODE_NOT_FOUND', 'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'),
-      'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'],
+      'No sign-up is waiting for this code. Ask them to show the code again.'],
     ['400 DESK_CODE_INVALID', problem(400, 'DESK_CODE_INVALID', 'Enter the 10-character desk code shown on the patient\'s phone.'),
-      'Enter the 10-character desk code shown on the patient\'s phone.'],
+      'Type the 10-character code on their phone.'],
     ['409 ASSISTED_VERIFICATION_STALE', problem(409, 'ASSISTED_VERIFICATION_STALE', 'Stale.'),
       'That code has changed. Ask for the code on their phone now, then check again.'],
   ])('reports %s at the desk code, and checks a new code with a new key', async (_label, failure, message) => {
@@ -354,7 +355,7 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
 
   it.each([
     ['429 ASSISTED_VERIFICATION_LIMITED', problem(429, 'ASSISTED_VERIFICATION_LIMITED', 'The daily limit of in-person checks is reached. Try again later.'),
-      'The daily limit of in-person checks is reached. Try again later.'],
+      'The daily limit of in-person checks has been reached. Try again later.'],
     ['409 IDEMPOTENCY_KEY_REUSED', problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This retry key belongs to a different request'),
       'This was already sent with different details. Check them and try again.'],
   ])('reports %s and sends the next check with a new key', async (_label, failure, shown) => {

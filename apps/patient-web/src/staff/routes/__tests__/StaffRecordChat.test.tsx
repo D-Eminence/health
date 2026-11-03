@@ -137,7 +137,7 @@ describe('StaffRecordChat', () => {
   })
 
   it.each([
-    ['CONSENT_REQUIRED', 403, /Patient access has ended or changed/],
+    ['CONSENT_REQUIRED', 403, /Your access to this patient has ended or changed/],
     ['BREAK_GLASS_EXCLUDED', 403, /not available under emergency access/],
   ])('reports that access ended on %s, so the chart can close the assistant', async (code, status, message) => {
     const ended = vi.fn()

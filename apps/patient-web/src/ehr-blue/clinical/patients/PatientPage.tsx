@@ -1,7 +1,7 @@
 import { Activity, ChevronRight, FolderOpen, History, KeyRound, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
@@ -16,9 +16,12 @@ import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
 import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
+import { CLOSE_REFUSALS } from '../emergency/access'
 import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
+/** After the chart's READ_ONLY, on the patient page only: how to get changes. */
+const READ_ONLY_HOW = 'To make changes, ask the patient to let you see and add to their records.'
 
 function sexText(value: string | undefined) {
   if (!value) return ''
@@ -153,7 +156,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
     try {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t end your access. Please try again.')
+      setError(plainErrorText(caught, 'Couldn’t end your access. Please try again.', { codes: CLOSE_REFUSALS, audience: 'facility' }))
       return
     } finally {
       setEnding(false)
@@ -219,8 +222,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
           </dl> : null}
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
+            {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Close my grant and the emergency
+                summary's End emergency access: a refused close leaves focus on it, and a second press sends nothing. */}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-              loading={ending} onClick={() => void closeGrant()}>End my access</Button>
+              aria-busy={ending || undefined} aria-disabled={ending || undefined} onClick={() => void closeGrant()}>End my access</Button>
           </div> : null}
         </Card>
       </div>
@@ -232,8 +237,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
         {/* Read only, said once. */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
-            ? 'You can see this record but not add to it. To make changes, ask the patient to let you see and add to their records.'
-            : chart.writeNotice}</Alert> : null}
+            ? `${READ_ONLY} ${READ_ONLY_HOW}` : chart.writeNotice}</Alert> : null}
         {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
 
         {!emergency ? <Card>

@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import type { PatientNinVerification, PatientProfile } from '../api'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useStepFocus } from '../authSteps'
@@ -87,7 +87,7 @@ export function NinVerificationCard({ profile, onVerified }: {
     } catch (reason) {
       const aboutNumber = isHidApiError(reason) && reason.status === 400
       const code = isHidApiError(reason) ? reason.code : ''
-      setError(aboutNumber ? NIN_RULE : Object.hasOwn(NIN_REFUSALS, code) ? NIN_REFUSALS[code] ?? NIN_FAILED : isHidApiError(reason) && reason.status < 500 ? reason.message : NIN_FAILED)
+      setError(aboutNumber ? NIN_RULE : Object.hasOwn(NIN_REFUSALS, code) ? NIN_REFUSALS[code] ?? NIN_FAILED : plainErrorText(reason, NIN_FAILED))
       setFieldError(aboutNumber); setErrorAlert(!aboutNumber || fromField)
     } finally { setBusy(false); fieldFocus.focus() }
   }
