@@ -190,7 +190,14 @@ const STATUS_LABEL: Readonly<Record<string, string>> = {
   resolved: 'Linked',
   linked_existing: 'Linked',
   resolved_existing_identity: 'Already on Health ID',
+  // Cases that ended without a link: said in words too, rather than read as unknown.
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  closed: 'Closed',
+  duplicate: 'Duplicate',
 }
+/** The statuses that mean the person was linked to a Health ID: the only green ones. */
+const LINKED_STATUSES: ReadonlySet<string> = new Set(['identity_resolved', 'resolved', 'linked_existing', 'resolved_existing_identity'])
 
 export function statusLabel(status: string) {
   return (Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : undefined) ?? 'Status not known'
@@ -199,12 +206,12 @@ export function statusLabel(status: string) {
 /** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */
 export function caseTone(status: string): Tone {
   if (status === PENDING) return 'warn'
-  return Object.hasOwn(STATUS_LABEL, status) ? 'success' : 'neutral'
+  return LINKED_STATUSES.has(status) ? 'success' : 'neutral'
 }
 
 /** What happens next on a case, said on its card: the one next step, or that it is done. */
 export function nextStepText(item: OutreachCase, canLink: boolean): string {
-  if (item.status !== PENDING) return 'Done: nothing more to do'
+  if (item.status !== PENDING) return Object.hasOwn(STATUS_LABEL, item.status) ? 'Done: nothing more to do' : 'Nothing else to do here.'
   return canLink ? 'Next: link their Health ID' : 'Waiting for someone to link their Health ID'
 }
 

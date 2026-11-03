@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { campaignSearchText, campaignStatusLabel, caseSearchText, NO_ACTIONS, statusLabel } from '../../../../ehr-blue/departments/outreach/outreachParts'
+import { campaignSearchText, campaignStatusLabel, caseSearchText, caseTone, nextStepText, NO_ACTIONS, statusLabel } from '../../../../ehr-blue/departments/outreach/outreachParts'
 
 /* Outreach's statuses in plain words (the owner's rule: no codes on screen), with a plain fallback for any other. */
 
@@ -20,6 +20,25 @@ describe('Outreach words', () => {
     expect(statusLabel('identity_resolved')).toBe('Linked')
     expect(statusLabel('awaiting_something_new')).toBe('Status not known')
     expect(statusLabel('constructor')).toBe('Status not known')
+  })
+
+  it.each([
+    ['rejected', 'Rejected'], ['cancelled', 'Cancelled'], ['closed', 'Closed'], ['duplicate', 'Duplicate'],
+  ])('says a case that ended as %s is "%s", in a neutral tone', (status, words) => {
+    expect(statusLabel(status)).toBe(words)
+    expect(caseTone(status)).toBe('neutral')
+    expect(nextStepText({ id: 'x', status, rowVersion: 1 }, true)).toBe('Done: nothing more to do')
+  })
+
+  it('shows only linked cases in green, and waiting ones in amber', () => {
+    expect(caseTone('identity_resolved')).toBe('success')
+    expect(caseTone('resolved_existing_identity')).toBe('success')
+    expect(caseTone('identity_resolution_pending')).toBe('warn')
+    expect(caseTone('awaiting_something_new')).toBe('neutral')
+  })
+
+  it('does not call a case it has no word for done', () => {
+    expect(nextStepText({ id: 'x', status: 'awaiting_something_new', rowVersion: 1 }, true)).toBe('Nothing else to do here.')
   })
 
   it('searches only what is on screen: the words, never the ids', () => {

@@ -86,7 +86,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const facts: DeptFact[] = [
     { label: 'Status', value: statusLabel(registration.status) },
     { label: visit.started ? 'Started' : 'Reopened', value: dateText(visit.at) },
-    { label: 'Candidates', value: candidatesText(registration) },
+    { label: 'Possible matches', value: candidatesText(registration) },
     ...(registration.patient ? [{ label: 'Health ID', value: registration.patient.hid }] : []),
   ]
 

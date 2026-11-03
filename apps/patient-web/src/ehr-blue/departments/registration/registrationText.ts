@@ -133,19 +133,19 @@ export const NO_OVERRIDE = 'A new Health ID cannot be given once a possible matc
 export const CANDIDATES_UNAVAILABLE = 'The possible matches could not be shown. Refresh this registration before reviewing it.'
 export const candidateLine = (dateOfBirth: string | null) => `Date of birth: ${dateOfBirth ?? 'Not provided'}`
 export const candidateOption = (fullName: string, dateOfBirth: string | null) => `${fullName} · ${dateOfBirth ?? 'date unknown'}`
-export const NO_CANDIDATE_NOTICE = 'Verification found no candidate. An authorized reviewer may approve a new Health ID.'
+export const NO_CANDIDATE_NOTICE = 'No possible match was found. Someone allowed to approve can give a new Health ID.'
 
-export const CANDIDATE_LABEL = 'Candidate to link'
-export const SELECT_CANDIDATE = 'Select a candidate'
+export const CANDIDATE_LABEL = 'Patient to link'
+export const SELECT_CANDIDATE = 'Choose a patient'
 export const LINK_REASON_LABEL = 'Review reason'
 export const LINK = 'Link selected patient'
 export const APPROVE_REASON_LABEL = 'Approval reason'
 export const APPROVE = 'Approve new Health ID'
 export const SAVING = 'Saving…'
-export const CANDIDATE_REFUSED = 'Select a candidate returned by this registration case.'
+export const CANDIDATE_REFUSED = 'Choose one of the patients listed for this registration.'
 export const REVIEW_REASON_REFUSED = 'Enter a review reason between 8 and 500 characters.'
 export const APPROVED = 'A new Health ID was approved.'
-export const LINKED = 'The verified identity was linked to the selected patient.'
+export const LINKED = 'The patient was linked to their Health ID.'
 export const REVIEW_FAILED = 'The case review could not be completed. Refresh the case before changing its decision.'
 
 export const ENROLL_TITLE = 'Enroll patient account'
