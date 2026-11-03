@@ -34,8 +34,8 @@ describe('Novu patient records contract', () => {
     expect(await screen.findByText('Preserved report')).toBeTruthy()
     expect(screen.getByText('Synthetic note content.')).toBeTruthy()
     expect(screen.getByText('Outpatient visit')).toBeTruthy()
-    // What production sends (visits and notes), never "everything your doctors and hospitals have signed".
-    expect(screen.getByText('Your visits and doctor’s notes, newest first.')).toBeTruthy()
+    // What production sends (visits, notes and the older record shown above), never "everything your doctors and hospitals have signed".
+    expect(screen.getByText('Your visits, doctor’s notes and older records, newest first.')).toBeTruthy()
     for (const name of ['Vitals', 'Diagnoses', 'Medicines', 'Lab tests', 'Documents']) {
       expect(screen.queryByRole('heading', { name })).toBeNull()
     }
@@ -47,6 +47,8 @@ describe('Novu patient records contract', () => {
     // The redesign leaves an empty section out of All and says so once; the absent main-v1 sections are never called empty.
     expect(await screen.findByText('No records yet')).toBeTruthy()
     expect(screen.getByText('No older records.')).toBeTruthy()
+    // The page still has its older-records part, so the opening line names it.
+    expect(screen.getByText('Your visits, doctor’s notes and older records, newest first.')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Records', level: 1 })).toBeTruthy()
     expect(screen.queryByText('No medicines prescribed.')).toBeNull()
     expect(screen.queryByRole('tab', { name: /Medicines/ })).toBeNull()

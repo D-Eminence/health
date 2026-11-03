@@ -299,12 +299,15 @@ const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
 /**
  * The page's opening line: only what the page shows (recordSections.ts), never more. An EHR with hid-system #52 names
  * what it released to the patient, and only that is named; one that names nothing (production's) is said to send every
- * section the page shows. Nothing is named while the record is read, or when it could not be.
+ * section the page shows. Older records are named whenever the answer carries them, as the page then shows them.
+ * Nothing is named while the record is read, or when it could not be.
  */
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
   const shown = sectionsShown()
-  const names = (data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section])
+  // The older records (records kept from before) are shown whenever the answer carries them, so they are named too.
+  const older = data.importedRecords !== undefined ? ['older records'] : []
+  const names = [...(data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section]), ...older]
   if (names.length === 0) return 'Nothing in your record is shared with you yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
   if (!data.released) return `Your ${listed}, newest first.`
