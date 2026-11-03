@@ -11,8 +11,9 @@ function dateText(value: string | null | undefined) {
 }
 
 /**
- * A result's released versions, the one to use first: "Current result", then each earlier one it replaced, with why it
- * was changed. Only released versions reach a clinician (lab-executions.service.ts releasedView), so no status is shown.
+ * A result's released versions, newest first: "Latest released result", then each earlier one it replaced, with why it
+ * was changed. Only released versions reach a clinician (lab-executions.service.ts releasedView), so no status is shown,
+ * and the newest is never called current: a correction waiting to be checked in the lab is not sent here.
  * Each flag in the lab's plain words (labText.ts); "not set" says nothing, so it is left out.
  */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
@@ -22,7 +23,7 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
       {newestFirst.map((revision, index) => (
         <li key={revision.version} className="hid-ehr-clinical-orders-revision">
           <div className="hid-ehr-clinical-orders-row">
-            <strong>{index === 0 ? 'Current result' : 'Earlier result'}</strong>
+            <strong>{index === 0 ? 'Latest released result' : 'Earlier released result'}</strong>
             {revision.verificationStatus === 'entered_in_error' ? <EhrBadge tone="critical">Entered in error</EhrBadge>
               : index > 0 ? <EhrBadge tone="caution">Replaced</EhrBadge> : null}
           </div>

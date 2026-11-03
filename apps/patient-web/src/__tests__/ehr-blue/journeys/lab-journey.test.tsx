@@ -181,7 +181,7 @@ describe.each([{ sendsOpenWork: false }, { sendsOpenWork: true }])('a lab reques
     await doctorOpensRequest(lab)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
     expect(await screen.findByText('7.1 g/dL · Low')).toBeTruthy()
-    expect(screen.getByText('Current result')).toBeTruthy()
+    expect(screen.getByText('Latest released result')).toBeTruthy()
     expect(screen.getByText('Normal range: 12.0-15.5')).toBeTruthy()
 
     // 8. A corrects the released result; B checks and releases the correction; the doctor sees it first.
@@ -195,16 +195,22 @@ describe.each([{ sendsOpenWork: false }, { sendsOpenWork: true }])('a lab reques
     expect(await screen.findByText('Correction saved. Check and release it.')).toBeTruthy()
     // Until it is released, the lab says the clinician still sees the earlier result.
     expect((await screen.findByText(/^This corrects a result that was already released\./)).textContent).toMatch(/the clinician still sees the earlier result/)
+    // Meanwhile the doctor still reads the released value, and nothing calls it the current one.
+    await doctorOpensRequest(lab)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    const waiting = (await screen.findByText('Latest released result')).closest('li')!
+    expect(within(waiting).getByText('7.1 g/dL · Low')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Current result|11\.7/)
     await openAs(lab, PEOPLE.scientistB, `${WORK_LIST}/${lab.work()[0]!.id}`)
     fireEvent.click(await within(await stageCard()).findByRole('button', { name: 'Check & release' }))
     await confirmSheet('Check & release', 'Check & release', { label: 'What you checked', value: 'Correction matches the sample (fictional)' })
     await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done'))
     await doctorOpensRequest(lab)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
-    const current = (await screen.findByText('Current result')).closest('li')!
+    const current = (await screen.findByText('Latest released result')).closest('li')!
     expect(within(current).getByText('11.7 g/dL · Low')).toBeTruthy()
     expect(within(current).getByText('Why it was changed: Typed 7.1 for 11.7 (fictional)')).toBeTruthy()
-    const earlier = screen.getByText('Earlier result').closest('li')!
+    const earlier = screen.getByText('Earlier released result').closest('li')!
     expect(within(earlier).getByText('7.1 g/dL · Low')).toBeTruthy()
     expect(current.compareDocumentPosition(earlier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 

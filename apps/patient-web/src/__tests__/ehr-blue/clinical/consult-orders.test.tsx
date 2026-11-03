@@ -1104,13 +1104,13 @@ describe('A lab request’s page', () => {
     expect(await screen.findByText('9.8 g/dL · Low')).toBeTruthy()
     expect(screen.getByText('Normal range: 12.0-15.5')).toBeTruthy()
     expect(screen.getByText('Result 1')).toBeTruthy()
-    expect(screen.getByText('Current result')).toBeTruthy()
+    expect(screen.getByText('Latest released result')).toBeTruthy()
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
   })
 
-  it('shows a corrected result first as the current one, the replaced one under it with why it changed, in plain words', async () => {
+  it('shows a corrected result first as the latest released one, the replaced one under it with why it changed, in plain words', async () => {
     staff.permissions = [...READ_WRITE, 'lab.result.released.read']
     setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
     const released = (version: number, value: number, reason: string | null) => ({ version, resultType: 'numeric', numericValue: value, textValue: null,
@@ -1125,10 +1125,10 @@ describe('A lab request’s page', () => {
     })
     await openOrder('laboratory', LAB)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
-    const current = (await screen.findByText('Current result')).closest('li')!
+    const current = (await screen.findByText('Latest released result')).closest('li')!
     expect(within(current).getByText('12.4 g/dL · Normal')).toBeTruthy()
     expect(within(current).getByText('Why it was changed: Typed 7.1 for 12.4')).toBeTruthy()
-    const earlier = screen.getByText('Earlier result').closest('li')!
+    const earlier = screen.getByText('Earlier released result').closest('li')!
     expect(within(earlier).getByText('7.1 g/dL · Low')).toBeTruthy()
     expect(within(earlier).getByText('Replaced')).toBeTruthy()
     expect(screen.getByText('Some versions were never released, so they aren’t shown.')).toBeTruthy()
