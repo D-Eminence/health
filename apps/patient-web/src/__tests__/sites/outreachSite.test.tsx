@@ -58,7 +58,7 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it('sends Document OCR to its own site', async () => {
+  it('sends Paper records to its own site', async () => {
     await openPortalOn(SITE, '/provider/ocr')
     await expectOpenedElsewhere(opened, 'https://migrate.healthidentitydirectory.com/provider/ocr')
   })

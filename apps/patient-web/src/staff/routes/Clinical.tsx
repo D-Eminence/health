@@ -10,6 +10,7 @@ import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, orderRoutesApi, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type OrderDestination, type OrderRouteKind, type OrderRouteSummary, type OrderRouteWithdrawReason, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
+import { fileTypeLabel, scanStatusLabel } from '../../plainLabels'
 import { getEnvironment } from '../env'
 import { refusalText, refusedFields } from '../fieldProblem'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
@@ -951,10 +952,7 @@ function ReleasedResults({ facilityId, requestId, purpose = 'direct-care' }: { f
 // completion, and the list shows every intent: one left `initiated` is never scanned (INTERFACE_CONTRACT.md §16).
 // The document types (the owner's rule, 31 Oct; documentTypes.ts) stay dormant until the document list answers
 // `documentTypes: true`: until then this is exactly today's page, and no upload names a type.
-function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verify }: { patientId: string; encounterId: string; facilityId: string; canWrite: boolean; canOcr: boolean; verify: () => Promise<void> }) {
-  const { state } = useStaff()
-  // The OCR handoff names who made it and where, since the history entry holding it outlives both.
-  const actorId = state.status === 'ready' ? state.session.actor.id : undefined
+function Documents({ patientId, encounterId, facilityId, canWrite, verify }: { patientId: string; encounterId: string; facilityId: string; canWrite: boolean; verify: () => Promise<void> }) {
   // Whether the backend serves the document types, as its own answers have said (this list's among them).
   const served = useDocumentTypesServed() === true
   // The types a facility may upload on this host. Once served, a host that offers none (outreach. and the admin site:
@@ -991,7 +989,8 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     const form = new FormData(formElement)
     const file = form.get('document')
     if (!(file instanceof File) || !file.size) return problems.refuse('clinical-document', 'Select a file first.')
-    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800) return problems.refuse('clinical-document', 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
+    // No TIFF: most browsers cannot show one, so it could not be opened again here.
+    if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 52_428_800) return problems.refuse('clinical-document', 'Use PDF, JPEG or PNG, up to 50 MiB.')
     // A type is named only once the backend serves the types; before then the upload is exactly today's.
     let documentType: DocumentType | undefined
     if (served) {
@@ -1011,7 +1010,8 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     catch (caught) { setError(documentTypeRefusalText(caught) ?? (caught instanceof Error ? caught.message : 'Document could not be uploaded.')) }
     finally { setBusy(false) }
   }
-  // Once served, a listed document's type, before its media type, when it names one of the three.
+  // Once served, a listed document's type, before its file type, when it names one of the three. The file type and
+  // virus check are said in words (plainLabels), as on the blue visit Documents card, never as the server's codes.
   function typeOf(item: DocumentRecord) {
     const type = served && item.documentType != null ? documentTypeOf(item) : null
     return type ? `${documentTypeLabel(type)} · ` : null
@@ -1032,7 +1032,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{typeOf(item)}{item.mediaType} · {fileSize(item.sizeBytes)}{item.status === 'initiated' ? '' : ` · scan: ${item.scanStatus}`}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canUpload && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}>{offersType && <Field label="Document type" htmlFor="clinical-document-type" error={problems.error('clinical-document-type')}><Select id="clinical-document-type" name="documentType" defaultValue={DEFAULT_DOCUMENT_TYPE} {...problems.control('clinical-document-type')}>{types.map(type => <option key={type} value={type}>{documentTypeLabel(type)}</option>)}</Select></Field>}<Field label={offersType ? 'File' : 'Clinical document'} htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{typeOf(item)}{[fileTypeLabel(item.mediaType), fileSize(item.sizeBytes), item.status === 'initiated' ? '' : scanStatusLabel(item.scanStatus)].filter(Boolean).join(' · ')}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button></div>)}</div></Card>{canUpload && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}>{offersType && <Field label="Document type" htmlFor="clinical-document-type" error={problems.error('clinical-document-type')}><Select id="clinical-document-type" name="documentType" defaultValue={DEFAULT_DOCUMENT_TYPE} {...problems.control('clinical-document-type')}>{types.map(type => <option key={type} value={type}>{documentTypeLabel(type)}</option>)}</Select></Field>}<Field label={offersType ? 'File' : 'Clinical document'} htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts
@@ -1847,7 +1847,7 @@ export function Clinical() {
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />
-        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
+        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
         <Notice notice={recordNotice} scope={recordScope} />
         <Pager label="Record pages" position={recordPosition} busy={recordsLoading} onShow={cursors => void loadRecords(activeTab, cursors, false)} />
         {!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong id={`record-${record.id}-title`} tabIndex={-1}>{recordTitle(activeTab, record)}</strong>

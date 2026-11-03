@@ -1,6 +1,5 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { ENCOUNTER_STATUS_UPDATED, REVISION_RECORDED } from '../../../ehr-blue/clinical/consult/encounters'
@@ -160,30 +159,6 @@ function versionSummaries() {
 function openSign(reason = 'Reviewed with the patient') {
   fireEvent.click(actions().getByRole('button', { name: 'Sign note' }))
   fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: reason } })
-}
-
-/** Today's OCR page stand-in: where it was opened, and what router state it was handed. */
-function OcrPage() {
-  const location = useLocation()
-  return (
-    <div data-testid="ocr-page">
-      <p data-testid="ocr-path">{location.pathname}</p>
-      <p data-testid="ocr-search">{location.search}</p>
-      <p data-testid="ocr-state">{JSON.stringify(location.state)}</p>
-    </div>
-  )
-}
-
-/** The encounter page with today's OCR route beside it. */
-function renderWithOcr() {
-  return render(
-    <MemoryRouter initialEntries={[`/provider/clinical/${ENCOUNTER_ID}`]}>
-      <Routes>
-        <Route path="/provider/clinical/*" element={<ConsultWorkspace />} />
-        <Route path="/provider/ocr" element={<OcrPage />} />
-      </Routes>
-    </MemoryRouter>,
-  )
 }
 
 describe('Consultation record', () => {
@@ -859,7 +834,7 @@ describe('Consultation record: documents', () => {
     Object.defineProperty(large, 'size', { value: 52_428_801 })
     fireEvent.change(input, { target: { files: [large] } })
     fireEvent.click(documents.getByRole('button', { name: 'Upload document' }))
-    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
     expect(document.activeElement).toBe(input)
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
@@ -884,11 +859,11 @@ describe('Consultation record: documents', () => {
     expect(document.activeElement).toBe(input)
     fireEvent.change(input, { target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
     fireEvent.click(upload)
-    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
-    expect(await documents.findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    expect(await documents.findByText('Uploaded.')).toBeTruthy()
     expect(api.uploadDocument).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, file)
     expect(api.documents).toHaveBeenCalledTimes(2)
   })
@@ -899,38 +874,19 @@ describe('Consultation record: documents', () => {
     expect(within(card('Documents')).getByText('No documents for this encounter.')).toBeTruthy()
   })
 
-  it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {
+  it('offers no "Extract with OCR", even to a role that may read OCR jobs, and takes no TIFF', async () => {
     staff.permissions = [...ALL, 'ocr.job.read']
-    renderWithOcr()
-    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
-    const link = await within(card('Documents')).findByRole('link', { name: 'Extract with OCR' })
-    // The address names no record, patient or facility: today's route, and the ids in router state.
-    expect(link.getAttribute('href')).toBe('/provider/ocr')
-    for (const id of ['doc-1', PATIENT_ID, PATIENT_HID, FACILITY_ID, 'staff-1']) expect(link.getAttribute('href')).not.toContain(id)
-    fireEvent.click(link)
-    expect(await screen.findByTestId('ocr-page')).toBeTruthy()
-    expect(screen.getByTestId('ocr-path').textContent).toBe('/provider/ocr')
-    expect(screen.getByTestId('ocr-search').textContent).toBe('')
-    expect(JSON.parse(screen.getByTestId('ocr-state').textContent ?? 'null')).toEqual({
-      ocrDocumentId: 'doc-1', ocrPatientId: PATIENT_ID, actorId: 'staff-1', facilityId: FACILITY_ID,
-    })
-  })
-
-  it('item 3: offers no OCR link without ocr.job.read, nor for a document whose scan is not clean', async () => {
-    api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'lab-scan.pdf', scanStatus: 'pending' }], nextCursor: null })
-    await openEncounter()
-    expect(within(card('Documents')).getByText('referral-letter.pdf')).toBeTruthy()
-    expect(within(card('Documents')).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
-  })
-
-  it('item 3: links only the clean document when the role may read OCR jobs', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
-    api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'lab-scan.pdf', scanStatus: 'pending' }], nextCursor: null })
     await openEncounter()
     const documents = within(card('Documents'))
-    expect(documents.getAllByRole('link', { name: 'Extract with OCR' })).toHaveLength(1)
-    expect(within(documents.getByText('lab-scan.pdf').closest('li') as HTMLElement).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
-    expect(within(documents.getByText('referral-letter.pdf').closest('li') as HTMLElement).getByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
+    expect(documents.getByText('referral-letter.pdf')).toBeTruthy()
+    expect(documents.queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(card('Documents').textContent).not.toMatch(/OCR|TIFF/)
+    const input = documents.getByLabelText(labelled('Clinical document')) as HTMLInputElement
+    expect(input.accept).not.toMatch(/tif/i)
+    fireEvent.change(input, { target: { files: [new File(['II*'], 'scan.tiff', { type: 'image/tiff' })] } })
+    fireEvent.click(documents.getByRole('button', { name: 'Upload document' }))
+    expect(documents.getByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
+    expect(api.uploadDocument).not.toHaveBeenCalled()
   })
 
   it('shows a refused document list as an alert', async () => {

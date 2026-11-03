@@ -41,7 +41,7 @@ describe('page statuses', () => {
     ['audit', 'Audit trail', 'audit.read'],
     ['billing', 'Facility subscription', 'billing.subscription.read'],
     ['outreach', 'Outreach', undefined],
-    ['ocr', 'Document OCR', 'ocr.job.read'],
+    ['ocr', 'Paper records', 'ocr.job.read'],
     ['staff', 'Staff & access', 'workforce.manage'],
     ['laboratory', 'Laboratory', 'lab.work-item.read'],
     ['laboratory/work/*', 'Work list', 'lab.work-item.read'],
@@ -96,7 +96,7 @@ describe('What\'s left', () => {
   })
 
   it('calls no partial page a live list', () => {
-    expect(part('Record quick view').note).toBe('On sample workspace lists, and on some working lists such as Consultation and Document OCR.')
+    expect(part('Record quick view').note).toBe('On sample workspace lists, and on some working lists such as Consultation.')
   })
 
   // A single product's site lists no Patients page and no Consultation: its notes say what that site's frame does.

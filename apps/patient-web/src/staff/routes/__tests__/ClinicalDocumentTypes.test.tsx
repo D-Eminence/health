@@ -143,7 +143,7 @@ describe('dormant: until the document list says the types are served', () => {
     const input = within(card).getByLabelText('Clinical document') as HTMLInputElement
     expect(input.id).toBe('clinical-document')
     expect(input.name).toBe('document')
-    expect(input.accept).toBe('.pdf,.jpg,.jpeg,.png,.tif,.tiff')
+    expect(input.accept).toBe('.pdf,.jpg,.jpeg,.png')
   })
 
   it.each([
@@ -173,8 +173,8 @@ describe('dormant: until the document list says the types are served', () => {
   it('names no type in the list, even for a document that carries one', async () => {
     api.documents.mockResolvedValue(dormant([listed, labResult]))
     await openDocuments()
-    expect(listedLine('referral.pdf')).toBe('application/pdf · 20 KiB · scan: clean')
-    expect(listedLine('haemoglobin.jpg')).toBe('image/jpeg · 20 KiB · scan: clean')
+    expect(listedLine('referral.pdf')).toBe('PDF document · 20 KiB · Checked')
+    expect(listedLine('haemoglobin.jpg')).toBe('JPEG image · 20 KiB · Checked')
     expect(screen.queryByText(/Lab result/)).toBeNull()
   })
 
@@ -238,17 +238,17 @@ describe('served on ehr.', () => {
 
   it('names each listed document’s type before its media type, and nothing for a type it does not know', async () => {
     await openDocuments()
-    expect(listedLine('haemoglobin.jpg')).toBe('Lab result · image/jpeg · 20 KiB · scan: clean')
-    expect(listedLine('sheet.png')).toBe('Prescription sheet · image/png · 20 KiB · scan: clean')
+    expect(listedLine('haemoglobin.jpg')).toBe('Lab result · JPEG image · 20 KiB · Checked')
+    expect(listedLine('sheet.png')).toBe('Prescription sheet · PNG image · 20 KiB · Checked')
     // A document that carries no type is left as it is today; one of a type not named here says nothing of it.
-    expect(listedLine('referral.pdf')).toBe('application/pdf · 20 KiB · scan: clean')
-    expect(listedLine('later.pdf')).toBe('application/pdf · 20 KiB · scan: clean')
+    expect(listedLine('referral.pdf')).toBe('PDF document · 20 KiB · Checked')
+    expect(listedLine('later.pdf')).toBe('PDF document · 20 KiB · Checked')
   })
 
   it('names Clinical document for a document that carries that type', async () => {
     api.documents.mockResolvedValue(served([{ ...listed, documentType: 'clinical_document' }]))
     await openDocuments()
-    expect(listedLine('referral.pdf')).toBe('Clinical document · application/pdf · 20 KiB · scan: clean')
+    expect(listedLine('referral.pdf')).toBe('Clinical document · PDF document · 20 KiB · Checked')
   })
 
   it('still refuses a missing or unsupported file at its field, before anything is sent', async () => {
@@ -257,7 +257,7 @@ describe('served on ehr.', () => {
     expect(await screen.findByText('Select a file first.')).toBeTruthy()
     choose(new File(['x'], 'notes.txt', { type: 'text/plain' }))
     send()
-    expect(await screen.findByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(await screen.findByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
 })
@@ -340,7 +340,7 @@ describe('a host that uploads nothing', () => {
     expect(screen.getByLabelText('Clinical document')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Upload document' })).toBeTruthy()
     expect(typeSelect()).toBeNull()
-    expect(listedLine('referral.pdf')).toBe('application/pdf · 20 KiB · scan: clean')
+    expect(listedLine('referral.pdf')).toBe('PDF document · 20 KiB · Checked')
     expect(screen.getByRole('button', { name: 'Open file' })).toBeTruthy()
   })
 

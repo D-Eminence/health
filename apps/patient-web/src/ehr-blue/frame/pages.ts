@@ -98,7 +98,7 @@ export const pages: EhrBluePage[] = [
   sample('ambulance', 'Network & Services', 'Dispatch', 'truck'),
   sample('bloodbank', 'Network & Services', 'Blood Bank', 'droplet'),
   sample('telemedicine', 'Network & Services', 'Telemedicine', 'video'),
-  live('ocr', 'Network & Services', 'Document OCR', 'document', 'ocr.job.read'),
+  live('ocr', 'Network & Services', 'Paper records', 'document', 'ocr.job.read'),
   live('outreach', 'Network & Services', 'Outreach', 'outreach', 'outreach.registration.read'),
 
   sample('shifts', 'People', 'Shifts & Roster', 'clock'),

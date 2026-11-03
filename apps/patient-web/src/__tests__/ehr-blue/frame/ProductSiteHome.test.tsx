@@ -67,7 +67,7 @@ vi.mock('../../../ehr-blue/departments/outreach/Outreach', async importOriginal 
   ...await importOriginal<object>(), Outreach: () => <h1>Outreach (stand-in)</h1>,
 }))
 vi.mock('../../../ehr-blue/departments/migrate/Migrate', async importOriginal => ({
-  ...await importOriginal<object>(), Migrate: () => <h1>Document OCR (stand-in)</h1>,
+  ...await importOriginal<object>(), Migrate: () => <h1>Paper records (stand-in)</h1>,
 }))
 
 /** A real facility: Health ID does not serve the point-of-care routes there yet, so it has no Sell. */
@@ -279,7 +279,7 @@ describe('the lab., outreach. and migrate. sites settle too', () => {
   it.each([
     ['lab.healthidentitydirectory.com', ['lab.work-item.read'], '/provider/laboratory/work', 'Work list (stand-in)'],
     ['outreach.healthidentitydirectory.com', ['outreach.registration.read'], '/provider/outreach', 'Outreach (stand-in)'],
-    ['migrate.healthidentitydirectory.com', ['ocr.job.read'], '/provider/ocr', 'Document OCR (stand-in)'],
+    ['migrate.healthidentitydirectory.com', ['ocr.job.read'], '/provider/ocr', 'Paper records (stand-in)'],
   ])('%s with %j settles on %s', async (site, permissions, where, heading) => {
     expect(await settle(site, permissions)).toEqual({ where, heading })
   })
@@ -289,7 +289,7 @@ describe('the lab., outreach. and migrate. sites settle too', () => {
   it.each([
     ['lab.healthidentitydirectory.com', 'Laboratory unavailable'],
     ['outreach.healthidentitydirectory.com', 'Outreach unavailable'],
-    ['migrate.healthidentitydirectory.com', 'Document OCR unavailable'],
+    ['migrate.healthidentitydirectory.com', 'Paper records unavailable'],
   ])('%s with none of the product\'s work settles on Home at /provider, not on "%s"', async (site, refusal) => {
     const sent = vi.fn((_input: RequestInfo | URL) => new Promise<Response>(() => {}))
     vi.stubGlobal('fetch', sent)
@@ -310,7 +310,7 @@ describe('the lab., outreach. and migrate. sites settle too', () => {
   it.each([
     ['lab.healthidentitydirectory.com', '/provider/laboratory', 'Laboratory unavailable'],
     ['outreach.healthidentitydirectory.com', '/provider/outreach', 'Outreach unavailable'],
-    ['migrate.healthidentitydirectory.com', '/provider/ocr', 'Document OCR unavailable'],
+    ['migrate.healthidentitydirectory.com', '/provider/ocr', 'Paper records unavailable'],
   ])('%s opened at %s with none of the product\'s work settles on "%s"', async (site, where, heading) => {
     expect(await settle(site, [], where)).toEqual({ where, heading })
   })

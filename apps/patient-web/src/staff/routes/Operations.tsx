@@ -1,12 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem, type ReceivingAnswer, type WorkItemOrderRoute } from '../api'
+import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabSpecimen, type LabWorkItem, type OutreachCampaign, type OutreachCase, type PharmacyWorkItem, type ReceivingAnswer, type WorkItemOrderRoute } from '../api'
 import { useStaff } from '../App'
-import { describedBy } from '../../authSteps'
-import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
-import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
+import { FieldInputError, refusalText } from '../fieldProblem'
+import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { RevisionList } from '../labRevisions'
 import { usesNovuBackend } from '../../backendContract'
@@ -68,9 +67,6 @@ function errorText(error: unknown, fallback: string, routed = false) {
   if (isHidApiError(error) && error.status === 423 && error.code === 'CROSS_FACILITY_ORDERS_UNAVAILABLE') return 'Health ID has paused work on orders from other facilities. Try again later.'
   return refusalText(error, fallback)
 }
-
-// OCR takes document and patient IDs only as version 4 UUIDs (ocr-api DTOs, @IsUUID('4')).
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function shortId(value: string) { return `••••${value.slice(-6)}` }
 
@@ -1151,530 +1147,34 @@ export function Pharmacy() {
   </>
 }
 
-const candidateTypes = {
-  EHR: 'clinical_note', LAB: 'lab_document', PHARMACY: 'historical_medication_evidence',
-  DOCUMENT_ONLY: 'document_only', UNCLASSIFIED: 'unclassified',
-} as const
-
-const publicationOperations = {
-  EHR: 'create_imported_clinical_note', LAB: 'create_imported_lab_evidence',
-  PHARMACY: 'create_imported_medication_evidence', DOCUMENT_ONLY: 'retain_validated_document',
-} as const
-
-function jsonObject(value: FormDataEntryValue | null, label: string, field: string): Record<string, unknown> {
-  let parsed: unknown
-  try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new FieldInputError(field, `${label} must be a JSON object.`)
-  return parsed as Record<string, unknown>
-}
-
-function jsonObjectArray(value: FormDataEntryValue | null, label: string, field: string): Record<string, unknown>[] {
-  let parsed: unknown
-  try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
-  if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new FieldInputError(field, `${label} must be a JSON array of objects.`)
-  return parsed as Record<string, unknown>[]
-}
-
-function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: string; job: OcrJob; extractions: OcrExtraction[]; onChanged: (disposition: 'validated' | 'rejected') => Promise<void> }) {
-  const [extractionId, setExtractionId] = useState(extractions.at(-1)?.id ?? '')
-  const [disposition, setDisposition] = useState<'validated' | 'rejected'>('validated')
-  const [domain, setDomain] = useState<OcrTargetDomain>('DOCUMENT_ONLY')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [problem, setProblem] = useState<FieldProblem | null>(null)
-  const focus = useFocusById()
-  const selected = extractions.find(item => item.id === extractionId)
-  // A JSON field is described by its error, when refused, and by what the owning domains require.
-  const jsonFieldProps = (id: string) => ({ ...problemProps(problem, id), 'aria-describedby': describedBy(problem?.field === id && `${id}-error`, 'ocr-review-requirements') })
-  // Read in the order the fields appear, so the first refused one is the one focused.
-  function read(form: FormData): OcrValidationInput {
-    if (!selected) throw new FieldInputError('ocr-review-extraction', 'Choose an extraction to review.')
-    const validatedPayload = jsonObject(form.get('validatedPayload'), 'Reviewed payload', 'ocr-reviewed-payload')
-    const acceptedFields = jsonObject(form.get('acceptedFields'), 'Accepted fields', 'ocr-accepted-fields')
-    const rejectedFields = jsonObjectArray(form.get('rejectedFields'), 'Rejected fields', 'ocr-rejected-fields')
-    const corrections = jsonObjectArray(form.get('corrections'), 'Corrections', 'ocr-corrections')
-    const reason = String(form.get('reason') ?? '').trim()
-    if (reason.length < 8) throw new FieldInputError('ocr-review-reason', 'Enter a review reason of at least 8 characters.')
-    const targetDomain = disposition === 'rejected' ? 'UNCLASSIFIED' : domain
-    return { extractionId: selected.id, validatedPayload, acceptedFields, rejectedFields, corrections,
-      disposition, targetDomain, candidateType: candidateTypes[targetDomain], reason }
-  }
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError(''); setProblem(null)
-    let input: OcrValidationInput
-    try { input = read(new FormData(event.currentTarget)) }
-    catch (caught) {
-      if (!(caught instanceof FieldInputError)) throw caught
-      setProblem(refusal({ field: caught.field, message: caught.message })); focus(caught.field); return
-    }
-    setBusy(true)
-    try {
-      await staffApi.validateOcrJob(facilityId, job, input)
-      await onChanged(input.disposition)
-    } catch (caught) { setError(errorText(caught, 'Review could not be recorded. Refresh the job and try again.')); focus('ocr-review-submit', true) }
-    finally { setBusy(false) }
-  }
-  if (!extractions.length) return <p className="staff-muted">An extraction must be available before review.</p>
-  return <Card className="staff-card"><h2>Review extraction</h2><p>Inspect the source text and explicitly classify the candidate. Only validated evidence can be published.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}>
-    <Field label="Extraction" htmlFor="ocr-review-extraction" error={problemText(problem, 'ocr-review-extraction')}><Select id="ocr-review-extraction" value={extractionId} onChange={event => setExtractionId(event.target.value)} {...problemProps(problem, 'ocr-review-extraction')}>{extractions.map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.provider}</option>)}</Select></Field>
-    <Field label="Review decision" htmlFor="ocr-review-decision"><Select id="ocr-review-decision" value={disposition} onChange={event => setDisposition(event.target.value as 'validated' | 'rejected')}><option value="validated">Validate candidate</option><option value="rejected">Reject candidate</option></Select></Field>
-    {disposition === 'validated' && <Field label="Owning domain" htmlFor="ocr-review-domain"><Select id="ocr-review-domain" value={domain} onChange={event => setDomain(event.target.value as OcrTargetDomain)}><option value="DOCUMENT_ONLY">Retain validated document</option><option value="EHR">Clinical note</option><option value="LAB">Historical lab evidence</option><option value="PHARMACY">Historical medication evidence</option></Select></Field>}
-    <Field label="Reviewed payload (JSON object)" htmlFor="ocr-reviewed-payload" error={problemText(problem, 'ocr-reviewed-payload')} required><Textarea key={`payload-${selected?.id}`} id="ocr-reviewed-payload" name="validatedPayload" rows={7} spellCheck={false} defaultValue={JSON.stringify(selected?.structuredPayload && typeof selected.structuredPayload === 'object' && !Array.isArray(selected.structuredPayload) ? selected.structuredPayload : {}, null, 2)} required {...jsonFieldProps('ocr-reviewed-payload')} /></Field>
-    <Field label="Accepted fields (JSON object)" htmlFor="ocr-accepted-fields" error={problemText(problem, 'ocr-accepted-fields')} required><Textarea id="ocr-accepted-fields" name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required {...jsonFieldProps('ocr-accepted-fields')} /></Field>
-    <p id="ocr-review-requirements" className="staff-muted">EHR requires encounterId, noteType, title, and content. Lab requires observations. Pharmacy requires medicationText. Document retention can use an empty object.</p>
-    <div className="staff-form-row"><Field label="Rejected fields (JSON array)" htmlFor="ocr-rejected-fields" error={problemText(problem, 'ocr-rejected-fields')} required><Textarea id="ocr-rejected-fields" name="rejectedFields" spellCheck={false} defaultValue="[]" required {...problemProps(problem, 'ocr-rejected-fields')} /></Field><Field label="Corrections (JSON array)" htmlFor="ocr-corrections" error={problemText(problem, 'ocr-corrections')} required><Textarea id="ocr-corrections" name="corrections" spellCheck={false} defaultValue="[]" required {...problemProps(problem, 'ocr-corrections')} /></Field></div>
-    <Field label="Review reason" htmlFor="ocr-review-reason" error={problemText(problem, 'ocr-review-reason')} required><Textarea id="ocr-review-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-review-reason')} /></Field>
-    {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button id="ocr-review-submit" type="submit" disabled={busy}>{busy ? 'Recording review…' : disposition === 'rejected' ? 'Reject extraction' : 'Validate extraction'}</Button>
-  </form></Card>
-}
-
-// OCR takes one patient confirmation per job version. A retry of the same
-// confirmation reuses its key, so OCR answers with the one it recorded; if the
-// job was confirmed already, it is reloaded rather than left with a dead form.
-function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; job: OcrJob; onChanged: (notice?: string) => Promise<void> }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [problem, setProblem] = useState<FieldProblem | null>(null)
-  const focus = useFocusById()
-  const attempt = useRef<{ signature: string; key: string } | null>(null)
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const patientId = String(form.get('patientId') ?? '').trim()
-    const reason = String(form.get('reason') ?? '').trim()
-    setError(''); setProblem(null)
-    const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
-      : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
-    if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
-    const signature = JSON.stringify([patientId, reason])
-    if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
-    setBusy(true)
-    try { await staffApi.confirmOcrPatient(facilityId, job, patientId, reason, attempt.current.key); attempt.current = null; await onChanged() }
-    catch (caught) {
-      if (isHidApiError(caught) && caught.code === 'OCR_PATIENT_ALREADY_CONFIRMED') {
-        await onChanged('The source patient of this job was already confirmed, so the job was reloaded.')
-        return
-      }
-      setError(errorText(caught, 'Patient confirmation could not be recorded.'))
-      focus('ocr-confirm-submit', true)
-    }
-    finally { setBusy(false) }
-  }
-  return <Card className="staff-card"><h2 id="ocr-confirm-title" tabIndex={-1}>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. Health ID verifies an exact match and write authorization.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')} required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required {...problemProps(problem, 'ocr-confirm-patient')} /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')} required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-confirm-reason')} /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button id="ocr-confirm-submit" type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
-}
-
-/** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
-const RETRYABLE_PUBLICATION_FAILURES: readonly string[] = ['OWNING_SERVICE_UNAVAILABLE', 'REQUEST_IN_PROGRESS']
-
-function attemptsLeft(publication: OcrPublication) {
-  return publication.attemptCount == null || publication.maxAttempts == null || publication.attemptCount < publication.maxAttempts
-}
+/**
+ * The refusal for a role without ocr.job.read, here and on the Migration workspace. Roles that hold it see the page;
+ * others get this line. It names no permission (the owner's rule).
+ */
+const NO_DOCUMENT_OCR = 'Bringing in paper records isn’t part of your role at this facility.'
 
 /**
- * A publication OCR takes further, but only for the request that started it, sent again with its key: one
- * not finished (pending, or processing, which OCR takes back once its claim expires) or one that failed for a
- * reason OCR attempts again, while attempts remain. Nothing else does: no worker runs publications
- * (hid-system ocr.service.ts executePublication).
+ * Health ID Migrate's start page, as on the blue EHR (ehr-blue/departments/migrate/Migrate.tsx). Staff never type an ID
+ * here (the owner's rule): paper records are brought in from the patient's own page, so this only sends staff there.
  */
-function resumable(publication: OcrPublication) {
-  return (publication.status === 'pending' || publication.status === 'processing'
-    || (publication.status === 'failed' && RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? ''))) && attemptsLeft(publication)
-}
-
-/** OCR's wait after a failed attempt before it takes the publication again (hid-system ocr.service.ts executePublication, next_attempt_at). */
-const PUBLICATION_RETRY_WAIT_MS = 15_000
-const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 seconds after a failure.'
-
-/** A publication request this page sent: the Idempotency-Key it goes with, and when OCR takes a failed one again. */
-interface PublicationAttempt { readonly key: string; retryAt: number }
-
-function publicationRefusal(caught: unknown) {
-  // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
-  return errorText(caught, 'Validated evidence could not be published.')
-}
-
-const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
-  EHR: 'Published as a clinical note in the patient\'s record.',
-  LAB: 'Published as imported lab evidence in the patient\'s record.',
-  PHARMACY: 'Published as imported medication evidence in the patient\'s record.',
-  DOCUMENT_ONLY: 'Kept as a validated document in the patient\'s record.',
-}
-
-function observationText(item: LabImport['observations'][number]) {
-  const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
-  const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
-  // Defensive: Lab stores every imported observation as 'reported' today (hid-system ehr-api migration
-  // 0017, lab.imported_observations), but a status it may add later is said, never hidden.
-  const status = item.status && item.status !== 'reported' ? item.status.replaceAll('_', ' ') : ''
-  return [result ? `${item.testName}: ${result}` : item.testName, item.referenceRange && `reference ${item.referenceRange}`, flag, status].filter(Boolean).join(' · ')
-}
-
-/**
- * Evidence a Lab or Pharmacy publication imported, read from its owning domain only when asked: each read
- * is audited. What was imported does not change, so a read that succeeded is kept; one that failed is made
- * again on the next opening.
- */
-function ImportedEvidence({ facilityId, domain, importId }: { facilityId: string; domain: 'lab' | 'medication'; importId: string }) {
-  const [open, setOpen] = useState(false)
-  const [evidence, setEvidence] = useState<{ lab?: LabImport; medication?: PharmacyImport; error?: string } | null>(null)
-  const [reads, setReads] = useState(0)
-  useEffect(() => {
-    if (!reads) return
-    let active = true
-    const read = domain === 'lab' ? staffApi.labImport(facilityId, importId).then(lab => ({ lab }))
-      : staffApi.pharmacyImport(facilityId, importId).then(medication => ({ medication }))
-    void read.then(found => { if (active) setEvidence(found) })
-      .catch(caught => { if (active) setEvidence({ error: errorText(caught, 'Imported evidence could not be read.') }) })
-    return () => { active = false }
-  }, [facilityId, domain, importId, reads])
-  function toggle() {
-    // Cleared here, with the opening, so a refusal is never shown over the read that follows it.
-    if (!open && (reads === 0 || evidence?.error)) { setEvidence(null); setReads(value => value + 1) }
-    setOpen(!open)
-  }
-  const lab = open ? evidence?.lab : undefined
-  const medication = open ? evidence?.medication : undefined
-  const status = !open ? '' : !evidence ? 'Loading imported evidence…'
-    : lab ? `Imported lab evidence loaded: ${lab.observations.length} observation${lab.observations.length === 1 ? '' : 's'}.`
-      : medication ? 'Imported medication evidence loaded.' : ''
-  // A disclosure: its name stays the same, and aria-expanded says whether it is open.
-  return <div className="staff-stack"><div><Button tone="secondary" size="sm" aria-expanded={open} onClick={toggle}>Imported {domain} evidence</Button>
-    {/* Mounted throughout, so what is put in it is announced; with the button, so it takes no space while empty. */}
-    <div role="status">{status && <p className="staff-muted">{status}</p>}</div></div>
-    {open && evidence?.error && <p className="staff-error" role="alert">{evidence.error}</p>}
-    {lab && <>{lab.status && lab.status !== 'accepted' && <p>Import status: {lab.status.replaceAll('_', ' ')}</p>}{lab.externalLabName && <p>Reported by {lab.externalLabName}</p>}<ul className="staff-stack">{lab.observations.map(item => <li key={item.id}>{observationText(item)}</li>)}</ul></>}
-    {medication && <><p><strong>{medication.medicationText}</strong></p>
-      {(medication.strengthText || medication.doseText || medication.frequencyText) && <p>{[medication.strengthText, medication.doseText, medication.frequencyText].filter(Boolean).join(' · ')}</p>}
-      {medication.historicalContext && <p className="staff-muted">{medication.historicalContext}</p>}</>}
-  </div>
-}
-
-/** What a publication made: named, and readable where its owning domain lets this role read it. Never its raw ID. */
-function PublishedEvidence({ facilityId, publication, permissions }: { facilityId: string; publication: OcrPublication; permissions: readonly string[] }) {
-  const importId = publication.targetResourceId
-  const domain = publication.targetResourceType === 'lab-imported-evidence' && permissions.includes('lab.import.read') ? 'lab'
-    : publication.targetResourceType === 'pharmacy-imported-medication-evidence' && permissions.includes('pharmacy.import.read') ? 'medication' : null
-  return <>
-    <p>{publishedAs[publication.targetDomain] ?? 'Published.'}</p>
-    {domain && importId && <ImportedEvidence facilityId={facilityId} domain={domain} importId={importId} />}
-  </>
-}
-
-/**
- * A publication as OCR holds it, and what can take it further. `canPublish`: this viewer may publish this
- * review now (ocr.publication.write, with the job's current patient confirmation); `retryHere`: this page
- * holds the key of the request that made it, and offers Retry publication.
- */
-function OcrPublicationStatus({ facilityId, publication, permissions, canPublish, retryHere }: {
-  facilityId: string; publication: OcrPublication; permissions: readonly string[]; canPublish: boolean; retryHere: boolean
-}) {
-  const failed = publication.status === 'failed'
-  const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
-  const unfinished = 'OCR has not finished this publication. Refresh the job status to see whether it has.'
-  const failedText = !RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
-    : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
-      : retryHere ? PUBLICATION_RETRY_WAIT
-        : canPublish ? 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.' : ''
-  // OCR claims a publication again only while attempts remain (ocr.service.ts executePublication), whichever page asks.
-  const unfinishedText = !attemptsLeft(publication) ? `${unfinished} This is its last attempt: if it has stopped, it cannot be resumed.`
-    : retryHere ? 'OCR has not finished this publication. If it has stopped, Retry publication resumes it; if it is still running, OCR says so.'
-      : canPublish ? `${unfinished} If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.`
-        : unfinished
-  return <div className="staff-stack">
-    <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : failed ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
-    {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
-    {failed && failedText && <p className="staff-muted">{failedText}</p>}
-    {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">{unfinishedText}</p>}
-    {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
-  </div>
-}
-
-// OCR keeps one publication per review. The page sends each publication request
-// with one key, held in `publicationAttempts` (memory only, never browser storage), so
-// a press after a lost answer or a refusal sends the same request again, and OCR
-// resumes the publication it recorded under that key. A refusal reads the history
-// again: the page then offers only what OCR would take, and says a publication was
-// recorded when the history shows one, though its answer was lost.
-function OcrPublicationCard({ actorId, facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
-  actorId: string | undefined; facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
-  publicationAttempts: Map<string, PublicationAttempt>; onChanged: () => Promise<void>
-}) {
-  const [publications, setPublications] = useState<OcrPublication[] | null>(null)
-  const [historyError, setHistoryError] = useState('')
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  // Counts changes to `publicationAttempts`, which `next` reads while rendering: each change renders again.
-  const [, setHeldKeys] = useState(0)
-  const focus = useFocusById()
-  const publishId = `ocr-publish-${validation.id}`
-  const retryId = `ocr-publish-retry-${validation.id}`
-  const operation = validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' ? publicationOperations[validation.targetDomain] : undefined
-  // What a press sends, and so what its key is held for. OCR finds a publication by facility, requesting
-  // account and key, so the key belongs to this validation and this requester: another account signed in
-  // here holds none for it.
-  const request = actorId && permissions.includes('ocr.publication.write') && confirmationId && operation
-    ? JSON.stringify([actorId, facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
-  useEffect(() => {
-    let active = true
-    void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
-      .catch(caught => { if (active) setHistoryError(errorText(caught, 'Publication history could not be loaded.')) })
-    return () => { active = false }
-  }, [facilityId, validation.id])
-
-  /**
-   * The control that takes publication further: Publish before any request, Retry publication for this
-   * page's own request. OCR does not say which request made a publication, so one is taken to be this
-   * page's while the page holds a key for the request. Were this page's press never to have reached OCR,
-   * and another request made it, OCR answers the retry 409 OCR_ALREADY_PUBLISHED, which drops the key.
-   */
-  function next(items: readonly OcrPublication[] | null) {
-    if (!request || !items) return null
-    if (items.length === 0) return publishId
-    return publicationAttempts.has(request) && items.some(resumable) ? retryId : null
-  }
-
-  /** Holds a request's key, or drops it, and renders what that changes. */
-  function hold(held: string, attempt: PublicationAttempt | null) {
-    if (attempt) publicationAttempts.set(held, attempt)
-    else publicationAttempts.delete(held)
-    setHeldKeys(value => value + 1)
-  }
-
-  // Reads the history again, keeping what it showed until the answer arrives.
-  async function reload(): Promise<OcrPublication[] | null> {
-    try { const { items } = await staffApi.ocrPublications(facilityId, validation.id); setPublications(items); setHistoryError(''); return items }
-    catch (caught) { setHistoryError(errorText(caught, 'Publication history could not be loaded.')); return null }
-  }
-
-  /** A publication the history read again shows, whatever answer was lost on the way: said, and the job read again. */
-  async function recorded(items: readonly OcrPublication[] | null) {
-    if (!request || !items?.some(item => item.status === 'published')) return false
-    hold(request, null)
-    await onChanged()
-    return true
-  }
-
-  async function publish(retrying = false) {
-    if (!request || !confirmationId || !operation) return
-    const held = publicationAttempts.get(request)
-    // A failed publication is taken again only after OCR's wait: a press before then would be refused, so nothing is sent.
-    const wait = retrying && held && publications?.some(item => item.status === 'failed') ? held.retryAt - Date.now() : 0
-    if (wait > 0) {
-      const seconds = Math.ceil(wait / 1000)
-      setError(`${PUBLICATION_RETRY_WAIT} Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`)
-      return
-    }
-    const attempt = held ?? { key: crypto.randomUUID(), retryAt: 0 }
-    hold(request, attempt)
-    setBusy(true); setError('')
-    try {
-      const publication = await staffApi.publishOcrValidation(facilityId, validation, confirmationId, operation, attempt.key)
-      if (publication.status === 'published') { hold(request, null); await onChanged(); return }
-      // Any other answer published nothing: show what OCR holds.
-      const items = await reload()
-      if (await recorded(items)) return
-      focus(next(items ?? publications) ?? 'ocr-history-title', true)
-    } catch (caught) {
-      // That publication was requested with another key, so this request cannot resume it.
-      const alreadyPublished = isHidApiError(caught) && caught.code === 'OCR_ALREADY_PUBLISHED'
-      // The history shown is out of date then: it is not shown, nor Publish offered, until read again.
-      if (alreadyPublished) { hold(request, null); setPublications(null) }
-      // A failed attempt has OCR wait before the next: counted from this answer, which came after the failure.
-      // Read only when Retry publication is pressed, so it needs no render.
-      else attempt.retryAt = Date.now() + PUBLICATION_RETRY_WAIT_MS
-      const items = await reload()
-      if (await recorded(items)) return
-      // Said once the history has been read again, so one alert says what happened.
-      setError(alreadyPublished ? `This review already has a publication request${items ? ', shown below' : ''}.` : publicationRefusal(caught))
-      // Any other history that could not be read again still shows as it was.
-      focus(next(items ?? (alreadyPublished ? null : publications)) ?? 'ocr-history-title', true)
-    }
-    finally { setBusy(false) }
-  }
-  const action = next(publications)
-  return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {validation.targetDomain}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
-    {error && <p className="staff-error" role="alert">{error}</p>}
-    {historyError && <p className="staff-error" role="alert">{historyError}</p>}
-    {publications === null && !historyError && <p className="staff-muted" role="status">Loading publication history…</p>}
-    {publications?.map(publication => <OcrPublicationStatus key={publication.id} facilityId={facilityId} publication={publication} permissions={permissions} canPublish={request !== undefined} retryHere={action === retryId} />)}
-    {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
-    {action === retryId && <Button id={retryId} size="sm" onClick={() => void publish(true)} disabled={busy}>{busy ? 'Retrying…' : 'Retry publication'}</Button>}
-  </div>
-}
-
-/**
- * Where focus goes once a step's answer has rendered, the first of `targets`
- * shown, and what the status region then says. `confirmNext` adds the next step
- * when that step is the source patient confirmation now shown.
- */
-interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
-
-/**
- * Document OCR's and Migrate's (which leads only to it) refusal at a facility: no role holds the OCR work (hid-system
- * 0091), so nobody is told to ask anyone for it. It names the reading of scanned documents, not adding documents.
- */
-const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
-
 export function Ocr() {
   const { facilityId, permissions } = useFacilityAccess()
-  const { state: staffState, lock } = useStaff()
-  const actorId = staffState.status === 'ready' ? staffState.session.actor.id : undefined
-  const canRead = permissions.includes('ocr.job.read')
-  // A clinical document's "Extract with OCR" link hands over its IDs in router state, never in the URL.
-  // The history entry holding them outlives the session and the facility that made it (Back, Forward
-  // and a reload bring it back), so they count only for that account and facility, and only once.
-  const location = useLocation()
-  const navigate = useNavigate()
-  const [handoff] = useState(() => {
-    const given = location.state as { ocrDocumentId?: unknown; ocrPatientId?: unknown; actorId?: unknown; facilityId?: unknown } | null
-    return given && actorId !== undefined && given.actorId === actorId && given.facilityId === facilityId ? given : null
-  })
-  useEffect(() => {
-    if (location.state != null) navigate(location.pathname + location.search, { replace: true, state: null })
-  }, [])
-  const [documentId, setDocumentId] = useState(() => typeof handoff?.ocrDocumentId === 'string' ? handoff.ocrDocumentId : '')
-  const [patientId, setPatientId] = useState(() => typeof handoff?.ocrPatientId === 'string' ? handoff.ocrPatientId : '')
-  const [job, setJob] = useState<OcrJob | null>(null)
-  const [jobFacilityId, setJobFacilityId] = useState('')
-  const [extractions, setExtractions] = useState<OcrExtraction[] | null>(null)
-  const [validations, setValidations] = useState<OcrValidation[] | null>(null)
-  const [searched, setSearched] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [retryError, setRetryError] = useState('')
-  const [problem, setProblem] = useState<FieldProblem | null>(null)
-  const [notice, setNotice] = useState('')
-  const [stepFocus, setStepFocus] = useState<StepFocus | null>(null)
-  const focus = useFocusById()
-  const [lookupRevision, setLookupRevision] = useState(0)
-  // Each publication request's Idempotency-Key and OCR's wait, by request. Here, not in the
-  // card, so a read of the job again (which remounts the cards) keeps them; in memory only,
-  // so they last until this page is reloaded or left.
-  const publicationAttempts = useRef(new Map<string, PublicationAttempt>())
-  const visibleJob = jobFacilityId === facilityId ? job : null
-  const canRetryJob = visibleJob?.status === 'failed' &&
-    (visibleJob.attemptCount === undefined || visibleJob.maxAttempts === undefined || visibleJob.attemptCount < visibleJob.maxAttempts)
-  useEffect(() => { setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError(''); setRetryError(''); setProblem(null); setNotice(''); setStepFocus(null) }, [facilityId])
-  useEffect(() => {
-    if (!facilityId || !visibleJob?.id || !canRead) return
-    let active = true
-    void Promise.all([staffApi.ocrExtractions(facilityId, visibleJob.id), staffApi.ocrValidations(facilityId, visibleJob.id)])
-      .then(([extractionResult, validationResult]) => { if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) } })
-      .catch(caught => { if (active) setError(errorText(caught, 'OCR review evidence could not be loaded.')) })
-    return () => { active = false }
-  }, [facilityId, visibleJob?.id, canRead, lookupRevision])
-  // After a step, focus moves to where the work continues in the commit that shows it: the
-  // job's review evidence is read after the job, and the next step shows only then.
-  // While the workspace is locked (hidden and inert) nothing in it can take focus or
-  // be heard, so the step waits for it to open. A user who has gone somewhere since
-  // the step keeps focus there; the status region still says what was recorded.
-  useLayoutEffect(() => {
-    if (!stepFocus || lock) return
-    if (visibleJob && canRead && (extractions === null || validations === null) && !error) return
-    const target = stepFocus.targets.map(id => document.getElementById(id)).find(element => element !== null)
-    setStepFocus(null)
-    if (stepFocus.notice) setNotice(stepFocus.confirmNext && target?.id === 'ocr-confirm-title' ? `${stepFocus.notice} Confirm the source patient next.` : stepFocus.notice)
-    if (target && focusIsLost(target)) target.focus()
-  }, [stepFocus, lock, visibleJob, canRead, extractions, validations, error])
-
-  // True once the job has been read again.
-  async function lookup(event?: FormEvent<HTMLFormElement>): Promise<boolean> {
-    event?.preventDefault()
-    if (!facilityId || !documentId.trim()) return false
-    // A lookup supersedes a step still waiting to move focus; one that follows a step sets it afterwards.
-    setStepFocus(null)
-    setBusy(true); setError(''); setRetryError(''); setNotice(''); setSearched(false); setExtractions(null); setValidations(null)
-    try { const result = await staffApi.findOcrJob(facilityId, documentId.trim()); setJob(result.job); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1); return true }
-    catch (caught) { setJob(null); setError(errorText(caught, 'OCR job could not be found.')); return false }
-    finally { setBusy(false) }
-  }
-
-  // Finding a job keeps focus on Find job, which is disabled while the lookup runs.
-  async function find(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    // The last answer no longer applies, nor does a field refused before.
-    setProblem(null); setError(''); setNotice('')
-    const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
-      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
-    if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
-    await lookup()
-    focus('ocr-find-submit', true)
-  }
-
-  /** A step recorded, then the job read again: focus and say where the work goes on. */
-  async function afterStep(targets: readonly string[], notice: string | undefined, confirmNext = false) {
-    const reloaded = await lookup()
-    setStepFocus(reloaded ? { targets, notice, confirmNext } : { targets: ['ocr-find-submit'], notice })
-  }
-
-  async function create() {
-    if (!facilityId) return
-    // The last answer no longer applies, nor does a field refused before (setProblem, below).
-    setError(''); setNotice('')
-    // Create extraction job stays available, so a missing ID is said at its field, which takes focus. The
-    // document ID needs no check here: Create is shown only once Find job has taken it, and editing it hides Create.
-    const refused = !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
-      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
-    setProblem(refused && refusal(refused))
-    if (refused) { focus(refused.field); return }
-    setBusy(true); setExtractions(null); setValidations(null)
-    try {
-      const created = await staffApi.createOcrJob(facilityId, documentId.trim(), patientId.trim())
-      setJob(created); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1)
-      setStepFocus({ targets: ['ocr-job-title'], notice: 'Extraction job created.' })
-    }
-    catch (caught) { setError(errorText(caught, 'OCR job could not be created.')); focus('ocr-create-submit', true) }
-    finally { setBusy(false) }
-  }
-
-  async function retry(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!facilityId || !visibleJob) return
-    const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
-    setProblem(null); setRetryError('')
-    if (reason.length < 8) { setProblem(refusal({ field: 'ocr-retry-reason', message: 'Enter a reason of at least 8 characters.' })); focus('ocr-retry-reason'); return }
-    setBusy(true); setError(''); setNotice('')
-    try {
-      setJob(await staffApi.retryOcrJob(facilityId, visibleJob, reason)); setLookupRevision(value => value + 1)
-      setStepFocus({ targets: ['ocr-job-title'], notice: 'Retry requested.' })
-    }
-    catch (caught) { setRetryError(errorText(caught, 'OCR job could not be retried.')); focus('ocr-retry-submit', true) }
-    finally { setBusy(false) }
-  }
-
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description={refusalAt(facilityId, NO_DOCUMENT_OCR)} />
+  const { activePatient } = useStaff()
+  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Paper records unavailable" description={refusalAt(facilityId, NO_DOCUMENT_OCR)} />
+  const canOpen = permissions.includes('identity.patient.read')
+  const summary = activePatient?.purpose === 'direct-care' ? activePatient.lookup.patient : null
+  const name = summary ? summary.fullName?.trim() || [summary.firstName, summary.lastName].filter(Boolean).join(' ') : ''
+  const first = summary?.firstName?.trim() || name.split(/\s+/)[0] || ''
   return <>
-    <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
-    <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
-      {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
-      {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
-      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} placeholder="Patient UUID" required {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
-      {error && <p className="staff-error" role="alert">{error}</p>}
-      {/* Mounted throughout, so a message put in it is announced. */}
-      <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
-    </Card>
-      {visibleJob ? <Card className="staff-card"><h2 id="ocr-job-title" tabIndex={-1}>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p>{visibleJob.patientConfirmation && <p>Source patient confirmed {dateText(visibleJob.patientConfirmation.confirmedAt)}</p>}<Button id="ocr-refresh-submit" tone="secondary" size="sm" onClick={() => void lookup().then(reloaded => focus(reloaded ? 'ocr-refresh-submit' : 'ocr-find-submit', true))} disabled={busy}>Refresh status</Button>
-        {canRetryJob && permissions.includes('ocr.job.write') && <form className="staff-form" noValidate onSubmit={event => void retry(event)}><Field label="Retry reason" htmlFor="ocr-retry-reason" error={problemText(problem, 'ocr-retry-reason')} required><Textarea id="ocr-retry-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-retry-reason')} /></Field>{retryError && <p className="staff-error" role="alert">{retryError}</p>}<Button id="ocr-retry-submit" size="sm" type="submit" disabled={busy || !visibleJob.version}>{busy ? 'Retrying…' : 'Retry job'}</Button></form>}
-        {visibleJob.status === 'failed' && !canRetryJob && <p className="staff-muted">The extraction attempt limit has been reached. This job cannot be retried.</p>}
-        {extractions === null && <p className="staff-muted" role="status">Loading extractions…</p>}
-        {extractions?.length === 0 && <p className="staff-muted">No extraction is available yet.</p>}
-        {extractions?.map(extraction => <div className="staff-list-item" key={extraction.id}><div className="staff-row"><strong>Extraction {extraction.version}</strong><Badge tone="neutral">{extraction.provider}</Badge></div>{extraction.confidence != null && <p>Confidence {Math.round(extraction.confidence * 100)}%</p>}{extraction.rawText && <details><summary>Review extracted text</summary>{/* It scrolls, so it takes focus: a keyboard can then scroll it. */}<pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 300, overflowY: 'auto', fontSize: 12 }}>{extraction.rawText}</pre></details>}</div>)}
-      </Card> : <Card className="staff-card"><h2>Document review</h2><p>Use the document ID from an authorized clinical record. OCR jobs are scoped to that source; there is no facility-wide OCR job list.</p></Card>}
-    </div>
-    {visibleJob?.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions && <div className="staff-section"><OcrReview key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} extractions={extractions} onChanged={disposition => disposition === 'validated'
-      ? afterStep(['ocr-confirm-title', 'ocr-job-title'], 'Review recorded.', true)
-      : afterStep(['ocr-job-title'], 'Rejection recorded.')} /></div>}
-    {visibleJob?.status === 'validated' && !visibleJob.patientConfirmation && permissions.includes('ocr.patient.confirm') && <div className="staff-section"><OcrConfirmation key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} onChanged={async message => {
-      // An answer that the job was confirmed already is said only once the job has been read again.
-      if (message) { const reloaded = await lookup(); setStepFocus({ targets: reloaded ? ['ocr-history-title', 'ocr-job-title'] : ['ocr-find-submit'], notice: reloaded ? message : undefined }); return }
-      await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
-    }} /></div>}
-    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} actorId={actorId} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
+    <PageHead eyebrow="Paper records" title="Bring in paper records">Open the patient first. Then tap Bring in paper records on their page.</PageHead>
+    <Card className="staff-card"><div className="staff-stack">
+      {canOpen ? <Link className="staff-text-link" to="/provider/patients">Open a patient →</Link>
+        : <p className="staff-muted">Opening patients isn’t part of your role at this facility.</p>}
+      {activePatient?.purpose === 'emergency' && <p className="staff-notice">Paper records can’t be brought in during emergency access.</p>}
+      {canOpen && name && <p>Patient open now: {name}{' '}
+        {/* The classic site has no patients/open address: the Patients page shows the open patient's card. */}
+        <Link className="staff-text-link" to="/provider/patients">{first ? `Open ${first}’s page` : 'Open their page'} →</Link></p>}
+    </div></Card>
   </>
 }
 
@@ -1802,10 +1302,10 @@ export function Outreach() {
 
 export function MigrateGap() {
   const { facilityId, permissions } = useFacilityAccess()
-  // The workspace leads only to Document OCR, so it opens on the same permission (no role holds it since hid-system 0091).
+  // The workspace leads only to Paper records, so it opens on the same permission.
   if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description={refusalAt(facilityId, NO_DOCUMENT_OCR)} />
   return <>
-    <PageHead eyebrow="HID Migrate" title="Migration workspace">Process clinical documents tied to authorized clinical records.</PageHead>
-    <EmptyState title="Use Document OCR" description="You can process an eligible clinical document in Document OCR." action={<Link className="staff-text-link" to="/provider/ocr">Open document OCR →</Link>} />
+    <PageHead eyebrow="Health ID Migrate" title="Migration workspace">Bring a patient’s paper records into Health ID.</PageHead>
+    <EmptyState title="Use paper records" description="Open the patient first. Then tap Bring in paper records on their page." action={<Link className="staff-text-link" to="/provider/ocr">Open paper records →</Link>} />
   </>
 }
