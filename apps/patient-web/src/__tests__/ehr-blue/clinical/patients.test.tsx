@@ -582,6 +582,68 @@ describe('The open patient’s page', () => {
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
   })
+
+  it('points a role that cannot open Find a patient to Access requests instead, and to neither when it cannot open that either', () => {
+    staff.permissions = ALL.filter(permission => permission !== 'identity.patient.read')
+    const view = open('/open')
+    expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Find a patient' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Access requests' }).getAttribute('href')).toBe('/provider/requests')
+    view.unmount()
+    staff.permissions = ['ehr.encounter.read']
+    open('/open')
+    expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Find a patient' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Access requests' })).toBeNull()
+  })
+})
+
+describe('Visits here (3.1 #24)', () => {
+  const EARLIER = { ...ENCOUNTER, id: 'b0000000-0000-4000-8000-000000000009', encounterType: 'emergency', status: 'completed', startedAt: '2026-09-01T08:00:00.000Z', chiefComplaint: 'Fictional cough' }
+
+  it('says the kind of visit and the complaint under each visit', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValue({ items: [ENCOUNTER, EARLIER], nextCursor: null })
+    open('/open')
+    expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Show more visits' })).toBeNull()
+  })
+
+  it('reads the next page with Show more and adds it below the visits shown', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER, EARLIER], nextCursor: null })
+    open('/open')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more visits' }))
+    expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2' })
+    // The visit already shown is listed once.
+    expect(screen.getAllByText('Outpatient visit')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Show more visits' })).toBeNull()
+  })
+
+  it('keeps the visits shown when Show more fails, and says so in plain words', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    open('/open')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more visits' }))
+    expect(await screen.findByText('Couldn’t load more visits')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.queryByText(/SERVICE_UNAVAILABLE|503/)).toBeNull()
+  })
+
+  it('Refresh reads the first page again, afresh', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: null })
+    api.encounters.mockResolvedValueOnce({ items: [EARLIER, ENCOUNTER], nextCursor: null })
+    open('/open')
+    await screen.findByText('Outpatient visit')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { fresh: true })
+  })
 })
 
 describe('Patient sharing', () => {
@@ -871,15 +933,32 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     staff.activePatient = activePatient()
     api.reportedHealthProfile.mockResolvedValue(profile('Fictional Med A'))
     open('/open')
-    await waitFor(() => expect(allergies()).toBe('Fictional Med A (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med A'))
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+  })
+
+  it('3.1 #8: shows everything the patient reported, each field in today’s words, labelled as reported by the patient', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockResolvedValue({
+      bloodGroup: 'O+', genotype: 'AA', allergies: 'Fictional Med A', currentMedications: 'Fictional Med C', chronicConditions: 'Fictional condition',
+      medicalNotes: null, updatedAt: '2026-10-29T08:00:00.000Z',
+    })
+    open('/open')
+    const section = await screen.findByRole('region', { name: 'Reported by the patient' })
+    expect(within(section).getByText('Patient-reported')).toBeTruthy()
+    expect(section.textContent).toContain('Entered by the patient in their Health ID portal, not clinically verified.')
+    const rows = Array.from(section.querySelectorAll('dt')).map(term => [term.textContent, term.nextElementSibling?.textContent])
+    expect(rows).toEqual([
+      ['Blood group', 'O+'], ['Genotype', 'AA'], ['Allergies', 'Fictional Med A'], ['Current medications', 'Fictional Med C'],
+      ['Chronic conditions', 'Fictional condition'], ['Medical notes for the care team', 'Not stated'],
+    ])
   })
 
   it('audit 9: a profile without allergies says Not stated, as today’s card does', async () => {
     staff.activePatient = activePatient()
     api.reportedHealthProfile.mockResolvedValue({ ...profile(null), bloodGroup: 'O+' })
     open('/open')
-    await waitFor(() => expect(allergies()).toBe('Not stated (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Not stated'))
   })
 
   it('audit 9: no allergies while they load, without ehr.note.read, under emergency access, or when refused (403) or not served (404)', async () => {
@@ -916,9 +995,10 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     api.reportedHealthProfile.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
     api.reportedHealthProfile.mockResolvedValueOnce(profile('Fictional Med A'))
     open('/open')
-    await waitFor(() => expect(allergies()).toBe('What the patient entered about their health could not be loaded. Retry patient-reported health information'))
+    expect(await screen.findByText(/What the patient entered about their health could not be loaded\./)).toBeTruthy()
+    expect(allergies()).toBeUndefined()
     fireEvent.click(screen.getByRole('button', { name: 'Retry patient-reported health information' }))
-    await waitFor(() => expect(allergies()).toBe('Fictional Med A (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med A'))
     expect(api.reportedHealthProfile).toHaveBeenCalledTimes(2)
   })
 
@@ -962,7 +1042,7 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     expect(allergies()).toBeUndefined()
     expect(screen.queryByText(/Fictional Med A/)).toBeNull()
     await act(async () => { answerTwo(profile('Fictional Med B')) })
-    await waitFor(() => expect(allergies()).toBe('Fictional Med B (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med B'))
   })
 })
 

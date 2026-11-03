@@ -282,6 +282,8 @@ describe('Consultation list', () => {
   })
 
   it('closes the patient when the access re-check is refused (403)', async () => {
+    // Find a patient is offered only to a role that can open it (identity.patient.read).
+    staff.permissions = [...ALL, 'identity.patient.read']
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
     open()
     const ended = await screen.findByRole('alert')
@@ -293,6 +295,8 @@ describe('Consultation list', () => {
   })
 
   it('asks for a patient first when none is open', () => {
+    // Find a patient is offered only to a role that can open it (identity.patient.read).
+    staff.permissions = [...ALL, 'identity.patient.read']
     staff.activePatient = null
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()

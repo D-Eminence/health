@@ -187,10 +187,14 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   const chart = useChart()
   const ended = useAccessEnded()
   const href = useWorkspaceHref()
+  const { can } = useClinical()
+  // Find a patient opens only with identity.patient.read (any other role lands on Home); without it, Access requests.
+  const findPatient = can('identity.patient.read') ? { to: href.to('patients'), label: 'Find a patient' }
+    : can('identity.consent.write') ? { to: href.to('consent'), label: 'Access requests' } : null
 
   if (ended && !chart) {
     return (
-      <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>
+      <Alert intent="error" title="Access to this patient ended" action={findPatient ? <Button size="sm" to={findPatient.to}>{findPatient.label}</Button> : undefined}>
         Open the patient again to keep working.
       </Alert>
     )
@@ -199,7 +203,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
     return (
       <EmptyState illustration="patient" title={CHOOSE_FIRST}
         description={<>{CHOOSE_FIRST_DETAIL} <strong>{NO_AUTHORIZED_PATIENT}.</strong> {OPEN_PATIENT_HOW}</>}
-        action={<Button variant="primary" to={href.to('patients')}>Find a patient</Button>} />
+        action={findPatient ? <Button variant="primary" to={findPatient.to}>{findPatient.label}</Button> : undefined} />
     )
   }
   if (chart.purpose === 'emergency' && !allowEmergency) {
