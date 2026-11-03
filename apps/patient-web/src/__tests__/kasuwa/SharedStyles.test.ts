@@ -48,6 +48,14 @@ describe('the six code boxes', () => {
   })
 })
 
+describe('a whole-page state\'s action (the session check\'s Try again, Reload after an error)', () => {
+  it.each([320, 1366])('is a full-size button, 44px tall, at %ipx', width => {
+    // The redesign's buttons are 40px; the one way on from a state screen is thumb-sized, as the shell's buttons are.
+    expect(declared(portalCss, '.patient-state-actions .patient-primary-button', 'min-height', width)).toBe('44px')
+    expect(declared(portalCss, '.patient-state-actions .patient-secondary-button', 'min-height', width)).toBe('44px')
+  })
+})
+
 describe('small controls', () => {
   it('makes a text button (the link look) at least 24px tall, as "Send a new code" and "Use a different NIN"', () => {
     expect(buttonClass({ variant: 'link' }).split(' ')).toContain('min-h-6')
