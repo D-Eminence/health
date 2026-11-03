@@ -35,8 +35,9 @@ export interface RecordList<T> {
   /** Shows the page these cursors lead to (today's Pager). */
   readonly show: (cursors: Cursors) => void
   /**
-   * Reads the page shown afresh after a change (`first`: the first page, after a create), and answers why it failed,
-   * or null. A failure leaves the list as it was: the caller says the change was saved.
+   * Reads the page shown afresh after a change (`first`: the first page, after a create), and the first page with it
+   * when a later one is shown, and answers why it failed, or null. A failure leaves the list as it was: the caller says
+   * the change was saved.
    */
   readonly reload: (first?: boolean) => Promise<string | null>
   /** Reads the page shown afresh; a failure is the list's error (a refreshed note's content is hidden then). */
@@ -90,16 +91,21 @@ function usePagedList<T>(scope: string, enabled: boolean, reader: Reader<T>, fal
     setLoading(true)
     if (mode === 'page') setState(current => current.scope === scope ? { ...current, error: '', notice: null } : current)
     try {
-      const result = mode === 'initial'
-        ? { page: await reading.current.first(), cursors: FIRST_PAGE, restarted: false }
-        : await readPage(reading.current.page, wanted, mode !== 'page')
+      // A change read again on a later page changes what the first page holds too (a cancel or entered in error closes
+      // the visit's records), and a summary shows the first page: it is read again fresh with the page shown.
+      const [result, firstPage] = await Promise.all([
+        mode === 'initial'
+          ? reading.current.first().then(page => ({ page, cursors: FIRST_PAGE, restarted: false }))
+          : readPage(reading.current.page, wanted, mode !== 'page'),
+        mode !== 'initial' && mode !== 'page' && wanted.length >= 2 ? reading.current.page(undefined, true) : null,
+      ])
       if (run !== sequence.current) return null
       requested.current = { scope, cursors: result.cursors }
       const items = result.page.items
       setState(current => ({
         scope,
         items,
-        first: result.cursors.length < 2 ? items : current.scope === scope ? current.first : null,
+        first: result.cursors.length < 2 ? items : firstPage ? firstPage.items : current.scope === scope ? current.first : null,
         cursors: result.cursors,
         next: result.page.nextCursor ?? null,
         truncated: result.page.truncated === true,

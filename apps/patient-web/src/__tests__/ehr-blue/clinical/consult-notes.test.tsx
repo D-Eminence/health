@@ -338,6 +338,37 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(pager().getByText('Page 1')).toBeTruthy()
   })
 
+  it('after a change made while a later notes page is shown, reads the first page again too, so the Saved record and Actions never keep the old note', async () => {
+    const first = [NOTE, ...many('note-p1', 49, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
+    const second = many('note-p2', 3, index => ({ noteType: 'Progress', title: `Older progress note ${index}`, status: 'signed', rowVersion: 1 }))
+    pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
+    await openEncounter()
+    const notes = () => within(card('Notes'))
+    fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await notes().findByText('Older progress note 1')).toBeTruthy()
+    expect(savedValues()).toMatchObject({ 'Note status': 'draft' })
+    expect(within(card('Actions')).getByRole('button', { name: 'Sign note' })).toBeTruthy()
+    // EHR marks the visit's notes entered in error with it (staff/routes/Clinical.tsx:82), on every page.
+    const closed = (note: Record<string, unknown>) => ({ ...note, status: 'entered_in_error', rowVersion: Number(note.rowVersion) + 1 })
+    pages['clinical-notes'] = { '': { items: first.map(closed), nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second.map(closed), nextCursor: null } }
+    api.updateEncounter.mockResolvedValue({ ...ENCOUNTER, status: 'entered_in_error', rowVersion: 4 })
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'entered_in_error', rowVersion: 4 })
+    const actions = within(card('Actions'))
+    fireEvent.click(actions.getByRole('button', { name: /^More actions/ }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Mark as entered in error' }))
+    fireEvent.change(actions.getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
+    fireEvent.click(submitIn(actions, 'Mark as entered in error'))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark as entered in error' }))
+    expect(await screen.findByText('Consultation updated.')).toBeTruthy()
+    // The page shown is read again fresh, and the first page with it.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: true })
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
+    expect(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('status').textContent).toBe('Page 2')
+    // The summary says what EHR now holds, and nothing is offered on the note as it was.
+    expect(savedValues()['Note status']).toBe('entered in error')
+    expect(within(card('Actions')).queryByRole('button', { name: 'Sign note' })).toBeNull()
+  })
+
   it('blocker: a nursing observation past the first 50 notes is reached by paging the Notes card, History linking the page shown', async () => {
     const first = [NOTE, OBSERVATION, ...many('note-p1', 48, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
     // An older observation, on the notes' second page only: today's Notes tab lists it there, with its actions.
