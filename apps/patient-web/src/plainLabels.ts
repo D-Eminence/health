@@ -120,3 +120,24 @@ const ROUTE_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
 export function routeLabel(code: string | null | undefined): string | null {
   return ROUTE_WORDS.get((code ?? '').trim().toLowerCase()) ?? null
 }
+
+/** A system code shown in plain words: "outpatient_visit" reads as "Outpatient visit"; "Not recorded" for none. */
+export function plainCode(value: string | null | undefined): string {
+  if (!value) return 'Not recorded'
+  const words = value.replace(/[_-]+/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+const PATIENT_ACCESS_STATUSES: Readonly<Record<string, string>> = {
+  active: 'Active', approved: 'Approved', pending: 'Waiting for you', denied: 'You said no', rejected: 'You said no',
+  revoked: 'Ended', ended: 'Ended', expired: 'Time ran out', cancelled: 'Cancelled', canceled: 'Cancelled', withdrawn: 'Withdrawn',
+}
+
+/**
+ * A facility's request or access as the patient sees it on Access: "Waiting for you", "You said no", "Active", "Ended",
+ * "Time ran out"; "Closed" for any other value, never the value.
+ */
+export function patientAccessStatusLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase()
+  return Object.hasOwn(PATIENT_ACCESS_STATUSES, key) ? PATIENT_ACCESS_STATUSES[key]! : 'Closed'
+}
