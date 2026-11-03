@@ -12,7 +12,7 @@ import { staffApi, staffInvitationApi, type StaffInvitationOpened, type StaffInv
 import { invitationLinkOf, staffJoinAddress, type InvitationLink } from '../../../staff/invitationCapture'
 import { licenceBodyForRole, roleNameInSentence } from '../../../staff/staffAccess'
 import { isRouteMissing, joinProblemText } from '../../../staff/staffProblems'
-import { BlueAuthLayout, NOTE } from './BlueAuthLayout'
+import { BlueAuthLayout, NOTE, siteName } from './BlueAuthLayout'
 
 /*
  * Joining a facility by invitation, in the redesign's auth look, working as today's page does
@@ -78,7 +78,7 @@ function SignInOnSite({ role, children }: { readonly role: string; readonly chil
 }
 
 export function BlueStaffInvitation() {
-  useDocumentTitle('Accept your invitation · Health ID Hospital EHR')
+  useDocumentTitle(`Accept your invitation · ${siteName()}`)
   const location = useLocation()
   const elsewhere = staffPagesOrigin(window.location.hostname)
   return elsewhere ? <OpenStaffPage href={sameStaffPageOn(elsewhere, location)} /> : <InvitationSteps />

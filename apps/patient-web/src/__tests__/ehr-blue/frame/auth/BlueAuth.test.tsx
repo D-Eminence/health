@@ -9,6 +9,7 @@ import type * as StaffApi from '../../../../staff/api'
 import { BlueSignIn, signInWords } from '../../../../ehr-blue/frame/auth/BlueSignIn'
 import { BlueRecovery } from '../../../../ehr-blue/frame/auth/BlueRecovery'
 import { BlueStaffInvitation } from '../../../../ehr-blue/frame/auth/BlueStaffInvitation'
+import { siteName } from '../../../../ehr-blue/frame/auth/BlueAuthLayout'
 import { STAFF_MFA_FACTOR_UNPROVEN } from '../../../../staff/routes/StaffMfaSteps'
 
 /**
@@ -150,6 +151,24 @@ describe('BlueSignIn', () => {
     expect(signInWords('pharmacy').done).toBe('Continue to Health ID Pharmacy')
     expect(signInWords('outreach').done).toBe('Continue to Health ID Outreach')
     expect(signInWords('migrate').done).toBe('Continue to Health ID Migrate')
+  })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'Health ID Hospital EHR'],
+    ['lab.healthidentitydirectory.com', 'Health ID Lab'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'Health ID Pharmacy'],
+    ['outreach.healthidentitydirectory.com', 'Health ID Outreach'],
+    ['migrate.healthidentitydirectory.com', 'Health ID Migrate'],
+  ])('on %s, names %s in the recovery and invitation tab titles', (hostname, name) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      expect(siteName()).toBe(name)
+      const recoveryPage = open('/provider/recover', <BlueRecovery />)
+      expect(document.title).toBe(`Recover account access · ${name}`)
+      recoveryPage.unmount()
+      open('/provider/invitation', <BlueStaffInvitation />)
+      expect(document.title).toBe(`Accept your invitation · ${name}`)
+    } finally { vi.unstubAllGlobals() }
   })
 
   it('shows and hides the password with the design\'s button', () => {

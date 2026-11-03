@@ -207,6 +207,27 @@ describe('Incoming, at a pharmacy that receives prescriptions', () => {
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
   })
 
+  // The blue Pharmacy offers "We can’t complete this order" inside the order opened from its list, not on its row: the
+  // Accepted panel’s wrong-patient form says so (Pharmacy.tsx passes cannotCompleteOn="request" to IncomingOrders).
+  it('points the Accepted panel’s wrong-patient form inside the opened order, once “We can’t complete” is served', async () => {
+    api.pharmacyWorkItems.mockResolvedValue(answer([routed()], { receives: true, routesHere: { waiting: false, held: true },
+      lateCorrection: true, cannotComplete: true }))
+    routes.accept.mockResolvedValue({ route: { id: ROUTE_ID, version: 2, effectiveState: 'accepted' }, workItemId: 'w1', patient: {
+      fullName: 'Patient One', sex: 'female', dateOfBirth: '1990-01-01', healthIdLast4: 'AAA2' }, clinicalInformation: null,
+    instructions: null, orderer: { licenceBody: null, licenceNumber: null }, replayed: false })
+    renderPage()
+    await screen.findByRole('button', { name: NAME })
+    const incoming = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section') as HTMLElement
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    fireEvent.change(within(incoming).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-ZDEMAAA2' } })
+    fireEvent.change(within(incoming).getByLabelText(/^Reason for accepting/), { target: { value: 'Patient at the counter with their card' } })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'This isn’t the order’s patient' }))
+    expect(document.body.textContent).toContain('If you can’t complete it for another reason, don’t use this: close this, open the '
+      + 'order from the work list below, and use “We can’t complete this order” inside it.')
+    expect(document.body.textContent).not.toMatch(/on its row/)
+  })
+
   it('is not read for a member who doesn’t receive prescriptions', async () => {
     working([READ, CREATE])
     renderPage()

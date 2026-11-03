@@ -131,6 +131,9 @@ describe('the Emergency page', () => {
     // The design says 15 minutes; today's grant runs 30, and the acknowledgement names the real one.
     expect(document.body.textContent).not.toMatch(/15[- ]minute/)
     expect(document.body.textContent).toContain(ACKNOWLEDGE)
+    // No opening is reviewed: the form promises only what is true, that the reason is kept with the record of it.
+    expect(card().textContent).toContain('What is happening, and why care can’t wait. It’s kept with the record of this opening.')
+    expect(card().textContent).not.toMatch(/review/i)
     // The sample board sits below the live form.
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')

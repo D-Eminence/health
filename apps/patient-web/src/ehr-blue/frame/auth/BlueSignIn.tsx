@@ -12,9 +12,9 @@ import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/Clinici
 import { CLINICIAN_STATUS_PATH, patientSignInHref, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
 import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
-import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, SiteLink } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, siteName, SiteLink } from './BlueAuthLayout'
 import { getStaffLandingPath, passwordRefusal, TurnstileChallenge } from './signInParts'
-import { PRODUCTS, productOf, type Product } from '../product'
+import { productOf, type Product } from '../product'
 
 function BlueMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type={type} {...rest} className={buttonClass({ variant: primary ? 'primary' : 'ghost', size: primary ? 'lg' : 'md', block: primary, className })} />
@@ -33,7 +33,7 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
  */
 export function signInWords(product: Product): { readonly lede: string; readonly done: string } {
   if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR' }
-  const name = `Health ID ${PRODUCTS[product].name}`
+  const name = siteName(product)
   return { lede: `Sign in to ${name}.`, done: `Continue to ${name}` }
 }
 

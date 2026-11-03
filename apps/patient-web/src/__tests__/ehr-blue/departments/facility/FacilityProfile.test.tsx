@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { FacilityProfile } from '../../../../ehr-blue/departments/facility/FacilityProfile'
-import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
  * Facility profile in the blue EHR (target admin/facility.png), read-only: the working facility as the staff session
@@ -129,27 +129,57 @@ describe('Facility profile: the target’s sections, read-only', () => {
     session.facility = fakeFacility(['lab.work-item.read'], { id: DEMO_LABORATORY_ID, name: 'Demo Laboratory', isPrimary: false })
     rerender(<MemoryRouter><div className="hid-ehr"><FacilityProfile /></div></MemoryRouter>)
 
-    // A laboratory on its own is the Lab product (product.ts): the profile says laboratory, not hospital.
+    // The demo laboratory is a laboratory: the profile says laboratory, not hospital.
     expect(valueOf('Laboratory name', section('Laboratory details & picture'))).toBe('Demo Laboratory')
     expect(valueOf('Your primary facility', section('Facility details'))).toBe('No')
     expect(screen.getByText('DL')).toBeTruthy()
     expect(screen.queryByText('Demo Hospital')).toBeNull()
   })
 
+  const OTHER_ID = '5a1e0000-0000-4000-8000-000000000009'
   it.each([
-    { product: 'a laboratory', permissions: ['lab.work-item.read'], place: 'Laboratory', inCharge: 'Lead scientist' },
-    { product: 'a pharmacy', permissions: ['pharmacy.work-item.read'], place: 'Pharmacy', inCharge: 'Superintendent pharmacist' },
-  ])('speaks of $product, not a hospital, and asks no bed count there', ({ permissions, place, inCharge }) => {
-    session.facility = fakeFacility(permissions, { id: DEMO_LABORATORY_ID, name: 'Demo Place' })
-    renderDept(<FacilityProfile />)
-    const details = section(`${place} details & picture`)
-    expect(valueOf(`${place} name`, details)).toBe('Demo Place')
-    for (const label of [`${place} profile picture or logo`, `${place} phone`, `${place} email`, `${place} address`, inCharge]) {
-      expect(valueOf(label, details), label).toBe(NOT_AVAILABLE)
-    }
-    expect(within(details).queryByText('Bed count')).toBeNull()
-    expect(within(details).queryByText('Medical Director')).toBeNull()
-    expect(details.textContent).not.toMatch(/Hospital/)
+    { product: 'the demo laboratory', facility: { id: DEMO_LABORATORY_ID }, place: 'Laboratory', inCharge: 'Lead scientist' },
+    { product: 'the demo pharmacy', facility: { id: DEMO_PHARMACY_ID }, place: 'Pharmacy', inCharge: 'Superintendent pharmacist' },
+    { product: 'a laboratory that signed itself up', novu: true, place: 'Laboratory', inCharge: 'Lead scientist',
+      facility: { id: OTHER_ID, selfService: { review: 'reviewed' as const, organizationType: 'laboratory' } } },
+    { product: 'a pharmacy that signed itself up', novu: true, place: 'Pharmacy', inCharge: 'Superintendent pharmacist',
+      facility: { id: OTHER_ID, selfService: { review: 'reviewed' as const, organizationType: 'pharmacy' } } },
+    { product: 'any facility on lab.', hostname: 'lab.healthidentitydirectory.com', facility: { id: OTHER_ID },
+      place: 'Laboratory', inCharge: 'Lead scientist' },
+    { product: 'any facility on pharmacy.', hostname: 'pharmacy.staging.healthidentitydirectory.com', facility: { id: OTHER_ID },
+      place: 'Pharmacy', inCharge: 'Superintendent pharmacist' },
+  ])('speaks of $product as such, not a hospital, and asks no bed count there', ({ facility, novu, hostname, place, inCharge }) => {
+    if (novu) vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    if (hostname) vi.stubGlobal('location', { ...window.location, hostname })
+    try {
+      session.facility = fakeFacility(['audit.read'], { name: 'Demo Place', ...facility })
+      renderDept(<FacilityProfile />)
+      const details = section(`${place} details & picture`)
+      expect(valueOf(`${place} name`, details)).toBe('Demo Place')
+      for (const label of [`${place} profile picture or logo`, `${place} phone`, `${place} email`, `${place} address`, inCharge]) {
+        expect(valueOf(label, details), label).toBe(NOT_AVAILABLE)
+      }
+      expect(within(details).queryByText('Bed count')).toBeNull()
+      expect(within(details).queryByText('Medical Director')).toBeNull()
+      expect(details.textContent).not.toMatch(/Hospital/)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  // The words describe the facility, not the person: a lab scientist or a pharmacist at a hospital still sees a hospital.
+  it.each([
+    ['a lab scientist', ['lab.work-item.read']],
+    ['a pharmacist', ['pharmacy.work-item.read']],
+  ])('speaks of a hospital to %s at a hospital on ehr.', (_who, permissions) => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
+    try {
+      session.facility = fakeFacility(permissions, { id: OTHER_ID, name: 'General Hospital' })
+      renderDept(<FacilityProfile />)
+      const details = section('Hospital details & picture')
+      expect(valueOf('Hospital name', details)).toBe('General Hospital')
+      expect(valueOf('Bed count', details)).toBe(NOT_AVAILABLE)
+      expect(valueOf('Medical Director', details)).toBe(NOT_AVAILABLE)
+      expect(details.textContent).not.toMatch(/Laboratory|Pharmacy/)
+    } finally { vi.unstubAllGlobals() }
   })
 
   it('asks for a facility when the session has none', () => {
