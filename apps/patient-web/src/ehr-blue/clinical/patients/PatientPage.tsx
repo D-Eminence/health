@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { HEALTH_FIELDS, type HealthFields, type ReportedHealthProfile } from '../../../profileParity'
 import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
 import { LoadingRows } from '../../../kasuwa/parts'
 import { consultationLabel, visitClassLabel } from '../../../plainLabels'
@@ -15,7 +16,6 @@ import type { PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
-import { HEALTH_FIELDS, type HealthFields, type ReportedHealthProfile } from '../../../profileParity'
 import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
@@ -310,28 +310,34 @@ function visitSubtitle(item: Pick<Encounter, 'encounterType' | 'chiefComplaint'>
 }
 
 /**
- * This facility's visits for the patient (today's chart list), each opening in Consultation, with today's Refresh and
- * a Show more for the earlier pages. Each read follows today's re-check; a refusal there closes the patient and shows
- * that access ended.
+ * This facility's visits for the patient (today's chart list), each opening in Consultation, with a Show more for the
+ * earlier pages and today's Refresh, which reads every page shown again. Each read follows today's re-check; a refusal
+ * there closes the patient and shows that access ended.
  */
 function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const [state, setState] = useState<HistoryState>(null)
   const [busy, setBusy] = useState<'refresh' | 'more' | null>(null)
-  const [moreError, setMoreError] = useState('')
+  const [problem, setProblem] = useState<{ title: string; text: string } | null>(null)
   const { facilityId, patientId, verify } = chart
   // Read once per patient: the re-check itself may be a new function on each render.
   const recheck = useRef(verify)
   useLayoutEffect(() => { recheck.current = verify })
   // Each read is this patient's latest: an answer for an earlier read (or patient) is never shown.
   const reads = useRef(0)
+  // Pages shown, so Refresh reads the same number again.
+  const pages = useRef(1)
+  const list = useRef<HTMLUListElement>(null)
+  // After the last Show more its button goes away: focus moves to the first visit it added (this row's index).
+  const focusRow = useRef<number | null>(null)
 
   useEffect(() => {
     const read = ++reads.current
+    pages.current = 1
     setState(null)
     setBusy(null)
-    setMoreError('')
+    setProblem(null)
     void (async () => {
       try {
         await recheck.current()
@@ -344,18 +350,43 @@ function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean
     return () => { reads.current += 1 }
   }, [facilityId, patientId])
 
-  /** Today's Refresh encounters: the first page again, read afresh, the list kept on screen while it loads. */
+  useLayoutEffect(() => {
+    const row = focusRow.current
+    if (row === null) return
+    focusRow.current = null
+    list.current?.querySelectorAll<HTMLElement>(':scope > li > button')[row]?.focus()
+  }, [state])
+
+  /** Visits from the first page to the given number of pages, read afresh, with no visit twice. */
+  async function readPages(count: number, cursor?: string, fresh = false) {
+    const items: Encounter[] = []
+    const seen = new Set<string>()
+    let next: string | null = cursor ?? null
+    for (let index = 0; index < count; index += 1) {
+      const page = await staffApi.encounters(facilityId, patientId, { cursor: next ?? undefined, fresh })
+      for (const item of page.items) if (!seen.has(item.id)) { seen.add(item.id); items.push(item) }
+      next = page.nextCursor
+      if (!next) break
+    }
+    return { items, nextCursor: next }
+  }
+
+  /** Today's Refresh encounters: every page shown, read afresh, the list kept on screen while it loads. */
   async function refresh() {
-    if (busy === 'refresh') return
+    if (busy) return
     const read = ++reads.current
     setBusy('refresh')
-    setMoreError('')
+    setProblem(null)
     try {
       await recheck.current()
-      const page = await staffApi.encounters(facilityId, patientId, { fresh: true })
-      if (read === reads.current) setState({ items: page.items, nextCursor: page.nextCursor })
+      const fresh = await readPages(pages.current, undefined, true)
+      if (read === reads.current) setState(fresh)
     } catch (caught) {
-      if (read === reads.current) setState({ error: refusalText(caught, 'Please try again.') })
+      if (read !== reads.current) return
+      const text = refusalText(caught, 'Please try again.')
+      // A list already shown stays; the problem shows under it.
+      if (state !== null && !('error' in state)) setProblem({ title: 'Couldn’t refresh visits', text })
+      else setState({ error: text })
     } finally {
       if (read === reads.current) setBusy(null)
     }
@@ -367,15 +398,18 @@ function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean
     const read = ++reads.current
     const shown = state
     setBusy('more')
-    setMoreError('')
+    setProblem(null)
     try {
       await recheck.current()
       const page = await staffApi.encounters(facilityId, patientId, { cursor: shown.nextCursor ?? undefined })
       if (read !== reads.current) return
       const seen = new Set(shown.items.map(item => item.id))
-      setState({ items: [...shown.items, ...page.items.filter(item => !seen.has(item.id))], nextCursor: page.nextCursor })
+      const added = page.items.filter(item => !seen.has(item.id))
+      pages.current += 1
+      if (!page.nextCursor) focusRow.current = added.length > 0 ? shown.items.length : shown.items.length - 1
+      setState({ items: [...shown.items, ...added], nextCursor: page.nextCursor })
     } catch (caught) {
-      if (read === reads.current) setMoreError(refusalText(caught, 'Please try again.'))
+      if (read === reads.current) setProblem({ title: 'Couldn’t load more visits', text: refusalText(caught, 'Please try again.') })
     } finally {
       if (read === reads.current) setBusy(null)
     }
@@ -383,19 +417,22 @@ function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean
 
   return <Card>
     <CardHeader as="h2" title="Visits here" description="Only what your role may see" icon={History}
-      actions={state !== null ? <Button size="sm" icon={RotateCcw} loading={busy === 'refresh'} disabled={busy === 'more'} onClick={() => void refresh()}>Refresh</Button> : undefined} />
+      actions={state !== null ? <Button size="sm" icon={RotateCcw} aria-disabled={busy !== null || undefined}
+        aria-busy={busy === 'refresh' || undefined} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button> : undefined} />
     {state === null ? <LoadingRows rows={2} label="Loading visits" />
       : 'error' in state ? <div className="p-5"><Alert intent="error" title="Couldn’t load visits">{state.error}</Alert></div>
       : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet.{canStart ? ' Start a consultation to begin one.' : ''}</p>
       : <>
-        <ul className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
+        <ul ref={list} className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
           <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={consultationLabel(item)}
             subtitle={visitSubtitle(item)}
             trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{sexText(item.status)}</Badge>} />
         </li>)}</ul>
-        {moreError ? <div className="border-t border-line px-5 py-3"><Alert intent="error" title="Couldn’t load more visits">{moreError}</Alert></div> : null}
+        {problem ? <div className="border-t border-line px-5 py-3"><Alert intent="error" title={problem.title}>{problem.text}</Alert></div> : null}
         {state.nextCursor ? <div className="border-t border-line px-5 py-3">
-          <Button size="sm" loading={busy === 'more'} disabled={busy === 'refresh'} onClick={() => void showMore()}>Show more visits</Button>
+          {/* Busy, it stays focusable (aria-disabled, not disabled), so focus stays on it; a press while it reads does nothing. */}
+          <Button size="sm" aria-disabled={busy !== null || undefined} aria-busy={busy === 'more' || undefined}
+            onClick={() => void showMore()}>{busy === 'more' ? 'Loading more visits…' : 'Show more visits'}</Button>
         </div> : null}
       </>}
   </Card>

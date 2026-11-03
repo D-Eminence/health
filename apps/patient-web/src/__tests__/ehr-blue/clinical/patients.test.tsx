@@ -623,6 +623,28 @@ describe('Visits here (3.1 #24)', () => {
     expect(screen.queryByRole('button', { name: 'Show more visits' })).toBeNull()
   })
 
+  it('Show more stays focusable and says it is busy while it reads, then focus moves to the first visit it added', async () => {
+    staff.activePatient = activePatient()
+    let answer: (value: unknown) => void = () => {}
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    open('/open')
+    const more = await screen.findByRole('button', { name: 'Show more visits' })
+    more.focus()
+    await act(async () => { fireEvent.click(more) })
+    expect(more.textContent).toBe('Loading more visits…')
+    expect(more.getAttribute('aria-disabled')).toBe('true')
+    expect(more.hasAttribute('disabled')).toBe(false)
+    expect(document.activeElement).toBe(more)
+    // A second press while it reads does nothing.
+    await act(async () => { fireEvent.click(more) })
+    expect(api.encounters).toHaveBeenCalledTimes(2)
+    await act(async () => { answer({ items: [EARLIER], nextCursor: null }) })
+    expect(screen.queryByRole('button', { name: /Show more visits|Loading more visits/ })).toBeNull()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.textContent).toContain('Emergency visit · Fictional cough')
+  })
+
   it('keeps the visits shown when Show more fails, and says so in plain words', async () => {
     staff.activePatient = activePatient()
     api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
@@ -642,7 +664,38 @@ describe('Visits here (3.1 #24)', () => {
     await screen.findByText('Outpatient visit')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
-    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { fresh: true })
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
+  })
+
+  it('Refresh reads again every page shown, as today does, so the visits from Show more stay', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [EARLIER], nextCursor: 'cursor-3' })
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [EARLIER], nextCursor: 'cursor-3' })
+    open('/open')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more visits' }))
+    await screen.findByText('Emergency visit · Fictional cough')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.encounters).toHaveBeenCalledTimes(4))
+    expect(api.encounters).toHaveBeenNthCalledWith(3, FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
+    expect(api.encounters).toHaveBeenNthCalledWith(4, FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: true })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' }).getAttribute('aria-disabled')).toBeNull())
+    expect(screen.getByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Show more visits' })).toBeTruthy()
+  })
+
+  it('keeps the visits shown when Refresh fails, and says so in plain words', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: null })
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    open('/open')
+    await screen.findByText('Outpatient visit')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('Couldn’t refresh visits')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.queryByText(/SERVICE_UNAVAILABLE|503/)).toBeNull()
   })
 })
 

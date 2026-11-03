@@ -189,8 +189,8 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   const href = useWorkspaceHref()
   const { can } = useClinical()
   // Find a patient opens only with identity.patient.read (any other role lands on Home); without it, Access requests.
-  const findPatient = can('identity.patient.read') ? { to: href.to('patients'), label: 'Find a patient' }
-    : can('identity.consent.write') ? { to: href.to('consent'), label: 'Access requests' } : null
+  const findPatient = can('identity.patient.read') ? { to: href.to('patients'), label: 'Find a patient', change: 'Change patient →' }
+    : can('identity.consent.write') ? { to: href.to('consent'), label: 'Access requests', change: 'Access requests →' } : null
 
   if (ended && !chart) {
     return (
@@ -223,8 +223,8 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
       {banner && chart.purpose === 'direct-care' ? (
         // Today's line and "Change patient →" under the patient's name (staff/routes/Clinical.tsx:1767-1768).
         <p className="mt-2 mb-4 text-[13px] text-ink-2">
-          HID {chart.patient.hid} · {DIRECT_CARE}{' '}
-          <Link className="font-medium text-brand-ink underline underline-offset-2" to={href.to('patients')}>Change patient →</Link>
+          HID {chart.patient.hid} · {DIRECT_CARE}
+          {findPatient ? <>{' '}<Link className="font-medium text-brand-ink underline underline-offset-2" to={findPatient.to}>{findPatient.change}</Link></> : null}
         </p>
       ) : null}
       {banner && chart.writeNotice ? <Alert intent="info" size="sm" className="mb-4">{chart.writeNotice}</Alert> : null}

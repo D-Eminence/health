@@ -247,6 +247,12 @@ describe('the emergency summary page', () => {
     expect(screen.getByTestId('elsewhere').textContent).toBe('/provider/patients')
   })
 
+  it('offers no Find another patient to a role that cannot open Find a patient (it would land on Home)', async () => {
+    staff.permissions = EVERY_READ.filter(permission => permission !== 'identity.patient.read')
+    await renderSummary()
+    expect(screen.queryByRole('link', { name: 'Find another patient' })).toBeNull()
+  })
+
   it('names the tab after the workspace, never the patient', async () => {
     document.title = ''
     await renderSummary()

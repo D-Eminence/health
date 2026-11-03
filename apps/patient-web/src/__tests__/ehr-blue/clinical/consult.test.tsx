@@ -162,12 +162,29 @@ describe('Consultation list', () => {
   })
 
   it('parity: names the facility over the list, and says the direct-care line with "Change patient →" under the patient', async () => {
+    staff.permissions = [...ALL, 'identity.patient.read']
     open()
     await screen.findByRole('table', { name: 'Consultations' })
     expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
     const line = screen.getByText(/· Direct care access\./)
     expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Change patient →`)
     expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
+  })
+
+  it('under the patient, points a role without identity.patient.read to Access requests, never to Find a patient', async () => {
+    staff.permissions = [...ALL, 'identity.consent.write']
+    const view = open()
+    await screen.findByRole('table', { name: 'Consultations' })
+    let line = screen.getByText(/· Direct care access\./)
+    expect(within(line).queryByRole('link', { name: 'Change patient →' })).toBeNull()
+    expect(within(line).getByRole('link', { name: 'Access requests →' }).getAttribute('href')).toBe('/provider/requests')
+    view.unmount()
+    staff.permissions = [...ALL]
+    open()
+    await screen.findByRole('table', { name: 'Consultations' })
+    line = screen.getByText(/· Direct care access\./)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access.`)
+    expect(within(line).queryAllByRole('link')).toEqual([])
   })
 
   it('shows a refused read as an alert', async () => {

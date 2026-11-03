@@ -286,7 +286,9 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
             {/* At once, as today: nothing may stand between a clinician and ending emergency access. */}
             {grantId ? <Button variant="danger" disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? closeUnavailableId : undefined}
               aria-disabled={ending || undefined} onClick={closeGrant}>End emergency access</Button> : null}
-            <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button>
+            {/* Find a patient opens only with identity.patient.read; any other role would land on Home. */}
+            {permissions.includes('identity.patient.read')
+              ? <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button> : null}
           </div>
           {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
           {closeError ? <Alert intent="error" title="Couldn’t end access">{closeError}</Alert> : null}
