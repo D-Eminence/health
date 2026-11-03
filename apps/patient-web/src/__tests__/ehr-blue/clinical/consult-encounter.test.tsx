@@ -3,7 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
-import { ENCOUNTER_STATUS_UPDATED, REVISION_RECORDED } from '../../../ehr-blue/clinical/consult/encounters'
+import { ENCOUNTER_STATUS_UPDATED, RELOAD_FAILED, REVISION_RECORDED } from '../../../ehr-blue/clinical/consult/encounters'
 import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
@@ -1289,5 +1289,58 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     await openEncounter()
     await waitFor(() => expect(history().getByRole('alert').textContent).toBe('EHR is unavailable.'))
     expect(history().getAllByRole('alert')).toHaveLength(1)
+  })
+})
+
+describe('Consultation record: "Try again" after a change made in a card whose list could not be read again', () => {
+  const sentence = () => screen.queryAllByRole('alert').find(alert => alert.textContent?.startsWith(RELOAD_FAILED)) ?? null
+
+  it('reads the diagnoses again, the page shown, fresh, after a diagnosis change, and the diagnosis shows what EHR now holds', async () => {
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const row = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    fireEvent.change(row.getByLabelText(labelled('Verification')), { target: { value: 'confirmed' } })
+    fireEvent.change(row.getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
+    const read = api.records.getMockImplementation()!
+    api.records.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(row.getByRole('button', { name: 'Update diagnosis' }))
+    expect(await screen.findByText('Diagnosis updated.')).toBeTruthy()
+    await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.Try again`))
+    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
+    records.diagnoses = [{ ...DIAGNOSIS, verificationStatus: 'confirmed', rowVersion: 2 }]
+    api.records.mockImplementation(read)
+    const reads = api.records.mock.calls.length
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(within(sentence()!).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(api.records.mock.calls.slice(reads)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: undefined, fresh: true }]])
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
+    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Confirmed')).toBeTruthy()
+    expect(screen.getByText('Diagnosis updated.')).toBeTruthy()
+  })
+
+  it('reads the notes again after a note marked entered in error in the Notes card, and the note shows its new status', async () => {
+    await openEncounter()
+    const row = () => within(within(card('Notes')).getByText('Consultation note').closest('li') as HTMLElement)
+    fireEvent.click(row().getByRole('button', { name: 'Review note content' }))
+    expect(await row().findByText('Cough for three days.', { exact: false })).toBeTruthy()
+    fireEvent.click(row().getByRole('button', { name: 'Mark entered in error' }))
+    fireEvent.change(row().getByLabelText(labelled('Reason for change')), { target: { value: 'Written on the wrong visit' } })
+    const read = api.records.getMockImplementation()!
+    api.records.mockRejectedValue(UNAVAILABLE())
+    api.updateRecord.mockResolvedValue({ ...NOTE, status: 'entered_in_error', rowVersion: 3 })
+    fireEvent.click(row().getAllByRole('button', { name: 'Mark entered in error' }).find(button => button.getAttribute('type') === 'submit')!)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    expect(row().getByText('Draft')).toBeTruthy()
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error', rowVersion: 3 }]
+    api.records.mockImplementation(read)
+    const reads = api.records.mock.calls.length
+    fireEvent.click(within(sentence()!).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(api.records.mock.calls.slice(reads)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true }]])
+    expect(row().getByText('Entered in error')).toBeTruthy()
   })
 })

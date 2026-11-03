@@ -2,7 +2,7 @@ import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
-import { staffApi, type ClinicalRecord, type Encounter, type NoteRevision } from '../../../staff/api'
+import { staffApi, type ClinicalRecord, type DocumentRecord, type Encounter, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
@@ -140,13 +140,39 @@ function step(previous: SaveStep | null, signature: string): SaveStep {
   return previous?.signature === signature ? previous : { signature, key: crypto.randomUUID(), done: false }
 }
 
+/** The visit's lists a change reads again. */
+type PageLists = Lists & { readonly documents: RecordList<DocumentRecord>; readonly revisions: RecordList<NoteRevision> }
+/** One list read again after a change, as that change reads it; it answers why it failed, or null. */
+type Reread = (lists: PageLists) => Promise<string | null>
+/** The page's error; after a failed re-read, the reads its "Try again" makes again. */
+type PageError = { readonly text: string; readonly again: readonly Reread[] }
+const NO_ERROR: PageError = { text: '', again: [] }
+/** The lists a cancel or entered in error changes, each read again after it. */
+const CLOSED_LISTS = ['notes', 'diagnoses', 'vitals', 'prescriptions', 'labs', 'documents'] as const
+
+/**
+ * A list whose read after a change failed keeps what was last read, and the page says the change was saved, once
+ * (today's page, staff/routes/Clinical.tsx:1448-1450, :1477), with "Try again" beside it for the reads that failed.
+ */
+function reloadFailed(failure: string, again: readonly Reread[]): PageError {
+  return { text: `${RELOAD_FAILED} ${failure}`.trim(), again }
+}
+
+/** Makes each read against these lists: null once all are read, else what the page says. */
+async function reread(reads: readonly Reread[], lists: PageLists): Promise<PageError | null> {
+  const answers = await Promise.all(reads.map(read => read(lists)))
+  const failure = answers.find((answer): answer is string => answer !== null)
+  return failure === undefined ? null : reloadFailed(failure, reads.filter((_, index) => answers[index] !== null))
+}
+
 function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: Encounter; others: readonly Encounter[] }) {
   const href = useWorkspaceHref()
   const location = useLocation()
   const { facilityId, patientId } = chart
   const [encounter, setEncounter] = useState(initial)
   const [success, setSuccess] = useState(() => (location.state as { created?: unknown } | null)?.created === true ? ENCOUNTER_CREATED : '')
-  const [pageError, setPageError] = useState('')
+  const [pageError, showPageError] = useState<PageError>(NO_ERROR)
+  const setPageError = (text: string) => showPageError(text ? { text, again: [] } : NO_ERROR)
   const [selected, setSelected] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [asking, setAsking] = useState<Asking | null>(null)
@@ -193,6 +219,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const latest = revisions.items?.at(-1) ?? null
   // Nothing is signed or amended unseen: its content must have been read (today's rule).
   const seen = !!note && !revisions.loading && !revisions.error && (revisions.items?.length ?? 0) > 0
+  const lists: PageLists = { notes, diagnoses, vitals, prescriptions, labs, documents, revisions }
+  const latestLists = useLatest(lists)
 
   // After a change removes the control that had focus, focus goes to "Actions", or back to the More actions button when
   // its form was closed (never from a deferred effect).
@@ -212,9 +240,20 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     setSuccess(message)
     setFocusRequest(count => count + 1)
   }
-  const reloaded = async (...reads: Promise<string | null>[]) => {
-    const failures = (await Promise.all(reads)).filter((failure): failure is string => failure !== null)
-    if (failures.length > 0) setPageError(`${RELOAD_FAILED} ${failures[0]}`.trim())
+  const reloaded = async (...reads: Reread[]) => {
+    const failed = await reread(reads, lists)
+    if (failed) showPageError(failed)
+  }
+  /**
+   * "Try again": the reads that failed, made again fresh, as the change made them (the page shown, and the first page
+   * with a later one). Reads need no access re-check. The sentence stays until they are read, then goes, focus moving
+   * to "Actions"; a change made meanwhile says its own outcome, which this never replaces.
+   */
+  const tryAgain = async () => {
+    const shown = pageError
+    const failed = await reread(shown.again, latestLists.current)
+    showPageError(current => current === shown ? failed ?? NO_ERROR : current)
+    if (!failed) setFocusRequest(count => count + 1)
   }
   const begin = () => { setSuccess(''); setPageError('') }
   const ask = (label: string, word?: string, description?: string) => new Promise<boolean>(answer => setAsking({ label, word, description, answer }))
@@ -227,7 +266,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     unreadRevision.current = false
     revisionAttempt.current = null
     diagnosisAttempt.current = null
-    void reloaded(notes.reload(true))
+    void reloaded(on => on.notes.reload(true))
   }
 
   /**
@@ -273,7 +312,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     finish(diagnosis ? `${REVISION_RECORDED} ${RECORD_SAVED}` : REVISION_RECORDED)
     // The consultation note is on the first page: the list shows it again, with its revisions read afresh (a failed
     // re-read hides the old content and its actions), and a new diagnosis, today's create read: the first page.
-    await reloaded(notes.reload(true), revisions.refresh(), ...(diagnosis ? [diagnoses.reload(true)] : []))
+    await reloaded(on => on.notes.reload(true), on => on.revisions.refresh(), ...(diagnosis ? [(on: PageLists) => on.diagnoses.reload(true)] : []))
   }
 
   /** Today's note status change on the consultation note, under the clinician's typed reason. */
@@ -289,7 +328,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       return { formError: refusalText(caught, STATUS_FAILED), fieldErrors: refusedFieldErrors(caught, { changeReason: 'reason' }) }
     }
     finish(NOTE_STATUS_UPDATED)
-    await reloaded(notes.reload(true))
+    await reloaded(on => on.notes.reload(true))
   }
 
   /** Today's "Add notes": a draft of the type and title typed; the list shows its first page again. */
@@ -307,7 +346,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     }
     attempt.current = null
     finish(RECORD_SAVED)
-    await reloaded(notes.reload(true))
+    await reloaded(on => on.notes.reload(true))
   }
 
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
@@ -354,7 +393,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     if (shown && read === encounterReads.current) setEncounter(shown)
     // A cancel or entered in error changes the visit's records too: today's page says the change only once they are read
     // again (Clinical.tsx:1576-1584), so no card still shows a record as it was when the page says it is done.
-    if (CLOSING_STATUSES.has(status)) await reloaded(...[notes, diagnoses, vitals, prescriptions, labs, documents].map(list => list.reload()))
+    if (CLOSING_STATUSES.has(status)) await reloaded(...CLOSED_LISTS.map(name => (on: PageLists) => on[name].reload()))
     finish(ENCOUNTER_STATUS_UPDATED)
   }
 
@@ -439,7 +478,13 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   return (
     <>
       <RecordHeading title={encounterTitle(encounter)} backHref={href()} />
-      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+      {pageError.text ? (
+        <ErrorBox>
+          <p>{pageError.text}</p>
+          {/* Busy, it stays focusable (aria-disabled, aria-busy), so focus stays on it, and a second press does nothing. */}
+          {pageError.again.length > 0 ? <p><EhrButton variant="secondary" size="sm" onClick={tryAgain}>Try again</EhrButton></p> : null}
+        </ErrorBox>
+      ) : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta status={encounter.status}>
         <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
@@ -499,14 +544,20 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         </EhrCard>
       </DetailGrid>
       {reads.notes ? (
-        <NotesCard chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError} />
+        <NotesCard
+          chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}
+          onReloadFailed={(failure, first) => showPageError(reloadFailed(failure, [on => on.notes.reload(first)]))}
+        />
       ) : null}
       {/* Today's tab order: Notes, Vitals, Diagnoses (Clinical.tsx:25-32). */}
       {reads.vitals ? (
         <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
       ) : null}
       {reads.diagnoses ? (
-        <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
+        <DiagnosesCard
+          chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess}
+          onReloadFailed={(failure, first) => showPageError(reloadFailed(failure, [on => on.diagnoses.reload(first)]))}
+        />
       ) : null}
       {/* Only where it has something to show: this visit's orders (each create sits with its list, as in classic), or
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no

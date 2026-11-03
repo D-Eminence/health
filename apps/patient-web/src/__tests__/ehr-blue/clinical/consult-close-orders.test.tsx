@@ -186,3 +186,135 @@ describe('the Orders card on the visit page', () => {
     expect(api.records.mock.calls.length).toBe(reads)
   })
 })
+
+describe('"Try again" beside "The change was saved, but the records could not be reloaded."', () => {
+  const UNAVAILABLE = () => new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })
+  const sentence = () => screen.queryAllByRole('alert').find(alert => alert.textContent?.startsWith(RELOAD_FAILED)) ?? null
+  const tryAgain = () => within(sentence()!).getByRole('button', { name: 'Try again' })
+  const history = () => within(screen.getByRole('heading', { level: 2, name: 'History' }).closest('section') as HTMLElement)
+  const historyRow = (label: string) => within(history().getByText(label).closest('li') as HTMLElement)
+
+  /** Cancels the visit while EHR answers no records read: the page says the change was saved. EHR's own reads are answered. */
+  async function cancelUnread() {
+    await openVisit()
+    const read = api.records.getMockImplementation()!
+    changed = 'cancelled'
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'cancelled', rowVersion: 4 })
+    api.records.mockRejectedValue(UNAVAILABLE())
+    change('Cancel consultation')
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    return read
+  }
+
+  it('is offered only beside that sentence, once, in its alert: never on opening, nor beside another failure', async () => {
+    await openVisit()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // Put on hold changes no records; the visit's re-read after it fails, and the page says only that.
+    api.encounter.mockRejectedValue(UNAVAILABLE())
+    change('Put on hold')
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toContain('EHR is unavailable.'))
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // A cancel whose records are not read again: the sentence, with Try again beside it.
+    changed = 'cancelled'
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'cancelled', rowVersion: 5 })
+    api.records.mockRejectedValue(UNAVAILABLE())
+    change('Cancel consultation')
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    expect(sentence()!.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.Try again`)
+    expect(screen.getAllByRole('button', { name: 'Try again' })).toEqual([tryAgain()])
+  })
+
+  it('reads the orders again fresh, without an access re-check: the orders and History show their new statuses and the sentence goes', async () => {
+    const read = await cancelUnread()
+    // The orders keep what was last read until then.
+    expect(orders().getByText('Active')).toBeTruthy()
+    expect(historyRow('Pharmacy · Amoxicillin (fictional)').getByText('Active')).toBeTruthy()
+    api.records.mockImplementation(read)
+    const before = { rx: readsOf('prescriptions').length, lab: readsOf('lab-requests').length, checks: api.lookupPatient.mock.calls.length }
+    fireEvent.click(tryAgain())
+    await waitFor(() => expect(sentence()).toBeNull())
+    // The same lists, fresh, as the failed read after the cancel: the page shown, the first.
+    expect(readsOf('prescriptions').slice(before.rx)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true }]])
+    expect(readsOf('lab-requests').slice(before.lab)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: true }]])
+    expect(api.lookupPatient.mock.calls.length).toBe(before.checks)
+    expect(orders().getAllByText('Cancelled')).toHaveLength(2)
+    expect(orders().queryByText('Active')).toBeNull()
+    expect(orders().queryByText('On hold')).toBeNull()
+    expect(historyRow('Pharmacy · Amoxicillin (fictional)').getByText('Cancelled')).toBeTruthy()
+    expect(historyRow('Laboratory · Haemoglobin (fictional)').getByText('Cancelled')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // What the change said stays said.
+    expect(screen.getByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+  })
+
+  it('on a later page of orders, reads that page and the first page again, fresh, as the cancel’s read did', async () => {
+    const LATER = { ...RX, id: 'b0000000-0000-4000-8000-000000000002', medicationDisplay: 'Paracetamol (fictional)' }
+    const one = api.records.getMockImplementation()!
+    // The prescriptions span two pages; only a fresh read after the change sees them cancelled.
+    const twoPages = async (f: string, p: string, e: string, kind: string, page?: { cursor?: string; fresh?: boolean }) => {
+      if (kind !== 'prescriptions') return one(f, p, e, kind, page)
+      const shown = (record: typeof RX) => changed && page?.fresh ? { ...record, status: changed } : record
+      return page?.cursor === 'rx-page-2' ? { items: [shown(LATER)], nextCursor: null } : { items: [shown(RX)], nextCursor: 'rx-page-2' }
+    }
+    api.records.mockImplementation(twoPages)
+    await openVisit()
+    fireEvent.click(within(orders().getByRole('group', { name: 'Pharmacy' })).getByRole('button', { name: 'Next page' }))
+    expect(await orders().findByRole('link', { name: 'Pharmacy · Paracetamol (fictional)' })).toBeTruthy()
+    changed = 'cancelled'
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'cancelled', rowVersion: 4 })
+    api.records.mockRejectedValue(UNAVAILABLE())
+    change('Cancel consultation')
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    api.records.mockImplementation(twoPages)
+    const before = readsOf('prescriptions').length
+    fireEvent.click(tryAgain())
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(readsOf('prescriptions').slice(before).map(call => call[4])).toEqual([{ cursor: 'rx-page-2', fresh: true }, { cursor: undefined, fresh: true }])
+    // The page shown stays the later one, its order as EHR now holds it.
+    expect(within(orders().getByRole('group', { name: 'Pharmacy' })).getByRole('status').textContent).toBe('Page 2')
+    expect(within(orders().getByRole('link', { name: 'Pharmacy · Paracetamol (fictional)' }).closest('li') as HTMLElement).getByText('Cancelled')).toBeTruthy()
+  })
+
+  it('keeps the sentence, and the orders as last read, when Try again fails too; a later one that succeeds clears it', async () => {
+    const read = await cancelUnread()
+    const reads = readsOf('prescriptions').length
+    fireEvent.click(tryAgain())
+    await waitFor(() => expect(readsOf('prescriptions')).toHaveLength(reads + 1))
+    await waitFor(() => expect(tryAgain().getAttribute('aria-busy')).toBeNull())
+    expect(screen.getAllByRole('alert').filter(alert => alert.textContent?.startsWith(RELOAD_FAILED))).toHaveLength(1)
+    expect(orders().getByText('Active')).toBeTruthy()
+    expect(orders().getByText('On hold')).toBeTruthy()
+    api.records.mockImplementation(read)
+    fireEvent.click(tryAgain())
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(orders().getAllByText('Cancelled')).toHaveLength(2)
+  })
+
+  it('says it is busy while it reads, keeping focus, and a second press reads nothing more; then focus goes to Actions', async () => {
+    const read = await cancelUnread()
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    api.records.mockImplementation(async (...args: Parameters<typeof read>) => { await held; return read(...args) })
+    const button = tryAgain()
+    button.focus()
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    expect(document.activeElement).toBe(button)
+    await waitFor(() => expect(readsOf('lab-requests').at(-1)![4]).toEqual({ cursor: undefined, fresh: true }))
+    const reads = api.records.mock.calls.length
+    fireEvent.click(button)
+    await act(async () => {})
+    expect(api.records.mock.calls.length).toBe(reads)
+    // The sentence stays while it reads.
+    expect(sentence()).not.toBeNull()
+    expect(document.activeElement).toBe(button)
+    await act(async () => release())
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(document.activeElement?.textContent).toBe('Actions')
+  })
+})
