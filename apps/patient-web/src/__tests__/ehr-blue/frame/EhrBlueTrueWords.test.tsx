@@ -118,9 +118,9 @@ describe('the wrong-patient form points to the button where it really is', () =>
   it('on the blue Laboratory and Pharmacy, sends the reader into the opened order', () => {
     render(<WrongPatientForm id="lab-accepted-route-1-wrong-patient" service="lab" facilityId={REAL_FACILITY}
       route={{ id: 'route-1', version: 1, reference: '9C1B2D3E' }} patient="Patient One" ordering="Demo Hospital"
-      cannotComplete="panel-request" onEnded={() => {}} onStale={() => {}} onCancel={() => {}} />)
-    expect(screen.getByText('If you can’t complete it for another reason, don’t use this: close this, open the order from the '
-      + 'work list below, and use “We can’t complete this order” inside it.')).toBeDefined()
+      cannotComplete="opened" onEnded={() => {}} onStale={() => {}} onCancel={() => {}} />)
+    expect(screen.getByText('If you can’t complete it for another reason, don’t use this: close this, open the order from the list below, and use '
+      + '“We can’t complete this order” there.')).toBeDefined()
     expect(document.body.textContent).not.toMatch(/on its row/)
   })
 })

@@ -1674,6 +1674,45 @@ describe('ending an order from its request', () => {
 })
 
 /*
+ * The Accepted panel is today's, embedded unchanged. Its "This isn't the order's patient" form sends a laboratory that just
+ * can't do the work to "We can't complete this order": here that is on the request opened from the list below, as the
+ * list's cards only open it (area 8, row 36).
+ */
+describe('the Accepted panel, once “We can’t complete this order” is served', () => {
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+  const incoming = { id: ROUTE_ID, reference: '9C1B2D3E', version: 1, effectiveState: 'sent', orderingFacilityName: 'Demo Hospital',
+    orderer: { name: 'Dr Demo Clinician', licenceBody: 'MDCN' }, test: { codeSystem: null, code: null, name: 'Haemoglobin' },
+    priority: 'routine', specimenTypeCode: null, sentAt: '2026-10-20T09:00:00.000Z', respondBy: '2026-10-27T09:00:00.000Z',
+    acceptLocked: false, attemptsLeft: 5 }
+  const OPENED = 'If you can’t complete it for another reason, don’t use this: close this, open the order from the list below, '
+    + 'and use “We can’t complete this order” there.'
+
+  it('says to open the order from the list below and use “We can’t complete this order” there, which the request offers', async () => {
+    as(RECEIVE)
+    api.labWorkItems.mockResolvedValueOnce(answer([local], { cannotComplete: true }))
+      .mockResolvedValue(answer([routed(), local], { cannotComplete: true }))
+    routes.incoming.mockResolvedValueOnce({ items: [incoming], crossFacilityOrders: true, crossFacilityWork: true, receives: true })
+    routes.accept.mockResolvedValue({ route: { id: ROUTE_ID, version: 3, effectiveState: 'accepted' }, workItemId: 'w-routed',
+      patient: PERSON, clinicalInformation: null, orderer: { licenceBody: 'MDCN', licenceNumber: 'MDCN/12345' }, replayed: false })
+    renderPage()
+    const area = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section') as HTMLElement
+    fireEvent.click(within(area).getByRole('button', { name: 'Accept' }))
+    fireEvent.change(within(area).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-7KQ2M9' } })
+    fireEvent.click(within(area).getByRole('button', { name: 'Accept order' }))
+    await within(area).findByText('Accepted: Haemoglobin.')
+    const card = await findCard('Haemoglobin')
+    fireEvent.click(within(area).getByRole('button', { name: WP }))
+    expect(within(area).getByText(OPENED)).toBeTruthy()
+    expect(within(area).queryByText(/on its row in the work list below/)).toBeNull()
+    // The words are true here: the order's card is below the panel, opens the request, and the request offers the action.
+    expect(area.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await openRecord()
+    expect(await screen.findByRole('button', { name: `${CC}: Haemoglobin, Ref 9C1B2D3E` })).toBeTruthy()
+  })
+})
+
+/*
  * The patient card on this facility's own work (proposed hid-system 0106; not served today) and the priority Lab already
  * sends: each used when present, and today's screens when absent (the work list's and request's tests above).
  */

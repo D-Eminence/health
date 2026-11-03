@@ -2,6 +2,7 @@ import { EhrButton } from '@hid/ui/ehr'
 import { useId, useMemo, useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { ClinicalRecord, Encounter } from '../../../../staff/api'
+import { usesNovuBackend } from '../../../../backendContract'
 import { ChartGate, type Chart } from '../../parts/chart'
 import { Step } from '../../parts/Detail'
 import { ErrorBox, Loading, RecordNotFound } from '../../parts/Notices'
@@ -11,7 +12,8 @@ import { ListPaging } from '../Notes'
 import { pagerProps, type RecordList } from '../records'
 import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
-import { FlashContext, KINDS, orderTitle, text, type Flash, type OrderKind } from './orders'
+import { FlashContext, KINDS, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
+import { routeStatus, routeStatusClass } from './Routing'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
 
@@ -77,6 +79,32 @@ function OrderListPages({ kind, list }: { kind: OrderKind; list: RecordList<Clin
 }
 
 /**
+ * One order's row: its link and status and, for an order sent to another facility, today's words under the row for
+ * where it went and where it stands (the OrderRoutePanel's heading and status line, Clinical.tsx:1889-1893,
+ * OrderRoutes.tsx:384-387), read from the route summary the list already carries, so it costs no read. The rest of
+ * that panel (what to do next, the reason it couldn't be completed, the wrong-patient notice, details and Withdraw) is
+ * on the order's page. The reference stays there too: the row says no code.
+ */
+function OrderRow({ kind, record, to, patient }: { kind: OrderKind; record: ClinicalRecord; to: string; patient: string }) {
+  const routeId = useId()
+  // As today's list and the order page (rights.novu): only a novu backend's route, well formed (routeOf), is said.
+  const route = usesNovuBackend() ? routeOf(record) : null
+  const status = route ? routeStatus(route, patient) : null
+  return (
+    <li className="hid-ehr-clinical-history-row">
+      <Link className="hid-ehr-clinical-link" to={to} aria-describedby={status ? routeId : undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+      <StatusBadge status={text(record.status) || 'unknown'} />
+      {status ? (
+        <div id={routeId} className="hid-ehr-clinical-orders-row-route">
+          <p className="hid-ehr-clinical-orders-muted">{kind === 'laboratory' ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</p>
+          <p className={routeStatusClass(status.tone)}>{status.text}</p>
+        </div>
+      ) : null}
+    </li>
+  )
+}
+
+/**
  * The design's "Connected orders" inside an encounter's "Available actions" card: "Create pharmacy record" and
  * "Create laboratory record" (today's prescription and lab request, with today's permissions and write access),
  * "Create radiology record" and "Create referral network record" (sample workspaces: no backend, nothing of this
@@ -102,6 +130,8 @@ export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Ch
   // A first read under way; one that failed says so in its error box, not as loading.
   const loading = lists.some(({ list }) => list.items === null && list.loading)
   const rows = lists.flatMap(({ kind, list }) => (list.items ?? []).map(record => ({ kind, record })))
+  // The patient as the order page and today's list name them in a route's words (Clinical.tsx:1431-1432).
+  const patient = patientWord(chart)
 
   return (
     <div className="hid-ehr-clinical-orders-connected">
@@ -126,10 +156,7 @@ export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Ch
       {rows.length > 0 ? (
         <ul className="hid-ehr-clinical-history-list" aria-label="Orders from this consultation">
           {rows.map(({ kind, record }) => (
-            <li key={`${kind}-${record.id}`} className="hid-ehr-clinical-history-row">
-              <Link className="hid-ehr-clinical-link" to={href(orderPath(encounter.id, kind, record.id))}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
-              <StatusBadge status={text(record.status) || 'unknown'} />
-            </li>
+            <OrderRow key={`${kind}-${record.id}`} kind={kind} record={record} to={href(orderPath(encounter.id, kind, record.id))} patient={patient} />
           ))}
         </ul>
       ) : null}

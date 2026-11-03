@@ -179,7 +179,7 @@ export function Laboratory() {
       {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
         onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId}
-        cannotCompleteOn="request" /></DeptEmbedded> : null}
+        cannotCompleteBeside="opened" /></DeptEmbedded> : null}
       <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
       {notCompleted.endings.length > 0 ? <DeptEmbedded>
         <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />

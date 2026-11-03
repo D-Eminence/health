@@ -23,25 +23,22 @@ import { useLateCorrectionServed } from '../../lateCorrectionServed'
  *
  * Once the backend serves "We can't complete this order" (D18) where the form opens (`cannotComplete`: on the Accepted
  * panel, on a work row, or in "Correct an order that has ended"), the form sends a facility that just can't do the work
- * to that action, saying where it is; until then it says to phone the ordering facility, as before (D18-13).
+ * to that action, saying where it is; until then it says to phone the ordering facility, as before (D18-13). Where the
+ * list's rows only open the order, and the action is on the opened order (the EHR's Lab and Pharmacy), the Accepted
+ * panel says so (`opened`).
  */
 
-/**
- * Where "We can't complete this order" is offered beside this form, once it is (D18, SPEC-FINAL §9.1; WB3): on the
- * Accepted panel of a page whose work list rows carry it ('panel'), on the Accepted panel of a page whose work list opens
- * each order on its own page, which carries it ('panel-request': the blue EHR's Laboratory and Pharmacy), on a work row,
- * or in "Correct an order that has ended".
- */
-export type CannotCompleteBeside = 'panel' | 'panel-request' | 'row' | 'lookup'
+/** Where "We can't complete this order" is offered beside this form, once it is (D18, SPEC-FINAL §9.1; WB3). */
+export type CannotCompleteBeside = 'panel' | 'row' | 'lookup' | 'opened'
 
 const CANNOT_COMPLETE_INSTEAD: Readonly<Record<CannotCompleteBeside, string>> = {
   panel: 'If you can’t complete it for another reason, don’t use this: close this and use “We can’t complete this order” on its '
     + 'row in the work list below.',
-  'panel-request': 'If you can’t complete it for another reason, don’t use this: close this, open the order from the work list '
-    + 'below, and use “We can’t complete this order” inside it.',
   row: 'If you can’t complete it for another reason, don’t use this: press Cancel and use “We can’t complete this order” below.',
   lookup: 'If you can’t complete it for another reason, don’t use this: press Cancel and use “We can’t complete this order” on '
     + 'this order’s row.',
+  opened: 'If you can’t complete it for another reason, don’t use this: close this, open the order from the list below, and use '
+    + '“We can’t complete this order” there.',
 }
 
 /** The route reported on, at the version the report is checked against. */
