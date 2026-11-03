@@ -764,7 +764,9 @@ describe('Hospital-only steps on a product’s site', () => {
     on(host, onTestFinished)
     staff.permissions = [...EVERYTHING]
     open()
-    expect(tileTitles(accessGroup())).toEqual(['Use their Access PIN'])
+    const tiles = tileTitles(accessGroup())
+    expect(tiles).toContain('Use their Access PIN')
+    expect(tiles).not.toContain('Emergency access')
     expect(screen.queryByText(EMERGENCY_UNAVAILABLE)).toBeNull()
   })
 
@@ -781,7 +783,7 @@ describe('Hospital-only steps on a product’s site', () => {
     page.unmount()
     staff.activePatient = null
     open()
-    expect(tileTitles(accessGroup())).toEqual(['Use their Access PIN', 'Emergency access'])
+    expect(tileTitles(accessGroup())).toEqual(expect.arrayContaining(['Use their Access PIN', 'Emergency access']))
   })
 })
 

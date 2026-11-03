@@ -165,7 +165,7 @@ function PatientList() {
    * goes.
    */
   function otherWay(target: 'pin' | 'emergency') {
-    if (busy || !facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable || !offersEmergency)) return
+    if (busy || !facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable)) return
     const normalized = normalizeHealthIdInput(hid)
     const reads = target === 'pin' || can('identity.break-glass.write')
     if (reads && healthIdProblem(normalized) === null) offerHealthId(normalized, facility.id, setActivePatient)
@@ -202,7 +202,7 @@ function PatientList() {
           {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
           {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
           {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
-          <ul className={cx('m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5', offersEmergency && '@xl:grid-cols-2')}>
+          <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-2">
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." busy={busy}
               unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
             {offersEmergency ? <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger busy={busy}
