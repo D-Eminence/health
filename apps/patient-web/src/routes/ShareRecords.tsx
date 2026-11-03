@@ -344,13 +344,16 @@ function Radio({ on }: { on: boolean }) {
 /**
  * Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). Each step is its name's
  * width and the lines between take what is left; the last, with no line after it, takes no more. Equal shares cut
- * "Access" to "Acc…" at 320px.
+ * "Access" to "Acc…" at 320px. Where even that is short (Android's larger text in a WebView, 1.3x at 320px), only
+ * "Access" gives way: "Who" does not shrink, and both shrinking cut both. 6px gaps on a phone keep the three whole up
+ * to 1.2x text at 320px.
  */
 function Stepper({ at }: { at: number }) {
   const steps = ['Who', 'Access', 'Check']
-  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 rounded-t-xl border-b border-line px-5 py-3">
+  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-1.5 rounded-t-xl border-b border-line px-5 py-3 sm:gap-2">
     {steps.map((label, i) => { const n = i + 1, done = n < at, now = n === at
-      return <li key={label} aria-current={now ? 'step' : undefined} className={cx('flex min-w-0 items-center gap-2', n < steps.length ? 'flex-auto' : 'flex-none')}>
+      return <li key={label} aria-current={now ? 'step' : undefined}
+        className={cx('flex min-w-0 items-center gap-1.5 sm:gap-2', n === 1 ? 'flex-[1_0_auto]' : n < steps.length ? 'flex-auto' : 'flex-none')}>
         <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand-fill text-white' : 'bg-surface text-ink-3 ring-1 ring-line-control')}>
           {done ? <Check className="size-3.5" aria-hidden /> : n}</span>
         <span className={cx('truncate text-[13px]', now ? 'font-semibold text-ink' : 'text-ink-3')}>{label}</span>
