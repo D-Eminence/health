@@ -1,13 +1,17 @@
 import { useMemo, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { ClipboardList, Clock, Eye, FileText, FlaskConical, HeartPulse, Lock, Mail, NotebookPen, Pill, Stethoscope } from 'lucide-react'
 import type { PatientRecords } from '../api'
-import { Button, Card, CardHeader, EmptyState, cx, type Icon } from '../kasuwa/ui'
+import { Card, CardHeader, EmptyState, buttonClass, type Icon } from '../kasuwa/ui'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 import { usePatientResource } from './usePatientResource'
 import { useProfileSources } from './profileSources'
+import { LoadProblem } from './profileParts'
+import { foundTarget, useRetryOnce } from './actionFocus'
+import { ItemName } from '../ItemName'
+import { publicSiteHref } from '../productSites'
 import { initialsOf, usePatientPhoto } from './ProfilePhoto'
 import { CardFace, allergyItems, cardFacts } from './HealthIdCard'
 import { ninVerifiedOf } from './NinVerificationCard'
@@ -25,10 +29,17 @@ import logoSrc from '../../../public-web/public/brand/logo.png'
  * link opens (/card/:token, proposed: BACKEND-NEEDS.md §2), and the patient's own preview of that page (/card/preview).
  *
  * The owner's decisions of 2026-11-01 (decision 25) replace the open link: the link opens the card only after a one-time
- * code, emailed to the address the patient shared with, and the link's secret is never in the address path. Until Health
- * ID sends those codes, the page the link opens is dormant (SharedCardPage): it says plainly that this isn't available
- * yet, reads nothing and shows nothing.
+ * code, emailed to the address the patient shared with, and the link's secret is never in the address path. Health ID
+ * does not send those codes, so the page the link opens is dormant (SharedCardPage): it says plainly the link can't be
+ * opened, reads nothing and shows nothing. The patient's preview of the provider's page is off with it (CARD_LINK_OPENS):
+ * it would show a page no provider can open (the launch audit, HCS-03).
  */
+
+/**
+ * Whether a shared card's link opens the card: off until Health ID sends the one-time code that opens it (decision 25).
+ * While it is off, /card/preview opens Access & sharing in place of a preview of a page that does not exist.
+ */
+export const CARD_LINK_OPENS = false
 
 export interface CardData { name: string; hid: string; verified: boolean | null; bloodGroup: string | null; genotype: string | null; allergies: string | null; photoUrl: string | null }
 
@@ -98,11 +109,22 @@ function rowsOf(records: PatientRecords, key: SectionKey): Array<{ id: string; t
   }
 }
 
-/** The page the email's link opens: the card, who shared it and for how long, then the records, read-only. */
-export function SharedCardView({ card, sharedBy, recipient, level, expiresAt, records, banner }: {
-  card: CardData; sharedBy: string; recipient: string; level: string; expiresAt: string | null; records: PatientRecords | null; banner?: ReactNode
+/** What a share allows, and until when; `expiresAt` null for one that lasts until it is ended. */
+export interface ShareTerms { level: string; expiresAt: string | null }
+
+/**
+ * The page the email's link opens: the card, who shared it and for how long, then the records, read-only. Without
+ * `share` it says neither what they can do nor until when, rather than make either up. `recordsProblem` stands where the
+ * records go when they could not be read.
+ */
+export function SharedCardView({ card, sharedBy, recipient, share, records, recordsProblem, banner }: {
+  card: CardData; sharedBy: string; recipient: string; share: ShareTerms | null; records: PatientRecords | null; recordsProblem?: ReactNode
+  banner?: ReactNode
 }) {
   const sections = records ? SECTIONS.map(s => ({ ...s, rows: rowsOf(records, s.key) })).filter(s => s.rows.length > 0) : []
+  const facts: Array<[string, string, Icon]> = [['Shared by', sharedBy, Mail],
+    ...(share ? [['Access', shareLevelLabel(share.level) ?? words(share.level), Eye], ['Until', share.expiresAt ? until(share.expiresAt) : 'Until ended', Clock]] as Array<[string, string, Icon]> : []),
+    ['Every view', 'Recorded', Lock]]
   return <div className="min-h-svh bg-canvas">
     <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4">
@@ -115,16 +137,14 @@ export function SharedCardView({ card, sharedBy, recipient, level, expiresAt, re
       <div className="mx-auto flex w-full max-w-[480px] min-w-0 flex-col gap-4 lg:sticky lg:top-20 lg:max-w-none">
         <Face card={card} />
         <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-line ring-1 ring-line">
-          {[['Shared by', sharedBy, Mail], ['Access', shareLevelLabel(level) ?? words(level), Eye], ['Until', expiresAt ? until(expiresAt) : 'Until ended', Clock], ['Every view', 'Recorded', Lock]].map(([label, value, I]) => {
-            const Ico = I as Icon
-            return <div key={label as string} className="bg-surface px-4 py-3"><dt className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-ink-3 uppercase"><Ico className="size-3.5" aria-hidden />{label as string}</dt>
-              <dd className="m-0 mt-1 truncate text-sm font-medium text-ink">{value as string}</dd></div>
-          })}
+          {facts.map(([label, value, Ico]) =>
+            <div key={label} className="bg-surface px-4 py-3"><dt className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-ink-3 uppercase"><Ico className="size-3.5" aria-hidden />{label}</dt>
+              <dd className="m-0 mt-1 truncate text-sm font-medium text-ink">{value}</dd></div>)}
         </dl>
       </div>
       <div className="flex min-w-0 flex-col gap-4">
-        <h1 className="m-0 text-title-1 text-ink">{card.name}’s records</h1>
-        {!records ? <p className="m-0 text-sm text-ink-3">Loading records…</p>
+        <h1 id="shared-card-records" className="m-0 text-title-1 text-ink outline-none">{card.name}’s records</h1>
+        {!records ? recordsProblem ?? <p role="status" className="m-0 text-sm text-ink-3">Loading records…</p>
           : sections.length === 0 ? <EmptyState icon={FileText} title="No records yet" description="Nothing has been recorded for this patient on Health ID yet." />
           : sections.map(s => <Card key={s.key}>
             <CardHeader as="h2" title={s.title} icon={s.icon} iconTone="brand" description={`${s.rows.length}`} />
@@ -142,21 +162,26 @@ export function SharedCardView({ card, sharedBy, recipient, level, expiresAt, re
 }
 
 /**
- * /card and /card/:token: the page a shared card's link will open. Dormant until Health ID sends the one-time code that
- * opens a card (the owner's decision 25; BACKEND-NEEDS.md §2): it says plainly that this isn't available yet, and reads
- * nothing, sends nothing (not even what is in its address) and shows no one's details.
+ * /card and /card/:token: the page a shared card's link opens. Dormant while Health ID does not send the one-time code
+ * that opens a card (the owner's decision 25; BACKEND-NEEDS.md §2): it says plainly the link can't be opened, with
+ * nothing promised for later, and reads nothing, sends nothing (not even what is in its address) and shows no one's
+ * details. Its one link is the product's own public site (HCS-19), in this tab.
  */
 export function SharedCardPage() {
-  useDocumentTitle('Not available yet · Health ID')
+  useDocumentTitle('Link can’t be opened · Health ID')
   return <main className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="w-full max-w-md">
-    <EmptyState icon={Lock} titleAs="h1" title="This isn’t available yet"
-      description="Opening a shared Health ID card from a link isn’t available yet. No health information is shown here."
-      action={<Button href="https://healthid.ng">About Health ID</Button>} /></div></main>
+    <EmptyState icon={Lock} titleAs="h1" title="This link can’t be opened"
+      description="Health ID doesn’t open records from a link like this, so nothing is shown here. If a patient shared their records with you, ask them to show you their Health ID card."
+      action={<a href={publicSiteHref()} className={buttonClass()}>About Health ID</a>} /></div></main>
 }
 
 /** The patient's own card as the email and the provider's page will show it. */
 export function useMyCard(): CardData | null {
-  const { profile, health } = useProfileSources()
+  return useCardOf(useProfileSources())
+}
+
+/** The card from the profile sources a page already reads, so it asks for nothing twice. */
+function useCardOf({ profile, health }: ReturnType<typeof useProfileSources>): CardData | null {
   const shown = profile.data && !profile.error ? profile.data : null
   const photo = usePatientPhoto(shown?.hasPhoto === true)
   const saved = health.error ? null : health.data
@@ -164,15 +189,48 @@ export function useMyCard(): CardData | null {
     bloodGroup: saved?.bloodGroup ?? null, genotype: saved?.genotype ?? null, allergies: saved?.allergies ?? null, photoUrl: photo.url } : null, [shown, saved, photo.url])
 }
 
-/** /card/preview: the patient sees exactly what a provider sees when they open the card, with their own records. */
+/** /card/preview: the patient's preview of the provider's page, off while the link cannot open it (CARD_LINK_OPENS). */
 export function SharedCardPreview() {
+  return CARD_LINK_OPENS ? <CardPreview /> : <Navigate to="/access" replace />
+}
+
+/** The share just made, as the done step's link passes it in the navigation state, or null when it passes none. */
+function shareOf(state: unknown): ShareTerms | null {
+  if (!state || typeof state !== 'object') return null
+  const { level, expiresAt } = state as { level?: unknown; expiresAt?: unknown }
+  if (typeof level !== 'string' || !level) return null
+  return { level, expiresAt: typeof expiresAt === 'string' && !Number.isNaN(Date.parse(expiresAt)) ? expiresAt : null }
+}
+
+const BACK = <Link to="/access" className="font-semibold text-brand-ink no-underline hover:underline">Back to Access & sharing</Link>
+const recordsHeading = foundTarget(() => document.getElementById('shared-card-records'))
+
+/**
+ * The patient sees what a provider sees when they open the card, with their own records and the share just made (HCS-03).
+ * A read that fails says so, with Try again and the way back (HCS-18); once it loads, focus goes to the records' heading.
+ */
+export function CardPreview() {
   const { api } = useSession()
-  const card = useMyCard()
+  useDocumentTitle('Preview of your card · Health ID')
+  const sources = useProfileSources()
+  const card = useCardOf(sources)
   const records = usePatientResource(api.records)
-  if (!card) return <div className="p-6 text-sm text-ink-3" role="status">Loading your card…</div>
-  return <SharedCardView card={card} sharedBy={card.name} recipient="the provider you share with" level="view_only" expiresAt={null}
+  const share = shareOf(useLocation().state)
+  const profileRetry = useRetryOnce(recordsHeading)
+  const recordsRetry = useRetryOnce(recordsHeading)
+  const { profile } = sources
+
+  if (profile.error) return <main className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="flex w-full max-w-md flex-col gap-4">
+    <h1 className="m-0 text-title-2 text-ink">Preview of your card</h1>
+    <LoadProblem what="your card" error={profile.error} buttonRef={profileRetry.button} onRetry={() => profileRetry.retry(profile.reload)}
+      name={<ItemName>loading your card</ItemName>} />
+    <p className="m-0 text-[13px]">{BACK}</p></div></main>
+  if (!card) return <main className="p-6 text-sm text-ink-3"><p role="status" className="m-0">Loading your card…</p></main>
+  return <SharedCardView card={card} sharedBy={card.name} recipient="the provider you share with" share={share}
     records={records.data && !records.error ? records.data : null}
+    recordsProblem={records.error && !records.loading ? <LoadProblem what="your records" error={records.error} buttonRef={recordsRetry.button}
+      onRetry={() => recordsRetry.retry(records.reload)} name={<ItemName>loading your records</ItemName>} /> : undefined}
     banner={<div className="border-b border-brand-line bg-brand-soft"><div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-[13px] text-brand-ink">
       <span><strong className="font-semibold">Preview.</strong> This is what a provider sees when they open the card you share.</span>
-      <Link to="/access" className={cx('font-semibold text-brand-ink no-underline hover:underline')}>Back to Access & sharing</Link></div></div>} />
+      {BACK}</div></div>} />
 }

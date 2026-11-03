@@ -41,3 +41,34 @@ export function useRetryFocus(target: RefObject<HTMLElement | null>) {
   }, [focusAfter, target])
   return { button, retry }
 }
+
+/**
+ * A focus target found when focus moves, for an element another component draws (a card's heading, the Health ID
+ * card): `find` runs then, and what it finds is made focusable from script only (tabindex -1), as a page's heading is
+ * (pageFocus.ts). For useRetryFocus and useActionFocus, which read `current` only once the outcome is shown.
+ */
+export function foundTarget(find: () => HTMLElement | null | undefined): RefObject<HTMLElement | null> {
+  return {
+    get current() {
+      const element = find() ?? null
+      if (element && !element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1')
+      return element
+    },
+  }
+}
+
+/**
+ * 'Try again' that reads once per press (HCS-20): a second press while the read it asked for is still running does
+ * nothing, however fast it comes (a double click lands before the loading state takes the button away). Focus then
+ * goes where useRetryFocus sends it. Give `button` to the 'Try again' button.
+ */
+export function useRetryOnce(target: RefObject<HTMLElement | null>) {
+  const { button, retry: retryWithFocus } = useRetryFocus(target)
+  const running = useRef(false)
+  const retry = useCallback((reload: () => Promise<unknown>) => {
+    if (running.current) return
+    running.current = true
+    retryWithFocus(() => reload().finally(() => { running.current = false }))
+  }, [retryWithFocus])
+  return { button, retry }
+}
