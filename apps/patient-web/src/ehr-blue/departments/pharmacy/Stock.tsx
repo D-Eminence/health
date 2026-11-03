@@ -127,7 +127,8 @@ function StockCard({ line, onOpen }: { readonly line: StockLine; readonly onOpen
 /** Each kind of stock movement in a word, as the spec names it and in its past tense; any other kind is a stock change. */
 const MOVEMENT_WORD: Readonly<Record<string, string>> = {
   receipt: 'Received', received: 'Received', adjustment: 'Adjusted', adjusted: 'Adjusted', dispensing: 'Dispensed', dispensed: 'Dispensed',
-  sale: 'Sold', sold: 'Sold', reversal: 'Returned to the shelf', reversed: 'Returned to the shelf',
+  // A reversal corrects the record only: the medicine may never have come back, so it is not "returned".
+  sale: 'Sold', sold: 'Sold', reversal: 'Dispensing reversed', reversed: 'Dispensing reversed',
 }
 const REASON_WORD: Readonly<Record<StockAdjustment['reason'], string>> = {
   damaged: 'Damaged', expired: 'Expired', count: 'Count correction', returned: 'Returned to supplier',

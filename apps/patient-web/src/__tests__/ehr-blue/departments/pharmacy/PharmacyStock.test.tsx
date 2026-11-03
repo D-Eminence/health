@@ -49,4 +49,20 @@ describe('an item’s movements', () => {
     expect(within(drawer).getByText('Adjusted · Damaged')).toBeTruthy()
     for (const code of ['received', 'dispensed', 'adjusted', 'damaged', 'transfer_out', 'branch_transfer']) expect(drawer.textContent).not.toContain(code)
   })
+
+  it('has a word for every kind in both spellings, and reads a prototype key as a stock change', async () => {
+    const kinds = { receipt: 'Received', received: 'Received', adjustment: 'Adjusted', adjusted: 'Adjusted', dispensing: 'Dispensed',
+      dispensed: 'Dispensed', sale: 'Sold', sold: 'Sold', reversal: 'Dispensing reversed', reversed: 'Dispensing reversed',
+      constructor: 'Stock change' }
+    commerceApi.stock = async () => ({ ok: true, data: { items: [AMOXICILLIN], nextPage: null } })
+    commerceApi.stockMovements = async () => ({ ok: true, data: { items: Object.keys(kinds).map((kind, index) =>
+      ({ id: `mv-${index}`, kind, change: -1, at: '2026-11-03T08:00:00Z', by: 'Amaka Eze' })), nextPage: null } })
+    renderDept(<StockPage />, { route: '/provider/pharmacy/stock' })
+    fireEvent.click(await screen.findByRole('button', { name: /Amoxicillin/ }))
+    const drawer = await screen.findByRole('dialog')
+    await within(drawer).findAllByText('Received')
+    const words = within(drawer).getAllByRole('listitem').map(item => item.querySelector('span > span')?.textContent)
+      .slice(-Object.keys(kinds).length)
+    expect(words).toEqual(Object.values(kinds))
+  })
 })
