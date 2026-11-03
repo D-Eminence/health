@@ -30,9 +30,10 @@ describe('hid-system cookie transport', () => {
     expect(headers.has('Authorization')).toBe(false)
   })
 
-  // hid-system #39: Identity reads X-HID-Client on these two cookie calls only, so a
-  // portal refreshes or ends only its own kind of sign-in on the shared cookies.
-  it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout'])('names the application on POST %s', async path => {
+  // hid-system #39: Identity reads X-HID-Client on these cookie calls only, so a
+  // portal refreshes or ends only its own kind of sign-in on the shared cookies. The
+  // single sign-on sign-out (ADR-070) runs the same sign-out, with the same check.
+  it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout', '/api/v1/auth/sso/logout'])('names the application on POST %s', async path => {
     vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
     const { client, calls } = harness([new Response(null, { status: 204 })])
     await client.post(path)
