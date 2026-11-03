@@ -76,6 +76,9 @@ async function openVisit() {
   await waitFor(() => expect(orders().getByRole('list', { name: 'Orders from this consultation' })).toBeTruthy())
   expect(orders().getByText('Active')).toBeTruthy()
   expect(orders().getByText('On hold')).toBeTruthy()
+  // Each order under its own kind, linking to its own kind's page.
+  expect(orders().getByRole('link', { name: 'Pharmacy · Amoxicillin (fictional)' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${RX.id}`)
+  expect(orders().getByRole('link', { name: 'Laboratory · Haemoglobin (fictional)' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB.id}`)
 }
 
 /** Chooses the change behind More actions, gives a reason and sends it (confirming it in the dialog a cancel asks). */
@@ -151,9 +154,12 @@ describe('the Orders card on the visit page', () => {
     change('Cancel consultation')
     expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
     // Today's sentence after a re-read that failed (staff/routes/Clinical.tsx:1477), once, above the page; like today's
-    // page, the lists keep what was last read (:1448-1450).
+    // page, the lists keep what was last read (:1448-1450), checked below.
     await waitFor(() => expect(screen.getAllByRole('alert').filter(alert => alert.textContent?.startsWith(RELOAD_FAILED))).toHaveLength(1))
     expect(readsOf('prescriptions')[1]![4]).toEqual({ cursor: undefined, fresh: true })
+    // The orders are not blanked: they stay as last read.
+    expect(orders().getByText('Active')).toBeTruthy()
+    expect(orders().getByText('On hold')).toBeTruthy()
   })
 
   it('reads nothing again, and keeps the orders as they were, when the cancel is refused', async () => {

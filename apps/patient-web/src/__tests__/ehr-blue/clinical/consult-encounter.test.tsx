@@ -165,6 +165,12 @@ function openSign(reason = 'Reviewed with the patient') {
   fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: reason } })
 }
 
+/** The memory router's address (window.location never moves under MemoryRouter). */
+function Address() {
+  const location = useLocation()
+  return <p data-testid="address">{`${location.pathname}${location.search}${location.hash}`}</p>
+}
+
 /** Today's OCR page stand-in: where it was opened, and what router state it was handed. */
 function OcrPage() {
   const location = useLocation()
@@ -254,7 +260,13 @@ describe('Consultation record', () => {
       if (kind !== 'vitals') return { items: records[kind] ?? [], nextCursor: null }
       return page?.cursor === 'vitals-2' ? { items: [later], nextCursor: null } : { items: [VITAL], nextCursor: 'vitals-2' }
     })
-    await openEncounter()
+    render(
+      <MemoryRouter initialEntries={[`/provider/clinical/${ENCOUNTER_ID}`]}>
+        <Address />
+        <Routes><Route path="/provider/clinical/*" element={<ConsultWorkspace />} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const pages = await within(card('Vitals')).findByRole('navigation', { name: 'Record pages' })
     expect(within(pages).getByText('Page 1')).toBeTruthy()
     expect(history().getByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
@@ -267,7 +279,9 @@ describe('Consultation record', () => {
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
     expect(within(pages).getByText('Page 2')).toBeTruthy()
     expect(history().queryByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeNull()
-    expect(window.location.href).not.toContain('vitals-2')
+    // The page move never reaches the address (a navigation lands after the render that asked for it).
+    await act(async () => {})
+    expect(screen.getByTestId('address').textContent).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
   it('shows no vitals pager while the encounter’s vitals fit on one page', async () => {
@@ -677,6 +691,13 @@ describe('Consultation record', () => {
     await openEncounter()
     openSign()
     fireEvent.click(submitOf('Sign note'))
+    expect(within(dialog()).getByText(CONFIRM_BODY)).toBeTruthy()
+    expect(within(dialog()).queryByText(MAIN_WARNING)).toBeNull()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    // The note's own entered in error changes only the note: the design's sentence too.
+    chooseMore('Mark note entered in error')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Wrong patient' } })
+    fireEvent.click(submitOf('Mark note entered in error'))
     expect(within(dialog()).getByText(CONFIRM_BODY)).toBeTruthy()
     expect(within(dialog()).queryByText(MAIN_WARNING)).toBeNull()
   })

@@ -127,6 +127,27 @@ describe('Consultation record: Vitals card', () => {
     }
   })
 
+  it('says, in the card, while the vitals are read and when they can’t be', async () => {
+    let fail!: (reason: unknown) => void
+    api.records.mockImplementation((_f: string, _p: string, _e: string, kind: string) => kind === 'vitals'
+      ? new Promise((_resolve, reject) => { fail = reject })
+      : Promise.resolve({ items: [], nextCursor: null }))
+    const card = await openEncounter()
+    expect(card.getByText('Loading records…')).toBeTruthy()
+    await act(async () => fail(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })))
+    // The card's own error box (History says it too), not an empty card.
+    expect(card.getByRole('alert').textContent).not.toBe('')
+    expect(card.queryByText('Loading records…')).toBeNull()
+    expect(card.queryByText('No vitals for this consultation.')).toBeNull()
+  })
+
+  it('sits between Notes and Diagnoses, as today’s tabs do', async () => {
+    staff.permissions = [...READS, 'ehr.note.read', 'ehr.diagnosis.read']
+    await openEncounter()
+    const titles = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
+    expect(titles.slice(titles.indexOf('Notes'), titles.indexOf('Notes') + 3)).toEqual(['Notes', 'Vitals', 'Diagnoses'])
+  })
+
   it('says today’s sentence when the visit has no vitals', async () => {
     vitals = []
     const card = await openEncounter()
@@ -189,7 +210,8 @@ describe('Consultation record: Vitals card', () => {
       if (kind !== 'vitals') return { items: [], nextCursor: null }
       return page?.cursor === 'vitals-2' ? { items: [later], nextCursor: null } : { items: [VITAL], nextCursor: 'vitals-2' }
     })
-    const card = await openEncounter()
+    renderWithTriage()
+    const card = await vitalsCard()
     const pager = await card.findByRole('navigation', { name: 'Record pages' })
     expect(within(pager).getByText('Page 1')).toBeTruthy()
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
@@ -202,7 +224,9 @@ describe('Consultation record: Vitals card', () => {
     const history = within(screen.getByRole('heading', { level: 2, name: 'History' }).closest('section') as HTMLElement)
     expect(history.getByRole('link', { name: `Vitals · ${formatWhen(later.createdAt)}` })).toBeTruthy()
     expect(history.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
-    expect(window.location.href).not.toContain('vitals-2')
+    // The page move never reaches the address (a navigation lands after the render that asked for it).
+    await act(async () => {})
+    expect(screen.getByTestId('address').textContent).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
   it('is not shown, and nothing is read, for a role that can’t read vitals', async () => {
