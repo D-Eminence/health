@@ -394,14 +394,14 @@ describe('lab launch: results (warn before saving, reasons Lab keeps, correct be
     expect(warning.textContent?.replace(/\s+/g, ' '))
       .toBe('This corrects a result that was already released. Until this one is released, the clinician still sees the earlier result.')
     // Said above the check it is about, inside the stage card.
-    const check = within(card).getByRole('button', { name: 'Check & release' })
+    const check = within(card).getByRole('button', { name: /^(Check & release|Verify result version)$/ })
     expect(warning.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('says nothing of a correction on a first result waiting to be checked', async () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
     const card = await openReceived()
-    expect(within(card).getByRole('button', { name: 'Check & release' })).toBeTruthy()
+    expect(within(card).getByRole('button', { name: /^(Check & release|Verify result version)$/ })).toBeTruthy()
     expect(card.textContent).not.toMatch(/already released/)
   })
 

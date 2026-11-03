@@ -52,6 +52,24 @@ async function confirmSheet(title: string | RegExp, button: string, fill?: { lab
   await waitFor(() => expect(screen.queryByRole('dialog', { name: title })).toBeNull())
 }
 
+const COLD_CHECK = { timeout: 15_000 }
+/**
+ * Checks and releases the result on the stage card with whichever check is on main: today's one press ("Check & release"),
+ * or #83's two actions (verify, then release). The same person may release what someone else verified.
+ */
+async function checkAndRelease(value: string) {
+  const first = await within(await stageCard()).findByRole('button', { name: /^(Check & release|Verify result version)$/ }, COLD_CHECK)
+  if (first.textContent === 'Check & release') {
+    fireEvent.click(first)
+    await confirmSheet('Check & release', 'Check & release', { label: 'What you checked', value })
+    return
+  }
+  fireEvent.click(first)
+  await confirmSheet('Verify result version', 'Verify result version', { label: 'Verification reason', value })
+  fireEvent.click(await within(await stageCard()).findByRole('button', { name: 'Release result version' }, COLD_CHECK))
+  await confirmSheet('Release result version', 'Release result version', { label: 'Release reason', value })
+}
+
 const stageTabs = () => within(screen.getByRole('navigation', { name: 'Stage' })).getAllByRole('button')
   .map(tab => `${tab.textContent}${tab.getAttribute('aria-pressed') === 'true' ? '*' : ''}`)
 const cards = () => screen.queryAllByRole('button', { name: /, Haemoglobin$/ }).filter(card => !card.closest('[hidden]'))
@@ -157,8 +175,7 @@ describe.each([{ sendsOpenWork: false }, { sendsOpenWork: true }])('a lab reques
 
     // 5. Scientist B checks and releases (today's one press: check, then release).
     await openAs(lab, PEOPLE.scientistB, `${WORK_LIST}/${lab.work()[0]!.id}`)
-    fireEvent.click(await within(await stageCard()).findByRole('button', { name: 'Check & release' }))
-    await confirmSheet('Check & release', 'Check & release', { label: 'What you checked', value: 'Matches the sample (fictional)' })
+    await checkAndRelease('Matches the sample (fictional)')
     await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done'))
     await backToList()
     if (sendsOpenWork) {
@@ -202,8 +219,7 @@ describe.each([{ sendsOpenWork: false }, { sendsOpenWork: true }])('a lab reques
     expect(within(waiting).getByText('7.1 g/dL · Low')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/Current result|11\.7/)
     await openAs(lab, PEOPLE.scientistB, `${WORK_LIST}/${lab.work()[0]!.id}`)
-    fireEvent.click(await within(await stageCard()).findByRole('button', { name: 'Check & release' }))
-    await confirmSheet('Check & release', 'Check & release', { label: 'What you checked', value: 'Correction matches the sample (fictional)' })
+    await checkAndRelease('Correction matches the sample (fictional)')
     await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done'))
     await doctorOpensRequest(lab)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
@@ -282,8 +298,7 @@ describe('a lab request sent from ehr. to another laboratory (Lakeside Diagnosti
     await stageCard()
     await scientistTestsAndSaves(true)
     await lakesideOpens(lab, PEOPLE.lakesideB)
-    fireEvent.click(await within(await stageCard()).findByRole('button', { name: 'Check & release' }))
-    await confirmSheet('Check & release', 'Check & release', { label: 'What you checked', value: 'Matches the sample (fictional)' })
+    await checkAndRelease('Matches the sample (fictional)')
     await waitFor(() => expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done'))
 
     // Back on ehr., the order's route says what Lakeside released.
