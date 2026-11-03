@@ -86,7 +86,9 @@ export function navigationGroups(pages: readonly EhrBluePage[], product: Product
  * product is on its own site, and only another product's own pages are served elsewhere. A product site keeps the
  * hospital EHR's pages and opens its own Home in their place, so it never links to the EHR site. Sample pages are the
  * hospital EHR's design, not a reason to link anywhere. None on a host that is not a Health ID site, which serves every
- * page.
+ * page. The only link from a product site to the EHR site is Demo Hospital's "Open Hospital EHR" button below
+ * (FacilityOnAnotherSite): the owner's one named exception, demo only (2 Nov 2026, productSites.ts). This group never
+ * adds one.
  */
 export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null {
   const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf))
@@ -100,7 +102,9 @@ export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null 
 
 /**
  * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
- * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility.
+ * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility. For Demo Hospital on the
+ * Lab or Migrate site its button is "Open Hospital EHR": the owner's one named cross-site exception, demo only
+ * (2 Nov 2026, productSites.ts). Real facilities never reach this page (demoFacilitySite is null for them).
  */
 function FacilityOnAnotherSite({ facility, site, choosing }: { facility: string; site: Site; choosing: boolean }) {
   return <EmptyState titleAs="h1" icon={ExternalLink} title={`${facility} works on ${SITE_NAMES[site.key]}`}
