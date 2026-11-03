@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { DEMO_HOSPITAL, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
@@ -28,9 +28,9 @@ const SAMPLES = [
   ['/provider/reports', 'Reports & Analytics'],
 ] as const
 
-async function openAs(id: string, name: string, path: string) {
+async function openAs(id: string, name: string, path: string, roles: readonly string[] = ['org_admin']) {
   // The facility's administrator: the design's Hospital Admin, whom its roles let into both samples.
-  const current = facility(id, name, ['workforce.manage'], ['org_admin'])
+  const current = facility(id, name, ['workforce.manage'], roles)
   const sent = serve({ [SESSION]: [sessionAt(current, [current])], [REQUESTS]: many(() => json([])) })
   await openStaffApp(path)
   await screen.findByRole('navigation', { name: 'Main navigation' })
@@ -67,5 +67,56 @@ describe('at a demo facility', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Reports & Analytics' })).toBeDefined()
     expect(screen.getByLabelText('Created from')).toBeDefined()
     expect(screen.queryByText(/is part of the Health ID demo only/)).toBeNull()
+  })
+})
+
+/**
+ * Every sample workspace (Appointments, Wards & Beds, Maternity, Theatre, Patient billing and the rest) is the demo
+ * facilities' alone too: at a real facility a typed or bookmarked address shows no invented rows and no Create record
+ * that keeps nothing, but the same demo-only words, even to roles the design would let in.
+ */
+const WORKSPACES = [
+  ['/provider/appointments', 'Appointments'],
+  ['/provider/wards', 'Wards & Beds'],
+  ['/provider/maternity', 'Maternity'],
+  ['/provider/surgery', 'Theatre & Procedures'],
+  ['/provider/patient-billing', 'Patient billing'],
+  ['/provider/appointments/new', 'Appointments'],
+] as const
+// A doctor who also runs the facility: the design's roles open every one of these workspaces to them.
+const BOTH = ['org_admin', 'doctor']
+
+describe('sample workspaces at a real facility', () => {
+  it.each(WORKSPACES)('refuses %s with the demo-only words, and shows no sample record or form', async (path, label) => {
+    const sent = await openAs(REAL_FACILITY, RIVERSIDE, path, BOTH)
+    expect(await screen.findByText(`${label} is part of the Health ID demo only`)).toBeDefined()
+    expect(screen.getByText(`It is not available at ${RIVERSIDE}.`)).toBeDefined()
+    expect(where()).toBe(path)
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    for (const sample of [/Sample only/, /Saved record/, /^Saved /]) expect(screen.queryByText(sample)).toBeNull()
+    expect(sent.every(request => request.route.startsWith('GET '))).toBe(true)
+  })
+
+  it('offers no sample My profile in the facility menu', async () => {
+    await openAs(REAL_FACILITY, RIVERSIDE, '/provider', BOTH)
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${RIVERSIDE.replace(/[()]/g, '\\$&')}`) }))
+    expect(screen.queryByRole('button', { name: 'My profile' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Edit my profile' })).toBeNull()
+  })
+})
+
+describe('sample workspaces at a demo facility', () => {
+  it.each(WORKSPACES.slice(0, 5))('keeps %s as today, under the sample notice', async (path, label) => {
+    await openAs(DEMO_HOSPITAL, 'Demo Hospital', path, BOTH)
+    expect(await screen.findByRole('heading', { level: 1, name: label })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Create record' })).toBeDefined()
+    expect(screen.queryByText(/is part of the Health ID demo only/)).toBeNull()
+  })
+
+  it('keeps the sample My profile in the facility menu', async () => {
+    await openAs(DEMO_HOSPITAL, 'Demo Hospital', '/provider', BOTH)
+    fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'My profile' }))
+    expect(screen.getByRole('dialog', { name: 'Edit my profile' })).toBeDefined()
   })
 })
