@@ -154,8 +154,11 @@ export function RequestDetail() {
         <CardHeader as="h2" title="Close access" description="End your access when you have finished." />
         <div className="flex flex-col gap-2 p-5">
           {closeUnavailable ? <p id="close-access-unavailable" className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
+          {/* Busy, it stays focusable (aria-disabled, not disabled): focus is not lost while the close is sent, and a second
+              press sends nothing (close returns while one is on its way). */}
           <Button variant="danger" className="self-start" disabled={closeUnavailable !== null}
-            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} loading={closing} onClick={() => void close()}>{closing ? 'Closing…' : 'Close access'}</Button>
+            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined}
+            aria-disabled={closing || undefined} aria-busy={closing || undefined} onClick={() => void close()}>{closing ? 'Closing…' : 'Close access'}</Button>
         </div>
       </Card> : null}
       {offerEmergency ? <Card>
