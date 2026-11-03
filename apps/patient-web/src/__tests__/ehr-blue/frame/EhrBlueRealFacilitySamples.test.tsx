@@ -92,8 +92,10 @@ describe('sample workspaces at a real facility', () => {
     expect(await screen.findByText(`${label} is part of the Health ID demo only`)).toBeDefined()
     expect(screen.getByText(`It is not available at ${RIVERSIDE}.`)).toBeDefined()
     expect(where()).toBe(path)
+    // The sample never mounts: no Create record and no sample notice. (Its "Saved record" words show only on a record
+    // opened from the list, which this refusal never reaches; EhrBlueSampleRecords covers them at a demo facility.)
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
-    for (const sample of [/Sample only/, /Saved record/, /^Saved /]) expect(screen.queryByText(sample)).toBeNull()
+    expect(screen.queryByText(/Sample only/)).toBeNull()
     expect(sent.every(request => request.route.startsWith('GET '))).toBe(true)
   })
 
