@@ -1298,6 +1298,110 @@ describe('Sending to another facility, and what it reported', () => {
   })
 })
 
+/**
+ * Today's list says, under each order's row, where an order sent to another facility is and what became of it (the
+ * OrderRoutePanel's heading and status, Clinical.tsx:1889-1893, OrderRoutes.tsx:384-387), so a clinician sees an order
+ * refused, ended unfinished or reported for the wrong person without opening it. Read from the list's own answer.
+ */
+describe('Where each order stands, under its row in the orders list', () => {
+  const ACCEPTED_AT = '2026-10-21T10:00:00.000Z'
+  const ENDED_AT = '2026-10-22T10:00:00.000Z'
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+  })
+
+  async function rowOf(name: string) {
+    open(ENCOUNTER_ID)
+    const list = await screen.findByRole('list', { name: 'Orders from this consultation' })
+    const link = within(list).getByRole('link', { name })
+    return { link, row: link.closest('li')! }
+  }
+
+  it('says where a lab request sent to another laboratory waits, and the row’s link is described by it', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route() })], { crossFacilityOrders: true })
+    const { link, row } = await rowOf('Laboratory · Haemoglobin')
+    expect(within(row).getByText('Sent to another laboratory')).toBeTruthy()
+    const status = within(row).getByText(/^Sent to Demo Laboratory: waiting for it to accept, until .+\.$/)
+    expect(status.className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-info')
+    // The order's own status stays beside it, in words.
+    expect(within(row).getByText('Active')).toBeTruthy()
+    const described = document.getElementById(link.getAttribute('aria-describedby') ?? '')
+    expect(described?.textContent).toBe(`Sent to another laboratory${status.textContent}`)
+    // No code in the row: not the reference, not a stored state.
+    expect(row.textContent).not.toContain('9C1B2D3E')
+    expect(row.textContent).not.toMatch(/Ref |lab_request|receiving_unable|effectiveState/)
+    // From the list's answer: no route is read for it.
+    expect(routes.routes).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['accepted', { effectiveState: 'accepted', acceptedAt: ACCEPTED_AT }, /^Accepted by Demo Laboratory on .+\.$/, 'positive'],
+    ['refused', { effectiveState: 'declined', declineReason: 'test_not_offered' }, /^Declined by Demo Laboratory: This test isn’t offered\. Send it elsewhere\.$/, 'caution'],
+    ['can’t complete', { effectiveState: 'cancelled', acceptedAt: ACCEPTED_AT, endedAt: ENDED_AT, endedKind: 'receiving_unable',
+      notCompleted: { reason: 'sample_unusable', sampleTaken: true, resultRecorded: false } },
+    /^Accepted by Demo Laboratory on .+; ended on .+: Demo Laboratory couldn’t complete it\.$/, 'caution'],
+    ['results back', { effectiveState: 'completed', acceptedAt: ACCEPTED_AT, completedAt: ENDED_AT }, /^Results released by Demo Laboratory on .+\.$/, 'positive'],
+    ['the wrong patient', { effectiveState: 'completed', acceptedAt: ACCEPTED_AT, completedAt: ENDED_AT, endedAt: ENDED_AT, endedKind: 'wrong_patient' },
+      /^Demo Laboratory reports that the results it released belong to someone else, and has ended it\. Do not use them\.$/, 'caution'],
+    ['withdrawn by the patient', { effectiveState: 'withdrawn', endedAt: ENDED_AT, endedKind: 'patient' }, /^Patient One stopped it in the Health ID app\.$/, 'neutral'],
+  ])('says a lab request %s, in today’s words and tone', async (_name, state, words, tone) => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 3, orderRoute: route(state) })], { crossFacilityOrders: true })
+    const { row } = await rowOf('Laboratory · Haemoglobin')
+    expect(within(row).getByText('Sent to another laboratory')).toBeTruthy()
+    expect(within(row).getByText(words).className).toBe(`hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-${tone}`)
+  })
+
+  it('says where a prescription sent to a pharmacy is: dispensed there', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 4, orderRoute: route({ kind: 'prescription', effectiveState: 'completed', acceptedAt: ACCEPTED_AT,
+      completedAt: ENDED_AT, receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
+    const { row } = await rowOf('Pharmacy · Amoxicillin')
+    expect(within(row).getByText('Sent to a pharmacy')).toBeTruthy()
+    expect(within(row).getByText(/^Dispensed by Demo Pharmacy on .+\.$/)).toBeTruthy()
+  })
+
+  it('says nothing more for an order never sent elsewhere, one whose route the EHR did not send, or a malformed route', async () => {
+    setLists([prescription({ orderRoute: null })], [labRequest({ orderRoute: { id: ROUTE, effectiveState: 'sent' } })], { crossFacilityOrders: true })
+    const { link, row } = await rowOf('Pharmacy · Amoxicillin')
+    expect(link.getAttribute('aria-describedby')).toBeNull()
+    expect(row.querySelector('.hid-ehr-clinical-orders-row-route')).toBeNull()
+    const lab = screen.getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li')!
+    expect(lab.querySelector('.hid-ehr-clinical-orders-row-route')).toBeNull()
+    expect(screen.queryByText(/^Sent to /)).toBeNull()
+  })
+
+  it('says nothing of routes on today’s main backend, as today’s list (novu only)', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'declined', declineReason: 'test_not_offered' }) })], { crossFacilityOrders: true })
+    const { link, row } = await rowOf('Laboratory · Haemoglobin')
+    expect(within(row).queryByText('Sent to another laboratory')).toBeNull()
+    expect(screen.queryByText(/^Declined by /)).toBeNull()
+    expect(link.getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('says only where it went for a state this website does not know: no stored state on the row', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'paused_there' }) })], { crossFacilityOrders: true })
+    const { row } = await rowOf('Laboratory · Haemoglobin')
+    expect(within(row).getByText('Sent to Demo Laboratory.').className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-neutral')
+    expect(row.textContent).not.toMatch(/paused/)
+  })
+
+  it('says only where it went for a state this website does not know on the order’s page too, in the same line', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route({ effectiveState: 'paused_there' }) })], { crossFacilityOrders: true })
+    await openOrder('laboratory', LAB)
+    expect(screen.getByRole('heading', { level: 2, name: 'Sent to another laboratory' })).toBeTruthy()
+    expect(screen.getByText('Sent to Demo Laboratory.').className).toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-neutral')
+    expect(document.body.textContent).not.toMatch(/paused/)
+  })
+
+  it('draws the order page’s status line in the same tone as the row’s', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 3, orderRoute: route({ effectiveState: 'declined', declineReason: 'test_not_offered' }) })], { crossFacilityOrders: true })
+    await openOrder('laboratory', LAB)
+    expect(screen.getByText('Declined by Demo Laboratory: This test isn’t offered. Send it elsewhere.').className)
+      .toBe('hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-caution')
+  })
+})
+
 /** A promise the test answers itself, once the call it stands for has been made. */
 function deferred<T>() {
   let answer: (value: T) => void = () => {}

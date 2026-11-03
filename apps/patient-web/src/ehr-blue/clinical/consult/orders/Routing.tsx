@@ -286,6 +286,24 @@ function WithdrawnResults({ lines }: { lines: readonly WithdrawnLine[] }) {
 
 const TONES = { information: 'info', success: 'positive', warning: 'caution', neutral: 'neutral' } as const
 
+/** The stored states today's routeStatusText says in words (SPEC-FINAL §3.2). */
+const STATES_IN_WORDS: ReadonlySet<string> = new Set(['sent', 'accepted', 'completed', 'declined', 'withdrawn', 'expired', 'cancelled'])
+
+/**
+ * Where a sent order stands, in today's words and tone (routeStatusText): on the order's page and under its row in the
+ * list. A state this website does not know says only where the order went, where today's line would print the stored
+ * state itself: no code is shown on a facility screen.
+ */
+export function routeStatus(route: OrderRouteSummary, patient: string): ReturnType<typeof routeStatusText> {
+  if (STATES_IN_WORDS.has(route.effectiveState)) return routeStatusText(route, patient)
+  return { tone: 'neutral', text: `Sent to ${route.receivingFacility.name?.trim() || 'the other facility'}.` }
+}
+
+/** The class of that line, in the tone of its state. */
+export function routeStatusClass(tone: keyof typeof TONES): string {
+  return `hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-${TONES[tone]}`
+}
+
 /**
  * Today's OrderRoutePanel as a card under the order: where its latest route went and what became of it (including
  * what the receiving facility reported: the wrong-patient report, a late report, that it couldn't complete it),
@@ -300,7 +318,7 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
   onWithdraw: (route: OrderRouteSummary, reason: OrderRouteWithdrawReason) => Promise<void>
   loadViews: () => Promise<OrderRouteView[]>
 }) {
-  const status = routeStatusText(route, context.patient)
+  const status = routeStatus(route, context.patient)
   const unavailable = unavailableText(route)
   const report = wrongPatientReportOf(route)
   const lateServed = useLateCorrectionServed() === true
@@ -346,7 +364,7 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
   return (
     <EhrCard title={<span id={titleId} tabIndex={-1}>{lab ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</span>}>
       {route.reference ? <p className="hid-ehr-clinical-orders-muted">Ref {route.reference}</p> : null}
-      <p className={`hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-${TONES[status.tone]}`}>{status.text}</p>
+      <p className={routeStatusClass(status.tone)}>{status.text}</p>
       {guidance ? <p className="hid-ehr-clinical-orders-muted">{guidance}</p> : null}
       {notCompleted ? <p className="hid-ehr-clinical-orders-notice">{notCompleted}</p> : null}
       {route.endedKind === 'wrong_patient' || report ? (
@@ -374,7 +392,7 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
             const returns = withdrawn ? [] : lab ? resultLines(view.results ?? [], viewFacility) : dispensingLines(view.dispensings ?? [], viewFacility)
             return (
               <div key={view.id} className="hid-ehr-clinical-orders-view">
-                {index > 0 ? <strong>Earlier: {routeStatusText(view, context.patient).text}</strong> : null}
+                {index > 0 ? <strong>Earlier: {routeStatus(view, context.patient).text}</strong> : null}
                 <p>{attestedText(view.attestation.attestedByName, view.attestation.attestedAt, context.patient,
                   view.attestation.receivingFacilityName ?? viewFacility)}</p>
                 {withdrawn && withdrawn.length > 0 ? <WithdrawnResults lines={withdrawn} />
