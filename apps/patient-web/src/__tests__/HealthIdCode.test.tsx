@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { HealthIdCode } from '../routes/HealthIdCode'
 import { described } from './portalHarness'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+
+// The status line is always there (empty until a copy), so a test waits for what it says, not for the line itself:
+// found at once, it was read before the copy's answer had been drawn, and failed now and then.
 
 describe('the Health ID on the profile and the dashboard', () => {
   it('is plain text with no Copy HID button, and a click copies exactly the code', async () => {
@@ -19,7 +22,7 @@ describe('the Health ID on the profile and the dashboard', () => {
 
     fireEvent.click(code)
 
-    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Health ID copied.'))
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
   })
 
@@ -33,7 +36,7 @@ describe('the Health ID on the profile and the dashboard', () => {
 
     fireEvent.keyDown(code, { key })
 
-    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Health ID copied.'))
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
   })
 
@@ -103,7 +106,7 @@ describe('the Health ID on the sign-up screens (as hid-1.0)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy your Health ID' }))
 
-    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Health ID copied.'))
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
     expect(screen.getByRole('button', { name: 'Copied your Health ID' })).toBeTruthy()
   })
