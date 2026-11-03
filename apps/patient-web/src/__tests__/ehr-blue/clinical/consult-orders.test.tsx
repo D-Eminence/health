@@ -654,12 +654,15 @@ describe('A prescription with no dose (a cream, or "as directed"), as classic al
     fireEvent.click(save)
     expect(await screen.findByText(PAIR)).toBeTruthy()
     expect(field('Dose unit').getAttribute('aria-invalid')).toBe('true')
+    // At the missing half, with focus, as classic's FieldRefusal (Clinical.tsx:505-512).
+    expect(document.activeElement).toBe(field('Dose unit'))
     expect(screen.queryByText('Complete this field.')).toBeNull()
     change('Dose quantity', '')
     change('Dose unit', 'g')
     fireEvent.click(save)
     expect(await screen.findByText(PAIR)).toBeTruthy()
     expect(field('Dose quantity').getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(field('Dose quantity'))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.createRecord).not.toHaveBeenCalled()
   })
@@ -684,6 +687,7 @@ describe('A prescription with no dose (a cream, or "as directed"), as classic al
     fireEvent.click(save)
     expect(await screen.findByText(PAIR)).toBeTruthy()
     expect(field('Other unit').getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(field('Other unit'))
     expect(api.createRecord).not.toHaveBeenCalled()
     change('Other unit', 'sachet(s)')
     fireEvent.click(save)
@@ -1254,6 +1258,35 @@ describe('Sending to another facility, and what it reported', () => {
     expect(screen.getByText(/^Do not use any result from Demo Laboratory on this order/)).toBeTruthy()
   })
 
+  it('asks the clinician to have an order accepted for the wrong person ended there first, before marking it entered in error, as today', async () => {
+    // Today's item 3 (C1) warning (staff/routes/__tests__/LabRequestRoute.test.tsx:232-248): the ordering side has no
+    // "This isn't the order's patient"; its correction is Mark entered in error, and Demo Laboratory ends the order there.
+    setLists([], [labRequest({ status: 'active', rowVersion: 5, orderRoute: route({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z' }) })],
+      { crossFacilityOrders: true, wrongPatientReports: true })
+    api.updateRecord.mockResolvedValue(labRequest({ status: 'entered_in_error', rowVersion: 6 }))
+    await openOrder('laboratory', LAB)
+    expect(screen.queryByRole('button', { name: /isn’t the order’s patient/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark entered in error' }))
+    expect(screen.getByText('New status: Mark entered in error')).toBeTruthy()
+    expect(screen.getByText('Changing it withdraws it from Demo Laboratory, or cancels it there if Demo Laboratory has accepted it; a cancelled '
+      + 'order can’t be resumed there. If Demo Laboratory accepted it for someone who was not Patient One, ask Demo Laboratory to end it from '
+      + 'its work list first: once you change this order, Demo Laboratory can no longer withdraw a result or dispensing it sent back.')).toBeTruthy()
+    change('Reason for change', 'Ordered for the wrong patient')
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', LAB,
+      { expectedRowVersion: 5, changeReason: 'Ordered for the wrong patient', status: 'entered_in_error' }))
+  })
+
+  it('keeps the earlier change warning while the backend has no wrong-patient report (D15), as today', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 5, orderRoute: route({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z' }) })],
+      { crossFacilityOrders: true })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark entered in error' }))
+    expect(screen.getByText('Changing it withdraws it from Demo Laboratory, or cancels it there if Demo Laboratory has accepted it; a cancelled '
+      + 'order can’t be resumed there.')).toBeTruthy()
+    expect(screen.queryByText(/end it from its work list/)).toBeNull()
+  })
+
   it('shows a late report after the order came back', async () => {
     setLists([prescription({ status: 'active', rowVersion: 4, orderRoute: route({ kind: 'prescription', effectiveState: 'completed', acceptedAt: '2026-10-21T10:00:00.000Z',
       completedAt: '2026-10-22T10:00:00.000Z', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true },
@@ -1281,6 +1314,46 @@ describe('Sending to another facility, and what it reported', () => {
     await openOrder('pharmacy', RX)
     expect(screen.getByText('Demo Pharmacy says it needs a signed or paper prescription for this controlled medicine. Give Patient One a signed paper prescription, or write a new prescription and send it to another pharmacy.')).toBeTruthy()
     expect(screen.getByText(/^Accepted by Demo Pharmacy on .*; ended on .*: Demo Pharmacy couldn’t complete it\.$/)).toBeTruthy()
+  })
+
+  it('keeps a lab request the laboratory couldn’t complete open here, as today: still active, its changes offered with today’s warning, and no Send', async () => {
+    // Today's D18 row (staff/routes/__tests__/LabRequestRoute.test.tsx:390-401): the request stays as it was in the EHR;
+    // only the route ended. Demo Laboratory is fictional.
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send', 'lab.work-item.accept', 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 5, orderRoute: route({ effectiveState: 'cancelled', version: 4,
+      acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable',
+      notCompleted: { reason: 'supplies_unavailable', sampleTaken: true, resultRecorded: true } }) })], { crossFacilityOrders: true })
+    await openOrder('laboratory', LAB)
+    expect(screen.getByText('Demo Laboratory says it has run out of what this test needs. Write a new lab request if Patient One still '
+      + 'needs it. A sample was taken there: phone Demo Laboratory if it could be sent to another laboratory. A result was recorded '
+      + 'there but not released: phone Demo Laboratory if you need to know more.')).toBeTruthy()
+    // Open: today's changes for a routed active request (ROUTED_LAB_CHOICES), never this facility's Send to Lab or results.
+    for (const name of ['Put on hold', 'Complete', 'Cancel order', 'Mark entered in error']) expect(screen.getByRole('button', { name })).toBeTruthy()
+    for (const name of ['Send to Lab', 'View released results', 'Send to another laboratory']) expect(screen.queryByRole('button', { name })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    expect(screen.getByText('Demo Laboratory has already ended this order there, so changing it here changes nothing at Demo Laboratory.')).toBeTruthy()
+  })
+
+  it('offers Send to another laboratory again on a request the laboratory couldn’t complete, only when the EHR allows it', async () => {
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([], [labRequest({ status: 'active', rowVersion: 5, orderRoute: route({ effectiveState: 'cancelled', version: 4,
+      acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable', resendAllowed: true }) })],
+    { crossFacilityOrders: true })
+    await openOrder('laboratory', LAB)
+    expect(screen.getByText('Write a new lab request if Patient One still needs it.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Send to another laboratory' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Put on hold' })).toBeTruthy()
+  })
+
+  it('keeps a lab request the laboratory couldn’t complete in this consultation’s orders, still active, saying it ended there', async () => {
+    setLists([], [labRequest({ status: 'active', rowVersion: 5, orderRoute: route({ effectiveState: 'cancelled', version: 4,
+      acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable',
+      notCompleted: { reason: 'supplies_unavailable', sampleTaken: true, resultRecorded: true } }) })], { crossFacilityOrders: true })
+    open(ENCOUNTER_ID)
+    const list = await screen.findByRole('list', { name: 'Orders from this consultation' })
+    const row = within(list).getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li')!
+    expect(within(row).getByText('Active')).toBeTruthy()
+    expect(within(row).getByText(/^Accepted by Demo Laboratory on .+; ended on .+: Demo Laboratory couldn’t complete it\.$/)).toBeTruthy()
   })
 
   it('reads what came back only when asked', async () => {
