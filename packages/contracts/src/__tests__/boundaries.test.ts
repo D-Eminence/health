@@ -352,6 +352,24 @@ describe('application boundaries', () => {
     expect(findEndpoint('admin.selfServiceApplicationWaiveRefusal')?.note).toContain('404 SELF_SERVICE_REFUSAL_NOT_FOUND')
   })
 
+  it('registers the facility administrator\'s One-person lab read and switch (hid-system 0111) for the provider portal only', () => {
+    const routes = [
+      ['identity.facilitySettings', 'GET', '/api/v1/identity/facility-settings'],
+      ['identity.facilityOnePersonLab', 'POST', '/api/v1/identity/facility-settings/one-person-lab'],
+    ] as const
+    for (const [name, method, example] of routes) {
+      const endpoint = findEndpoint(name)
+      expect(endpoint, name).toMatchObject({ service: 'identity', methods: [method], status: 'proposed', auth: { kind: 'authenticated' },
+        permissions: { [method]: ['organization.manage'] } })
+      expect(endpoint?.note, name).toContain('not served by hid-system main')
+      expect(assertRegisteredBrowserRequest(method, example).name, name).toBe(name)
+      expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+  })
+
   it('registers P4b\'s staff routes for the provider portal, its public join routes and the withdrawal for the provider '
     + 'portal only, and support\'s new commands and reads for the console', () => {
     const invitationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'

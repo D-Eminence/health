@@ -61,6 +61,8 @@ const NOT_ON_MAIN = [
   // hid-1.0 patient parity B4 (hid-system 0095, Novu only): sharing with a clinician and invitations by email.
   'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
   'identity.shareInvitationConfirm', 'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
+  // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
+  'identity.facilitySettings', 'identity.facilityOnePersonLab',
 ] as const
 
 describe('routes hid-system main does not serve', () => {
