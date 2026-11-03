@@ -4,6 +4,7 @@ import { isHidApiError } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
 import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
+import { PRODUCTS, productHere } from './product'
 import { roleNames } from '../../staff/staffAccess'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 
@@ -20,7 +21,7 @@ const WHY: Record<WorkspaceQuestion, string> = {
 }
 
 /** A choice Identity refused, in words the person can act on (today's facilityRefusal). */
-function refusal(caught: unknown, facility: string): string {
+export function facilityRefusal(caught: unknown, facility: string): string {
   if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
   return caught instanceof Error ? caught.message : 'Facility could not be selected.'
 }
@@ -42,8 +43,8 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   // facility is the blue EHR's own page, so it names the tab as the frame names its pages, again after the lock screen.
   // The question asked before any page opens keeps today's "Where are you working?".
   useEffect(() => {
-    if (reason === 'switch' && lock === null) document.title = 'Choose workspace · Health ID EHR'
-  }, [reason, lock])
+    if (reason === 'switch' && lock === null) document.title = `Choose workspace · Health ID ${PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name}`
+  }, [reason, lock, state])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const current = reason === 'switch' ? actor.facility?.id : undefined
@@ -57,7 +58,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
         onChosen?.()
         if (reason === 'switch') navigate('/provider')
       }
-    } catch (caught) { setError(refusal(caught, name)) }
+    } catch (caught) { setError(facilityRefusal(caught, name)) }
     finally { setBusy(null) }
   }
 

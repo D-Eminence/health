@@ -95,7 +95,6 @@ describe('1. samples belong to one person at one facility', () => {
     fireEvent.click(within(screen.getByRole('form', { name: 'Check in' })).getByRole('button', { name: 'Check in' }))
     expect(await screen.findByText('checked-in')).toBeDefined()
     switchFacilityTo('Demo Hospital', 'Demo Laboratory')
-    fireEvent.click(await screen.findByRole('button', { name: 'Work at Demo Laboratory' }))
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Demo Laboratory')).toBeDefined())
     openFirstAppointment()
     expect(await screen.findByText('booked')).toBeDefined()

@@ -5,7 +5,7 @@ import { Activity, Check, ExternalLink, Hospital, House, Search, ShieldCheck, Us
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
-import { ReviewBanner } from '../../staff/routes/ReviewBanner'
+import { FacilityCheckCard, ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { roleNames } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
@@ -16,6 +16,7 @@ import { PRODUCTS, opensInProduct, productHere, productLists, type Product } fro
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
+import { facilityRefusal } from './ChooseWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
 import { NotFoundPage } from './NotFoundPage'
@@ -130,7 +131,7 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
  * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
-  const { state, lock, signOut } = useStaff()
+  const { state, lock, signOut, selectFacility, activePatient } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
   // Today's page for this address, which a live stand-in shows.
@@ -140,6 +141,8 @@ export function BlueFrame() {
   // Today's sign-out: a refusal is said, and the session stays, as the account menu said it.
   const [signingOut, setSigningOut] = useState(false)
   const [signOutError, setSignOutError] = useState('')
+  // Switching facility from the account menu: one step, as Choose workspace's own button (an open patient asks first).
+  const [switchError, setSwitchError] = useState('')
   const { viewing } = useRoleView()
   useFocusOnPageChange(pageRef, lock !== null)
   const session = state.status === 'ready' ? state.session : null
@@ -177,7 +180,8 @@ export function BlueFrame() {
   const moved = movedAddress(location.pathname)
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
   // A single product's home is its own queue, when this session may open it; otherwise /provider stays Home.
-  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+  // The frame's notice (a page this session may not open) goes along, so it shows on the product's first page.
+  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} state={location.state} />
   // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
   // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
   // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
@@ -191,6 +195,15 @@ export function BlueFrame() {
     signOut()
       .catch((caught: unknown) => setSignOutError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.'))
       .finally(() => setSigningOut(false))
+  }
+
+  function switchTo(id: string, name: string) {
+    // An open patient record closes on a switch: Choose workspace says so before anything changes.
+    if (activePatient) { navigate('/provider/institutions'); return }
+    setSwitchError('')
+    selectFacility(id)
+      .then(switched => { if (switched) navigate('/provider') })
+      .catch((caught: unknown) => setSwitchError(facilityRefusal(caught, name)))
   }
 
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
@@ -271,7 +284,7 @@ export function BlueFrame() {
               subtitle: `${roles}${isDemoFacility(facility?.id) ? ' · Demo facility' : ''}`,
               avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-fill text-white"><info.icon className="size-5" /></span>,
               menu: close => <ul className="m-0 list-none p-0">
-                {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) navigate('/provider/institutions') }}
+                {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) switchTo(f.id, f.name) }}
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
                 <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li>
@@ -299,8 +312,11 @@ export function BlueFrame() {
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
+              {switchError ? <Alert intent="error" title="That facility couldn’t be opened">{switchError}</Alert> : null}
               <RedirectNotice />
               <ReviewBanner />
+              {/* A lab, pharmacy or outreach on its own may land on its own first page and never see Home's card. */}
+              {product !== 'ehr' && facility && match?.page.path !== '' ? <FacilityCheckCard facility={facility} /> : null}
               <BillingBanner />
               {tabs.length > 0 ? (
                 <EhrModuleTabs
