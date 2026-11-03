@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
 import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
@@ -18,7 +20,7 @@ import { SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
  */
 
 const api = vi.hoisted(() => ({
-  lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(),
+  lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(), breakGlass: vi.fn(),
   sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, roles: undefined as string[] | undefined }))
@@ -336,6 +338,68 @@ describe('Find a patient', () => {
     expect(within(now).getByText('Access allowed')).toBeTruthy()
     expect(within(now).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/provider/patients/open')
   })
+
+  it('parity: the Health ID field is required, as today’s is, and the form still says why itself', () => {
+    open()
+    expect(searchField().required).toBe(true)
+    expect(searchField().getAttribute('aria-required')).toBe('true')
+    // noValidate: an empty search is refused at the field in the page's words, never by the browser's bubble.
+    expect(searchField().closest('form')!.noValidate).toBe(true)
+    fireEvent.click(findButton())
+    expect(screen.getByText('Enter the patient’s Health ID.')).toBeTruthy()
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('parity: Find keeps focus while the lookup runs (aria-disabled, not disabled), and a second press looks nothing up', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    api.lookupPatient.mockReturnValue(new Promise((_resolve, reject) => { refuse = reject }))
+    open()
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    findButton().focus()
+    await act(async () => { fireEvent.click(findButton()) })
+    expect(findButton().disabled).toBe(false)
+    expect(findButton().getAttribute('aria-disabled')).toBe('true')
+    expect(findButton().getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(findButton())
+    await act(async () => { fireEvent.click(findButton()) })
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    await act(async () => { refuse(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' })) })
+    expect(findButton().getAttribute('aria-disabled')).toBeNull()
+    expect(findButton().getAttribute('aria-busy')).toBeNull()
+    expect(document.activeElement).toBe(findButton())
+  })
+
+  it('parity: says a refused lookup at once (role="alert"), which patient and why, while focus stays on Find', async () => {
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+    open()
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    findButton().focus()
+    fireEvent.click(findButton())
+    const alert = await screen.findByRole('alert')
+    // Which patient, then why, both in the alert. The reason's words are pinned by 'offers the ways in for a refused patient'.
+    const reason = within(alert).getByText(`You don’t have access to ${PATIENT_HID} yet`).nextElementSibling
+    expect(reason?.textContent).toBeTruthy()
+    expect(alert.contains(reason)).toBe(true)
+    // The ways in are not read out with it: they stay buttons to reach.
+    expect(within(alert).queryAllByRole('button')).toEqual([])
+    expect(document.activeElement).toBe(findButton())
+    // Refused again: said again, as a new alert.
+    fireEvent.click(findButton())
+    await waitFor(() => expect(api.lookupPatient).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('alert')).not.toBe(alert)
+  })
+
+  it('parity: says a refused shared patient at once (role="alert"), while focus stays on the share’s Open', async () => {
+    api.sharedWithMe.mockResolvedValue([SHARE])
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+    open()
+    const openShare = await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` })
+    openShare.focus()
+    fireEvent.click(openShare)
+    const alert = await screen.findByRole('alert')
+    expect(within(alert).getByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeTruthy()
+    expect(document.activeElement).toBe(openShare)
+  })
 })
 
 describe('The open patient’s page', () => {
@@ -538,7 +602,8 @@ describe('The open patient’s page', () => {
     staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     open('/open')
-    expect(await screen.findByText('You can see this record but not add to it. To make changes, ask the patient to let you see and add to their records.')).toBeTruthy()
+    // The chart's own sentence, as Consultation, Triage and Nursing say it, then how to get changes.
+    expect(await screen.findByText(`${READ_ONLY} To make changes, ask the patient to let you see and add to their records.`)).toBeTruthy()
     expect(screen.getByText('View only')).toBeTruthy()
     expect(nextSteps()).toEqual(['Ask for more access'])
   })
@@ -581,6 +646,28 @@ describe('The open patient’s page', () => {
       .toBe('Your role at this facility can’t end this access. Ask your facility administrator.')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
+  })
+
+  it('parity: End my access keeps focus while it runs (aria-disabled, not disabled), and a second press sends nothing', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    api.closeGrant.mockReturnValue(new Promise((_resolve, reject) => { refuse = reject }))
+    staff.activePatient = activePatient()
+    open('/open')
+    const end = screen.getByRole('button', { name: 'End my access' }) as HTMLButtonElement
+    end.focus()
+    await act(async () => { fireEvent.click(end) })
+    expect(end.disabled).toBe(false)
+    expect(end.getAttribute('aria-disabled')).toBe('true')
+    expect(end.getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(end)
+    await act(async () => { fireEvent.click(end) })
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
+    // Refused: the patient stays open, the reason is said, and focus is still on the button, which works again.
+    await act(async () => { refuse(new HidApiError(409, 'This access had already ended', { code: 'CONSENT_COMMAND_CONFLICT' })) })
+    expect((await screen.findByRole('alert')).textContent).toContain('This access had already ended')
+    expect(end.getAttribute('aria-disabled')).toBeNull()
+    expect(end.getAttribute('aria-busy')).toBeNull()
+    expect(document.activeElement).toBe(end)
   })
 
   it('says to choose a patient when none is open', () => {
@@ -1173,6 +1260,30 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(addresses).not.toContain('/provider/patients/pin')
       expect(addresses).not.toContain('/provider/emergency')
       expect(api.verifyPin).not.toHaveBeenCalled()
+    })
+
+    it('parity (area 7): Emergency access opens the Emergency page, “Emergency access”, with the Health ID typed, and sends nothing', async () => {
+      staff.permissions = [...WITH_ACCESS]
+      render(
+        <MemoryRouter initialEntries={[`${BASE}/patients`]}>
+          <Routes>
+            <Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} />
+            <Route path={`${BASE}/emergency/*`} element={<EmergencyWorkspace />} />
+          </Routes>
+        </MemoryRouter>,
+      )
+      fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa2' } })
+      fireEvent.click(groupTile('Emergency access'))
+      // Emergency's own page (href.to('emergency')), never a board record such as `emergency/break-glass`.
+      expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+      expect((screen.getByRole('textbox', { name: labelled('Health ID') }) as HTMLInputElement).value).toBe(PATIENT_HID)
+      expect(screen.getByRole('button', { name: 'Open emergency access' })).toBeTruthy()
+      // Read once by the form; nothing is looked up or opened until Open emergency access.
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+      await settle()
+      expect(api.lookupPatient).not.toHaveBeenCalled()
+      expect(api.breakGlass).not.toHaveBeenCalled()
+      expect(staff.setActivePatient).not.toHaveBeenCalled()
     })
   })
 

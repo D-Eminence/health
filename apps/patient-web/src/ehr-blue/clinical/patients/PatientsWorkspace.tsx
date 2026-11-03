@@ -184,9 +184,11 @@ function PatientList() {
           <label htmlFor="patient-hid" className="text-[13px] font-medium text-ink-2">Health ID</label>
           <div className="flex gap-2">
             <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
-              aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
+              required aria-required="true" aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
               onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null); setRefused(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
-            <Button type="submit" variant="primary" icon={Search} loading={busy} disabled={!canLook} className="h-11">Find</Button>
+            {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost
+                while the lookup runs, and a second press looks nothing up (search() returns while one is on its way). */}
+            <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-busy={busy || undefined} aria-disabled={busy || undefined} className="h-11">Find</Button>
           </div>
           <p id="patient-hid-hint" className="m-0 text-[12px] text-ink-3">It’s on the patient’s Health ID card. {HID_FORMAT}</p>
           {hidError ? <p id="patient-hid-problem" className="m-0 text-[13px] font-medium text-danger-ink">{hidError}</p> : null}
@@ -212,7 +214,7 @@ function PatientList() {
         {refused ? <div className="border-t border-line p-5">
           <div className="mb-3 flex items-start gap-3">
             <IconChip icon={Lock} tone="warn" />
-            <div className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
+            <div role="alert" className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
           </div>
           {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
