@@ -276,7 +276,7 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
               line, outside the wrapped text. The ID's line below keeps its place. */}
           <div className="flex items-end gap-[1.2cqw]">
             <p className={cx('m-0 line-clamp-2 min-w-0 leading-[1.18] font-medium tracking-[.12em] text-balance [overflow-wrap:anywhere] text-white/90 uppercase',
-              name.length > LONG_NAME ? 'text-[2.8cqw]' : 'text-[3.2cqw]')}>{name}</p>
+              (name?.length ?? 0) > LONG_NAME ? 'text-[2.8cqw]' : 'text-[3.2cqw]')}>{name}</p>
             {verified !== null && (verified ? <BadgeCheck className="mb-[.1cqw] size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
               : <CircleAlert className="mb-[.1cqw] size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}
           </div>
