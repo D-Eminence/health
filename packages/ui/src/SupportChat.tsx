@@ -36,12 +36,40 @@ export function SupportChat({ contact, send }: SupportChatProps) {
     const entry = (node: EventTarget | null) => node instanceof HTMLElement && !dialog.current?.contains(node)
       && (node instanceof HTMLTextAreaElement || node.isContentEditable
         || (node instanceof HTMLInputElement && !NO_KEYBOARD.has(node.type)))
-    const focusIn = (event: FocusEvent) => { setTyping(entry(event.target)) }
-    const focusOut = (event: FocusEvent) => { if (!entry(event.relatedTarget)) setTyping(false) }
+    // It steps aside as soon as a field has focus, and comes back only once the move of focus away from it is over: a
+    // tap's mousedown moves focus to the button under the launcher, and taking pointer events back before the tap's
+    // mouseup sent the mouseup, and so the click, to the launcher instead (Chrome on Android). So it waits for the
+    // pointer to be released, then for the task in which focus moved to end.
+    let pressed = false
+    let later: ReturnType<typeof setTimeout> | undefined
+    // A focused field that is removed fires no focusout in Safari or Firefox: the page moves on (sign-in to Home) and
+    // the launcher stayed hidden there. While it is aside, a change to the page checks where focus is.
+    const removed = new MutationObserver(() => { if (!pressed && !entry(document.activeElement)) settle() })
+    const aside = (typing: boolean) => {
+      if (typing) removed.observe(document.body, { childList: true, subtree: true })
+      else removed.disconnect()
+      setTyping(typing)
+    }
+    const settle = () => { clearTimeout(later); later = setTimeout(() => { aside(entry(document.activeElement)) }, 0) }
+    const focusIn = (event: FocusEvent) => {
+      if (entry(event.target)) { clearTimeout(later); aside(true) }
+      else if (!pressed) settle()
+    }
+    const focusOut = (event: FocusEvent) => { if (!pressed && !entry(event.relatedTarget)) settle() }
+    const press = () => { pressed = true }
+    const release = () => { if (pressed) { pressed = false; settle() } }
     document.addEventListener('focusin', focusIn)
     document.addEventListener('focusout', focusOut)
-    setTyping(entry(document.activeElement))
-    return () => { document.removeEventListener('focusin', focusIn); document.removeEventListener('focusout', focusOut) }
+    document.addEventListener('pointerdown', press, true)
+    document.addEventListener('pointerup', release, true)
+    document.addEventListener('pointercancel', release, true)
+    aside(entry(document.activeElement))
+    return () => {
+      document.removeEventListener('focusin', focusIn); document.removeEventListener('focusout', focusOut)
+      document.removeEventListener('pointerdown', press, true); document.removeEventListener('pointerup', release, true)
+      document.removeEventListener('pointercancel', release, true)
+      clearTimeout(later); removed.disconnect()
+    }
   }, [])
   // In the commit that opens or closes the chat, not an effect after it, so focus has moved as soon as it is shown.
   useLayoutEffect(() => {

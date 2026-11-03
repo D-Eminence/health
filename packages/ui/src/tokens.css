@@ -820,10 +820,12 @@
   .hid-chat-launcher:focus-visible, .hid-chat-panel button:focus-visible, .hid-chat-panel a:focus-visible, .hid-chat-panel input:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
   .hid-chat-close:focus-visible { outline-color: white; outline-offset: -5px; }
   @media (max-width: 480px) { .hid-chat-panel { right: 16px; bottom: max(80px, calc(env(safe-area-inset-bottom) + 68px)); width: calc(100vw - 32px); height: min(560px, calc(100dvh - 100px - env(safe-area-inset-bottom))); border-radius: 16px; } .hid-chat-launcher { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); } }
-  /* On a phone the launcher must not sit on what the person is working on: a 48px round icon (its name stays for
-     assistive technology), above the bottom menu wherever the shell shows one (below 1024px, data-hid-bottom-nav), and
-     out of the way while a form field is being typed in. It fades rather than leaving the page or the tab order. */
-  @media (max-width: 480px) {
+  /* On a phone the launcher must not sit on what the person is working on: a 48px round icon below 640px (its name
+     stays for assistive technology; from 481px the pill covered the right end of a form's sticky buttons), above the
+     bottom menu wherever the shell shows one (below 1024px, data-hid-bottom-nav), and out of the way while a form field
+     is being typed in. It fades rather than leaving the page or the tab order. Sticky buttons and Back to top on the
+     public site leave it room where it is on the page (:root:has(.hid-chat-launcher)). */
+  @media (max-width: 639.98px) {
     .hid-chat-launcher { width: 48px; height: 48px; padding: 0; justify-content: center; gap: 0; }
     .hid-chat-launcher-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   }

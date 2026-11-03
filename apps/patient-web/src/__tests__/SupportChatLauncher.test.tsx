@@ -153,7 +153,8 @@ describe('the Support chat launcher on a phone', () => {
     rerender(<FormActions sticky={false}><button type="submit">Save</button></FormActions>)
     expect(bar().some(name => name.includes('hid-chat-launcher'))).toBe(false)
     // Share's steps end in their own bar, inside the card (16px in from the screen's edge).
-    expect(shareSource).toMatch(/data-form-actions=""[^>]*max-sm:sticky[^>]*max-sm:\[:root:has\(\.hid-chat-launcher\)_&\]:pr-\[60px\]/)
+    // On the footer's own line: its classes hold "[&>*]", so the match cannot stop at ">".
+    expect(shareSource).toMatch(/data-form-actions=""[^\n]*max-sm:sticky[^\n]*max-sm:\[:root:has\(\.hid-chat-launcher\)_&\]:pr-\[60px\]/)
   })
 
   it('leaves room at the foot of a page to scroll its last line clear of the launcher', () => {
