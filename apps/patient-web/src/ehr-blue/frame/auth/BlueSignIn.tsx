@@ -14,6 +14,7 @@ import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
 import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, SiteLink } from './BlueAuthLayout'
 import { getStaffLandingPath, passwordRefusal, TurnstileChallenge } from './signInParts'
+import { PRODUCTS, productOf, type Product } from '../product'
 
 function BlueMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type={type} {...rest} className={buttonClass({ variant: primary ? 'primary' : 'ghost', size: primary ? 'lg' : 'md', block: primary, className })} />
@@ -24,6 +25,16 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
   headingAs: 'h1',
   classNames: { step: 'staff-form staff-mfa', note: HINT, error: 'm-0 text-[13px] font-medium text-danger-ink', status: 'm-0 text-[13px] text-success-ink' },
   Button: BlueMfaButton,
+}
+
+/**
+ * The sign-in's welcome line and its last button, in the words of the product this site is (product.ts): the Hospital
+ * EHR on ehr. (and wherever no product site is named), each product's own name on lab., pharmacy., outreach., migrate.
+ */
+export function signInWords(product: Product): { readonly lede: string; readonly done: string } {
+  if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR' }
+  const name = `Health ID ${PRODUCTS[product].name}`
+  return { lede: `Sign in to ${name}.`, done: `Continue to ${name}` }
 }
 
 /**
@@ -89,14 +100,16 @@ export function BlueSignIn() {
   }
 
   const hrefs = authHrefs()
+  // Before signing in there are no permissions to go by: the site's own address names the product.
+  const words = signInWords(productOf(window.location.hostname, []))
   const recovery = staffRecoveryHref(window.location.hostname)
   return (
     <BlueAuthLayout title="Welcome back." titleId="blue-sign-in-title" titleAs={challenge ? 'p' : 'h1'} titleRef={heading}
-      lede={challenge ? undefined : 'Sign in to your hospital workspace.'} links={false}>
+      lede={challenge ? undefined : words.lede} links={false}>
       {challenge ? (
         <StaffMfaSteps challenge={challenge} look={BLUE_MFA_LOOK}
           calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
-          doneLabel="Continue to the Hospital EHR" onSignedIn={finish} onRestart={restart} restartLabel="Start again" />
+          doneLabel={words.done} onSignedIn={finish} onRestart={restart} restartLabel="Start again" />
       ) : <>
         {mfaRequired ? <Alert intent="info" size="sm">{STAFF_MFA_NOTICE}</Alert> : null}
         {/* One alert: the refusal, with the way to check a clinician application when that is why. */}

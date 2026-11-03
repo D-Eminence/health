@@ -109,7 +109,7 @@ async function renderSummary() {
 }
 
 const banner = () => screen.queryByRole('region', { name: `Patient: ${PATIENT_NAME}` })
-const LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every view is reviewed.'
+const LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
 
 function section(name: string) {

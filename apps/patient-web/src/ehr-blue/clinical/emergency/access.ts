@@ -25,7 +25,7 @@ export const REASON_MAX = 500
 
 /** Patients.tsx:243, the emergency notice, before and after the Novu sentence (Patients.tsx:46). */
 export const NOTICE_WHEN = 'Only when the patient can’t consent and care can’t wait'
-export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
+export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
 export const EMERGENCY_CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
 export const NOTICE_AFTER = 'You see this facility’s finished visits, signed notes, diagnoses, prescriptions, lab requests and documents. You can’t change anything.'
 

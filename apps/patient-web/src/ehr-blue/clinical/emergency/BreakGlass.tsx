@@ -21,7 +21,7 @@ type FieldKey = (typeof FIELDS)[number]
 type Problems = Partial<Record<FieldKey, string>>
 
 /** The acknowledgement, naming the expiry today's break-glass request asks for. */
-export const ACKNOWLEDGE = `I understand the patient is told, every view is reviewed, and access ends after ${EMERGENCY_MINUTES} minutes.`
+export const ACKNOWLEDGE = `I understand the patient is told, every opening is recorded, and access ends after ${EMERGENCY_MINUTES} minutes.`
 
 /** The open emergency patient, with the way back to their emergency summary. */
 export function CurrentEmergency() {

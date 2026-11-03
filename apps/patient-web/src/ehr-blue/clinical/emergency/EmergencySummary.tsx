@@ -16,7 +16,7 @@ import { ReleasedResults } from './ReleasedResults'
 
 /** Today's emergency summary wording (Clinical.tsx EmergencySummary), word for word. */
 export const SUMMARY_EYEBROW = 'Emergency summary'
-export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every view is reviewed.'
+export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 export const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
 export const SUMMARY_FAILED = 'Please try again.'
 export const LOADING_SUMMARY = 'Loading emergency summary'

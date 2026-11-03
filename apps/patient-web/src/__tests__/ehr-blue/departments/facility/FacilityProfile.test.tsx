@@ -129,10 +129,27 @@ describe('Facility profile: the target’s sections, read-only', () => {
     session.facility = fakeFacility(['lab.work-item.read'], { id: DEMO_LABORATORY_ID, name: 'Demo Laboratory', isPrimary: false })
     rerender(<MemoryRouter><div className="hid-ehr"><FacilityProfile /></div></MemoryRouter>)
 
-    expect(valueOf('Hospital name', section('Hospital details & picture'))).toBe('Demo Laboratory')
+    // A laboratory on its own is the Lab product (product.ts): the profile says laboratory, not hospital.
+    expect(valueOf('Laboratory name', section('Laboratory details & picture'))).toBe('Demo Laboratory')
     expect(valueOf('Your primary facility', section('Facility details'))).toBe('No')
     expect(screen.getByText('DL')).toBeTruthy()
     expect(screen.queryByText('Demo Hospital')).toBeNull()
+  })
+
+  it.each([
+    { product: 'a laboratory', permissions: ['lab.work-item.read'], place: 'Laboratory', inCharge: 'Lead scientist' },
+    { product: 'a pharmacy', permissions: ['pharmacy.work-item.read'], place: 'Pharmacy', inCharge: 'Superintendent pharmacist' },
+  ])('speaks of $product, not a hospital, and asks no bed count there', ({ permissions, place, inCharge }) => {
+    session.facility = fakeFacility(permissions, { id: DEMO_LABORATORY_ID, name: 'Demo Place' })
+    renderDept(<FacilityProfile />)
+    const details = section(`${place} details & picture`)
+    expect(valueOf(`${place} name`, details)).toBe('Demo Place')
+    for (const label of [`${place} profile picture or logo`, `${place} phone`, `${place} email`, `${place} address`, inCharge]) {
+      expect(valueOf(label, details), label).toBe(NOT_AVAILABLE)
+    }
+    expect(within(details).queryByText('Bed count')).toBeNull()
+    expect(within(details).queryByText('Medical Director')).toBeNull()
+    expect(details.textContent).not.toMatch(/Hospital/)
   })
 
   it('asks for a facility when the session has none', () => {

@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type * as StaffApi from '../../../../staff/api'
-import { BlueSignIn } from '../../../../ehr-blue/frame/auth/BlueSignIn'
+import { BlueSignIn, signInWords } from '../../../../ehr-blue/frame/auth/BlueSignIn'
 import { BlueRecovery } from '../../../../ehr-blue/frame/auth/BlueRecovery'
 import { BlueStaffInvitation } from '../../../../ehr-blue/frame/auth/BlueStaffInvitation'
 import { STAFF_MFA_FACTOR_UNPROVEN } from '../../../../staff/routes/StaffMfaSteps'
@@ -127,6 +127,29 @@ describe('BlueSignIn', () => {
       }
       expect(screen.queryByText(/main Health ID site/)).toBeNull()
     } finally { vi.unstubAllGlobals() }
+  })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'Sign in to your hospital workspace.'],
+    ['lab.healthidentitydirectory.com', 'Sign in to Health ID Lab.'],
+    ['pharmacy.healthidentitydirectory.com', 'Sign in to Health ID Pharmacy.'],
+    ['outreach.healthidentitydirectory.com', 'Sign in to Health ID Outreach.'],
+    ['migrate.staging.healthidentitydirectory.com', 'Sign in to Health ID Migrate.'],
+  ])('on %s, names that product: %s', (hostname, lede) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      open('/provider/sign-in', <BlueSignIn />)
+      expect(screen.getByText(lede)).toBeDefined()
+      if (!hostname.startsWith('ehr.')) expect(document.body.textContent).not.toMatch(/hospital workspace|Hospital EHR/)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('ends the authenticator step with each product\'s own name', () => {
+    expect(signInWords('ehr')).toEqual({ lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR' })
+    expect(signInWords('lab')).toEqual({ lede: 'Sign in to Health ID Lab.', done: 'Continue to Health ID Lab' })
+    expect(signInWords('pharmacy').done).toBe('Continue to Health ID Pharmacy')
+    expect(signInWords('outreach').done).toBe('Continue to Health ID Outreach')
+    expect(signInWords('migrate').done).toBe('Continue to Health ID Migrate')
   })
 
   it('shows and hides the password with the design\'s button', () => {
