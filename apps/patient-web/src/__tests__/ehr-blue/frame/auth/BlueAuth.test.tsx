@@ -108,6 +108,7 @@ describe('BlueSignIn', () => {
     ['lab.healthidentitydirectory.com', 'you@work.org'],
     ['pharmacy.healthidentitydirectory.com', 'you@work.org'],
     ['outreach.healthidentitydirectory.com', 'you@work.org'],
+    ['migrate.healthidentitydirectory.com', 'you@work.org'],
   ])('on %s asks for the work email as today, with an example address that fits the site, and says who gives accounts', (hostname, example) => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
     try {

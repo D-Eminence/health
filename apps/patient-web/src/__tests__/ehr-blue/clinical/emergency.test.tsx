@@ -48,7 +48,7 @@ const REASON_TOO_SHORT = 'Say why in at least 8 characters.'
 const WHEN = 'Only when the patient can’t consent and care can’t wait'
 const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
 const CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
-const AFTER = 'You see this facility’s finished visits and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files. You can’t change anything.'
+const AFTER = 'You see this facility’s finished visits and signed notes, and the diagnoses, prescriptions, lab tests and documents your role may read. It shows no vital signs and opens no files. You can’t change anything.'
 const FAILED_TITLE = 'Couldn’t open emergency access'
 const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.authorization, breakGlass: true } }
 

@@ -28,8 +28,10 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
 }
 
 /**
- * The sign-in's welcome line and its last button, in the words of the product this site is (product.ts): the Hospital
- * EHR on ehr. (and wherever no product site is named), each product's own name on lab., pharmacy., outreach., migrate.
+ * The sign-in's welcome line, its last button and the example work address in the email field, in the words of the
+ * product this site is (product.ts): the Hospital EHR on ehr. (and wherever no product site is named), each product's
+ * own name on lab., pharmacy., outreach., migrate. The example is you@hospital.org on the Hospital EHR only and
+ * you@work.org on each product site.
  */
 export function signInWords(product: Product): { readonly lede: string; readonly done: string; readonly emailExample: string } {
   if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' }

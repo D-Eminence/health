@@ -62,7 +62,7 @@ describe('emergency access says only what is true', () => {
 describe('the emergency notice says what the summary really shows and who is really told', () => {
   it('names the role\'s limits, no vital signs and no files, and only verified contacts chosen to notify while alerts are on', () => {
     for (const words of [emergencyNotice(false), emergencyNotice(true)]) {
-      expect(words).toContain('the diagnoses, prescriptions, lab requests and documents your role may read.')
+      expect(words).toContain('the diagnoses, prescriptions, lab tests and documents your role may read.')
       expect(words).toContain('It shows no vital signs and opens no files.')
     }
     expect(emergencyNotice(true)).toContain('While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told')
