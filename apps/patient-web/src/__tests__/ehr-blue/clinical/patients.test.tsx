@@ -801,6 +801,88 @@ describe('Register a patient is the EHR’s alone', () => {
   })
 })
 
+/**
+ * Audit rank 2: on a single product's site (lab., pharmacy.) Consultation, Triage, Emergency and the samples are the
+ * hospital EHR's, and the frame sends any of them back to Home. So a patient's page and Find a patient offer no button
+ * that leads there; where that leaves Next steps empty, one plain line says where those are. The EHR's own site keeps
+ * every step. The hosts are only set as the page's address: nothing is sent there.
+ */
+describe('Hospital-only steps on a product’s site', () => {
+  const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+  const EVERYTHING = [...ALL, ...WRITES, 'identity.break-glass.write']
+  const ON_EHR = 'Charts, visits and emergency access are on the Hospital EHR.'
+  function on(host: string, onTestFinished: (fn: () => void) => void) {
+    const servedFrom = window.location.href
+    onTestFinished(() => { jsdom.reconfigure({ url: servedFrom }) })
+    jsdom.reconfigure({ url: `https://${host}/provider/patients` })
+  }
+
+  it.for(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com'])('offers no chart, consultation, vitals, walk-in or emergency step on %s', async (host, { onTestFinished }) => {
+    on(host, onTestFinished)
+    atDemoHospital()
+    staff.permissions = [...EVERYTHING]
+    staff.activePatient = activePatient()
+    open('/open')
+    expect(screen.getByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open chart' })).toBeNull()
+    expect(nextSteps()).toEqual(['Ask for more access'])
+    // Ask for more access is still a step, so the plain line is not needed.
+    expect(screen.queryByText(ON_EHR)).toBeNull()
+    // Each visit opens in Consultation, so none is listed, and none is read.
+    expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
+    await act(async () => {})
+    expect(api.encounters).not.toHaveBeenCalled()
+  })
+
+  it('says in one plain line where the steps are when none is left, with no link', ({ onTestFinished }) => {
+    on('lab.healthidentitydirectory.com', onTestFinished)
+    atDemoHospital()
+    staff.permissions = ['identity.patient.read', ...WRITES, 'ehr.encounter.read', 'identity.break-glass.write']
+    staff.activePatient = activePatient()
+    open('/open')
+    expect(nextSteps()).toEqual([])
+    const line = screen.getByText(ON_EHR)
+    expect(line.closest('section')).toBe(screen.getByRole('heading', { level: 2, name: 'Next steps' }).closest('section'))
+    expect(line.querySelector('a')).toBeNull()
+    expect(screen.queryByRole('link', { name: /Hospital EHR/ })).toBeNull()
+  })
+
+  it('offers no emergency summary on a pharmacy’s site, while the ways to direct care stay', ({ onTestFinished }) => {
+    on('pharmacy.healthidentitydirectory.com', onTestFinished)
+    staff.permissions = [...EVERYTHING]
+    staff.activePatient = activePatient('emergency')
+    open('/open')
+    expect(screen.queryByRole('button', { name: 'Open emergency summary' })).toBeNull()
+    expect(nextSteps()).toEqual(['Use their Access PIN', 'Ask the patient'])
+  })
+
+  it.for(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com'])('offers only the Access PIN under Obtain access on %s', (host, { onTestFinished }) => {
+    on(host, onTestFinished)
+    staff.permissions = [...EVERYTHING]
+    open()
+    const tiles = tileTitles(accessGroup())
+    expect(tiles).toContain('Use their Access PIN')
+    expect(tiles).not.toContain('Emergency access')
+    expect(screen.queryByText(EMERGENCY_UNAVAILABLE)).toBeNull()
+  })
+
+  it('keeps every step on the EHR’s own site', async ({ onTestFinished }) => {
+    on('ehr.healthidentitydirectory.com', onTestFinished)
+    atDemoHospital()
+    staff.permissions = [...EVERYTHING]
+    staff.activePatient = activePatient()
+    const page = open('/open')
+    expect(screen.getByRole('button', { name: 'Open chart' })).toBeTruthy()
+    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Register a walk-in visit', 'Ask for more access', 'Emergency access'])
+    expect(screen.queryByText(ON_EHR)).toBeNull()
+    expect(await screen.findByRole('heading', { name: 'Visits here' })).toBeTruthy()
+    page.unmount()
+    staff.activePatient = null
+    open()
+    expect(tileTitles(accessGroup())).toEqual(expect.arrayContaining(['Use their Access PIN', 'Emergency access']))
+  })
+})
+
 describe('Registration, sharing and the patient-reported allergies (#62, in this design)', () => {
   it('offers Register a patient only with identity.registration.write, carrying nothing of a patient', async () => {
     const without = open()

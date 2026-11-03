@@ -14,6 +14,7 @@ import { useLateCorrectionServed } from '../../../lateCorrectionServed'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import type { PaymentSettings } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -90,7 +91,9 @@ export function Laboratory() {
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
-  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
+  // Payment setup is a point-of-care route Health ID does not serve yet (commerce/served.ts): read at the demo facilities
+  // only, as Pharmacy does, so a real facility sends no request and no test waits for payment.
+  const paymentSettings = usePaymentSettings(canRead && pointOfCareOpen(facilityId) ? facilityId : undefined)
   const settings: PaymentSettings | null = paymentSettings.status === 'ready' ? paymentSettings.data : null
 
   const items = list.items ? notCompleted.shown(list.items) : []
