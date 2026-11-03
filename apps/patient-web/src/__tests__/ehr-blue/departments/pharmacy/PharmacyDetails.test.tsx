@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { drugOf } from '../../../../ehr-blue/departments/pharmacy/drugForm'
-import { durationText, labelText, prescribedQuantity, queueOrder } from '../../../../ehr-blue/departments/pharmacy/pharmacyText'
+import { durationText, labelText, matchesItem, prescribedQuantity, queueOrder } from '../../../../ehr-blue/departments/pharmacy/pharmacyText'
 import { recordFacts } from '../../../../ehr-blue/departments/pharmacy/PharmacyRecord'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
@@ -231,5 +231,13 @@ describe('the route', () => {
 
   it('writes the plain route on the label', () => {
     expect(labelText({ ...accepted, routeCode: 'PO' }, 'capsule')).toMatch(/^Take 1 capsule by mouth /)
+  })
+
+  it('finds a prescription by the plain route words shown on screen, and still by its route code', () => {
+    const oral = { ...accepted, routeCode: 'PO' }
+    expect(matchesItem('by mouth', oral, 'accepted')).toBe(true)
+    expect(matchesItem('po', oral, 'accepted')).toBe(true)
+    expect(matchesItem('into a vein', oral, 'accepted')).toBe(false)
+    expect(matchesItem('into a vein', { ...accepted, routeCode: 'IV' }, 'accepted')).toBe(true)
   })
 })

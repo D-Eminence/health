@@ -95,7 +95,7 @@ export function routeAlert(route: WorkItemOrderRoute | undefined, late: boolean)
 
 /** Whether a row matches the list's search: its medication, patient, dose, route, priority and the order it came from. */
 export function matchesItem(query: string, item: PharmacyWorkItem, status: PharmacyStatus): boolean {
-  return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, item.instructions,
+  return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, routeLabel(item.routeCode), item.instructions,
     status, priorityLabel(item.priority), item.orderRoute?.orderingFacilityName, item.orderRoute?.reference, item.orderRoute?.ordererName,
     item.id.slice(0, 8)])
 }

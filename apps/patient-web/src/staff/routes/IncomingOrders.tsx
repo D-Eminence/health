@@ -14,6 +14,8 @@ import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
 import { useWrongPatientServed } from '../../wrongPatientServed'
 import { useCannotCompleteServed } from '../../cannotCompleteServed'
+import { routeLabel } from '../../plainLabels'
+import { codeText, MoreDetails } from '../../ehr-blue/clinical/parts/MoreDetails'
 
 const HID_PROBLEM = 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
 /** How often Incoming is read again while the page is in view (SPEC-FINAL §13.3). */
@@ -30,15 +32,36 @@ type AcceptedWith = 'health_id' | 'date_of_birth' | 'date_of_birth_with_referenc
 
 /** What the order is, in its card's title. */
 function orderTitle(route: IncomingOrderRoute, service: ReceivingService): string {
-  return (service === 'lab' ? route.test?.name : route.medication?.display) ?? (service === 'lab' ? 'Lab request' : 'Prescription')
+  if (service === 'lab') return route.test?.name?.trim() || testCode(route) || 'Lab request'
+  return route.medication?.display ?? 'Prescription'
 }
 
-/** The prescription's dose, route and frequency, as far as they were written. */
+/** The test's code with its coding system ("LOINC 718-7"), or '' when there is none. */
+function testCode(route: IncomingOrderRoute): string {
+  return route.test ? codeText(route.test.codeSystem, route.test.code) : ''
+}
+
+/**
+ * The prescription's dose, route and frequency, as far as they were written: the route in plain words ("by mouth" for
+ * PO), or as the prescriber wrote it when there is no word for it here (owner decision 33.4).
+ */
 function doseLine(route: IncomingOrderRoute): string | null {
   const dose = route.doseQuantity === null || route.doseQuantity === undefined || route.doseQuantity === ''
     ? null : `${String(route.doseQuantity)} ${route.doseUnit ?? ''}`.trim()
-  const parts = [dose, route.routeCode ? `Route: ${route.routeCode}` : null, route.frequency ?? null].filter(Boolean)
+  const written = route.routeCode?.trim() ?? ''
+  const parts = [dose, written ? routeLabel(written) ?? written : null, route.frequency ?? null].filter(Boolean)
   return parts.length ? parts.join(' · ') : null
+}
+
+/** What the card keeps under "More details": the test's code beside its name, the route code beside its plain words. */
+function codeDetails(route: IncomingOrderRoute, service: ReceivingService): string[] {
+  if (service === 'lab') {
+    const code = testCode(route)
+    return code && route.test?.name?.trim() ? [`Code: ${code}`] : []
+  }
+  const written = route.routeCode?.trim() ?? ''
+  const plain = routeLabel(written)
+  return written && plain && written.toLowerCase() !== plain ? [`Route code: ${written}`] : []
 }
 
 /** "Tunde Bello, male, born 12 Mar 1985, Health ID ending 7KQ2". */
@@ -339,15 +362,18 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, acceptabl
   }
 
   const dose = service === 'pharmacy' ? doseLine(route) : null
+  const labLine = service === 'lab' && route.test ? [route.specimenTypeCode ? `Specimen: ${route.specimenTypeCode}` : null,
+    route.priority ? priorityLabel(route.priority) : null].filter(Boolean).join(' · ') : ''
+  const details = codeDetails(route, service)
   return <div className="staff-list-item staff-stack" aria-labelledby={`${id}-title`}>
     <div className="staff-row"><strong id={`${id}-title`} tabIndex={-1}>{title}</strong>
       {route.priority && route.priority !== 'routine' && <Badge tone="warning">{priorityLabel(route.priority)}</Badge>}
       {route.acceptLocked && <Badge tone="danger">Can’t be accepted here</Badge>}</div>
     <p>From {ordering}{route.orderer.name ? ` · Ordered by ${route.orderer.name}` : ''}{route.orderer.name || route.test || route.medication
       ? ` · ${licenceLine(route.orderer.licenceBody)}` : ''}</p>
-    {service === 'lab' && route.test && <p className="staff-muted">{[route.test.codeSystem, route.test.code].filter(Boolean).join(' ')}
-      {route.specimenTypeCode ? ` · Specimen: ${route.specimenTypeCode}` : ''}{route.priority ? ` · ${priorityLabel(route.priority)}` : ''}</p>}
+    {labLine && <p className="staff-muted">{labLine}</p>}
     {dose && <p>{dose}</p>}
+    {details.length > 0 && <MoreDetails about={title}>{details.map(line => <span key={line}>{line}</span>)}</MoreDetails>}
     {service === 'pharmacy' && (route.startsOn || route.endsOn) && <p className="staff-muted">{[route.startsOn && `Starts ${calendarDate(route.startsOn)}`,
       route.endsOn && `Ends ${calendarDate(route.endsOn)}`].filter(Boolean).join(' · ')}</p>}
     <p className="staff-muted">Sent {routeMoment(route.sentAt)} · Accept by {routeMoment(route.respondBy)}{route.reference ? ` · Ref ${route.reference}` : ''}</p>
