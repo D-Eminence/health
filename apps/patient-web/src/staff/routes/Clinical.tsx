@@ -220,7 +220,7 @@ function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: bo
       // checks the caller before what it holds, so a refusal does not say Lab lacks the request.
       // Lab's code is never shown (owner's rule, 1 Nov 2026): the laboratory is told to sort it out.
       return { accepted: false, sendable: true, text: LAB_REFUSALS.has(handoff.status)
-        ? `Lab request ${done} in the EHR: its status is saved, but the laboratory didn’t accept it. Contact the laboratory, then ${sendItFrom(canSend)}.`
+        ? `Lab request ${done} in the EHR: its status is saved, but Lab refused it. Contact the laboratory, then ${sendItFrom(canSend)}.`
         : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
     }
     case 'not_sent':
@@ -1516,7 +1516,7 @@ export function Clinical() {
       const requestId = named.requestId ?? (Array.isArray(items) ? items.find(item => item.status === 'active'
         && item.testCodeSystem === fields.testCodeSystem && item.testCode === fields.testCode)?.id : undefined)
       labWarning(caught.code === 'LAB_HANDOFF_REFUSED'
-        ? `Lab request saved and active in the EHR, but the laboratory didn’t accept it, so they don’t have it yet. Do not create it again: contact the laboratory, then ${sendItFrom(canSendToLab)}.`
+        ? `Lab request saved and active in the EHR, but Lab refused it, so the Laboratory does not have it. Do not create it again: contact the laboratory, then ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`,
       requestId, items)
       return
