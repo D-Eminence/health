@@ -117,9 +117,10 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
               onChange={event => { setPin(event.target.value); if (problem?.field === 'pin') setProblem(null) }} />
           </Field>
           {/* The paper records line only when the patient's age is known here (their record is open for direct care) and
-              they are an adult, to a role that brings in paper records. Never under emergency access, which can't. */}
+              they are an adult, to a role that brings in paper records, on access that can add records. Never under
+              emergency access, which can't. */}
           {activePatient?.purpose === 'direct-care' && activePatient.hid === normalizeHealthIdInput(hid) && permissions.includes('ocr.job.read')
-            && isAdult(activePatient.lookup.patient.dateOfBirth)
+            && activePatient.lookup.authorization.scope === 'write_records' && isAdult(activePatient.lookup.patient.dateOfBirth)
             ? <p className="m-0 text-[13px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
           {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           {error ? <Alert intent="error" title="Couldn’t open the record">{error}</Alert> : null}

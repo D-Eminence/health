@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createApiClient } from '@hid/http'
@@ -31,13 +31,14 @@ function renderAccess(request: AccessRequest, dateOfBirth: string | null) {
     if (path.endsWith('/me/access-history')) return json({ items: [] })
     if (path.endsWith('/identity/me')) return json({ hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth })
     return json({}, 404)
-  }) as typeof fetch
+  })
   const api = createPatientApi(createRegisteredBrowserClient(createApiClient({
-    baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl,
+    baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl: fetchImpl as typeof fetch,
   }), 'patient-web'))
   render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
   }, api)}><ToastProvider><AccessPage /></ToastProvider></SessionContext.Provider></MemoryRouter>)
+  return fetchImpl
 }
 
 async function review() {
@@ -61,9 +62,20 @@ describe('the 24-hour paper records rule, as the patient reads it', () => {
   })
 
   it('is not said to someone under 18', async () => {
-    renderAccess(pending, `${new Date().getUTCFullYear() - 10}-01-01`)
+    const fetched = renderAccess(pending, `${new Date().getUTCFullYear() - 10}-01-01`)
     const drawer = await review()
     expect(await drawer.findByText(/You can end access at any time/)).toBeTruthy()
+    // Only once the profile has answered could the line show.
+    await waitFor(() => expect(fetched.mock.calls.some(([url]) => new URL(String(url)).pathname.endsWith('/identity/me'))).toBe(true))
+    await act(async () => { await Promise.resolve() })
+    expect(drawer.queryByText(/paper records/)).toBeNull()
+  })
+
+  it('is not said while the age is unknown', async () => {
+    const fetched = renderAccess(pending, null)
+    const drawer = await review()
+    await waitFor(() => expect(fetched.mock.calls.some(([url]) => new URL(String(url)).pathname.endsWith('/identity/me'))).toBe(true))
+    await act(async () => { await Promise.resolve() })
     expect(drawer.queryByText(/paper records/)).toBeNull()
   })
 
