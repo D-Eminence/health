@@ -339,6 +339,10 @@ describe('a lab request sent from ehr. to another laboratory (Lakeside Diagnosti
     expect(await screen.findByText('This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.')).toBeTruthy()
     expect(ended.closest('[hidden]')).toBeNull()
     expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Haemoglobin'])
+    // The router moves the address in a transition: let it settle, then the request must still be the one open.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(address()).toMatch(new RegExp(`^${WORK_LIST}/${lab.work()[0]!.id}(\\?|$)`))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Haemoglobin'])
     expect(lab.routes()).toEqual([expect.objectContaining({ effectiveState: 'cancelled', endedKind: 'receiving_unable' })])
 
     // On ehr., the order says Lakeside couldn't complete it.
