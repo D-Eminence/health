@@ -1,11 +1,13 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactElement } from 'react'
 import { DEMO_HOSPITAL_ID, renderDept, type FakeFacility } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
 import { registrationPage } from '../../../../ehr-blue/departments/registration/page'
+import { BluePagesProvider, OpenPagesProvider } from '../../../../ehr-blue/frame/pageContext'
+import type { EhrBluePage } from '../../../../ehr-blue/frame/types'
 
 /*
  * The blue Patient registration page: the design's patients workspace (list, "New patients" form, saved record with
@@ -950,5 +952,74 @@ describe('what the page keeps', () => {
     expect(heading().textContent).toBe('Patient registration')
     expect(screen.queryByText(CASE)).toBeNull()
     expect((api.registrationCase as Mock).mock.calls).toHaveLength(1)
+  })
+})
+
+describe('Open in Patients', () => {
+  // Patients as the clinical registry has it (clinical/pages.ts): live, with patient lookup.
+  const PATIENTS: EhrBluePage = { path: 'patients/*', group: 'Clinical', label: 'Patients', permission: 'identity.patient.read', status: 'live', element: <p>Patients</p> }
+  const READ = 'identity.patient.read'
+
+  /** What Patients was handed: the navigation state it reads the Health ID from (PatientsWorkspace.tsx). */
+  function Handed() {
+    const location = useLocation()
+    return <p>Patients was handed {JSON.stringify(location.state)}</p>
+  }
+
+  /** Patient registration with `open` as the pages this product's site opens to this session (the frame's openHere). */
+  async function findCaseWith(open: readonly EhrBluePage[]) {
+    render(
+      <MemoryRouter initialEntries={['/provider/registration']}>
+        <BluePagesProvider value={[PATIENTS]}><OpenPagesProvider value={open}>
+          <Routes>
+            <Route path="/provider/registration" element={<div className="hid-ehr"><PatientRegistration /></div>} />
+            <Route path="/provider/patients" element={<Handed />} />
+          </Routes>
+        </OpenPagesProvider></BluePagesProvider>
+      </MemoryRouter>,
+    )
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    return screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
+  }
+
+  it('hands a patient whose case has a Health ID on to Patients, with only the Health ID', async () => {
+    session.permissions = [WRITE, APPROVE, READ]
+    api.registrationCase.mockResolvedValue(linked)
+    await findCaseWith([PATIENTS])
+    const open = screen.getByRole('link', { name: 'Open in Patients' })
+    expect(open.getAttribute('href')).toBe('/provider/patients')
+    fireEvent.click(open)
+    expect(await screen.findByText('Patients was handed {"hid":"HID-ZDEMAAA2"}')).toBeTruthy()
+  })
+
+  it('offers it once an account is made, with the Health ID the account was made for', async () => {
+    session.permissions = [WRITE, APPROVE, READ]
+    // A completed case read without its patient: only the account just made gives the Health ID.
+    api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0 })
+    api.enrollRegistration.mockResolvedValue({ patientId: PATIENT, hid: 'HID-ZDEMAAA2', contactVerificationRequired: true, replayed: false })
+    await findCaseWith([PATIENTS])
+    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Enroll patient account' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Patient email' }), { target: { value: 'patient.one@example.test' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Enrollment reason' }), { target: { value: 'Patient asked for an account' } })
+    fireEvent.click(within(screen.getByRole('form', { name: 'Enroll patient account' })).getByRole('button', { name: 'Create pending patient account' }))
+    expect(await screen.findByText('Pending account created for HID-ZDEMAAA2. Contact verification is required.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('link', { name: 'Open in Patients' }))
+    expect(await screen.findByText('Patients was handed {"hid":"HID-ZDEMAAA2"}')).toBeTruthy()
+  })
+
+  it('is not offered to a role that cannot open Patients', async () => {
+    session.permissions = [WRITE, APPROVE]
+    api.registrationCase.mockResolvedValue(linked)
+    await findCaseWith([PATIENTS])
+    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+  })
+
+  it('is not offered where this product\'s site does not open Patients', async () => {
+    session.permissions = [WRITE, APPROVE, READ]
+    api.registrationCase.mockResolvedValue(linked)
+    await findCaseWith([])
+    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
   })
 })

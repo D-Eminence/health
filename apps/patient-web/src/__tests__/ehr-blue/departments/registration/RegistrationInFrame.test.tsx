@@ -17,9 +17,13 @@ beforeEach(() => {
     const frame = await import('../../../../ehr-blue/frame/pages')
     const home = await import('../../../../ehr-blue/home/pages')
     const { registrationPage } = await import('../../../../ehr-blue/departments/registration/page')
+    // Patients, where a registered patient is handed on to ("Open in Patients").
+    const clinical = await import('../../../../ehr-blue/clinical/pages')
+    const patients = clinical.pages.filter(page => page.path === 'patients/*')
     return {
       ...actual,
-      BLUE_PAGES: actual.collectPages({ './frame/pages.ts': frame, './home/pages.ts': home, './departments/pages.ts': { pages: [registrationPage] } }),
+      BLUE_PAGES: actual.collectPages({ './frame/pages.ts': frame, './home/pages.ts': home, './clinical/pages.ts': { pages: patients },
+        './departments/pages.ts': { pages: [registrationPage] } }),
     }
   })
 })
@@ -110,5 +114,26 @@ describe('Patient registration in the frame', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
     expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
+    // Patients is not open to a role without patient lookup: no way there is offered.
+    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+  })
+
+  it('hands a registered patient on to Patients with their Health ID filled in, where Patients is open to this session', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital',
+      ['identity.registration.write', 'identity.registration.approve', 'identity.patient.read'], ['records_officer'])
+    serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled), [CASE_READ]: [approved] })
+    await openStaffApp('/provider/registration')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'Next steps' })).toBeDefined()
+    const patients = screen.getByRole('link', { name: 'Open in Patients' })
+    expect(patients.getAttribute('href')).toBe('/provider/patients')
+    fireEvent.click(patients)
+    await waitFor(() => expect(where()).toBe('/provider/patients'))
+    // Only the Health ID goes with it, in navigation state, never in the address.
+    expect(where()).not.toContain(CASE)
+    expect(where()).not.toContain('HID-')
+    expect((await screen.findByRole('textbox', { name: 'Health ID' }) as HTMLInputElement).value).toBe('HID-ZDEMAAA2')
   })
 })

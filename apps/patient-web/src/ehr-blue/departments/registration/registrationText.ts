@@ -168,6 +168,8 @@ export const NEW_TITLE = 'New patient registration'
 export const SAVED_RECORD = 'Saved record'
 export const NO_ACTIONS = 'Nothing else to do here.'
 export const NEXT_STEPS = 'Next steps'
+/** Goes to Patients with the patient's Health ID filled in, as classic registration's "Find … and open their chart". */
+export const OPEN_IN_PATIENTS = 'Open in Patients'
 /** Owner decision: a design field Health ID does not take is shown, disabled, with this hint. Never sent or kept. */
 export const NOT_COLLECTED = 'Not collected by Health ID yet'
 /** catalog.ts patients: the fields Health ID does not take. */

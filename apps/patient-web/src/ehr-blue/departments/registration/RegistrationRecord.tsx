@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { useStaff } from '../../../staff/App'
 import { pageAllowed } from '../../frame/pageAccess'
-import { useBluePages } from '../../frame/pageContext'
+import { useBluePages, useOpenPages } from '../../frame/pageContext'
 import { pageHrefOf } from '../../frame/pageHref'
 import { modulePath } from '../../frame/sample/paths'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -16,7 +16,7 @@ import {
   APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE, candidatesText,
   caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText,
   ENROLLING, LINK, LINK_REASON_LABEL, LOADING, NEXT_STEPS, NO_ACTIONS, NO_CANDIDATE_NOTICE, NO_CORRECTION, REFRESH_CASE, REVIEW_NOTICE,
-  MORE_DETAILS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, statusLabel,
+  MORE_DETAILS, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, statusLabel,
 } from './registrationText'
 
 type OpenForm = ReviewAction | 'enroll'
@@ -40,6 +40,19 @@ function useNextSteps() {
     const page = pages.find(candidate => pageHrefOf(candidate) === href)
     return page && page.status !== 'sample' && pageAllowed(page, session) ? [{ ...step, href }] : []
   })
+}
+
+/**
+ * Where Patients opens for this session in this product (its permission held, and the product's site opening it), or
+ * null. Classic registration's hand-off (staff/routes/Registration.tsx 265-267) goes there with the Health ID.
+ */
+function usePatientsHref(): string | null {
+  const { state } = useStaff()
+  const session = state.status === 'ready' ? state.session : null
+  const pages = useOpenPages()
+  const href = modulePath('patients')
+  const page = pages.find(candidate => pageHrefOf(candidate) === href)
+  return page && page.status !== 'sample' && pageAllowed(page, session) ? href : null
 }
 
 /**
@@ -67,6 +80,11 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const { enrollment } = visit
   const [open, setOpen] = useState<OpenForm | null>(null)
   const next = useNextSteps()
+  const patientsHref = usePatientsHref()
+  // The patient's Health ID once the case has one, or the account just made gives one.
+  const hid = enrollment?.hid ?? registration.patient?.hid ?? null
+  const findPatient = hid && patientsHref ? hid : null
+  const nextHere = registration.patient ? next : []
   const completed = COMPLETED.has(registration.status)
   const candidates = registration.candidates ?? []
   // Registration.tsx 253, 255, 256: who may decide, and what this state of the case allows.
@@ -193,10 +211,14 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
               </form>
             ) : null}
             {offered.link || offered.approve || offered.enroll ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
-            {registration.patient && next.length ? (
+            {findPatient || nextHere.length ? (
               <div className="hid-ehr-dept-registration-next">
                 <h3>{NEXT_STEPS}</h3>
-                {next.map(step => (
+                {/* Patients reads the handed Health ID from navigation state and puts it in Find a patient. */}
+                {findPatient && patientsHref ? (
+                  <p><Link className="hid-ehr-button" to={patientsHref} state={{ hid: findPatient }}>{OPEN_IN_PATIENTS}</Link></p>
+                ) : null}
+                {nextHere.map(step => (
                   <p key={step.module}><Link className="hid-ehr-button hid-ehr-button-secondary" to={step.href}>{step.label}</Link></p>
                 ))}
               </div>
