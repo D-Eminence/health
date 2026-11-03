@@ -290,7 +290,8 @@ describe('HCS-24: an empty Home', () => {
     expect(activity.getByText('When a hospital asks to see your records, opens them or is given access, you’ll see it here.')).toBeTruthy()
     // The shared empty state's drawing, in both.
     for (const name of ['Latest from your providers', 'Activity']) {
-      expect(screen.getByRole('region', { name }).querySelectorAll('svg[viewBox="0 0 120 96"]')).toHaveLength(1)
+      const drawings = Array.from(screen.getByRole('region', { name }).querySelectorAll('svg')).filter(svg => svg.getAttribute('viewBox') === '0 0 120 96')
+      expect(drawings).toHaveLength(1)
     }
   })
 })
@@ -298,7 +299,8 @@ describe('HCS-24: an empty Home', () => {
 describe('HCS-28: a profile answer with nothing in it', () => {
   it('says the Health ID could not be read, with Try again and a way to reach support', async () => {
     let reads = 0
-    const { sent } = renderPortal(<Overview />, gateway({ '/identity/me': () => ++reads === 1 ? json(null) : json(patient) }), {}, served)
+    // An answer with no body: the client reads it as nothing (a body of "null" it calls unreadable, and tries again).
+    const { sent } = renderPortal(<Overview />, gateway({ '/identity/me': () => ++reads === 1 ? new Response(null, { status: 204 }) : json(patient) }), {}, served)
     expect(await screen.findByText('We couldn’t read your Health ID')).toBeTruthy()
     expect(screen.queryByText(/returned/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Email support' }).getAttribute('href')).toBe('mailto:support@healthidentitydirectory.com')

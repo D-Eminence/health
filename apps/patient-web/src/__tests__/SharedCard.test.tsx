@@ -122,6 +122,9 @@ describe('the patient\'s preview of their card, once the card link opens', () =>
       </SessionContext.Provider></MemoryRouter>)
     return { sent }
   }
+  /** A read that fails, and is not one the client tries again by itself. */
+  const failure = () => json({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'UPSTREAM_UNAVAILABLE',
+    detail: 'This information is unavailable right now.', retryable: false }, 503)
   const served: Handler = path => path === '/identity/me' ? json(profile) : path === '/ehr/me/records' ? json(productionRecords) : problem(404, 'NOT_FOUND', path)
 
   // HCS-03: what it printed was always "View only" and "Until ended", whatever the share was.
@@ -145,7 +148,7 @@ describe('the patient\'s preview of their card, once the card link opens', () =>
   // HCS-18: a failed read showed "Loading your card…" for ever, with no way on.
   it('says the card could not be loaded, with Try again and a way back, and shows it once it loads', async () => {
     let failed = true
-    const { sent } = previewOf(null, path => path === '/identity/me' ? failed ? problem(500, 'INTERNAL', 'Boom') : json(profile) : served(path, 'GET', null))
+    const { sent } = previewOf(null, path => path === '/identity/me' ? failed ? failure() : json(profile) : served(path, 'GET', null))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t load your card')
     expect(screen.queryByText('Loading your card…')).toBeNull()
@@ -159,7 +162,7 @@ describe('the patient\'s preview of their card, once the card link opens', () =>
 
   it('says the records could not be loaded, with Try again, rather than loading for ever', async () => {
     let failed = true
-    previewOf(null, path => path === '/ehr/me/records' && failed ? problem(500, 'INTERNAL', 'Boom') : served(path, 'GET', null))
+    previewOf(null, path => path === '/ehr/me/records' && failed ? failure() : served(path, 'GET', null))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t load your records')
     expect(screen.queryByText('Loading records…')).toBeNull()
