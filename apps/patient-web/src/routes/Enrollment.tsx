@@ -8,7 +8,6 @@ import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './e
 import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
-import { StaffSignInLink } from '../staffSignIn'
 import { useSession } from '../session'
 import { isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
@@ -864,16 +863,15 @@ export function Enrollment() {
       {checkError && <Alert intent="error" action={<button ref={checkRetry} type="button" className={buttonClass({ size: 'sm' })} onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button>}>
         We couldn’t check for a sign-up in progress. Try again before starting.</Alert>}
       {signOutRequired && !sessionUnread && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="flex flex-col gap-2 rounded-lg border border-notice-line bg-notice p-4 text-[13.5px] text-ink outline-none [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0">
+        {/* app. is for patients only (owner, 2 Nov 2026): neither note names a staff site or links to one. */}
         {otherPortalSession ? <>
-          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
+          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>Another Health ID account is signed in on this browser. Sign it out where it was used, then press Check again.</p>
           <p>{ENDS_ENROLLMENT}</p>
-          <StaffSignInLink to="/provider">Go to the provider portal</StaffSignInLink>
         </> : <>
-          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
-          {/* No link to the patient portal: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
-          <p>If a patient is signed in, Check again opens the patient portal, where you can sign out.</p>
+          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out before starting a new Health ID.</p>
+          {/* No link to the patient's account: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
+          <p>If you’re signed in, Check again opens your account, where you can sign out.</p>
           <p>{ENDS_ENROLLMENT}</p>
-          <StaffSignInLink to="/provider">Go to the provider portal</StaffSignInLink>
         </>}
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
         <Button size="sm" className="self-start" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</Button>

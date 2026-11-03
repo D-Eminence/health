@@ -307,7 +307,7 @@ describe('patient enrollment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Continue')
     // Focus moves to the note, which is read there once: it is not also an alert.
-    const note = await screen.findByRole('group', { name: /Sign out of the patient or provider portal before starting a new Health ID\./ })
+    const note = await screen.findByRole('group', { name: /This browser is still signed in to Health ID\. Sign out before starting a new Health ID\./ })
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(note))
     expect(screen.queryByRole('alert')).toBeNull()

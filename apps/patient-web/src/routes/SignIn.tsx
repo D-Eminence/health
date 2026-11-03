@@ -7,7 +7,6 @@ import { GoogleButton } from '../GoogleButton'
 import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
-import { StaffSignInLink } from '../staffSignIn'
 import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 import { signupHandoff } from './enrollment/signupHandoff'
@@ -121,7 +120,8 @@ export function SignIn() {
         {error && refusal === 'unfinished' && <> Didn't finish signing up? <Link to="/enroll" state={signupHandoff(signInPrincipal(email))}>Finish creating your Health ID</Link></>}
         {error && refusal === 'google-not-registered' && <> <Link to="/enroll">Sign up for a Health ID</Link></>}</Alert>}
       {signedOutElsewhere && !error && <Alert intent="warning">You were signed out because this browser's Health ID sign-in changed in another tab. Sign in again to continue.</Alert>}
-      {otherPortalSession && <Alert intent="info" live={false}>A provider sign-in is active in this browser. Signing in here replaces it. <StaffSignInLink to="/provider">Go to the provider portal</StaffSignInLink></Alert>}
+      {/* app. is for patients only (owner, 2 Nov 2026): the note names no staff site and links to none. */}
+      {otherPortalSession && <Alert intent="info" live={false}>Another Health ID account is signed in on this browser. Signing in here signs it out.</Alert>}
       <form onSubmit={event => void submit(event)} className="flex flex-col gap-4">
         <Field label="Email, phone or Health ID" htmlFor="sign-in-principal">
           <Input id="sign-in-principal" required autoComplete="username" value={email} onChange={event => setEmail(signInPrincipalInput(event.target.value))}
