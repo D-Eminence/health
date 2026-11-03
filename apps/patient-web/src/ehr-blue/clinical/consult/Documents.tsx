@@ -1,6 +1,6 @@
 import { assertSignedStorageUrl } from '@hid/http'
 import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
-import { useId, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { staffApi, type DocumentRecord } from '../../../staff/api'
 import { getEnvironment } from '../../../staff/env'
@@ -10,7 +10,6 @@ import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical } from '../parts/Workspace'
-import { useFocusAfterChange } from '../triage/records'
 import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
 import { ListPaging } from './Notes'
@@ -63,8 +62,6 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   const [uploading, setUploading] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
-  const inputId = useId()
-  const focusInput = useFocusAfterChange(inputId)
   const sending = useRef(false)
 
   const open = async (document: DocumentRecord) => {
@@ -114,14 +111,17 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
 
   /**
    * "Try again": the list read again, fresh, as the upload read it (its first page), with no access re-check. The
-   * sentence stays until it is read, then goes, focus moving to the file field; an upload or an open meanwhile says
-   * its own outcome, which this never replaces.
+   * sentence stays until it is read, then goes, focus moving from Try again to the file field; an upload or an open
+   * meanwhile says its own outcome, which this never replaces.
    */
-  const readAgain = async () => {
+  const readAgain = async (event: { readonly currentTarget: HTMLButtonElement }) => {
+    const button = event.currentTarget
     const shown = error
     const failure = await list.reload(true)
     showError(current => current !== shown ? current : failure !== null ? { ...reloadFailed(failure), said: (shown.said ?? 0) + 1 } : NO_ERROR)
-    if (failure === null) focusInput()
+    // Try again goes with the sentence: focus on it, or on nothing, moves to the file field, never from elsewhere.
+    const active = document.activeElement
+    if (failure === null && (active === button || active === null || active === document.body)) input.current?.focus()
   }
 
   return (
@@ -164,7 +164,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void upload(event)}>
           <SubHeading>Upload a document</SubHeading>
           <p className="hid-ehr-clinical-note">Files are checked for viruses before anyone can open them.</p>
-          <EhrField label={<>Clinical document<span aria-hidden="true"> *</span></>} error={fileError} controlId={inputId}>
+          <EhrField label={<>Clinical document<span aria-hidden="true"> *</span></>} error={fileError}>
             <EhrInput ref={input} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required onChange={() => setFileError(undefined)} />
           </EhrField>
           <div className="hid-ehr-clinical-form-footer">
