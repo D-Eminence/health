@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import type { PatientProfile } from '../api'
-import { genderLabel } from '../plainLabels'
+import { countryLabel, genderLabel } from '../plainLabels'
 import { CardFace } from '../routes/HealthIdCard'
 import { AccountDeletionCard } from '../routes/AccountSafety'
 import { ProfilePage } from '../routes/Portal'
@@ -373,6 +373,16 @@ describe('About you (PPS-13)', () => {
     const value = await about({ gender: 'female' })
     expect(value('Gender')).toBe('Female')
   })
+
+  it('names the country, never its two-letter code', async () => {
+    const value = await about({ country: 'NG' })
+    expect(value('Country')).toBe('Nigeria')
+  })
+
+  it.each([['NG', 'Nigeria'], ['gh', 'Ghana'], ['Nigeria', 'Nigeria'], ['', 'Not given'], [null, 'Not given']] as const)(
+    'names the country %j as %j', (value, label) => {
+      expect(countryLabel(value)).toBe(label)
+    })
 
   it('says "Not given" for every detail not there, the date of birth too', async () => {
     const value = await about({ gender: 'unknown', dateOfBirth: null, state: null })
