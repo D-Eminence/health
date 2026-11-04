@@ -5,9 +5,9 @@ import { getEnvironment } from '../env'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage, RotateCcw } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
-import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
+import { Alert, Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
 import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
@@ -20,7 +20,7 @@ import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
-import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import { IMPORTED_NOTIFICATIONS_PAGE, NOTIFICATIONS_LIMIT, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
 import { usePatientEntriesServed } from '../patientEntriesServed'
 import { sectionsShown } from './recordSections'
@@ -35,7 +35,7 @@ import { useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
 import { NinVerificationCard, ninVerifiedOf } from './NinVerificationCard'
 import { dayWords, groupByDay, matchesQuery } from './recordSearch'
-import { NOTIFICATION_SUBJECTS, notificationTitle } from './notificationTitles'
+import { NOTIFICATION_SUBJECTS, notificationAction, notificationTitle } from './notificationTitles'
 import { AccessLogCard } from './AccessLog'
 import { NotificationBell, UnreadNotificationsProvider, useOnNotificationChange, useUnreadNotifications } from '../notificationBadge'
 import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
@@ -307,8 +307,8 @@ const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
   const shown = sectionsShown()
-  // The older records (records kept from before) are shown whenever the answer carries them, so they are named too.
-  const older = data.importedRecords !== undefined ? ['older records'] : []
+  // The older records (records kept from before) are shown only when the answer carries some, so only then are they named.
+  const older = (data.importedRecords?.length ?? 0) > 0 ? ['older records'] : []
   const names = [...(data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section]), ...older]
   if (names.length === 0) return 'Nothing in your record is shared with you yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
@@ -321,13 +321,29 @@ function emptyText(data: PatientRecords, section: RecordSection, none: string) {
   return data.withheld?.includes(section) ? WITHHELD : none
 }
 
-/** Said only when EHR reports that the section holds more than it sent. */
+/**
+ * Said when EHR reports that the section holds more than it sent, or, where it sends no such report (production's
+ * Novu answer), when the section came back full: then older ones may well be left out (RN-08).
+ */
 function Truncated({ data, section }: { data: PatientRecords; section: RecordSection }) {
-  if (data.truncated?.[section] !== true) return null
-  const limit = data.limits?.[section]
+  const limit = data.limits?.[section] ?? data.limit
+  const sent = (data[section] as unknown[] | undefined)?.length ?? 0
+  const cut = data.truncated?.[section] ?? (data.truncated === undefined && Number.isInteger(limit) && limit > 0 && sent >= limit)
+  if (cut !== true) return null
   return <p className="m-0 text-[13px] text-ink-3">{limit
-    ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown.`
-    : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown.`}</p>
+    ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown here.`
+    : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown here.`}</p>
+}
+
+/** A word the search finds in each section's rows (SEARCHED), to suggest when a search finds nothing (RN-19). */
+const SEARCH_EXAMPLES: Readonly<Record<RecordSection, string>> = {
+  encounters: 'visit', notes: 'note', vitals: 'vitals', diagnoses: 'diagnosis', prescriptions: 'prescription', labRequests: 'lab', documents: 'document',
+}
+
+/** "Try a date like “March 2024”, a type like “visit” or “note”, or a word from a note.", from the sections shown only. */
+function searchHint() {
+  const kinds = sectionsShown().slice(0, 2).map(section => `“${SEARCH_EXAMPLES[section]}”`)
+  return `Try a date like “March 2024”${kinds.length ? `, a type like ${kinds.join(' or ')}` : ''}, or a word from a note.`
 }
 
 type Row<S extends RecordSection> = PatientRecords[S][number]
@@ -379,6 +395,8 @@ function RecordRow({ record, onOpen }: { record: OpenRecord; onOpen: (record: Op
       <span className="block text-sm font-medium [overflow-wrap:anywhere] text-ink">{record.title}</span>
       {record.meta && <span className="mt-0.5 block text-[13px] [overflow-wrap:anywhere] text-ink-3">{record.meta}</span>}
       {record.detail && <span className="mt-1.5 line-clamp-2 block text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{record.detail}</span>}
+      {/* The day is in the heading above; said in the name too, so two alike can be told apart (RN-17). */}
+      {record.when && <ItemName>, {date(record.when)}</ItemName>}
     </span>
     <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
   </button></li>
@@ -582,6 +600,8 @@ export function RecordsPage() {
   const heading = useRef<HTMLHeadingElement>(null)
   const recordsRetry = useRetryFocus(heading)
   const [query, setQuery] = useState('')
+  const searchField = useRef<HTMLInputElement>(null)
+  const clearSearch = () => { setQuery(''); searchField.current?.focus() }
   // "Add a record" opens here, from this page's button or the ➕ (/records?add=record), and the address is cleared after.
   // The tab is in the address too (/records?tab=documents, from Home's tiles), so Back and a shared link keep it.
   const [params, setParams] = useSearchParams()
@@ -634,7 +654,7 @@ export function RecordsPage() {
     {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
     {ready && <div className="flex flex-wrap items-start justify-between gap-3">
       <div role="search" className="min-w-0 max-w-sm flex-[1_1_16rem]">
-        <Input type="search" icon={Search} autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
+        <Input ref={searchField} type="search" icon={Search} autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
           placeholder="Search by date, type or words" aria-label="Search your records" aria-describedby="record-search-status" />
         {/* Mounted with the field, so each new count is announced. */}
         <p id="record-search-status" role="status" className="m-0 mt-1.5 text-[12px] text-ink-3 empty:hidden">{searching
@@ -645,7 +665,8 @@ export function RecordsPage() {
     </div>}
     {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} />}
     {ready && <>
-      {tab === 'all' && ready.importedRecords !== undefined && <ImportedHistory records={ready.importedRecords} query={query} groupedByDay
+      {/* Only for a patient who has older records: one who never had an old account is not told of it (RN-07). */}
+      {tab === 'all' && (ready.importedRecords?.length ?? 0) > 0 && <ImportedHistory records={ready.importedRecords} query={query} groupedByDay
         limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
       {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
@@ -658,12 +679,14 @@ export function RecordsPage() {
     {ready && <>
       {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
-        description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
+        description={searching ? searchHint()
           : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
-        action={searching || ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
+        action={searching ? <Button onClick={clearSearch}>Clear search</Button>
+          : ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
-    <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
+    {/* ?add=record opens it only where the backend keeps the records a patient adds (patientEntriesServed.ts). */}
+    <AddRecordDrawer open={adding && ownServed === true} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
     {/* One record, in full, without losing the place in the list. */}
     <Drawer open={opened !== null} onClose={() => setOpened(null)} title={opened?.title ?? ''}
       icon={opened ? <IconChip icon={SECTION_UI[opened.section].icon} tone="brand" /> : undefined}
@@ -936,22 +959,32 @@ export function NotificationsPage() {
   const notifications = usePatientResource(api.notifications)
   const { settle } = useUnreadNotifications()
   const [working, setWorking] = useState<string | null>(null)
+  // Said politely once a notice is marked read (RN-09); mounted with the page, so each change is announced.
+  const [said, setSaid] = useState('')
   const toast = useToast()
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
   const noticesRetry = useRetryFocus(heading)
   // A notice came, or one was read in another window (the bell's count changed): the list is read again by itself.
   useOnNotificationChange(() => { void notifications.reload() })
+  const items = notifications.data && !notifications.error ? notifications.data : null
   const markRead = async (id: string) => {
-    setWorking(id)
+    // One at a time (RN-18): the buttons stay where the keyboard is while one runs, and say they are waiting.
+    if (working !== null || notifications.loading) return
+    // The unread ones after this one, in the order shown: focus goes to the first still unread once it is read.
+    const unread = (items ?? []).filter(item => !item.readAt).map(item => item.id)
+    const after = unread.slice(unread.indexOf(id) + 1)
+    setWorking(id); setSaid('')
     // The row changes from unread to read: that is the result, so no toast says it again.
-    try { await api.markNotificationRead(id); await notifications.reload(); void settle(); focusAfter(() => heading.current) }
-    catch (cause) {
+    try {
+      await api.markNotificationRead(id); await notifications.reload(); void settle()
+      setSaid('Marked as read.')
+      focusAfter(() => after.map(next => document.getElementById(`mark-read-${next}`)).find(Boolean) ?? heading.current)
+    } catch (cause) {
       toast.error({ title: 'Couldn’t mark it as read', message: plainErrorText(cause, 'Notification could not be updated.') })
       focusAfter(() => document.getElementById(`mark-read-${id}`))
     } finally { setWorking(null) }
   }
-  const items = notifications.data && !notifications.error ? notifications.data : null
   const unreadCount = items ? items.filter(item => !item.readAt).length : 0
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} title="Notifications" description={items ? (unreadCount ? `${unreadCount} unread` : 'You’re all caught up.') : undefined} />
@@ -967,9 +1000,22 @@ export function NotificationsPage() {
             <p className={cx('m-0 text-sm break-words text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>
             <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], timeAgo(item.createdAt)].filter(Boolean).join(' · ')}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
           </div>
-          {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" disabled={working === item.id || notifications.loading} onClick={() => void markRead(item.id)}>Mark as read<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+          {(() => {
+            const action = notificationAction(item)
+            return action || !item.readAt ? <div className="ml-auto flex flex-wrap items-center gap-2">
+              {action && <Button to={action.to} size="sm">{action.label}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+              {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" aria-busy={working === item.id || undefined}
+                aria-disabled={working !== null || notifications.loading || undefined} onClick={() => void markRead(item.id)}>
+                {working === item.id ? 'Marking…' : 'Mark as read'}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+            </div> : null
+          })()}
         </li>)}
-      </ul></Card>)}
+      </ul>
+        {/* The list holds the newest only (RN-11): Identity sends at most NOTIFICATIONS_LIMIT. */}
+        {items.length >= NOTIFICATIONS_LIMIT && <p className="m-0 border-t border-line px-4 py-3 text-[13px] text-ink-3 sm:px-5">
+          Showing your {NOTIFICATIONS_LIMIT} most recent notifications. Older ones aren’t shown here.</p>}
+      </Card>)}
+    <p role="status" className="patient-visually-hidden">{said}</p>
     <ImportedNotificationsCard />
   </div>
 }
@@ -994,7 +1040,8 @@ function ImportedNotificationsCard() {
   const [olderEnd, setOlderEnd] = useState(false)
   const [readHere, setReadHere] = useState<Readonly<Record<string, string>>>({})
   const [working, setWorking] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Each problem beside the control that failed (RN-12): `at` is a row's id, or 'older' for Show older.
+  const [error, setError] = useState<{ at: string; text: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
   const retryFocus = useRetryFocus(heading)
@@ -1002,50 +1049,69 @@ function ImportedNotificationsCard() {
   const seen = new Set<string>()
   const items = [...first.data ?? [], ...older].filter(item => !seen.has(item.id) && (seen.add(item.id), true))
     .map(item => readHere[item.id] && !item.readAt ? { ...item, readAt: readHere[item.id] ?? null } : item)
+  // Until a read has listed some, nothing says the patient had an old account (RN-22): a first read that fails is said
+  // as "if you had one", with Try again, and no card.
+  if (first.error && first.data === null) return <Alert intent="error" size="sm" title="If you had an old Health ID account, its notifications couldn’t be loaded."
+    action={<button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(first.reload)} className={buttonClass({ size: 'sm' })}>
+      <RotateCcw className="size-3.5" aria-hidden />Try again</button>}>{first.error}</Alert>
   if (first.error === null && items.length === 0) return null
   // A full page may have more after it.
   const more = !olderEnd && (older.length > 0 ? older.length % IMPORTED_NOTIFICATIONS_PAGE === 0
     : (first.data?.length ?? 0) === IMPORTED_NOTIFICATIONS_PAGE)
 
   const markRead = async (id: string) => {
+    if (working !== null) return
     setWorking(id); setError(null)
     try {
       const answer = await api.markImportedNotificationRead(id)
       setReadHere(current => ({ ...current, [id]: answer?.readAt ?? new Date().toISOString() }))
       void settle()
-      focusAfter(() => heading.current)
+      // The row stays, read: focus goes to the next one still unread, else to the heading.
+      const after = items.slice(items.findIndex(item => item.id === id) + 1).filter(item => !item.readAt)
+      focusAfter(() => after.map(item => document.getElementById(`mark-imported-read-${item.id}`)).find(Boolean) ?? heading.current)
     } catch (cause) {
-      setError(plainErrorText(cause, 'Couldn’t mark it as read. Try again.'))
+      setError({ at: id, text: plainErrorText(cause, 'Couldn’t mark it as read. Try again.') })
       focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
     } finally { setWorking(null) }
   }
   const showOlder = async () => {
+    if (working !== null) return
     setWorking('older'); setError(null)
+    let added: ImportedNotification | undefined
     try {
       const page = await api.importedNotifications(items.length)
+      added = page.find(item => !seen.has(item.id))
       setOlder(current => [...current, ...page])
       if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
     } catch (cause) {
-      setError(plainErrorText(cause, 'Couldn’t load older notifications. Try again.'))
-    } finally { setWorking(null); focusAfter(() => document.getElementById('imported-notifications-older') ?? heading.current) }
+      setError({ at: 'older', text: plainErrorText(cause, 'Couldn’t load older notifications. Try again.') })
+    } finally {
+      setWorking(null)
+      // After a page, to the first row it added; else back to the button.
+      focusAfter(() => (added && document.getElementById(`imported-notice-${added.id}`)) || document.getElementById('imported-notifications-older') || heading.current)
+    }
   }
+  const busyProps = (mine: boolean) => ({ 'aria-busy': mine || undefined, 'aria-disabled': working !== null || undefined })
 
   return <Card aria-labelledby="imported-notifications-heading">
     <div className="border-b border-line px-5 py-4">
       <h2 ref={heading} id="imported-notifications-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">From your old Health ID account</h2>
     </div>
     {first.error && <div className="p-5"><LoadProblem what="old notifications" error={first.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(first.reload)} /></div>}
-    {error && <div className="px-5 pt-4"><Problem>{error}</Problem></div>}
-    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
+    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} id={`imported-notice-${item.id}`} tabIndex={-1}
+      className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-brand sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
       <div className="min-w-0 flex-[1_1_12rem]">
         <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{item.title || 'A notification from your old account'}</p>
         {item.message && <p className="m-0 mt-1 text-[13px] whitespace-pre-wrap [overflow-wrap:anywhere] text-ink-2">{item.message}</p>}
         <p className="m-0 mt-0.5 text-[13px] text-ink-3">{dateTime(item.createdAt)}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
       </div>
-      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" disabled={working !== null} onClick={() => void markRead(item.id)}>
-        Mark as read<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></Button>}</li>)}</ul>}
-    {more && <div className="border-t border-line px-5 py-3"><Button id="imported-notifications-older" size="sm" loading={working === 'older'} disabled={working !== null}
-      onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</Button></div>}
+      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" {...busyProps(working === item.id)} onClick={() => void markRead(item.id)}>
+        {working === item.id ? 'Marking…' : 'Mark as read'}<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></Button>}
+      {error?.at === item.id && <div className="basis-full"><Problem>{error.text}</Problem></div>}</li>)}</ul>}
+    {more && <div className="flex flex-col items-start gap-3 border-t border-line px-5 py-3">
+      {error?.at === 'older' && <Problem>{error.text}</Problem>}
+      <Button id="imported-notifications-older" size="sm" {...busyProps(working === 'older')}
+        onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</Button></div>}
   </Card>
 }
 

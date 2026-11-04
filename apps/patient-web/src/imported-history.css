@@ -1,23 +1,26 @@
+/* Older health records (ImportedHistory.tsx). Theme colours only, so the cards read in light and dark mode (RN-03). */
 .imported-history { margin-block: 1.5rem; }
-.imported-history > h2 { font-size: 1.375rem; font-weight: 600; margin-block: 0 .5rem; }
-.imported-history > p { margin-block: .5rem 1rem; }
+.imported-history > h2 { font-size: 1.375rem; font-weight: 600; margin-block: 0 .5rem; color: var(--color-ink); }
+.imported-history > p { margin-block: .5rem 1rem; color: var(--color-ink-2); }
 .imported-history-list { display: grid; gap: 1rem; }
-.imported-history-card { background: #fff; border: 1px solid #dce4eb; border-radius: 1rem; padding: 1.25rem; }
+.imported-history-card { background: var(--color-surface); color: var(--color-ink); border: 1px solid var(--color-line); border-radius: 1rem; padding: 1.25rem; }
 .imported-history-card header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
 .imported-history-card h3, .imported-history-card h4 { margin-block: .5rem; }
 .imported-history-card h3 { font-size: 1.1rem; font-weight: 600; }
 .imported-history-card h4 { font-weight: 600; margin-top: 1rem; }
-.imported-history-origin { background: #eaf3ff; color: #075ab6; border-radius: 1rem; padding: .25rem .65rem; font-size: .85rem; }
+.imported-history-card > p { color: var(--color-ink-2); }
+.imported-history-origin { background: var(--color-brand-soft); color: var(--color-brand-ink); border-radius: 1rem; padding: .25rem .65rem; font-size: .85rem; }
 .imported-history-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 .imported-history-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 1rem 1.5rem; margin-block: .75rem; }
-.imported-history-fields dt { color: #506071; font-size: .875rem; margin-bottom: .3rem; }
+.imported-history-fields dt { color: var(--color-ink-3); font-size: .875rem; margin-bottom: .3rem; }
 .imported-history-fields dd { margin: 0; }
 .imported-history-card ul { padding-inline-start: 1.25rem; }
 .imported-history-card li { margin-block: .5rem; overflow-wrap: anywhere; }
-.imported-history-card li > span, .imported-history-card li > button { display: block; margin-block: .3rem; }
-.imported-history-card button { border: 1px solid #0870d9; border-radius: .5rem; padding: .5rem .75rem; background: #fff; color: #075ab6; cursor: pointer; }
-.imported-history-card button:focus-visible { outline: 3px solid #0870d9; outline-offset: 3px; }
-.imported-history-card button:disabled { opacity: .6; cursor: wait; }
-.imported-history > button { border: 1px solid #0870d9; border-radius: .5rem; padding: .5rem .75rem; background: #fff; color: #075ab6; cursor: pointer; }
-.imported-history > button:focus-visible { outline: 3px solid #0870d9; outline-offset: 3px; }
-.imported-history > button:disabled { opacity: .6; cursor: wait; }
+/* A file: its name, then its Download button (the shared Button's own styles: icon and label on one line, RN-13), then
+   any problem opening it, wrapping on a phone. */
+.imported-history-file { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.imported-history-card li > span { display: block; margin-block: .3rem; }
+.imported-history-file > [role='alert'] { flex-basis: 100%; }
+/* Previous versions: a target at least 44px tall (RN-21). */
+.imported-history-card summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--color-brand-ink); font-weight: 600; }
+.imported-history-card summary:focus-visible { outline: 3px solid var(--color-brand); outline-offset: 3px; }
