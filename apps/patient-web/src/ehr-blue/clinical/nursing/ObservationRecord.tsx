@@ -20,7 +20,7 @@ import {
 import {
   AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION,
   REFRESH_REVISIONS, RELOAD_NOTE, RELOAD_RECORD, REVISION_FAILED, REVISION_RECORDED, STATUS_FAILED, TITLE, UNITS_LIMIT, composeObservation,
-  isObservation, isOldVitalsNote, noteStatus, observationItems, observationName, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
+  isObservation, oldVitalsLine, noteStatus, observationItems, observationName, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
 } from './observations'
 import { withOldVitalsLine } from './OldVitalsLine'
 
@@ -215,7 +215,7 @@ function Observation({ chart, encounter, note, reload }: {
   const saved: KeyValue[] = [
     { label: 'Visit', value: encounterTitle(encounter) },
     { label: 'Category', value: field(note, 'title') },
-    ...contentItems(revisions, latest?.content ?? null, isOldVitalsNote(note)),
+    ...contentItems(revisions, latest?.content ?? null, oldVitalsLine(note)),
   ]
 
   return (
@@ -271,7 +271,7 @@ function Observation({ chart, encounter, note, reload }: {
         </EhrCard>
       </DetailGrid>
       <ConnectedHistory chart={chart} encounter={encounter} owner="nursing" />
-      <VersionsCard versions={versionItems(revisions, isOldVitalsNote(note))} />
+      <VersionsCard versions={versionItems(revisions, oldVitalsLine(note))} />
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? ''}
@@ -283,8 +283,8 @@ function Observation({ chart, encounter, note, reload }: {
   )
 }
 
-/** The note's details and units, or why they are not shown (today's texts); `old`: the old "Vitals" line under its text. */
-function contentItems(revisions: Revisions, content: string | null, old: boolean): KeyValue[] {
+/** The note's details and units, or why they are not shown (today's texts); `old`: the old "Vitals" line under its text, if any. */
+function contentItems(revisions: Revisions, content: string | null, old: string | null): KeyValue[] {
   const note = (value: ReactNode): KeyValue[] => [{ label: 'Note', value }]
   if (revisions.state === 'loading') return note(<span role="status">{LOADING_REVISIONS}</span>)
   if (revisions.state === 'failed') return []
@@ -296,7 +296,7 @@ function contentItems(revisions: Revisions, content: string | null, old: boolean
  * "Preserved versions & amendments", once the note has more than one revision: every revision, oldest first, with its
  * own content, under today's "Revision n" and "Recorded {time} · {reason}" (Clinical.tsx NotePanel).
  */
-function versionItems(revisions: Revisions, old: boolean): VersionItem[] {
+function versionItems(revisions: Revisions, old: string | null): VersionItem[] {
   if (revisions.state !== 'shown' || revisions.items.length < 2) return []
   return revisions.items.map(revision => ({
     key: revision.id,

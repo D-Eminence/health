@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NursingWorkspace, nursingStatus } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
-import { OLD_VITALS_NOTE, observationName } from '../../../ehr-blue/clinical/nursing/observations'
+import { OLD_VITALS_NOTE, OLD_VITALS_NOTE_LATE, observationName, oldVitalsLine } from '../../../ehr-blue/clinical/nursing/observations'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -370,7 +370,7 @@ describe('Nursing observation record', () => {
     const note = (await within(saved()).findByText('Corrected fictional reading')).closest('dd')!
     expect(note.textContent).toBe(`Corrected fictional reading${OLD_VITALS_NOTE}`)
     expect(within(note).getByText(OLD_VITALS_NOTE)).toBeTruthy()
-    expect(OLD_VITALS_NOTE).toBe('Saved as a note under the old Vitals category. These readings are not in the vitals chart.')
+    expect(OLD_VITALS_NOTE).toBe('Saved as a note before 1 November. These readings are not in the vitals chart.')
     const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
     for (const version of Array.from(versions.querySelectorAll('details'))) {
       expect(within(version).getByText(OLD_VITALS_NOTE).closest('dd')).toBe(within(version).getAllByRole('definition')[0])
@@ -378,16 +378,42 @@ describe('Nursing observation record', () => {
     expect(screen.getAllByText(OLD_VITALS_NOTE)).toHaveLength(3)
   })
 
-  it('item 5: names no save date under an old "Vitals" observation saved on or after 1 November', async () => {
+  it('item 5: says the owner’s line, word for word, under an old "Vitals" observation saved on 31 October', async () => {
+    // 22:30 on 31 October in Lagos, 21:30 UTC: the category's last evening.
+    const last = { ...NOTE, createdAt: '2026-10-31T21:30:00.000Z' }
+    notes = [last]
+    revisions = [{ ...FIRST, createdAt: last.createdAt }]
+    open(RECORD)
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(last) })).toBeTruthy()
+    const note = (await within(saved()).findByText('Fictional vitals observation')).closest('dd')!
+    expect(note.textContent).toBe('Fictional vitals observationSaved as a note before 1 November. These readings are not in the vitals chart.')
+    expect(screen.queryByText(OLD_VITALS_NOTE_LATE)).toBeNull()
+  })
+
+  it('item 5: names no save date under an old "Vitals" observation saved on 3 November, which should not exist', async () => {
     const late = { ...NOTE, createdAt: '2026-11-03T10:00:00.000Z' }
     notes = [late]
-    revisions = [{ ...FIRST, createdAt: late.createdAt }]
+    revisions = [FIRST, { ...FIRST, id: 'revision-2', revisionNo: 2, content: 'Corrected fictional reading', changeReason: 'Typo', createdAt: late.createdAt }]
     open(RECORD)
     expect(await screen.findByRole('heading', { level: 1, name: observationName(late) })).toBeTruthy()
-    const note = (await within(saved()).findByText('Fictional vitals observation')).closest('dd')!
-    const line = within(note).getByText(OLD_VITALS_NOTE)
-    expect(line.textContent).toBe('Saved as a note under the old Vitals category. These readings are not in the vitals chart.')
-    expect(line.textContent).not.toMatch(/November|before|\d/)
+    const note = (await within(saved()).findByText('Corrected fictional reading')).closest('dd')!
+    expect(note.textContent).toBe('Corrected fictional readingSaved as a note under the old Vitals category. These readings are not in the vitals chart.')
+    expect(OLD_VITALS_NOTE_LATE).not.toMatch(/November|before|\d/)
+    // The note's own time decides, under every version too: never the owner's dated line.
+    expect(screen.getAllByText(OLD_VITALS_NOTE_LATE)).toHaveLength(3)
+    expect(screen.queryByText(OLD_VITALS_NOTE)).toBeNull()
+  })
+
+  it('item 5: reads the note’s own time for the line: created, else signed; the owner’s line with no time', () => {
+    const vitals = { noteType: 'Nursing observation', title: 'Vitals' }
+    expect(oldVitalsLine({ ...vitals, createdAt: '2026-10-31T22:59:59.999Z' })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, createdAt: '2026-10-31T23:00:00.000Z' })).toBe(OLD_VITALS_NOTE_LATE)
+    expect(oldVitalsLine({ ...vitals, signedAt: '2026-11-03T10:00:00.000Z' })).toBe(OLD_VITALS_NOTE_LATE)
+    expect(oldVitalsLine({ ...vitals, createdAt: '2026-10-20T10:00:00.000Z', signedAt: '2026-11-03T10:00:00.000Z' })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine(vitals)).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, createdAt: null, signedAt: null })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, createdAt: 'not a date' })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, title: 'Handover', createdAt: '2026-11-03T10:00:00.000Z' })).toBeNull()
   })
 
   it('item 5: shows no such line under an observation of any other category', async () => {

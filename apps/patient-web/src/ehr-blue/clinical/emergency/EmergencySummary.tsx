@@ -8,7 +8,7 @@ import { staffApi, type EmergencyRecords, type EmergencySection } from '../../..
 import { refusalText } from '../../../staff/fieldProblem'
 import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { OLD_VITALS_NOTE, isOldVitalsNote } from '../nursing/observations'
+import { oldVitalsLine } from '../nursing/observations'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
@@ -173,7 +173,7 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
           <span>{words(item.noteType)} · {words(item.status)} · version {item.revisionNo}{item.signedAt ? ` · signed ${formatWhen(item.signedAt)}` : ''}</span>
           <Text>{item.content}</Text>
           {/* A nursing observation saved under the old "Vitals" category: a note, not vitals. */}
-          {isOldVitalsNote(item) ? <span className="text-[13px] text-ink-3">{OLD_VITALS_NOTE}</span> : null}
+          {oldVitalsLine(item) ? <span className="text-[13px] text-ink-3">{oldVitalsLine(item)}</span> : null}
         </>} />
       {may('ehr.diagnosis.read') ? (
         <SummarySection title="Diagnoses" {...sectionProps('diagnoses')}

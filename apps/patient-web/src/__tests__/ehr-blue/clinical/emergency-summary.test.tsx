@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
-import { OLD_VITALS_NOTE } from '../../../ehr-blue/clinical/nursing/observations'
+import { OLD_VITALS_NOTE, OLD_VITALS_NOTE_LATE } from '../../../ehr-blue/clinical/nursing/observations'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, renderPage } from './harness'
@@ -460,6 +460,16 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(within(section('Signed notes')).getAllByText(OLD_VITALS_NOTE)).toHaveLength(1)
     expect(within(entry('Signed notes', 'Fictional handover')).queryByText(OLD_VITALS_NOTE)).toBeNull()
     expect(within(entry('Signed notes', 'Fictional triage note')).queryByText(OLD_VITALS_NOTE)).toBeNull()
+  })
+
+  it('item 5: names no save date under an old "Vitals" nursing note signed on or after 1 November', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({
+      notes: [{ ...note(3), noteType: 'Nursing observation', title: 'Vitals', content: 'Fictional reading', signedAt: '2026-11-03T10:00:00.000Z' }],
+    }))
+    await renderSummary()
+    const old = within(section('Signed notes')).getByText('Fictional reading')
+    expect(old.nextElementSibling?.textContent).toBe(OLD_VITALS_NOTE_LATE)
+    expect(within(section('Signed notes')).queryByText(OLD_VITALS_NOTE)).toBeNull()
   })
 
   it('says a note was amended, a diagnosis’s code system, and a lab test’s code and priority, routine too (Clinical.tsx:1130,1141,1158)', async () => {
