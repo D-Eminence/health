@@ -42,6 +42,13 @@ function released(results: LabResult[]): LabOrderReleasedResults {
 }
 
 const HELD = { patientChat: { held: true } }
+/** A result corrected once: version 2 is the one released now, the one the clinician sees. */
+const CORRECTED = {
+  currentVersion: 2, currentReleasedVersion: 2,
+  revisions: [1, 2].map(version => ({ version, resultType: 'text', numericValue: null, textValue: version === 1 ? 'Indeterminate' : 'Non-reactive',
+    unit: null, referenceRange: null, abnormalFlag: 'normal', entrySource: 'manual', verificationStatus: 'verified', releaseStatus: 'released',
+    enteredAt: '2026-11-03T09:00:00.000Z', releasedAt: '2026-11-03T10:00:00.000Z', correctionReason: version === 2 ? 'Repeat test' : null })),
+}
 const DISCUSSED = { patientChat: { held: true, discussed: { at: '2026-11-04T09:30:00.000Z' } } }
 
 function chart(overrides: Partial<Chart> = {}, permissions: readonly string[] = [DISCUSSED_PERMISSION]): Chart {
@@ -125,7 +132,7 @@ describe('Discussed with the patient', () => {
 
   it('marks after a confirm, keeping focus on the busy button, then shows the date and Withdraw', async () => {
     const given = chart()
-    await show([result(HELD)], given)
+    await show([result({ ...HELD, ...CORRECTED })], given)
     const answer = deferred<unknown>()
     calls.mark.mockReturnValue(answer.promise)
     const button = screen.getByRole('button', { name: MARK })
@@ -135,7 +142,7 @@ describe('Discussed with the patient', () => {
     expect(within(dialog).getByText('The patient\'s chat can then use this result.')).toBeTruthy()
     expect(calls.mark).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole('button', { name: MARK }))
-    await waitFor(() => expect(calls.mark).toHaveBeenCalledWith(FACILITY_ID, LAB, 'result-1'))
+    await waitFor(() => expect(calls.mark).toHaveBeenCalledWith(FACILITY_ID, LAB, 'result-1', 2))
     expect(given.verify).toHaveBeenCalled()
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(document.activeElement).toBe(button)
@@ -146,6 +153,36 @@ describe('Discussed with the patient', () => {
     expect(await screen.findByText(ON_DATE)).toBeTruthy()
     expect(screen.queryByRole('button', { name: MARK })).toBeNull()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Withdraw' }))
+  })
+
+  it('is not offered on a result with no released version, as there is nothing to discuss', async () => {
+    await show([result({ ...HELD, currentReleasedVersion: null })])
+    expect(screen.queryByRole('button', { name: MARK })).toBeNull()
+  })
+
+  it('says on each button which result it acts on', async () => {
+    await show([result({ ...HELD, id: 'result-1' }), result({ ...DISCUSSED, id: 'result-2' })])
+    const describedBy = (button: HTMLElement) => document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent
+    expect(describedBy(screen.getByRole('button', { name: MARK }))).toBe('Result 1')
+    const withdraw = screen.getByRole('button', { name: 'Withdraw' })
+    expect(describedBy(withdraw)).toBe('Result 2')
+    expect(withdraw.hasAttribute('aria-expanded')).toBe(false)
+    fireEvent.click(withdraw)
+    expect(describedBy(screen.getByRole('button', { name: 'Withdraw the mark' }))).toBe('Result 2')
+  })
+
+  it('closes the withdraw form on Cancel, clearing its error, with focus back on Withdraw', async () => {
+    await show([result(DISCUSSED)])
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw the mark' }))
+    expect(screen.getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByLabelText('Reason for withdrawing')).toBeNull()
+    const withdraw = screen.getByRole('button', { name: 'Withdraw' })
+    expect(document.activeElement).toBe(withdraw)
+    fireEvent.click(withdraw)
+    expect(screen.queryByText('Give a reason of at least 3 characters.')).toBeNull()
+    expect(calls.withdraw).not.toHaveBeenCalled()
   })
 
   it('does nothing when the confirm is cancelled', async () => {
@@ -180,7 +217,7 @@ describe('Discussed with the patient', () => {
   })
 
   it('withdraws only with a reason of at least 3 characters, after a confirm', async () => {
-    await show([result(DISCUSSED)])
+    await show([result({ ...DISCUSSED, ...CORRECTED })])
     const answer = deferred<unknown>()
     calls.withdraw.mockReturnValue(answer.promise)
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
@@ -192,13 +229,13 @@ describe('Discussed with the patient', () => {
     expect(screen.getByText('Give a reason of at least 3 characters.')).toBeTruthy()
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(document.activeElement).toBe(reason)
-    fireEvent.change(reason, { target: { value: 'Marked on the wrong result' } })
+    fireEvent.change(reason, { target: { value: '  Marked on the wrong result  ' } })
     submit.focus()
     fireEvent.click(submit)
     const dialog = screen.getByRole('alertdialog')
     expect(within(dialog).getByText('The patient\'s chat will leave this result out again.')).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Withdraw the mark' }))
-    await waitFor(() => expect(calls.withdraw).toHaveBeenCalledWith(FACILITY_ID, LAB, 'result-1', 'Marked on the wrong result'))
+    await waitFor(() => expect(calls.withdraw).toHaveBeenCalledWith(FACILITY_ID, LAB, 'result-1', 2, 'Marked on the wrong result'))
     expect(document.activeElement).toBe(submit)
     expect(submit.getAttribute('aria-busy')).toBe('true')
     expect((submit as HTMLButtonElement).disabled).toBe(false)
@@ -206,6 +243,11 @@ describe('Discussed with the patient', () => {
     const mark = await screen.findByRole('button', { name: MARK })
     expect(document.activeElement).toBe(mark)
     expect(screen.queryByText(ON_DATE)).toBeNull()
+    calls.mark.mockResolvedValue(DISCUSSED)
+    fireEvent.click(mark)
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: MARK }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Withdraw' }))
+    expect((screen.getByLabelText('Reason for withdrawing') as HTMLTextAreaElement).value).toBe('')
   })
 
   it('says a refused withdrawal in plain words and keeps the reason', async () => {

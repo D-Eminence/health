@@ -9,6 +9,13 @@ import type { Chart } from '../../parts/chart'
  * the screen can be wired to B's real API with one small change here. Until then:
  *   - a result without `patientChat` (every backend today) shows nothing: no button, no text;
  *   - DISCUSSED_CALLS is null, so no button is offered even if a result carries the field; nothing is sent.
+ *
+ * Assumed of Session B, to confirm:
+ *   - mark and withdraw each send the result's currentReleasedVersion, the version the clinician saw; the server
+ *     refuses a stale one, or ties the mark to that version;
+ *   - when a new (corrected) revision is released, the server clears the mark, or reports the result held again, so a
+ *     mark never covers a value nobody discussed (an indeterminate result later corrected to reactive, say);
+ *   - a result with no released version has nothing to discuss: no button is offered.
  */
 
 /** Assumed: the field on each released result (LabResult) that says whether the patient chat holds it back. */
@@ -42,10 +49,13 @@ export function readHold(value: unknown): PatientChatHold | null {
   return { held, discussedAt: typeof at === 'string' && at ? at : null }
 }
 
-/** Assumed calls: mark and withdraw, each answering with the result's new hold (read with readHold). */
+/**
+ * Assumed calls: mark and withdraw, each answering with the result's new hold (read with readHold). `version` is the
+ * result's currentReleasedVersion as shown, so the server can refuse a mark on a version since corrected.
+ */
 export interface DiscussedCalls {
-  mark(facilityId: string, requestId: string, resultId: string): Promise<unknown>
-  withdraw(facilityId: string, requestId: string, resultId: string, reason: string): Promise<unknown>
+  mark(facilityId: string, requestId: string, resultId: string, version: number): Promise<unknown>
+  withdraw(facilityId: string, requestId: string, resultId: string, version: number, reason: string): Promise<unknown>
 }
 
 /**

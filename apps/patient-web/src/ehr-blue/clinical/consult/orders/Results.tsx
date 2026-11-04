@@ -1,5 +1,5 @@
 import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
 import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
 import type { Chart } from '../../parts/chart'
@@ -48,6 +48,7 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, ch
   const [released, setReleased] = useState<LabOrderReleasedResults | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const headingId = useId()
   useEffect(() => {
     let active = true
     setReleased(null)
@@ -73,14 +74,14 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, ch
           {released.results.map((result, index) => (
             <div key={result.id} className="hid-ehr-clinical-orders-result">
               <div className="hid-ehr-clinical-orders-row">
-                <strong>Result {index + 1}</strong>
+                <strong id={`${headingId}-${index}`}>Result {index + 1}</strong>
                 <EhrBadge tone={result.status === 'entered_in_error' ? 'critical' : 'positive'}>{result.status === 'entered_in_error' ? 'Entered in error' : 'Released'}</EhrBadge>
               </div>
               {result.status === 'entered_in_error' ? <p>The latest released version was marked entered in error: do not use it.</p> : null}
               {skipsVersions(result.revisions) ? <p className="hid-ehr-clinical-orders-muted">Version numbers skip revisions that were never released; those are not shown.</p> : null}
               <Revisions revisions={result.revisions} />
               {/* "Discussed with the patient" (owner Q24): nothing unless the backend says the patient chat holds it back. */}
-              <DiscussedWithPatient chart={chart} requestId={requestId} result={result} onReadAgain={onRefresh} />
+              <DiscussedWithPatient chart={chart} requestId={requestId} result={result} onReadAgain={onRefresh} describedBy={`${headingId}-${index}`} />
             </div>
           ))}
         </>
