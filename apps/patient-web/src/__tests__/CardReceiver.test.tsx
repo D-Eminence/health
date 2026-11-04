@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createCardReceiverApi, type CardReceiverApi } from '../cardReceiverApi'
@@ -255,6 +256,18 @@ describe('the card', () => {
       expect(read.credentials).toBe('include')
     }
     expect(seen.some(item => item.path === '/card-share/records')).toBe(true)
+  })
+
+  it('reads the records under React StrictMode too (its rehearsal unmount must not abort the reads)', async () => {
+    window.history.replaceState(null, '', `/card#${TOKEN}`)
+    const { api, seen } = receiverApi(served())
+    render(<StrictMode><CardReceiverPage api={api} /></StrictMode>)
+    await screen.findByRole('heading', { level: 1, name: 'Open a shared Health ID card' })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Email me a code' })) })
+    await enterCode(await screen.findByRole('textbox', { name: /Digit 1 of 6/ }), '482913')
+    expect(await screen.findByRole('heading', { name: 'Visits' })).toBeTruthy()
+    expect(seen.filter(item => item.path === '/card-share/records').length).toBeGreaterThan(0)
   })
 
   it('shows only the card face for a card-only link, and reads no records sections', async () => {
