@@ -16,7 +16,8 @@ export interface StagingLegacyPatientChatSource {
 export const STAGING_CHAT_SOURCE_ORIGINS = ['patient', 'health_worker', 'scanned_paper', 'health_id_profile'] as const
 export type StagingChatSourceOrigin = typeof STAGING_CHAT_SOURCE_ORIGINS[number]
 export interface StagingTypedPatientChatSource {
-  number:number;kind:'note'|'encounter'|'diagnosis'|'prescription'|'investigation'|'vital'|'import'|'import_version'|'health_profile'|'lab_result'|'attachment'|'document'|'profile';
+  // `patient_entry`: a record the patient added themselves (hid-system 0116), origin `patient`.
+  number:number;kind:'note'|'encounter'|'diagnosis'|'prescription'|'investigation'|'vital'|'import'|'import_version'|'health_profile'|'lab_result'|'attachment'|'document'|'profile'|'patient_entry';
   id:string;version:string;title:string;recordedAt:string|null;effectiveAt:string|null;provenance:string;quality:string
   /**
    * Where its facts came from, from a service that says (absent from one before the chat source labels). A value not on
@@ -52,7 +53,7 @@ export function parseStagingPatientChat(value: unknown): StagingPatientChatReply
     }
     numbers.add(Number(source.number))
     if ('kind' in source) {
-      const kinds=['note','encounter','diagnosis','prescription','investigation','vital','import','import_version','health_profile','lab_result','attachment','document','profile']
+      const kinds=['note','encounter','diagnosis','prescription','investigation','vital','import','import_version','health_profile','lab_result','attachment','document','profile','patient_entry']
       const date=(v:unknown)=>v===null || (text(v,100)&&Number.isFinite(Date.parse(v)))
       if(!kinds.includes(String(source.kind)) || !text(source.id,36) || !recordUuid.test(source.id)
         || !text(source.version,1024)|| !text(source.provenance,500)||!text(source.quality,200)

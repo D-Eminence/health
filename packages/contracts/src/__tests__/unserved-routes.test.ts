@@ -63,6 +63,9 @@ const NOT_ON_MAIN = [
   'identity.shareInvitationConfirm', 'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   'identity.facilitySettings', 'identity.facilityOnePersonLab',
+  // Records patients add themselves (hid-system 0116, PR #163; on by default once deployed): the Save and list, the
+  // removal, and the staff chart's read.
+  'ehr.myPatientEntries', 'ehr.myPatientEntryWithdraw', 'ehr.patientEntries',
   // Single sign-on on auth. (ADR-070, proposed): the product's sign-out answering the provider's end-session address.
   'auth.ssoLogout',
 ] as const
