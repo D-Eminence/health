@@ -5,6 +5,7 @@ import { staffApi, type OcrExtraction, type OcrJob, type OcrValidation } from '.
 import { useStaff } from '../../../staff/App'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { focusIsLost, useFocusById } from '../../../staff/focus'
+import { notAnOcrId } from '../../../staff/ocrIdWords'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
@@ -201,7 +202,7 @@ export function Migrate() {
     setProblem(null); setError(''); setNotice('')
     const documentId = findDocument.trim()
     const refused = !documentId ? { field: 'ocr-document', message: 'Complete this field.' }
-      : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
+      : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: notAnOcrId('document', documentId) } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     const result = await lookup(documentId)
     if (result?.job) { setView('detail'); setAction(null); focus('migrate-view-title') }
@@ -223,9 +224,9 @@ export function Migrate() {
     const documentId = newDocument.trim()
     const patient = patientId.trim()
     const refused = !documentId ? { field: 'ocr-new-document', message: 'Complete this field.' }
-      : !UUID_V4.test(documentId) ? { field: 'ocr-new-document', message: 'Enter a valid document ID (a UUID).' }
+      : !UUID_V4.test(documentId) ? { field: 'ocr-new-document', message: notAnOcrId('document', documentId) }
       : !patient ? { field: 'ocr-patient', message: 'Complete this field.' }
-      : !UUID_V4.test(patient) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
+      : !UUID_V4.test(patient) ? { field: 'ocr-patient', message: notAnOcrId('patient', patient) } : null
     setProblem(refused && refusal(refused))
     if (refused) { focus(refused.field); return }
     setBusy(true); setStepFocus(null)
@@ -334,7 +335,7 @@ export function Migrate() {
         <p className="hid-ehr-dept-muted">Use the document ID from an authorized clinical record. The document must be available and virus scan clean before extraction can begin.</p>
         <form className="hid-ehr-dept-form hid-ehr-dept-migrate-find" noValidate aria-labelledby="ocr-find-title" onSubmit={event => void find(event)}>
           <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-document" error={problemText(problem, 'ocr-document')}>
-            <EhrInput value={findDocument} placeholder="Document UUID" required autoComplete="off"
+            <EhrInput value={findDocument} required autoComplete="off"
               onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
           </EhrField>
           <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
@@ -356,14 +357,14 @@ export function Migrate() {
   function newJob() {
     return <DeptSection>
       <form className="hid-ehr-dept-form" noValidate aria-label="New document job" onSubmit={event => void create(event)}>
-        <p className="hid-ehr-dept-muted">Create an extraction job for a verified patient document. The document must be virus scan clean. If it already has a job, that job opens instead.</p>
+        <p className="hid-ehr-dept-muted">Create an extraction job for a verified patient document. The document must be virus scan clean. If it already has a job, that job opens instead. Extract with OCR, on one of a patient’s documents, fills in both IDs.</p>
         <div className="hid-ehr-dept-form-grid">
           <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-new-document" error={problemText(problem, 'ocr-new-document')}>
-            <EhrInput value={newDocument} placeholder="Document UUID" required autoComplete="off"
+            <EhrInput value={newDocument} required autoComplete="off"
               onChange={event => { setNewDocument(event.target.value); setProblem(null) }} />
           </EhrField>
           <EhrField label={<>Patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-patient" error={problemText(problem, 'ocr-patient')}>
-            <EhrInput value={patientId} placeholder="Patient UUID" required autoComplete="off"
+            <EhrInput value={patientId} required autoComplete="off"
               onChange={event => { setPatientId(event.target.value); setProblem(null) }} />
           </EhrField>
         </div>

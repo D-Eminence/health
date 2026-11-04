@@ -102,8 +102,10 @@ describe('OCR IDs are UUIDs', () => {
     await press(screen.getByRole('button', { name: 'Find job' }))
     await waitFor(() => expect(document.activeElement).toBe(documentId))
     expect(documentId.getAttribute('aria-invalid')).toBe('true')
-    expect(descriptions(documentId)).toEqual(['Enter a valid document ID (a UUID).'])
+    expect(descriptions(documentId)).toEqual(['That isn’t a document ID. Check it and try again.'])
     expect(api.findOcrJob).not.toHaveBeenCalled()
+    // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
   })
 
   it('a patient ID that is not a UUID is refused at its field, and no job is created', async () => {
@@ -113,8 +115,11 @@ describe('OCR IDs are UUIDs', () => {
     await press(screen.getByRole('button', { name: 'Create extraction job' }))
     await waitFor(() => expect(document.activeElement).toBe(patient))
     expect(patient.getAttribute('aria-invalid')).toBe('true')
-    expect(descriptions(patient)).toEqual(['Enter a valid patient ID (a UUID).'])
+    expect(descriptions(patient)).toEqual(['This needs the patient ID, not their Health ID.'])
+    expect(screen.getByText('Create an extraction job for a verified patient document. Extract with OCR, on one of a patient’s documents, fills in the patient ID.')).toBeTruthy()
     expect(api.createOcrJob).not.toHaveBeenCalled()
+    // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
   })
 
   // Refused from Find job, focus moves to the field, whose description says why. Refused from Enter in
@@ -129,8 +134,8 @@ describe('OCR IDs are UUIDs', () => {
 
     await act(async () => { fireEvent.submit(documentId.closest('form')!) })
     const first = await screen.findByRole('alert')
-    expect(first.textContent).toBe('Enter a valid document ID (a UUID).')
-    expect(descriptions(documentId)).toEqual(['Enter a valid document ID (a UUID).'])
+    expect(first.textContent).toBe('That isn’t a document ID. Check it and try again.')
+    expect(descriptions(documentId)).toEqual(['That isn’t a document ID. Check it and try again.'])
     await act(async () => { fireEvent.submit(documentId.closest('form')!) })
     await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
     expect(api.findOcrJob).not.toHaveBeenCalled()

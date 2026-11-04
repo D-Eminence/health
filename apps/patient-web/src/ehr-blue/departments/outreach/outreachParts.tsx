@@ -56,6 +56,11 @@ export function campaignStatusLabel(status: string) {
   return (Object.hasOwn(CAMPAIGN_STATUS, status) ? CAMPAIGN_STATUS[status] : undefined) ?? 'Status not known'
 }
 
+const ROLE_WORDS: Readonly<Record<string, string>> = { enumerator: 'Enumerator', health_worker: 'Health worker', admin: 'Campaign admin' }
+
+/** A campaign member's role in words: "Member" for one the page has no word for, never its code (parity report 3.1 #16). */
+export const roleWords = (role: string): string => (Object.hasOwn(ROLE_WORDS, role) ? ROLE_WORDS[role] : undefined) ?? 'Member'
+
 export function caseName(item: OutreachCase) {
   return item.fullName ?? 'Registrant'
 }
@@ -71,7 +76,7 @@ export function sexText(item: OutreachCase) {
 
 /** The words a list search looks in: what a row shows, and nothing that is not on screen. */
 export function caseSearchText(item: OutreachCase) {
-  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), item.temporaryPatientId, dateText(item.createdAt)]
+  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt)]
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {
@@ -101,7 +106,6 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
-    { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined
@@ -198,6 +202,14 @@ const LINKED_STATUSES: ReadonlySet<string> = new Set(['identity_resolved', 'reso
 
 export function statusLabel(status: string) {
   return (Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : undefined) ?? 'Status not known'
+}
+
+/** What the create form's answer said, on the blue page and today's: the case made, and where its identity stands. */
+export function createdText(created: OutreachCase | undefined) {
+  if (!created?.status) return 'Registration case created.'
+  return created.status === PENDING
+    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
+    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */
