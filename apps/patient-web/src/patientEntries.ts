@@ -6,6 +6,10 @@
 
 export const PATIENT_ENTRY_KINDS = ['visit', 'test', 'medicine', 'diagnosis', 'vaccination', 'other'] as const
 export type PatientEntryKind = typeof PATIENT_ENTRY_KINDS[number]
+/** What each kind is called, as "Add a record" names it, to the patient and on the chart. */
+export const PATIENT_ENTRY_KIND_LABELS: Readonly<Record<PatientEntryKind, string>> = {
+  visit: 'Visit', test: 'Test result', medicine: 'Medicine', diagnosis: 'Diagnosis', vaccination: 'Vaccine', other: 'Other',
+}
 
 /** What the patient enters for a record they add themselves: the Save's whole body. */
 export interface OwnRecordInput {

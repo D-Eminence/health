@@ -23,7 +23,7 @@ import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
 import { usePatientEntriesServed, usePatientEntryFilesServed } from '../patientEntriesServed'
-import { saysListChanged } from '../patientEntries'
+import { PATIENT_ENTRY_KIND_LABELS, saysListChanged } from '../patientEntries'
 import { sectionsShown } from './recordSections'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
@@ -407,9 +407,7 @@ function SectionCard<S extends RecordSection>({ data, section, none, query, row 
 }
 
 /** What each kind of record the patient adds is called, as "Add a record" names it (AddRecord.tsx). */
-const OWN_KINDS: Readonly<Record<PatientEntryKind, string>> = {
-  visit: 'Visit', test: 'Test result', medicine: 'Medicine', diagnosis: 'Diagnosis', vaccination: 'Vaccine', other: 'Other',
-}
+const OWN_KINDS: Readonly<Record<PatientEntryKind, string>> = PATIENT_ENTRY_KIND_LABELS
 
 const OWN_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
 /** The day the patient entered (YYYY-MM-DD), as that same calendar day wherever the browser is. */
