@@ -79,7 +79,7 @@ describe('outreach', () => {
     fireEvent.change(screen.getByLabelText(/^Full name/), { target: { value: 'Bola Example' } })
     fireEvent.change(screen.getByLabelText(/^Age \(years\)/), { target: { value: '34' } })
     fireEvent.submit(screen.getByLabelText(/^Full name/).closest('form')!)
-    await waitFor(() => expect(document.getElementById('outreach-status')?.textContent).toBe('Registration case created. It stays pending until it is linked to a verified Health ID patient.'))
+    await waitFor(() => expect(document.getElementById('outreach-status')?.textContent).toBe('Registration case created.'))
     expectRefused(patient, LINK_REFUSED)
   })
 

@@ -204,6 +204,14 @@ export function statusLabel(status: string) {
   return (Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : undefined) ?? 'Status not known'
 }
 
+/** What the create form's answer said, on the blue page and today's: the case made, and where its identity stands. */
+export function createdText(created: OutreachCase | undefined) {
+  if (!created?.status) return 'Registration case created.'
+  return created.status === PENDING
+    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
+    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
+}
+
 /** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */
 export function caseTone(status: string): Tone {
   if (status === PENDING) return 'warn'

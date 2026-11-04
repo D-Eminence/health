@@ -27,7 +27,7 @@ import {
   CannotCompleteEndings, endingKey, OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode,
 } from './CannotComplete'
 import { useLearnDocumentTypesServed, useWorkItemDocumentsOffered, WorkItemDocuments, workItemDocumentsTitleId } from './WorkItemDocuments'
-import { campaignStatusLabel, roleWords, sexText, statusLabel } from '../../ehr-blue/departments/outreach/outreachParts'
+import { campaignStatusLabel, createdText, roleWords, sexText, statusLabel } from '../../ehr-blue/departments/outreach/outreachParts'
 import { notAnOcrId } from '../ocrIdWords'
 
 /**
@@ -1826,7 +1826,7 @@ export function Outreach() {
       caseAttempt.current = { signature, command: { localCommandId: crypto.randomUUID(), temporaryPatientId: `tmp_${crypto.randomUUID()}` } }
     }
     setBusy(true)
-    try { await staffApi.createOutreachCase(facilityId, input, caseAttempt.current.command); caseAttempt.current = null; setSuccess('Registration case created. It stays pending until it is linked to a verified Health ID patient.'); element.reset(); await cases.refresh() }
+    try { const created = await staffApi.createOutreachCase(facilityId, input, caseAttempt.current.command); caseAttempt.current = null; setSuccess(createdText(created)); element.reset(); await cases.refresh() }
     catch (caught) { setError(errorText(caught, 'Registration case could not be created.')) }
     finally { setBusy(false) }
   }

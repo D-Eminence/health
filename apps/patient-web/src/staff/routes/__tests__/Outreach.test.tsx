@@ -128,6 +128,16 @@ const commands = () => api.createOutreachCase.mock.calls.map(call => call[2] as 
  * it is created; a different case gets a new one.
  */
 describe('creating a registration case', () => {
+  // Said from the case Outreach answers with, as the blue page says it: a command sent again can answer with a case
+  // that has been linked since.
+  it('says a created case by the status it comes back with', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pendingCase, status: 'identity_resolved' })
+    render(<Outreach />)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34' }))
+    expect(await screen.findByText('Registration case created. Its status is linked.')).toBeTruthy()
+    expect(screen.queryByText(/^Registration case created\. It stays pending/)).toBeNull()
+  })
+
   it('sends the case with a new command, and says it was created', async () => {
     api.createOutreachCase.mockResolvedValue(pendingCase)
     render(<Outreach />)
