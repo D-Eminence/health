@@ -28,6 +28,28 @@ class ReleaseContractTests(unittest.TestCase):
             bad = copy.deepcopy(config); bad['chat'][key] = value
             with self.assertRaises(ValueError): validate_config(bad)
 
+    def test_card_links_switch_is_an_exact_boolean_and_off_in_every_config(self):
+        # Step 8 (hid-system 0118): sending the card by email is built but switched off until legal signs off (D13).
+        root = pathlib.Path(__file__).parents[1]
+        for environment in ('staging', 'production'):
+            config = json.loads((root / ('config/' + environment + '.json')).read_text())
+            self.assertIs(config['card_shares'], False, environment)
+            validate_config(config, environment)
+            for value in ['false', 0, None, 'true']:
+                bad = copy.deepcopy(config); bad['card_shares'] = value
+                with self.assertRaises(ValueError): validate_config(bad, environment)
+            missing = copy.deepcopy(config); del missing['card_shares']
+            with self.assertRaises(ValueError): validate_config(missing, environment)
+        production = json.loads((root / 'config/production.json').read_text())
+        production['card_shares'] = True
+        with self.assertRaises(ValueError): validate_config(production, 'production')
+        staging = json.loads((root / 'config/staging.json').read_text())
+        staging['card_shares'] = True
+        validate_config(staging)
+        self.assertTrue(chat_features(staging, 'web')['cardSharesEnabled'])
+        for app in ('ehr', 'admin', 'public', 'lab'):
+            self.assertFalse(chat_features(staging, app)['cardSharesEnabled'], app)
+
     def test_manifest_binds_source_config_edge_and_every_archive(self):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder)
