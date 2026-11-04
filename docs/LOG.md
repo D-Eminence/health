@@ -2817,3 +2817,38 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-04: Access & sharing ready for launch (audit SA-02 to SA-23)
+
+- Headings say only the section's name ("Requests", "Who has access") while a
+  list loads or after it failed; a count or "No one has access now" only once
+  the list is read. The hint is now "Past access stays listed." (the list has
+  no time access ended).
+- The tab is in the address (`/access?tab=granted|activity`). "See who has
+  access", "Back to Access & sharing", Home's "Facilities with access" and
+  activity rows, and the old `/logs` address open the right tab. The page's
+  title is "Access & sharing · Health ID". The edge redirect for `/logs`
+  (`infra/cloudflare`) still sends it to `/access`.
+- A refusal for an old sign-in (403 `PATIENT_RECENT_AUTH_REQUIRED`) on Approve,
+  Share my records or Confirm and share is said in place with a "Sign in again"
+  button: it signs out and opens `/sign-in?next=…`. Sign-in goes back to `next`
+  when it is a path on this site (`returnPath.ts`), else Home; with single
+  sign-on on, the same after auth.
+- A request, access or invitation changed elsewhere (404, 409 or 412) reads the
+  lists again, closes the drawer and says so. Share refusals have plain words
+  and a next step, with "Choose someone else" for a person who can't receive
+  records. The Change buttons are disabled while sharing and are 44px targets.
+- Empty lists are designed empty states with the next step. The Activity tab
+  shows one where the log is not served (404), instead of nothing.
+- Emergency access says the reason given and when it ends, and access a
+  facility gave says it can't be ended here; both offer "Contact Health ID
+  support". The patient's own decisions read "You gave X access to your
+  records" and "You ended X's access". The purpose is said in words.
+- Invitations wrap on phones, the pressed button shows it is busy, and a
+  confirmed invitation says whether the share it made still runs.
+- Orders sent elsewhere: Try again on a failed read, plain priority and route,
+  "in progress" for a state the page doesn't know, and Stop asks first.
+- Needs the backend (SA-14): shares made with "Share my records" and confirmed
+  invitations are not in the access log (0093's classifier drops
+  `identity.consent-grant.patient-share` and `identity.share-invitation.confirm`).
+- Verified in Chromium at 320, 360, 390 and 1366 px against the mock gateway.

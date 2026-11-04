@@ -141,6 +141,9 @@ function ShareFlow() {
   const shareKey = useIdempotencyKey()
   const inviteKey = useIdempotencyKey()
 
+  // A refusal shown under the step: brought into view, as on a phone the buttons held at the bottom would cover it.
+  const errorBox = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (error) errorBox.current?.scrollIntoView?.({ block: 'center' }) }, [error])
   // Whether the error shown is the choice's (the search step's second form) rather than the search's.
   const [choosing, setChoosing] = useState(false)
   const go = (next: Step) => { setStep(next); setError(null); setErrorNext(null); stepFocus.focus() }
@@ -219,7 +222,7 @@ function ShareFlow() {
   }
 
   // A failed request, or a choice left out, is said in place; focus goes to it.
-  const alert = error && <div className="flex flex-col items-start gap-2">
+  const alert = error && <div ref={errorBox} className="flex flex-col items-start gap-2">
     <div ref={errorFocus.target} tabIndex={-1} className="w-full outline-none"><Alert intent="error" size="sm">{error}</Alert></div>
     {errorNext === 'sign-in' && <SignInAgainButton back="/access/share" />}
     {errorNext === 'choose' && <Button size="sm" disabled={busy} icon={Search} onClick={() => go('search')}>Choose someone else</Button>}
