@@ -24,6 +24,8 @@ vi.mock('../cardSharesFlag', () => ({ cardSharesEnabled: () => flag.on }))
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => true }))
 
 const LIST = '/identity/me/card-shares'
+/** hid-system claude/card-links-0118, services/identity-api/src/card-links/card-links.dto.ts CreateCardShareDto. */
+const BACKEND_CREATE_FIELDS = ['email', 'label', 'scope', 'duration']
 const share = (overrides: Partial<CardShare> = {}): CardShare => ({
   id: 'cs-1', reference: 'K7P2-QX9M', recipientEmail: 'dr.bello@example.com', label: 'Dr Bello', recipientHint: 'd•••@example.com',
   scope: 'card_and_records', duration: '24h', createdAt: '2026-11-04T09:04:00.000Z', expiresAt: '2026-11-05T09:04:00.000Z', status: 'active',
@@ -87,7 +89,9 @@ describe('the send flow', () => {
     expect((screen.getByLabelText('24 hours') as HTMLInputElement).checked).toBe(true)
     const what = within(screen.getByRole('group', { name: 'What they’ll see' })).getAllByRole('radio')
     expect(what).toHaveLength(2)
-    expect(screen.getByText('Your card: name, Health ID, photo, blood group, genotype and allergies.')).toBeTruthy()
+    // No photo: the backend's card view carries none (review F5), so neither the choice nor the check step promises one.
+    expect(screen.getByText('Your card: name, Health ID, blood group, genotype and allergies.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/photo/i)
     expect(screen.getByText(/Your card and your records: visits, signed notes, older records, the health information you entered and the records you added\./)).toBeTruthy()
     expect(screen.getByText('Read only. They can’t change anything.')).toBeTruthy()
   })
@@ -123,7 +127,10 @@ describe('the send flow', () => {
     await press(screen.getByRole('button', { name: 'Send my card' }))
     expect(await screen.findByRole('heading', { name: 'Your card link is on its way' })).toBeTruthy()
     const posts = cardRequests(sent).filter(item => item.method === 'POST')
-    expect(posts).toEqual([{ path: LIST, method: 'POST', body: { email: 'dr.bello@example.com', label: 'Dr Bello', scope: 'card_and_records', duration: '24h', consentVersion: 'card-share-check-v1' } }])
+    // Exactly the fields the backend's CreateCardShareDto allows (whitelist, forbidNonWhitelisted): an extra field is a 400
+    // for every send (review F1). The backend records the check step's version itself.
+    expect(posts).toEqual([{ path: LIST, method: 'POST', body: { email: 'dr.bello@example.com', label: 'Dr Bello', scope: 'card_and_records', duration: '24h' } }])
+    expect(Object.keys(posts[0]!.body as object).every(key => BACKEND_CREATE_FIELDS.includes(key))).toBe(true)
     expect(headers.find(item => item.method === 'POST' && item.path === LIST)?.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/)
     expect(screen.getByText(/Your card link is on its way to dr\.bello@example\.com\. It works until .*, or until you end it\. You’ll be told each time it’s opened\./)).toBeTruthy()
     expect(screen.getByText('The link you sent to this address before has ended.')).toBeTruthy()
@@ -133,7 +140,8 @@ describe('the send flow', () => {
 
   it('says card only on the check step, and not the records', async () => {
     await fillAndCheck(listing(), { scope: 'Card only', label: '', duration: '7 days' })
-    expect(screen.getByText('They’ll see your Health ID card: your name, Health ID, photo, blood group, genotype and allergies. Not your records.')).toBeTruthy()
+    expect(screen.getByText('They’ll see your Health ID card: your name, Health ID, blood group, genotype and allergies. Not your records.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/photo/i)
     expect(screen.queryByText('They’ll also see anything added to your record until the link ends.')).toBeNull()
     expect(screen.getByText('7 days')).toBeTruthy()
   })
@@ -150,6 +158,55 @@ describe('the send flow', () => {
     })
     await press(screen.getByRole('button', { name: 'Send my card' }))
     expect(await screen.findByText('We aren’t sure the email arrived. You can end this link and send a new one tomorrow.')).toBeTruthy()
+  })
+
+  it('uses a new Idempotency-Key for each send, so sending again to the same address makes a new link (review F4)', async () => {
+    let made = 0
+    const { headers } = await fillAndCheck((path, method) => {
+      if (path === LIST && method === 'GET') return json(listOf(made ? [share({ id: `cs-${made}` })] : []))
+      if (path === LIST && method === 'POST') { made += 1; return json({ share: share({ id: `cs-${made}` }), delivery: 'sent', replacedId: made > 1 ? `cs-${made - 1}` : null, replayed: false }, 201) }
+      return problem(404, 'NOT_FOUND', path)
+    })
+    await press(screen.getByRole('button', { name: 'Send my card' }))
+    await screen.findByRole('heading', { name: 'Your card link is on its way' })
+    await press(screen.getByRole('button', { name: 'Send to someone else' }))
+    await screen.findByRole('heading', { name: 'Send your card by email' })
+    type('Their email address', 'dr.bello@example.com')
+    type(/Who is this\?/, 'Dr Bello')
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Check and send' })
+    await press(screen.getByRole('button', { name: 'Send my card' }))
+    expect(await screen.findByText('The link you sent to this address before has ended.')).toBeTruthy()
+    const keys = headers.filter(item => item.method === 'POST' && item.path === LIST).map(item => item.headers.get('Idempotency-Key'))
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('keeps one key while the same send is tried again after a failure, and starts a new one after Back', async () => {
+    let calls = 0
+    const { headers } = await fillAndCheck((path, method) => {
+      if (path === LIST && method === 'GET') return json(listOf([]))
+      if (path === LIST && method === 'POST') { calls += 1; return calls === 1 ? problem(503, 'CARD_SHARE_UNAVAILABLE', 'x') : json({ share: share(), delivery: 'sent', replacedId: null, replayed: false }, 201) }
+      return problem(404, 'NOT_FOUND', path)
+    })
+    await press(screen.getByRole('button', { name: 'Send my card' }))
+    await screen.findByRole('alert')
+    await press(screen.getByRole('button', { name: 'Send my card' }))
+    await screen.findByRole('heading', { name: 'Your card link is on its way' })
+    const keys = headers.filter(item => item.method === 'POST' && item.path === LIST).map(item => item.headers.get('Idempotency-Key'))
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('says plainly when the answer is a replay of a send already made, not that a new link is on its way', async () => {
+    await fillAndCheck((path, method) => {
+      if (path === LIST && method === 'GET') return json(listOf([]))
+      return json({ share: share(), delivery: 'sent', replacedId: null, replayed: true }, 200)
+    })
+    await press(screen.getByRole('button', { name: 'Send my card' }))
+    expect(await screen.findByRole('heading', { name: 'Your card was already sent' })).toBeTruthy()
+    expect(screen.getByText(/We’d already sent this link to dr\.bello@example\.com\. Nothing new was sent\. It works until .*, or until you end it\./)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Your card link is on its way' })).toBeNull()
   })
 
   const refusals: Array<[number, string, string]> = [
@@ -260,8 +317,13 @@ describe('the inbox and Activity', () => {
       .toBe('Someone opened your card using the link sent to d•••@gmail.com')
     expect(notificationTitle(notice('SHARED_CARD_LOCKED', { recipientHint: 'd•••@gmail.com' })))
       .toBe('Too many wrong codes were entered for your card link to d•••@gmail.com. It’s paused for an hour.')
-    expect(notificationTitle(notice('SHARED_CARD_ENDED_WRONG_CODES', { recipientHint: 'd•••@gmail.com' })))
+    // The backend's codes (INTERFACE_CONTRACT §33): SHARED_CARD_ENDED with reason too_many_wrong_codes, and SHARED_CARD_STOPPED.
+    expect(notificationTitle(notice('SHARED_CARD_ENDED', { recipientHint: 'd•••@gmail.com', reference: 'K7P2-QX9M', reason: 'too_many_wrong_codes' })))
       .toBe('We ended your card link to d•••@gmail.com because of too many wrong codes. Send a new one if you still want to share.')
+    expect(notificationTitle(notice('SHARED_CARD_ENDED', { recipientHint: 'd•••@gmail.com' })))
+      .toBe('Your card link to d•••@gmail.com has ended.')
+    expect(notificationTitle(notice('SHARED_CARD_STOPPED', { recipientHint: 'd•••@gmail.com', reference: 'K7P2-QX9M' })))
+      .toBe('The person at d•••@gmail.com asked us to stop card emails, so your card link to them has ended.')
     expect(notificationTitle(notice('SHARED_CARD_OPENED', {}))).toBe('Someone opened your card using a link you sent')
     expect(NOTIFICATION_SUBJECTS['card-share']).toBe('Shared card')
   })
@@ -285,17 +347,23 @@ describe('the patient\'s preview of what a card link shows', () => {
   it('shows their own card and records as a card-and-records link does, and says it is a preview', async () => {
     const { CardLinkPreview } = await import('../routes/CardReceiver')
     const { profile } = await import('./portalHarness')
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:own-photo')
     const { sent } = renderPortal(<CardLinkPreview />, path => {
-      if (path === '/identity/me') return json(profile)
+      if (path === '/identity/me') return json({ ...profile, hasPhoto: true })
+      if (path === '/identity/me/photo') return new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': 'image/png' } })
       if (path === '/ehr/me/records') return json({ encounters: [{ id: 'e1', facilityId: 'f', encounterType: 'outpatient', status: 'completed', startedAt: '2026-10-20T09:00:00Z', endedAt: null }],
         notes: [], limit: 50 })
       return problem(404, 'NOT_FOUND', path)
-    }, {}, { at: '/card/preview' })
+    }, {}, { at: '/card/preview', parityB3: true })
     expect(await screen.findByText('This is what someone you send your card to sees.')).toBeTruthy()
     expect(screen.getByRole('heading', { level: 1, name: 'Ada Example’s Health ID card' })).toBeTruthy()
     expect(await screen.findByRole('heading', { name: 'Visits' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Records they added' })).toBeTruthy()
     expect(sent.some(item => item.path.startsWith('/card-share/'))).toBe(false)
+    // The person a link goes to never sees the photo (the backend shares none), so the preview does not show it either.
+    await waitFor(() => expect(sent.some(item => item.path === '/identity/me/photo')).toBe(true))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(document.querySelector('img[src="blob:own-photo"]')).toBeNull()
   })
 })
 

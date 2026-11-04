@@ -23,8 +23,9 @@ vi.mock('../Turnstile', () => ({
 const TOKEN = 'k3Jx9QpLm2Vt7RwYz5NcBd8FgHs4Ae6UoP1qR2sT3uV' // 43 characters, base64url
 const VIEW = 'view-7d2c'
 const card = (overrides: Record<string, unknown> = {}) => ({
-  viewId: VIEW, card: { fullName: 'Chiamaka Obi', healthId: 'HID-CHI4821', ninVerified: true, hasPhoto: false },
-  scope: 'card_and_records', sharedBy: 'Chiamaka', recipientHint: 'd•••@gmail.com', reference: 'K7P2-QX9M',
+  // The backend's verify and view answer (hid-system 0118 card-links.service.ts cardBody): no photo, sharedByFirstName.
+  viewId: VIEW, card: { fullName: 'Chiamaka Obi', healthId: 'HID-CHI4821', ninVerified: true },
+  scope: 'card_and_records', sharedByFirstName: 'Chiamaka', recipientHint: 'd•••@gmail.com', reference: 'K7P2-QX9M',
   expiresAt: '2026-11-05T09:04:00.000Z', viewExpiresAt: '2026-11-04T10:34:00.000Z', ...overrides,
 })
 const records = (overrides: Record<string, unknown> = {}) => ({
@@ -32,7 +33,8 @@ const records = (overrides: Record<string, unknown> = {}) => ({
   notes: [{ id: 'note-1', encounterId: 'enc-1', facilityId: 'f-1', noteType: 'progress', title: 'Malaria review', status: 'signed', revisionNo: 1,
     content: 'Fever resolving.', signedAt: '2026-10-20T10:00:00.000Z' }],
   importedRecords: [], importedHealthProfile: null,
-  healthProfile: { bloodGroup: 'O+', genotype: 'AS', allergies: 'Penicillin', currentMedications: null, chronicConditions: null, medicalNotes: null },
+  // ehr-api's names (card-share-records.service.ts): medications and notes, not the profile's currentMedications and medicalNotes.
+  healthProfile: { bloodGroup: 'O+', genotype: 'AS', allergies: 'Penicillin', chronicConditions: null, medications: null, notes: null },
   patientEntries: [{ id: 'pe-1', source: 'patient', kind: 'medicine', title: 'Metformin 500mg', facilityName: null, occurredOn: '2026-09-01',
     notes: null, createdAt: '2026-09-01T08:00:00.000Z', documents: [{ id: 'd-1', fileName: 'prescription.jpg', mediaType: 'image/jpeg', sizeBytes: 2048,
       status: 'available', scanStatus: 'clean', createdAt: '2026-09-01T08:00:00.000Z' }] }],
@@ -67,7 +69,7 @@ function served(overrides: Partial<Record<string, Handler>> = {}): Handler {
     if (path === '/card-share/view') return json(card())
     if (path === '/card-share/records') return json(records())
     if (path === '/card-share/end-view') return new Response(null, { status: 204 })
-    if (path === '/card-share/stop-emails') return json({ stopped: (body as { scope: string }).scope })
+    if (path === '/card-share/stop') return new Response(null, { status: 204 })
     return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
   }
 }
@@ -143,9 +145,10 @@ describe('opening the link', () => {
     await waitFor(() => expect(focused()).toBe(title))
     expect(seen.map(item => `${item.method} ${item.path}`)).toEqual(['GET /card-share/availability'])
     expect(tokenAnywhere(seen)).toEqual([])
-    // Links to the privacy notice and to stop these emails, on the page itself.
+    // The privacy notice is linked; stopping the emails needs the stop link in the email, which this page doesn't have (review F2).
     expect(screen.getByRole('link', { name: 'How we use your email address' }).getAttribute('href')).toBe('/card/privacy')
-    expect(screen.getByRole('button', { name: 'Stop these emails' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Stop these emails' })).toBeNull()
+    expect(screen.getByText('Don’t want these emails? Use the Stop these emails link at the bottom of the email.')).toBeTruthy()
   })
 
   it('sends the token only in the code request\'s body, and says where the code went', async () => {
@@ -192,6 +195,9 @@ describe('the refusals, in plain words', () => {
     [problem(410, 'CARD_SHARE_ENDED', 'x'), 'This card is no longer shared.'],
     [new Response(JSON.stringify({ code: 'CARD_SHARE_LOCKED', status: 429, retryAfterSeconds: 1800 }), { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '1800' } }),
       'Too many wrong codes. Try again in 30 minutes.'],
+    // The backend puts the wait in the problem body only, with no Retry-After header (review F6a).
+    [json({ code: 'CARD_SHARE_LOCKED', status: 429, retryAfterSeconds: 1800 }, 429), 'Too many wrong codes. Try again in 30 minutes.'],
+    [json({ code: 'CARD_SHARE_CODE_LIMITED', status: 429, retryAfterSeconds: 120 }, 429), 'Too many codes asked for. Try again in 2 minutes.'],
     [problem(429, 'CARD_SHARE_CODE_LIMITED', 'x'), 'Too many codes asked for. Try again later.'],
     [problem(429, 'RATE_LIMITED', 'x'), 'Too many tries from this connection. Wait a minute and try again.'],
   ]
@@ -205,9 +211,12 @@ describe('the refusals, in plain words', () => {
   })
 
   const verifyRefusals: Array<[Response, string]> = [
-    [json({ code: 'CARD_SHARE_CODE_WRONG', status: 400, attemptsLeft: 3 }, 400), 'That code isn’t right. Check the email and try again. 3 tries left.'],
+    // A right code entered in another browser counts as wrong (the backend's rule, review F6b), so the words say where to enter it.
+    [json({ code: 'CARD_SHARE_CODE_WRONG', status: 400, attemptsLeft: 3 }, 400),
+      'That code isn’t right. Check the newest email, and enter the code in the browser where you asked for it. 3 tries left.'],
     [problem(410, 'CARD_SHARE_CODE_EXPIRED', 'x'), 'That code has stopped working. Ask for a new one.'],
     [problem(429, 'CARD_SHARE_LOCKED', 'x'), 'Too many wrong codes. Try again in an hour.'],
+    [json({ code: 'CARD_SHARE_LOCKED', status: 429, retryAfterSeconds: 3540 }, 429), 'Too many wrong codes. Try again in 59 minutes.'],
   ]
   it.each(verifyRefusals)('entering the code: %#', async (answer, words) => {
     await startToCode(served({ 'POST /card-share/verify': () => answer.clone() }))
@@ -251,7 +260,7 @@ describe('the card', () => {
     expect(screen.queryByRole('link', { name: /Download/ })).toBeNull()
     expect(screen.getByText('Shared by')).toBeTruthy()
     expect(screen.getByText('Read only. Opened from an email sent to d•••@gmail.com. Chiamaka can see each time this page is opened.')).toBeTruthy()
-    for (const read of seen.filter(item => ['/card-share/records', '/card-share/view', '/card-share/photo'].includes(item.path))) {
+    for (const read of seen.filter(item => ['/card-share/records', '/card-share/view'].includes(item.path))) {
       expect(read.headers.get('X-Card-View'), read.path).toBe(VIEW)
       expect(read.credentials).toBe('include')
     }
@@ -279,17 +288,34 @@ describe('the card', () => {
     expect(screen.queryByRole('heading', { name: 'Records they added' })).toBeNull()
   })
 
-  it('reads the photo with its view header, not by an address an image tag would load', async () => {
-    const photo = vi.fn(() => new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': 'image/png' } }))
-    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:card-photo')
-    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
-    const { seen } = await openCard(served({ 'POST /card-share/verify': () => json(card({ card: { fullName: 'Chiamaka Obi', healthId: 'HID-CHI4821', ninVerified: true, hasPhoto: true } })),
-      'GET /card-share/photo': photo }))
-    await waitFor(() => expect(photo).toHaveBeenCalled())
-    expect(seen.find(item => item.path === '/card-share/photo')?.headers.get('X-Card-View')).toBe(VIEW)
-    await waitFor(() => expect(created).toHaveBeenCalled())
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'End view' })) })
-    expect(revoked).toHaveBeenCalledWith('blob:card-photo')
+  it('never asks for a photo: the backend shares none, so the card face shows initials (review F5)', async () => {
+    const { seen } = await openCard(served({ 'POST /card-share/verify': () => json(card({ card: { fullName: 'Chiamaka Obi', healthId: 'HID-CHI4821', ninVerified: true, hasPhoto: true } })) }))
+    await screen.findByRole('heading', { name: 'Visits' })
+    expect(seen.some(item => item.path === '/card-share/photo')).toBe(false)
+  })
+
+  it('names who shared it by the backend\'s sharedByFirstName', async () => {
+    await openCard(served({ 'POST /card-share/verify': () => json(card({ sharedByFirstName: 'Chi' })) }))
+    expect(screen.getByText('Read only. Opened from an email sent to d•••@gmail.com. Chi can see each time this page is opened.')).toBeTruthy()
+  })
+
+  it('shows the medicines and other notes the patient entered, from ehr-api\'s own names (review F3)', async () => {
+    await openCard(served({ 'GET /card-share/records': () => json(records({ healthProfile: { bloodGroup: 'O+', genotype: 'AS', allergies: 'Penicillin',
+      chronicConditions: 'Type 2 diabetes', medications: 'Metformin 500 mg', notes: 'Prefers a female doctor' } })) }))
+    await screen.findByRole('heading', { name: 'Health information they entered' })
+    const term = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+    expect(term('Medicines they take now')).toBe('Metformin 500 mg')
+    expect(term('Long-term conditions')).toBe('Type 2 diabetes')
+    expect(term('Other notes')).toBe('Prefers a female doctor')
+  })
+
+  it('says "Not available", not "Not stated", for a field the answer left out', async () => {
+    await openCard(served({ 'GET /card-share/records': () => json(records({ healthProfile: { bloodGroup: 'O+', genotype: null, allergies: 'Penicillin' } })) }))
+    await screen.findByRole('heading', { name: 'Health information they entered' })
+    const term = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+    expect(term('Genotype')).toBe('Not stated')
+    expect(term('Medicines they take now')).toBe('Not available')
+    expect(term('Other notes')).toBe('Not available')
   })
 
   it('ends the view on End view, clears the screen and says how to open it again', async () => {
@@ -355,36 +381,47 @@ describe('the card', () => {
 })
 
 describe('Stop these emails', () => {
-  it('from the card page asks which, then stops them with the token in the body', async () => {
-    const { seen } = open(`/card#${TOKEN}`, served())
-    await screen.findByRole('heading', { level: 1, name: 'Open a shared Health ID card' })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Stop these emails' })) })
+  // The backend's stop token (card-links.service.ts STOP_TOKEN): a uuid, a dot, and 43 base64url characters. It is not
+  // the card's token: E5 and E6 link to /card/stop#<stopToken> (review F2).
+  const STOP_TOKEN = '3f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f.Zq8Lm2Vt7RwYz5NcBd8FgHs4Ae6UoP1qR2sT3uVk3Jx'
+
+  it('opens from the email\'s own link, /card/stop#<stopToken>, takes it out of the address, and stops on a press', async () => {
+    const { seen } = open(`/card/stop#${STOP_TOKEN}`, served(), 'stop')
+    expect(window.location.hash).toBe('')
     const heading = await screen.findByRole('heading', { level: 1, name: 'Stop these emails' })
     await waitFor(() => expect(focused()).toBe(heading))
-    expect(screen.getByRole('button', { name: 'Complete check' }).getAttribute('data-action')).toBe('card-share-stop')
-    fireEvent.click(screen.getByLabelText(/Stop all Health ID card emails to this address/))
-    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Stop the emails' })) })
+    expect(screen.getByText('We won’t send Health ID card links or codes to this address again, and any card link sent to it ends.')).toBeTruthy()
+    // Nothing is sent until the person presses the button: a mail scanner that loads the page stops nothing.
+    expect(seen.map(item => item.path)).toEqual(['/card-share/availability'])
+    // The backend's stop takes no security check, so none is shown (and none is sent: it would be refused as an unknown field).
+    expect(screen.queryByRole('button', { name: 'Complete check' })).toBeNull()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Stop these emails' })) })
     expect(await screen.findByRole('heading', { level: 1, name: 'We’ve stopped these emails' })).toBeTruthy()
-    const stop = seen.find(item => item.path === '/card-share/stop-emails')!
-    expect(stop.body).toEqual({ token: TOKEN, scope: 'address', turnstileToken: 'turnstile-token' })
-    expect(tokenAnywhere(seen).map(item => item.path)).toEqual(['/card-share/stop-emails'])
+    const stop = seen.find(item => item.path === '/card-share/stop')!
+    expect(stop.method).toBe('POST')
+    expect(stop.body).toEqual({ stopToken: STOP_TOKEN })
+    expect(stop.url).toBe('https://gateway.test/api/v1/card-share/stop')
+    expect(seen.filter(item => item.url.includes(STOP_TOKEN) || [...item.headers.values()].some(value => value.includes(STOP_TOKEN)))).toEqual([])
   })
 
-  it('opens from the email\'s own link, /card/stop#<token>, with the token out of the address', async () => {
+  it('says the link is not complete for a card token or anything else that is not a stop token, and sends nothing for it', async () => {
     const { seen } = open(`/card/stop#${TOKEN}`, served(), 'stop')
-    expect(window.location.hash).toBe('')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Stop these emails' })).toBeTruthy()
-    fireEvent.click(screen.getByLabelText(/End only this card link/))
-    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Stop the emails' })) })
-    expect(await screen.findByRole('heading', { level: 1, name: 'We’ve ended this card link' })).toBeTruthy()
-    expect(seen.find(item => item.path === '/card-share/stop-emails')?.body).toEqual({ token: TOKEN, scope: 'link', turnstileToken: 'turnstile-token' })
+    expect(await screen.findByRole('heading', { level: 1, name: 'This link isn’t complete' })).toBeTruthy()
+    expect(seen.map(item => item.path)).toEqual(['/card-share/availability'])
+  })
+
+  it('says so in plain words when the stop is refused, and lets the person try again', async () => {
+    open(`/card/stop#${STOP_TOKEN}`, served({ 'POST /card-share/stop': () => problem(400, 'CARD_SHARE_LINK_INVALID', 'server words') }), 'stop')
+    await screen.findByRole('heading', { level: 1, name: 'Stop these emails' })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Stop these emails' })) })
+    const alert = await screen.findByRole('alert')
+    expect(shownText(alert)).toBe('This link isn’t complete. Open it again from your email.')
+    expect(alert.textContent).not.toContain('server words')
   })
 
   it('is dormant while switched off', async () => {
     flag.on = false
-    const { seen } = open(`/card/stop#${TOKEN}`, served(), 'stop')
+    const { seen } = open(`/card/stop#${STOP_TOKEN}`, served(), 'stop')
     expect(screen.getByRole('heading', { level: 1, name: 'This isn’t available yet' })).toBeTruthy()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(seen).toEqual([])

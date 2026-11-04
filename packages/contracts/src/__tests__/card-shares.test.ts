@@ -21,7 +21,7 @@ const RECEIVER = [
   ['identity.cardShareVerify', 'POST', '/api/v1/card-share/verify', 'identity'],
   ['identity.cardShareView', 'GET', '/api/v1/card-share/view', 'identity'],
   ['identity.cardShareEndView', 'POST', '/api/v1/card-share/end-view', 'identity'],
-  ['identity.cardShareStopEmails', 'POST', '/api/v1/card-share/stop-emails', 'identity'],
+  ['identity.cardShareStop', 'POST', '/api/v1/card-share/stop', 'identity'],
   ['ehr.cardShareRecords', 'GET', '/api/v1/card-share/records', 'ehr'],
 ] as const
 
@@ -38,7 +38,9 @@ describe('sending the card by email, for the patient', () => {
     expect(note).toContain('Idempotency-Key')
     expect(note).toMatch(/scope: card \| card_and_records/)
     expect(note).toMatch(/duration: 24h \| 7d/)
-    expect(note).toContain('consentVersion')
+    // The body the backend's CreateCardShareDto allows, and nothing more (review F1): it refuses unknown fields.
+    expect(note).toContain('{ email, label?, scope: card | card_and_records, duration: 24h | 7d }')
+    expect(note).not.toContain('consentVersion')
   })
 })
 
@@ -49,11 +51,30 @@ describe('opening a card sent by email, for whoever has the link', () => {
     expect(assertRegisteredBrowserRequest(method, path).name).toBe(name)
   })
 
-  it('reads the photo as a download, with the same view header as the rest', () => {
-    expect(findEndpoint('identity.cardSharePhoto')).toMatchObject({ path: '/api/v1/card-share/photo', methods: ['GET'], responseKind: 'download',
-      auth: { kind: 'public' }, status: 'proposed' })
-    expect(assertRegisteredBrowserRequest('GET', '/api/v1/card-share/photo', undefined, 'download').name).toBe('identity.cardSharePhoto')
-    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/card-share/photo')).toThrow(BrowserRouteError)
+  it('has no photo route: the backend shares no photo (review F5)', () => {
+    expect(findEndpoint('identity.cardSharePhoto')).toBeUndefined()
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/card-share/photo', undefined, 'download')).toThrow(BrowserRouteError)
+    expect(findEndpoint('identity.cardShareVerify')?.note).toContain('sharedByFirstName')
+    expect(findEndpoint('identity.cardShareVerify')?.note).not.toContain('hasPhoto')
+  })
+
+  it('stops the emails with the separate stop token at POST stop, and the old stop-emails route is gone (review F2)', () => {
+    const note = findEndpoint('identity.cardShareStop')?.note ?? ''
+    expect(note).toContain('{ stopToken }')
+    expect(note).toContain('204')
+    expect(note.toLowerCase()).not.toContain('turnstile')
+    expect(findEndpoint('identity.cardShareStopEmails')).toBeUndefined()
+    expect(() => assertRegisteredBrowserRequest('POST', '/api/v1/card-share/stop-emails')).toThrow(BrowserRouteError)
+  })
+
+  it('names the records answer\'s health fields as ehr-api sends them (review F3)', () => {
+    expect(findEndpoint('ehr.cardShareRecords')?.note).toContain('{ bloodGroup, genotype, allergies, chronicConditions, medications, notes }')
+  })
+
+  it('says a right code from another browser counts as wrong, and the wait is in the body (review F6)', () => {
+    const verify = findEndpoint('identity.cardShareVerify')?.note ?? ''
+    expect(verify).toContain('another browser counts as wrong')
+    expect(findEndpoint('identity.cardShareCode')?.note).toContain('CARD_SHARE_CODE_LIMITED { retryAfterSeconds }')
   })
 
   it('never takes the link\'s secret in a path, and no card-share path has a parameter', () => {
@@ -76,13 +97,12 @@ describe('opening a card sent by email, for whoever has the link', () => {
     expect(findEndpoint('ehr.cardShareRecords')?.note).toContain('X-Card-View')
     expect(findEndpoint('identity.cardShareCode')?.note).toContain('410 CARD_SHARE_ENDED')
     expect(findEndpoint('identity.cardShareCode')?.note).toContain('card-share-code')
-    expect(findEndpoint('identity.cardShareStopEmails')?.note).toContain('card-share-stop')
     for (const name of RECEIVER.map(([name]) => name)) expect(findEndpoint(name)?.note, name).toContain('never 401')
   })
 })
 
 describe('who may call them', () => {
-  const names = [...new Set([...PATIENT.map(([name]) => name), ...RECEIVER.map(([name]) => name), 'identity.cardSharePhoto'])]
+  const names = [...new Set([...PATIENT.map(([name]) => name), ...RECEIVER.map(([name]) => name)])]
 
   it('is the patient portal alone', () => {
     for (const name of names) {

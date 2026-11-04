@@ -67,8 +67,7 @@ const NOT_ON_MAIN = [
   'auth.ssoLogout',
   // Step 8 (hid-system 0118, switched off until legal signs off): the card sent by email and opened with a one-time code.
   'identity.myCardShares', 'identity.myCardShareEnd', 'identity.cardShareAvailability', 'identity.cardShareCode',
-  'identity.cardShareVerify', 'identity.cardShareView', 'identity.cardSharePhoto', 'identity.cardShareEndView',
-  'identity.cardShareStopEmails', 'ehr.cardShareRecords',
+  'identity.cardShareVerify', 'identity.cardShareView', 'identity.cardShareEndView', 'identity.cardShareStop', 'ehr.cardShareRecords',
 ] as const
 
 describe('routes hid-system main does not serve', () => {
