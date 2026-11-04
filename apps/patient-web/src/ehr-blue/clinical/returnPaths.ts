@@ -6,8 +6,8 @@ import type { AccessRequestStatus } from '../../staff/api'
  * memory and are never carried (parts/chart.tsx); a record page reached again asks for the patient first, and reads
  * nothing until the patient is opened again by a fresh lookup.
  *
- * Pure: it reads, stores and logs nothing, and nothing calls it yet. The product's signed-out hand-off will, behind its
- * own setting.
+ * Pure: it reads, stores and logs nothing. Only the product's signed-out hand-off calls it (sso/handOff.ts
+ * isSafeReturnPath), and only once VITE_HID_SSO turns single sign-on on.
  */
 
 /**

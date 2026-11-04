@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -213,7 +213,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
     }
     const key = attempt.key(JSON.stringify(['prescriptions', values]))
     try {
-      if (!chart.canWrite) throw new Error(NO_CHANGES)
+      if (!chart.canWrite) throw new PlainError(NO_CHANGES)
       await chart.verify()
       const saved = await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'prescriptions', body, key)
       attempt.clear()
@@ -347,9 +347,9 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
       if (!handoff) {
         const items = await reload()
         const said = refusalText(caught, 'The lab request could not be created.')
-        throw new Error(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
+        throw new PlainError(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
       }
-      const named = handoffNames(caught.message)
+      const named = handoffNames(caught.detail ?? '')
       attempt.clear()
       const text = caught.code === 'LAB_HANDOFF_REFUSED'
         ? `Lab request saved and active in the EHR, but Lab refused it, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
@@ -428,7 +428,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
     }
     const key = attempt.key(JSON.stringify(['lab-requests', values, priority, handling]))
     try {
-      if (!chart.canWrite) throw new Error(NO_CHANGES)
+      if (!chart.canWrite) throw new PlainError(NO_CHANGES)
       await chart.verify()
       if (toAnother && choice.destination && choice.attestation) await createAndSend(body, key, choice.destination, choice.attestation.version)
       else await create(body, key)

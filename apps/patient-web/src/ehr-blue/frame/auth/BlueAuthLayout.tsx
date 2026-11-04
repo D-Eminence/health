@@ -1,6 +1,7 @@
 import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
 import { AuthLayout } from '../../../AuthLayout'
+import { PRODUCTS, productOf, type Product } from '../product'
 import {
   providerEnrollmentHref, resolveStaffProductHostname, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
 } from '../../../productHostname'
@@ -35,6 +36,11 @@ export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef,
 }
 
 /** Our plain body copy and quiet hints inside the auth panel. */
+/** The product's name for a tab title on the staff pages before sign-in: the Hospital EHR on ehr., each product's own elsewhere. */
+export function siteName(product: Product = productOf(window.location.hostname, [])): string {
+  return product === 'ehr' ? 'Health ID Hospital EHR' : `Health ID ${PRODUCTS[product].name}`
+}
+
 export const NOTE = 'm-0 text-sm text-ink-2'
 export const HINT = 'm-0 text-[13px] text-ink-3'
 /** A text link with a 44px target. */

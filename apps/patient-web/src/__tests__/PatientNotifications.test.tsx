@@ -196,7 +196,7 @@ describe('notifications from hid-1.0', () => {
     renderPortal(<NotificationsPage />, path => path === IMPORTED
       ? (fail ? problem(503, 'UPSTREAM_UNAVAILABLE', 'Your hid-1.0 notifications are unavailable right now.') : json([imported()]))
       : json([]), {}, { parityB2: true })
-    expect(await screen.findByText('Your hid-1.0 notifications are unavailable right now.')).toBeTruthy()
+    expect(await screen.findByText('Health ID isn’t available right now. Please try again in a few minutes.')).toBeTruthy()
     fail = false
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Try again' })) })
     expect(await screen.findByText('Access session closed')).toBeTruthy()

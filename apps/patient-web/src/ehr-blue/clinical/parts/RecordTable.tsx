@@ -52,10 +52,12 @@ export interface RowOpenAction {
  * line, the context, when it was updated, then its two actions), so nothing scrolls sideways (owner, 2026-10-31). A row
  * opens through its link, its action (`open`), or not at all.
  */
-export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, contextHeader = 'Patient / context', notice }: {
+export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, contextHeader = 'Patient / context', updatedHeader = 'Updated', notice }: {
   caption: string
   /** The second column's heading. In one patient's chart it names what the row holds, never the patient again. */
   contextHeader?: string
+  /** The time column's heading (and the quick view's line): "Updated" ("Last updated") unless the time is another. */
+  updatedHeader?: string
   rows: readonly RecordRow[]
   hrefFor: (row: RecordRow) => string
   loading?: boolean
@@ -143,7 +145,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
         </>
       ),
     },
-    { id: 'updated', header: 'Updated', cell: row => formatWhen(row.updated) },
+    { id: 'updated', header: updatedHeader, cell: row => formatWhen(row.updated) },
     {
       id: 'open',
       header: <span className="hid-ehr-sr-only">Actions</span>,
@@ -176,7 +178,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
           <div className="hid-ehr-clinical-quick">
             {notice}
             <h3 className="hid-ehr-clinical-quick-title">{viewing.name}</h3>
-            {viewing.updated ? <p className="hid-ehr-clinical-quick-updated">Last updated {formatWhen(viewing.updated)}</p> : null}
+            {viewing.updated ? <p className="hid-ehr-clinical-quick-updated">{updatedHeader === 'Updated' ? 'Last updated' : updatedHeader} {formatWhen(viewing.updated)}</p> : null}
             <KeyValueList items={viewing.details} />
             {viewing.quickView?.(() => setViewingId(current => (current === viewing.id ? null : current)))}
             {openFull(viewing)}

@@ -98,6 +98,15 @@ const DESIGN_ROLE_OF: Readonly<Record<string, DemoRole>> = {
 }
 
 /**
+ * Whether sample workspaces show at this session's facility: at the four demo facilities only. A sample shows invented
+ * records and a Create record that keeps nothing, so at a real facility none opens, even from a typed or bookmarked
+ * address.
+ */
+export function samplesShownAt(session: StaffSession): boolean {
+  return isDemoFacility(session.actor.facility?.id)
+}
+
+/**
  * The design roles a session works as: the demo role whose Home is being viewed (useRoleView, at a demo facility only,
  * as Home shows it), else each of the person's roles at the working facility, as the design names it.
  */

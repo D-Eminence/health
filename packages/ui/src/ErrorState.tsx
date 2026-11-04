@@ -1,38 +1,32 @@
 /**
  * The standard way a Health ID application reports a failed request.
  *
- * Two rules are enforced here rather than left to each screen:
- *
- *  1. Only the backend's sanitised `message` is shown. Nothing is composed out
- *     of a request body, a URL or a record, so a failure cannot put clinical
- *     detail on screen, or into a screenshot pasted into a support ticket.
- *
- *  2. The correlation id is shown, because it is the one piece of information
- *     that lets support find the matching backend log line, and it identifies
- *     a request rather than a person.
+ * Only plain English is shown (owner's rule, 1 Nov 2026): plainErrorText's words for the failure, or the caller's own
+ * `fallback`. Never the server's text, a code, a status number, a correlation id or a JavaScript message, so a failure
+ * cannot put internal or clinical detail on screen, or into a screenshot pasted into a support ticket. The
+ * correlation id stays in the logs (HidApiError.toLogContext), where support finds it.
  */
 
 import type { ReactNode } from 'react'
-import { HidApiError } from '@hid/http'
+import { HidApiError, plainErrorText } from '@hid/http'
 
 export interface ErrorStateProps {
   readonly error: unknown
+  /** The caller's own plain sentence for what failed. */
+  readonly fallback?: string
   /** Shown when the failure is retryable. */
   readonly onRetry?: () => void
   readonly children?: ReactNode
 }
 
-const GENERIC_MESSAGE = 'Something went wrong. Please try again.'
+const GENERIC_MESSAGE = 'Something went wrong. Please try again. If it keeps happening, contact Health ID support.'
 
-/** Extracts a message that is safe to render. Never inspects `details`. */
-export function toDisplayMessage(error: unknown): string {
-  if (error instanceof HidApiError) return error.message
-  // An unrecognised error may carry anything, including data from a response
-  // body, so its message is not shown.
-  return GENERIC_MESSAGE
+/** A plain sentence for the failure. Never the error's own message, code or details. */
+export function toDisplayMessage(error: unknown, fallback: string = GENERIC_MESSAGE): string {
+  return plainErrorText(error, fallback)
 }
 
-export function ErrorState({ error, onRetry, children }: ErrorStateProps) {
+export function ErrorState({ error, fallback, onRetry, children }: ErrorStateProps) {
   const apiError = error instanceof HidApiError ? error : null
   const canRetry = apiError?.retryable === true && onRetry !== undefined
 
@@ -42,7 +36,7 @@ export function ErrorState({ error, onRetry, children }: ErrorStateProps) {
       aria-live="polite"
       className="rounded-(--radius-card) border-[0.5px] border-line-strong bg-surface-sunk p-4"
     >
-      <p className="text-[15px] leading-[1.45] text-ink">{toDisplayMessage(error)}</p>
+      <p className="text-[15px] leading-[1.45] text-ink">{toDisplayMessage(error, fallback)}</p>
 
       {children}
 
@@ -54,12 +48,6 @@ export function ErrorState({ error, onRetry, children }: ErrorStateProps) {
         >
           Try again
         </button>
-      ) : null}
-
-      {apiError?.requestId ? (
-        <p className="mt-3 font-mono text-xs text-muted">
-          Reference: <span>{apiError.requestId}</span>
-        </p>
       ) : null}
     </div>
   )

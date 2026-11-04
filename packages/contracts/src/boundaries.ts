@@ -119,7 +119,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
   'patient-web': {
     auth: ['auth.patientLogin', 'auth.googleNonce', 'auth.googleOnboarding', 'auth.googleExchange',
       'auth.googleLink', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.otpStart',
-      'auth.otpVerify', 'auth.otpComplete'],
+      'auth.otpVerify', 'auth.otpComplete',
+      // The sign-out with single sign-on on (ADR-070), used only while the build turns it on (VITE_HID_SSO).
+      'auth.ssoLogout'],
     enrollment: ['enrollment.availability', 'enrollment.start', 'enrollment.current', 'enrollment.google',
       'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
       'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate',
@@ -158,7 +160,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     // authenticator code, or a first enrolment. Google sign-in is for patients only.
     auth: ['auth.staffLogin', 'auth.staffMfaVerify', 'auth.staffMfaEnrollEmailCode', 'auth.staffMfaEnrollStart',
       'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
-      'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+      'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete',
+      // The sign-out with single sign-on on (ADR-070), for the workspace's sign-out once its owner moves it there.
+      'auth.ssoLogout'],
     enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
       // Whether facility self sign-up is open, and the organization a confirmed sign-up registers (P4; Novu only,
       // main answers 404).
@@ -184,6 +188,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.facilityStaff', 'identity.facilityAdministratorLicence', 'identity.staffInvitationCreate',
       'identity.staffInvitationResend', 'identity.staffInvitationRevoke', 'identity.facilityStaffEnd',
       'identity.facilityStaffRole', 'identity.staffInvitationSignedInPreview', 'identity.staffInvitationSignedInAccept',
+      // The facility administrator's One-person lab switch on the Facility profile (hid-system 0111; 404 until served).
+      'identity.facilitySettings', 'identity.facilityOnePersonLab',
       // The directory of laboratories and pharmacies at other facilities an order can be sent to (P4c; Novu only).
       'identity.orderDestinations',
       // Patients who shared their record with the clinician, and invitations to share by email, with Accept (hid-system

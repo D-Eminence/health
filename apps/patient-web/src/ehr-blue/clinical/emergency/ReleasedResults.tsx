@@ -5,8 +5,9 @@ import { Flag, LoadingRows, Value, type FlagLevel } from '../../../kasuwa/parts'
 import { Alert, Badge, Button } from '../../../kasuwa/ui'
 import { staffApi, type LabAbnormalFlag, type LabOrderReleasedResults, type LabResultRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { revisionValue, skipsVersions } from '../../../staff/labRevisions'
+import { revisionValue, sameScientistCheck, skipsVersions } from '../../../staff/labRevisions'
 import { formatWhen } from '../parts/format'
+import { codeText, MoreDetails } from '../parts/MoreDetails'
 
 /** Today's words for a refused released-results read (Clinical.tsx releasedResultsRefusal). */
 export function releasedResultsRefusal(caught: unknown): string {
@@ -25,11 +26,14 @@ function when(value: string | null | undefined) {
 const FLAGS: Partial<Record<LabAbnormalFlag, FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal', critical_candidate: 'critical' }
 const RELEASE: Record<LabResultRevision['releaseStatus'], string> = { released: 'Released', verified_not_released: 'Checked, not released', not_released: 'Not released' }
 
-/** A Lab result's released revisions: the value with its unit and flag, then when it was entered and released. */
+/**
+ * A Lab result's released revisions: the value with its unit and flag, then when it was entered and released, and whether
+ * the scientist who entered it also checked it (One-person lab).
+ */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
   return (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
-      {revisions.map(revision => (
+      {revisions.map(revision => { const same = sameScientistCheck(revision); return (
         <li key={revision.version} className="flex flex-col gap-1 rounded-lg bg-subtle px-3 py-2.5 text-[13px] text-ink-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium text-ink">Version {revision.version}</span>
@@ -42,8 +46,11 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
           {revision.referenceRange ? <span>Normal range: {revision.referenceRange}</span> : null}
           <span>Entered {when(revision.enteredAt)}{revision.releasedAt ? ` · released ${when(revision.releasedAt)}` : ''}</span>
           {revision.correctionReason ? <span>Why it changed: {revision.correctionReason}</span> : null}
+          {/* One-person lab: the ordering clinician sees that the scientist who entered it also checked it. */}
+          {same ? <span className="font-medium text-ink">{same.text}</span> : null}
+          {same?.reason ? <span>Their reason: {same.reason}</span> : null}
         </li>
-      ))}
+      ) })}
     </ul>
   )
 }
@@ -89,8 +96,11 @@ export function ReleasedResults({ facilityId, requestId }: { facilityId: string;
           {error ? <Alert intent="error" size="sm" title="Couldn’t load results">{error}</Alert> : null}
           {released ? released.results.length === 0 ? <p className="m-0 text-[13px] text-ink-3">No results released yet.</p> : (
             <>
-              {/* The test with its code system and code (Clinical.tsx:935). */}
-              <p className="m-0 text-[13px] text-ink-3">{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by the lab {when(released.acceptedAt)}</p>
+              {/* The test by name; its code system and code (Clinical.tsx:935) under More details (owner decision 33.4). */}
+              <p className="m-0 text-[13px] text-ink-3">{released.test.name?.trim() || codeText(released.test.codeSystem, released.test.code)} · accepted by the lab {when(released.acceptedAt)}</p>
+              {released.test.name?.trim() && codeText(released.test.codeSystem, released.test.code) ? (
+                <MoreDetails about={released.test.name}><span>Code: {codeText(released.test.codeSystem, released.test.code)}</span></MoreDetails>
+              ) : null}
               <ul className="m-0 flex list-none flex-col gap-3 p-0">
                 {released.results.map((result, index) => (
                   <li key={result.id} className="flex flex-col gap-2">

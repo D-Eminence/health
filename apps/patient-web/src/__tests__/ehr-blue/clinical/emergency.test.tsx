@@ -6,6 +6,7 @@ import { EMERGENCY_ACCESS, actionUnavailable } from '../../../ehr-blue/clinical/
 import { EmergencyWorkspace, emergencyStatus } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { SampleCreate, SampleDetail, SampleList } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
+import { SAID_REFUSED } from '../../said'
 import { DEMO_HOSPITAL_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -41,14 +42,14 @@ vi.mock('../../../ehr-blue/clinical/sample/SampleWorkspace', () => ({
 }))
 
 const EMERGENCY_PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
-const ACKNOWLEDGE = 'I understand the patient is told, every view is reviewed, and access ends after 30 minutes.'
+const ACKNOWLEDGE = 'I understand the patient is told, every opening is recorded, and access ends after 30 minutes.'
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 const REASON = 'Unconscious after a road traffic collision; needs allergy and medication history before treatment'
 const REASON_TOO_SHORT = 'Say why in at least 8 characters.'
 const WHEN = 'Only when the patient can’t consent and care can’t wait'
-const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
-const CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
-const AFTER = 'You see this facility’s finished visits, signed notes, diagnoses, prescriptions, lab requests and documents. You can’t change anything.'
+const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
+const CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
+const AFTER = 'You see this facility’s finished visits and signed notes, and the diagnoses, prescriptions, lab tests and documents your role may read. It shows no vital signs and opens no files. You can’t change anything.'
 const FAILED_TITLE = 'Couldn’t open emergency access'
 const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.authorization, breakGlass: true } }
 
@@ -131,6 +132,9 @@ describe('the Emergency page', () => {
     // The design says 15 minutes; today's grant runs 30, and the acknowledgement names the real one.
     expect(document.body.textContent).not.toMatch(/15[- ]minute/)
     expect(document.body.textContent).toContain(ACKNOWLEDGE)
+    // No opening is reviewed: the form promises only what is true, that the reason is kept with the record of it.
+    expect(card().textContent).toContain('What is happening, and why care can’t wait. It’s kept with the record of this opening.')
+    expect(card().textContent).not.toMatch(/review/i)
     // The sample board sits below the live form.
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')
@@ -374,12 +378,13 @@ describe('recording emergency access', () => {
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
-  it('shows a refused lookup as it is', async () => {
+  it('shows a refused lookup in plain words', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('Patient access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Patient access is not authorized')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
@@ -388,7 +393,8 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('Stopped because the session it belonged to ended.')
+    expect((await screen.findByRole('alert')).textContent).toContain('This was stopped before it finished. Please try again.')
+    expect(document.body.textContent).not.toContain('Stopped because the session it belonged to ended.')
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
@@ -398,10 +404,14 @@ describe('recording emergency access', () => {
       'Emergency access is switched off right now, so the record was not opened. Ask Health ID support.'],
     ['429 EMERGENCY_PROBATION_LIMITED', new HidApiError(429, 'Too many emergency activations', { code: 'EMERGENCY_PROBATION_LIMITED' }),
       `${FACILITY_NAME} is new to Health ID: emergency access is limited to 5 times a day in its first 30 days. Contact Health ID support to lift the limit.`],
+    // Identity's per-account limit: 10 emergency activations in a rolling hour (ehr-api migration 0031; identity-api
+    // consent.service.ts answers 429 EMERGENCY_RATE_LIMITED).
+    ['429 EMERGENCY_RATE_LIMITED', new HidApiError(429, 'Too many emergency activations. Contact your facility emergency access administrator.', { code: 'EMERGENCY_RATE_LIMITED' }),
+      'You’ve used emergency access too many times in the last hour, so the record was not opened. Ask your facility administrator, or try again later.'],
     ['400 INVALID_CONSENT_COMMAND', new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }),
       'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'],
-    ['any other refusal, as it is', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
-      'Break-glass access is not authorized'],
+    ['any other refusal, in plain words', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
+      SAID_REFUSED],
   ])('says what a %s means, and looks nothing up', async (_name, refusal, said) => {
     api.breakGlass.mockRejectedValue(refusal)
     open()
@@ -410,6 +420,7 @@ describe('recording emergency access', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain(FAILED_TITLE)
     expect(alert.textContent).toContain(said)
+    expect(alert.textContent).not.toContain(refusal.message)
     expect(alert.closest('form')).toBe(submitButton().form)
     expect(session.untilStaffSessionReady).not.toHaveBeenCalled()
     expect(api.lookupPatient).not.toHaveBeenCalled()

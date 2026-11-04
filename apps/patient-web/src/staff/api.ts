@@ -6,7 +6,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -96,7 +96,7 @@ function loginResult(answer: unknown): StaffLoginResult {
     return { kind: 'challenge', challenge: { status: read.status, expiresAt: read.expiresAt } }
   }
   if (typeof read?.actor?.id === 'string') return { kind: 'session', session: read as StaffSession }
-  throw new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE', retryable: false })
+  throw new HidApiError(502, 'We couldn’t sign you in just now. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
 }
 
 /** The enrolment code was emailed to the account's address. `expiresAt` is the challenge's, not the code's. */
@@ -281,7 +281,20 @@ export function isRequestLogEvent(event: { readonly action: string; readonly res
   return event.action.startsWith('api.')
 }
 
-/** The page the facility audit read returns: seven fields per event, the request log left out, the cursor kept. */
+/**
+ * Whether a lab.result.verify event was a One-person lab self-check (hid-system 0111): its details carry selfCheck: true.
+ * Nothing else of the details is kept.
+ */
+function wasSelfCheck(event: FacilityAuditEvent): boolean {
+  if (event.action !== 'lab.result.verify') return false
+  const details = (event as { details?: unknown }).details
+  return typeof details === 'object' && details !== null && (details as { selfCheck?: unknown }).selfCheck === true
+}
+
+/**
+ * The page the facility audit read returns: seven fields per event (and, for a self-checked lab result, that mark), the
+ * request log left out, the cursor kept.
+ */
 export function facilityAuditPageFrom(page: FacilityAuditPage): FacilityAuditPage {
   return {
     nextBeforeSequenceId: page.nextBeforeSequenceId,
@@ -293,6 +306,7 @@ export function facilityAuditPageFrom(page: FacilityAuditPage): FacilityAuditPag
       action: event.action,
       outcome: event.outcome,
       resourceType: event.resourceType,
+      ...(wasSelfCheck(event) ? { selfCheck: true as const } : {}),
     })),
   }
 }
@@ -306,6 +320,8 @@ export interface FacilityAuditEvent {
   action: string
   outcome: 'success' | 'denied' | 'failure'
   resourceType: string | null
+  /** A lab result checked by the person who entered it (One-person lab); absent otherwise. */
+  selfCheck?: true
 }
 
 export interface FacilityAuditPage {
@@ -671,6 +687,14 @@ export interface LabResultRevision {
   /** When this revision was released; null until then. Sent since hid-system #51. */
   releasedAt?: string | null
   correctionReason: string | null
+  /**
+   * One-person lab (owner decision 33.3, hid-system 0111). Lab staff reads only: whether the reader entered this
+   * revision, and the typed reason of a self-check (null otherwise). Missing on an older image.
+   */
+  enteredByYou?: boolean
+  selfCheckReason?: string | null
+  /** Whether it was checked by the person who entered it; null until checked. Also on released-only reads. */
+  checkedBySamePerson?: boolean | null
 }
 
 export interface LabResult {
@@ -681,6 +705,11 @@ export interface LabResult {
   currentVersion: number
   currentReleasedVersion: number | null
   revisions: LabResultRevision[]
+  /**
+   * Whether the reader's own facility works as a one-person lab (hid-system 0111), on Lab staff reads only. Missing on an
+   * older image, which is read as off with today's screen.
+   */
+  onePersonLab?: boolean
 }
 
 /**
@@ -715,6 +744,8 @@ export interface LabExecution {
   completedAt: string | null
   version: number
   result: LabResult | null
+  /** The facility's One-person lab switch, if Lab ever sends it with the execution (today only the result carries it). */
+  onePersonLab?: boolean
 }
 
 export type LabResultValue = {
@@ -1359,7 +1390,7 @@ function refreshStaffSession(): Promise<StaffSession> {
 }
 
 function sessionEnded(cause?: HidApiError): HidApiError {
-  return new HidApiError(401, 'Your session has ended. Sign in again to continue.',
+  return new HidApiError(401, 'Your session has ended. Please sign in again.',
     { code: 'AUTHENTICATION_REQUIRED', requestId: cause?.requestId, retryable: false, cause })
 }
 
@@ -1450,7 +1481,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
     if (actorId === null) return
     const found = await checkStaffSession(actorId, sentIn)
     if (staffSessionGeneration() !== sentIn || found === 'ended') return
-    if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
+    if (found === 'unknown') throw new PlainError(PLAIN.signOutFailed)
   }
   for (let attempt = 1; ; attempt += 1) {
     try { await signOutInTurn(() => stillThisAccount(actorId), () => client.post<null>('/api/v1/auth/logout')); return }
@@ -1461,7 +1492,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
       if (!endsStaffSession(error)) throw error
     }
     if (staffSessionGeneration() !== sentIn) return
-    if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+    if (attempt === SIGN_OUT_ATTEMPTS) throw new PlainError(PLAIN.signOutFailed)
     try { await restoreStaffSession(actorId) }
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return
@@ -1656,6 +1687,17 @@ export const providerEnrollmentApi = {
 
 /** What an invitation email's delivery came to: sent, refused by the address, or not confirmed (P4b). */
 export type StaffDeliveryOutcome = 'accepted' | 'definitive_failure' | 'unknown' | 'pending'
+
+/**
+ * GET /api/v1/identity/facility-settings (hid-system 0111): the facility's One-person lab switch (owner decision 33.3),
+ * off until its administrator turns it on, with who last changed it, when and why.
+ */
+export interface FacilitySettings {
+  onePersonLab: { enabled: boolean; changedAt: string | null; changedByName: string | null; reason: string | null }
+}
+
+/** The answer to switching One-person lab on or off. */
+export interface OnePersonLabChange { enabled: boolean; changedAt: string; settingId: string }
 
 /** A member of a self-signed-up facility (GET …/facility-staff, P4b): licence numbers come as their last 4 characters. */
 export interface FacilityStaffMember {
@@ -1866,6 +1908,15 @@ export const staffApi = {
       return session
     } catch (error) { if (endsStaffSession(error)) reportStaffSessionEnded(sentIn); throw error }
   },
+
+  // The facility's own settings (hid-system 0111): today One-person lab. organization.manage at the facility; a 404 is an
+  // image before 0111, and the page then shows nothing of it.
+  facilitySettings: (facilityId: string) =>
+    client.get<FacilitySettings>('/api/v1/identity/facility-settings',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
+    client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
 
   facilityAudit: async (facilityId: string, beforeSequenceId?: string): Promise<FacilityAuditPage> => {
     const page = await client.get<FacilityAuditPage>('/api/v1/audit/events', {
@@ -2124,9 +2175,12 @@ export const staffApi = {
       { expectedExecutionVersion: execution.version, expectedResultVersion: result.currentVersion,
         ...value, reason, revisionKind },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
-  verifyLabResult: (facilityId: string, result: LabResult, reason: string) =>
+  // A self-check (One-person lab, hid-system 0111) sends selfCheck: true with the reason exactly as typed. An image
+  // before 0111 refuses the field, so it is sent only when the result read says onePersonLab: true.
+  verifyLabResult: (facilityId: string, result: LabResult, reason: string, options?: { selfCheck: true }) =>
     client.post<LabResult>(`/api/v1/lab/results/${encodeURIComponent(result.id)}/verify`,
-      { expectedResultVersion: result.currentVersion, occurredAt: new Date().toISOString(), reason },
+      { expectedResultVersion: result.currentVersion, occurredAt: new Date().toISOString(), reason,
+        ...(options?.selfCheck && result.onePersonLab === true ? { selfCheck: true } : {}) },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
   releaseLabResult: (facilityId: string, result: LabResult, reason: string) =>
     client.post<LabResult>(`/api/v1/lab/results/${encodeURIComponent(result.id)}/release`,

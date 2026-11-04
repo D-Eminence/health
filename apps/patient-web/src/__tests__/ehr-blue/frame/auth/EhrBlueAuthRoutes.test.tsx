@@ -88,7 +88,7 @@ describe('with the clinic switch on', () => {
     expect(await screen.findByText('Sign in to your hospital workspace.')).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.signIn).toBe(1)
-    fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: 'next.clinician@example.test' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'next.clinician@example.test' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))

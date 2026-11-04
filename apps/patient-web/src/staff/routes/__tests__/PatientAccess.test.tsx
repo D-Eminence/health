@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
 import { Patients } from '../Patients'
 
 /**
@@ -177,5 +178,29 @@ describe('the patient PIN', () => {
     fireEvent.submit(pin.closest('form')!)
     await waitFor(() => expect(pin.getAttribute('aria-invalid')).toBe('true'))
     expect(api.verifyPin).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Identity answers every failed PIN check with 403 PATIENT_PIN_ACCESS_DENIED, "Patient access could not be verified"
+ * (hid-system identity-api consent.service.ts patientPinDenied), whatever the cause, so a wrong PIN, an unknown Health
+ * ID and paused PIN checks read the same. The older PATIENT_ACCESS_PIN_INVALID reads the same too.
+ */
+describe('a PIN Identity refuses', () => {
+  it.each([
+    ['PATIENT_PIN_ACCESS_DENIED', 'Patient access could not be verified'],
+    ['PATIENT_ACCESS_PIN_INVALID', 'Patient access PIN is not valid'],
+  ])('says a PIN refused with 403 %s isn’t right, not to ask an administrator', async (code, serverText) => {
+    api.verifyPin.mockRejectedValue(new HidApiError(403, serverText, { code }))
+    renderPatients()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.click(method('Patient PIN'))
+    fireEvent.change(screen.getByLabelText('Patient access PIN', { exact: false }), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('That PIN isn’t right. Check it with the patient and try again.'))
+    expect(document.body.textContent).not.toContain(serverText)
+    expect(document.body.textContent).not.toContain(code)
+    expect(api.verifyPin).toHaveBeenCalledWith('facility-1', 'HID-ABCDEF23', '1234')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 })

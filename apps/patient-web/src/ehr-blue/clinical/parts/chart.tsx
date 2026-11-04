@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PatientBanner } from '../../../kasuwa/parts'
@@ -110,20 +110,20 @@ export function useChart(): Chart | null {
   }, [markEnded, setActivePatient])
 
   const verify = useCallback(async () => {
-    if (!facilityId || !activePatient) throw new Error(OPEN_FIRST)
+    if (!facilityId || !activePatient) throw new PlainError(OPEN_FIRST)
     let answer
     try {
       answer = await staffApi.lookupPatient(facilityId, activePatient.hid, activePatient.purpose)
     } catch (caught) {
       if (isHidApiError(caught) && (caught.status === 403 || caught.status === 404)) {
         endAccess()
-        throw new Error(ACCESS_ENDED)
+        throw new PlainError(ACCESS_ENDED)
       }
       throw caught
     }
     if (!isAllowedPatientLookup(answer) || answer.patient.patientId !== patientId) {
       endAccess()
-      throw new Error(ACCESS_ENDED)
+      throw new PlainError(ACCESS_ENDED)
     }
   }, [activePatient, endAccess, facilityId, patientId])
 
@@ -157,10 +157,14 @@ export function useAccessEnded() {
   return context.ended
 }
 
-/** Today's refusal text for a failed call, or a fallback. ACCESS_ENDED and other thrown messages pass through. */
+/** A failed call in plain words (plainErrorText), or `fallback`. ACCESS_ENDED and OPEN_FIRST, written for people, pass through. */
 export function failureText(caught: unknown, fallback: string): string {
-  if (caught instanceof Error && caught.message) return caught.message
-  return fallback
+  return plainErrorText(caught, fallback, { codes: CHART_REFUSALS, audience: 'facility' })
+}
+
+/** The page's own words for the refusals a chart step shares: never the server's. */
+const CHART_REFUSALS: Readonly<Record<string, string>> = {
+  PATIENT_NOT_FOUND: 'We couldn’t find a patient with that Health ID. Check it and try again.',
 }
 
 /** The open patient's banner, the same on every chart page: who is open and what this access allows. */
@@ -187,10 +191,14 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   const chart = useChart()
   const ended = useAccessEnded()
   const href = useWorkspaceHref()
+  const { can } = useClinical()
+  // Find a patient opens only with identity.patient.read (any other role lands on Home); without it, Access requests.
+  const findPatient = can('identity.patient.read') ? { to: href.to('patients'), label: 'Find a patient', change: 'Change patient →' }
+    : can('identity.consent.write') ? { to: href.to('consent'), label: 'Access requests', change: 'Access requests →' } : null
 
   if (ended && !chart) {
     return (
-      <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>
+      <Alert intent="error" title="Access to this patient ended" action={findPatient ? <Button size="sm" to={findPatient.to}>{findPatient.label}</Button> : undefined}>
         Open the patient again to keep working.
       </Alert>
     )
@@ -199,7 +207,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
     return (
       <EmptyState illustration="patient" title={CHOOSE_FIRST}
         description={<>{CHOOSE_FIRST_DETAIL} <strong>{NO_AUTHORIZED_PATIENT}.</strong> {OPEN_PATIENT_HOW}</>}
-        action={<Button variant="primary" to={href.to('patients')}>Find a patient</Button>} />
+        action={findPatient ? <Button variant="primary" to={findPatient.to}>{findPatient.label}</Button> : undefined} />
     )
   }
   if (chart.purpose === 'emergency' && !allowEmergency) {
@@ -219,8 +227,8 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
       {banner && chart.purpose === 'direct-care' ? (
         // Today's line and "Change patient →" under the patient's name (staff/routes/Clinical.tsx:1767-1768).
         <p className="mt-2 mb-4 text-[13px] text-ink-2">
-          HID {chart.patient.hid} · {DIRECT_CARE}{' '}
-          <Link className="font-medium text-brand-ink underline underline-offset-2" to={href.to('patients')}>Change patient →</Link>
+          HID {chart.patient.hid} · {DIRECT_CARE}
+          {findPatient ? <>{' '}<Link className="font-medium text-brand-ink underline underline-offset-2" to={findPatient.to}>{findPatient.change}</Link></> : null}
         </p>
       ) : null}
       {banner && chart.writeNotice ? <Alert intent="info" size="sm" className="mb-4">{chart.writeNotice}</Alert> : null}

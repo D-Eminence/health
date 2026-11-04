@@ -1068,3 +1068,9 @@
     box-shadow: 0 0 0 2px var(--color-surface);
   }
 }
+
+/* A "More details" line (clinical/parts/MoreDetails.tsx): the shared focus ring on its summary. */
+.hid-ehr .hid-ehr-more-details > summary:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}

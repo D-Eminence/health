@@ -3,19 +3,20 @@ import { Link } from 'react-router-dom'
 import { EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { useStaff } from '../../../staff/App'
 import { pageAllowed } from '../../frame/pageAccess'
-import { useBluePages } from '../../frame/pageContext'
+import { useBluePages, useOpenPages } from '../../frame/pageContext'
 import { pageHrefOf } from '../../frame/pageHref'
 import { modulePath } from '../../frame/sample/paths'
 import { DeptNotice } from '../parts/DeptNotice'
+import { dateText } from '../parts/format'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
 import { FIELD, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
 import { ErrorBox, UnavailableAction, type FormProblems } from './registrationParts'
 import {
   APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE, candidatesText,
-  caseTitle, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText,
+  caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText,
   ENROLLING, LINK, LINK_REASON_LABEL, LOADING, NEXT_STEPS, NO_ACTIONS, NO_CANDIDATE_NOTICE, NO_CORRECTION, REFRESH_CASE, REVIEW_NOTICE,
-  SAVED_RECORD, SAVING, SELECT_CANDIDATE, statusLabel,
+  MORE_DETAILS, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, statusLabel,
 } from './registrationText'
 
 type OpenForm = ReviewAction | 'enroll'
@@ -39,6 +40,19 @@ function useNextSteps() {
     const page = pages.find(candidate => pageHrefOf(candidate) === href)
     return page && page.status !== 'sample' && pageAllowed(page, session) ? [{ ...step, href }] : []
   })
+}
+
+/**
+ * Where Patients opens for this session in this product (its permission held, and the product's site opening it), or
+ * null. Classic registration's hand-off (staff/routes/Registration.tsx 265-267) goes there with the Health ID.
+ */
+function usePatientsHref(): string | null {
+  const { state } = useStaff()
+  const session = state.status === 'ready' ? state.session : null
+  const pages = useOpenPages()
+  const href = modulePath('patients')
+  const page = pages.find(candidate => pageHrefOf(candidate) === href)
+  return page && page.status !== 'sample' && pageAllowed(page, session) ? href : null
 }
 
 /**
@@ -66,7 +80,13 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const { enrollment } = visit
   const [open, setOpen] = useState<OpenForm | null>(null)
   const next = useNextSteps()
+  const patientsHref = usePatientsHref()
+  // The patient's Health ID once the case has one, or the account just made gives one.
+  const hid = enrollment?.hid ?? registration.patient?.hid ?? null
   const completed = COMPLETED.has(registration.status)
+  // Registration.tsx 207-208, 265: only a completed case hands its patient on to Patients.
+  const findPatient = completed && hid && patientsHref ? hid : null
+  const nextHere = registration.patient ? next : []
   const candidates = registration.candidates ?? []
   // Registration.tsx 253, 255, 256: who may decide, and what this state of the case allows.
   const offered: Record<OpenForm, boolean> = {
@@ -83,10 +103,9 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const unavailable = busy || refreshing
 
   const facts: DeptFact[] = [
-    { label: 'Case ID', value: registration.caseId },
     { label: 'Status', value: statusLabel(registration.status) },
-    { label: 'Version', value: String(registration.version) },
-    { label: 'Candidates', value: candidatesText(registration) },
+    { label: visit.started ? 'Started' : 'Reopened', value: dateText(visit.at) },
+    { label: 'Possible matches', value: candidatesText(registration) },
     ...(registration.patient ? [{ label: 'Health ID', value: registration.patient.hid }] : []),
   ]
 
@@ -98,7 +117,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   )
 
   return (
-    <DeptPage title={caseTitle(registration.caseId)} className="hid-ehr-dept-registration-page"
+    <DeptPage title={caseTitle(visit.name)} className="hid-ehr-dept-registration-page"
       secondaryActions={(
         // Today's "Refresh current case" (Registration.tsx 244): unavailable while it reads, keeping its focus.
         <EhrButton variant="secondary" busy={refreshing} className="hid-ehr-dept-registration-unavailable"
@@ -110,7 +129,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
           onClick={() => { if (!unavailable) onBack() }}>{BACK_TO_LIST}</EhrButton>
       )}>
       <DeptContextLine status={statusLabel(registration.status)} tone={completed ? 'positive' : 'brand'}
-        items={[`Version ${registration.version}`, registration.patient ? `Health ID ${registration.patient.hid}` : null]} />
+        items={[caseWhen(visit.started, visit.at), registration.patient ? `Health ID ${registration.patient.hid}` : null]} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <ErrorBox message={errorHere} />
       {registration.status === 'review_required' ? <DeptNotice tone="caution">{REVIEW_NOTICE}</DeptNotice> : null}
@@ -127,13 +146,20 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                     <li key={candidate.patientId}>
                       <div className="hid-ehr-dept-row-main">
                         <strong className="hid-ehr-dept-row-title">{candidate.fullName}</strong>
-                        <span className="hid-ehr-dept-muted">{candidateLine(candidate.dateOfBirth, candidate.patientId)}</span>
+                        <span className="hid-ehr-dept-muted">{candidateLine(candidate.dateOfBirth)}</span>
                       </div>
                     </li>
                   ))}
                 </ul>
               ) : <p className="hid-ehr-dept-registration-error">{CANDIDATES_UNAVAILABLE}</p>
             ) : null}
+            {/* The case's reference, out of the way: Health ID keeps no list of registrations, so it is how this one is
+                reopened on a later visit ("Find registration case"). */}
+            <details className="hid-ehr-dept-registration-more">
+              <summary>{MORE_DETAILS}</summary>
+              <DeptFacts facts={[{ label: REFERENCE_LABEL, value: registration.caseId }]} />
+              <p className="hid-ehr-dept-muted">{REFERENCE_HINT}</p>
+            </details>
           </DeptSection>
         )}
         aside={(
@@ -186,10 +212,14 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
               </form>
             ) : null}
             {offered.link || offered.approve || offered.enroll ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
-            {registration.patient && next.length ? (
+            {findPatient || nextHere.length ? (
               <div className="hid-ehr-dept-registration-next">
                 <h3>{NEXT_STEPS}</h3>
-                {next.map(step => (
+                {/* Patients reads the handed Health ID from navigation state and puts it in Find a patient. */}
+                {findPatient && patientsHref ? (
+                  <p><Link className="hid-ehr-button" to={patientsHref} state={{ hid: findPatient }}>{OPEN_IN_PATIENTS}</Link></p>
+                ) : null}
+                {nextHere.map(step => (
                   <p key={step.module}><Link className="hid-ehr-button hid-ehr-button-secondary" to={step.href}>{step.label}</Link></p>
                 ))}
               </div>

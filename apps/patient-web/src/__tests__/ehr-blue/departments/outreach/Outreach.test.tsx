@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { outreachPage } from '../../../../ehr-blue/departments/outreach/page'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_NETWORK, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
 /*
  * The blue Outreach page as the owner redesigned it: registrations as cards (filtered by what still needs doing), a
@@ -12,12 +14,14 @@ import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
  * CampaignCard, OutreachCaseCard; staff/routes/__tests__/Outreach.test.tsx). Fictional data.
  */
 
-const session = vi.hoisted(() => ({ permissions: [] as string[], facility: 'hospital' as 'hospital' | 'other' | 'none' }))
+const session = vi.hoisted(() => ({ permissions: [] as string[], facility: 'hospital' as 'hospital' | 'other' | 'none',
+  selfService: undefined as { review: string; organizationType: string } | undefined }))
 vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../harness')
   return {
     useStaff: () => staffContext(session.facility === 'none' ? undefined : fakeFacility(session.permissions, {
       id: session.facility === 'other' ? 'facility-other' : hospital, name: 'Demo Hospital', roles: ['outreach_officer'],
+      ...(session.selfService ? { selfService: session.selfService } : {}),
     })),
   }
 })
@@ -37,6 +41,8 @@ vi.mock('../../../../staff/api', () => ({
   }),
 }))
 
+/** What a role without Outreach reads, whoever it is: as Document OCR says it, asking nobody (the owner's answer of 2 November). */
+const NO_OUTREACH = 'Outreach isn’t available at your facility yet.'
 const MEMBERSHIP = 'membership-demo-1'
 const READ = ['outreach.campaign.read', 'outreach.registration.read']
 const ALL = [...READ, 'outreach.campaign.write', 'outreach.registration.write']
@@ -70,6 +76,7 @@ beforeEach(() => {
   unprovided.clear()
   session.permissions = ALL
   session.facility = 'hospital'
+  session.selfService = undefined
   api.outreachCampaigns.mockResolvedValue(CAMPAIGNS)
   api.outreachCases.mockResolvedValue([pendingCase, resolvedCase])
   api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) => MEMBER_OF.has(campaignId)
@@ -79,6 +86,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   // Nothing outside today's Outreach requests is reached for, and nothing is kept in the browser.
   expect([...unprovided]).toEqual([])
   expect(setItem).not.toHaveBeenCalled()
@@ -113,12 +121,68 @@ describe('who can open Outreach', () => {
   it('refuses a membership with no outreach read permission, and reads nothing', async () => {
     session.permissions = ['outreach.registration.write', 'outreach.campaign.write']
     renderPage()
-    // Today's words (staff/routes/Operations.tsx Outreach): "Outreach unavailable" and the permission it needs.
+    // Today's heading, and in plain words that Outreach isn't available yet: no permission is named (owner's rule).
     expect(heading().textContent).toBe('Outreach unavailable')
-    expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeTruthy()
+    expect(screen.getByText(NO_OUTREACH)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|outreach\.(campaign|registration)\.read|Ask your facility administrator/i)
     expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
+  })
+
+  /*
+   * Who reads the refusal makes no difference (the owner's answer of 2 November): as for Document OCR, everyone is told
+   * Outreach isn't available at the facility yet, and nobody is told to ask anyone, to wait for the check, or to add
+   * someone. On hid-system main no role has held any Outreach permission since migration 0091, so the facility
+   * administrator could not give it. On Novu a self-signed-up facility's administrator does hold Outreach, and their
+   * staff without it still read the same sentence: the owner chose one sentence for everyone.
+   */
+  describe('by who reads it', () => {
+    /** A self-signed-up facility's administrator whose role here holds no Outreach (fictional: on Novu theirs holds it, P4b SPEC 3.3). */
+    const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read']
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+    /** The refusal as `permissions` reads it, at a facility that signed itself up when `selfService` says so. */
+    function refusalAs(permissions: string[], selfService?: { review: string; organizationType: string }) {
+      session.permissions = permissions
+      session.selfService = selfService
+      renderPage()
+      expect(heading().textContent).toBe('Outreach unavailable')
+      // No permission, code or address, and nobody to ask, whoever reads it.
+      expect(document.body.textContent).not.toMatch(/permission|membership|workforce|outreach\.|_|\/provider/i)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Staff page|opens once|doesn’t include/)
+      expect(api.outreachCases).not.toHaveBeenCalled()
+      expect(api.outreachCampaigns).not.toHaveBeenCalled()
+      return document.querySelector('.hid-ehr-state-message')?.textContent
+    }
+
+    it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): Outreach isn’t available yet', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(NO_OUTREACH)
+    })
+
+    it.each(['hospital', 'pharmacy'])('the administrator of a facility (%s) Health ID support is still checking: the same', organizationType => {
+      expect(refusalAs(['workforce.manage', 'audit.read'], { review: 'pending', organizationType })).toBe(NO_OUTREACH)
+    })
+
+    it('anyone else at a checked facility, whose administrator holds Outreach on Novu: the same', () => {
+      expect(refusalAs(['ehr.encounter.read'], { review: 'reviewed', organizationType: 'hospital' })).toBe(NO_OUTREACH)
+    })
+
+    it('an administrator at a facility Health ID support manages: the same', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(NO_OUTREACH)
+    })
+
+    it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): the same', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(NO_OUTREACH)
+    })
+
+    it('says the same at the page’s address as on the page', () => {
+      session.permissions = ADMINISTRATOR
+      session.selfService = { review: 'reviewed', organizationType: 'clinic' }
+      renderDept(<>{outreachPage.refusal}</>)
+      expect(document.querySelector('.hid-ehr-state-message')?.textContent).toBe(NO_OUTREACH)
+    })
   })
 
   it('refuses when no facility is being worked at', () => {
@@ -192,18 +256,16 @@ describe('the list', () => {
   })
 
   it.each([
-    ['a refusal, in its own words', new HidApiError(403, 'This membership cannot read registration cases.', { code: 'FORBIDDEN' }),
-      'This membership cannot read registration cases.'],
-    ['a module that is off', new HidApiError(404, 'Not found.', { code: 'API_ROUTE_NOT_FOUND' }),
-      'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'],
-    ['a fault between services', new HidApiError(503, 'Upstream.', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
+    ['a refusal, in plain words', new HidApiError(403, 'This membership cannot read registration cases.', { code: 'FORBIDDEN' }), SAID_REFUSED],
+    ['a module that is off', new HidApiError(404, 'Not found.', { code: 'API_ROUTE_NOT_FOUND' }), SAID_NOT_TURNED_ON],
+    ['a fault between services', new HidApiError(503, 'Upstream.', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
     ['an unknown failure', 'offline', 'Registration cases could not be loaded. Refresh to try again.'],
   ])('says %s when cases cannot be read', async (_name, error, message) => {
     api.outreachCases.mockRejectedValue(error)
     renderPage()
     await waitFor(() => expect(alertTexts().some(text => text.includes(message))).toBe(true))
     expect(alertTexts().find(text => text.includes(message))).toContain('Couldn’t load registrations')
+    if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
     expect(screen.queryByText('No registrations yet')).toBeNull()
   })
 
@@ -305,7 +367,11 @@ describe('campaigns, read only', () => {
     renderPage()
     const list = await campaignsList()
     expect(card(list, 'Demo screening week')).toBeTruthy()
-    expect(within(card(list, 'Demo follow-up')).getByText('planned')).toBeTruthy()
+    // Each status in plain words, never its code.
+    expect(within(card(list, 'Demo follow-up')).getByText('Not started')).toBeTruthy()
+    expect(within(card(list, 'Demo screening week')).getByText('Running')).toBeTruthy()
+    expect(within(list).queryByText('planned')).toBeNull()
+    expect(within(list).queryByText('active')).toBeNull()
     for (const name of [/create campaign/i, /activate/i, /close campaign/i, /add member/i, /new campaign/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }
@@ -321,10 +387,13 @@ describe('campaigns, read only', () => {
     expect(document.activeElement).toBe(heading())
     expect(screen.getByRole('heading', { name: 'Saved record' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Available actions' })).toBeTruthy()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByText('Nothing else to do here.')).toBeTruthy()
+    expect(within(screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement)
+      .getByText('Status').nextElementSibling?.textContent).toBe('Running')
     const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
     expect(await within(members).findByText('Team member')).toBeTruthy()
-    expect(within(members).getByText(/Reference membersh/)).toBeTruthy()
+    expect(within(members).getByText(/^Added \d{1,2} Jan 2026, \d{2}:\d{2}$/)).toBeTruthy()
+    expect(within(members).queryByText(/Reference|membersh/)).toBeNull()
     expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
     expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
@@ -354,7 +423,8 @@ describe('campaigns, read only', () => {
     expect(await screen.findByText('No members yet')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Back to list' }))
     await press(card(await campaignsList(), 'Demo follow-up'))
-    expect((await screen.findByRole('alert')).textContent).toContain('Members of this campaign cannot be read here.')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Members of this campaign cannot be read here.')
     const reads = api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2').length
     await press(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2')).toHaveLength(reads + 1))
@@ -484,7 +554,8 @@ describe('creating a registration case', () => {
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
     await press(formBack())
     await act(async () => { refuse(new HidApiError(503, 'Outreach is unavailable.', { code: 'SERVICE_UNAVAILABLE' })) })
-    expect((await screen.findByRole('alert')).textContent).toBe('Outreach is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Outreach is unavailable.')
     expect(heading().textContent).toBe('New registration')
     expect(formBack().getAttribute('aria-disabled')).toBeNull()
   })
@@ -505,7 +576,8 @@ describe('creating a registration case', () => {
     const form = await openNew()
     const save = fill(form, { fullName: 'Patient One', sex: 'female', age: '34' })
     await press(save)
-    expect((await screen.findByRole('alert')).textContent).toBe('The network request failed.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+    expect(document.body.textContent).not.toContain('The network request failed.')
     expect(screen.getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
     // The form keeps what was entered.
     expect((within(form).getByLabelText(/^Full name/) as HTMLInputElement).value).toBe('Patient One')
@@ -543,7 +615,8 @@ describe('creating a registration case', () => {
     }))
     renderPage()
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Some details were refused. Full name must be shorter than or equal to 200 characters.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('Full name must be')
   })
 
   it('says a failure with no words of its own plainly', async () => {
@@ -641,7 +714,9 @@ describe('a registration case', () => {
     expect(heading().textContent).toBe('Patient One')
     expect(document.activeElement).toBe(heading())
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(screen.getByText(/· case c0a5e000$/)).toBeTruthy()
+    // When it was registered, never its ID.
+    expect(screen.getByText(/^Registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
+    expect(screen.queryByText(/c0a5e000/)).toBeNull()
     expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary patient ID', 'Campaign', 'Created'])
     expect(within(registration()).getByText('34 years')).toBeTruthy()
     expect(within(registration()).getByText('Demo screening week')).toBeTruthy()
@@ -675,7 +750,7 @@ describe('a registration case', () => {
     await press(screen.getByRole('button', { name: 'Link existing patient' }))
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
     expect(within(sheet).getByText('Patient One')).toBeTruthy()
-    expect(within(sheet).getByText('34 years · Female · case c0a5e000')).toBeTruthy()
+    expect(within(sheet).getByText(/^34 years · Female · registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
     expect(within(sheet).getByText(PATIENT)).toBeTruthy()
     await press(within(sheet).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -729,10 +804,8 @@ describe('a registration case', () => {
   })
 
   it.each([
-    ['a version conflict', new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }),
-      'This registration case has changed. Refresh it and try again.'],
-    ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }),
-      'You do not have access to this patient.'],
+    ['a version conflict', new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }), SAID_CHANGED],
+    ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }), SAID_REFUSED],
     ['an unknown failure', 'offline', 'The patient could not be linked. Check your access to this patient, then refresh the case.'],
   ])('says %s, keeps the form, and reads the case again for the next attempt', async (_name, error, message) => {
     api.linkExistingOutreachCase.mockRejectedValue(error)
@@ -741,6 +814,7 @@ describe('a registration case', () => {
     await press(linkOpener())
     const form = await link(PATIENT, 'Same name and phone as the record')
     expect((await within(form).findByRole('alert')).textContent).toBe(message)
+    if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
     expect(within(form).getByText('The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.')).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
@@ -775,7 +849,8 @@ describe('a registration case', () => {
     await press(linkOpener())
     await link(PATIENT, 'Same name and phone as the record')
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Link existing patient' })).toBeNull())
-    expect(screen.getByRole('alert').textContent).toBe('This registration case has already been resolved.')
+    expect(screen.getByRole('alert').textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('This registration case has already been resolved.')
     expect(screen.getByRole('heading', { name: 'Nothing more to do' })).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
   })

@@ -15,13 +15,14 @@ import {
   COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_WHEN, NOT_GRANTED, REASON_MAX, REASON_MIN, REASON_TOO_SHORT,
   actionUnavailable, breakGlassRefusal, emergencyNotice, healthIdProblem,
 } from './access'
+import { PlainError, plainErrorText } from '@hid/http'
 
 const FIELDS = ['hid', 'reason', 'ack'] as const
 type FieldKey = (typeof FIELDS)[number]
 type Problems = Partial<Record<FieldKey, string>>
 
 /** The acknowledgement, naming the expiry today's break-glass request asks for. */
-export const ACKNOWLEDGE = `I understand the patient is told, every view is reviewed, and access ends after ${EMERGENCY_MINUTES} minutes.`
+export const ACKNOWLEDGE = `I understand the patient is told, every opening is recorded, and access ends after ${EMERGENCY_MINUTES} minutes.`
 
 /** The open emergency patient, with the way back to their emergency summary. */
 export function CurrentEmergency() {
@@ -120,19 +121,19 @@ export function BreakGlassCard() {
         await staffApi.breakGlass(facility.id, normalized, reason.trim())
       } catch (caught) {
         const known = breakGlassRefusal(caught, facility.name)
-        if (known) throw new Error(known)
+        if (known) throw new PlainError(known)
         throw caught
       }
       await untilStaffSessionReady(sentIn)
       const lookup = await staffApi.lookupPatient(facility.id, normalized, 'emergency')
       if (!isAllowedPatientLookup(lookup)) {
         setActivePatient(null)
-        throw new Error(NOT_GRANTED)
+        throw new PlainError(NOT_GRANTED)
       }
       // A lookup answered after the session or facility changed opens nothing.
       if (setActivePatient({ hid: normalized, lookup, purpose: 'emergency' })) navigate(href.to('emergency', 'summary'))
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : COMMAND_FAILED)
+      setError(plainErrorText(caught, COMMAND_FAILED, { audience: 'facility' }))
     } finally {
       sending.current = false
       setBusy(false)
@@ -153,7 +154,7 @@ export function BreakGlassCard() {
             className="font-medium tracking-[.06em] uppercase" aria-invalid={problems.hid ? true : undefined} aria-describedby={describe('hid', true)}
             onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); changed('hid') }} />
         </Field>
-        <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the review."
+        <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the record of this opening."
           hintId={`${controlId('reason')}-hint`} error={errorFor('reason')} errorId={`${controlId('reason')}-error`}>
           <Textarea id={controlId('reason')} required rows={3} maxLength={REASON_MAX} value={reason}
             aria-invalid={problems.reason ? true : undefined} aria-describedby={describe('reason', true)}
