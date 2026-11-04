@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { createRegisteredBrowserClient } from '@hid/api'
-import { createApiClient } from '@hid/http'
 import { createCardReceiverApi, type CardReceiverApi } from '../cardReceiverApi'
 import { CardPrivacyPage, CardReceiverPage, CardStopPage } from '../routes/CardReceiver'
 import { enterCode } from './codeBoxes'
@@ -54,8 +52,7 @@ function receiverApi(handler: Handler): { api: CardReceiverApi; seen: Seen[] } {
     seen.push({ path, method, body, headers, url, credentials: init?.credentials })
     return handler(path, method, body, headers)
   }) as typeof fetch
-  const client = createRegisteredBrowserClient(createApiClient({ baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl }), 'patient-web')
-  return { api: createCardReceiverApi(client), seen }
+  return { api: createCardReceiverApi({ baseUrl: 'https://gateway.test', fetchImpl }), seen }
 }
 
 /** A backend serving the card routes, with each answer overridable. */
@@ -81,7 +78,10 @@ function open(at: string, handler: Handler, page: 'card' | 'stop' = 'card') {
   return { seen, view }
 }
 
-const tokenAnywhere = (seen: Seen[]) => seen.filter(item => item.url.includes(TOKEN) || [...item.headers.values()].some(value => value.includes(TOKEN)))
+const tokenAnywhere = (seen: Seen[]) => seen.filter(item => item.url.includes(TOKEN) || JSON.stringify(item.body ?? null).includes(TOKEN)
+  || [...item.headers.values()].some(value => value.includes(TOKEN)))
+/** The token anywhere but a POST body: in an address or a header. */
+const tokenOutsideBodies = (seen: Seen[]) => seen.filter(item => item.url.includes(TOKEN) || [...item.headers.values()].some(value => value.includes(TOKEN)))
 const focused = () => document.activeElement
 
 async function startToCode(handler: Handler = served()) {
@@ -154,6 +154,7 @@ describe('opening the link', () => {
     expect(code.body).toEqual({ token: TOKEN, turnstileToken: 'turnstile-token' })
     expect(code.url).toBe('https://gateway.test/api/v1/card-share/code')
     expect(tokenAnywhere(seen).map(item => item.path)).toEqual(['/card-share/code'])
+    expect(tokenOutsideBodies(seen)).toEqual([])
     expect(screen.getByText('We sent a 6-digit code to d•••@gmail.com. It works for 10 minutes.')).toBeTruthy()
     // The security check is gone once used.
     expect(screen.queryByRole('button', { name: 'Complete check' })).toBeNull()
@@ -188,7 +189,8 @@ describe('the refusals, in plain words', () => {
     [problem(400, 'CARD_SHARE_LINK_INVALID', 'x'), 'This link isn’t complete. Open it again from your email.'],
     [problem(400, 'TURNSTILE_VALIDATION_FAILED', 'x'), 'We couldn’t check this browser. Try again.'],
     [problem(410, 'CARD_SHARE_ENDED', 'x'), 'This card is no longer shared.'],
-    [json({ code: 'CARD_SHARE_LOCKED', status: 429, retryAfterSeconds: 1800 }, 429), 'Too many wrong codes. Try again in 30 minutes.'],
+    [new Response(JSON.stringify({ code: 'CARD_SHARE_LOCKED', status: 429, retryAfterSeconds: 1800 }), { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '1800' } }),
+      'Too many wrong codes. Try again in 30 minutes.'],
     [problem(429, 'CARD_SHARE_CODE_LIMITED', 'x'), 'Too many codes asked for. Try again later.'],
     [problem(429, 'RATE_LIMITED', 'x'), 'Too many tries from this connection. Wait a minute and try again.'],
   ]
@@ -265,7 +267,7 @@ describe('the card', () => {
   })
 
   it('reads the photo with its view header, not by an address an image tag would load', async () => {
-    const photo = vi.fn(() => new Response(new Blob(['png'], { type: 'image/png' }), { status: 200, headers: { 'content-type': 'image/png' } }))
+    const photo = vi.fn(() => new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': 'image/png' } }))
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:card-photo')
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     const { seen } = await openCard(served({ 'POST /card-share/verify': () => json(card({ card: { fullName: 'Chiamaka Obi', healthId: 'HID-CHI4821', ninVerified: true, hasPhoto: true } })),

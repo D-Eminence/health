@@ -3,8 +3,11 @@
  * in-page preview shim (browser-shim.mjs). Sample data only. UI work only.
  */
 export const CSRF = 'mock-csrf'
-const options = { facility: 'blue' }
-/** `facility`: 'blue' (Demo Hospital, blue EHR) or 'classic'. */
+const options = { facility: 'blue', cardShares: false }
+/**
+ * `facility`: 'blue' (Demo Hospital, blue EHR) or 'classic'. `cardShares`: serve the card link routes (step 8,
+ * hid-system 0118), off unless asked for (MOCK_CARD_SHARES=1, or ?cardShares=1 in the preview), as the backend is.
+ */
 export function configure(next) { Object.assign(options, next) }
 
 const now = () => new Date()
@@ -1057,6 +1060,63 @@ function labRoute(method, path, { body } = {}) {
   return null
 }
 
+// ------------------------------------------------------------ card links --
+// Step 8 (hid-system 0118, proposed; switched off until legal signs off): only with `cardShares` on. Fictional data. Any
+// six digits open the card except 000000, which is refused as a wrong code. Links sent here live in memory only.
+const cardShares = []
+const CARD_VIEW = {
+  viewId: 'view-demo', card: { fullName: 'Adaeze Okafor', healthId: 'HID-ADA2345', ninVerified: true, hasPhoto: false },
+  scope: 'card_and_records', sharedBy: 'Adaeze', recipientHint: 'd•••@example.test', reference: 'K7P2-QX9M',
+}
+const cardHint = email => `${String(email)[0] ?? '?'}•••@${String(email).split('@')[1] ?? 'example.test'}`
+const cardProblem = (status, code, extra = {}) => [status, { type: 'about:blank', title: code, status, code, detail: code, ...extra }]
+
+function cardShareRoute(method, path, request) {
+  if (!options.cardShares) return null
+  const body = request.body ?? {}
+  if (path === '/identity/me/card-shares' && method === 'GET') {
+    return [200, { items: cardShares, createdToday: cardShares.length, dailyLimit: 5, liveCount: cardShares.filter(x => x.status === 'active').length, liveLimit: 20 }]
+  }
+  if (path === '/identity/me/card-shares' && method === 'POST') {
+    const email = typeof body.email === 'string' ? body.email.trim() : 'dr.bello@example.test'
+    let replacedId = null
+    for (const old of cardShares) {
+      if (old.status === 'active' && old.recipientEmail?.toLowerCase() === email.toLowerCase()) {
+        Object.assign(old, { status: 'ended', endedAt: iso(), endedReason: 'replaced', recipientEmail: null, label: null }); replacedId = old.id
+      }
+    }
+    const duration = body.duration === '7d' ? '7d' : '24h'
+    const share = { id: `cs-${cardShares.length + 1}`, reference: `K7P${cardShares.length + 2}-QX9M`, recipientEmail: email, label: body.label ?? null,
+      recipientHint: cardHint(email), scope: body.scope === 'card' ? 'card' : 'card_and_records', duration, createdAt: iso(),
+      expiresAt: iso(duration === '7d' ? 7 * DAY : DAY), status: 'active', endedAt: null, endedReason: null, lockedUntil: null, delivery: 'sent',
+      openCount: 0, lastOpenedAt: null }
+    cardShares.unshift(share)
+    return [201, { share, delivery: 'sent', replacedId }]
+  }
+  const end = path.match(/^\/identity\/me\/card-shares\/([^/]+)\/end$/)
+  if (end && method === 'POST') {
+    const share = cardShares.find(x => x.id === end[1])
+    if (!share) return cardProblem(404, 'CARD_SHARE_NOT_FOUND')
+    if (share.status === 'active') Object.assign(share, { status: 'ended', endedAt: iso(), endedReason: 'patient_ended', recipientEmail: null, label: null })
+    return [200, { share }]
+  }
+  if (path === '/card-share/availability') return [204, null]
+  if (path === '/card-share/code' && method === 'POST') return [202, { sentTo: 'd•••@example.test', expiresInSeconds: 600, resendAfterSeconds: 60 }]
+  if (path === '/card-share/verify' && method === 'POST') {
+    if (body.code === '000000') return cardProblem(400, 'CARD_SHARE_CODE_WRONG', { attemptsLeft: 4 })
+    return [200, { ...CARD_VIEW, expiresAt: iso(DAY), viewExpiresAt: iso(30 * MIN) }]
+  }
+  if (path === '/card-share/view') return [200, { ...CARD_VIEW, expiresAt: iso(DAY), viewExpiresAt: iso(30 * MIN) }]
+  if (path === '/card-share/records') {
+    return [200, { encounters: patient.records.encounters, notes: patient.records.notes, importedRecords: [], importedHealthProfile: null,
+      healthProfile: patient.healthProfile, patientEntries: [], patientEntriesMore: false, diagnoses: [], prescriptions: [], labRequests: [],
+      vitals: [], documents: [], limit: 50 }]
+  }
+  if (path === '/card-share/end-view') return [204, null]
+  if (path === '/card-share/stop-emails') return [200, { stopped: body.scope === 'address' ? 'address' : 'link' }]
+  return null
+}
+
 export function respond(method, path, workspace, request = {}) {
   const csrfCookie = { 'Set-Cookie': `hid_access_csrf=${CSRF}; Path=/; SameSite=Lax` }
   if (path === '/auth/session' && method === 'GET') return { status: 200, body: workspace === 'provider' ? staffSession() : patientSession(), headers: csrfCookie }
@@ -1067,7 +1127,8 @@ export function respond(method, path, workspace, request = {}) {
   }
   const handler = workspace === 'admin' ? adminRoute : workspace === 'provider' ? staffRoute : patientRoute
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
-  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
+  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null)
+    ?? (workspace === 'patient' ? cardShareRoute(method, path, request) : null) ?? handler(method, path)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null
 }
 

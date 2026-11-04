@@ -40,6 +40,9 @@ const DEPLOYMENT_PROFILES = Object.freeze({
 // No Content-Security-Policy yet (hand-off D6). Whenever one is added, the portal hosts need `worker-src 'self'` (the
 // push worker, /sw.js, B6) and `manifest-src 'self'` (/health-id.webmanifest). The Permissions-Policy below governs
 // no push or notification feature, so it stays as it is.
+/** The patient portal's card link pages (step 8): /card, /card/stop, /card/privacy, /card/preview and /card/<anything>. */
+const CARD_PAGES = /^\/card(?:\/|$)/
+
 const SECURITY_HEADERS = Object.freeze({
   'cross-origin-opener-policy': 'same-origin',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -580,6 +583,12 @@ function withSecurityHeaders(response, apiResponse = false, application, path = 
   const headers = new Headers(response.headers)
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value)
   if (application === 'web') headers.set('cross-origin-opener-policy', 'same-origin-allow-popups')
+  // The pages a card link opens (step 8): never framed, and no address of theirs (the token sits after # until the page
+  // reads it) is sent on as a referrer. A narrow policy only: the portal has no full Content-Security-Policy yet (D6).
+  if (application === 'web' && !apiResponse && CARD_PAGES.test(path)) {
+    headers.set('content-security-policy', "frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'")
+    headers.set('referrer-policy', 'no-referrer')
+  }
   headers.set('permissions-policy', PERMISSIONS_BY_APP[application]
     ?? 'camera=(), microphone=(), geolocation=()')
   if (apiResponse) {

@@ -26,7 +26,7 @@ import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from 
 const PORT = Number(process.env.MOCK_PORT ?? 3000)
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NEEDS_LOG = join(HERE, 'backend-needs.log')
-configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : 'blue' })
+configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : 'blue', cardShares: process.env.MOCK_CARD_SHARES === '1' })
 
 const seen = new Set()
 function logNeed(method, path, workspace) {
@@ -52,12 +52,17 @@ createServer((req, res) => {
   if (!url.pathname.startsWith('/api/v1/')) return send(res, 404, { code: 'NOT_FOUND', detail: 'Not a gateway path' })
   const path = url.pathname.slice('/api/v1'.length).replace(/\/$/, '')
   const method = req.method ?? 'GET'
-  req.resume() // bodies are ignored
+  // Bodies are ignored, except the card link routes' (opt-in, MOCK_CARD_SHARES=1), which need the address and the code.
+  const reads = path.startsWith('/card-share/') || path.startsWith('/identity/me/card-shares')
+  const chunks = []
+  req.on('data', chunk => { if (reads && chunks.length < 16) chunks.push(chunk) })
   req.on('end', () => {
+    let body
+    try { body = reads && chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined } catch { body = undefined }
     let pagePath = ''
     try { pagePath = new URL(req.headers.referer ?? '').pathname } catch { /* no referer */ }
     const workspace = workspaceFor(path, pagePath, process.env.MOCK_ROLE)
-    const hit = respond(method, path, workspace)
+    const hit = respond(method, path, workspace, body === undefined ? {} : { body })
     if (hit) {
       console.log(`  ${workspace.padEnd(8)} ${method} ${path} → ${hit.status}`)
       return send(res, hit.status, hit.body, hit.headers)

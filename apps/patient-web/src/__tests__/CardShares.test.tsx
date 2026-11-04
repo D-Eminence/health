@@ -207,7 +207,7 @@ describe('your card, shared by email', () => {
     expect(within(rows[1]!).queryByRole('button')).toBeNull()
     expect(rows[2]!.textContent).toContain('Paused for now')
     expect(rows[2]!.textContent).toContain('We couldn’t email this one. Try again tomorrow.')
-    expect(screen.getByRole('button', { name: 'End now End the link to dr.bello@example.com' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'End now the link to dr.bello@example.com' })).toBeTruthy()
   })
 
   it('ends a link after asking once, then reads the list again with focus on its heading', async () => {
@@ -278,5 +278,23 @@ describe('the inbox and Activity', () => {
       ['You', 'Ended the card link sent to d•••@gmail.com'],
     ])
     expect(WHAT.viewed).toBe('Viewed your record')
+  })
+})
+
+describe('the patient\'s preview of what a card link shows', () => {
+  it('shows their own card and records as a card-and-records link does, and says it is a preview', async () => {
+    const { CardLinkPreview } = await import('../routes/CardReceiver')
+    const { profile } = await import('./portalHarness')
+    const { sent } = renderPortal(<CardLinkPreview />, path => {
+      if (path === '/identity/me') return json(profile)
+      if (path === '/ehr/me/records') return json({ encounters: [{ id: 'e1', facilityId: 'f', encounterType: 'outpatient', status: 'completed', startedAt: '2026-10-20T09:00:00Z', endedAt: null }],
+        notes: [], limit: 50 })
+      return problem(404, 'NOT_FOUND', path)
+    }, {}, { at: '/card/preview' })
+    expect(await screen.findByText('This is what someone you send your card to sees.')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Ada Example’s Health ID card' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Visits' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Records they added' })).toBeTruthy()
+    expect(sent.some(item => item.path.startsWith('/card-share/'))).toBe(false)
   })
 })

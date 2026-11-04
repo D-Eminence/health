@@ -40,6 +40,12 @@ export interface HidEnvironment {
    * (`VITE_HID_SSO`): off unless set to `1` (or `true`); unset, empty, `0` or `false` keep today's sign-in pages exactly.
    */
   readonly ssoEnabled: boolean
+  /**
+   * Step 8 (hid-system 0118): the patient sends their card by email, and whoever has the link opens it with a one-time code.
+   * Built but switched off until legal signs off (D13): from the prefix's `CARD_SHARES` (`VITE_HID_CARD_SHARES`), off unless
+   * exactly `true`. On, the pages still wait for the backend to answer that it serves the routes.
+   */
+  readonly cardSharesEnabled: boolean
 }
 
 export class EnvironmentConfigError extends Error {
@@ -143,6 +149,7 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
   const supportChatEnabled = flag('SUPPORT_CHAT_ENABLED')
   const patientChatEnabled = flag('PATIENT_CHAT_ENABLED')
   const supportContact = readString(raw, key('SUPPORT_CONTACT'))
+  const cardSharesEnabled = flag('CARD_SHARES')
   // Single sign-on: off unless asked for. Anything but the values below fails the configuration rather than guess.
   const rawSso = raw[key('SSO')]
   const ssoEnabled = rawSso === '1' || rawSso === 'true'
@@ -159,6 +166,6 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
     turnstileSiteKey: readString(raw, key('TURNSTILE_SITE_KEY')),
     sentryDsn: readString(raw, key('SENTRY_DSN')),
     handlesRealData: name !== 'local',
-    supportChatEnabled, patientChatEnabled, supportContact, ssoEnabled,
+    supportChatEnabled, patientChatEnabled, supportContact, ssoEnabled, cardSharesEnabled,
   })
 }
