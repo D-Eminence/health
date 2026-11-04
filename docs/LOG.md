@@ -2818,7 +2818,7 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
 
-## 2026-11-03: the patient profile, ready for launch
+## 2026-11-04: the patient profile, ready for launch
 
 The profile's findings from the launch-readiness audit of 2 November (ids PPS-02 to PPS-16, HCS-05, HCS-15), checked again on main after website batch 3 (`c43ad5cd`). Batch 3 had fixed none of them: its patient changes (plain errors through `plainErrorText`, Home and Records, "Add a record", sign-in and sign-up, Access statuses) did not touch the profile, the Access PIN, the card photo or Delete account. Each fix has a failing test first; each visual or focus change was checked in Chromium at 320, 360, 390 and 1366 pixels against the mock gateway.
 
@@ -2842,3 +2842,5 @@ Left, and why:
 Needs owner approval:
 
 - **PPS-11.** The "Not verified" badge on a phone and the "can't text it yet" line are hidden until phone verification exists (the recommendation given), and the phone notice no longer says "It shows as not verified".
+
+Brought up to main on 4 November (`12d488f6`: website batch 4, the backend pin and the privacy notice's NDPC registration). Two places met main's own changes and keep both: About you's country now comes from main's `countryName` (which also refuses user-assigned codes such as "XK"), through `countryLabel` for "Not given"; the phone keeps main's wrapping and shows no "Not verified" badge. The profile's tests (223) pass after the merge, and the page was checked again in Chromium at 320, 360, 390 and 1366 pixels: no sideways scroll, "Female" and "Nigeria" in About you, no "Not verified" on an unchecked phone and no "text it yet", Show PIN beside the PIN, the new opening line, and More named for Delete account. PPS-02 still waits on the backend: neither hid-system main nor `staging-novu-ci-20261005` serves a patient update for gender, state, country, name or date of birth (only `PUT identity/me/profile-details`, hospital and HMO).
