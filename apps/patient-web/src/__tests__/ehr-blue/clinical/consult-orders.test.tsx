@@ -174,6 +174,17 @@ const SAVE_RX = (medicine = 'Amoxicillin') => `Save this prescription of ${medic
 const SAVE_LAB = (test = 'Haemoglobin') => `Save this lab request (${test}) for ${PATIENT_NAME} as a draft?`
 const SEND_LAB = (test = 'Haemoglobin') => `Send this lab request (${test}) for ${PATIENT_NAME}?`
 
+/** A saved record's value by its label, and the closed "More details" under it (owner decision 33.4), if any. */
+function savedValue(label: string) {
+  const value = screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement
+  const details = value.querySelector('details')
+  if (details) {
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary')?.textContent).toMatch(/^More details/)
+  }
+  return { lead: details ? value.querySelector(':scope > span > span')?.textContent : value.textContent, more: details?.querySelector(':scope > div')?.textContent }
+}
+
 async function openOrder(kind: 'pharmacy' | 'laboratory', id: string) {
   open(orderPath(ENCOUNTER_ID, kind, id))
   return screen.findByRole('heading', { level: 1 })
@@ -894,6 +905,24 @@ describe('A prescription’s page', () => {
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
   })
 
+  it('says the route in plain words, with the route code under More details', async () => {
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Route')).toEqual({ lead: 'By mouth', more: 'Route code: oral' })
+    expect(screen.queryByText('oral')).toBeNull()
+  })
+
+  it('shows a route with no plain words as written', async () => {
+    setLists([prescription({ routeCode: 'intrathecal' })], [])
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Route')).toEqual({ lead: 'intrathecal', more: undefined })
+  })
+
+  it('says a missing route is not recorded', async () => {
+    setLists([prescription({ routeCode: null })], [])
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Route')).toEqual({ lead: 'Not recorded', more: undefined })
+  })
+
   it('shows the loading state, then a missing order', async () => {
     setLists([], [])
     open(orderPath(ENCOUNTER_ID, 'pharmacy', RX))
@@ -1064,6 +1093,13 @@ describe('A prescription’s page', () => {
 })
 
 describe('A lab request’s page', () => {
+  it('names the test, with its code under More details rather than a code line', async () => {
+    await openOrder('laboratory', LAB)
+    expect(savedValue('Test')).toEqual({ lead: 'Haemoglobin', more: 'Code: LOINC 718-7' })
+    expect(screen.queryByText('Code', { selector: 'dt' })).toBeNull()
+    expect(screen.queryByText('LOINC 718-7')).toBeNull()
+  })
+
   it('offers today’s draft changes to a role that can’t send to Lab, and says who can', async () => {
     expect((await openOrder('laboratory', LAB)).textContent).toBe('Haemoglobin')
     expect(screen.getByRole('button', { name: 'Cancel order' })).toBeTruthy()
