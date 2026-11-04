@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { isHidApiError } from '@hid/http'
+import { plainErrorText } from '@hid/http'
 import type { RegistrationCase, ResolveNinInput } from './api'
 
 /*
@@ -17,9 +17,15 @@ export const REGISTRATION_GENDERS: ReadonlyArray<{ value: NonNullable<ResolveNin
   { value: 'other', label: 'Other' }, { value: 'unknown', label: 'Unknown' },
 ]
 
-/** Identity's own words for a refusal, or `fallback`. */
+/** Plain words for the refusals registration knows; never Identity's own text. */
+const REGISTRATION_REFUSALS: Readonly<Record<string, string>> = {
+  NIN_ALREADY_REGISTERED: 'This person already has a Health ID. Search for them instead.',
+  NIN_MISMATCH: 'The details don’t match the NIN record. Check the name and date of birth, then try again.',
+}
+
+/** A registration step's refusal in plain words (plainErrorText), or the step's own `fallback`. Never Identity's text. */
 export function registrationErrorText(error: unknown, fallback: string) {
-  return isHidApiError(error) ? error.message : fallback
+  return plainErrorText(error, fallback, { codes: REGISTRATION_REFUSALS, audience: 'facility' })
 }
 
 /** Idempotency keys stay in component memory only and are reused for an unchanged retry. */

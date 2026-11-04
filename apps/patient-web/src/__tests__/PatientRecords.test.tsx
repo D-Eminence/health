@@ -163,6 +163,12 @@ describe('patient health records', () => {
     expect(intro(heading)).not.toMatch(/vitals|diagnoses|prescriptions|medicines|lab|documents/i)
   })
 
+  it('names what the page shows from an EHR that names no released parts, never promising "everything" signed', async () => {
+    renderRecords(empty)
+    expect(await screen.findByText('Your visits, doctor’s notes, vital signs, diagnoses, prescriptions, lab tests and documents, newest first.')).toBeTruthy()
+    expect(screen.queryByText(/Everything/)).toBeNull()
+  })
+
   it('describes only the released parts of the record', async () => {
     renderRecords(released)
     expect(await screen.findByText('Your visits and doctor’s notes. Other parts aren’t shared with you yet.')).toBeTruthy()

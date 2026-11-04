@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { AuditCompliance } from '../../../../ehr-blue/departments/audit/AuditCompliance'
+import { auditPage } from '../../../../ehr-blue/departments/audit/page'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
 import type * as StaffApi from '../../../../staff/api'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_NETWORK, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * Audit trail in the blue EHR (target admin/audit.png): today's facility audit read (staff/routes/Audit.tsx)
@@ -348,15 +350,17 @@ describe('Audit trail: older and newer pages', () => {
 })
 
 describe('Audit trail: refusals and failures', () => {
-  it('says a 403 refusal plainly, and Try again reads the page again, focus then on the events', async () => {
+  it('says a 403 refusal plainly, in the refusal’s own words, and Try again reads the page again, focus then on the events', async () => {
     api.facilityAudit
       .mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }))
       .mockResolvedValueOnce(pageOf([event('51')]))
     renderDept(<AuditCompliance />)
 
     const alert = await screen.findByRole('alert')
-    expect(within(alert).getByText('Your membership at Demo Hospital can’t review audit events. Ask your facility administrator for audit access.'))
+    // The classic page's words for the same read (staff/routes/Audit.tsx), by who reads them: no membership, no code.
+    expect(within(alert).getByText('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'))
       .toBeTruthy()
+    expect(alert.textContent).not.toMatch(/membership|audit access|Forbidden|FORBIDDEN|403/)
     const retry = within(alert).getByRole('button', { name: 'Try again' })
     retry.focus()
     fireEvent.click(retry)
@@ -371,16 +375,16 @@ describe('Audit trail: refusals and failures', () => {
   })
 
   it.each([
-    // The server's own text is never shown (owner rule): the page says it in its words.
-    ['a refusal with a message', new HidApiError(500, 'The audit service is unavailable.', { code: 'INTERNAL_ERROR' }), 'Audit events could not be loaded. Try again.'],
-    ['a failure between services', new HidApiError(503, 'x', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
+    // The server's own text is never shown (owner rule): the page says it in the shared plain words, or its own.
+    ['a refusal with a message', new HidApiError(500, 'The audit service is unavailable.', { code: 'INTERNAL_ERROR' }), SAID_UNAVAILABLE],
+    ['a failure between services', new HidApiError(503, 'x', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
     ['a failure with no message', 'boom', 'Audit events could not be loaded. Try again.'],
   ])('says %s, with Try again', async (_, refusal, words) => {
     api.facilityAudit.mockRejectedValueOnce(refusal)
     renderDept(<AuditCompliance />)
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText(words)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/audit service|INTERNAL_ERROR|SERVICE_AUTH/)
     expect(within(alert).getByRole('button', { name: 'Try again' })).toBeTruthy()
     expect(screen.queryByRole('list')).toBeNull()
     for (const withheld of ['The audit service is unavailable.', 'INTERNAL_ERROR', 'EHR_SERVICE_AUTH_UNAVAILABLE', '500', '503']) {
@@ -389,14 +393,15 @@ describe('Audit trail: refusals and failures', () => {
   })
 
   it('moves focus to Try again when an older page fails, with Newer events still offered', async () => {
-    api.facilityAudit.mockResolvedValueOnce(pageOf([event('51')], '51')).mockRejectedValueOnce(new Error('Health ID did not answer.'))
+    api.facilityAudit.mockResolvedValueOnce(pageOf([event('51')], '51')).mockRejectedValueOnce(new TypeError('Failed to fetch'))
     renderDept(<AuditCompliance />)
     const olderButton = await screen.findByRole('button', { name: 'Older events' })
     olderButton.focus()
     fireEvent.click(olderButton)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Audit events could not be loaded. Try again.')
+    expect(alert.textContent).toContain(SAID_NETWORK)
+    expect(alert.textContent).not.toContain('Failed to fetch')
     expect(alert.textContent).not.toContain('Health ID did not answer.')
     expect(document.activeElement).toBe(within(alert).getByRole('button', { name: 'Try again' }))
     expect(button('Newer events')).toBeTruthy()
@@ -420,6 +425,79 @@ describe('Audit trail: refusals and failures', () => {
     renderDept(<AuditCompliance />)
     expect(screen.getByRole('status').textContent).toBe('Choose the facility you are working at to review its audit events.')
     expect(api.touched).toEqual([])
+  })
+})
+
+/*
+ * Who reads the refusal, on the page, at its address and on a refused read (#104's rule, the owner's decision for #107).
+ * No locked list names audit review, so a facility's own administrator is never told to ask themselves, to wait for the
+ * check, or to add someone: only that their role doesn't include it. Every facility here is fictional.
+ */
+describe('Audit trail: the refusal, by who reads it', () => {
+  const ROLE = 'Your role at this facility doesn’t include reviewing audit events.'
+  const ASK = `${ROLE} Ask your facility administrator.`
+  /** A self-signed-up facility's administrator whose role here holds no audit review (fictional: org_admin holds it). */
+  const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'outreach.registration.read', 'outreach.campaign.read']
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  /** What `permissions` reads on the page, and at its address, at a facility that signed itself up when `selfService` says so. */
+  function refusalAs(permissions: string[], selfService?: FakeFacility['selfService']) {
+    session.facility = fakeFacility(permissions, { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', ...(selfService ? { selfService } : {}) })
+    const page = renderDept(<AuditCompliance />)
+    const onPage = screen.getByRole('status').textContent
+    page.unmount()
+    renderDept(<>{auditPage.refusal}</>)
+    expect(screen.getByRole('heading', { level: 1, name: 'Audit access unavailable' })).toBeTruthy()
+    const atAddress = document.querySelector('.hid-ehr-state-message')?.textContent
+    // The page and its address say one thing, and neither names a permission, a code or an address.
+    expect(atAddress).toBe(onPage)
+    expect(document.body.textContent).not.toMatch(/permission|membership|workforce|audit\.read|_|\/provider/i)
+    expect(api.touched).toEqual([])
+    return onPage
+  }
+
+  it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): the role sentence only', organizationType => {
+    expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(ROLE)
+  })
+
+  it.each(['hospital', 'laboratory'])('the administrator of a facility (%s) Health ID support is still checking: the role sentence only', organizationType => {
+    expect(refusalAs(['workforce.manage', 'outreach.registration.read'], { review: 'pending', organizationType })).toBe(ROLE)
+  })
+
+  it('anyone else at a checked facility: told to ask its administrator', () => {
+    expect(refusalAs(['lab.work-item.read'], { review: 'reviewed', organizationType: 'laboratory' })).toBe(ASK)
+  })
+
+  it('an administrator at a facility Health ID support manages: told to ask its administrator', () => {
+    expect(refusalAs(ADMINISTRATOR)).toBe(ASK)
+  })
+
+  it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): told to ask its administrator', contract => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(ASK)
+  })
+
+  it('says a refused read to the administrator of a checked facility in the same words, never asking them to ask themselves', async () => {
+    session.facility = fakeFacility(['workforce.manage', 'audit.read'], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital',
+      selfService: { review: 'reviewed', organizationType: 'clinic' } })
+    api.facilityAudit.mockRejectedValueOnce(new HidApiError(403, 'Missing permission audit.read for facility-1', { code: 'PERMISSION_DENIED' }))
+    renderDept(<AuditCompliance />)
+
+    const alert = await screen.findByRole('alert')
+    expect(within(alert).getByText(ROLE)).toBeTruthy()
+    expect(alert.textContent).not.toMatch(/Ask your facility administrator|membership|audit access/)
+    expect(document.body.textContent).not.toMatch(/audit\.read|PERMISSION_DENIED|Missing permission|facility-1|403/)
+    expect(within(alert).getByRole('button', { name: 'Try again' })).toBeTruthy()
+  })
+
+  it('says a refused read to anyone else at a checked facility in the same words: to ask its administrator', async () => {
+    session.facility = fakeFacility(['audit.read'], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital',
+      selfService: { review: 'reviewed', organizationType: 'clinic' } })
+    api.facilityAudit.mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }))
+    renderDept(<AuditCompliance />)
+
+    expect(within(await screen.findByRole('alert')).getByText(ASK)).toBeTruthy()
   })
 })
 

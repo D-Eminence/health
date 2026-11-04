@@ -139,6 +139,13 @@ const SELF_SERVICE_SESSION = 'On Novu since P4b each facility that signed itself
 /** The staff routes' shared rules (P4b SPEC 6.3-6.5). */
 const STAFF_ROUTE = `${STAFF_P4B_NOVU} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, `
   + 'CSRF on POST; only at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise).'
+/**
+ * One-person lab (owner decision 33.3, hid-system 0111): a facility's own settings, read and switched by its
+ * administrator. Off at every facility until switched on.
+ */
+const FACILITY_SETTINGS_ROUTE = 'hid-system 0111 (claude/ehr-e-lab-one-person-release); not served by hid-system main (404, '
+  + 'which the Facility profile takes as "show nothing"). Staff session with X-Facility-ID (healthcare-operations) and '
+  + 'organization.manage there; CSRF on POST.'
 const STAFF_INVITATIONS_CLOSED = '423 STAFF_INVITATIONS_UNAVAILABLE while invitations are switched off.'
 /**
  * Cross-facility orders (P4c, owner's fifth and sixth decisions): a clinician sends a lab request or prescription to a
@@ -380,6 +387,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.session','auth','/api/v1/auth/session',G,false,undefined,SELF_SERVICE_SESSION),
   r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,`Requires refresh cookie and CSRF header. ${SELF_SERVICE_SESSION}`),
   r('auth.logout','auth','/api/v1/auth/logout',P),
+  // A product's sign-out with single sign-on on auth. (ADR-070, contract v2 item 4); the browser never calls the start,
+  // callback or back-channel routes, which are navigations and server-to-server calls.
+  proposed(r('auth.ssoLogout','auth','/api/v1/auth/sso/logout',P,false,undefined,
+    'Single sign-on (ADR-070, proposed): not served by hid-system main, where it answers 404, as it does on a host that is '
+    + 'not a single sign-on client. Runs the sign-out of auth.logout, with its checks, then answers 200 { endSessionUrl }: '
+    + 'the provider\'s end-session address, for the browser to open.')),
   r('auth.facility','auth','/api/v1/auth/facility',P,false,undefined,SELF_SERVICE_SESSION),
   r('auth.otpStart','auth','/api/v1/auth/otp/start',P,true),
   r('auth.otpVerify','auth','/api/v1/auth/otp/verify',P,true),
@@ -548,6 +561,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
     + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
     + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
+  // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
+  proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
+    `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `
+    + 'changed). 403 PERMISSION_DENIED or FACILITY_SETTING_PERMISSION_DENIED; 503 FACILITY_SETTINGS_UNAVAILABLE.')),
+  proposed(r('identity.facilityOnePersonLab','identity','/api/v1/identity/facility-settings/one-person-lab',P,false,
+    one('POST','organization.manage'),
+    `${FACILITY_SETTINGS_ROUTE} Body { enabled, reason (10 to 500 characters after trimming) }; 200 { enabled, changedAt, `
+    + 'settingId }, audited identity.facility.one-person-lab.on or .off. 400 VALIDATION_FAILED, FACILITY_SETTING_REASON_INVALID, '
+    + 'FACILITY_SETTING_INVALID; 403 PERMISSION_DENIED, FACILITY_SETTING_PERMISSION_DENIED; 409 FACILITY_SETTING_UNCHANGED; '
+    + '503 FACILITY_SETTINGS_UNAVAILABLE.')),
   proposed(r('identity.staffInvitationCreate','identity','/api/v1/identity/staff-invitations',P,false,one('POST','workforce.manage'),
     `${STAFF_ROUTE} After support's review (409 FACILITY_REVIEW_PENDING before). Idempotency-Key (16 to 128, starting `
     + 'with a letter or digit) and body { name, email, role, licenceBody?, licenceNumber?, attested: true, '
@@ -893,7 +916,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.completeExecution','lab','/api/v1/lab/executions/:executionId/complete',P,false,one('POST','lab.execution.complete')),
   r('lab.results','lab','/api/v1/lab/executions/:executionId/results',P,false,one('POST','lab.result.enter')),
   r('lab.correctResult','lab','/api/v1/lab/executions/:executionId/results/:resultId/corrections',P,false,one('POST','lab.result.correct')),
-  r('lab.verifyResult','lab','/api/v1/lab/results/:resultId/verify',P,false,one('POST','lab.result.verify')),
+  r('lab.verifyResult','lab','/api/v1/lab/results/:resultId/verify',P,false,one('POST','lab.result.verify'),
+    'Body { expectedResultVersion, occurredAt, reason }. From hid-system 0111 (One-person lab, not on main yet) also '
+    + 'selfCheck?: true, sent only when the result read says onePersonLab: true (an older image refuses the field); 409 '
+    + 'LAB_RESULT_SECOND_CHECK_REQUIRED, LAB_RESULT_SELF_CHECK_REASON_REQUIRED, LAB_RESULT_SELF_CHECK_NOT_YOURS; 400 '
+    + 'LAB_RESULT_SELF_CHECK_REASON_INVALID.'),
   r('lab.releaseResult','lab','/api/v1/lab/results/:resultId/release',P,false,one('POST','lab.result.release')),
   r('lab.resultHistory','lab','/api/v1/lab/results/:resultId/history',G,false,one('GET','lab.result.released.read')),
   // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.

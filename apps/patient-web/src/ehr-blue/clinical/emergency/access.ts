@@ -25,9 +25,14 @@ export const REASON_MAX = 500
 
 /** Patients.tsx:243, the emergency notice, before and after the Novu sentence (Patients.tsx:46). */
 export const NOTICE_WHEN = 'Only when the patient can’t consent and care can’t wait'
-export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
-export const EMERGENCY_CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
-export const NOTICE_AFTER = 'You see this facility’s finished visits, signed notes, diagnoses, prescriptions, lab requests and documents. You can’t change anything.'
+export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
+/** Patients.tsx:47: only verified contacts the patient chose to notify are told, and only while the alerts are on. */
+export const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
+/**
+ * Patients.tsx:244, as the emergency summary is (EmergencySummary.tsx): each section is shown only to a role that may
+ * read it, vital signs are not shown, and documents are listed but not opened.
+ */
+export const NOTICE_AFTER = 'You see this facility’s finished visits and signed notes, and the diagnoses, prescriptions, lab tests and documents your role may read. It shows no vital signs and opens no files. You can’t change anything.'
 
 export function emergencyNotice(novu: boolean): string {
   return novu ? `${NOTICE_BEFORE} ${EMERGENCY_CONTACTS_TOLD} ${NOTICE_AFTER}` : `${NOTICE_BEFORE} ${NOTICE_AFTER}`
@@ -39,12 +44,21 @@ export const COMMAND_FAILED = 'Something went wrong. Please try again.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
 export const ACCESS_CLOSED = 'Your access has ended.'
 export const CLOSE_FAILED = 'Couldn’t end your access. Please try again.'
+/** A close refused because the access had already ended (409 CONSENT_COMMAND_CONFLICT, 404 CONSENT_RESOURCE_NOT_FOUND). */
+export const CLOSE_REFUSALS: Readonly<Record<string, string>> = {
+  CONSENT_COMMAND_CONFLICT: 'This access had already ended.',
+  CONSENT_RESOURCE_NOT_FOUND: 'This access had already ended.',
+}
 
 /**
  * The break-glass duration today's client sends (staff/api.ts breakGlass: durationMinutes 30). The design's
  * acknowledgement names the expiry, so it names this one.
  */
 export const EMERGENCY_MINUTES = 30
+
+/** Patients.tsx: an account that opened emergency access 10 times in the last hour (429 EMERGENCY_RATE_LIMITED). */
+export const EMERGENCY_RATE_LIMITED = 'You’ve used emergency access too many times in the last hour, so the record was not '
+  + 'opened. Ask your facility administrator, or try again later.'
 
 /** Patients.tsx:184-204: today's words for the break-glass refusals it knows; null for any other (shown as sent). */
 export function breakGlassRefusal(caught: unknown, facilityName: string): string | null {
@@ -56,6 +70,8 @@ export function breakGlassRefusal(caught: unknown, facilityName: string): string
     return `${facilityName} is new to Health ID: emergency access is limited to 5 times a day in its first `
       + '30 days. Contact Health ID support to lift the limit.'
   }
+  // Identity's per-account limit: 10 activations in a rolling hour (ehr-api migration 0031).
+  if (caught.status === 429 && caught.code === 'EMERGENCY_RATE_LIMITED') return EMERGENCY_RATE_LIMITED
   if (caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
     return 'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'
   }
@@ -87,10 +103,10 @@ export function whoToAsk(administrator: Administrator): string {
   return 'Ask your facility administrator.'
 }
 
-/** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. */
+/** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: AccessAction, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
   // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
   return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
     : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`

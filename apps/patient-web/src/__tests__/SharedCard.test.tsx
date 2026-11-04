@@ -29,6 +29,8 @@ describe('the page a shared link opens', () => {
       expect(screen.getByRole('main')).toBeTruthy()
       expect(screen.getByText('Health ID doesn’t open records from a link like this, so nothing is shown here. If a patient '
         + 'shared their records with you, ask them to show you their Health ID card.')).toBeTruthy()
+      // Health ID's own page for patients on the public site, never another organisation's.
+      expect(screen.getByRole('link', { name: 'About Health ID' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/patients')
       // Give any read a chance to start: none does, and the link's secret goes nowhere.
       await new Promise(resolve => setTimeout(resolve, 0))
       expect(sent).toEqual([])
@@ -47,7 +49,7 @@ describe('the page a shared link opens', () => {
     expect(document.body.textContent).not.toMatch(/\byet\b/i)
     expect(document.title).not.toMatch(/\byet\b/i)
     const about = screen.getByRole('link', { name: 'About Health ID' })
-    expect(about.getAttribute('href')).toBe('https://healthidentitydirectory.com/')
+    expect(about.getAttribute('href')).toBe('https://healthidentitydirectory.com/patients')
     expect(document.body.innerHTML).not.toContain('healthid.ng')
   })
 

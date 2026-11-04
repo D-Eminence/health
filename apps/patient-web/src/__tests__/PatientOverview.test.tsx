@@ -23,7 +23,8 @@ describe('patient overview', () => {
     const { sent } = renderPortal(<Overview />, path => path === '/identity/me' && ++answers === 1
       ? problem(404, 'PATIENT_PROFILE_NOT_FOUND', 'The service could not answer.') : json(profile))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('The service could not answer.')
+    expect(alert.textContent).toContain('We couldn’t find what you were looking for. It may have been moved or removed.')
+    expect(alert.textContent).not.toContain('The service could not answer.')
     expect(screen.queryByText('HID-ABC234')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 

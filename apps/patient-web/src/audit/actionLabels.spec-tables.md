@@ -179,6 +179,8 @@ checks that actionLabels.ts holds exactly these labels. Change both together whe
 | `identity.facility-administrator-licence.record` | Administrator recorded their licence |
 | `identity.facility-staff.end` | Removed a staff member |
 | `identity.facility-staff.role-change` | Changed a staff member's role |
+| `identity.facility.one-person-lab.off` | One-person lab turned off |
+| `identity.facility.one-person-lab.on` | One-person lab turned on |
 | `identity.imported.notification.list` | Viewed earlier notifications |
 | `identity.imported.notification.mark-read` | Marked an earlier notification read |
 | `identity.nin.protect` | NIN check stopped by a system error |

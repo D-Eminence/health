@@ -71,7 +71,7 @@ describe('signing in to a suspended account', () => {
     openSignIn(path => path === '/auth/patient/login' ? invalid() : problem(500, 'UNEXPECTED', path))
     await signInWithPassword()
     const alert = await screen.findByRole('alert')
-    expect(shownText(alert)).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(alert)).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
     expect(within(alert).queryByRole('link', { name: 'support@healthidentitydirectory.com' })).toBeNull()
   })
 
@@ -83,7 +83,7 @@ describe('signing in to a suspended account', () => {
 
     answer = invalid
     await signInWithPassword()
-    expect(shownText(screen.getByRole('alert'))).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(screen.getByRole('alert'))).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
   })
 
   it('says the same after Google sign-in, where Identity refuses a suspended account so', async () => {

@@ -3,8 +3,10 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { consultationLabel } from '../../../plainLabels'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, the list and "New consultation": the open patient's encounters (today's paging, the access re-check
@@ -111,7 +113,7 @@ describe('Consultation list', () => {
 
     const table = await screen.findByRole('table', { name: 'Consultations' })
     // One patient's chart: the second column says what the visit was for; the patient is named once, in the banner.
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Complaint', 'Status', 'Updated', 'Actions'])
+    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Complaint', 'Status', 'Started', 'Actions'])
     const link = within(table).getByRole('link', { name: consultationLabel(ENCOUNTER) })
     expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getByText('Fever for two days')).toBeTruthy()
@@ -134,6 +136,9 @@ describe('Consultation list', () => {
     expect(within(drawer).getByRole('heading', { level: 3, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(within(drawer).getByText('Outpatient')).toBeTruthy()
     expect(within(drawer).getByText('Fever for two days')).toBeTruthy()
+    // The time shown is when the consultation started: never called an update.
+    expect(within(drawer).getByText(/^Started /)).toBeTruthy()
+    expect(within(drawer).queryByText(/updated/i)).toBeNull()
     expect(within(drawer).getByRole('button', { name: 'Open full record' })).toBeTruthy()
     fireEvent.keyDown(drawer, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
@@ -143,9 +148,12 @@ describe('Consultation list', () => {
     api.encounters.mockResolvedValue({ items: [ENCOUNTER, SECOND], nextCursor: null })
     open()
     await screen.findByRole('table', { name: 'Consultations' })
-    fireEvent.change(screen.getByLabelText('Search Consultation'), { target: { value: 'fever' } })
+    fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: 'fever' } })
     expect(screen.getAllByRole('link', { name: /^Open / })).toHaveLength(1)
-    fireEvent.change(screen.getByLabelText('Search Consultation'), { target: { value: 'nothing like this' } })
+    // The time the Started column shows finds its row.
+    fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: formatWhen(SECOND.startedAt) } })
+    expect(screen.getAllByRole('link', { name: /^Open / })).toHaveLength(1)
+    fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: 'nothing like this' } })
     expect(screen.getByText('No matching records')).toBeTruthy()
     expect(screen.getByText('Change your search.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
@@ -162,6 +170,7 @@ describe('Consultation list', () => {
   })
 
   it('parity: names the facility over the list, and says the direct-care line with "Change patient →" under the patient', async () => {
+    staff.permissions = [...ALL, 'identity.patient.read']
     open()
     await screen.findByRole('table', { name: 'Consultations' })
     expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
@@ -170,16 +179,34 @@ describe('Consultation list', () => {
     expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
   })
 
+  it('under the patient, points a role without identity.patient.read to Access requests, never to Find a patient', async () => {
+    staff.permissions = [...ALL, 'identity.consent.write']
+    const view = open()
+    await screen.findByRole('table', { name: 'Consultations' })
+    let line = screen.getByText(/· Direct care access\./)
+    expect(within(line).queryByRole('link', { name: 'Change patient →' })).toBeNull()
+    expect(within(line).getByRole('link', { name: 'Access requests →' }).getAttribute('href')).toBe('/provider/requests')
+    view.unmount()
+    staff.permissions = [...ALL]
+    open()
+    await screen.findByRole('table', { name: 'Consultations' })
+    line = screen.getByText(/· Direct care access\./)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access.`)
+    expect(within(line).queryAllByRole('link')).toEqual([])
+  })
+
   it('shows a refused read as an alert', async () => {
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
   })
 
   it('after a failed read, Refresh reads the list afresh after the access re-check, and the alert goes', async () => {
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByRole('table', { name: 'Consultations' })).toBeTruthy()
@@ -194,7 +221,7 @@ describe('Consultation list', () => {
       return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
     })
     open()
-    const pager = await screen.findByRole('navigation', { name: 'Encounter pages' })
+    const pager = await screen.findByRole('navigation', { name: 'Consultation pages' })
     expect(within(pager).getByRole('status').textContent).toBe('Page 1')
     const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
     expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
@@ -207,7 +234,8 @@ describe('Consultation list', () => {
     // A failed page read is an alert; the page shown stays.
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     fireEvent.click(within(pager).getByRole('button', { name: 'Previous page' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(`The page could not be loaded. ${SAID_UNAVAILABLE}`)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(within(pager).getByText('Page 2')).toBeTruthy()
 
     // Refresh re-reads the page shown; a stale cursor starts again from the newest.
@@ -217,7 +245,7 @@ describe('Consultation list', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByText('This list changed since it was opened, so it shows the newest entries again.')).toBeTruthy()
-    expect(within(screen.getByRole('navigation', { name: 'Encounter pages' })).getByText('Page 1')).toBeTruthy()
+    expect(within(screen.getByRole('navigation', { name: 'Consultation pages' })).getByText('Page 1')).toBeTruthy()
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: true })
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
   })
@@ -225,16 +253,16 @@ describe('Consultation list', () => {
   it('hides the pager when there is one page', async () => {
     open()
     await screen.findByRole('table', { name: 'Consultations' })
-    expect(screen.queryByRole('navigation', { name: 'Encounter pages' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Consultation pages' })).toBeNull()
   })
 
-  it('parity: the pager is today’s "Encounter pages": a button that cannot act stays focusable and does nothing, and the page reached is announced', async () => {
+  it('parity: the pager is "Consultation pages": a button that cannot act stays focusable and does nothing, and the page reached is announced', async () => {
     api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) => {
       if (page.cursor === 'cursor-2') return { items: [SECOND], nextCursor: null }
       return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
     })
     open()
-    const pager = await screen.findByRole('navigation', { name: 'Encounter pages' })
+    const pager = await screen.findByRole('navigation', { name: 'Consultation pages' })
     const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
     const next = within(pager).getByRole('button', { name: 'Next page' }) as HTMLButtonElement
     // Marked unavailable, not disabled: it keeps focus, and a press reads nothing.
@@ -282,6 +310,8 @@ describe('Consultation list', () => {
   })
 
   it('closes the patient when the access re-check is refused (403)', async () => {
+    // Find a patient is offered only to a role that can open it (identity.patient.read).
+    staff.permissions = [...ALL, 'identity.patient.read']
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
     open()
     const ended = await screen.findByRole('alert')
@@ -293,6 +323,8 @@ describe('Consultation list', () => {
   })
 
   it('asks for a patient first when none is open', () => {
+    // Find a patient is offered only to a role that can open it (identity.patient.read).
+    staff.permissions = [...ALL, 'identity.patient.read']
     staff.activePatient = null
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
@@ -316,8 +348,9 @@ describe('Consultation list', () => {
       expect(address()).toBe(`REPLACE /provider/clinical/${ENCOUNTER_ID}/orders/${ours}/${orderId} null`)
       expect(address()).not.toContain(PATIENT_ID)
       expect(address()).not.toContain(PATIENT_HID)
-      // The list is not read on the way.
+      // The list is not read on the way, nor the chart sections under it.
       expect(api.encounters).not.toHaveBeenCalled()
+      expect(api.reportedHealthProfile).not.toHaveBeenCalled()
       view.unmount()
     }
   })
@@ -329,6 +362,8 @@ describe('Consultation list', () => {
       expect(await screen.findByRole('table', { name: 'Consultations' })).toBeTruthy()
       expect(screen.queryByText('Order pages part')).toBeNull()
       expect(address()).toMatch(/^POP \/provider\/clinical /)
+      // The list as ever, with today's chart sections under it.
+      expect(document.querySelector('.hid-ehr-clinical-today')).not.toBeNull()
       view.unmount()
     }
   })
@@ -392,7 +427,7 @@ describe('New consultation', () => {
     const context = await screen.findByRole('region', { name: 'Allergies' })
     expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 
@@ -564,7 +599,8 @@ describe('New consultation', () => {
     fireEvent.click(save)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('One or more request fields are invalid. Content must be shorter than or equal to 100000 characters.')
+    expect(alert.textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(screen.getByLabelText(labelled('Clinical note')).getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByText('Consultation started. Outpatient · Cough. Save again to add the rest to it.')).toBeTruthy()
     expect(screen.queryByLabelText(labelled('Presenting complaint'))).toBeNull()
@@ -595,7 +631,8 @@ describe('New consultation', () => {
     fill('Clinical note', 'N')
     fireEvent.click(save)
 
-    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Code must be shorter than or equal to 100 characters.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(screen.getByLabelText(labelled('Code')).getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByText('Consultation started. Outpatient · Cough. The draft note is saved; change it from the consultation’s page. Save again to add the rest to it.')).toBeTruthy()
     // The saved note's fields are gone, so nothing typed there can be lost or sent as a second note.
@@ -621,7 +658,8 @@ describe('New consultation', () => {
     fill('Examination', 'E')
     fill('Clinical note', 'N')
     fireEvent.click(save)
-    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Chief complaint should not be empty.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(screen.getByLabelText(labelled('Presenting complaint')).getAttribute('aria-invalid')).toBe('true')
     expect(api.createRecord).not.toHaveBeenCalled()
   })

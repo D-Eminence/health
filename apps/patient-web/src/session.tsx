@@ -8,6 +8,7 @@ import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
 import { announceSessionChange, heldByOtherPortal, onOtherTabSessionChange, patientSessionRequired } from './sessionChange'
 import { createPatientResourceCache, PatientResourcesContext } from './resourceCache'
+import { leaveAfterSignOut, noteSessionEndedHere } from './sso/singleSignOn'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -113,6 +114,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const recheckSession = useRef<() => Promise<void>>(async () => undefined)
 
   useEffect(() => store.subscribe(setState), [store])
+  // With single sign-on on app., a patient's session this page showed that ends, whichever way (a sign-out in another
+  // tab or on another site, an expiry, a revocation; this page's own sign-out notes its own first), makes the next
+  // hand-off from this page ask for a new sign-in (sso/singleSignOn.ts noteSessionEndedHere). Noted as the store
+  // changes, before the page renders the hand-off. Off, it does nothing.
+  useEffect(() => {
+    let shown = store.getState().status === 'authenticated'
+    return store.subscribe(next => {
+      if (shown && next.status !== 'authenticated') noteSessionEndedHere()
+      shown = next.status === 'authenticated'
+    })
+  }, [store])
 
   // The pages' last answers (resourceCache.ts), one account's at a time: a sign-out, a session ended elsewhere, or
   // another account's sign-in drops them before any page reads again. Pages rendered meanwhile find none, since a
@@ -402,8 +414,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signOut: async () => {
       const signedIn = store.getState().principal?.subjectId
       await turnOffDevicePush(api)
+      // With single sign-on on app., where the sign-out sends the tab next (sso/singleSignOn.ts leaveAfterSignOut): the
+      // provider's end-session address when the sign-out answered one, else nowhere. Noted before the session is
+      // cleared, so the signed-out page that follows never hands off on its own. Every way out of the session asks for
+      // the next sign-in from this page as the store clears it (noteSessionEndedHere, above). Off, it does nothing.
+      let endSession: string | null = null
       try {
-        await api.logout(signedIn)
+        endSession = await api.logout(signedIn)
       } catch (error) {
         // The browser holds a provider's sign-in now, which Identity neither ended
         // nor changed: this patient's has already left it. Nothing changed for the
@@ -419,17 +436,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } catch (refreshError) {
           // A refused refresh leaves no session of this patient's in this browser
           // to end, a provider's sign-in refused as SESSION_CLIENT_MISMATCH included.
+          // With single sign-on on app., the provider's session may outlive it: it is
+          // ended all the same, and the tab leaves for its end-session address
+          // (api.ts endSingleSignOn), except over another portal's sign-in, which is
+          // left alone. Off, nothing more is sent.
           if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
+            if (!heldByOtherPortal(refreshError)) leaveAfterSignOut(await api.endSingleSignOn())
             store.clear()
             return
           }
           throw refreshError
         }
         if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) {
-          try { await api.logout(signedIn) }
+          try { endSession = await api.logout(signedIn) }
           catch (repeated) { if (heldByOtherPortal(repeated)) { store.clear(); return } throw repeated }
         }
       }
+      leaveAfterSignOut(endSession)
       store.clear()
       announceSessionChange()
     },

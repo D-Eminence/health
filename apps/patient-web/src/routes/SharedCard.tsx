@@ -165,14 +165,14 @@ export function SharedCardView({ card, sharedBy, recipient, share, records, reco
  * /card and /card/:token: the page a shared card's link opens. Dormant while Health ID does not send the one-time code
  * that opens a card (the owner's decision 25; BACKEND-NEEDS.md §2): it says plainly the link can't be opened, with
  * nothing promised for later, and reads nothing, sends nothing (not even what is in its address) and shows no one's
- * details. Its one link is the product's own public site (HCS-19), in this tab.
+ * details. Its one link is the public site's page for patients, on this deployment's own public site (HCS-19), in this tab.
  */
 export function SharedCardPage() {
   useDocumentTitle('Link can’t be opened · Health ID')
   return <main className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="w-full max-w-md">
     <EmptyState icon={Lock} titleAs="h1" title="This link can’t be opened"
       description="Health ID doesn’t open records from a link like this, so nothing is shown here. If a patient shared their records with you, ask them to show you their Health ID card."
-      action={<a href={publicSiteHref()} className={buttonClass()}>About Health ID</a>} /></div></main>
+      action={<a href={`${publicSiteHref()}patients`} className={buttonClass()}>About Health ID</a>} /></div></main>
 }
 
 /** The patient's own card as the email and the provider's page will show it. */

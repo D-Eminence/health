@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleCheck, Clock, Eye, Lock, Mail, PenLine, Search, Share2, Stethoscope } from 'lucide-react'
 import { Alert, Button, Card, Field, cx } from '../kasuwa/ui'
 import { FormPage, PageState } from '../kasuwa/parts'
@@ -27,7 +27,16 @@ import {
  * focus, which the heading should take.
  */
 
-/** The words for a refused share or invitation: the backend's own `detail`, or ours for the security checks. */
+/** The words for a refused share or invitation, in plain words: ours for the codes we know, never the backend's own text. */
+const SHARE_REFUSALS: Readonly<Record<string, string>> = {
+  SHARE_INVITATION_ALREADY_OPEN: 'You already invited this address. Cancel that invitation to send a new one.',
+  SHARE_INVITATION_NOT_FOUND: 'This invitation is no longer available.',
+  SHARE_INVITATION_NOT_PENDING: 'This invitation has already been accepted, cancelled or has ended.',
+  SHARE_PERMISSION_DENIED: 'Sharing isn’t available for your account right now.',
+  SHARE_PROVIDER_NOT_ELIGIBLE: 'This person can’t receive records through Health ID. Choose someone else.',
+  SHARE_SEARCH_MAX_RESULTS: 'Too many people match. Type more of the name to narrow the search.',
+}
+
 export function shareProblem(cause: unknown, fallback: string): string {
   if (!isHidApiError(cause)) return fallback
   if (cause.code === 'PATIENT_RECENT_AUTH_REQUIRED') return 'For your security, sign out, sign in again, and share within 10 minutes.'
@@ -35,7 +44,7 @@ export function shareProblem(cause: unknown, fallback: string): string {
     return 'Sharing is not available in the 24 hours after you recover your account. Please try again later.'
   }
   if (cause.status === 404 && !cause.code?.startsWith('SHARE_')) return 'Sharing is not available right now. Try again later.'
-  return cause.message || fallback
+  return plainErrorText(cause, fallback, { codes: SHARE_REFUSALS })
 }
 
 /**
@@ -54,7 +63,7 @@ export function useShareProbe() {
     api.shareInvitations(controller.signal).then(() => learnShareServed(true), (cause: unknown) => {
       if (controller.signal.aborted) return
       if (isHidApiError(cause) && cause.status === 404) learnShareServed(false)
-      else setError(isHidApiError(cause) ? cause.message : 'Sharing could not be opened.')
+      else setError(plainErrorText(cause, 'Sharing could not be opened.'))
     })
     return () => controller.abort()
   }, [api, served, attempt])
@@ -139,7 +148,7 @@ function ShareFlow() {
       setChosenId(items.some(item => item.membershipId === chosenId) ? chosenId : null)
       resultsFocus.focus()
     } catch (cause) {
-      if (isHidApiError(cause) && cause.code === 'SHARE_SEARCH_QUERY_INVALID') { setQueryProblem(cause.message); refuseField(fromField) }
+      if (isHidApiError(cause) && cause.code === 'SHARE_SEARCH_QUERY_INVALID') { setQueryProblem('Check what you typed and try again.'); refuseField(fromField) }
       else fail(shareProblem(cause, 'The search could not be completed. Please try again.'))
     } finally { setSearching(false) }
   }
@@ -180,7 +189,7 @@ function ShareFlow() {
       const answer = await api.createShareInvitation(body, inviteKey(body))
       setInvited({ ...answer, email: address }); go('invited')
     } catch (cause) {
-      if (isHidApiError(cause) && cause.code === 'SHARE_INVITATION_EMAIL_INVALID') { setEmailProblem(cause.message); refuseField(fromField) }
+      if (isHidApiError(cause) && cause.code === 'SHARE_INVITATION_EMAIL_INVALID') { setEmailProblem('Enter a valid email address, like name@example.com.'); refuseField(fromField) }
       else fail(shareProblem(cause, 'The invitation could not be sent. Please try again.'))
     } finally { setBusy(false) }
   }
@@ -203,11 +212,12 @@ function ShareFlow() {
   const problemKey = (first: boolean) => alerts(first) ? `alert-${problemAlert}` : 'quiet'
   const problemRole = (first: boolean) => alerts(first) ? 'alert' : undefined
   // The step's buttons, given as [secondary, primary]: a row on the right with the primary rightmost from 640px; on
-  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach).
+  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach),
+  // ending 8px or more before the Support chat launcher where it is on the page (the card is 16px in from the edge).
   const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div" className={footer ? 'overflow-visible!' : undefined}>
     {number && <Stepper at={number} />}
     <div className="flex flex-col gap-5 p-5">{body}</div>
-    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)]">{footer}</div>}
+    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)] max-sm:[:root:has(.hid-chat-launcher)_&]:pr-[60px]">{footer}</div>}
   </Card>
 
   if (step === 'search') {
@@ -341,12 +351,19 @@ function Radio({ on }: { on: boolean }) {
     {on && <span className="size-2 rounded-full bg-white" />}</span>
 }
 
-/** Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). */
+/**
+ * Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). Each step is its name's
+ * width and the lines between take what is left; the last, with no line after it, takes no more. Equal shares cut
+ * "Access" to "Acc…" at 320px. Where even that is short (Android's larger text in a WebView, 1.3x at 320px), only
+ * "Access" gives way: "Who" does not shrink, and both shrinking cut both. 6px gaps on a phone keep the three whole up
+ * to 1.2x text at 320px.
+ */
 function Stepper({ at }: { at: number }) {
   const steps = ['Who', 'Access', 'Check']
-  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 rounded-t-xl border-b border-line px-5 py-3">
+  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-1.5 rounded-t-xl border-b border-line px-5 py-3 sm:gap-2">
     {steps.map((label, i) => { const n = i + 1, done = n < at, now = n === at
-      return <li key={label} aria-current={now ? 'step' : undefined} className="flex min-w-0 flex-1 items-center gap-2">
+      return <li key={label} aria-current={now ? 'step' : undefined}
+        className={cx('flex min-w-0 items-center gap-1.5 sm:gap-2', n === 1 ? 'flex-[1_0_auto]' : n < steps.length ? 'flex-auto' : 'flex-none')}>
         <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand-fill text-white' : 'bg-surface text-ink-3 ring-1 ring-line-control')}>
           {done ? <Check className="size-3.5" aria-hidden /> : n}</span>
         <span className={cx('truncate text-[13px]', now ? 'font-semibold text-ink' : 'text-ink-3')}>{label}</span>

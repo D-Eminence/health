@@ -15,7 +15,7 @@ import {
 } from '../nursing/observations'
 import { useFocusAfterChange } from '../triage/records'
 import {
-  ADD_REVISION_LABEL, HIDE_NOTE, NOTES_TITLE, NOTE_STATUS_UPDATED, NO_NOTES, NO_NOTES_ON_PAGE, REASON_FIELD, RELOAD_FAILED, RELOAD_NOTE,
+  ADD_REVISION_LABEL, HIDE_NOTE, NOTES_TITLE, NOTE_STATUS_UPDATED, NO_NOTES, NO_NOTES_ON_PAGE, REASON_FIELD, RELOAD_NOTE,
   RELOAD_RECORD, REVIEW_NOTE, REVISION_CONTENT_FIELD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, STATUS_FAILED, UPDATING,
   contentCheck, field, reasonCheck, recordStatus, refusedFieldErrors, rowVersion, text,
 } from './encounters'
@@ -47,13 +47,15 @@ export function ListPaging({ list }: { list: RecordList<unknown> }) {
  * read when opened), then, once read, "Sign note" (a draft; the design's typed SIGN dialog) and "Mark entered in
  * error" (a plain confirm), each with a reason, and "Add a note revision". Every change re-checks access first.
  */
-export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError }: {
+export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError, onReloadFailed }: {
   chart: Chart
   encounterId: string
   list: RecordList<ClinicalRecord>
   canWrite: boolean
   onSaved: (message: string) => void
   onError: (message: string) => void
+  /** The list's read after a change failed (`first`: its first page): the page says the change was saved. */
+  onReloadFailed: (failure: string, first: boolean) => void
 }) {
   const [asking, setAsking] = useState<Asking | null>(null)
   const ask: Ask = (label, word) => new Promise<boolean>(answer => setAsking({ label, word, answer }))
@@ -69,7 +71,7 @@ export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError
       ) : (
         <ul className="hid-ehr-clinical-history-list">
           {notes.map(note => (
-            <NoteRow key={note.id} chart={chart} encounterId={encounterId} note={note} canWrite={canWrite} ask={ask} list={list} onSaved={onSaved} onError={onError} />
+            <NoteRow key={note.id} chart={chart} encounterId={encounterId} note={note} canWrite={canWrite} ask={ask} list={list} onSaved={onSaved} onError={onError} onReloadFailed={onReloadFailed} />
           ))}
         </ul>
       )}
@@ -86,7 +88,7 @@ export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError
 
 type Selected = NoteStatusChange | 'revise'
 
-function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onError }: {
+function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onError, onReloadFailed }: {
   chart: Chart
   encounterId: string
   note: ClinicalRecord
@@ -95,6 +97,7 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
   list: RecordList<ClinicalRecord>
   onSaved: (message: string) => void
   onError: (message: string) => void
+  onReloadFailed: (failure: string, first: boolean) => void
 }) {
   const { facilityId, patientId } = chart
   const [open, setOpen] = useState(false)
@@ -116,7 +119,7 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
   const begin = () => { setNotice(''); onSaved(''); onError('') }
   const afterReload = (failures: readonly (string | null)[]) => {
     const failure = failures.find((item): item is string => item !== null)
-    if (failure !== undefined) onError(`${RELOAD_FAILED} ${failure}`.trim())
+    if (failure !== undefined) onReloadFailed(failure, false)
   }
 
   /** Today's changeRecordStatus: the version shown, the dialog, the access re-check, then the PATCH with the typed reason. */
