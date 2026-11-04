@@ -56,7 +56,7 @@ describe('the Terms of Service and Privacy Policy', () => {
     expect(within(notice).getByText(/contact our Data Protection Officer, Ibrahim Umar/)).toBeTruthy()
     expect(within(notice).getByRole('link', { name: 'ibrahim@healthidentitydirectory.com' }).getAttribute('href')).toBe('mailto:ibrahim@healthidentitydirectory.com')
     expect(within(notice).getByRole('link', { name: '+2347026717252' }).getAttribute('href')).toBe('tel:+2347026717252')
-    expect(within(notice).getByText(/certified by the Nigeria Data Protection Commission \(NDPC\)\. \[owner to add: certificate number and date\]/)).toBeTruthy()
+    expect(within(notice).getByText(/registered with the Nigeria Data Protection Commission \(NDPC\), registration ID NDPC\/DCP\/15835\./)).toBeTruthy()
     expect(within(notice).getByText(/complain to the Nigeria Data Protection Commission \(NDPC\) at ndpc\.gov\.ng/)).toBeTruthy()
 
     const dpoSection = screen.getByRole('heading', { level: 2, name: /Data Protection Officer \(DPO\)$/ }).closest('li')
@@ -66,6 +66,8 @@ describe('the Terms of Service and Privacy Policy', () => {
       'Monitoring compliance with data protection laws.', 'Advising on data privacy obligations.', 'Serving as a point of contact for users and regulators.',
     ])
     expect(screen.queryByText(/may appoint/)).toBeNull()
+    // No placeholder for the owner is ever shown to a reader.
+    expect(document.body.textContent).not.toMatch(/owner to add/i)
   })
 
   it('promises only what the product does: no emergency review, and a profile photo is the only upload today', () => {

@@ -55,7 +55,7 @@ const PRIVACY_NOTICE: LegalNotice = {
   title: 'Privacy notice',
   paragraphs: [
     'This is a short, plain summary of how Health ID looks after your information. The full Privacy Policy below gives the detail.',
-    'Health ID is run by Health Identity Directory (HID), 24001, Ahmadu Bello Way, G.R.A., Ilorin, Kwara, Nigeria. HID is certified by the Nigeria Data Protection Commission (NDPC). [owner to add: certificate number and date]',
+    'Health ID is run by Health Identity Directory (HID), 24001, Ahmadu Bello Way, G.R.A., Ilorin, Kwara, Nigeria. HID is registered with the Nigeria Data Protection Commission (NDPC), registration ID NDPC/DCP/15835.',
   ],
   sections: [
     {
@@ -95,7 +95,7 @@ const PRIVACY_NOTICE: LegalNotice = {
         'Your information is stored on Amazon Web Services servers in Ireland, in the European Union, and is protected with encryption.',
         'Some of the companies that help us run Health ID may handle information in other countries, for example when you use the chat assistant. When they do, the rules in Cross-Border Data Transfers below apply.',
         'We keep your account details for as long as you have a Health ID.',
-        'If you close your account, your health records are kept, because they are part of your medical history and the facilities that cared for you may need them. [owner to add: how long records are kept]',
+        'If you close your account, your health records are kept, because they are part of your medical history and the facilities that cared for you may need them.',
         'If you add a profile photo, it is made smaller and its hidden details, such as where it was taken, are removed on your device before it is sent.',
         'You cannot add your own health documents, or photos or files of your paper records, to Health ID yet. When you can, this notice will say how they are handled.',
       ],
