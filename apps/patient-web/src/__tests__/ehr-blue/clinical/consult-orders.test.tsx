@@ -1151,6 +1151,9 @@ describe('A lab request’s page', () => {
     await openOrder('laboratory', LAB)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
     expect(await screen.findByText('Don’t use this result: the lab marked it as entered in error.')).toBeTruthy()
+    // A result not to be used is never called the current one.
+    expect(screen.getByText('Latest released result')).toBeTruthy()
+    expect(screen.queryByText('Current result')).toBeNull()
     // A flag the lab did not set says nothing.
     expect(screen.getByText('7.1 g/dL')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/do not use it|unknown|Not set/)
