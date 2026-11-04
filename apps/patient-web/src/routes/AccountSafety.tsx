@@ -375,7 +375,9 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
           setCodeInvalid(true)
           return { message: `That code isn’t right. Check it with ${shown?.name ?? 'your contact'} and try again.`, focus: box, at: 'code' }
         case 'EMERGENCY_CONTACT_CODE_EXPIRED':
+          // Verify gives way to Send a new code, which takes focus from the boxes: they hold nothing to correct.
           setCodeInvalid(true); setCodeExpired(true)
+          if (document.activeElement instanceof HTMLElement && document.activeElement.closest('fieldset')) document.activeElement.blur()
           return { message: 'This code has expired. Send a new code.', focus: orHeading(`contact-resend-${contactId}`), at: 'code' }
         case 'EMERGENCY_CONTACT_NOT_FOUND': break
         default:
