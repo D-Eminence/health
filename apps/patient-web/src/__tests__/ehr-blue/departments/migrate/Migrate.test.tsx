@@ -89,11 +89,24 @@ const statusRegion = () => {
 /** Finds a job by its document ID from the list view; with a job, its record opens. */
 async function findJob(job: object | null) {
   api.findOcrJob.mockResolvedValue({ job })
-  renderMigrate()
+  const rendered = renderMigrate()
   fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
   await press(button('Find job'))
   if (job) await screen.findByRole('heading', { name: 'Saved record' })
   else await screen.findByText('No OCR job for this document')
+  return rendered
+}
+
+/** Lets `ms` of time pass on the page's clocks, one step of the page's 5 second reads at a time. */
+async function wait(ms: number) {
+  for (let left = ms; left > 0; left -= 5_000) await act(async () => { await vi.advanceTimersByTimeAsync(Math.min(5_000, left)) })
+}
+
+/** Runs a test on fake clocks that still move with real time, so the page's own waits for an answer still end. */
+async function withFakeTimers(test: () => Promise<void>) {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try { await test() }
+  finally { vi.useRealTimers() }
 }
 
 async function openAction(name: string) {
@@ -253,7 +266,7 @@ describe('Migrate record view', () => {
     await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
     expect(button('Back to list')).toBeTruthy()
     const record = heading('Saved record').closest('section') as HTMLElement
-    expect(within(record).getByText('awaiting validation')).toBeTruthy()
+    expect(within(record).getByText('Ready to check')).toBeTruthy()
     expect(within(record).getByText('textract')).toBeTruthy()
     expect(within(record).getByText('Not confirmed')).toBeTruthy()
     expect(within(record).getByText('1 of 3')).toBeTruthy()
@@ -302,7 +315,7 @@ describe('Migrate record view', () => {
     const name = await screen.findByRole('button', { name: 'Document ••••000001' })
     await waitFor(() => expect(focused()).toBe(name))
     const row = name.closest('tr') as HTMLElement
-    expect(within(row).getByText('validated')).toBeTruthy()
+    expect(within(row).getByText('Checked')).toBeTruthy()
     expect(within(row).getByText('Patient ••••000001')).toBeTruthy()
     expect(within(row).getByText('Job ••••000001')).toBeTruthy()
     await press(within(row).getByRole('button', { name: 'Quick view' }))
@@ -355,7 +368,7 @@ describe('Migrate record view', () => {
     await findJob(awaiting)
     api.findOcrJob.mockResolvedValue({ job: validated })
     await press(button('Refresh status'))
-    await waitFor(() => expect(within(heading('Saved record').closest('section') as HTMLElement).getByText('validated')).toBeTruthy())
+    await waitFor(() => expect(within(heading('Saved record').closest('section') as HTMLElement).getByText('Checked')).toBeTruthy())
     await waitFor(() => expect(focused()).toBe(button('Refresh status')))
     expect(api.findOcrJob).toHaveBeenCalledTimes(2)
   })
@@ -368,6 +381,110 @@ describe('Migrate record view', () => {
     expect(document.body.textContent).not.toContain('The service could not complete the request.')
     await waitFor(() => expect(focused()).toBe(button('Find job')))
   })
+})
+
+describe('Migrate: following a document while it is read', () => {
+  it('shows what was read in the record itself, without opening anything, and keeps the steps to check it', async () => {
+    await findJob(awaiting)
+    const read = (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
+    expect(within(read).getByText('Title')).toBeTruthy()
+    expect(within(read).getByText('Full blood count')).toBeTruthy()
+    expect(within(read).getByText('Read with 92% confidence. Check it against the document.')).toBeTruthy()
+    const text = within(read).getByRole('region', { name: 'Text read from the document' })
+    expect(text.textContent).toBe('Haemoglobin 12.1')
+    expect(text.getAttribute('tabindex')).toBe('0')
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+  })
+
+  it('says in plain words what is happening to the document', async () => {
+    await findJob(failed)
+    expect(screen.getAllByText('Couldn’t read this document').length).toBeGreaterThan(0)
+    expect(document.body.textContent).not.toContain('awaiting_validation')
+  })
+
+  it('reads a queued job again every 5 seconds, one read at a time, and stops once it is ready to check', async () => withFakeTimers(async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [] })
+    await findJob(queued)
+    expect(screen.getAllByText('Waiting to be read').length).toBeGreaterThan(0)
+    expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy()
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_800) })
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    let answer: (value: unknown) => void = () => {}
+    api.findOcrJob.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+    expect(api.findOcrJob).toHaveBeenCalledTimes(2)
+    // No other read starts while one is waiting for its answer.
+    await wait(15_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(2)
+    await act(async () => { answer({ job: { ...queued, status: 'processing' } }) })
+    await waitFor(() => expect(screen.getAllByText('Reading the document').length).toBeGreaterThan(0))
+    api.ocrExtractions.mockResolvedValue({ items: [extraction] })
+    api.findOcrJob.mockResolvedValue({ job: { ...awaiting, version: 5 } })
+    await wait(5_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(3)
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(statusRegion().textContent).toBe('The document has been read and is ready to check.')
+    expect(screen.getAllByText('Ready to check').length).toBeGreaterThan(0)
+    expect(screen.queryByText('The document is being read. This page updates by itself every few seconds.')).toBeNull()
+    await wait(60_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(3)
+    expect(api.findOcrJob).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+  }))
+
+  it('a read that brings no change reads nothing else', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    const evidence = api.ocrExtractions.mock.calls.length
+    await wait(15_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(4)
+    expect(api.ocrExtractions).toHaveBeenCalledTimes(evidence)
+  }))
+
+  it('stops reading the job again once the page is left', async () => withFakeTimers(async () => {
+    const rendered = await findJob(queued)
+    await wait(5_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(2)
+    rendered.unmount()
+    await wait(60_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(2)
+  }))
+
+  it('stops reading the job again on going back to the list, and never reads from the list', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    await press(button('Back to list'))
+    await wait(60_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+  }))
+
+  it('reads nothing by itself when a document has no job', async () => withFakeTimers(async () => {
+    await findJob(null)
+    await wait(60_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+  }))
+
+  it('after about 3 minutes stops, says it is taking longer than usual, and Refresh status starts again', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    await wait(185_000)
+    const reads = api.findOcrJob.mock.calls.length
+    expect(reads).toBe(36)
+    expect(screen.getByText('This is taking longer than usual. Use Refresh status to check again.')).toBeTruthy()
+    await wait(60_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(reads)
+    await press(button('Refresh status'))
+    await waitFor(() => expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 1))
+    await waitFor(() => expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy())
+    await wait(5_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 2)
+  }))
+
+  it('stops when a read of the job fails, and says to use Refresh status', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    api.findOcrJob.mockRejectedValue(unavailable())
+    await wait(5_000)
+    await waitFor(() => expect(screen.getByText('The document’s progress couldn’t be checked just now. Use Refresh status to try again.')).toBeTruthy())
+    await wait(30_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(2)
+  }))
 })
 
 describe('Migrate: creating a job (New document job)', () => {
