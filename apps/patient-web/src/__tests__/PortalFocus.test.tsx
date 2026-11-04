@@ -64,7 +64,10 @@ async function inChromium(button: HTMLElement) {
 
 const focused = () => document.activeElement
 // Outcomes are said in the shell's toasts (PortalShell holds the provider).
-const access = (handler: Handler) => renderPortal(<ToastProvider><AccessPage /></ToastProvider>, handler)
+// The page also reads the profile, only to say the paper records line to an adult: answered here, so it is never one of
+// the reads a test counts.
+const access = (handler: Handler) => renderPortal(<ToastProvider><AccessPage /></ToastProvider>,
+  (path, method, body) => path === '/identity/me' && method === 'GET' ? json({}) : handler(path, method, body))
 /** Opens Lagos General's request in its drawer with its row, as a keyboard user does; returns the row. */
 async function review() {
   const row = await screen.findByRole('button', { name: /^Lagos General/ })
@@ -154,7 +157,7 @@ describe('access and consent', () => {
     await inChromium(drawer().getByRole('button', { name: 'Deny' }))
     expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(row))
-    expect(row.textContent).toContain('Denied')
+    expect(row.textContent).toContain('You said no')
   })
 
   it('opens the ending of access with focus in its reason, cancels back to End access, and confirms to the heading', async () => {
@@ -293,7 +296,7 @@ describe('pages that load once', () => {
     expect(focused()).toBe(account)
     await act(async () => { answer.resolve(json({})) })
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Sign-out is unavailable right now.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
     await waitFor(() => expect(focused()).toBe(account))
   })
 })

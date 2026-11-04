@@ -5,6 +5,7 @@ import { FormPage, PageState, Value } from '../../../kasuwa/parts'
 import { Alert, Button, Card, CardHeader, EmptyState, Input, PageHeader } from '../../../kasuwa/ui'
 import { staffApi, type LabExecution, type LabResultRevision, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { SAME_SCIENTIST, sameScientistCheck } from '../../../staff/labRevisions'
 import { pointOfCareOpen } from '../commerce/served'
 import { useDeptAccess } from '../parts/access'
 import { matchesSearch } from '../parts/format'
@@ -130,6 +131,7 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
             <span className="text-[19px]"><Value value={revisionText(revision)} unit={revision.unit} flag={flagLevel(revision.abnormalFlag)} /></span>
             <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range ${revision.referenceRange}` : null,
               revision.releasedAt ? `Released ${stampText(revision.releasedAt)}` : null].filter(Boolean).join(' · ')}</span>
+            {sameScientistCheck(revision) ? <span className="text-caption text-ink-2">{SAME_SCIENTIST}</span> : null}
           </li>)}
         </ul> : null}
       </div>

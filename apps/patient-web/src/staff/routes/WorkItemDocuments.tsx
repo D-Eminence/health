@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { assertSignedStorageUrl } from '@hid/http'
+import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { Button, Card, Field, Input } from '@hid/ui'
 import {
   documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, learnDocumentTypesFrom, useDocumentTypesServed,
   type DocumentType,
 } from '../../documentTypes'
+import { fileSizeLabel, fileTypeLabel, scanStatusLabel } from '../../plainLabels'
 import { staffApi, type DocumentRecord } from '../api'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
@@ -17,8 +18,8 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../session'
  * EHR"), with the same rules as the blue card (ehr-blue/departments/parts/WorkItemDocuments.tsx) in the classic page's
  * parts: a laboratory attaches a lab result to its Lab work item and a pharmacy a prescription sheet to its Pharmacy work
  * item (the owner's rule of 31 Oct, documentTypes.ts), since lab and pharmacy staff open no encounters. The file goes up
- * exactly as chosen (staffApi.uploadWorkItemDocument PUTs the File itself); the backend scans it, and reads a lab result
- * by itself once the scan is clean. The page only says so.
+ * exactly as chosen (staffApi.uploadWorkItemDocument PUTs the File itself); the backend checks it for viruses.
+ * Nothing reads it automatically today, so the page promises no reading.
  *
  * Dormant until the backend serves it: nothing of it shows until a Lab or Pharmacy work list (or the EHR's document list)
  * has answered `documentTypes: true`, on a host that may upload the kind's type, to a member who may read or attach the
@@ -50,8 +51,7 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
     empty: 'No result documents yet.',
     file: 'Lab result file',
     submit: 'Attach result document',
-    hint: 'PDF, JPEG, PNG or TIFF, up to 50 MiB. Images are kept exactly as uploaded, and Health ID reads a lab result by '
-      + 'itself once its virus scan is clean.',
+    hint: 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.',
     attached: 'Result document attached. It can be opened once its virus scan is clean.',
   },
   pharmacy: {
@@ -62,16 +62,16 @@ const WORDS: Readonly<Record<WorkItemKind, Words>> = {
     empty: 'No prescription sheets yet.',
     file: 'Prescription sheet file',
     submit: 'Attach prescription sheet',
-    hint: 'PDF, JPEG, PNG or TIFF, up to 50 MiB.',
+    hint: 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.',
     attached: 'Prescription sheet attached. It can be opened once its virus scan is clean.',
   },
 }
 
-/** Today's client checks on a document (the classic Documents card's), word for word. */
-const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
+/** The client checks on a work-item document: PDF, JPEG or PNG, up to 50 MiB (no TIFF, unlike the encounter Documents card). */
+const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_BYTES = 52_428_800
 const NO_FILE = 'Select a file first.'
-const WRONG_FILE = 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'
+const WRONG_FILE = 'Use PDF, JPEG or PNG, up to 50 MiB.'
 const LOAD_FAILED = 'Documents could not be loaded.'
 const ATTACH_FAILED = 'Document could not be attached.'
 const OPEN_FAILED = 'Document could not be opened.'
@@ -130,21 +130,16 @@ export function WorkItemDocuments({ kind, facilityId, workItemId, patientId, per
     canWrite={permissions.includes(words.write)} writable={writable} />
 }
 
-/** A file size as EHR sends it, a number or text, in KiB (the classic Documents card's). */
-function fileSize(value: number | string | null | undefined): string {
-  const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
-}
-
-function words(value: string): string {
-  return value.replaceAll('_', ' ').toLowerCase()
-}
-
-/** A listed document's type, media type, size and virus scan, as the classic Documents card says them once served. */
+/**
+ * A listed document's type once served, then its file type, size and virus check in plain words ("Lab result · PDF
+ * document · 20 KB · Checked"), as the OCR documents list says them (plainLabels.ts): never its media type, a byte count
+ * or a scan code. An upload not completed has no check to tell; a check this page does not know is not named.
+ */
 function documentLine(document: DocumentRecord): string {
   const type = documentTypeOf(document)
-  const scan = document.status === 'initiated' ? '' : ` · scan: ${words(document.scanStatus)}`
-  return `${type ? `${documentTypeLabel(type)} · ` : ''}${document.mediaType} · ${fileSize(document.sizeBytes)}${scan}`
+  const scan = document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)
+  return [type ? documentTypeLabel(type) : '', fileTypeLabel(document.mediaType), fileSizeLabel(document.sizeBytes, 'Size unavailable'), scan]
+    .filter(Boolean).join(' · ')
 }
 
 /**
@@ -207,7 +202,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (caught) {
-      setOpenError(caught instanceof Error && caught.message ? caught.message : OPEN_FAILED)
+      // In plain words, never the backend's or the browser's (a link that is not a signed storage link says OPEN_FAILED).
+      setOpenError(plainErrorText(caught, OPEN_FAILED, { audience: 'facility' }))
     } finally {
       setOpening(null)
     }
@@ -244,7 +240,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
       if (canRead && shown.current) await read()
     } catch (caught) {
       // The backend's refusal of a lab result on this host (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE) in the core's words; those
-      // words are about lab results, so any other type's refusal keeps the backend's own.
+      // words are about lab results, so any other type's refusal is said in plain words (refusalText), never the backend's.
       const typeRefused = said.type === 'lab_result' ? documentTypeRefusalText(caught) : null
       setAttachError(typeRefused ?? refusalText(caught, ATTACH_FAILED))
       focus(submitId, true)
@@ -280,7 +276,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
     {canWrite && !writable && <p className="staff-muted">{CLOSED}</p>}
     {attachable && <form className="staff-form" aria-label={said.submit} noValidate onSubmit={event => void attach(event)}>
       <Field label={said.file} htmlFor={fileId} hint={said.hint} error={problems.error(fileId)} required>
-        <Input id={fileId} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required
+        <Input id={fileId} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required
           onChange={() => problems.clear()} {...problems.control(fileId)} />
       </Field>
       {attachError && <p role="alert" className="staff-error">{attachError}</p>}

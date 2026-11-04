@@ -48,10 +48,11 @@ function page(path: string, group: string, label: string, iconName: EhrIconName,
 }
 
 /**
- * A page for reviewing the design (the checklist, the tour, Health ID's own facility review), or a sample a real
- * administrator could take for a working screen (Facility settings, Reports & Analytics): only at the four demo
- * facilities. Elsewhere its address says it is part of the demo (DeniedPage). A clinic switches facility from the
- * account menu, as today.
+ * A page only at the four demo facilities. Every sample already opens only there (frame/pageAccess.ts pageShownHere),
+ * so for a sample this adds nothing to that check; it is still needed for the live design review pages (What's left),
+ * and it keeps the pages it marks (the design review pages, the tour, Health ID's own facility review, the sample
+ * Facility settings and Reports & Analytics) off the sign-in return list (returnPaths.ts). Elsewhere its address says
+ * it is part of the demo (DeniedPage). A clinic switches facility from the account menu, as today.
  */
 function demoOnly(entry: EhrBluePage): EhrBluePage {
   return { ...entry, visible: atDemoFacility }

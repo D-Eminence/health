@@ -14,12 +14,19 @@ export const START_HEADING = 'registration-start-title'
 /**
  * A case found or made during this visit to the page, with the account enrolled for it here. Today has no case list
  * (the backend offers none), so these are the page's own: in memory only, gone with the page or another facility.
- * `seq` names its row without its case ID.
+ * `seq` names its row without its case ID. A case is shown by the person's name and when it was started or reopened
+ * here, never by its ID: Identity sends no name with a case, so the name is the one typed when it was started here.
  */
 export interface VisitCase {
   readonly seq: number
   readonly item: RegistrationCase
   readonly enrollment: RegistrationEnrollment | null
+  /** The patient's name as typed to start the case here; null for a case reopened by its reference. */
+  readonly name: string | null
+  /** Whether the case was started on this visit (or reopened by its reference). */
+  readonly started: boolean
+  /** When it was started or reopened here (an ISO time). */
+  readonly at: string
 }
 
 /** What NIN verification's availability is, as today's "Verification availability" card reads it (Registration.tsx 49-51). */

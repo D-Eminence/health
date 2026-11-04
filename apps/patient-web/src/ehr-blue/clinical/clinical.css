@@ -1165,6 +1165,15 @@
   color: var(--ehr-muted);
 }
 
+/* Under an order's row in the list: where it was sent and where it stands, on a line of its own across the row. */
+.hid-ehr .hid-ehr-clinical-orders-row-route {
+  flex: 1 0 100%;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-row-route > .hid-ehr-clinical-orders-route-status {
+  margin: 4px 0 0;
+}
+
 .hid-ehr .hid-ehr-clinical-orders-view,
 .hid-ehr .hid-ehr-clinical-orders-result {
   padding: 12px 0;

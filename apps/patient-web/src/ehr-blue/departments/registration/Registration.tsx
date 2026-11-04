@@ -80,6 +80,9 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   const { clear: clearEnroll } = enrollProblems
   // Registration.tsx 72, 230: the resolve key is renewed by any change to the form, so an unchanged retry reuses it.
   const resolveKey = useRef(crypto.randomUUID())
+  // The name typed for a case started here whose details could not be read yet, kept until Load case opens it, so it
+  // still shows as that person's registration, started on this visit.
+  const pendingNames = useRef(new Map<string, string>())
   const reviewKey = useCommandKey()
   const enrollmentKey = useCommandKey()
 
@@ -126,13 +129,17 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     show(next, focusId)
   }, [clearNin, clearReview, clearEnroll, show])
 
-  /** Keeps a case as Identity last answered it, first in the list when it is new to this visit. */
-  const remember = useCallback((item: RegistrationCase) => {
+  /**
+   * Keeps a case as Identity last answered it, first in the list when it is new to this visit. `name` is the patient's
+   * name as typed to start it here (a case reopened by its reference has none); a known case keeps the name it has.
+   */
+  const remember = useCallback((item: RegistrationCase, name: string | null = null) => {
     nextSeq.current += 1
     const seq = nextSeq.current
+    const at = new Date().toISOString()
     setVisits(previous => previous.some(visit => visit.item.caseId === item.caseId)
-      ? previous.map(visit => (visit.item.caseId === item.caseId ? { ...visit, item } : visit))
-      : [{ seq, item, enrollment: null }, ...previous])
+      ? previous.map(visit => (visit.item.caseId === item.caseId ? { ...visit, item, name: visit.name ?? name } : visit))
+      : [{ seq, item, enrollment: null, name, started: name !== null, at }, ...previous])
   }, [])
   const rememberEnrollment = useCallback((caseId: string, enrollment: RegistrationEnrollment) => {
     setVisits(previous => previous.map(visit => (visit.item.caseId === caseId ? { ...visit, enrollment } : visit)))
@@ -178,7 +185,8 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     try {
       const value = await staffApi.registrationCase(facilityId, normalized)
       if (!live.current) return
-      remember(value)
+      remember(value, pendingNames.current.get(value.caseId) ?? null)
+      pendingNames.current.delete(value.caseId)
       setCaseIdInput(value.caseId)
       // Opened only over the list it was asked from: a user who has gone on (a new form, another case) stays there.
       if (from === 'find' && viewSeq.current === asked) show({ kind: 'case', caseId: value.caseId })
@@ -222,11 +230,12 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       try {
         const detail = await staffApi.registrationCase(facilityId, result.caseId)
         if (!live.current) return
-        remember(detail)
+        remember(detail, `${firstName} ${lastName}`)
         // The design opens the saved record.
         show({ kind: 'case', caseId: detail.caseId })
       } catch {
         if (!live.current) return
+        pendingNames.current.set(result.caseId, `${firstName} ${lastName}`)
         setMessage(CASE_CREATED_RELOAD)
         // Its ID is in "Find registration case", ready to load.
         show({ kind: 'list' }, FIELD.caseId)

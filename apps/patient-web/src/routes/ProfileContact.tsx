@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import type { PatientProfile } from '../api'
 import { useSession } from '../session'
@@ -34,7 +34,7 @@ type Step = { kind: 'idle' } | { kind: 'email'; pending?: PendingEmail; verify?:
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
- * What a refused change means, in Identity's words where the contract gives them (hid-system 0094). A wrong password is
+ * What a refused change means, in our own plain words (hid-system 0094), never Identity's text. A wrong password is
  * rate limited; a contact another account holds is refused with no further detail, so nothing is learned about it.
  */
 export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field: Field }>> = {
@@ -43,17 +43,18 @@ export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field:
   PASSWORD_REQUIRED: { message: 'Set a password first, then you can change these.', field: null },
   OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Try again, or send a new code.', field: 'code' },
   PATIENT_RECENT_AUTH_REQUIRED: { message: SAY.signInAgain, field: null },
+  CONTACT_CODE_UNDELIVERABLE: { message: 'We couldn’t send a code to that address. Check it and try again.', field: 'value' },
 }
 
 function refusal(cause: unknown, step: Step['kind']): { message: string; field: Field } {
   if (!isHidApiError(cause)) return { message: 'Couldn’t save the change. Try again.', field: null }
   const known = CONTACT_REFUSALS[cause.code]
   if (known) return known
-  // Identity says how long: "Wait a moment before asking for another code.", "Try again in 15 minutes."
-  if (cause.code === 'CONTACT_CHANGE_RATE_LIMITED' && cause.message) return { message: cause.message, field: null }
-  if (cause.status === 429) return { message: 'Too many tries. Wait a few minutes, then try again.', field: null }
-  if (cause.status === 400 || cause.status === 422) return { message: cause.message, field: step === 'email-code' ? 'code' : 'value' }
-  return { message: cause.message, field: null }
+  if (cause.code === 'CONTACT_CHANGE_RATE_LIMITED' || cause.status === 429) return { message: 'Too many tries. Wait a few minutes, then try again.', field: null }
+  if (cause.status === 400 || cause.status === 422) return step === 'email-code'
+    ? { message: 'That code isn’t right. Check it and try again.', field: 'code' }
+    : { message: 'Check the email address or phone number and try again.', field: 'value' }
+  return { message: plainErrorText(cause, 'Couldn’t save the change. Try again.'), field: null }
 }
 
 function minutes(seconds: number) {
@@ -247,21 +248,24 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
   </KField>
   const row = (label: string, value: ReactNode, actions: ReactNode) => <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
     <dt className="w-16 shrink-0 text-[13px] text-ink-3">{label}</dt>
-    <dd className="m-0 flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-medium text-ink">{value}</dd>
+    {/* At least 8rem beside its name, not an equal share of none: where that and the buttons do not fit on one line, as
+        at 320 and 360px, the buttons go to a line of their own instead of over the value, which a long address left
+        under Change. The value keeps its line beside its name, and a value longer still wraps within it. */}
+    <dd className="m-0 flex min-w-0 flex-[1_1_8rem] flex-wrap items-center gap-2 text-sm font-medium text-ink">{value}</dd>
     {step.kind === 'idle' && <dd className="m-0 flex gap-2">{actions}</dd>}
   </div>
 
   return <div id="contact-details" aria-busy={busy || undefined} className="flex flex-col gap-3">
     <Saved>{notice}</Saved>
     <dl className="m-0 divide-y divide-line">
-      {row('Email', <>{profile.email ? maskEmail(profile.email) : 'None'}
+      {row('Email', <><span className="min-w-0 [overflow-wrap:anywhere]">{profile.email ? maskEmail(profile.email) : 'None'}</span>
         {/* Health ID sends nothing to an address that was never confirmed (one kept from hid-1.0). */}
         {profile.email && profile.emailVerified === false && <Badge size="sm" tone="warn">Not verified</Badge>}</>, <>
         {unverified && <Button id="contact-verify-email" size="sm" variant="soft" disabled={busy}
           onClick={() => open('email', true)}>Verify <ItemName>email address</ItemName></Button>}
         <Button id="contact-change-email" size="sm" disabled={busy}
           onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></Button></>)}
-      {row('Phone', <>{profile.phone ? maskPhone(profile.phone) : 'None'}
+      {row('Phone', <><span className="min-w-0 [overflow-wrap:anywhere]">{profile.phone ? maskPhone(profile.phone) : 'None'}</span>
         {profile.phone && <Badge size="sm" tone={profile.phoneVerified ? 'success' : 'warn'}>{profile.phoneVerified ? 'Verified' : 'Not verified'}</Badge>}</>,
         <Button id="contact-change-phone" size="sm" disabled={busy}
           onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></Button>)}

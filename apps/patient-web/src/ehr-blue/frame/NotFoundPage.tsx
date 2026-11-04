@@ -8,6 +8,6 @@ import { Button, EmptyState } from '../../kasuwa/ui'
  * pharmacy on its own, which has no Home, is sent to its own first page under that page's name.
  */
 export function NotFoundPage({ to, label }: { readonly to: string; readonly label: string }) {
-  return <EmptyState titleAs="h1" icon={Compass} title="Page not found" description="This provider page is unavailable."
+  return <EmptyState titleAs="h1" icon={Compass} title="Page not found" description="We can’t find that page."
     action={<Button to={to}>Go to {label}</Button>} />
 }

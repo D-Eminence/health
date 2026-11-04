@@ -6,7 +6,7 @@ import { FIELD, START_HEADING, type Availability } from './registrationModel'
 import { ErrorBox, NotCollectedCheck, NotCollectedField, UnavailableAction, type FormProblems } from './registrationParts'
 import {
   ADDRESS_LABEL, ALLERGIES_LABEL, BACK_TO_LIST, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, DISTINCT_PERSON, DOB_LABEL, EXISTING_HID_LABEL,
-  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, ninNotEnabledText, NO_OVERRIDE, PHONE_LABEL, START_TEXT,
+  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NO_OVERRIDE, PHONE_LABEL, START_TEXT,
   START_TITLE, VERIFY, VERIFYING,
 } from './registrationText'
 
@@ -54,7 +54,7 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
           ) : <EhrSkeleton label={CAPABILITY_LOADING} />
         ) : (
           <form className="hid-ehr-dept-form" noValidate onInput={onInput} onSubmit={onSubmit}>
-            {enabled ? null : <DeptNotice tone="caution">{ninNotEnabledText(capabilities.nin.state)}</DeptNotice>}
+            {enabled ? null : <DeptNotice tone="caution">{NIN_NOT_ENABLED}</DeptNotice>}
             {/* Disabled only while verification is off. While the NIN is verified the fields are read-only, not
                 disabled, which would take focus from the button (Registration.tsx 231). */}
             <fieldset className="hid-ehr-dept-registration-fieldset" disabled={!enabled}>

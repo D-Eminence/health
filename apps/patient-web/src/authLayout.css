@@ -400,6 +400,8 @@
 
 .auth-main { display: flex; flex-direction: column; padding: 24px 16px; }
 @media (min-width: 640px) { .auth-main { padding: 24px 40px; } }
+/* Room under the last line on a phone, so it can be scrolled clear of the Support chat launcher in the corner. */
+@media (max-width: 640px) { :root:has(.hid-chat-launcher) .auth-main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); } }
 .auth-skin .auth-bar { display: flex; max-width: none; align-items: center; gap: 12px; margin: 0; padding: 0; }
 .auth-bar-spacer { flex: 1; }
 .auth-brand-mobile { display: inline-flex; }

@@ -47,8 +47,10 @@ export function subjectOf(item: LabWorkItem): LabSubject {
 /** The five stages as a track, the current one marked: where this request is, and how far it has to go. */
 function StageTrack({ stage }: { readonly stage: LabStage }) {
   const at = STAGES.indexOf(stage)
-  return <ol aria-label="Progress" className="m-0 grid list-none grid-cols-5 gap-1 p-0">
-    {STAGES.map((step, index) => <li key={step} aria-current={index === at ? 'step' : undefined} className="flex min-w-0 flex-col gap-1.5">
+  // Five equal steps in a row; on a narrow phone (320px) a step keeps room for its longest word and the rest wrap.
+  return <ol aria-label="Progress" className="m-0 flex list-none flex-wrap gap-x-1 gap-y-2 p-0">
+    {STAGES.map((step, index) => <li key={step} aria-current={index === at ? 'step' : undefined}
+      className="flex min-w-[4.5rem] flex-1 basis-0 flex-col gap-1.5">
       <span aria-hidden="true" className={cx('h-1 rounded-full', index < at || stage === 'done' ? 'bg-success' : index === at ? 'bg-brand-fill' : 'bg-line-strong')} />
       <span className={cx('break-words text-[12px] leading-tight font-medium', index === at ? 'text-ink' : 'text-ink-3')}>
         {index < at || stage === 'done' ? <Check className="mr-0.5 inline size-3" aria-hidden /> : null}{STAGE_LABEL[step]}
@@ -135,6 +137,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   const toEnter = record.executions.filter(execution => execution.status === 'completed' && !execution.result)
   const toCheck = record.executions.filter(execution => execution.result?.status === 'entered_unverified' || execution.result?.status === 'verified_not_released')
   const released = record.executions.filter(execution => execution.result?.status === 'released')
+  // Lab carries the One-person lab switch on each result, not on the execution; a first entry reads it from a sibling.
+  const facilityOnePerson = record.executions.map(execution => execution.result?.onePersonLab).find(value => typeof value === 'boolean')
   const canCorrect = (execution: LabExecution) => Boolean(execution.result) && permissions.includes('lab.result.correct')
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
@@ -176,7 +180,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
           || specimen.status === 'received').map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen}
             accessionId={accession.id} test={test} executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
         {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
-          ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} />)
+          ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} facilityOnePerson={facilityOnePerson} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}
         {stage === 'check' && !record.hidden ? toCheck.map(execution => <CheckStep key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} {...step} execution={execution} />) : null}
         {stage === 'done' && !record.hidden ? <>

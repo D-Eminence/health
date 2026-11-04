@@ -82,8 +82,8 @@ function VitalsTable({ chart }: { chart: Chart }) {
     noRecords="No vitals for this encounter." />
 }
 
-/** A row's readings, each with its unit and, outside the adult range, its flag. */
-function Readings({ values }: { values: VitalValues }) {
+/** A row's readings, each with its unit and, outside the adult range, its flag (also the encounter page's Vitals card). */
+export function Readings({ values }: { values: VitalValues }) {
   return (
     <span className="hid-ehr-clinical-readings">
       {measurementItems(values).map(item => <span key={item.label}><span className="hid-ehr-clinical-cell-sub-inline">{item.label}</span> {item.value}</span>)}

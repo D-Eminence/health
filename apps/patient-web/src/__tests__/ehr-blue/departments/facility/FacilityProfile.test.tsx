@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { FacilityProfile } from '../../../../ehr-blue/departments/facility/FacilityProfile'
-import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { reviewPendingText } from '../../../../staff/routes/ReviewBanner'
+import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
  * Facility profile in the blue EHR (target admin/facility.png), read-only: the working facility as the staff session
- * reports it (name, code, the member's roles and permissions there, primary, and Health ID support's check of a
- * facility that signed itself up), with every target field Health ID does not hold marked as such. It reads nothing.
+ * reports it (its name, and Health ID support's check of a facility that signed itself up), with every target field
+ * Health ID does not hold marked as such. As the target draws it, there is no "Facility details" card: the page ends
+ * with the verification banner and "Verification history". It reads nothing.
  */
 const session = vi.hoisted(() => ({ facility: undefined as unknown }))
 vi.mock('../../../../staff/App', async () => {
@@ -56,7 +58,7 @@ describe('Facility profile: the target’s sections, read-only', () => {
 
     expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Facility profile'])
     expect(screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent))
-      .toEqual(['Hospital details & picture', 'Facility details', 'Verification history'])
+      .toEqual(['Hospital details & picture', 'Verification history'])
     expect(screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
       .toEqual(['Facility presence policy', 'Operations & regulatory details', 'Profile change history'])
 
@@ -85,42 +87,36 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(api.touched).toEqual([])
   })
 
-  it('lists the session’s facts about the facility and the member’s place in it', () => {
+  it('has no “Facility details” card: it ends with the verification banner and “Verification history”', () => {
     renderDept(<FacilityProfile />)
-    const facts = section('Facility details')
 
-    expect(valueOf('Facility name', facts)).toBe('Demo Hospital')
-    expect(valueOf('Facility type', facts)).toBe('Not reported')
-    expect(valueOf('Facility code', facts)).toBe('DEMO-HOSP')
-    // Health ID's words for the roles on either backend, never their codes (parity report 3.1 #16).
-    expect(valueOf('Your roles here', facts)).toBe('Facility administrator')
-    expect(valueOf('Your primary facility', facts)).toBe('Yes')
+    expect(screen.queryByRole('heading', { name: 'Facility details' })).toBeNull()
+    for (const label of ['Facility name', 'Facility type', 'Facility code', 'Your roles here', 'Your primary facility', 'Your permissions here']) {
+      expect(screen.queryByText(label), label).toBeNull()
+    }
+    // Neither the code, the member's roles nor their permissions are listed anywhere on the page.
+    expect(document.body.textContent).not.toContain('DEMO-HOSP')
+    expect(document.body.textContent).not.toContain('org_admin')
+    for (const code of PERMISSIONS) expect(document.body.textContent).not.toContain(code)
+    expect(document.querySelectorAll('details, summary')).toHaveLength(0)
 
-    const summary = within(facts).getByText('3 permissions')
-    expect(summary.tagName).toBe('SUMMARY')
-    const disclosure = summary.closest('details') as HTMLDetailsElement
-    expect(disclosure.open).toBe(false)
-    fireEvent.click(summary)
-    expect(disclosure.open).toBe(true)
-    expect(within(disclosure).getAllByRole('listitem').map(item => item.textContent)).toEqual(PERMISSIONS)
+    // The page: its heading, then the details card, the banner and the history card, last.
+    const page = document.querySelector('.hid-ehr-dept') as HTMLElement
+    const [, details, banner, history, ...rest] = [...page.children]
+    expect(rest).toEqual([])
+    expect(details).toBe(section('Hospital details & picture'))
+    expect(banner).toBe(verification())
+    expect(history).toBe(section('Verification history'))
+    expect(page.querySelectorAll('.hid-ehr-card')).toHaveLength(2)
   })
 
-  it('says when the facility has no code, no roles or no permissions, and is not the member’s primary facility', () => {
-    session.facility = fakeFacility([], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: [], isPrimary: false })
-    renderDept(<FacilityProfile />)
-    const facts = section('Facility details')
-    expect(valueOf('Facility code', facts)).toBe('Not reported')
-    expect(valueOf('Your roles here', facts)).toBe('Staff')
-    expect(valueOf('Your primary facility', facts)).toBe('No')
-    expect(valueOf('Your permissions here', facts)).toBe('None')
-  })
-
-  // "porter" is a fictional code Health ID has no name for.
-  it.each(['main-v1', 'novu-v1'])('reads "Staff" for a role Health ID has no name for on a %s build, never its code', contract => {
+  // "porter" is a fictional code Health ID has no name for. With no "Facility details" card (design audit item 9) the
+  // page lists no roles at all, so a role's code is never shown on either build (parity report 3.1 #16).
+  it.each(['main-v1', 'novu-v1'])('never shows a role’s code on a %s build: no card lists the member’s roles', contract => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
     session.facility = fakeFacility([], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['porter'] })
     renderDept(<FacilityProfile />)
-    expect(valueOf('Your roles here', section('Facility details'))).toBe('Staff')
+    expect(screen.queryByText('Your roles here')).toBeNull()
     expect(document.body.textContent).not.toMatch(/\bporter\b/)
   })
 
@@ -129,10 +125,56 @@ describe('Facility profile: the target’s sections, read-only', () => {
     session.facility = fakeFacility(['lab.work-item.read'], { id: DEMO_LABORATORY_ID, name: 'Demo Laboratory', isPrimary: false })
     rerender(<MemoryRouter><div className="hid-ehr"><FacilityProfile /></div></MemoryRouter>)
 
-    expect(valueOf('Hospital name', section('Hospital details & picture'))).toBe('Demo Laboratory')
-    expect(valueOf('Your primary facility', section('Facility details'))).toBe('No')
+    // The demo laboratory is a laboratory: the profile says laboratory, not hospital.
+    expect(valueOf('Laboratory name', section('Laboratory details & picture'))).toBe('Demo Laboratory')
     expect(screen.getByText('DL')).toBeTruthy()
     expect(screen.queryByText('Demo Hospital')).toBeNull()
+  })
+
+  const OTHER_ID = '5a1e0000-0000-4000-8000-000000000009'
+  it.each([
+    { product: 'the demo laboratory', facility: { id: DEMO_LABORATORY_ID }, place: 'Laboratory', inCharge: 'Lead scientist' },
+    { product: 'the demo pharmacy', facility: { id: DEMO_PHARMACY_ID }, place: 'Pharmacy', inCharge: 'Superintendent pharmacist' },
+    { product: 'a laboratory that signed itself up', novu: true, place: 'Laboratory', inCharge: 'Lead scientist',
+      facility: { id: OTHER_ID, selfService: { review: 'reviewed' as const, organizationType: 'laboratory' } } },
+    { product: 'a pharmacy that signed itself up', novu: true, place: 'Pharmacy', inCharge: 'Superintendent pharmacist',
+      facility: { id: OTHER_ID, selfService: { review: 'reviewed' as const, organizationType: 'pharmacy' } } },
+    { product: 'any facility on lab.', hostname: 'lab.healthidentitydirectory.com', facility: { id: OTHER_ID },
+      place: 'Laboratory', inCharge: 'Lead scientist' },
+    { product: 'any facility on pharmacy.', hostname: 'pharmacy.staging.healthidentitydirectory.com', facility: { id: OTHER_ID },
+      place: 'Pharmacy', inCharge: 'Superintendent pharmacist' },
+  ])('speaks of $product as such, not a hospital, and asks no bed count there', ({ facility, novu, hostname, place, inCharge }) => {
+    if (novu) vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    if (hostname) vi.stubGlobal('location', { ...window.location, hostname })
+    try {
+      session.facility = fakeFacility(['audit.read'], { name: 'Demo Place', ...facility })
+      renderDept(<FacilityProfile />)
+      const details = section(`${place} details & picture`)
+      expect(valueOf(`${place} name`, details)).toBe('Demo Place')
+      for (const label of [`${place} profile picture or logo`, `${place} phone`, `${place} email`, `${place} address`, inCharge]) {
+        expect(valueOf(label, details), label).toBe(NOT_AVAILABLE)
+      }
+      expect(within(details).queryByText('Bed count')).toBeNull()
+      expect(within(details).queryByText('Medical Director')).toBeNull()
+      expect(details.textContent).not.toMatch(/Hospital/)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  // The words describe the facility, not the person: a lab scientist or a pharmacist at a hospital still sees a hospital.
+  it.each([
+    ['a lab scientist', ['lab.work-item.read']],
+    ['a pharmacist', ['pharmacy.work-item.read']],
+  ])('speaks of a hospital to %s at a hospital on ehr.', (_who, permissions) => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
+    try {
+      session.facility = fakeFacility(permissions, { id: OTHER_ID, name: 'General Hospital' })
+      renderDept(<FacilityProfile />)
+      const details = section('Hospital details & picture')
+      expect(valueOf('Hospital name', details)).toBe('General Hospital')
+      expect(valueOf('Bed count', details)).toBe(NOT_AVAILABLE)
+      expect(valueOf('Medical Director', details)).toBe(NOT_AVAILABLE)
+      expect(details.textContent).not.toMatch(/Laboratory|Pharmacy/)
+    } finally { vi.unstubAllGlobals() }
   })
 
   it('asks for a facility when the session has none', () => {
@@ -171,9 +213,7 @@ describe('Facility profile: the “Facility verification” banner', () => {
       + 'signed out once: sign in again to use them.')
     expect(verification().className).toContain('hid-ehr-dept-notice-caution')
     expect(screen.getByText('Verification: pending verification.')).toBeTruthy()
-    const facts = section('Facility details')
-    expect(valueOf('Facility type', facts)).toBe('Hospital')
-    expect(valueOf('Your roles here', facts)).toBe('Facility administrator')
+    expect(screen.queryByRole('heading', { name: 'Facility details' })).toBeNull()
     // The staff page's licence check is ReviewBanner's own: this page reads nothing.
     expect(api.touched).toEqual([])
   })
@@ -184,7 +224,6 @@ describe('Facility profile: the “Facility verification” banner', () => {
     renderDept(<FacilityProfile />)
     expect(verification().textContent).toBe('Facility verification: pending verification'
       + 'Health ID support is checking Demo Hospital. This usually takes up to one working day.')
-    expect(valueOf('Facility type', section('Facility details'))).toBe('Not reported')
   })
 
   it('says a facility Health ID support has checked has full access', () => {
@@ -197,16 +236,15 @@ describe('Facility profile: the “Facility verification” banner', () => {
       + 'Health ID support has checked Demo Laboratory, and it now has full access.')
     expect(verification().className).toContain('hid-ehr-dept-notice-info')
     expect(screen.getByText('Verification: verified.')).toBeTruthy()
-    const facts = section('Facility details')
-    expect(valueOf('Facility type', facts)).toBe('Laboratory')
-    expect(valueOf('Facility code', facts)).toBe('DEMO-LAB')
-    expect(valueOf('Your roles here', facts)).toBe('Laboratory scientist')
+    expect(screen.queryByText('DEMO-LAB')).toBeNull()
+    expect(screen.queryByText('Laboratory scientist')).toBeNull()
   })
 
-  it('names a type the portal does not know as another healthcare provider', () => {
+  it('words the pending check for a type the portal does not know as another healthcare provider’s', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
-    session.facility = { ...HOSPITAL, selfService: { review: 'reviewed', organizationType: 'hospice' } }
+    session.facility = { ...HOSPITAL, selfService: { review: 'pending', organizationType: 'hospice' } }
     renderDept(<FacilityProfile />)
-    expect(valueOf('Facility type', section('Facility details'))).toBe('Other healthcare provider')
+    expect(verification().textContent).toBe(`Facility verification: pending verification${reviewPendingText('Demo Hospital', 'other')}`)
+    expect(reviewPendingText('Demo Hospital', 'other')).not.toBe(reviewPendingText('Demo Hospital', 'hospital'))
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { ProfilePage } from '../routes/Portal'
 import { SAY } from '../copy'
 import { described, json, problem, profile, renderPortal, shownText, type Handler } from './portalHarness'
@@ -11,7 +11,7 @@ import { described, json, problem, profile, renderPortal, shownText, type Handle
  * (set-patient-access-pin.dto.ts), and both commands need a sign-in within the
  * last 10 minutes (403 PATIENT_RECENT_AUTH_REQUIRED, recent-authentication.ts).
  */
-function renderSettings(pin: Handler) {
+function renderSettings(pin: Handler, dateOfBirth: string | null = profile.dateOfBirth) {
   let configured = false
   return renderPortal(<ProfilePage />, (path, method, body) => {
     if (path === '/identity/me/access-pin') {
@@ -19,7 +19,7 @@ function renderSettings(pin: Handler) {
       if (answer.ok) configured = method === 'POST'
       return answer
     }
-    if (path === '/identity/me') return json({ ...profile, accessPinConfigured: configured })
+    if (path === '/identity/me') return json({ ...profile, dateOfBirth, accessPinConfigured: configured })
     if (path === '/identity/me/emergency-contacts') return json([])
     if (path === '/identity/me/account-deletion') return json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null })
     return json({}, 404)
@@ -29,6 +29,16 @@ function renderSettings(pin: Handler) {
 const pinCard = () => within(screen.getByRole('heading', { name: 'Access PIN' }).closest('#access-pin') as HTMLElement)
 
 describe('patient Access PIN', () => {
+  it('tells an adult the PIN also lets the hospital add their paper records while that access lasts; nobody else', async () => {
+    const ADULT = 'A hospital you give it to can use it to open your records, and to add your old paper records to your Health ID while that access lasts.'
+    renderSettings(() => json({ configured: true }))
+    expect(await screen.findByText(ADULT)).toBeTruthy()
+    cleanup()
+    renderSettings(() => json({ configured: true }), `${new Date().getUTCFullYear() - 10}-01-01`)
+    expect(await screen.findByText('A hospital you give it to can use it to open your records.')).toBeTruthy()
+    expect(screen.queryByText(/paper records/)).toBeNull()
+  })
+
   it('sets a PIN of 4 to 8 digits, clears the field and shows it configured', async () => {
     const { sent } = renderSettings(() => json({ configured: true }))
     expect(await screen.findByText('Not set')).toBeTruthy()
@@ -78,13 +88,14 @@ describe('patient Access PIN', () => {
   })
 
   // P4c review (Identity, as main): setting a PIN is held for 24 hours after an OTP account recovery; revoking is not.
-  it('says Identity’s words when a PIN is held after an account recovery, and keeps the status', async () => {
+  it('says a PIN held after an account recovery in plain words, and keeps the status', async () => {
     const detail = 'This account was recovered with a verification code less than 24 hours ago; Access PIN changes are '
       + 'available again once that period ends'
     renderSettings(() => problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', detail))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
-    expect(shownText(await screen.findByRole('alert'))).toBe(detail)
+    expect(shownText(await screen.findByRole('alert'))).toBe('For your safety, you can’t change your Access PIN for 24 hours after you recover your account.')
+    expect(screen.queryByText(detail)).toBeNull()
     expect(screen.getByText('Not set')).toBeTruthy()
   })
 

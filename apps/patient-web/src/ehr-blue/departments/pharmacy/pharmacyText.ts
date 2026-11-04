@@ -1,9 +1,9 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
-import { usesNovuBackend } from '../../../backendContract'
+import { routeLabel } from '../../../plainLabels'
 import type { Facility, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { priorityLabel, routedWorkEndedText } from '../../../staff/orderRoutes'
-import { selfServiceReview, selfServiceType } from '../../../staff/staffAccess'
+import { PHARMACY_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { matchesSearch } from '../parts/format'
 import { patientLabel } from '../parts/routedWork'
 import { urgencyRank } from '../parts/WorkQueue'
@@ -94,7 +94,7 @@ export function routeAlert(route: WorkItemOrderRoute | undefined, late: boolean)
 
 /** Whether a row matches the list's search: its medication, patient, dose, route, priority and the order it came from. */
 export function matchesItem(query: string, item: PharmacyWorkItem, status: PharmacyStatus): boolean {
-  return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, item.instructions,
+  return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, routeLabel(item.routeCode), item.instructions,
     status, priorityLabel(item.priority), item.orderRoute?.orderingFacilityName, item.orderRoute?.reference, item.orderRoute?.ordererName,
     item.id.slice(0, 8)])
 }
@@ -135,14 +135,6 @@ export function queueOrder(items: readonly PharmacyWorkItem[], undispensable: (i
       || time(a.item) - time(b.item) || a.index - b.index).map(entry => entry.item)
 }
 
-const ROUTE_WORDS: Readonly<Record<string, string>> = {
-  oral: 'by mouth', po: 'by mouth', 'by mouth': 'by mouth', sublingual: 'under the tongue', sl: 'under the tongue',
-  iv: 'into a vein', intravenous: 'into a vein', im: 'into a muscle', intramuscular: 'into a muscle',
-  sc: 'under the skin', subcut: 'under the skin', subcutaneous: 'under the skin', topical: 'on the skin',
-  inhaled: 'by breathing in', inhalation: 'by breathing in', nasal: 'into the nose', rectal: 'into the back passage', pr: 'into the back passage',
-  ophthalmic: 'into the eye', eye: 'into the eye', otic: 'into the ear', ear: 'into the ear', vaginal: 'into the vagina', pv: 'into the vagina',
-}
-
 const VERB: Readonly<Record<string, string>> = { cream: 'Apply', inhaler: 'Inhale', drops: 'Use', injection: 'Give' }
 
 /**
@@ -152,7 +144,7 @@ const VERB: Readonly<Record<string, string>> = { cream: 'Apply', inhaler: 'Inhal
  */
 export function labelText(item: PharmacyWorkItem, form: string): string | null {
   if (doseMissing(item)) return null
-  const route = item.routeCode ? ROUTE_WORDS[item.routeCode.trim().toLowerCase()] ?? item.routeCode.trim() : ''
+  const route = routeLabel(item.routeCode) ?? item.routeCode?.trim() ?? ''
   const main = [VERB[form] ?? 'Take', doseText(item), route, item.frequency?.trim()].filter(Boolean).join(' ')
   const extra = item.instructions?.trim()
   return `${main}.${extra ? ` ${extra.replace(/^./, c => c.toUpperCase())}${/[.!?]$/.test(extra) ? '' : '.'}` : ''}`
@@ -164,26 +156,15 @@ export function statusWord(status: PharmacyStatus): string {
 }
 
 /**
- * The kinds of self-signed-up facility that get Pharmacy once Health ID support has checked them: the ones whose locked
- * list names it (staff/routes/ReviewBanner.tsx LOCKED). A laboratory, or another kind, is never promised it.
- */
-const GETS_PHARMACY: ReadonlySet<string> = new Set(['pharmacy', 'hospital', 'clinic'])
-
-/**
  * Pharmacy's refusal to a member whose role doesn't include `work` ("pharmacy work", "prescriptions", "dispensing
- * medicines"…): today's refusal (staff/routes/Operations.tsx) in plain words, and the step that is the member's. Said by
- * the Prescriptions page opened without the permission (page.tsx) and by a dispensing or reversal refused for the role
- * (PharmacyRecord.tsx), so both say the same. The administrator of a facility that signed itself up (the only role there
- * that manages staff) is never told to ask the facility administrator, which they are. While Health ID support checks a
- * facility that will get Pharmacy, Pharmacy is locked for them too (the banner above says so): it opens after the check.
- * Once the facility is checked, they add a pharmacist on the Staff page. A facility that will not get Pharmacy has no step.
+ * medicines"…), and the step that is the member's. Said by the Prescriptions page opened without the permission
+ * (page.tsx) and by a dispensing or reversal refused for the role (PharmacyRecord.tsx), so both say the same. Who reads
+ * which words is the rule every refusal for a role follows (staff/refusedWork.ts refusedWorkText), written once so the
+ * classic Pharmacy page says the same: the administrator of a facility that signed itself up is never told to ask
+ * themselves; while Health ID support checks a facility that will get Pharmacy, it opens after the check; once checked,
+ * they add a pharmacist on the Staff page; a facility that will not get Pharmacy has no step.
  */
-export function pharmacyRefusalText(work: string, facility: Pick<Facility, 'selfService'> | undefined,
+export function pharmacyRefusalText(work: string, facility: Pick<Facility, 'selfService' | 'roles'> | undefined,
   permissions: readonly string[]): string {
-  const review = usesNovuBackend() ? selfServiceReview(facility) : null
-  const getsPharmacy = GETS_PHARMACY.has(selfServiceType(facility) ?? '')
-  if (review === 'pending' && getsPharmacy) return 'Pharmacy opens once Health ID support has checked your facility.'
-  const administrator = review !== null && permissions.includes('workforce.manage')
-  const next = !administrator ? ' Ask your facility administrator.' : review === 'reviewed' && getsPharmacy ? ' Add a pharmacist on the Staff page.' : ''
-  return `Your role at this facility doesn’t include ${work}.${next}`
+  return refusedWorkText(facility, permissions, { ...PHARMACY_WORK, work })
 }
