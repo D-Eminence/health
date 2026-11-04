@@ -33,6 +33,17 @@ export function isObservation(record: ClinicalRecord) {
   return record.noteType === NOTE_TYPE
 }
 
+/**
+ * An observation saved under the old "Vitals" category (offered until 1 November 2026, no longer saved): a clinical
+ * note, never range-checked and not in the vitals chart, so wherever its text shows, this line goes under it.
+ */
+export const OLD_VITALS_CATEGORY = 'Vitals'
+export const OLD_VITALS_NOTE = 'Saved as a note before 1 November. These readings are not in the vitals chart.'
+
+export function isOldVitalsNote(note: { readonly noteType?: unknown; readonly title?: unknown }): boolean {
+  return note.noteType === NOTE_TYPE && typeof note.title === 'string' && note.title.trim() === OLD_VITALS_CATEGORY
+}
+
 /** Today's note wording, word for word. */
 export const REVISION_RECORDED = 'A new note revision was recorded.'
 export const REVISION_FAILED = 'Note revision could not be recorded.'

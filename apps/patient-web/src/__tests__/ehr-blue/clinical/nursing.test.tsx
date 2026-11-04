@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NursingWorkspace, nursingStatus } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
-import { observationName } from '../../../ehr-blue/clinical/nursing/observations'
+import { OLD_VITALS_NOTE, observationName } from '../../../ehr-blue/clinical/nursing/observations'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -362,6 +362,27 @@ describe('Nursing observation record', () => {
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(patientBanner()).getByText(new RegExp(PATIENT_HID))).toBeTruthy()
+  })
+
+  it('item 5: says under an old "Vitals" observation’s text, and each of its revisions, that it is a note, not in the vitals chart', async () => {
+    revisions = [FIRST, { ...FIRST, id: 'revision-2', revisionNo: 2, content: 'Corrected fictional reading', changeReason: 'Typo' }]
+    await openRecord()
+    const note = (await within(saved()).findByText('Corrected fictional reading')).closest('dd')!
+    expect(note.textContent).toBe(`Corrected fictional reading${OLD_VITALS_NOTE}`)
+    expect(within(note).getByText(OLD_VITALS_NOTE)).toBeTruthy()
+    expect(OLD_VITALS_NOTE).toBe('Saved as a note before 1 November. These readings are not in the vitals chart.')
+    const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
+    for (const version of Array.from(versions.querySelectorAll('details'))) {
+      expect(within(version).getByText(OLD_VITALS_NOTE).closest('dd')).toBe(within(version).getAllByRole('definition')[0])
+    }
+    expect(screen.getAllByText(OLD_VITALS_NOTE)).toHaveLength(3)
+  })
+
+  it('item 5: shows no such line under an observation of any other category', async () => {
+    notes = [{ ...NOTE, title: 'Handover' }, CONSULTATION]
+    await openRecord()
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    expect(screen.queryByText(OLD_VITALS_NOTE)).toBeNull()
   })
 
   it('says a consultation note is not found here', async () => {
