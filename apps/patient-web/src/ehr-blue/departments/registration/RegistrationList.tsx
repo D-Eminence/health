@@ -5,19 +5,16 @@ import { DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { FIELD, type Availability, type CaseLoading, type VisitCase } from './registrationModel'
 import { ErrorBox, type FormProblems } from './registrationParts'
 import {
-  AVAILABILITY_TITLE, candidatesText, CAPABILITY_LOADING, CASE_ID_LABEL, caseTitle, CHECK_AGAIN, CHECKING, COMPLETED, CREATE_RECORD,
-  DESCRIPTION, EYEBROW, FIND_TEXT, FIND_TITLE, LOAD_CASE, LOADING, NO_VISIT_MESSAGE, NO_VISIT_TITLE, ninEnabledText, ninNotEnabledText,
-  statusLabel, TITLE, VISIT_CAPTION,
+  AVAILABILITY_TITLE, candidatesText, CAPABILITY_LOADING, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED,
+  CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TEXT, FIND_TITLE, LOAD_CASE, LOADING, NIN_ENABLED, NIN_NOT_ENABLED, NO_VISIT_MESSAGE,
+  NO_VISIT_TITLE, statusLabel, TITLE, VISIT_CAPTION,
 } from './registrationText'
-
-/** A case's short reference, as the design's lists show a record's: its first eight characters. */
-const reference = (caseId: string) => caseId.slice(0, 8)
 
 /**
  * The design's list view (patients-1-list) on today's page: its heading with "Create record", today's "Verification
  * availability" as a notice, and "Find registration case" in place of the design's search card. Today has no case list
- * (Registration.tsx 241: the backend does not provide one), so the card loads a case by its ID and lists the cases
- * found or made during this visit, from memory.
+ * (Registration.tsx 241: Identity does not provide one), so the card reopens a case by its reference and lists the
+ * cases found or made during this visit, from memory, by the person's name and when.
  */
 export function RegistrationList({ availability, caseIdInput, onCaseIdInput, caseLoading, busy, problems, error, message, visits, onFind, onNew, onOpen }: {
   readonly availability: Availability
@@ -39,8 +36,8 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
   const columns: EhrDataTableColumn<VisitCase>[] = [
     {
       id: 'record', header: 'Record', cell: visit => (
-        <DeptRecordName id={`registration-visit-${visit.seq}-open`} name={caseTitle(reference(visit.item.caseId))}
-          reference={visit.item.caseId} onOpen={() => onOpen(visit)} />
+        <DeptRecordName id={`registration-visit-${visit.seq}-open`} name={caseTitle(visit.name)}
+          reference={caseWhen(visit.started, visit.at)} onOpen={() => onOpen(visit)} />
       ),
     },
     {
@@ -53,7 +50,6 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
         <EhrBadge tone={COMPLETED.has(visit.item.status) ? 'positive' : 'brand'}>{statusLabel(visit.item.status)}</EhrBadge>
       ),
     },
-    { id: 'version', header: 'Version', cell: visit => visit.item.version },
     {
       id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: visit => (
         <div className="hid-ehr-dept-table-actions">
@@ -101,7 +97,7 @@ function AvailabilityNotice({ availability }: { readonly availability: Availabil
         <div>
           {error ? <p role="alert">{error}</p> : null}
           {!capabilities && !error ? <p>{CAPABILITY_LOADING}</p> : null}
-          {capabilities ? <p>{capabilities.nin.enabled ? ninEnabledText(capabilities.nin.state) : ninNotEnabledText(capabilities.nin.state)}</p> : null}
+          {capabilities ? <p>{capabilities.nin.enabled ? NIN_ENABLED : NIN_NOT_ENABLED}</p> : null}
         </div>
         {/* Unavailable while it reads, not disabled: a disabled button would lose the focus it has. */}
         <EhrButton variant="secondary" size="sm" busy={loading} onClick={refresh}>{loading ? CHECKING : CHECK_AGAIN}</EhrButton>

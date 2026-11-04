@@ -14,6 +14,7 @@ import { useLateCorrectionServed } from '../../../lateCorrectionServed'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import type { PaymentSettings } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -90,7 +91,9 @@ export function Laboratory() {
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
-  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
+  // Payment setup is a point-of-care route Health ID does not serve yet (commerce/served.ts): read at the demo facilities
+  // only, as Pharmacy does, so a real facility sends no request and no test waits for payment.
+  const paymentSettings = usePaymentSettings(canRead && pointOfCareOpen(facilityId) ? facilityId : undefined)
   const settings: PaymentSettings | null = paymentSettings.status === 'ready' ? paymentSettings.data : null
 
   const items = list.items ? notCompleted.shown(list.items) : []
@@ -175,7 +178,8 @@ export function Laboratory() {
       <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
       {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
-        onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded> : null}
+        onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId}
+        cannotCompleteBeside="opened" /></DeptEmbedded> : null}
       <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
       {notCompleted.endings.length > 0 ? <DeptEmbedded>
         <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
@@ -193,7 +197,7 @@ export function Laboratory() {
           onChange={event => setSearch(event.target.value)} className="@4xl:w-80" />
       </div>
       <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
-        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet today' : `Nothing in ${STAGE_LABEL[stage]}`,
+        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet' : `Nothing in ${STAGE_LABEL[stage]}`,
           description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
         <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}

@@ -14,6 +14,8 @@ import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
 import { focusLost, focusPageHeading } from './pageFocus'
 import { useDocumentTitle } from './authSteps'
+import { portalHandsOff } from './sso/singleSignOn'
+import { PortalSignInHandOff } from './sso/SignInHandOff'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement
@@ -80,6 +82,8 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
       )
 
     case 'sign-in-required': {
+      // With single sign-on on, on app., the whole tab goes to auth. and back to this page when it may (contract v2).
+      if (portalHandsOff()) return <PortalSignInHandOff />
       // The page the patient asked for goes with them (router state, never the
       // address), so sign-in can bring them back to it.
       const from: SignInFrom = { pathname, search, hash }

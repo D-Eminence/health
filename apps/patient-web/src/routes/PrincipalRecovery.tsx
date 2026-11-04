@@ -7,7 +7,7 @@ import { AuthLayout } from '../AuthLayout'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../productHostname'
 import { OpenStaffPage } from '../staffSignIn'
-import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { describedBy, isFieldProblem, recoveryRefusal, useDocumentTitle, useStepFocus } from '../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
@@ -57,7 +57,9 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     catch (reason) {
       if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(identifier)
       const aboutField = isFieldProblem(reason, stepCodes)
-      setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
+      // A staff reset is said in plain words (owner's rule, 1 Nov 2026); the admin console's wording is its own.
+      setError(audience === 'staff' ? recoveryRefusal(reason, 'facility')
+        : isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
       setFieldError(aboutField)
       setErrorAlert(!aboutField || fromField)
     } finally {

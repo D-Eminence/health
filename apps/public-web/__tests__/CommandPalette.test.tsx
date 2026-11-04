@@ -131,8 +131,11 @@ describe('CommandPalette', () => {
     const view = render(<CommandPalette title="Search Health ID" defaultOpen items={items} loading />)
     expect(screen.getByRole('status').textContent).toContain('Searching Health ID')
 
-    view.rerender(<CommandPalette title="Search Health ID" defaultOpen items={items} error="Search is temporarily unavailable." onRetry={retry} />)
-    expect(screen.getByRole('alert').textContent).toContain('Search is temporarily unavailable.')
+    view.rerender(<CommandPalette title="Search Health ID" defaultOpen items={items} error="Search endpoint /api/v1/search returned 503" onRetry={retry} />)
+    // An error is a yes/no: its text is never shown, only the palette's own plain words.
+    expect(screen.getByRole('alert').textContent).toContain('We couldn’t load the results.')
+    expect(screen.getByRole('alert').textContent).toContain('Please check your connection and try again.')
+    expect(screen.getByRole('alert').textContent).not.toMatch(/endpoint|api\/v1|503/)
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(retry).toHaveBeenCalledTimes(1)
   })

@@ -163,8 +163,10 @@ describe('Add a record, before a backend serves it', () => {
     await pick(uploadInput(), pdf())
     await press(screen.getByRole('button', { name: 'Save record' }))
 
-    const alert = await screen.findByText('This isn’t set up for your account. Contact support. What you entered is still here.')
+    const alert = await screen.findByText('Adding your own records isn’t available yet. What you entered is still here.')
     expect(shownText(alert.closest('[role]') as HTMLElement)).toContain('Couldn’t add your record')
+    // Not a fault, so the patient isn't sent to support for it.
+    expect(shownText(alert.closest('[role]') as HTMLElement)).not.toMatch(/support/i)
     // The Save is the entry alone: no attachments, no file name, no byte of either file.
     expect(entryRequests(sent)).toEqual([{ path: ENTRIES, method: 'POST', body: SAVED_BODY }])
     expect(headerOf(headers, ENTRIES)).toMatch(UUID)
@@ -184,7 +186,7 @@ describe('Add a record, before a backend serves it', () => {
     const { sent, headers } = renderDrawer({ save: () => problem(404, 'NOT_FOUND', 'Cannot POST') })
     fill()
     await press(screen.getByRole('button', { name: 'Save record' }))
-    await screen.findByText(/This isn’t set up for your account/)
+    await screen.findByText(/Adding your own records isn’t available yet/)
     await press(screen.getByRole('button', { name: 'Save record' }))
     await waitFor(() => expect(entryRequests(sent)).toHaveLength(2))
     expect(headerOf(headers, ENTRIES, 1)).toBe(headerOf(headers, ENTRIES, 0))
@@ -561,7 +563,7 @@ describe('what stays in the browser, and where focus goes', () => {
     renderDrawer({ save: () => { loseFocus(); return problem(404, 'NOT_FOUND', 'Cannot POST /api/v1/ehr/me/patient-entries') } })
     fill()
     await press(screen.getByRole('button', { name: 'Save record' }))
-    await screen.findByText(/This isn’t set up for your account/)
+    await screen.findByText(/Adding your own records isn’t available yet/)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save record' })))
     expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true)
   })

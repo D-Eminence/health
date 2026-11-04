@@ -18,6 +18,7 @@ import { useBluePages, useSampleHref } from './pageContext'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { basePath, pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
+import { PLAIN, plainErrorText } from '@hid/http'
 
 /**
  * The top bar's controls (design: screens/panels). Search finds a patient by Health ID, or goes to a page; the bell says
@@ -135,14 +136,14 @@ export function NotificationsButton() {
     </EhrButton>
     <Drawer open={open} title="Notifications" onClose={() => setOpen(false)}>
       <div className="flex flex-col gap-5">
-        {read.state === 'none' ? <EmptyState compact icon={Bell} title="Nothing waiting" description="Access requests show here for roles that answer them." />
+        {read.state === 'none' ? <EmptyState compact icon={Bell} title="Nothing waiting" description="Access requests show here for roles that send them." />
           : read.state === 'loading' ? <LoadingRows rows={1} label="Loading access requests" />
             : read.state === 'failed' ? <Alert intent="error" title="Couldn’t load access requests"
               action={<Button size="sm" icon={RotateCcw} onClick={reload}>Try again</Button>}>{read.message}</Alert>
               : read.pending === 0 ? <EmptyState compact icon={Bell} title="Nothing waiting" description="New access requests show here." />
                 : <Card><ListRow onClick={() => { setOpen(false); navigate('/provider/requests') }}
                   leading={<IconChip size="sm" icon={ShieldAlert} tone="warn" />} title={`${read.pending} access request${read.pending === 1 ? '' : 's'} waiting`}
-                  subtitle="Review them" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></Card>}
+                  subtitle="Waiting for the patient to answer" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></Card>}
         {/* No sample workspace open to this role: no Recent activity at all, rather than an empty list. */}
         {demo && activity.length > 0 ? <section aria-labelledby="ehr-notifications-recent" className="flex flex-col gap-2">
           <h3 id="ehr-notifications-recent" className="m-0 text-[12px] font-semibold tracking-[.06em] text-ink-3 uppercase">Recent activity · sample</h3>
@@ -201,7 +202,7 @@ export function AccountMenu({ onSample }: {
     setError('')
     setSigningOut(true)
     try { await signOut() }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    catch (caught) { setError(plainErrorText(caught, PLAIN.signOutFailed)) }
     finally { setSigningOut(false) }
   }
 
@@ -234,6 +235,9 @@ export function AccountMenu({ onSample }: {
 
 /** The sample panels the account menu opens (screens/admin/profile.png and the design's preferences and help). */
 export function AccountSamplePanel({ panel, onClose }: { readonly panel: 'profile' | 'preferences' | 'help' | null; readonly onClose: () => void }) {
+  // Samples that save nothing: they open at a demo facility only.
+  const { state } = useStaff()
+  if (!isDemoFacility(state.status === 'ready' ? state.session.actor.facility?.id : null)) return null
   const title = panel === 'profile' ? 'Edit my profile' : panel === 'preferences' ? 'Preferences' : 'Help'
   return (
     <EhrDrawer open={panel !== null} title={title} onClose={onClose}>

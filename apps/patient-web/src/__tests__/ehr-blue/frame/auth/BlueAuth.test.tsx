@@ -6,9 +6,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type * as StaffApi from '../../../../staff/api'
-import { BlueSignIn } from '../../../../ehr-blue/frame/auth/BlueSignIn'
+import { BlueSignIn, signInWords } from '../../../../ehr-blue/frame/auth/BlueSignIn'
 import { BlueRecovery } from '../../../../ehr-blue/frame/auth/BlueRecovery'
 import { BlueStaffInvitation } from '../../../../ehr-blue/frame/auth/BlueStaffInvitation'
+import { siteName } from '../../../../ehr-blue/frame/auth/BlueAuthLayout'
 import { STAFF_MFA_FACTOR_UNPROVEN } from '../../../../staff/routes/StaffMfaSteps'
 
 /**
@@ -43,7 +44,7 @@ function open(path: string, page: React.ReactElement) {
 
 /** Fills both required fields (the form submits only then) and signs in. */
 function signInWith(email: string, password: string) {
-  fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: email } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: email } })
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: password } })
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 }
@@ -60,7 +61,7 @@ describe('BlueSignIn', () => {
     expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
     expect(screen.getByRole('link', { name: 'Register a hospital' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
-    fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: ' demo.nurse@example.test ' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: ' demo.nurse@example.test ' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional-password-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(staff.completeSignIn).toHaveBeenCalledWith(SESSION))
@@ -97,10 +98,25 @@ describe('BlueSignIn', () => {
       try {
         open('/provider/sign-in', <BlueSignIn />)
         expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
-        expect(screen.getByRole('textbox', { name: 'Email' })).toBeDefined()
+        expect(screen.getByRole('textbox', { name: 'Work email' })).toBeDefined()
         expect(replace).not.toHaveBeenCalled()
       } finally { vi.unstubAllGlobals() }
     })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'you@hospital.org'],
+    ['lab.healthidentitydirectory.com', 'you@work.org'],
+    ['pharmacy.healthidentitydirectory.com', 'you@work.org'],
+    ['outreach.healthidentitydirectory.com', 'you@work.org'],
+    ['migrate.healthidentitydirectory.com', 'you@work.org'],
+  ])('on %s asks for the work email as today, with an example address that fits the site, and says who gives accounts', (hostname, example) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      open('/provider/sign-in', <BlueSignIn />)
+      expect(screen.getByRole('textbox', { name: 'Work email' }).getAttribute('placeholder')).toBe(example)
+      expect(screen.getByText('Need a staff account? Ask your facility administrator.')).toBeDefined()
+    } finally { vi.unstubAllGlobals() }
+  })
 
   it.each([
     ['ehr.healthidentitydirectory.com', 'Register a hospital'],
@@ -129,6 +145,47 @@ describe('BlueSignIn', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'Sign in to your hospital workspace.'],
+    ['lab.healthidentitydirectory.com', 'Sign in to Health ID Lab.'],
+    ['pharmacy.healthidentitydirectory.com', 'Sign in to Health ID Pharmacy.'],
+    ['outreach.healthidentitydirectory.com', 'Sign in to Health ID Outreach.'],
+    ['migrate.staging.healthidentitydirectory.com', 'Sign in to Health ID Migrate.'],
+  ])('on %s, names that product: %s', (hostname, lede) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      open('/provider/sign-in', <BlueSignIn />)
+      expect(screen.getByText(lede)).toBeDefined()
+      if (!hostname.startsWith('ehr.')) expect(document.body.textContent).not.toMatch(/hospital workspace|Hospital EHR/)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('ends the authenticator step with each product\'s own name', () => {
+    expect(signInWords('ehr')).toEqual({ lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' })
+    expect(signInWords('lab')).toEqual({ lede: 'Sign in to Health ID Lab.', done: 'Continue to Health ID Lab', emailExample: 'you@work.org' })
+    expect(signInWords('pharmacy').done).toBe('Continue to Health ID Pharmacy')
+    expect(signInWords('outreach').done).toBe('Continue to Health ID Outreach')
+    expect(signInWords('migrate').done).toBe('Continue to Health ID Migrate')
+  })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'Health ID Hospital EHR'],
+    ['lab.healthidentitydirectory.com', 'Health ID Lab'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'Health ID Pharmacy'],
+    ['outreach.healthidentitydirectory.com', 'Health ID Outreach'],
+    ['migrate.healthidentitydirectory.com', 'Health ID Migrate'],
+  ])('on %s, names %s in the recovery and invitation tab titles', (hostname, name) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      expect(siteName()).toBe(name)
+      const recoveryPage = open('/provider/recover', <BlueRecovery />)
+      expect(document.title).toBe(`Recover account access · ${name}`)
+      recoveryPage.unmount()
+      open('/provider/invitation', <BlueStaffInvitation />)
+      expect(document.title).toBe(`Accept your invitation · ${name}`)
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('shows and hides the password with the design\'s button', () => {
     open('/provider/sign-in', <BlueSignIn />)
     const password = screen.getByLabelText('Password')
@@ -138,13 +195,14 @@ describe('BlueSignIn', () => {
     expect(screen.getByRole('button', { name: 'Show password' }).getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('says a refusal in Identity\'s words, and in the portal\'s own for the authenticator', async () => {
+  it('says a refusal in plain words, never Identity\'s, and in the portal\'s own for the authenticator', async () => {
     staff.login.mockRejectedValueOnce(new HidApiError(401, 'Email or password is incorrect.', { code: 'INVALID_CREDENTIALS' }))
     open('/provider/sign-in', <BlueSignIn />)
     signInWith('demo.nurse@example.test', 'fictional-password-1')
     // One alert (the redesign's boxed Alert, which names itself "Error:" to a screen reader), in Identity's words.
     const refusal = await screen.findByRole('alert')
-    expect(refusal.textContent).toBe('Error: Email or password is incorrect.')
+    expect(refusal.textContent).toBe('Error: That email address or password isn’t right. Try again.')
+    expect(document.body.textContent).not.toContain('Email or password is incorrect.')
     expect(refusal.getAttribute('data-intent')).toBe('error')
     staff.login.mockRejectedValueOnce(new HidApiError(403, 'Factor unproven', { code: 'STAFF_MFA_FACTOR_UNPROVEN' }))
     signInWith('demo.nurse@example.test', 'fictional-password-1')
@@ -201,10 +259,10 @@ describe('BlueRecovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))
     fireEvent.change(await screen.findByRole('textbox', { name: 'Recovery code' }), { target: { value: '000000' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
-    expect(await screen.findByText('The code is invalid or has expired.')).toBeDefined()
+    expect(await screen.findByText('That code is wrong or has expired. Check the latest message, or start again for a new code.')).toBeDefined()
     expect(screen.getByRole('textbox', { name: 'Recovery code' }).getAttribute('aria-invalid')).toBe('true')
     // Boxed as a refusal (the redesign's Alert), whether or not it is announced (role=alert is not on every path).
-    expect(screen.getByText('The code is invalid or has expired.').closest('[data-intent="error"]')).not.toBeNull()
+    expect(screen.getByText('That code is wrong or has expired. Check the latest message, or start again for a new code.').closest('[data-intent="error"]')).not.toBeNull()
   })
 
   it('boxes a refused code the same when the form is sent with Enter', async () => {
@@ -216,7 +274,7 @@ describe('BlueRecovery', () => {
     const code = await screen.findByRole('textbox', { name: 'Recovery code' })
     fireEvent.change(code, { target: { value: '000000' } })
     fireEvent.submit(code.closest('form')!)
-    expect((await screen.findByText('The code is invalid or has expired.')).closest('[data-intent="error"]')).not.toBeNull()
+    expect((await screen.findByText('That code is wrong or has expired. Check the latest message, or start again for a new code.')).closest('[data-intent="error"]')).not.toBeNull()
   })
   it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.staging.healthidentitydirectory.com',
     'outreach.healthidentitydirectory.com'])('on the product site %s, shows the recovery itself, which hid-system accepts there', hostname => {

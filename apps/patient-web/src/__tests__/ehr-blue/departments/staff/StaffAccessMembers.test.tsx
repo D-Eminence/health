@@ -179,7 +179,9 @@ describe('changing a role', () => {
     await waitFor(() => expect(api.changeRole).toHaveBeenCalledWith(HOSPITAL, expect.objectContaining({ membershipId: 'membership-demo-nurse',
       version: 3 }), { role: 'doctor', licenceBody: 'MDCN', licenceNumber: 'MDCN 555', reason: 'Qualified as a doctor.',
       currentPassword: 'demo password' }))
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Access updated'))
+    // The new role is kept on the page, in the banner, in plain words, with no toast.
+    await waitFor(() => expect(pageNotice()).toBe('Demo Nurse is now a doctor at Demo Hospital.'))
+    expect(toasts.success).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
     await waitFor(() => expect(api.read).toHaveBeenCalledTimes(2))
     expect(document.activeElement).toBe(edit)

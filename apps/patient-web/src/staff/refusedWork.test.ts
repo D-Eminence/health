@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Facility } from './api'
-import { LAB_WORK, refusedWorkText, type NamedRole, type RefusedWork } from './refusedWork'
+import { AUDIT_WORK, LAB_WORK, NO_OUTREACH, PHARMACY_WORK, pharmacyWorkFor, refusedWorkText, type NamedRole, type RefusedWork } from './refusedWork'
 import { roleInSentence, roleLabel } from './staffAccess'
 
 describe('the role a refusal names', () => {
@@ -10,22 +10,148 @@ describe('the role a refusal names', () => {
     outreach_officer: true,
   }
 
-  it.each(Object.keys(NAMED))('%s has words, so the step names the role, never its code', code => {
+  // A code with no words reads "Staff" and "a staff member" (staffAccess.ts), never itself: so those are what to rule out.
+  it.each(Object.keys(NAMED))('%s has words, so the step names the role, never its code or "a staff member"', code => {
+    expect(roleLabel(code)).not.toBe('Staff')
     expect(roleLabel(code)).not.toBe(code)
     expect(roleLabel(code)).toMatch(/^[A-Z][a-z ]+$/)
+    expect(roleInSentence(code)).not.toBe('a staff member')
     expect(roleInSentence(code)).toMatch(/^an? [a-z ]+$/)
   })
 
   it('cannot name a role the list has no words for', () => {
-    // @ts-expect-error: a code ROLE_LABELS does not name would reach the screen as it is ("Add an unnamed_role…").
+    // @ts-expect-error: a code ROLE_LABELS does not name would ask for no role in particular ("Add a staff member…").
     const unnamed: RefusedWork = { ...LAB_WORK, doneBy: ['unnamed_role'] }
-    expect(roleInSentence(unnamed.doneBy[0])).toBe('an unnamed_role')
+    expect(unnamed.doneBy?.map(roleInSentence)).toEqual(['a staff member'])
   })
 
   it('cannot leave out the role that does the work', () => {
-    // @ts-expect-error: with no role, the administrator's step would read "Add  on the Staff page."
+    // @ts-expect-error: with no role, the administrator's step would read "Add  on the Staff page." Work no role is named
+    // for says so with null (AUDIT_WORK).
     const nobody: RefusedWork = { ...LAB_WORK, doneBy: [] }
     expect(nobody.doneBy).toEqual([])
+  })
+})
+
+/*
+ * Outreach's refusal (the owner's answer of 2 November): one sentence for everyone, as Document OCR's is, so it asks
+ * nobody. On hid-system main no role has held any Outreach permission since migration 0091, so a facility administrator
+ * could not give it.
+ */
+describe('Outreach’s refusal', () => {
+  it('says Outreach isn’t available at the facility yet, as Document OCR does, asking nobody and naming no permission', () => {
+    expect(NO_OUTREACH).toBe('Outreach isn’t available at your facility yet.')
+    expect(NO_OUTREACH).not.toMatch(/administrator|Staff page|opens once|[a-z]\.[a-z]|_|\/|permission|membership|workforce|code/i)
+  })
+})
+
+/*
+ * Audit by who reads its refusal (#104's rule, the owner's decision for #107). No locked list names it
+ * (staff/routes/ReviewBanner.tsx), so it never opens only after the check and no role is named: an administrator is
+ * never told it opens after the check, nor to add someone, only that their role doesn't include it. Everyone else is
+ * told to ask the facility administrator. On Novu the administrator holds it (P4b SPEC 3.3), so their cases here are
+ * for an administrator role without it; off Novu no administrator has words of their own. Every facility here is
+ * fictional.
+ */
+describe('Audit, by who reads the refusal', () => {
+  const KINDS = ['hospital', 'clinic', 'laboratory', 'pharmacy', 'other']
+  /** A facility administrator's own permissions here, without the page's: only workforce.manage makes them one. */
+  const ADMINISTRATOR = ['organization.manage', 'workforce.manage']
+  const at = (review: string, organizationType: string) => ({ selfService: { review, organizationType }, roles: [] as string[] })
+  const ASK = ' Ask your facility administrator.'
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  describe.each([
+    ['Audit', AUDIT_WORK, 'Your role at this facility doesn’t include reviewing audit events.'],
+  ])('%s', (_name, work, role) => {
+    it.each(KINDS)('the administrator of a checked facility (%s): the role sentence only, asking nobody and adding no one', kind => {
+      expect(refusedWorkText(at('reviewed', kind), ADMINISTRATOR, work)).toBe(role)
+    })
+
+    it.each(KINDS)('the administrator of a facility (%s) Health ID support is still checking: the role sentence only, as it never waits for the check', kind => {
+      expect(refusedWorkText(at('pending', kind), ['workforce.manage'], work)).toBe(role)
+    })
+
+    it('anyone else at a checked facility: the role sentence, then to ask the facility administrator', () => {
+      expect(refusedWorkText(at('reviewed', 'hospital'), ['ehr.encounter.read'], work)).toBe(`${role}${ASK}`)
+    })
+
+    it('an administrator at a facility Health ID support manages: told to ask the facility administrator', () => {
+      expect(refusedWorkText({ roles: [] }, ADMINISTRATOR, work)).toBe(`${role}${ASK}`)
+      expect(refusedWorkText(undefined, ADMINISTRATOR, work)).toBe(`${role}${ASK}`)
+    })
+
+    // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
+    it.each(['', 'main-v1'])('the administrator of a checked hospital on today’s backend (%j): told to ask the facility administrator', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusedWorkText(at('reviewed', 'hospital'), ADMINISTRATOR, work)).toBe(`${role}${ASK}`)
+    })
+  })
+
+  // #119's askForRole names the roles that do the work: work with no role to name asks for none, whoever reads it.
+  it('work with no role to name asks for no role, even where its refusal could name one', () => {
+    const askingAudit: RefusedWork = { ...AUDIT_WORK, askForRole: true }
+    const role = 'Your role at this facility doesn’t include reviewing audit events.'
+    expect(refusedWorkText(at('reviewed', 'hospital'), ['ehr.encounter.read'], askingAudit)).toBe(`${role}${ASK}`)
+    expect(refusedWorkText({ roles: ['nurse'] }, ADMINISTRATOR, askingAudit)).toBe(`${role}${ASK}`)
+    expect(refusedWorkText(at('reviewed', 'hospital'), ADMINISTRATOR, askingAudit)).toBe(role)
+  })
+
+  it('names no permission, code or address in any sentence, whoever reads it', () => {
+    const readers: Array<[Parameters<typeof refusedWorkText>[0], string[]]> = [[undefined, []], [at('reviewed', 'hospital'), []],
+      ...KINDS.flatMap(kind => [[at('reviewed', kind), ADMINISTRATOR], [at('pending', kind), ADMINISTRATOR]] as Array<[ReturnType<typeof at>, string[]]>)]
+    for (const work of [AUDIT_WORK, PHARMACY_WORK, LAB_WORK]) {
+      for (const [facility, permissions] of readers) {
+        expect(refusedWorkText(facility, permissions, work)).not.toMatch(/[a-z]\.[a-z]|_|\/|permission|membership|workforce|code/i)
+      }
+    }
+  })
+})
+
+/*
+ * Pharmacy's work, as the blue Pharmacy and the classic page both refuse it: the rule is written once (refusedWorkText),
+ * and its words are #82's (ehr-blue/departments/pharmacy/pharmacyText.ts), unchanged.
+ */
+describe('Pharmacy, by who reads the refusal', () => {
+  const ROLE = 'Your role at this facility doesn’t include pharmacy work.'
+  const at = (review: string, organizationType: string) => ({ selfService: { review, organizationType }, roles: [] as string[] })
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it.each([
+    ['the administrator of a checked pharmacy', at('reviewed', 'pharmacy'), ['workforce.manage'], `${ROLE} Add a pharmacist on the Staff page.`],
+    ['the administrator of a checked laboratory, which will not get Pharmacy', at('reviewed', 'laboratory'), ['workforce.manage'], ROLE],
+    ['the administrator of a clinic being checked', at('pending', 'clinic'), ['workforce.manage'], 'Pharmacy opens once Health ID support has checked your facility.'],
+    ['anyone else at a checked pharmacy', at('reviewed', 'pharmacy'), [], `${ROLE} Ask your facility administrator.`],
+  ])('%s', (_reader, facility, permissions, sentence) => {
+    expect(refusedWorkText(facility, permissions, PHARMACY_WORK)).toBe(sentence)
+  })
+})
+
+/*
+ * The work the classic page's refusal of Prescriptions names, as the blue Prescriptions' does: a role that may open
+ * another Pharmacy page at the facility (it sells, keeps stock, takes payment…) is told only that prescriptions are not
+ * in it. Those pages open at the demo facilities only (ehr-blue/departments/commerce/served.ts), so anywhere else the
+ * same role is told its role doesn't include pharmacy work. The real facility's id is fictional.
+ */
+describe('the Pharmacy work a refusal names', () => {
+  const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
+  const REAL_PHARMACY = 'f0000000-0000-4000-8000-000000000003'
+  const OTHER_PAGES = ['pharmacy.walk-in.create', 'billing.bill.read', 'pharmacy.stock.read', 'billing.catalogue.read', 'billing.shift.own',
+    'billing.settings.manage']
+
+  it.each([[[]], [['pharmacy.dispensing.read', 'pharmacy.dispensing.create']], [['ehr.encounter.read']]])('with %j: pharmacy work, wherever', permissions => {
+    for (const facilityId of [DEMO_PHARMACY, REAL_PHARMACY, undefined]) expect(pharmacyWorkFor(permissions, facilityId)).toBe(PHARMACY_WORK)
+  })
+
+  it.each(OTHER_PAGES)('with %s, at a demo facility, where it opens another Pharmacy page: prescriptions, by the same rule', permission => {
+    expect(pharmacyWorkFor([permission], DEMO_PHARMACY)).toEqual({ ...PHARMACY_WORK, work: 'prescriptions' })
+  })
+
+  it.each(OTHER_PAGES)('with %s, at a real facility, where that page does not open: pharmacy work', permission => {
+    expect(pharmacyWorkFor([permission], REAL_PHARMACY)).toBe(PHARMACY_WORK)
+    expect(pharmacyWorkFor([permission], undefined)).toBe(PHARMACY_WORK)
   })
 })
 

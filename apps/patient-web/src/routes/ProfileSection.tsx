@@ -47,9 +47,13 @@ export function ProfileSection({ id, title, state, className, busy, headingRef, 
       <button type="button" aria-expanded={open} aria-controls={`${id}-content`}
         aria-describedby={state ? `${id}-state` : undefined} onClick={() => sections.toggle(id)}
         className="flex min-h-14 w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-3 text-left font-[inherit] hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
-        <span className={cx('min-w-0 flex-1 text-title-3', tone === 'danger' ? 'text-danger-ink' : 'text-ink')}>{title}</span>
-        {/* Read as the button's description, so the heading is named by its title alone. */}
-        {state && <span id={`${id}-state`} className="shrink-0 text-[13px] font-normal text-ink-3" aria-hidden="true">{state}</span>}
+        {/* The state beside the title, at the end of the row; under it where both do not fit, as on a phone: kept its
+            width, "Saved 20 Oct 2026, 07:00" left "Health information" 49px at 320px. */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <span className={cx('min-w-0 text-title-3 [overflow-wrap:anywhere]', tone === 'danger' ? 'text-danger-ink' : 'text-ink')}>{title}</span>
+          {/* Read as the button's description, so the heading is named by its title alone. */}
+          {state && <span id={`${id}-state`} className="text-[13px] font-normal text-ink-3" aria-hidden="true">{state}</span>}
+        </span>
         <ChevronDown aria-hidden="true" className={cx('size-5 shrink-0 text-ink-3 transition-transform', open && 'rotate-180')} />
       </button>
     </h2>

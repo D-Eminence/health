@@ -2,10 +2,11 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
-import { WRITE_NOTE_LABEL } from '../../../ehr-blue/clinical/consult/encounters'
+import { NOTE_ON_LATER_PAGE, NOTE_STATUS_ON_LATER_PAGE, WRITE_NOTE_LABEL } from '../../../ehr-blue/clinical/consult/encounters'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import { SAID_CHANGED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, one encounter: the Notes card (every clinical note of the encounter, each with today's NotePanel
@@ -166,14 +167,16 @@ describe('Consultation record: the Notes card (item 1)', () => {
     const notes = () => within(card('Notes'))
     await waitFor(() => expect(notes().getAllByRole('listitem')).toHaveLength(2))
     expect(notes().getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Vitals', 'Handover'])
-    expect(notes().queryByText('No notes for this encounter.')).toBeNull()
+    expect(notes().queryByText('No notes for this consultation.')).toBeNull()
+    // One page, nursing notes only: no consultation note was written, and the Saved record says so.
+    expect(savedValues()).toMatchObject({ 'Note status': 'Not recorded', Note: 'Not recorded' })
   })
 
-  it('says "No notes for this encounter." when the visit has no notes at all', async () => {
+  it('says "No notes for this consultation." when the visit has no notes at all', async () => {
     pages['clinical-notes'] = { '': { items: [], nextCursor: null } }
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
-    expect(await within(card('Notes')).findByText('No notes for this encounter.')).toBeTruthy()
+    expect(await within(card('Notes')).findByText('No notes for this consultation.')).toBeTruthy()
   })
 
   it('item 1: signs an older note under the clinician’s typed reason after SIGN is typed, after the access re-check', async () => {
@@ -252,7 +255,8 @@ describe('Consultation record: the Notes card (item 1)', () => {
     await waitFor(() => expect(submitIn(row, 'Mark entered in error').getAttribute('aria-disabled')).toBeNull())
     fireEvent.click(submitIn(row, 'Mark entered in error'))
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
-    expect((await row.findByRole('alert')).textContent).toBe('The record changed since it was read.')
+    expect((await row.findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The record changed since it was read.')
   })
 
   it('item 1: records a revision of an older note after the access re-check, with today’s checks, reusing the key on retry', async () => {
@@ -275,7 +279,8 @@ describe('Consultation record: the Notes card (item 1)', () => {
     api.addNoteRevision.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(row.getByRole('button', { name: 'Record revision' }))
-    expect((await row.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await row.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
     expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.addNoteRevision.mock.invocationCallOrder[0]!)
     revisions['note-0'] = [...revisions['note-0']!, { id: 'rev-0b', revisionNo: 2, content: 'Admitted with fever and chills (fictional).', changeReason: 'Symptom added', createdAt: '2026-10-30T09:00:00.000Z' }]
@@ -295,7 +300,8 @@ describe('Consultation record: the Notes card (item 1)', () => {
     })
     await openEncounter()
     fireEvent.click(noteRow('Admission note').getByRole('button', { name: 'Review note content' }))
-    expect((await noteRow('Admission note').findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await noteRow('Admission note').findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(noteRow('Admission note').queryByRole('button', { name: 'Sign note' })).toBeNull()
     expect(noteRow('Admission note').queryByRole('button', { name: 'Add a note revision' })).toBeNull()
   })
@@ -336,6 +342,37 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(pager().getByText('Page 1')).toBeTruthy()
   })
 
+  it('after a change made while a later notes page is shown, reads the first page again too, so the Saved record and Actions never keep the old note', async () => {
+    const first = [NOTE, ...many('note-p1', 49, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
+    const second = many('note-p2', 3, index => ({ noteType: 'Progress', title: `Older progress note ${index}`, status: 'signed', rowVersion: 1 }))
+    pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
+    await openEncounter()
+    const notes = () => within(card('Notes'))
+    fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await notes().findByText('Older progress note 1')).toBeTruthy()
+    expect(savedValues()).toMatchObject({ 'Note status': 'draft' })
+    expect(within(card('Actions')).getByRole('button', { name: 'Sign note' })).toBeTruthy()
+    // EHR marks the visit's notes entered in error with it (staff/routes/Clinical.tsx:82), on every page.
+    const closed = (note: Record<string, unknown>) => ({ ...note, status: 'entered_in_error', rowVersion: Number(note.rowVersion) + 1 })
+    pages['clinical-notes'] = { '': { items: first.map(closed), nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second.map(closed), nextCursor: null } }
+    api.updateEncounter.mockResolvedValue({ ...ENCOUNTER, status: 'entered_in_error', rowVersion: 4 })
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'entered_in_error', rowVersion: 4 })
+    const actions = within(card('Actions'))
+    fireEvent.click(actions.getByRole('button', { name: /^More actions/ }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Mark as entered in error' }))
+    fireEvent.change(actions.getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
+    fireEvent.click(submitIn(actions, 'Mark as entered in error'))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark as entered in error' }))
+    expect(await screen.findByText('Consultation updated.')).toBeTruthy()
+    // The page shown is read again fresh, and the first page with it.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: true })
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
+    expect(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('status').textContent).toBe('Page 2')
+    // The summary says what EHR now holds, and nothing is offered on the note as it was.
+    expect(savedValues()['Note status']).toBe('entered in error')
+    expect(within(card('Actions')).queryByRole('button', { name: 'Sign note' })).toBeNull()
+  })
+
   it('blocker: a nursing observation past the first 50 notes is reached by paging the Notes card, History linking the page shown', async () => {
     const first = [NOTE, OBSERVATION, ...many('note-p1', 48, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
     // An older observation, on the notes' second page only: today's Notes tab lists it there, with its actions.
@@ -359,6 +396,63 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(notes().getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Older progress note 1', 'Older progress note 2', 'Vitals'])
     expect(noteRow('Vitals').getByText(/^Nursing observation · Recorded /)).toBeTruthy()
     expect(savedValues()).toMatchObject({ 'Note status': 'draft', Note: 'History\nCough for three days.' })
+  })
+
+  it('blocker: signs a nursing observation on the second notes page from its Notes row, then re-reads that page fresh', async () => {
+    const first = [NOTE, ...many('note-p1', 49, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
+    const older = { ...OBSERVATION, id: 'b2d7f047-0000-4000-8000-000000000002', createdAt: '2026-10-28T07:00:00.000Z', title: 'Handover', status: 'draft', rowVersion: 4 }
+    pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: [older], nextCursor: null } }
+    revisions[older.id] = [{ id: 'rev-o1', revisionNo: 1, content: 'Handed over to the night nurse (fictional).', changeReason: 'Handover', createdAt: older.createdAt }]
+    await openEncounter()
+    fireEvent.click(within(within(card('Notes')).getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await within(card('Notes')).findByText('Handover')).toBeTruthy()
+    await review('Handover', 'Handed over to the night nurse (fictional).')
+    const row = noteRow('Handover')
+    fireEvent.click(row.getByRole('button', { name: 'Sign note' }))
+    fireEvent.change(row.getByLabelText(labelled('Reason for change')), { target: { value: 'Reviewed at handover' } })
+    fireEvent.click(submitIn(row, 'Sign note'))
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    pages['clinical-notes']['notes-cursor-2'] = { items: [{ ...older, status: 'signed', rowVersion: 5 }], nextCursor: null }
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', older.id,
+      { expectedRowVersion: 4, changeReason: 'Reviewed at handover', status: 'signed' })
+    // Today's reload after a change: the page shown, fresh (Clinical.tsx:1862 loadRecords('clinical-notes', 'shown', true)).
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: true })
+    await waitFor(() => expect(noteRow('Handover').getByText('Signed')).toBeTruthy())
+    expect(within(within(card('Notes')).getByRole('navigation', { name: 'Record pages' })).getByRole('status').textContent).toBe('Page 2')
+  })
+
+  it('nursing notes filling the first notes page: the Saved record points to Notes, never "Not recorded", on either page', async () => {
+    const observations = many('obs-p1', 50, index => ({
+      noteType: 'Nursing observation', title: 'Handover', status: 'signed', rowVersion: 1, createdAt: `2026-10-31T${String(index % 24).padStart(2, '0')}:00:00.000Z`,
+    }))
+    pages['clinical-notes'] = { '': { items: observations, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: [NOTE], nextCursor: null } }
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    await waitFor(() => expect(within(card('Notes')).getAllByRole('listitem')).toHaveLength(50))
+    expect(savedValues()).toMatchObject({
+      'Note status': 'See Notes below',
+      Note: 'The newest notes are all nursing notes. A consultation note, if there is one, is on a later page of Notes below.',
+    })
+    expect(within(card('Note')).queryByText('Not recorded')).toBeNull()
+    // Nothing is offered to sign unseen from Actions: the note is signed from its own row, on its page.
+    expect(within(card('Actions')).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    fireEvent.click(within(within(card('Notes')).getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await within(card('Notes')).findByText('Consultation note')).toBeTruthy()
+    expect(savedValues()).toMatchObject({ 'Note status': NOTE_STATUS_ON_LATER_PAGE, Note: NOTE_ON_LATER_PAGE })
+  })
+
+  it('says "No notes on this page." on an empty later notes page, keeping "No notes for this consultation." for a visit with none', async () => {
+    const first = [NOTE, ...many('note-p1', 49, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
+    // EHR can hand back a cursor with a full page and then an empty page.
+    pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: [], nextCursor: null } }
+    await openEncounter()
+    const notes = () => within(card('Notes'))
+    fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await notes().findByText('No notes on this page.')).toBeTruthy()
+    expect(notes().queryByText('No notes for this consultation.')).toBeNull()
+    expect(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('status').textContent).toBe('Page 2')
   })
 
   it('format: "Record pages" announces the page reached, and a button at either end keeps focus and does nothing, as today’s Pager', async () => {
@@ -429,7 +523,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(await view().findByText('Malaria (fictional)')).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: 'dx-cursor-2', fresh: false })
     expect(view().getAllByRole('listitem')).toHaveLength(1)
-    expect(view().getByText('ICD-10 · B54 · active · provisional')).toBeTruthy()
+    expect(view().getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
     expect(pager().getByText('Page 2')).toBeTruthy()
     // A read only: nothing to change, add or update.
     expect(view().queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()
@@ -525,7 +619,8 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     await openEncounter()
     const notes = () => within(card('Notes'))
     fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
-    expect((await notes().findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect((await notes().findByRole('alert')).textContent).toBe(`The page could not be loaded. ${SAID_UNAVAILABLE}`)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(notes().getByText('Progress note 49')).toBeTruthy()
     expect(within(notes().getByRole('navigation', { name: 'Record pages' })).getByText('Page 1')).toBeTruthy()
   })

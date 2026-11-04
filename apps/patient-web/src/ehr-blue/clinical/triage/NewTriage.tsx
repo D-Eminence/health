@@ -1,7 +1,7 @@
 import { isHidApiError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { isDemoFacility } from '../../blueFacilities'
@@ -39,6 +39,7 @@ const PRIORITIES = ['Routine', 'Urgent', 'Emergency'] as const
 function NewTriageForm({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
+  const location = useLocation()
   const reads = chart.can('ehr.vital.read')
   const writes = chart.can('ehr.vital.write')
   const canCreate = reads && chart.canWrite && writes
@@ -69,6 +70,9 @@ function NewTriageForm({ chart }: { chart: Chart }) {
   }
 
   const visits = list.encounters ?? []
+  // Opened from a consultation's Vitals card: that visit is chosen, only when it is one of this patient's visits read.
+  const asked = (location.state as { visitId?: unknown } | null)?.visitId
+  const preset = typeof asked === 'string' ? visits.find(encounter => encounter.id === asked) ?? null : null
   const visitHint = (chosen: Encounter | null) => {
     if (!chosen) {
       if (list.encounters === null || visits.length > 0) return undefined
@@ -97,7 +101,7 @@ function NewTriageForm({ chart }: { chart: Chart }) {
         {reads ? <VisitPages list={list} label="Encounter pages" /> : null}
         {canCreate ? (
           list.encounters === null ? (list.loading ? <Loading label="Loading encounters…" /> : null) : (
-            <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save record" onSubmit={submit}>
+            <VitalsForm mode="record" visits={visits} initialVisit={preset} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save record" onSubmit={submit}>
               {/* Sample fields inside a live form: only at the demo facilities, where nothing real is recorded. */}
               {isDemoFacility(chart.facilityId) ? <SampleTriage /> : null}
             </VitalsForm>

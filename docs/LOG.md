@@ -2788,6 +2788,36 @@ Novu only; every page, route, label and note below is behind `usesNovuBackend()`
 - **Registry and boundaries.** Sixteen routes added as `proposed`, Novu only (nine staff, three public, four console); `admin.selfServiceFacilityReview` needs both permissions.
 - **Not verified live.** Component, API and contract tests and both builds; no run against a deployed Identity.
 
+## 2026-11-02: Support chat stays clear of fields and the bottom menu on phones
+
+A pass over the patient pages at 320, 360 and 390px (production's signed-out pages, and the website's preview, `npm run dev:mock`, for the signed-in ones) found the Support chat launcher, 156 by 48px in the bottom-right corner, on top of the patient bottom menu (➕, Access and Menu) and of form fields on sign-in, sign-up and password reset.
+
+- **On a phone (below 640px)** the launcher is a 48px round icon; "Support chat" stays its name for assistive technology (`.hid-chat-launcher-label`, hidden visually only).
+- **Above the bottom menu.** The shell's quick navigation carries `data-hid-bottom-nav`; below 1024px, wherever it is shown, the launcher sits 76px above the bottom (the menu is 64px). The shell's main area leaves 144px under the content (`max-lg:pb-36`, was 112px) so the last line scrolls clear of both.
+- **Out of the way while typing.** On a phone (640px and narrower) it fades while a form field outside the chat has focus (text, email, phone, password, search, a text area), and comes back when the field is left. It fades, it does not leave the page or the tab order.
+- **Sign-in, sign-up and recovery** leave 88px under the form on a phone, so the last line scrolls clear of the launcher.
+- `packages/ui` is shared, so the public website's launcher is a round icon on a phone too and steps aside while its forms are typed in.
+- **Checked** in Chromium on the preview at 320, 360, 390 and 1366px: the menu is no longer covered, the launcher fades on focus in a field and returns after it, and nothing it covers is out of reach at the end of a page. Not checked on a real phone or on production.
+
+An independent review of the change (two reviewers, each finding checked by a third) found four more problems, each fixed test first:
+
+- **Sticky buttons under the raised launcher.** On a phone a form's buttons are held above the bottom menu, where the launcher now was: it covered the right end of Share's Continue and "Share my records", and a tap there opened the chat; from 481px the 156px pill did the same. The launcher is now round below 640px (not only to 480px), and where it is on the page the sticky bars end their buttons before it (`FormActions`, 76px on the right; Share's footer inside its card, 60px). Measured at 320, 360, 390, 481 and 560px: nothing under the launcher, and a tap on a button's right end is the button's.
+- **A tap lost under the faded launcher.** A tap's mousedown moves focus off the field to the button, and the launcher took pointer events back before the tap's mouseup, which then went to the launcher: the click was lost (Chrome on Android). It now comes back only once the pointer is released and the task in which focus moved is over. With the old overlap put back, a touch tap on "Send invitation" sent nothing before and sends the invitation now.
+- **Hidden after signing in on an iPhone.** Safari and Firefox fire no focusout for a focused field that is removed, so after signing in (the password field gone, Home shown) the launcher stayed hidden. While it is aside, a change to the page checks where focus is.
+- **Back to top on the public site** (38px, same corner, later in the page) covered the round launcher, and a tap on the chat icon scrolled to the top. Where the launcher is on the page, Back to top sits above it (80px up).
+
+## 2026-11-02: patient pages at phone width, from the preview walkthrough
+
+A walkthrough of the signed-in patient pages in headless Chromium against the mock gateway (`npm run dev:mock` with the patient app), at 320, 360, 390 and 1366px, found no sideways scroll, no UUID, reference, code or permission name on screen, and four layout problems, fixed here. The Support chat launcher over form fields is a separate change.
+
+- **Share, the steps.** "Access" was cut to "Acc…" at 320px (37 of its 42px): the three steps had equal shares. Each step now takes its name's width, the lines between them what is left (14px each at 320px), and the last, with no line after it, no more. "Who" does not shrink, so where even that is short only "Access" gives way, and the gaps are 6px on a phone (8px from 640px). Measured with the names and numbers enlarged, as Android's larger text does in a WebView: all three whole up to 1.2x at 320px and 1.5x at 360 and 390px; past that only "Access" is cut, where main cut "Access" from 1x at 320px and "Who" and "Check" too from 1.5x.
+- **Profile, a section's state.** "Saved 20 Oct 2026, 07:00" kept its width beside "Health information" and left the title 49px at 320px (89 at 360, 119 at 390), on two lines. The state now sits at the end of the title's row where both fit, as on a desktop, and under the title where they do not.
+- **About you, email and phone.** The masked email (122px) had 83px beside Change at 320px and ran under the button. The value now keeps at least 8rem beside its name, and Change goes to a line of its own where both do not fit (320 and 360px); a longer address wraps within its line. Measured with "a•••@example.test" and a 52-character unverified address, with Verify and Change: nothing under a button at 320 to 1366px.
+- **About you, Country** showed "NG". A two-letter code is now shown by its name ("Nigeria", from the browser's region names); anything else as held, since hid-system's `patients.country` is free text (a promoted hid-1.0 account keeps what it had), and so is a code no country has: those ISO 3166-1 leaves for users to assign (AA, QM to QZ, XA to XZ, ZZ; the browser names some, "Pseudo-Accents" for XA), and any it has no name for.
+- **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
+- **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
+- **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
 ## 2026-11-03: patient shell and shared parts, launch fixes
 
 The launch audit's findings about the shell every signed-in product shares (patient portal, provider EHR, platform admin) and the Kasuwa parts every page uses. Tests came first and were committed failing; each fix was then checked in Chromium at 320, 360, 390 and 1366px against the mock gateway, and the admin and EHR shells were checked the same way.

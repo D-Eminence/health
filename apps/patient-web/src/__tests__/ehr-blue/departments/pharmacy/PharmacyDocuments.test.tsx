@@ -6,6 +6,7 @@ import { documentTypesServed, forgetDocumentTypesServed } from '../../../../docu
 import type * as DocumentTypesModule from '../../../../documentTypes'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_REFUSED } from '../../../said'
 import {
   accepted, AMOXICILLIN, CREATE, deferred, dispensed, DISPENSING_READ, expectNoFullPatientIds, METFORMIN, otherActions, PATIENT_A, PATIENT_B,
   PRESCRIPTIONS, prescriptionCard, READ, recorded, REVERSE, routeCard, showTab,
@@ -52,7 +53,7 @@ vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test',
 const DOC_READ = 'pharmacy.document.read'
 const DOC_WRITE = 'pharmacy.document.write'
 const DOCUMENTS = [READ, CREATE, DOC_READ, DOC_WRITE]
-const HINT = 'PDF, JPEG, PNG or TIFF, up to 50 MiB.'
+const HINT = 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.'
 const ATTACHED = 'Prescription sheet attached. It can be opened once its virus scan is clean.'
 
 const sheet = (overrides: Partial<DocumentRecord> = {}): DocumentRecord => ({
@@ -142,7 +143,7 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
     expect(api.workItemDocuments).toHaveBeenCalledTimes(1)
     expect(api.workItemDocuments).toHaveBeenCalledWith(DEMO_PHARMACY_ID, PATIENT_A, { kind: 'pharmacy', id: accepted.id })
     expect(within(documents).getByText('Prescription sheet')).toBeTruthy()
-    expect(within(documents).getByText('image/png · 40 KiB · scan: clean')).toBeTruthy()
+    expect(within(documents).getByText('PNG image · 40 KB · Checked')).toBeTruthy()
     expect(within(documents).getByRole('button', { name: 'Open file' })).toBeTruthy()
     // A supporting card with its own h2, in the record's side column, after the Prescription card.
     expect(screen.getByRole('heading', { level: 2, name: 'Prescription sheets' })).toBeTruthy()
@@ -167,7 +168,7 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
   it('offers no Open file until the virus scan is clean, and says when there are none', async () => {
     api.workItemDocuments.mockResolvedValueOnce(page([sheet({ scanStatus: 'pending' })]))
     await openRecord()
-    expect(await within(card()).findByText('image/png · 40 KiB · scan: pending')).toBeTruthy()
+    expect(await within(card()).findByText('PNG image · 40 KB · Being checked for viruses')).toBeTruthy()
     expect(within(card()).queryByRole('button', { name: 'Open file' })).toBeNull()
     backToList()
     api.workItemDocuments.mockResolvedValueOnce(page([]))
@@ -215,19 +216,22 @@ describe('served, for a member who reads and attaches pharmacy documents', () =>
     await openRecord()
     choose(new File(['Demo Pharmacy'], 'notes.txt', { type: 'text/plain' }))
     attach()
-    expect(await within(card()).findByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(await within(card()).findByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
     expect(api.uploadWorkItemDocument).not.toHaveBeenCalled()
   })
 
-  it('says a refusal in the backend’s own words: the lab-result wording is the Lab card’s only', async () => {
+  it('says a refusal in plain words, never the backend’s: the lab-result wording is the Lab card’s only', async () => {
     api.uploadWorkItemDocument.mockRejectedValueOnce(new HidApiError(403, 'Pharmacy document access is not authorized', { code: 'FORBIDDEN' }))
     await openRecord()
     choose(png())
     attach()
-    expect((await within(card()).findByRole('alert')).textContent).toBe('Pharmacy document access is not authorized')
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Pharmacy document access is not authorized')
     api.uploadWorkItemDocument.mockRejectedValueOnce(new HidApiError(403, 'This document type is not allowed here', { code: 'DOCUMENT_TYPE_NOT_ALLOWED_HERE' }))
     attach()
-    await waitFor(() => expect(within(card()).getByRole('alert').textContent).toBe('This document type is not allowed here'))
+    await waitFor(() => expect(api.uploadWorkItemDocument).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(within(card()).getByRole('alert').textContent).toBe(SAID_REFUSED))
+    expect(document.body.textContent).not.toMatch(/This document type is not allowed here|Lab results can be uploaded/)
     expect(within(card()).queryByText(ATTACHED)).toBeNull()
   })
 })

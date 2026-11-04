@@ -70,7 +70,7 @@ describe('signing in again from a blue page', () => {
     expect(again.getAttribute('href')).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fappointments')
     fireEvent.click(again)
     // The blue sign-in, as every facility now has it (BLUE_FOR_ALL).
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email' }), { target: { value: 'demo.clinician@example.test' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.clinician@example.test' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(where()).toBe('/provider/appointments'))

@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
 import { DOCUMENT_TYPE_NOT_ALLOWED_HERE_MESSAGE, documentTypesServed, forgetDocumentTypesServed } from '../../../documentTypes'
 import type * as DocumentTypes from '../../../documentTypes'
+import { SAID_REFUSED } from '../../../__tests__/said'
 
 /**
  * The document types on the classic Clinical record › Documents (the owner's rule, 31 Oct). The website ships before
@@ -371,12 +372,13 @@ describe('a type the backend refuses on this host', () => {
     expect(typeSelect()!.value).toBe('lab_result')
   })
 
-  it('says any other refusal in its own words, as today', async () => {
+  it('says any other refusal in plain words, never the backend’s', async () => {
     api.documents.mockResolvedValue(served())
     api.uploadDocument.mockRejectedValue(new HidApiError(403, 'Access denied', { code: 'FORBIDDEN' }))
     await openDocuments()
     choose(pdf())
     send()
-    expect((await screen.findByRole('alert')).textContent).toBe('Access denied')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toMatch(/Access denied|FORBIDDEN/)
   })
 })
