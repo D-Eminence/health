@@ -57,12 +57,10 @@ def validate_config(config, environment='staging'):
         raise ValueError('Exact ' + environment + ' API/portal required')
     if set(config) - {'backend_contract'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat', 'card_shares'}:
         raise ValueError('Unexpected configuration fields')
-    # Step 8 (hid-system 0118): sending the card by email. Built but switched off until legal signs off (D13): an exact
-    # boolean, and production refuses true until that sign-off changes this line.
+    # Step 8 (hid-system 0118): sending the card by email, an exact boolean. Legal approved and the owner switched it on
+    # (4 Nov 2026); false switches the pages off again.
     if type(config.get('card_shares')) is not bool:
         raise ValueError('card_shares must be true or false')
-    if environment == 'production' and config['card_shares']:
-        raise ValueError('Card links stay off in production until legal signs off')
     if config.get('backend_contract', 'main-v1') not in ('main-v1', 'novu-v1'):
         raise ValueError('Unsupported backend contract')
     chat = config.get('chat')

@@ -6,7 +6,7 @@ import { HEALTH_FIELDS, type HealthFields } from './profileParity'
 
 /**
  * Step 8 (hid-system 0118; BACKEND-NEEDS.md §2): the patient sends their Health ID card by email to any address, and
- * whoever has the link opens it, read only, with a 6-digit code emailed to that same address. Built but switched off until
+ * whoever has the link opens it, read only, with a 6-digit code emailed to that same address. Switched on (legal approved, owner 4 Nov 2026); false in config switches it off. Earlier: built off until
  * legal signs off (D13): the build's switch (cardSharesFlag.ts) and the backend's answer (404 NOT_FOUND while off) must
  * both say on. The owner's answers of 4 Nov 2026 (all the recommended options) and the critique's fixes are built here:
  * 24 hours or 7 days (no 30 days in v1); a new link to the same address ends the old one; email only, never a link to

@@ -42,7 +42,7 @@ export interface HidEnvironment {
   readonly ssoEnabled: boolean
   /**
    * Step 8 (hid-system 0118): the patient sends their card by email, and whoever has the link opens it with a one-time code.
-   * Built but switched off until legal signs off (D13): from the prefix's `CARD_SHARES` (`VITE_HID_CARD_SHARES`), off unless
+   * Switched on in config since legal approved (owner, 4 Nov 2026): from the prefix's `CARD_SHARES` (`VITE_HID_CARD_SHARES`), off unless
    * exactly `true`. On, the pages still wait for the backend to answer that it serves the routes.
    */
   readonly cardSharesEnabled: boolean

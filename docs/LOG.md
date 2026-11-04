@@ -2818,13 +2818,13 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
 
-## 2026-11-04: Send my card by email, opened with a one-time code (step 8, switched off)
+## 2026-11-04: Send my card by email, opened with a one-time code (step 8, switched on)
 
 Akos handover step 8 (hid-system migration 0118), built against the design and critique of 4 Nov 2026 with the owner's
-answers to all 13 questions (the recommended options) and every critique fix. **Switched off** until legal signs off
-(D13, NDPA): `VITE_HID_CARD_SHARES` is false in `config/staging.json` and `config/production.json`, `staging_release.py`
-requires it to be an exact boolean and refuses `true` for production, and the build sets it on the patient portal's
-host only. On, every page still waits for the backend: the patient's list answering 200, or the receiver's availability
+answers to all 13 questions (the recommended options) and every critique fix. **Switched on**: legal approved and the
+owner said "switch on" (4 Nov 2026). `VITE_HID_CARD_SHARES` is true in `config/staging.json` and `config/production.json`
+(false switches the pages off again), `staging_release.py` requires an exact boolean, and the build sets it on the
+patient portal's host only. On, every page still waits for the backend: the patient's list answering 200, or the receiver's availability
 answering 204. Off, or 404, nothing is shown and no card request is sent. Contract in BACKEND-NEEDS.md §2.
 
 - **Patient, `/access/share/card`.** The address, an optional private label, Card only or Card and records, 24 hours

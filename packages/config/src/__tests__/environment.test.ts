@@ -111,7 +111,7 @@ describe('ssoEnabled', () => {
 })
 
 /**
- * Step 8 (hid-system 0118): sending the card by email, built but switched off until legal signs off. Off unless the build
+ * Step 8 (hid-system 0118): sending the card by email, switched on in config since legal approved (4 Nov 2026). Off unless the build
  * sets VITE_HID_CARD_SHARES to exactly true; anything else that is not false fails the configuration.
  */
 describe('cardSharesEnabled', () => {

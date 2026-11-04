@@ -13,7 +13,7 @@ import { WHAT, accessLogActor, accessLogWhat } from '../routes/AccessLog'
 import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 
 /**
- * Step 8 (hid-system 0118, switched off until legal signs off): the patient sends their card by email. Off, or where the
+ * Step 8 (hid-system 0118, switched on 4 Nov 2026 after legal approval): the patient sends their card by email. Off, or where the
  * backend answers GET identity/me/card-shares 404, nothing of it is shown and nothing more is asked. On: the form (the
  * address, a private label, card only or card and records, 24 hours or 7 days), the check step that says what is shared
  * and that an earlier link to the same address ends, the done step, the list of links with End now, the inbox titles

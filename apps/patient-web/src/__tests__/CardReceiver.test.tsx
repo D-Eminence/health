@@ -7,7 +7,7 @@ import { enterCode } from './codeBoxes'
 import { json, problem, shownText } from './portalHarness'
 
 /**
- * Step 8 (hid-system 0118, switched off until legal signs off): the page a card link opens, /card#<token>. It sends
+ * Step 8 (hid-system 0118, switched on 4 Nov 2026 after legal approval): the page a card link opens, /card#<token>. It sends
  * nothing about the token until the person asks for a code; the token leaves the address bar at once and travels only
  * in POST bodies; every read after the code names its own view (X-Card-View), so two cards in one browser never mix;
  * nothing is kept in browser storage; a reload needs a new code; it covers itself after 5 minutes idle; and no answer
