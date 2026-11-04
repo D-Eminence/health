@@ -27,7 +27,8 @@ def app_environment(config, environment, app, host, source, inherited):
                 # Error reports are tagged with the build: the first 12 characters of the source commit.
                 prefix + 'BUILD': source[:12],
                 'NEXT_TELEMETRY_DISABLED': '1'})
-    # Error reporting starts only in a build that carries a DSN; config/<environment>.json keeps it null (off).
+    # Error reporting starts only in a build that carries a DSN; production's config/production.json holds the
+    # owner's EU project DSN; staging's is null (off).
     if isinstance(config.get('sentry_dsn'), str) and config['sentry_dsn']:
         env[prefix + 'SENTRY_DSN'] = config['sentry_dsn']
     if not public:

@@ -20,5 +20,5 @@
     "supportContact": "mailto:support@healthidentitydirectory.com"
   },
   "backend_contract": "novu-v1",
-  "sentry_dsn": null
+  "sentry_dsn": "https://64b3d8383c9310778f5e024d906090e9@o4512373598519296.ingest.de.sentry.io/4512373615886416"
 }

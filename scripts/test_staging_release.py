@@ -124,7 +124,7 @@ class ErrorReportingConfigTests(unittest.TestCase):
         operator = {'PATH': '/usr/bin', 'VITE_HID_SENTRY_DSN': 'https://operator.example/1', 'VITE_HID_BUILD': 'operator',
                     'NEXT_PUBLIC_HID_SENTRY_DSN': 'https://operator.example/1', 'NEXT_PUBLIC_HID_BUILD': 'operator'}
         for environment, hosts in [('staging', HOSTS), ('production', PRODUCTION_HOSTS)]:
-            off = self.config(environment)
+            off = {**self.config(environment), 'sentry_dsn': None}
             on = {**off, 'sentry_dsn': DSN}
             for app, host in hosts.items():
                 prefix = 'NEXT_PUBLIC_HID_' if app == 'public' else 'VITE_HID_'

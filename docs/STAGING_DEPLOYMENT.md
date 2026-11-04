@@ -19,11 +19,13 @@ known product. Existing admin bookmarks redirect to `/admin/...`.
 ## Error reporting
 
 The portal and the public site can send error reports to Sentry (owner's
-approval, 2026-11-03). It is off: `sentry_dsn` is `null` in
-`config/staging.json` and `config/production.json`, and a build without a DSN
-adds no listener and sends nothing.
+approval, 2026-11-03). It is on in production: `config/production.json` holds
+the public DSN of the owner's website project in Sentry's EU region (ingest host
+`o4512373598519296.ingest.de.sentry.io`). It is off in staging:
+`config/staging.json` says `null`, and a build without a DSN adds no listener
+and sends nothing.
 
-To switch it on for an environment, set `sentry_dsn` to the Sentry project's
+To switch it on for another environment, set `sentry_dsn` to the Sentry project's
 public DSN (`https://<32 hex key>@<host>[/<prefix>]/<project id>`; the release
 check refuses anything else) and build a release. `build-staging.py` then gives
 every app `*_SENTRY_DSN`; it gives every app `*_BUILD`, the first 12 characters
@@ -38,10 +40,12 @@ email, a phone number, an account or user id, cookies or an IP address, and
 there is no session replay. Each kind of error is sent once per page load, ten
 reports at most.
 
-In the Sentry project, before switching it on: turn on "Prevent Storing of IP
+In the Sentry project, before the first production release that carries the
+DSN: turn on "Prevent Storing of IP
 Addresses" and data scrubbing (the Data Scrubber with the default scrubbers),
 under Security & Privacy. When a Content-Security-Policy is added (hand-off D6),
-its `connect-src` must allow the ingest host the DSN names, or reports are
+its `connect-src` must allow the ingest host the DSN names
+(`https://o4512373598519296.ingest.de.sentry.io` for production), or reports are
 blocked.
 
 ## Repeatable builds
