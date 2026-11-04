@@ -27,6 +27,7 @@ import {
   CannotCompleteEndings, endingKey, OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode,
 } from './CannotComplete'
 import { useLearnDocumentTypesServed, useWorkItemDocumentsOffered, WorkItemDocuments, workItemDocumentsTitleId } from './WorkItemDocuments'
+import { campaignStatusLabel, roleWords, sexText, statusLabel } from '../../ehr-blue/departments/outreach/outreachParts'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -1255,8 +1256,8 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     const patientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); setProblem(null)
-    const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
+    const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the patient ID.' }
+      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter the whole patient ID, exactly as Health ID gave it.' }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
@@ -1274,7 +1275,7 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     }
     finally { setBusy(false) }
   }
-  return <Card className="staff-card"><h2 id="ocr-confirm-title" tabIndex={-1}>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. Health ID verifies an exact match and write authorization.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')} required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required {...problemProps(problem, 'ocr-confirm-patient')} /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')} required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-confirm-reason')} /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button id="ocr-confirm-submit" type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
+  return <Card className="staff-card"><h2 id="ocr-confirm-title" tabIndex={-1}>Confirm source patient</h2><p>Check the patient against the source document before publishing. Health ID checks for an exact match and write access.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}><Field label="Patient ID" htmlFor="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')} required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required {...problemProps(problem, 'ocr-confirm-patient')} /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')} required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-confirm-reason')} /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button id="ocr-confirm-submit" type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
 }
 
 /** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
@@ -1644,7 +1645,7 @@ export function Ocr() {
     // The last answer no longer applies, nor does a field refused before.
     setProblem(null); setError(''); setNotice('')
     const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
-      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
+      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter the whole document ID, exactly as Health ID gave it.' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     await lookup()
     focus('ocr-find-submit', true)
@@ -1663,7 +1664,7 @@ export function Ocr() {
     // Create extraction job stays available, so a missing ID is said at its field, which takes focus. The
     // document ID needs no check here: Create is shown only once Find job has taken it, and editing it hides Create.
     const refused = !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
-      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
+      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter the whole patient ID, exactly as Health ID gave it.' } : null
     setProblem(refused && refusal(refused))
     if (refused) { focus(refused.field); return }
     setBusy(true); setExtractions(null); setValidations(null)
@@ -1694,10 +1695,10 @@ export function Ocr() {
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description={refusalAt(facilityId, NO_DOCUMENT_OCR)} />
   return <>
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
-    <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
+    <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
-      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} placeholder="Patient UUID" required {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
+      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} required {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       {/* Mounted throughout, so a message put in it is announced. */}
       <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
@@ -1734,8 +1735,8 @@ function CampaignCard({ facilityId, membershipId, campaign, onMembershipChange }
   useEffect(() => {
     if (members.items) onMembershipChange(campaign.id, members.items.some(member => member.membershipId === membershipId))
   }, [campaign.id, membershipId, members.items, onMembershipChange])
-  return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
-    <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>
+  return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaignStatusLabel(campaign.status)}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
+    <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{roleWords(member.role)} · Added {dateText(member.createdAt)}</p>)}</details>
   </div>
 }
 
@@ -1755,15 +1756,15 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); problems.clear()
     if (!patientId || reason.length < 8) {
-      return problems.refuse(!patientId ? `outreach-patient-${item.id}` : `outreach-reason-${item.id}`, 'Enter a canonical patient ID and a reason of at least 8 characters.')
+      return problems.refuse(!patientId ? `outreach-patient-${item.id}` : `outreach-reason-${item.id}`, 'Enter the patient ID and a reason of at least 8 characters.')
     }
     setBusy(true); setSuccess('')
     try { await staffApi.linkExistingOutreachCase(facilityId, item, patientId, reason); setSuccess('Existing patient linked.'); await onChanged(); focus(`outreach-case-${item.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Patient could not be linked. Verify access and refresh the case.')) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
-    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} error={problems.error(`outreach-patient-${item.id}`)} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required {...problems.control(`outreach-patient-${item.id}`)} /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} error={problems.error(`outreach-reason-${item.id}`)} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required {...problems.control(`outreach-reason-${item.id}`)} /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{statusLabel(item.status)}</Badge></div><p>{item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {sexText(item)} · {dateText(item.createdAt)}</p>
+    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Patient ID" htmlFor={`outreach-patient-${item.id}`} error={problems.error(`outreach-patient-${item.id}`)} required><Input id={`outreach-patient-${item.id}`} name="patientId" required {...problems.control(`outreach-patient-${item.id}`)} /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} error={problems.error(`outreach-reason-${item.id}`)} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required {...problems.control(`outreach-reason-${item.id}`)} /></Field><p className="staff-muted">Health ID checks that you may open this patient and that the case hasn’t changed since you opened it.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`outreach-case-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>

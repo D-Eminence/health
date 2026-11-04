@@ -243,6 +243,27 @@ describe('what the new registration case form says', () => {
   })
 })
 
+describe('what a case and a campaign say', () => {
+  // Owner's answer on IDs: no screen shows a UUID, a short form of one, or a code. A case reads by its person, age, sex
+  // and date, with its status in words; a campaign by its status in words; a member by their role in words.
+  it('shows no case, temporary patient or membership ID, and no status, sex or role code', async () => {
+    api.outreachCases.mockResolvedValue([pendingCase])
+    render(<Outreach />)
+    await screen.findByText('Amaka Obi')
+    expect((await screen.findAllByText(/^Health worker · Added /)).length).toBe(2)
+    expect(screen.getByText('Waiting to link')).toBeTruthy()
+    expect(screen.getByText('Running')).toBeTruthy()
+    expect(screen.getByText('Not started')).toBeTruthy()
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('34 years · Female · ')
+    for (const hidden of ['••••', 'Temporary ID', 'Membership', 'identity resolution pending', 'health worker', 'female', 'c0000000', 'member-1'])
+      expect(text).not.toContain(hidden)
+    // The campaign badges say Running and Not started, never the stored status.
+    expect(screen.queryByText('active')).toBeNull()
+    expect(screen.queryByText('planned')).toBeNull()
+  })
+})
+
 describe('linking a registration case to an existing patient', () => {
   const PATIENT = 'a0000000-0000-4000-8000-000000000001'
 
@@ -251,7 +272,7 @@ describe('linking a registration case to an existing patient', () => {
     api.linkExistingOutreachCase.mockResolvedValue({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 })
     render(<Outreach />)
     fireEvent.click(await screen.findByText('Link verified existing patient'))
-    fireEvent.change(screen.getByLabelText(/^Canonical patient ID/), { target: { value: ` ${PATIENT} ` } })
+    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: ` ${PATIENT} ` } })
     fireEvent.change(screen.getByLabelText(/^Resolution reason/), { target: { value: ' Same name, age and phone as the Health ID record ' } })
     await press(screen.getByRole('button', { name: 'Link existing patient' }))
     await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledWith('facility-1', pendingCase, PATIENT,
@@ -264,14 +285,14 @@ describe('linking a registration case to an existing patient', () => {
     api.outreachCases.mockResolvedValue([pendingCase])
     render(<Outreach />)
     fireEvent.click(await screen.findByText('Link verified existing patient'))
-    fireEvent.change(screen.getByLabelText(/^Canonical patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
     fireEvent.change(screen.getByLabelText(/^Resolution reason/), { target: { value: ' short  ' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Link existing patient' }).closest('form')!)
     // Refused at the reason field (PEHR-04), which takes focus, so its description says why.
     const reason = screen.getByLabelText(/^Resolution reason/)
     await waitFor(() => expect(document.activeElement).toBe(reason))
     expect(reason.getAttribute('aria-invalid')).toBe('true')
-    expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter a canonical patient ID and a reason of at least 8 characters.')
+    expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter the patient ID and a reason of at least 8 characters.')
     expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
   })
 

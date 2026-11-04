@@ -172,7 +172,7 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); setProblem(null)
     const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Complete this field.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
+      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter the whole patient ID, exactly as Health ID gave it.' }
       : !reason ? { field: 'ocr-confirm-reason', message: 'Complete this field.' }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
@@ -193,7 +193,7 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
   }
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Confirm source patient" onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">Check the patient against the source document before publishing. Health ID checks for an exact match and write access.</p>
-    <EhrField label={<>Canonical patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')}>
+    <EhrField label={<>Patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')}>
       <EhrInput name="patientId" defaultValue={job.patientId ?? ''} required autoComplete="off" />
     </EhrField>
     <EhrField label={<>Confirmation reason<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')}>

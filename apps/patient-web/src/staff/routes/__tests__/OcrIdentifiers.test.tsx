@@ -46,7 +46,7 @@ describe('OCR identifiers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(field.getAttribute('aria-invalid')).toBe('true')
-    expect(described(field)).toMatch(/UUID/)
+    expect(described(field)).toBe('Enter the whole document ID, exactly as Health ID gave it.')
     expect(api.findOcrJob).not.toHaveBeenCalled()
   })
 
@@ -68,7 +68,7 @@ describe('OCR identifiers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create extraction job' }))
     await waitFor(() => expect(document.activeElement).toBe(patient))
     expect(patient.getAttribute('aria-invalid')).toBe('true')
-    expect(described(patient)).toMatch(/UUID/)
+    expect(described(patient)).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
     expect(api.createOcrJob).not.toHaveBeenCalled()
   })
 
@@ -83,17 +83,17 @@ describe('OCR identifiers', () => {
     await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledWith('facility-1', DOCUMENT, PATIENT))
   })
 
-  it('refuses a canonical patient ID that is not a UUID before confirming the source patient', async () => {
+  it('refuses a patient ID that is not a whole one before confirming the source patient', async () => {
     api.findOcrJob.mockResolvedValue({ job })
     renderOcr()
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
-    const patient = await screen.findByLabelText(/^Canonical patient ID/)
+    const patient = await screen.findByLabelText(/^Patient ID/)
     fireEvent.change(patient, { target: { value: 'patient-1' } })
     fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm source patient' }))
     await waitFor(() => expect(document.activeElement).toBe(patient))
-    expect(described(patient)).toMatch(/UUID/)
+    expect(described(patient)).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 })
