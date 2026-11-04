@@ -91,7 +91,7 @@ def archive_files(archive):
 
 
 def chat_features(config, app):
-    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in ('web', 'public'),
+    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in ('web', 'public', 'ehr'),
             'patientChatEnabled': config['chat']['patientChatEnabled'] and app == 'web',
             'supportContact': config['chat']['supportContact'],
             'backendContract': config.get('backend_contract', 'main-v1'),
