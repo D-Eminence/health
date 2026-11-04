@@ -1134,6 +1134,13 @@ describe('A lab request’s page', () => {
     expect(await screen.findByText('9.8 g/dL · low')).toBeTruthy()
     expect(screen.getByText('Reference range: 12.0-15.5')).toBeTruthy()
     expect(screen.getByText('Result 1')).toBeTruthy()
+    // The test leads with its name; its code waits under a closed "More details" (owner decision 33.4).
+    const named = screen.getByText(/^Haemoglobin · accepted by Lab /)
+    expect(named.textContent).not.toContain('718-7')
+    const details = named.parentElement!.querySelector(':scope > details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary')?.textContent).toBe('More details: Haemoglobin')
+    expect(details.querySelector(':scope > div')?.textContent).toBe('Code: LOINC 718-7')
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))

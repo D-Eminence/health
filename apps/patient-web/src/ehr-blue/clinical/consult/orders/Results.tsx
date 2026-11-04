@@ -2,6 +2,7 @@ import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
 import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
+import { codeText, MoreDetails } from '../../parts/MoreDetails'
 import { ErrorBox } from '../../parts/Notices'
 import { releasedResultsRefusal } from './words'
 
@@ -65,7 +66,11 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: 
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       {released ? released.results.length === 0 ? <p>No result released yet.</p> : (
         <>
-          <p>{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
+          <p>{released.test.name} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
+          {/* The test's code under More details, not inline (owner decision 33.4). */}
+          {codeText(released.test.codeSystem, released.test.code)
+            ? <MoreDetails about={released.test.name}><span>Code: {codeText(released.test.codeSystem, released.test.code)}</span></MoreDetails>
+            : null}
           {released.results.map((result, index) => (
             <div key={result.id} className="hid-ehr-clinical-orders-result">
               <div className="hid-ehr-clinical-orders-row">
