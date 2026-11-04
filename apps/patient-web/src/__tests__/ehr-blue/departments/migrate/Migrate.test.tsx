@@ -6,6 +6,7 @@ import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
+import { paperReading, unreadPaper } from './paperReadingPayload'
 
 /**
  * The blue Migrate page: today's Document OCR flow (staff/routes/Operations.tsx Ocr) in the design's list, new and
@@ -894,5 +895,55 @@ describe('Migrate: facility, account and hand-over', () => {
   it('ignores a hand-over made at another facility', () => {
     handOver('staff-demo-1', DEMO_LABORATORY_ID)
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe('')
+  })
+})
+
+describe('Migrate: what was read from a paper record, item by item', () => {
+  const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
+
+  it('shows the items by kind, careful checks first, who the paper is about, and keeps the steps to check it', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: paperReading() }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('7 items read · 2 need a careful check')).toBeTruthy()
+    expect(within(read).getByText('Name on the paper').nextSibling?.textContent).toBe('Bisi Fictional')
+    expect(within(read).getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
+      .toEqual(['Who the paper is about', 'Medicines', 'Diagnoses', 'Allergies', 'Lab results', 'Vitals', 'Notes'])
+    const medicines = within(within(read).getByRole('region', { name: 'Medicines' })).getAllByRole('listitem')
+    expect(medicines.map(row => row.querySelector('strong')?.textContent)).toEqual(['Metformin', 'Amlodipine'])
+    expect(within(medicines[0]!).getByText('Check carefully')).toBeTruthy()
+    // The reading's own parts never show as loose fields.
+    expect(within(read).queryByText('Pages')).toBeNull()
+    expect(within(read).queryByText('Contract')).toBeNull()
+    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Amlodipine 5mg od')
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+  })
+
+  it('says plainly when the items could not be picked out, and still shows the text', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: unreadPaper('ai_failed') }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('The items couldn’t be picked out automatically. Enter them by hand.')).toBeTruthy()
+    expect(within(read).queryByText(/items read/)).toBeNull()
+    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
+    expect(document.body.textContent).not.toContain('ai_failed')
+  })
+
+  it('shows only the text when a paper reading is not whole, and never breaks the page', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading({ items: [{ kind: 'medicine' }] }) }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).queryByText('Who the paper is about')).toBeNull()
+    expect(within(read).queryByText('Contract')).toBeNull()
+    expect(within(read).queryByText('Items')).toBeNull()
+    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+  })
+
+  it('keeps showing named fields for an extraction that is not a paper reading', async () => {
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Full blood count')).toBeTruthy()
+    expect(within(read).queryByText('Who the paper is about')).toBeNull()
   })
 })

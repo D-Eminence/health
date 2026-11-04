@@ -13,6 +13,7 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
+import { PaperReadingSummary, PaperReadingView, claimsPaperReading, parsePaperReading } from './paperReading'
 import {
   ConfirmForm, FormRefusal, ReviewForm, ReviewPublication, UUID_V4, jobInProgress, jobStatusWords, statusTone, statusWords, type PublicationAttempt,
 } from './ocrSteps'
@@ -507,9 +508,13 @@ export function Migrate() {
 
   /** What OCR read from the document, its newest extraction, shown as it is: checking it is a step of its own. */
   function readOut(extraction: OcrExtraction) {
-    const fields = extractedFields(extraction.structuredPayload)
-    return <DeptSection title="What was read" headingId="ocr-read-title">
+    // A paper reading shows its items; a payload that says it is one but is not whole shows only the text, never its
+    // parts as loose fields; any other payload shows its named fields, as before.
+    const reading = parsePaperReading(extraction.structuredPayload)
+    const fields = reading || claimsPaperReading(extraction.structuredPayload) ? [] : extractedFields(extraction.structuredPayload)
+    return <DeptSection title="What was read" headingId="ocr-read-title" actions={reading ? <PaperReadingSummary reading={reading} /> : undefined}>
       {extraction.confidence != null && <p className="hid-ehr-dept-muted">{`Read with ${Math.round(extraction.confidence * 100)}% confidence. Check it against the document.`}</p>}
+      {reading && <PaperReadingView reading={reading} />}
       {fields.length > 0 && <DeptFacts facts={fields} />}
       {extraction.rawText
         // It scrolls, so it takes focus: a keyboard can then scroll it.
