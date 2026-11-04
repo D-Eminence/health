@@ -8,7 +8,7 @@ import { parse } from '../../cssRules'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 import {
   DEMO_HOSPITAL, LAB_WORK, REAL_FACILITY, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt,
-  switchFacilityTo, where, withFramePages,
+  where, withFramePages,
 } from './blueHarness'
 
 /**
@@ -68,8 +68,8 @@ describe('1. design-only entries are only at the demo facilities', () => {
     fireEvent.click(accountButton())
     expect(screen.queryByRole('button', { name: 'Platform Super Admin' })).toBeNull()
 
-    // The facility switcher still opens Switch facility.
-    switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
+    // Choose workspace still opens Switch facility.
+    fireEvent.click(within(nav()).getByRole('link', { name: 'Choose workspace' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
   })
 

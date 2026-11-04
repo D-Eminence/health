@@ -183,7 +183,9 @@ describe('revoking', () => {
     expect(api.revoke).not.toHaveBeenCalled()
     fireEvent.click(within(decision).getByRole('button', { name: 'Revoke invitation' }))
     await waitFor(() => expect(api.revoke).toHaveBeenCalledWith(HOSPITAL, expect.objectContaining({ invitationId: 'invitation-demo-1', version: 1 })))
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Invitation revoked'))
+    // What revoking means is kept on the page, in the banner, with no toast.
+    await waitFor(() => expect(pageNotice()).toBe('The invitation to demo.doctor@example.test was revoked. Its link and code no longer work.'))
+    expect(toasts.success).not.toHaveBeenCalled()
     expect(await within(item).findByText('demo.doctor@example.test · Doctor · revoked')).toBeTruthy()
     // Revoke has gone with the read: focus goes to the row's details.
     await waitFor(() => expect(document.activeElement).toBe(within(item).getByRole('button', { name: 'Invitation details' })))
@@ -272,7 +274,8 @@ describe('the bulk bar', () => {
     fireEvent.change(within(decision).getByLabelText('Type REVOKE to confirm'), { target: { value: 'REVOKE' } })
     fireEvent.click(confirm)
     await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('1 invitation revoked'))
+    await waitFor(() => expect(pageNotice()).toBe('1 invitation revoked. Its link and code no longer work.'))
+    expect(toasts.success).not.toHaveBeenCalled()
     expect(await screen.findByText('Staff management is temporarily unavailable. Please try again in a few minutes.')).toBeTruthy()
     // The one not revoked stays selected.
     expect(within(screen.getByRole('region', { name: 'Selected invitation actions' })).getByText('1 selected')).toBeTruthy()

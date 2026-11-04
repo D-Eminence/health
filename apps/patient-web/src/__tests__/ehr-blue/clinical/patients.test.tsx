@@ -421,6 +421,41 @@ describe('The open patient’s page', () => {
     expect(where()).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
+  it('tells a role that brings in paper records that this access covers them, only for an adult under direct care', async () => {
+    const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
+    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.activePatient = activePatient()
+    const view = open('/open')
+    expect(await screen.findByText(LINE)).toBeTruthy()
+    view.unmount()
+
+    // Not to a role without paper records, not under emergency access, not on a grant that can't add records, not for
+    // a patient under 18. Each page is read to the end before the line is looked for.
+    staff.permissions = [...ALL]
+    const noRole = open('/open')
+    await screen.findByText('You have access')
+    expect(screen.queryByText(LINE)).toBeNull()
+    noRole.unmount()
+    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.activePatient = activePatient('emergency')
+    const emergency = open('/open')
+    await screen.findByText('Emergency access')
+    expect(screen.queryByText(LINE)).toBeNull()
+    emergency.unmount()
+    staff.activePatient = activePatient()
+    api.consentStatus.mockResolvedValue({ ...CONSENT, writeAllowed: false })
+    const readOnly = open('/open')
+    await screen.findByText('View only')
+    expect(screen.queryByText(LINE)).toBeNull()
+    readOnly.unmount()
+    api.consentStatus.mockResolvedValue(CONSENT)
+    const child = new Date().getUTCFullYear() - 10
+    staff.activePatient = { ...activePatient(), lookup: { ...activePatient().lookup, patient: { ...activePatient().lookup.patient, dateOfBirth: `${child}-01-01` } } }
+    open('/open')
+    await screen.findByText('You have access')
+    expect(screen.queryByText(LINE)).toBeNull()
+  })
+
   it('hands the Health ID to the request form from Ask for more access', () => {
     staff.activePatient = activePatient()
     open('/open')
@@ -678,6 +713,121 @@ describe('The open patient’s page', () => {
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
   })
+
+  it('points a role that cannot open Find a patient to Access requests instead, and to neither when it cannot open that either', () => {
+    staff.permissions = ALL.filter(permission => permission !== 'identity.patient.read')
+    const view = open('/open')
+    expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Find a patient' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Access requests' }).getAttribute('href')).toBe('/provider/requests')
+    view.unmount()
+    staff.permissions = ['ehr.encounter.read']
+    open('/open')
+    expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Find a patient' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Access requests' })).toBeNull()
+  })
+})
+
+describe('Visits here (3.1 #24)', () => {
+  const EARLIER = { ...ENCOUNTER, id: 'b0000000-0000-4000-8000-000000000009', encounterType: 'emergency', status: 'completed', startedAt: '2026-09-01T08:00:00.000Z', chiefComplaint: 'Fictional cough' }
+
+  it('says the kind of visit and the complaint under each visit', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValue({ items: [ENCOUNTER, EARLIER], nextCursor: null })
+    open('/open')
+    expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Show more visits' })).toBeNull()
+  })
+
+  it('reads the next page with Show more and adds it below the visits shown', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER, EARLIER], nextCursor: null })
+    open('/open')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more visits' }))
+    expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2' })
+    // The visit already shown is listed once.
+    expect(screen.getAllByText('Outpatient visit')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Show more visits' })).toBeNull()
+  })
+
+  it('Show more stays focusable and says it is busy while it reads, then focus moves to the first visit it added', async () => {
+    staff.activePatient = activePatient()
+    let answer: (value: unknown) => void = () => {}
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    open('/open')
+    const more = await screen.findByRole('button', { name: 'Show more visits' })
+    more.focus()
+    await act(async () => { fireEvent.click(more) })
+    expect(more.textContent).toBe('Loading more visits…')
+    expect(more.getAttribute('aria-disabled')).toBe('true')
+    expect(more.hasAttribute('disabled')).toBe(false)
+    expect(document.activeElement).toBe(more)
+    // A second press while it reads does nothing.
+    await act(async () => { fireEvent.click(more) })
+    expect(api.encounters).toHaveBeenCalledTimes(2)
+    await act(async () => { answer({ items: [EARLIER], nextCursor: null }) })
+    expect(screen.queryByRole('button', { name: /Show more visits|Loading more visits/ })).toBeNull()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.textContent).toContain('Emergency visit · Fictional cough')
+  })
+
+  it('keeps the visits shown when Show more fails, and says so in plain words', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    open('/open')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more visits' }))
+    expect(await screen.findByText('Couldn’t load more visits')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.queryByText(/SERVICE_UNAVAILABLE|503/)).toBeNull()
+  })
+
+  it('Refresh reads the first page again, afresh', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: null })
+    api.encounters.mockResolvedValueOnce({ items: [EARLIER, ENCOUNTER], nextCursor: null })
+    open('/open')
+    await screen.findByText('Outpatient visit')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
+  })
+
+  it('Refresh reads again every page shown, as today does, so the visits from Show more stay', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [EARLIER], nextCursor: 'cursor-3' })
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [EARLIER], nextCursor: 'cursor-3' })
+    open('/open')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more visits' }))
+    await screen.findByText('Emergency visit · Fictional cough')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.encounters).toHaveBeenCalledTimes(4))
+    expect(api.encounters).toHaveBeenNthCalledWith(3, FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
+    expect(api.encounters).toHaveBeenNthCalledWith(4, FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: true })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' }).getAttribute('aria-disabled')).toBeNull())
+    expect(screen.getByText('Emergency visit · Fictional cough')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Show more visits' })).toBeTruthy()
+  })
+
+  it('keeps the visits shown when Refresh fails, and says so in plain words', async () => {
+    staff.activePatient = activePatient()
+    api.encounters.mockResolvedValueOnce({ items: [ENCOUNTER], nextCursor: null })
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    open('/open')
+    await screen.findByText('Outpatient visit')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('Couldn’t refresh visits')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
+    expect(screen.queryByText(/SERVICE_UNAVAILABLE|503/)).toBeNull()
+  })
 })
 
 describe('Patient sharing', () => {
@@ -798,6 +948,88 @@ describe('Register a patient is the EHR’s alone', () => {
 
   it('leaves the next test on the address the file is served from', () => {
     expect(window.location.hostname).not.toMatch(/healthidentitydirectory\.com\.?$/)
+  })
+})
+
+/**
+ * Audit rank 2: on a single product's site (lab., pharmacy.) Consultation, Triage, Emergency and the samples are the
+ * hospital EHR's, and the frame sends any of them back to Home. So a patient's page and Find a patient offer no button
+ * that leads there; where that leaves Next steps empty, one plain line says where those are. The EHR's own site keeps
+ * every step. The hosts are only set as the page's address: nothing is sent there.
+ */
+describe('Hospital-only steps on a product’s site', () => {
+  const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+  const EVERYTHING = [...ALL, ...WRITES, 'identity.break-glass.write']
+  const ON_EHR = 'Charts, visits and emergency access are on the Hospital EHR.'
+  function on(host: string, onTestFinished: (fn: () => void) => void) {
+    const servedFrom = window.location.href
+    onTestFinished(() => { jsdom.reconfigure({ url: servedFrom }) })
+    jsdom.reconfigure({ url: `https://${host}/provider/patients` })
+  }
+
+  it.for(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com'])('offers no chart, consultation, vitals, walk-in or emergency step on %s', async (host, { onTestFinished }) => {
+    on(host, onTestFinished)
+    atDemoHospital()
+    staff.permissions = [...EVERYTHING]
+    staff.activePatient = activePatient()
+    open('/open')
+    expect(screen.getByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open chart' })).toBeNull()
+    expect(nextSteps()).toEqual(['Ask for more access'])
+    // Ask for more access is still a step, so the plain line is not needed.
+    expect(screen.queryByText(ON_EHR)).toBeNull()
+    // Each visit opens in Consultation, so none is listed, and none is read.
+    expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
+    await act(async () => {})
+    expect(api.encounters).not.toHaveBeenCalled()
+  })
+
+  it('says in one plain line where the steps are when none is left, with no link', ({ onTestFinished }) => {
+    on('lab.healthidentitydirectory.com', onTestFinished)
+    atDemoHospital()
+    staff.permissions = ['identity.patient.read', ...WRITES, 'ehr.encounter.read', 'identity.break-glass.write']
+    staff.activePatient = activePatient()
+    open('/open')
+    expect(nextSteps()).toEqual([])
+    const line = screen.getByText(ON_EHR)
+    expect(line.closest('section')).toBe(screen.getByRole('heading', { level: 2, name: 'Next steps' }).closest('section'))
+    expect(line.querySelector('a')).toBeNull()
+    expect(screen.queryByRole('link', { name: /Hospital EHR/ })).toBeNull()
+  })
+
+  it('offers no emergency summary on a pharmacy’s site, while the ways to direct care stay', ({ onTestFinished }) => {
+    on('pharmacy.healthidentitydirectory.com', onTestFinished)
+    staff.permissions = [...EVERYTHING]
+    staff.activePatient = activePatient('emergency')
+    open('/open')
+    expect(screen.queryByRole('button', { name: 'Open emergency summary' })).toBeNull()
+    expect(nextSteps()).toEqual(['Use their Access PIN', 'Ask the patient'])
+  })
+
+  it.for(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com'])('offers only the Access PIN under Obtain access on %s', (host, { onTestFinished }) => {
+    on(host, onTestFinished)
+    staff.permissions = [...EVERYTHING]
+    open()
+    const tiles = tileTitles(accessGroup())
+    expect(tiles).toContain('Use their Access PIN')
+    expect(tiles).not.toContain('Emergency access')
+    expect(screen.queryByText(EMERGENCY_UNAVAILABLE)).toBeNull()
+  })
+
+  it('keeps every step on the EHR’s own site', async ({ onTestFinished }) => {
+    on('ehr.healthidentitydirectory.com', onTestFinished)
+    atDemoHospital()
+    staff.permissions = [...EVERYTHING]
+    staff.activePatient = activePatient()
+    const page = open('/open')
+    expect(screen.getByRole('button', { name: 'Open chart' })).toBeTruthy()
+    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Register a walk-in visit', 'Ask for more access', 'Emergency access'])
+    expect(screen.queryByText(ON_EHR)).toBeNull()
+    expect(await screen.findByRole('heading', { name: 'Visits here' })).toBeTruthy()
+    page.unmount()
+    staff.activePatient = null
+    open()
+    expect(tileTitles(accessGroup())).toEqual(expect.arrayContaining(['Use their Access PIN', 'Emergency access']))
   })
 })
 
@@ -968,15 +1200,32 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     staff.activePatient = activePatient()
     api.reportedHealthProfile.mockResolvedValue(profile('Fictional Med A'))
     open('/open')
-    await waitFor(() => expect(allergies()).toBe('Fictional Med A (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med A'))
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+  })
+
+  it('3.1 #8: shows everything the patient reported, each field in today’s words, labelled as reported by the patient', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockResolvedValue({
+      bloodGroup: 'O+', genotype: 'AA', allergies: 'Fictional Med A', currentMedications: 'Fictional Med C', chronicConditions: 'Fictional condition',
+      medicalNotes: null, updatedAt: '2026-10-29T08:00:00.000Z',
+    })
+    open('/open')
+    const section = await screen.findByRole('region', { name: 'Reported by the patient' })
+    expect(within(section).getByText('Patient-reported')).toBeTruthy()
+    expect(section.textContent).toContain('Entered by the patient in their Health ID portal, not clinically verified.')
+    const rows = Array.from(section.querySelectorAll('dt')).map(term => [term.textContent, term.nextElementSibling?.textContent])
+    expect(rows).toEqual([
+      ['Blood group', 'O+'], ['Genotype', 'AA'], ['Allergies', 'Fictional Med A'], ['Current medications', 'Fictional Med C'],
+      ['Chronic conditions', 'Fictional condition'], ['Medical notes for the care team', 'Not stated'],
+    ])
   })
 
   it('audit 9: a profile without allergies says Not stated, as today’s card does', async () => {
     staff.activePatient = activePatient()
     api.reportedHealthProfile.mockResolvedValue({ ...profile(null), bloodGroup: 'O+' })
     open('/open')
-    await waitFor(() => expect(allergies()).toBe('Not stated (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Not stated'))
   })
 
   it('audit 9: no allergies while they load, without ehr.note.read, under emergency access, or when refused (403) or not served (404)', async () => {
@@ -1013,9 +1262,10 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     api.reportedHealthProfile.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
     api.reportedHealthProfile.mockResolvedValueOnce(profile('Fictional Med A'))
     open('/open')
-    await waitFor(() => expect(allergies()).toBe('What the patient entered about their health could not be loaded. Retry patient-reported health information'))
+    expect(await screen.findByText(/What the patient entered about their health could not be loaded\./)).toBeTruthy()
+    expect(allergies()).toBeUndefined()
     fireEvent.click(screen.getByRole('button', { name: 'Retry patient-reported health information' }))
-    await waitFor(() => expect(allergies()).toBe('Fictional Med A (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med A'))
     expect(api.reportedHealthProfile).toHaveBeenCalledTimes(2)
   })
 
@@ -1059,7 +1309,7 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     expect(allergies()).toBeUndefined()
     expect(screen.queryByText(/Fictional Med A/)).toBeNull()
     await act(async () => { answerTwo(profile('Fictional Med B')) })
-    await waitFor(() => expect(allergies()).toBe('Fictional Med B (patient-reported)'))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med B'))
   })
 })
 

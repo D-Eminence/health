@@ -243,6 +243,8 @@ describe('Triage & Vitals list', () => {
   })
 
   it('asks for a patient first when none is open', () => {
+    // Find a patient is offered only to a role that can open it (identity.patient.read).
+    staff.permissions = [...ALL, 'identity.patient.read']
     staff.activePatient = null
     open()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()

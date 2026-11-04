@@ -4,6 +4,7 @@ import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
 import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
+import { PRODUCTS, productHere } from './product'
 import { roleNames } from '../../staff/staffAccess'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 
@@ -20,9 +21,10 @@ const WHY: Record<WorkspaceQuestion, string> = {
 }
 
 /** A choice Identity refused, in words the person can act on (today's facilityRefusal). */
-function refusal(caught: unknown, facility: string): string {
+export function facilityRefusal(caught: unknown, facility: string): string {
   if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
-  return plainErrorText(caught, 'We couldn’t open that facility. Please try again.', { audience: 'facility' })
+  // Never the server's own words: the shared helper says anything else plainly.
+  return plainErrorText(caught, 'That facility couldn’t be opened. Try again, or choose another facility.', { audience: 'facility' })
 }
 
 /**
@@ -37,13 +39,14 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [signOutError, setSignOutError] = useState('')
+  const productName = PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name
   useLayoutEffect(() => { heading.current?.focus() }, [])
   // Today's ProviderTitle (staff/App.tsx) names this address "Page not found": today's portal has no such page. Switch
   // facility is the blue EHR's own page, so it names the tab as the frame names its pages, again after the lock screen.
   // The question asked before any page opens keeps today's "Where are you working?".
   useEffect(() => {
-    if (reason === 'switch' && lock === null) document.title = 'Choose workspace · Health ID EHR'
-  }, [reason, lock])
+    if (reason === 'switch' && lock === null) document.title = `Choose workspace · Health ID ${productName}`
+  }, [reason, lock, productName])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const current = reason === 'switch' ? actor.facility?.id : undefined
@@ -57,7 +60,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
         onChosen?.()
         if (reason === 'switch') navigate('/provider')
       }
-    } catch (caught) { setError(refusal(caught, name)) }
+    } catch (caught) { setError(facilityRefusal(caught, name)) }
     finally { setBusy(null) }
   }
 
@@ -70,7 +73,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   return (
     <section className="mx-auto flex w-full max-w-xl flex-col gap-6 py-4" aria-labelledby="hid-ehr-blue-chooser-title">
       <div>
-        <p className="m-0 text-overline text-ink-3">Health ID · Hospital EHR</p>
+        <p className="m-0 text-overline text-ink-3">Health ID · {productName === 'EHR' ? 'Hospital EHR' : productName}</p>
         <h1 id="hid-ehr-blue-chooser-title" ref={heading} tabIndex={-1} className="m-0 mt-1 text-title-1 text-ink outline-none" aria-describedby="hid-ehr-blue-chooser-why">
           {reason === 'switch' ? 'Switch facility' : 'Where are you working today?'}
         </h1>

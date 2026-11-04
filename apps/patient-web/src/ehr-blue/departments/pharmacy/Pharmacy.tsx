@@ -217,7 +217,7 @@ function PrescriptionQueue() {
         <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
         {mounted && facility && <DeptEmbedded><IncomingOrders service="pharmacy" facilityId={here} facilityName={facility.name}
           probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
-          onAccepted={() => void read.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded>}
+          onAccepted={() => void read.refresh()} closedRouteId={notCompleted.lastRouteId} cannotCompleteBeside="opened" /></DeptEmbedded>}
         {lateCorrection && <DeptEmbedded><LateWrongPatient service="pharmacy" facilityId={here}
           onEnded={ending => { setEnded({ facilityId: here, ending }); void read.refresh() }} onNotCompleted={notCompletedHere}
           onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: here, correction }) }} /></DeptEmbedded>}

@@ -64,7 +64,10 @@ async function inChromium(button: HTMLElement) {
 
 const focused = () => document.activeElement
 // Outcomes are said in the shell's toasts (PortalShell holds the provider).
-const access = (handler: Handler) => renderPortal(<ToastProvider><AccessPage /></ToastProvider>, handler)
+// The page also reads the profile, only to say the paper records line to an adult: answered here, so it is never one of
+// the reads a test counts.
+const access = (handler: Handler) => renderPortal(<ToastProvider><AccessPage /></ToastProvider>,
+  (path, method, body) => path === '/identity/me' && method === 'GET' ? json({}) : handler(path, method, body))
 /** Opens Lagos General's request in its drawer with its row, as a keyboard user does; returns the row. */
 async function review() {
   const row = await screen.findByRole('button', { name: /^Lagos General/ })

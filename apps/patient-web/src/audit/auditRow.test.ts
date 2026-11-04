@@ -246,6 +246,25 @@ describe('an audit event in words', () => {
   })
 })
 
+describe('One-person lab in the audit trail (owner decision 33.3)', () => {
+  it('says the switch turned on or off in words, and a refused switch as refused', () => {
+    expect(auditRow(event('identity.facility.one-person-lab.on'))).toEqual({
+      what: 'One-person lab turned on', who: 'Staff member', outcome: 'success', outcomeText: 'Allowed' })
+    expect(what('identity.facility.one-person-lab.off')).toBe('One-person lab turned off')
+    expect(what('identity.facility.one-person-lab.on', { outcome: 'denied' })).toBe('One-person lab turned on (refused)')
+  })
+
+  it('tells a self-checked result apart from an ordinary check by its mark', () => {
+    expect(what('lab.result.verify')).toBe('Verified a lab result')
+    expect(what('lab.result.verify', { selfCheck: false })).toBe('Verified a lab result')
+    expect(auditRow(event('lab.result.verify', { selfCheck: true }))).toEqual({
+      what: 'Result checked by the person who entered it', who: 'Staff member', outcome: 'success', outcomeText: 'Allowed' })
+    expect(what('lab.result.verify', { selfCheck: true, outcome: 'denied' })).toBe('Result checked by the person who entered it (refused)')
+    // The mark means nothing on any other action.
+    expect(what('lab.result.release', { selfCheck: true })).toBe('Released a lab result')
+  })
+})
+
 describe('searching audit events', () => {
   const lookup = event('ehr.encounter.create', { outcome: 'denied' })
   const matches = (query: string, value: Event = lookup) => matchesAuditSearch(value, query)

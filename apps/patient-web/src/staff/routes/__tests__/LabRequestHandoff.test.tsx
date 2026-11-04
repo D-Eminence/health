@@ -94,7 +94,7 @@ const FRESH_FIRST_PAGE = ['facility-1', PATIENT, ENCOUNTER, 'lab-requests', { cu
 
 describe('creating an active lab request that Lab did not take', () => {
   it.each([
-    ['refused', new HidApiError(409, `Lab request ${REQUEST} is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved`, { code: 'LAB_HANDOFF_REFUSED' }), /the laboratory didn’t accept it/],
+    ['refused', new HidApiError(409, `Lab request ${REQUEST} is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved`, { code: 'LAB_HANDOFF_REFUSED' }), /but Lab refused it, so the Laboratory does not have it\. Do not create it again: contact the laboratory, then /],
     ['did not confirm', new HidApiError(502, 'The service could not complete the request.', { code: 'LAB_HANDOFF_UNCONFIRMED' }), /Lab did not confirm it/],
   ])('shows a request Lab %s as saved and active, reloads the list and clears the form', async (_case, refusal, says) => {
     api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; throw refusal })
@@ -321,7 +321,7 @@ describe('activating or resuming a lab request', () => {
   ])('says a request %s from %s that Lab refused (%i %s) was refused, to be sent once that is resolved', async (done, from, status, code) => {
     await activate({ state: 'failed', status, code }, from)
     const said = await screen.findByText(new RegExp(`^Lab request ${done} in the EHR`))
-    expect(said.textContent).toMatch(/the laboratory didn’t accept it/)
+    expect(said.textContent).toMatch(/its status is saved, but Lab refused it\. Contact the laboratory, then /)
     expect(said.textContent).not.toContain(code)
     expect(said.textContent).toMatch(/Contact the laboratory, then use Send to Lab on the request\.$/i)
     expect(said.textContent).not.toMatch(/did not confirm|did not accept/)

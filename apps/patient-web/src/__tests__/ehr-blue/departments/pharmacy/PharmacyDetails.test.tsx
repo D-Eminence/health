@@ -1,9 +1,10 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { drugOf } from '../../../../ehr-blue/departments/pharmacy/drugForm'
-import { durationText, prescribedQuantity, queueOrder } from '../../../../ehr-blue/departments/pharmacy/pharmacyText'
+import { durationText, labelText, matchesItem, prescribedQuantity, queueOrder } from '../../../../ehr-blue/departments/pharmacy/pharmacyText'
+import { recordFacts } from '../../../../ehr-blue/departments/pharmacy/PharmacyRecord'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
   accepted, AMOXICILLIN, confirmPatient, CREATE, dispensed, facts, fillDispensing, PATIENT, pickCard, PRESCRIPTIONS, pressDispense, READ,
@@ -211,5 +212,32 @@ describe('the patient on this facility\'s own work', () => {
     await screen.findByRole('heading', { name: 'Pick and hand over' })
     expect(screen.getAllByText('Health ID ending AAA2').length).toBeGreaterThan(0)
     expect(within(pickCard()).getByText('Check that the person is Patient One, or is collecting for them, before you hand anything over.')).toBeTruthy()
+  })
+})
+
+/** Owner decision 33.4: the route in plain words first; the prescriber's route code under a closed More details. */
+describe('the route', () => {
+  it('leads the Pharmacy route fact with the plain words, the route code under More details', () => {
+    const route = (routeCode: string | null) => recordFacts({ ...accepted, routeCode }, 'accepted').find(fact => fact.label === 'Route')!.value
+    const { container, unmount } = render(<>{route('PO')}</>)
+    expect(container.firstElementChild?.firstElementChild?.textContent).toBe('By mouth')
+    expect(container.querySelector('details')?.open).toBe(false)
+    expect(container.querySelector('details > div')?.textContent).toBe('Route code: PO')
+    unmount()
+    // A route code with no plain words is shown as written; none recorded says so.
+    expect(render(<>{route('NG tube')}</>).container.textContent).toBe('NG tube')
+    expect(render(<>{route(null)}</>).container.textContent).toBe('Not recorded')
+  })
+
+  it('writes the plain route on the label', () => {
+    expect(labelText({ ...accepted, routeCode: 'PO' }, 'capsule')).toMatch(/^Take 1 capsule by mouth /)
+  })
+
+  it('finds a prescription by the plain route words shown on screen, and still by its route code', () => {
+    const oral = { ...accepted, routeCode: 'PO' }
+    expect(matchesItem('by mouth', oral, 'accepted')).toBe(true)
+    expect(matchesItem('po', oral, 'accepted')).toBe(true)
+    expect(matchesItem('into a vein', oral, 'accepted')).toBe(false)
+    expect(matchesItem('into a vein', { ...accepted, routeCode: 'IV' }, 'accepted')).toBe(true)
   })
 })

@@ -212,11 +212,12 @@ function ShareFlow() {
   const problemKey = (first: boolean) => alerts(first) ? `alert-${problemAlert}` : 'quiet'
   const problemRole = (first: boolean) => alerts(first) ? 'alert' : undefined
   // The step's buttons, given as [secondary, primary]: a row on the right with the primary rightmost from 640px; on
-  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach).
+  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach),
+  // ending 8px or more before the Support chat launcher where it is on the page (the card is 16px in from the edge).
   const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div" className={footer ? 'overflow-visible!' : undefined}>
     {number && <Stepper at={number} />}
     <div className="flex flex-col gap-5 p-5">{body}</div>
-    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)]">{footer}</div>}
+    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)] max-sm:[:root:has(.hid-chat-launcher)_&]:pr-[60px]">{footer}</div>}
   </Card>
 
   if (step === 'search') {
@@ -350,12 +351,19 @@ function Radio({ on }: { on: boolean }) {
     {on && <span className="size-2 rounded-full bg-white" />}</span>
 }
 
-/** Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). */
+/**
+ * Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). Each step is its name's
+ * width and the lines between take what is left; the last, with no line after it, takes no more. Equal shares cut
+ * "Access" to "Acc…" at 320px. Where even that is short (Android's larger text in a WebView, 1.3x at 320px), only
+ * "Access" gives way: "Who" does not shrink, and both shrinking cut both. 6px gaps on a phone keep the three whole up
+ * to 1.2x text at 320px.
+ */
 function Stepper({ at }: { at: number }) {
   const steps = ['Who', 'Access', 'Check']
-  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 rounded-t-xl border-b border-line px-5 py-3">
+  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-1.5 rounded-t-xl border-b border-line px-5 py-3 sm:gap-2">
     {steps.map((label, i) => { const n = i + 1, done = n < at, now = n === at
-      return <li key={label} aria-current={now ? 'step' : undefined} className="flex min-w-0 flex-1 items-center gap-2">
+      return <li key={label} aria-current={now ? 'step' : undefined}
+        className={cx('flex min-w-0 items-center gap-1.5 sm:gap-2', n === 1 ? 'flex-[1_0_auto]' : n < steps.length ? 'flex-auto' : 'flex-none')}>
         <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand-fill text-white' : 'bg-surface text-ink-3 ring-1 ring-line-control')}>
           {done ? <Check className="size-3.5" aria-hidden /> : n}</span>
         <span className={cx('truncate text-[13px]', now ? 'font-semibold text-ink' : 'text-ink-3')}>{label}</span>

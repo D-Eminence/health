@@ -113,8 +113,7 @@ const SHEET = { id: 'document-1', patientId: PATIENT, encounterId: null, pharmac
   fileName: 'prescription-sheet.png', mediaType: 'image/png', sizeBytes: 4096, status: 'available', scanStatus: 'pending',
   createdAt: '2026-10-08T10:00:00.000Z', documentType: 'prescription_sheet' }
 
-const LAB_HINT = 'PDF, JPEG, PNG or TIFF, up to 50 MiB. Images are kept exactly as uploaded, and Health ID reads a lab result by '
-  + 'itself once its virus scan is clean.'
+const LAB_HINT = 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.'
 const LAB_ATTACHED = 'Result document attached. It can be opened once its virus scan is clean.'
 const SHEET_ATTACHED = 'Prescription sheet attached. It can be opened once its virus scan is clean.'
 const NOT_HERE = 'Lab results can be uploaded only in the EHR, Lab or Migrate.'
@@ -376,6 +375,7 @@ describe('switch on: Result documents on a Lab work item', () => {
     await within(shown).findByText('full-blood-count.jpg')
     const field = within(shown).getByLabelText(/^Lab result file/)
     expect(document.getElementById(field.getAttribute('aria-describedby')!)!.textContent).toBe(LAB_HINT)
+    expect((field as HTMLInputElement).accept).toBe('.pdf,.jpg,.jpeg,.png')
     const file = jpeg()
     network.documents = [LAB_RESULT, { ...LAB_RESULT, id: 'document-9', fileName: 'demo-lab-result.jpg', sizeBytes: JPEG_BYTES.byteLength,
       scanStatus: 'pending' }]
@@ -416,9 +416,12 @@ describe('switch on: Result documents on a Lab work item', () => {
     await waitFor(() => expect(document.getElementById(`${field.id}-error`)?.textContent).toBe('Select a file first.'))
     expect(field.getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(field)
+    choose(shown, /^Lab result file/, new File(['II*'], 'scan.tiff', { type: 'image/tiff' }))
+    send(shown, 'Attach result document')
+    await waitFor(() => expect(document.getElementById(`${field.id}-error`)?.textContent).toBe('Use PDF, JPEG or PNG, up to 50 MiB.'))
     choose(shown, /^Lab result file/, new File(['notes'], 'notes.txt', { type: 'text/plain' }))
     send(shown, 'Attach result document')
-    await waitFor(() => expect(document.getElementById(`${field.id}-error`)?.textContent).toBe('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'))
+    await waitFor(() => expect(document.getElementById(`${field.id}-error`)?.textContent).toBe('Use PDF, JPEG or PNG, up to 50 MiB.'))
     expect(named('POST', '/api/v1/ehr/documents/upload-intents')).toEqual([])
   })
 

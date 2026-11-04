@@ -1,5 +1,6 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
+import { routeLabel } from '../../../plainLabels'
 import type { Facility, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { priorityLabel, routedWorkEndedText } from '../../../staff/orderRoutes'
 import { PHARMACY_WORK, refusedWorkText } from '../../../staff/refusedWork'
@@ -93,7 +94,7 @@ export function routeAlert(route: WorkItemOrderRoute | undefined, late: boolean)
 
 /** Whether a row matches the list's search: its medication, patient, dose, route, priority and the order it came from. */
 export function matchesItem(query: string, item: PharmacyWorkItem, status: PharmacyStatus): boolean {
-  return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, item.instructions,
+  return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, routeLabel(item.routeCode), item.instructions,
     status, priorityLabel(item.priority), item.orderRoute?.orderingFacilityName, item.orderRoute?.reference, item.orderRoute?.ordererName,
     item.id.slice(0, 8)])
 }
@@ -134,14 +135,6 @@ export function queueOrder(items: readonly PharmacyWorkItem[], undispensable: (i
       || time(a.item) - time(b.item) || a.index - b.index).map(entry => entry.item)
 }
 
-const ROUTE_WORDS: Readonly<Record<string, string>> = {
-  oral: 'by mouth', po: 'by mouth', 'by mouth': 'by mouth', sublingual: 'under the tongue', sl: 'under the tongue',
-  iv: 'into a vein', intravenous: 'into a vein', im: 'into a muscle', intramuscular: 'into a muscle',
-  sc: 'under the skin', subcut: 'under the skin', subcutaneous: 'under the skin', topical: 'on the skin',
-  inhaled: 'by breathing in', inhalation: 'by breathing in', nasal: 'into the nose', rectal: 'into the back passage', pr: 'into the back passage',
-  ophthalmic: 'into the eye', eye: 'into the eye', otic: 'into the ear', ear: 'into the ear', vaginal: 'into the vagina', pv: 'into the vagina',
-}
-
 const VERB: Readonly<Record<string, string>> = { cream: 'Apply', inhaler: 'Inhale', drops: 'Use', injection: 'Give' }
 
 /**
@@ -151,7 +144,7 @@ const VERB: Readonly<Record<string, string>> = { cream: 'Apply', inhaler: 'Inhal
  */
 export function labelText(item: PharmacyWorkItem, form: string): string | null {
   if (doseMissing(item)) return null
-  const route = item.routeCode ? ROUTE_WORDS[item.routeCode.trim().toLowerCase()] ?? item.routeCode.trim() : ''
+  const route = routeLabel(item.routeCode) ?? item.routeCode?.trim() ?? ''
   const main = [VERB[form] ?? 'Take', doseText(item), route, item.frequency?.trim()].filter(Boolean).join(' ')
   const extra = item.instructions?.trim()
   return `${main}.${extra ? ` ${extra.replace(/^./, c => c.toUpperCase())}${/[.!?]$/.test(extra) ? '' : '.'}` : ''}`

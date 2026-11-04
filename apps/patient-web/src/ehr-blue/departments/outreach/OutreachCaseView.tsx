@@ -11,7 +11,7 @@ import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import {
-  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, LINK_FAILED, OutreachField, PENDING, reference,
+  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, LINK_FAILED, OutreachField, PENDING,
   LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 
@@ -80,7 +80,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
     let confirmed = false
     try {
       confirmed = await ask({ title: 'Confirm the link', subject: <Card className="px-4 py-3"><p className="m-0 text-title-3 text-ink">{caseName(item)}</p>
-        <p className="m-0 text-caption text-ink-2">{ageText(item)} · {sexText(item)} · case {reference(item.id)}</p></Card>,
+        <p className="m-0 text-caption text-ink-2">{ageText(item)} · {sexText(item)} · registered {dateText(item.createdAt)}</p></Card>,
       effect: <>Link this registration to the Health ID patient <strong className="tracking-[.04em]">{canonicalPatientId}</strong>? Check it is the same person.</>,
       confirmLabel: 'Link patient' })
     } finally { asking.current = false }
@@ -172,7 +172,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
           <Badge tone={linked ? 'success' : caseTone(item.status)}>{linked ? 'Linked' : statusLabel(item.status)}</Badge>
           <span>{ageText(item)} · {sexText(item)}</span>
-          <span className="text-ink-3">Registered {dateText(item.createdAt)} · case {reference(item.id)}</span>
+          <span className="text-ink-3">Registered {dateText(item.createdAt)}</span>
         </div>
         <ErrorBox message={listError} />
         {/* Mounted throughout, so what was recorded is announced. */}

@@ -36,7 +36,7 @@ const SAVED_ID = 'hr-saved-record'
 const CREATE_ID = 'hr-create'
 const RETRY_ID = 'hr-live-retry'
 const LIST_ID = 'hr-list'
-const NO_ACTIONS = 'No further actions for your permission and this record state.'
+const NO_ACTIONS = 'Nothing else to do here.'
 /** After a sample row's reference, and found by the search. */
 const SAMPLE_MARK = 'sample'
 

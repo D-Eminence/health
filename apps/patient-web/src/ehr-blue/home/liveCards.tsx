@@ -14,6 +14,7 @@ import {
 import { learnWrongPatientServed } from '../../wrongPatientServed'
 import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed } from '../../lateCorrectionServed'
 import { useAccessRequests } from '../frame/attention'
+import { STAGE_LABEL, stageOf } from '../departments/laboratory/stage'
 
 /**
  * Home's live cards. Each reads what today's Overview or work pages read, under the same permissions, with the same
@@ -31,7 +32,7 @@ export function AttentionLines({ activePatient }: { readonly activePatient: Acti
     {read.state === 'ready' ? (
       <li className="hid-ehr-blue-list-item">
         <Link to="/provider/requests" className="hid-ehr-blue-worklink"><strong>{read.pending} pending access request{read.pending === 1 ? '' : 's'}</strong></Link>
-        <span className="hid-ehr-blue-muted">Access request · waiting</span>
+        <span className="hid-ehr-blue-muted">Access request · waiting for the patient to answer</span>
       </li>
     ) : null}
     {activePatient ? (
@@ -242,7 +243,7 @@ export function TodayCard({ facilityId, lab, pharmacy }: { readonly facilityId: 
   const pharmacyRead = useWork<PharmacyWorkItem>(facilityId, pharmacy, loadPharmacy)
   const lines = [
     ...(labRead.state === 'ready' ? labRead.items.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test',
-      meta: `Laboratory · ${item.status.replace(/[-_]+/g, ' ')}`, to: '/provider/laboratory' })) : []),
+      meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`, to: '/provider/laboratory' })) : []),
     ...(pharmacyRead.state === 'ready' ? pharmacyRead.items.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine',
       meta: `Pharmacy · ${item.dispensing && !item.dispensing.reversed ? 'dispensed' : 'to dispense'}`, to: '/provider/pharmacy' })) : []),
   ]

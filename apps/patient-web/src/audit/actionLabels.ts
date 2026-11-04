@@ -10,7 +10,7 @@
  * LEGACY_ACTIVITY, and its request-log row (any action starting 'api.') is never shown.
  */
 
-/** The spec's main table: 331 action codes and their labels. */
+/** The spec's main table: 333 action codes and their labels. */
 export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   'admin.account.active': 'Support re-enabled an account',
   'admin.account.disabled': 'Support disabled an account',
@@ -182,6 +182,8 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   'identity.facility-administrator-licence.record': 'Administrator recorded their licence',
   'identity.facility-staff.end': 'Removed a staff member',
   'identity.facility-staff.role-change': 'Changed a staff member\'s role',
+  'identity.facility.one-person-lab.off': 'One-person lab turned off',
+  'identity.facility.one-person-lab.on': 'One-person lab turned on',
   'identity.imported.notification.list': 'Viewed earlier notifications',
   'identity.imported.notification.mark-read': 'Marked an earlier notification read',
   'identity.nin.protect': 'NIN check stopped by a system error',

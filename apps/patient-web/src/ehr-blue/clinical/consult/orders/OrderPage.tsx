@@ -18,6 +18,7 @@ import { Value } from '../../../../kasuwa/parts'
 import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
 import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
+import { RELOAD_FAILED } from '../encounters'
 import { KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, text, useFlash, type OrderKind } from './orders'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
@@ -47,6 +48,18 @@ interface Action {
   readonly id: string
   readonly label: string
   readonly toggle?: boolean
+}
+
+/**
+ * The page's error. After a change whose read of the order failed it has "Try again" beside it (`again`), and counts
+ * how many times it has been said, so a failure said again in the same words is announced again.
+ */
+type PageError = { readonly text: string; readonly again: boolean; readonly said?: number }
+const NO_ERROR: PageError = { text: '', again: false }
+
+/** Today's sentence after a change whose read of the order failed (Clinical.tsx loadRecords), with "Try again" beside it. */
+function reloadFailed(caught: unknown): PageError {
+  return { text: `${RELOAD_FAILED} ${refusalText(caught, '')}`.trim(), again: true }
 }
 
 function reason(values: FormValues): string {
@@ -82,7 +95,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const [created] = useState(() => flash?.orderId === orderId ? flash : null)
   const afterCreate = created !== null
   const [success, setSuccess] = useState(() => created?.success ?? '')
-  const [pageError, setPageError] = useState('')
+  const [pageError, showPageError] = useState<PageError>(NO_ERROR)
+  const setPageError = (text: string) => showPageError(text ? { text, again: false } : NO_ERROR)
   // The order is being read again after a change: no change may start from the version shown (today's recordsLoading).
   const [reloading, setReloading] = useState(false)
   // Only the latest read of the order is kept, and only it lifts the lock: today's recordLoad sequence, shared by the
@@ -91,7 +105,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const [selected, setSelected] = useState<string | null>(null)
   const [resultsOpen, setResultsOpen] = useState(false)
   const [resultsRevision, setResultsRevision] = useState(0)
-  const [asking, setAsking] = useState<{ label: string; answer: (yes: boolean) => void } | null>(null)
+  const [asking, setAsking] = useState<{ label: string; description?: string; answer: (yes: boolean) => void } | null>(null)
   const [focusIds, setFocusIds] = useState<readonly string[] | null>(null)
   const pharmacyAttempt = useRef<{ reason: string; key: string } | null>(null)
   const labAttempt = useRef<string | null>(null)
@@ -136,16 +150,20 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       caught => {
         if (!latest()) return
         warn('failed')
-        setLoaded({ status: 'error', text: warning ? '' : afterCreate ? `The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim()
-          : plainErrorText(caught, 'Records could not be loaded.', { audience: 'facility' }) })
+        // After a create with nothing left to say, the page says the change was saved, with "Try again" beside it.
+        if (afterCreate && !warning) showPageError(reloadFailed(caught))
+        setLoaded({ status: 'error', text: afterCreate ? '' : plainErrorText(caught, 'Records could not be loaded.', { audience: 'facility' }) })
         setReloading(false)
       },
     )
     return () => { readSeq.current += 1 }
   }, [facilityId, patientId, encounterId, kind, orderId, afterCreate, created])
 
-  /** The order read again after a change, as today's page re-reads its list: the rows, or 'failed'. */
-  const reload = async (): Promise<Reload> => {
+  /**
+   * The order read again after a change, as today's page re-reads its list: the rows, or 'failed' once `failed` is
+   * given the sentence (by default the page says it, with "Try again" beside it).
+   */
+  const reload = async (failed: (error: PageError) => void = showPageError): Promise<Reload> => {
     // Two reads can overlap (a withdrawal while a status change's read is out): an older answer is dropped (null, as
     // today's), and the lock stays until the latest read lands.
     const seq = ++readSeq.current
@@ -157,18 +175,43 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       return read.record ? [read.record] : []
     } catch (caught) {
       if (seq !== readSeq.current) return null
-      setPageError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
+      failed(reloadFailed(caught))
       return 'failed'
     } finally {
       if (seq === readSeq.current) setReloading(false)
     }
   }
 
+  /**
+   * "Try again": the order read again, fresh, as the change read it, with no access re-check (reads need none). While
+   * it reads, the actions are locked, as after any change (a withdrawal is not, as today's is not). The sentence stays
+   * until the order is read, then goes, focus moving from Try again to "Actions"; a change made meanwhile says its own
+   * outcome, which this never replaces. A try that fails says the sentence again, so it is announced even in the same
+   * words.
+   */
+  const tryAgain = async (event: { readonly currentTarget: HTMLButtonElement }) => {
+    const button = event.currentTarget
+    const shown = pageError
+    const outcome = (next: PageError) => showPageError(current => current !== shown ? current : next)
+    const read = await reload(failed => outcome({ ...failed, said: (shown.said ?? 0) + 1 }))
+    if (read === 'failed' || read === null) return
+    outcome(NO_ERROR)
+    // Try again goes with the sentence: focus on it, or on nothing, moves to "Actions", never from elsewhere.
+    const active = document.activeElement
+    if (active === button || active === null || active === document.body) setFocusIds([ACTIONS_ID, TITLE_ID])
+  }
+
   // What a change said, drawn on every state of the page below the loading one.
   const said = (
     <>
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+      {pageError.text ? (
+        <ErrorBox>
+          <p key={pageError.said ?? 0}>{pageError.text}</p>
+          {/* Busy, it stays focusable (aria-disabled, aria-busy), so focus stays on it, and a second press does nothing. */}
+          {pageError.again ? <p><EhrButton variant="secondary" size="sm" onClick={tryAgain}>Try again</EhrButton></p> : null}
+        </ErrorBox>
+      ) : null}
     </>
   )
 
@@ -208,7 +251,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     ...(results ? [{ id: 'results', label: resultsOpen ? 'Hide released results' : 'View released results', toggle: true }] : []),
   ]
 
-  const confirm = (label: string) => new Promise<boolean>(answer => setAsking({ label, answer }))
+  const confirm = (label: string, description?: string) => new Promise<boolean>(answer => setAsking({ label, description, answer }))
 
   /** A saved lab request Lab does not hold, or holds at another version: the change stands, so it is said as a warning. */
   const labWarning = (said: string, reloaded: Reload, { sendable = true, listChanged = false } = {}) => {
@@ -321,8 +364,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   const statusForm = (option: StatusOption) => {
     const label = statusLabel(option)
+    const warningId = `order-status-${option.value}-warning`
     const submit = async (values: FormValues): Promise<SubmitOutcome> => {
-      if (option.value === 'cancelled' && !(await confirm(label))) return false
+      // "Cancel order?" says the form's warning (Pharmacy not told, or the other facility's change), when it has one.
+      if (option.value === 'cancelled' && !(await confirm(label, warning))) return false
       try {
         await changeStatus(option.value, reason(values))
       } catch (caught) {
@@ -342,9 +387,11 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
           submitLabel="Update status"
           busyLabel="Updating…"
           disabled={reloading}
+          // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:617-620).
+          describedBy={warning ? warningId : undefined}
           onSubmit={submit}
         >
-          {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
+          {warning ? <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
         </RecordForm>
       </div>
     )
@@ -486,6 +533,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? 'Cancel order'}
+        description={asking?.description}
         onConfirm={() => { asking?.answer(true); setAsking(null) }}
         onCancel={() => { asking?.answer(false); setAsking(null) }}
       />
