@@ -74,8 +74,8 @@ const facts = () => Array.from(screen.getByRole('region', { name: CARD }).queryS
 /** Home's four tiles: what the record holds, each a link to where it is. */
 const tiles = () => within(screen.getByRole('group', { name: 'Your record at a glance' })).getAllByRole('link')
   .map(tile => [tile.textContent, tile.getAttribute('href')])
-/** The decisions waiting for the patient: one warning per pending request. */
-const requestAlerts = () => screen.queryAllByRole('alert').filter(alert => alert.textContent?.includes('wants to see your records'))
+/** The decisions waiting for the patient: one notice per pending request, a note, not an alert said on every visit (HCS-27). */
+const requestAlerts = () => screen.queryAllByRole('note').filter(alert => alert.textContent?.includes('wants to see your records'))
 
 describe('the overview with patient parity served', () => {
   it('shows the Health ID card: name, the Health ID as plain text, the NIN badge, the completion, and Share records and View profile', async () => {
@@ -105,6 +105,8 @@ describe('the overview with patient parity served', () => {
     await waitFor(() => expect(facts()).toEqual([['Blood', 'B+'], ['Genotype', 'AA'], ['Allergy', 'Shellfish']]))
     // Production (Novu) sends visits and notes only: no Documents or Medicines tile that could only ever say 0.
     await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['1Facility with access', '/access']]))
+    // Two tiles fill the row as two columns, not half of a row laid out for four (HCS-01).
+    expect(screen.getByRole('group', { name: 'Your record at a glance' }).className).not.toContain('hid-stat-grid-4')
   })
 
   it('shows the Documents and Medicines tiles where the backend sends documents and prescriptions', async () => {
@@ -113,6 +115,7 @@ describe('the overview with patient parity served', () => {
       renderPortal(<Overview />, gateway(), {}, parity)
       await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['0Documents', '/records?tab=documents'],
         ['1Facility with access', '/access'], ['0Medicines', '/records?tab=prescriptions']]))
+      expect(screen.getByRole('group', { name: 'Your record at a glance' }).className).toContain('hid-stat-grid-4')
     } finally { novu.on = true }
   })
 
@@ -135,7 +138,7 @@ describe('the overview with patient parity served', () => {
     await waitFor(() => expect(requestAlerts()).toHaveLength(2))
     for (const alert of requestAlerts()) {
       expect(alert.textContent).toContain('Nothing is shared until you approve.')
-      expect(within(alert).getByRole('link', { name: 'Review' }).getAttribute('href')).toBe('/access')
+      expect(within(alert).getByRole('link', { name: 'Review the request from Lagos General' }).getAttribute('href')).toBe('/access')
     }
     const checklist = within((await screen.findByRole('heading', { name: 'Finish your Health ID' })).closest('section') as HTMLElement)
     await waitFor(() => expect(checklist.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])).toEqual([
@@ -217,7 +220,7 @@ describe('the overview on today\'s backend', () => {
     expect(screen.queryByLabelText(/NIN (not )?verified/)).toBeNull()
     // Only the pending requests need attention here.
     await waitFor(() => expect(requestAlerts()).toHaveLength(2))
-    expect(screen.queryAllByRole('alert')).toHaveLength(2)
+    expect(screen.queryAllByRole('alert')).toHaveLength(0)
     expect(sent.some(item => item.path.startsWith('/identity/me/emergency-contacts'))).toBe(false)
     expect(sent.some(item => item.path === '/identity/me/photo')).toBe(false)
   })

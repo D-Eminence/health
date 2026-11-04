@@ -103,10 +103,51 @@ describe('HCS-04: blood group, genotype and allergies that could not be read', (
     await waitFor(() => expect(focused()).toBe(card))
   })
 
+  it('prints on the card itself that its health details could not be loaded, until they load', async () => {
+    let failed = true
+    renderPortal(<Overview />, gateway({ '/ehr/me/health-profile': () => failed ? failure() : json(savedHealth) }), {}, served)
+    const card = await screen.findByRole('region', { name: CARD })
+    await alertWith('Couldn’t load your blood group, genotype and allergies')
+    expect(within(card).getByText('Health details unavailable')).toBeTruthy()
+    failed = false
+    await press(screen.getByRole('button', { name: 'Try again loading your blood group, genotype and allergies' }))
+    await waitFor(() => expect(within(card).getByText('Shellfish')).toBeTruthy())
+    expect(within(card).queryByText('Health details unavailable')).toBeNull()
+  })
+
   it('says nothing where the backend does not serve health information (404)', async () => {
     renderPortal(<Overview />, gateway({ '/ehr/me/health-profile': () => problem(404, 'NOT_FOUND', 'Cannot GET') }), {}, served)
     await screen.findByText('Malaria review')
     expect(screen.queryByText('Couldn’t load your blood group, genotype and allergies')).toBeNull()
+  })
+})
+
+describe('HCS-27: the requests waiting on Home', () => {
+  it('are notes, not alerts said on every visit, each with a Review named for its facility', async () => {
+    const second: AccessRequest = { ...request('r-2'), facilityName: 'Ikeja Clinic' }
+    renderPortal(<Overview />, gateway({ '/identity/me/access-requests': () => json([request('r-1'), second]) }), {}, served)
+    const first = (await screen.findByText('Lagos General wants to see your records')).closest<HTMLElement>('[role]')!
+    const other = screen.getByText('Ikeja Clinic wants to see your records').closest<HTMLElement>('[role]')!
+    expect([first.getAttribute('role'), other.getAttribute('role')]).toEqual(['note', 'note'])
+    expect(within(first).getByRole('link', { name: 'Review the request from Lagos General' }).getAttribute('href')).toBe('/access')
+    expect(within(other).getByRole('link', { name: 'Review the request from Ikeja Clinic' }).getAttribute('href')).toBe('/access')
+    // The words a sighted patient reads stay one: Review.
+    expect(within(first).getByRole('link').textContent?.startsWith('Review')).toBe(true)
+  })
+})
+
+describe('HCS-05: a long name on the card', () => {
+  it('is printed whole, over two lines if it must, with the NIN mark beside it and not inside the cut-off text', async () => {
+    const long = 'Chiamaka Oluwafunmilayo Nwachukwu-Adebayo'
+    renderPortal(<Overview />, gateway({ '/identity/me': () => json({ ...patient, fullName: long }) }), {}, served)
+    const card = await screen.findByRole('region', { name: `${long}’s Health ID card` })
+    const name = within(card).getByText(long)
+    expect(name.className).not.toMatch(/\btruncate\b/)
+    expect(name.className).toContain('line-clamp-2')
+    const mark = within(card).getByLabelText('NIN verified')
+    expect(name.contains(mark)).toBe(false)
+    // Beside the name: the same line holder, after it.
+    expect(name.parentElement?.contains(mark)).toBe(true)
   })
 })
 
