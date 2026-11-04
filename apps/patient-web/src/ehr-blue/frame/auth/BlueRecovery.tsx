@@ -8,7 +8,7 @@ import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../../../productHostname
 import { OpenStaffPage } from '../../../staffSignIn'
 import { describedBy, isFieldProblem, recoveryRefusal, useDocumentTitle, useStepFocus } from '../../../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from '../../../routes/recoveryWait'
-import { authHrefs, BlueAuthLayout, HINT, NOTE, SiteLink } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, HINT, NOTE, siteName, SiteLink } from './BlueAuthLayout'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
@@ -22,7 +22,7 @@ type Step = 'start' | 'code' | 'password' | 'complete'
  */
 export function BlueRecovery() {
   const api = useMemo(() => createPrincipalRecoveryApi('staff'), [])
-  useDocumentTitle('Recover account access · Health ID Hospital EHR')
+  useDocumentTitle(`Recover account access · ${siteName()}`)
   const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
   const [identifier, setIdentifier] = useState('')

@@ -1,21 +1,21 @@
 import { EhrButton } from '@hid/ui/ehr'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
-import { staffApi, type ClinicalRecord, type Encounter } from '../../../../staff/api'
-import { refusalText } from '../../../../staff/fieldProblem'
+import type { ClinicalRecord, Encounter } from '../../../../staff/api'
+import { usesNovuBackend } from '../../../../backendContract'
 import { ChartGate, type Chart } from '../../parts/chart'
 import { Step } from '../../parts/Detail'
 import { ErrorBox, Loading, RecordNotFound } from '../../parts/Notices'
-import { Pager } from '../../parts/RecordTable'
 import { StatusBadge } from '../../parts/StatusBadge'
 import { useWorkspaceHref } from '../../parts/Workspace'
-import { FIRST_PAGE, RESTARTED, readPage, type Cursors } from '../encounters'
+import { ListPaging } from '../Notes'
+import { pagerProps, type RecordList } from '../records'
 import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
-import { FlashContext, KINDS, learnFrom, orderTitle, text, type Flash, type OrderKind } from './orders'
+import { FlashContext, KINDS, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
+import { routeStatus, routeStatusClass } from './Routing'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
-import { plainErrorText } from '@hid/http'
 
 export type { OrderKind } from './orders'
 
@@ -60,106 +60,47 @@ function OrderRoute({ kind, chart, encounterId }: { kind: OrderKind; chart: Char
   return <OrderPage key={orderId} kind={kind} chart={chart} encounterId={encounterId} orderId={orderId} />
 }
 
-/** Today's notice beside a records list: the restart after a cursor EHR no longer accepts (status), or a failed page move (alert). */
-type ListNotice = { readonly text: string; readonly alert: boolean }
-
-interface OrderPage {
-  /** The page shown, or null before the first read. */
-  readonly items: readonly ClinicalRecord[] | null
-  readonly error: string
-  /** The cursors that led to the page shown, the first page's being none (FIRST_PAGE). */
-  readonly cursors: Cursors
-  /** The next page's cursor, or null on the last page. */
-  readonly next: string | null
-  readonly notice: ListNotice | null
-  /** A page move is being read. */
-  readonly busy: boolean
-}
-
-interface OrderList extends OrderPage {
-  /** Shows the page these cursors lead to (today's "Record pages"). */
-  readonly show: (cursors: Cursors) => void
-}
-
-const UNREAD: OrderPage = { items: null, error: '', cursors: FIRST_PAGE, next: null, notice: null, busy: false }
-
-function itemsOf(answer: { items?: unknown } | null | undefined): readonly ClinicalRecord[] {
-  return Array.isArray(answer?.items) ? answer.items as ClinicalRecord[] : []
-}
-
-/**
- * This encounter's orders of one kind, as today's page reads a records tab: newest first, 50 to a page, with the
- * cursors that led to the page shown (no re-check: today makes none). The first read is today's (no page argument);
- * moving between pages reads `{ cursor, fresh: false }` and keeps the page shown if it fails, saying so in `notice`;
- * a cursor EHR no longer accepts (400 INVALID_CURSOR) starts the list again with today's restart notice.
- */
-function useOrderList(chart: Chart, encounterId: string, kind: OrderKind, allowed: boolean): OrderList {
-  const [list, setList] = useState<OrderPage>(UNREAD)
-  const { facilityId, patientId } = chart
-  // Every read takes a number; only the latest may show its rows.
-  const sequence = useRef(0)
-  useEffect(() => {
-    if (!allowed) return
-    const run = ++sequence.current
-    setList(UNREAD)
-    staffApi.records(facilityId, patientId, encounterId, KINDS[kind].record).then(
-      answer => {
-        learnFrom(answer)
-        if (run === sequence.current) setList({ ...UNREAD, items: itemsOf(answer), next: answer?.nextCursor ?? null })
-      },
-      caught => {
-        if (run === sequence.current) setList({ ...UNREAD, items: [], error: plainErrorText(caught, 'Records could not be loaded.', { audience: 'facility' }) })
-      },
-    )
-    return () => { sequence.current += 1 }
-  }, [allowed, facilityId, patientId, encounterId, kind])
-
-  const show = useCallback((cursors: Cursors) => {
-    const run = ++sequence.current
-    setList(current => ({ ...current, notice: null, busy: true }))
-    readPage((cursor, fresh) => staffApi.records(facilityId, patientId, encounterId, KINDS[kind].record, { cursor, fresh }), cursors, false).then(
-      result => {
-        learnFrom(result.page)
-        if (run !== sequence.current) return
-        setList({
-          items: itemsOf(result.page), error: '', cursors: result.cursors, next: result.page?.nextCursor ?? null,
-          notice: result.restarted ? { text: RESTARTED, alert: false } : null, busy: false,
-        })
-      },
-      caught => {
-        if (run !== sequence.current) return
-        setList(current => ({ ...current, busy: false, notice: { text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true } }))
-      },
-    )
-  }, [facilityId, patientId, encounterId, kind])
-
-  return useMemo(() => ({ ...list, show }), [list, show])
-}
+/** This visit's orders of each kind, as the visit page reads them (consult/records.ts useRecordList). */
+export type OrderLists = Readonly<Record<OrderKind, RecordList<ClinicalRecord>>>
 
 /**
  * One list's "Record pages" (today's pager, above the rows), with its notice, named by the list it pages. Shown only
  * when the list spans more than one page, or has something to say.
  */
-function OrderListPages({ kind, list }: { kind: OrderKind; list: OrderList }) {
+function OrderListPages({ kind, list }: { kind: OrderKind; list: RecordList<ClinicalRecord> }) {
   const captionId = useId()
-  const { cursors, next, notice, busy, show } = list
-  const paged = cursors.length >= 2 || next !== null
-  if (!paged && !notice) return null
+  if (!pagerProps(list) && !list.notice) return null
   return (
     <div className="hid-ehr-clinical-orders-pages" role="group" aria-labelledby={captionId}>
       <p id={captionId} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-gap">{KINDS[kind].title}</p>
-      {notice ? (
-        notice.alert ? <ErrorBox>{notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{notice.text}</p>
-      ) : null}
-      {paged ? (
-        <Pager
-          page={cursors.length}
-          busy={busy}
-          onPrevious={cursors.length >= 2 ? () => show(cursors.slice(0, -1)) : undefined}
-          onNext={next ? () => show([...cursors, next]) : undefined}
-        />
-      ) : null}
+      <ListPaging list={list} />
     </div>
+  )
+}
+
+/**
+ * One order's row: its link and status and, for an order sent to another facility, today's words under the row for
+ * where it went and where it stands (the OrderRoutePanel's heading and status line, Clinical.tsx:1889-1893,
+ * OrderRoutes.tsx:384-387), read from the route summary the list already carries, so it costs no read. The rest of
+ * that panel (what to do next, the reason it couldn't be completed, the wrong-patient notice, details and Withdraw) is
+ * on the order's page. The reference stays there too: the row says no code.
+ */
+function OrderRow({ kind, record, to, patient }: { kind: OrderKind; record: ClinicalRecord; to: string; patient: string }) {
+  const routeId = useId()
+  // As today's list and the order page (rights.novu): only a novu backend's route, well formed (routeOf), is said.
+  const route = usesNovuBackend() ? routeOf(record) : null
+  const status = route ? routeStatus(route, patient) : null
+  return (
+    <li className="hid-ehr-clinical-history-row">
+      <Link className="hid-ehr-clinical-link" to={to} aria-describedby={status ? routeId : undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+      <StatusBadge status={text(record.status) || 'unknown'} />
+      {status ? (
+        <div id={routeId} className="hid-ehr-clinical-orders-row-route">
+          <p className="hid-ehr-clinical-orders-muted">{kind === 'laboratory' ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</p>
+          <p className={routeStatusClass(status.tone)}>{status.text}</p>
+        </div>
+      ) : null}
+    </li>
   )
 }
 
@@ -167,15 +108,15 @@ function OrderListPages({ kind, list }: { kind: OrderKind; list: OrderList }) {
  * The design's "Connected orders" inside an encounter's "Available actions" card: "Create pharmacy record" and
  * "Create laboratory record" (today's prescription and lab request, with today's permissions and write access),
  * "Create radiology record" and "Create referral network record" (sample workspaces: no backend, nothing of this
- * patient carried), the design's note, and this encounter's orders, each linking to its page.
+ * patient carried), the design's note, and this encounter's orders, each linking to its page. The orders are the visit
+ * page's own lists (`lists`), so what it reads again after a change (a cancelled or entered-in-error consultation
+ * changes its orders) is what this card shows, and each list is read once.
  */
-export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter: Encounter }) {
+export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Chart; encounter: Encounter; lists: OrderLists }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const readRx = chart.can(KINDS.pharmacy.read)
   const readLab = chart.can(KINDS.laboratory.read)
-  const prescriptions = useOrderList(chart, encounter.id, 'pharmacy', readRx && chart.purpose === 'direct-care')
-  const labs = useOrderList(chart, encounter.id, 'laboratory', readLab && chart.purpose === 'direct-care')
   const sampleCan = useSampleCan()
   if (chart.purpose !== 'direct-care') return null
 
@@ -183,11 +124,14 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
   const createRx = chart.canWrite && readRx && chart.can(KINDS.pharmacy.write)
   const createLab = chart.canWrite && readLab && chart.can(KINDS.laboratory.write)
   const lists = [
-    ...(readRx ? [{ kind: 'pharmacy' as const, list: prescriptions }] : []),
-    ...(readLab ? [{ kind: 'laboratory' as const, list: labs }] : []),
+    ...(readRx ? [{ kind: 'pharmacy' as const, list: orders.pharmacy }] : []),
+    ...(readLab ? [{ kind: 'laboratory' as const, list: orders.laboratory }] : []),
   ]
-  const loading = lists.some(({ list }) => list.items === null)
+  // A first read under way; one that failed says so in its error box, not as loading.
+  const loading = lists.some(({ list }) => list.items === null && list.loading)
   const rows = lists.flatMap(({ kind, list }) => (list.items ?? []).map(record => ({ kind, record })))
+  // The patient as the order page and today's list name them in a route's words (Clinical.tsx:1431-1432).
+  const patient = patientWord(chart)
 
   return (
     <div className="hid-ehr-clinical-orders-connected">
@@ -212,10 +156,7 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
       {rows.length > 0 ? (
         <ul className="hid-ehr-clinical-history-list" aria-label="Orders from this consultation">
           {rows.map(({ kind, record }) => (
-            <li key={`${kind}-${record.id}`} className="hid-ehr-clinical-history-row">
-              <Link className="hid-ehr-clinical-link" to={href(orderPath(encounter.id, kind, record.id))}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
-              <StatusBadge status={text(record.status) || 'unknown'} />
-            </li>
+            <OrderRow key={`${kind}-${record.id}`} kind={kind} record={record} to={href(orderPath(encounter.id, kind, record.id))} patient={patient} />
           ))}
         </ul>
       ) : null}

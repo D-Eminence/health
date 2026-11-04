@@ -103,9 +103,11 @@ export function InvitationLifecycle({ shared, reviewed }: { readonly shared: Sta
       setRevokingAll(false)
     }
     if (revoked > 0) {
-      toast.success(`${plural(revoked, 'invitation')} revoked`)
-      if (failed) reload()
-      else done()
+      // The fact stays on the page, as on the classic Staff page: said in the banner, with no toast.
+      const text = `${plural(revoked, 'invitation')} revoked. ${revoked === 1 ? 'Its link and code no longer work.'
+        : 'Their links and codes no longer work.'}`
+      if (failed) { notify({ tone: 'info', text }); reload() }
+      else done(undefined, { tone: 'info', text })
     }
     focus(IDS.invitations, true)
   }
@@ -191,9 +193,10 @@ function InvitationRow({ invitation, shared, selected, onSelect, onDetails }: {
     setBusy('revoke')
     try {
       await facilityStaffApi.revoke(facilityId, invitation)
-      toast.success('Invitation revoked')
       setConfirming(false)
-      done([detailsButton(id), IDS.invitations])
+      // The fact stays on the page, as on the classic Staff page: said in the banner, with no toast.
+      done([detailsButton(id), IDS.invitations],
+        { tone: 'info', text: `The invitation to ${invitation.email} was revoked. Its link and code no longer work.` })
     } catch (caught) {
       setConfirming(false)
       setError(refused(caught))

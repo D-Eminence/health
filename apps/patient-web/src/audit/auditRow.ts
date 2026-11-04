@@ -13,6 +13,8 @@ export interface AuditEventFacts {
   readonly outcome: 'success' | 'denied' | 'failure'
   readonly actorType: string
   readonly resourceType: string | null
+  /** A lab.result.verify that was a One-person lab self-check (its details say so; staff/api.ts keeps only that). */
+  readonly selfCheck?: boolean
 }
 
 export interface AuditRow {
@@ -130,6 +132,12 @@ function listedWhat(code: string, label: string, event: AuditEventFacts) {
   return attempt(main, event.outcome, !NOT_A_DOING_WORD.has(code))
 }
 
+/**
+ * A lab result checked by the scientist who entered it, at a facility working as a one-person lab (owner decision 33.3):
+ * the same code as any check (lab.result.verify), told apart by the mark in its details, so it reads differently.
+ */
+const SELF_CHECKED = 'Result checked by the person who entered it'
+
 /* The spec's fallback for a code it does not list ("CODES NOT IN THE TABLE", rule 3): never the code itself. */
 const FALLBACK_VERBS: Readonly<Record<string, string>> = {
   list: 'Viewed the list of', read: 'Viewed', view: 'Viewed', search: 'Searched for', find: 'Searched for', lookup: 'Searched for',
@@ -231,7 +239,9 @@ export function auditRow(event: AuditEventFacts): AuditRow | null {
     // refuses, and "Their role here does not allow this action" beside Failed would contradict itself.
     if (listed.startsWith('Refused: ')) outcome = 'denied'
     else if (stated && (outcome === null || outcome === 'success')) outcome = stated
-    what = listedWhat(listedCode, listed, { ...event, outcome: outcome ?? 'success' })
+    what = listedCode === 'lab.result.verify' && event.selfCheck === true
+      ? outcome === 'denied' || outcome === 'failure' ? attempt(SELF_CHECKED, outcome, false) : SELF_CHECKED
+      : listedWhat(listedCode, listed, { ...event, outcome: outcome ?? 'success' })
     if (replay) what = `${what} (repeated)`
   } else if (event.actorType === 'legacy' || !code.includes('.')) what = own(LEGACY_ACTION_LABELS, code) ?? LEGACY_ACTIVITY
   else ({ what, outcome } = fallbackWhat(code, event.actorType, outcome))

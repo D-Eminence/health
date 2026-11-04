@@ -75,3 +75,20 @@ describe('the facility audit read', () => {
     expect(page).toEqual({ items: [], nextBeforeSequenceId: '9' })
   })
 })
+
+describe('a self-checked lab result in the audit read (One-person lab)', () => {
+  it('keeps only the self-check mark of a lab.result.verify event’s details', () => {
+    const page = facilityAuditPageFrom({
+      items: [
+        { ...event('3', 'lab.result.verify', 'lab-result'), details: { selfCheck: true, reason: 'Only scientist on duty', onePersonSettingId: 's-1' } },
+        { ...event('2', 'lab.result.verify', 'lab-result'), details: { selfCheck: false, reason: 'Independent review' } },
+        { ...event('1', 'lab.result.release', 'lab-result'), details: { selfCheck: true } },
+      ],
+      nextBeforeSequenceId: null,
+    } as unknown as FacilityAuditPage)
+    expect(page.items.map(item => item.selfCheck)).toEqual([true, undefined, undefined])
+    expect(Object.keys(page.items[0] ?? {}).sort()).toEqual(
+      ['action', 'actorType', 'correlationId', 'occurredAt', 'outcome', 'resourceType', 'selfCheck', 'sequenceId'])
+    expect(JSON.stringify(page)).not.toContain('Only scientist on duty')
+  })
+})

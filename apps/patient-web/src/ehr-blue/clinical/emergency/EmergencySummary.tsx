@@ -3,13 +3,14 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { usesNovuBackend } from '../../../backendContract'
-import { fileTypeLabel, visitClassLabel } from '../../../plainLabels'
+import { fileTypeLabel, routeLabel, visitClassLabel } from '../../../plainLabels'
 import { staffApi, type EmergencyRecords, type EmergencySection } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
+import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, CLOSE_REFUSALS, actionUnavailable } from './access'
 import { ReleasedResults } from './ReleasedResults'
@@ -17,7 +18,7 @@ import { plainErrorText } from '@hid/http'
 
 /** Today's emergency summary wording (Clinical.tsx EmergencySummary), word for word. */
 export const SUMMARY_EYEBROW = 'Emergency summary'
-export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every view is reviewed.'
+export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 export const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
 export const SUMMARY_FAILED = 'Please try again.'
 export const LOADING_SUMMARY = 'Loading emergency summary'
@@ -34,6 +35,23 @@ const ORDER_STATUSES: Readonly<Record<string, { readonly label: string; readonly
   completed: { label: 'Completed', tone: 'neutral', rank: 3 },
   cancelled: { label: 'Cancelled', tone: 'neutral', rank: 4 },
   entered_in_error: { label: 'Entered in error', tone: 'danger', rank: 5 },
+}
+
+/**
+ * A prescription's codes under More details (owner decision 33.4): the route code when its plain words lead the line
+ * ("by mouth" for PO), and the medicine's code when its name leads. Nothing when no code would add anything.
+ */
+function PrescriptionCodes({ item }: { item: EmergencyRecords['prescriptions'][number] }) {
+  const route = item.routeCode?.trim() ?? ''
+  const routeCode = route && routeLabel(route) && route.toLowerCase() !== routeLabel(route) ? route : ''
+  const medicine = item.medicationDisplay?.trim() ? codeText(item.medicationCodeSystem, item.medicationCode) : ''
+  if (!routeCode && !medicine) return null
+  return (
+    <MoreDetails about={item.medicationDisplay}>
+      {routeCode ? <span>Route code: {routeCode}</span> : null}
+      {medicine ? <span>Medicine code: {medicine}</span> : null}
+    </MoreDetails>
+  )
 }
 
 function orderRank(status: string) { return ORDER_STATUSES[status]?.rank ?? 3 }
@@ -159,13 +177,17 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
           items={Array.isArray(summary.diagnoses) ? currentFirst(summary.diagnoses, diagnosisRank) : undefined}
           empty="No diagnoses at this facility." render={item => <>
             <Head>
-              {item.display}
+              {/* The plain name first; a diagnosis recorded with no name shows its code (it is all there is). */}
+              {item.display?.trim() || codeText(item.codeSystem, item.code)}
               {item.verificationStatus === 'entered_in_error' ? <ErrorBadge /> : null}
               {item.verificationStatus === 'refuted' ? <Badge size="sm">Ruled out</Badge> : null}
             </Head>
             {item.verificationStatus === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a diagnosis of this patient.</span> : null}
-            {/* The code with its code system, ICD-10 or SNOMED (Clinical.tsx:1141). */}
-            <span>{words(item.clinicalStatus)} · {words(item.verificationStatus)}{item.code ? ` · code ${item.codeSystem} ${item.code}` : ''}</span>
+            <span>{words(item.clinicalStatus)} · {words(item.verificationStatus)}</span>
+            {/* The code with its code system, ICD-10 or SNOMED (Clinical.tsx:1141), under More details (owner decision 33.4). */}
+            {item.display?.trim() && codeText(item.codeSystem, item.code) ? (
+              <MoreDetails about={item.display}><span>Code: {codeText(item.codeSystem, item.code)}</span></MoreDetails>
+            ) : null}
             {item.notes ? <Text>{item.notes}</Text> : null}
           </>} />
       ) : null}
@@ -173,14 +195,15 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
         <SummarySection title="Prescriptions" {...sectionProps('prescriptions')}
           items={Array.isArray(summary.prescriptions) ? currentFirst(summary.prescriptions, item => orderRank(item.status)) : undefined}
           empty="No prescriptions at this facility." render={item => <>
-            <Head>{item.medicationDisplay}<OrderStatus status={item.status} /></Head>
+            <Head>{item.medicationDisplay?.trim() || codeText(item.medicationCodeSystem, item.medicationCode)}<OrderStatus status={item.status} /></Head>
             {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a prescription for this patient.</span> : null}
             <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
               {/* A dose not recorded says so by name: "Not recorded" alone would not say what is missing. */}
               {item.doseQuantity == null || item.doseQuantity === '' ? <span className="text-ink-3">Dose not recorded</span>
                 : <Value label="Dose" value={Number(item.doseQuantity)} unit={item.doseUnit} />}
-              <span>· {item.routeCode ? `route ${item.routeCode}` : 'route not recorded'} · {item.frequency}</span>
+              <span>· {routeLabel(item.routeCode) ?? (item.routeCode?.trim() ? `route ${item.routeCode.trim()}` : 'route not recorded')} · {item.frequency}</span>
             </span>
+            <PrescriptionCodes item={item} />
             {item.instructions ? <Text>{item.instructions}</Text> : null}
             {item.startsOn || item.endsOn ? (
               <span>{[item.startsOn && `Starts ${calendarDay(item.startsOn)}`, item.endsOn && `Ends ${calendarDay(item.endsOn)}`].filter(Boolean).join(' · ')}</span>
@@ -191,10 +214,13 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
         <SummarySection title="Lab tests" {...sectionProps('labRequests')}
           items={Array.isArray(summary.labRequests) ? currentFirst(summary.labRequests, item => orderRank(item.status)) : undefined}
           empty="No lab tests at this facility." render={item => <>
-            <Head>{item.testDisplay}<OrderStatus status={item.status} />{item.priority && item.priority !== 'routine' ? <Badge size="sm" tone="danger">{words(item.priority)}</Badge> : null}</Head>
+            <Head>{item.testDisplay?.trim() || codeText(item.testCodeSystem, item.testCode)}<OrderStatus status={item.status} />{item.priority && item.priority !== 'routine' ? <Badge size="sm" tone="danger">{words(item.priority)}</Badge> : null}</Head>
             {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a test for this patient.</span> : null}
-            {/* The test's code with its code system, and its priority in words, routine too (Clinical.tsx:1158). */}
-            <span>{item.testCodeSystem} {item.testCode}{item.priority ? ` · Priority: ${priorityLabel(item.priority)}` : ''} · Asked for {formatWhen(item.createdAt)}</span>
+            {/* Its priority in words, routine too (Clinical.tsx:1158); the test's code with its code system under More details. */}
+            <span>{item.priority ? `Priority: ${priorityLabel(item.priority)} · ` : ''}Asked for {formatWhen(item.createdAt)}</span>
+            {item.testDisplay?.trim() && codeText(item.testCodeSystem, item.testCode) ? (
+              <MoreDetails about={item.testDisplay}><span>Code: {codeText(item.testCodeSystem, item.testCode)}</span></MoreDetails>
+            ) : null}
             {item.clinicalInformation ? <Text>{item.clinicalInformation}</Text> : null}
             {/* Lab allows a released-results read under an active emergency grant; a draft never reached Lab. */}
             {item.status !== 'draft' && may('lab.result.released.read') ? <ReleasedResults facilityId={facilityId} requestId={item.id} /> : null}
@@ -287,7 +313,9 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
             {/* At once, as today: nothing may stand between a clinician and ending emergency access. */}
             {grantId ? <Button variant="danger" disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? closeUnavailableId : undefined}
               aria-disabled={ending || undefined} onClick={closeGrant}>End emergency access</Button> : null}
-            <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button>
+            {/* Find a patient opens only with identity.patient.read; any other role would land on Home. */}
+            {permissions.includes('identity.patient.read')
+              ? <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button> : null}
           </div>
           {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
           {closeError ? <Alert intent="error" title="Couldn’t end access">{closeError}</Alert> : null}

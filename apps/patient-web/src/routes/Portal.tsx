@@ -14,6 +14,7 @@ import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
+import { isAdult, paperRecordsOnApproval, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
@@ -51,6 +52,7 @@ import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { countryName } from '../profileParity'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -250,7 +252,7 @@ export function ProfilePage() {
           <ProfileSection id="bio-data" title={WORDS.aboutYou}>
             <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3" aria-busy={profile.loading || undefined}>
               {([['Full name', shown.fullName], ['Date of birth', date(shown.dateOfBirth)], ['Gender', shown.gender || 'Not given'],
-                ['State', shown.state || 'Not given'], ['Country', shown.country || 'Not given']] as const).map(([term, value]) =>
+                ['State', shown.state || 'Not given'], ['Country', shown.country?.trim() ? countryName(shown.country) : 'Not given']] as const).map(([term, value]) =>
                 <div key={term} className={term === 'Full name' ? 'col-span-2' : undefined}><dt className="text-[13px] text-ink-3">{term}</dt>
                   <dd className="m-0 mt-0.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}
             </dl>
@@ -693,6 +695,9 @@ function sharedAs(item: HistoryItem) {
 
 export function AccessPage() {
   const { api } = useSession()
+  // Only to say the paper records rule to an adult: the profile's date of birth. Nothing shows until it is known.
+  const profile = usePatientResource(api.profile)
+  const adult = isAdult(profile.data?.dateOfBirth)
   useDocumentTitle('Access and consent · Health ID')
   const toast = useToast()
   const requests = usePatientResource(api.accessRequests)
@@ -864,6 +869,9 @@ export function AccessPage() {
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{patientAccessStatusLabel(open.status)}</Badge></dd></div>}
         </dl>
         {open.status.toLowerCase() === 'pending' && !denying && <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />{SAY.everyViewRecorded} You can end access at any time.</p>}
+        {/* The paper records rule (records processing, 0104): the OK also covers bringing in paper records while the
+            access lasts. Said only to an adult, as under-18s are refused paper records; not said while the age is unknown. */}
+        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsOnApproval(open.facilityName)}</p>}
         {denying && <form id="deny-form" className="flex flex-col gap-3" onSubmit={event => { event.preventDefault(); confirmDenial(open.accessRequestId) }}>
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
             <legend className="mb-1 p-0 text-sm font-medium text-ink">Why are you saying no? <span className="font-normal text-ink-3">They see this.</span></legend>
@@ -1101,7 +1109,8 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     <h3 ref={pinHeading} tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Access PIN</h3>
     <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-busy={loading || undefined}>
       <Badge size="sm" tone={profile.accessPinConfigured ? 'success' : 'neutral'}>{profile.accessPinConfigured ? 'Set' : 'Not set'}</Badge>
-      A hospital you give it to can use it to open your records.</p>
+      {/* The paper records part only to an adult (under-18s are refused paper records). */}
+      {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
     <Saved>{notice}</Saved>
     <form onSubmit={event => void configurePin(event)} className="flex flex-wrap items-start gap-2">
       <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."

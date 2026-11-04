@@ -12,8 +12,9 @@ import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/Clinici
 import { CLINICIAN_STATUS_PATH, patientSignInHref, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
 import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
-import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, SiteLink } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, siteName, SiteLink } from './BlueAuthLayout'
 import { getStaffLandingPath, passwordRefusal, SIGN_IN_FAILED, TurnstileChallenge } from './signInParts'
+import { productOf, type Product } from '../product'
 
 function BlueMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type={type} {...rest} className={buttonClass({ variant: primary ? 'primary' : 'ghost', size: primary ? 'lg' : 'md', block: primary, className })} />
@@ -24,6 +25,19 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
   headingAs: 'h1',
   classNames: { step: 'staff-form staff-mfa', note: HINT, error: 'm-0 text-[13px] font-medium text-danger-ink', status: 'm-0 text-[13px] text-success-ink' },
   Button: BlueMfaButton,
+}
+
+/**
+ * The sign-in's welcome line, its last button and the example work address in the email field, in the words of the
+ * product this site is (product.ts): the Hospital EHR on ehr. (and wherever no product site is named), each product's
+ * own name on lab., pharmacy., outreach., migrate. The example is you@hospital.org on the Hospital EHR only and
+ * you@work.org on each product site.
+ */
+export function signInWords(product: Product): { readonly lede: string; readonly done: string; readonly emailExample: string } {
+  if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' }
+  const name = siteName(product)
+  // A lab, pharmacy or outreach team is not always a hospital's: the example address names no kind of workplace.
+  return { lede: `Sign in to ${name}.`, done: `Continue to ${name}`, emailExample: 'you@work.org' }
 }
 
 /**
@@ -89,14 +103,16 @@ export function BlueSignIn() {
   }
 
   const hrefs = authHrefs()
+  // Before signing in there are no permissions to go by: the site's own address names the product.
+  const words = signInWords(productOf(window.location.hostname, []))
   const recovery = staffRecoveryHref(window.location.hostname)
   return (
     <BlueAuthLayout title="Welcome back." titleId="blue-sign-in-title" titleAs={challenge ? 'p' : 'h1'} titleRef={heading}
-      lede={challenge ? undefined : 'Sign in to your hospital workspace.'} links={false}>
+      lede={challenge ? undefined : words.lede} links={false}>
       {challenge ? (
         <StaffMfaSteps challenge={challenge} look={BLUE_MFA_LOOK}
           calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
-          doneLabel="Continue to the Hospital EHR" onSignedIn={finish} onRestart={restart} restartLabel="Start again" />
+          doneLabel={words.done} onSignedIn={finish} onRestart={restart} restartLabel="Start again" />
       ) : <>
         {mfaRequired ? <Alert intent="info" size="sm">{STAFF_MFA_NOTICE}</Alert> : null}
         {/* One alert: the refusal, with the way to check a clinician application when that is why. */}
@@ -105,8 +121,8 @@ export function BlueSignIn() {
             is approved. <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</> : null}</Alert> : null}
         <form className="staff-form" onSubmit={event => void submit(event)}>
           <div className="auth-field-label">
-            <label htmlFor="blue-sign-in-email">Email</label>
-            <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder="you@hospital.org" value={email} required
+            <label htmlFor="blue-sign-in-email">Work email</label>
+            <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder={words.emailExample} value={email} required
               onChange={event => setEmail(event.target.value)} />
           </div>
           <div className="auth-field-label">
@@ -116,6 +132,7 @@ export function BlueSignIn() {
           </div>
           <p className="-mt-3 m-0 flex flex-wrap items-center justify-end gap-x-2 text-[13px]">
             <SiteLink className={LINK} href={recovery}>Forgot password?</SiteLink>
+            <span className="text-ink-3">Need a staff account? Ask your facility administrator.</span>
           </p>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!!siteKey && !token)}>

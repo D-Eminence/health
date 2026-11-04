@@ -6,9 +6,9 @@ import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
 import type { StaffSession } from '../../staff/api'
-import { ReviewBanner } from '../../staff/routes/ReviewBanner'
+import { FacilityCheckCard, ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
-import { roleNames } from '../../staff/staffAccess'
+import { roleNames, selfServiceReview } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, ownProductPage, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
@@ -19,12 +19,14 @@ import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pa
 import { productUsable } from './pageAccess'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
+import { facilityRefusal } from './ChooseWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
 import { NotFoundPage } from './NotFoundPage'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
+import { pageShownHere } from './pageAccess'
 import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
@@ -194,7 +196,7 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
  * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
-  const { state, lock, signOut } = useStaff()
+  const { state, lock, signOut, selectFacility, activePatient } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
   // Today's page for this address, which a live stand-in shows.
@@ -204,8 +206,14 @@ export function BlueFrame() {
   // Today's sign-out: a refusal is said, and the session stays, as the account menu said it.
   const [signingOut, setSigningOut] = useState(false)
   const [signOutError, setSignOutError] = useState('')
+  // Switching facility from the account menu: one step, as Choose workspace's own button (an open patient asks first).
+  const [switchError, setSwitchError] = useState('')
+  // The facility being opened: one switch at a time, as Choose workspace's own buttons wait for theirs.
+  const [switching, setSwitching] = useState<string | null>(null)
   const { viewing } = useRoleView()
   useFocusOnPageChange(pageRef, lock !== null)
+  // A refused switch is said where it was tried: another page opened leaves it behind.
+  useEffect(() => setSwitchError(''), [location.pathname])
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
@@ -248,7 +256,8 @@ export function BlueFrame() {
   const moved = movedAddress(location.pathname)
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
   // A single product's home is its own queue, when this session may open it; otherwise /provider stays Home.
-  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+  // The frame's notice (a page this session may not open) goes along, so it shows on the product's first page.
+  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} state={location.state} />
   // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
   // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
   // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
@@ -264,6 +273,18 @@ export function BlueFrame() {
       .finally(() => setSigningOut(false))
   }
 
+  function switchTo(id: string, name: string) {
+    // An open patient record closes on a switch: Choose workspace says so before anything changes.
+    if (switching) return
+    if (activePatient) { navigate('/provider/institutions'); return }
+    setSwitchError('')
+    setSwitching(id)
+    selectFacility(id)
+      .then(switched => { if (switched) navigate('/provider') })
+      .catch((caught: unknown) => setSwitchError(facilityRefusal(caught, name)))
+      .finally(() => setSwitching(null))
+  }
+
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
     event.preventDefault()
@@ -272,7 +293,7 @@ export function BlueFrame() {
 
 
   // Today's page refuses in its own words ("Laboratory unavailable"), and reads nothing without the permission.
-  const shownHere = match === null || (match.page.visible?.(session) ?? true)
+  const shownHere = match === null || pageShownHere(match.page, session)
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
   // The first item: Home in the EHR, and a single product's own first page. A product site whose own page this session
@@ -348,10 +369,11 @@ export function BlueFrame() {
               subtitle: `${roles}${isDemoFacility(facility?.id) ? ' · Demo facility' : ''}`,
               avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-fill text-white"><info.icon className="size-5" /></span>,
               menu: close => <ul className="m-0 list-none p-0">
-                {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) navigate('/provider/institutions') }}
-                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
-                <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li>
+                {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) switchTo(f.id, f.name) }} disabled={switching !== null}
+                  className="flex w-full cursor-pointer disabled:cursor-wait items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === switching ? <span className="text-ink-3">Opening…</span> : null}{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
+                {/* My profile is a sample that saves nothing: the demo facilities' alone. */}
+                {isDemoFacility(facility?.id) ? <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li> : null}
               </ul>,
             }}
             nav={nav}
@@ -377,8 +399,14 @@ export function BlueFrame() {
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
+              {switchError ? <Alert intent="error" title="That facility couldn’t be opened">{switchError}</Alert> : null}
               <RedirectNotice />
               <ReviewBanner />
+              {/* A lab, pharmacy or outreach on its own may land on its own first page and never see Home's card. */}
+              {/* Only above its own pages: it leaves when another page opens, and its "Done" is not shown again. While the
+                  check is pending the banner above already says so, so only the "Done" card shows here. */}
+              {product !== 'ehr' && facility && match && selfServiceReview(facility) !== 'pending' && (basePath(match.page.path) === info.home || basePath(match.page.path).startsWith(`${info.home}/`))
+                ? <FacilityCheckCard facility={facility} /> : null}
               <BillingBanner />
               {tabs.length > 0 ? (
                 <EhrModuleTabs

@@ -367,7 +367,11 @@ describe('campaigns, read only', () => {
     renderPage()
     const list = await campaignsList()
     expect(card(list, 'Demo screening week')).toBeTruthy()
-    expect(within(card(list, 'Demo follow-up')).getByText('planned')).toBeTruthy()
+    // Each status in plain words, never its code.
+    expect(within(card(list, 'Demo follow-up')).getByText('Not started')).toBeTruthy()
+    expect(within(card(list, 'Demo screening week')).getByText('Running')).toBeTruthy()
+    expect(within(list).queryByText('planned')).toBeNull()
+    expect(within(list).queryByText('active')).toBeNull()
     for (const name of [/create campaign/i, /activate/i, /close campaign/i, /add member/i, /new campaign/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }
@@ -383,10 +387,13 @@ describe('campaigns, read only', () => {
     expect(document.activeElement).toBe(heading())
     expect(screen.getByRole('heading', { name: 'Saved record' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Available actions' })).toBeTruthy()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByText('Nothing else to do here.')).toBeTruthy()
+    expect(within(screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement)
+      .getByText('Status').nextElementSibling?.textContent).toBe('Running')
     const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
     expect(await within(members).findByText('Team member')).toBeTruthy()
-    expect(within(members).getByText(/Reference membersh/)).toBeTruthy()
+    expect(within(members).getByText(/^Added \d{1,2} Jan 2026, \d{2}:\d{2}$/)).toBeTruthy()
+    expect(within(members).queryByText(/Reference|membersh/)).toBeNull()
     expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
     expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
@@ -707,7 +714,9 @@ describe('a registration case', () => {
     expect(heading().textContent).toBe('Patient One')
     expect(document.activeElement).toBe(heading())
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(screen.getByText(/· case c0a5e000$/)).toBeTruthy()
+    // When it was registered, never its ID.
+    expect(screen.getByText(/^Registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
+    expect(screen.queryByText(/c0a5e000/)).toBeNull()
     expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary patient ID', 'Campaign', 'Created'])
     expect(within(registration()).getByText('34 years')).toBeTruthy()
     expect(within(registration()).getByText('Demo screening week')).toBeTruthy()
@@ -741,7 +750,7 @@ describe('a registration case', () => {
     await press(screen.getByRole('button', { name: 'Link existing patient' }))
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
     expect(within(sheet).getByText('Patient One')).toBeTruthy()
-    expect(within(sheet).getByText('34 years · Female · case c0a5e000')).toBeTruthy()
+    expect(within(sheet).getByText(/^34 years · Female · registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
     expect(within(sheet).getByText(PATIENT)).toBeTruthy()
     await press(within(sheet).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()

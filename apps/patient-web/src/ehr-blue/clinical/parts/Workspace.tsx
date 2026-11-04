@@ -3,6 +3,7 @@ import '../clinical.css'
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { useStaff } from '../../../staff/App'
+import { PRODUCTS, productHere } from '../../frame/product'
 import { SampleBanner } from './SampleBanner'
 import { segmentOf } from './segments'
 
@@ -27,13 +28,14 @@ const WorkspaceContext = createContext<WorkspaceValue | null>(null)
 export function Workspace({ path, title, sample = false, children }: { path: string; title?: string; sample?: boolean; children: ReactNode }) {
   const segment = segmentOf(path)
   const { pathname } = useLocation()
-  const { lock } = useStaff()
+  const { lock, state } = useStaff()
+  const productName = PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name
   // Inside the frame, today's ProviderTitle (staff/App.tsx) renames the tab on a move below a page today's portal serves
   // (clinical/new reads "Page not found · Health ID Provider"), and the frame names it only when its page changes. Named
   // again, after the frame's label, on every move inside this workspace: a label only, never a patient.
   useEffect(() => {
-    if (title && lock === null) document.title = `${title} · Health ID EHR`
-  }, [title, pathname, lock])
+    if (title && lock === null) document.title = `${title} · Health ID ${productName}`
+  }, [title, pathname, lock, productName])
   const base = useMemo(() => {
     const parts = pathname.split('/')
     const at = parts.indexOf(segment, 1)

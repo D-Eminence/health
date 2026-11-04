@@ -620,6 +620,29 @@ describe('the Accepted panel, once served', () => {
       + 'complete this order” on its row in the work list below.')).toBeTruthy()
   })
 
+  it('says the same words on the Pharmacy page', async () => {
+    working.permissions = PHARMACY
+    routes.incoming.mockResolvedValueOnce({ items: [{ id: ROUTE_ID, reference: '9C1B2D3E', version: 1, effectiveState: 'sent',
+      orderingFacilityName: 'General Hospital', orderer: { name: 'Dr Ade Okon', licenceBody: null },
+      medication: { codeSystem: null, code: null, display: 'Amoxicillin 500 mg capsules' }, doseQuantity: '500', doseUnit: 'mg',
+      routeCode: 'oral', frequency: 'Three times daily', startsOn: '2026-10-20', endsOn: '2026-10-27',
+      prescribedAt: '2026-10-20T08:55:00.000Z', sentAt: '2026-10-20T09:00:00.000Z', respondBy: '2026-10-27T09:00:00.000Z',
+      acceptLocked: false, attemptsLeft: 5 }], crossFacilityOrders: true, crossFacilityWork: true, receives: true })
+    routes.accept.mockResolvedValue({ ...ACCEPTED, workItemId: 'p1', instructions: null })
+    api.pharmacyWorkItems.mockResolvedValueOnce(served()).mockResolvedValue(served(prescription()))
+    render(<MemoryRouter><Pharmacy /></MemoryRouter>)
+    const area = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section')!
+    fireEvent.click(within(area).getByRole('button', { name: 'Accept' }))
+    fireEvent.change(within(area).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-7KQ2M9' } })
+    fireEvent.change(within(area).getByLabelText(/^Reason for accepting/), { target: { value: 'Patient at the counter with their card' } })
+    fireEvent.click(within(area).getByRole('button', { name: 'Accept order' }))
+    await within(area).findByText(/^Accepted: Amoxicillin 500 mg capsules/)
+    await screen.findByText('Amoxicillin 500 mg capsules', { selector: '.staff-list strong' })
+    fireEvent.click(within(area).getByRole('button', { name: WP }))
+    expect(within(area).getByText('If you can’t complete it for another reason, don’t use this: close this and use “We can’t '
+      + 'complete this order” on its row in the work list below.')).toBeTruthy()
+  })
+
   it('closes once its order is ended from the row', async () => {
     const area = await accept()
     const item = screen.getByText('Haemoglobin', { selector: '.staff-list strong' }).closest('.staff-list-item') as HTMLElement

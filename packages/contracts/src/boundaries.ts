@@ -188,6 +188,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.facilityStaff', 'identity.facilityAdministratorLicence', 'identity.staffInvitationCreate',
       'identity.staffInvitationResend', 'identity.staffInvitationRevoke', 'identity.facilityStaffEnd',
       'identity.facilityStaffRole', 'identity.staffInvitationSignedInPreview', 'identity.staffInvitationSignedInAccept',
+      // The facility administrator's One-person lab switch on the Facility profile (hid-system 0111; 404 until served).
+      'identity.facilitySettings', 'identity.facilityOnePersonLab',
       // The directory of laboratories and pharmacies at other facilities an order can be sent to (P4c; Novu only).
       'identity.orderDestinations',
       // Patients who shared their record with the clinician, and invitations to share by email, with Accept (hid-system

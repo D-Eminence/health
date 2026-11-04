@@ -6,7 +6,7 @@ import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
-import { productOf } from '../../frame/product'
+import { opensInProduct, productOf } from '../../frame/product'
 import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
@@ -27,7 +27,7 @@ export const patientsStatus: EhrBluePageStatus = 'live'
  * Patients: search by Health ID (today's access rules), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
  * identity.consent.write, which the frame asks for External record access). Under the search, "Obtain access" always
- * offers the patient's Access PIN and emergency access, as today's "Obtain access" card does, so a patient Find opens at
+ * offers the patient's Access PIN and (on sites that open it) emergency access, as today's "Obtain access" card does, so a patient Find opens at
  * once (the demo patients' seeded share) can still be opened by PIN or for an emergency. Ask the patient leads the group,
  * as today's Request method leads its card. A refused lookup adds only which patient and why: every way in stays in the
  * one group, for the Health ID in the field. There is no list of every patient: Health ID shows a patient only once
@@ -78,7 +78,11 @@ function PatientList() {
   // Registration stays in the EHR only (the owner's decision): on a single product's site (lab., pharmacy., outreach.,
   // migrate.) Find a patient offers no "Register a patient", whatever the role holds. The product is decided as the
   // frame decides it (frame/product.ts), so this page and the menu always agree.
-  const registers = can('identity.registration.write') && productOf(window.location.hostname, permissions) === 'ehr'
+  const product = productOf(window.location.hostname, permissions)
+  const registers = can('identity.registration.write') && product === 'ehr'
+  // Emergency access is the hospital EHR's page: a single product's site (lab., pharmacy.) does not open it, and the
+  // frame would send the person back to Home, so it is not offered there. The PIN (a Patients page) opens everywhere.
+  const offersEmergency = opensInProduct(product, 'emergency')
   // Registration hands over the new Health ID (location state), so the next step is one press of Find; otherwise
   // today's field starts at HID- and is normalized as it changes.
   const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : HEALTH_ID_PREFIX })
@@ -192,14 +196,14 @@ function PatientList() {
           {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
           {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
           {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
-          {emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
-          <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-3">
+          {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
+          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
             <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary busy={busy}
               unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => otherWay('request')} />
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." busy={busy}
               unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
-            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger busy={busy}
-              unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} />
+            {offersEmergency ? <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and recorded." danger busy={busy}
+              unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} /> : null}
           </ul>
         </div>
 

@@ -41,17 +41,25 @@ export const ENCOUNTER_TRANSITIONS: Readonly<Record<string, readonly StatusOptio
 /** The changes that also change the encounter's records (today's CLOSING_STATUSES). */
 export const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 
-/** Today's warnings, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu): what each change does to the records. */
-const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
-const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
+/**
+ * Today's warnings (staff/routes/Clinical.tsx:82 on main, :87 on Novu): what each change does to the records, every
+ * clause, with this page's word for the visit.
+ */
+const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling this consultation also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling this consultation does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
 
 /** The warning on a consultation status change, for the service this build talks to. */
 export function encounterClosesRecords(): string {
   return usesNovuBackend() ? NOVU_ENCOUNTER_CLOSES_RECORDS : MAIN_ENCOUNTER_CLOSES_RECORDS
 }
 
+/**
+ * Today's refusal of a cancel or entered in error that would also change records the role may not change
+ * (staff/routes/Clinical.tsx:94-96, :1560-1562), whole and in plain words: why, that nothing was changed, and who can
+ * make the change. It names no kind of record, as EHR's refusal names none.
+ */
 export function retractionNotPermitted(status: string): string {
-  return `You can’t ${status === 'cancelled' ? 'cancel this consultation' : 'mark this consultation entered in error'}: it holds records your role can’t change. Nothing was changed. Ask a doctor or clinician to do it.`
+  return `You can’t ${status === 'cancelled' ? 'cancel this consultation' : 'mark this consultation entered in error'}: doing so would also change some of its records, and your role can’t change all of them. Nothing was changed. Ask a colleague whose role can change all of its records (usually a doctor or clinician) to make this change.`
 }
 
 /**
@@ -66,8 +74,15 @@ export const WRITE_NOTE_LABEL = 'Add notes'
 
 /** The Notes card (today's Notes tab): every clinical note of the encounter, nursing observations included. */
 export const NOTES_TITLE = 'Notes'
-export const NO_NOTES = 'No notes for this encounter.'
-export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
+export const NO_NOTES = 'No notes for this consultation.'
+export const NO_NOTES_ON_PAGE = 'No notes on this page.'
+/**
+ * The Saved record's note lines when nursing notes fill the first page of Notes and there are more pages (EHR lists
+ * notes newest first, 50 to a page): a consultation note, if there is one, is on a later page, so "Not recorded" would
+ * be untrue.
+ */
+export const NOTE_STATUS_ON_LATER_PAGE = 'See Notes below'
+export const NOTE_ON_LATER_PAGE = 'The newest notes are all nursing notes. A consultation note, if there is one, is on a later page of Notes below.'
 export const REVIEW_NOTE = 'Review note content'
 export const HIDE_NOTE = 'Hide note content'
 export const ADD_REVISION_LABEL = 'Add a note revision'
@@ -118,8 +133,9 @@ export const REASON_SHORT = 'Give a reason of at least 3 characters.'
 /** A failed re-read of this consultation, in the redesign's word (today's says "Encounters could not be loaded.", staff/routes/Clinical.tsx:1306). */
 export const ENCOUNTERS_FAILED = 'This consultation could not be loaded.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
-export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Signing needs its own reviewed action.'
-export const NO_WRITE = 'This access does not permit changes to the patient record.'
+export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Review a note, then sign it.'
+/** As the chart says it under the patient banner (parts/chart.tsx READ_ONLY). */
+export const NO_WRITE = 'You can view this record but not change it.'
 
 // EHR lists encounters and each record kind newest first, 50 to a page, with an opaque cursor for the next and no
 // total. A list keeps the cursors that led to the page shown, the first page's being none.

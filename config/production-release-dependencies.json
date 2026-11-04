@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now, after backend release backend-41472309905-1-92af4593c4d92277 (D-Eminence/hid-system#149 at 34d6955), which rebuilt and redeployed all twelve services and the database migration from that commit: migrations 0102 (the sealed demo story and the demo patients' Access PIN) and 0103 (the platform super admin can list, check the CAC of, approve and reject organization applications), identity-api's demo-requests audit actions renamed to admin.*, and the gateway's libexpat 2.10.0-r0 pin. Browser-facing changes since the previous pins (a42b48a, 6f900b6, 6c6fc18): the admin Overview's Organization applications and Demo requests now load for the platform super admin; the demo patients are named Adaeze Okafor and Chinedu Okafor and have an Access PIN; nothing this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-02: \"approve 0102 and 0103\", in reply to the plan to sign and merge the backend release, then update the website to match and release it, and \"done\" when patient2@'s password was set.",
+  "review_reference": "The services as deployed now. Backend release backend-41837350227-1-5b83bd31f00f8c03 (D-Eminence/hid-system#164 at f95ce97) rebuilt and redeployed all twelve services and the database migration: migrations 0104 (records-processing cover) and 0105 (document virus scanner fields; scan routes internal-only), and new Health IDs that mix letters and digits. Then backend release backend-41856305880-1-9171f44467b57341 (D-Eminence/hid-system#167 at f11c9ec) redeployed ehr-api and lab-api: the patient chat cites only its own sources and adds the server's \"Talk to your doctor\" lines, the chat source viewer answers 404 CHAT_SOURCE_UNAVAILABLE for a source it may not show, and the staff chat covers one patient per chat. So ehr-api and lab-api are pinned to f11c9ec and every other service to f95ce97. Browser-facing changes since the previous pins (34d6955): the document fields scanStatus and detected type, the new Health ID format, and the patient chat changes above; nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-04: \"approve re-pin\" (Q29), in reply to the plan to point the website at the backend as deployed after the patient chat safety release, which also releases website batch 4.",
   "backend_commits": {
-    "gateway": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "identity-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "ehr-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "lab-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "pharmacy-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "ocr-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "outreach-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "support-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "notification-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7"
+    "gateway": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
+    "identity-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
+    "ehr-api": "f11c9ec992f1338923774918717e94dd887981be",
+    "lab-api": "f11c9ec992f1338923774918717e94dd887981be",
+    "pharmacy-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
+    "ocr-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
+    "outreach-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
+    "support-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
+    "notification-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108"
   }
 }
