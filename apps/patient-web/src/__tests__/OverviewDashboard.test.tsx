@@ -250,7 +250,7 @@ describe('what the overview counts', () => {
     const rows = recentActivity(logPage, notices)
     expect(rows).toHaveLength(RECENT_ROWS)
     expect(rows.map(row => row.id)).toEqual(['log-e-1', 'notice-n-0', 'notice-n-1', 'notice-n-2', 'log-e-2'])
-    expect(rows[0]).toMatchObject({ to: '/access', text: 'Dr Bello at Lagos General: viewed your record' })
+    expect(rows[0]).toMatchObject({ to: '/access?tab=activity', text: 'Dr Bello at Lagos General: viewed your record' })
     expect(rows[1]).toMatchObject({ to: '/notifications' })
     expect(recentActivity(null, null)).toEqual([])
   })

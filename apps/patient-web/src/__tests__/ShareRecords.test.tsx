@@ -103,7 +103,7 @@ describe('the share flow', () => {
     const post = sent.find(item => item.path === '/identity/me/shares')
     expect(post?.body).toEqual({ membershipId: providers[0]!.membershipId, level: 'clinical_collaboration', duration: 'until_revoked' })
     expect(headers.find(item => item.path === '/identity/me/shares')?.headers.get('Idempotency-Key')).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
-    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access')
+    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access?tab=granted')
   })
 
   it('asks for a recent sign-in in its own words, moves focus to the error, and sends the same key again', async () => {

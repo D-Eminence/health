@@ -47,7 +47,7 @@ describe('who viewed or changed your record', () => {
       expect.stringMatching(/^Dr Clinician 1 at Lagos GeneralViewed your record28 Oct 2026, \d{2}:15$/),
       expect.stringMatching(/^Dr Ada Obi at Lagos GeneralChanged your record27 Oct 2026/),
       expect.stringMatching(/^Yaba ClinicGot access to your record26 Oct 2026/),
-      expect.stringMatching(/^YouAccess to your record ended25 Oct 2026/),
+      expect.stringMatching(/^You ended Yaba Clinic’s access25 Oct 2026/),
       expect.stringMatching(/^Dr Emeka at Ikeja HospitalOpened your record in an emergency24 Oct 2026/),
     ])
     expect(rows[0]!.querySelector('time')?.getAttribute('dateTime')).toBe('2026-10-28T09:15:00Z')
