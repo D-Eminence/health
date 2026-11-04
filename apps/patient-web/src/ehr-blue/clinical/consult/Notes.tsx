@@ -11,8 +11,9 @@ import { RecordForm, type FieldDef, type FormValues, type SubmitOutcome } from '
 import { Pager } from '../parts/RecordTable'
 import { StatusBadge } from '../parts/StatusBadge'
 import {
-  LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION, REFRESH_REVISIONS, type NoteStatusChange,
+  LOADING_REVISIONS, NOTE_TRANSITIONS, isOldVitalsNote, NO_CONTENT, RECORDING, RECORD_REVISION, REFRESH_REVISIONS, type NoteStatusChange,
 } from '../nursing/observations'
+import { OldVitalsLine } from '../nursing/OldVitalsLine'
 import { useFocusAfterChange } from '../triage/records'
 import {
   ADD_REVISION_LABEL, HIDE_NOTE, NOTES_TITLE, NOTE_STATUS_UPDATED, NO_NOTES, NO_NOTES_ON_PAGE, REASON_FIELD, RELOAD_NOTE,
@@ -166,6 +167,8 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
 
   const toggle = (action: Selected) => setSelected(current => current === action ? null : action)
   const noteType = field(note, 'noteType')
+  // A nursing observation saved under the old "Vitals" category: a note, not vitals, said under its text.
+  const oldVitals = isOldVitalsNote(note)
 
   return (
     <li className="hid-ehr-clinical-consult-record">
@@ -188,7 +191,7 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
           {shown?.length === 0 ? <p>{NO_CONTENT}</p> : null}
           {shown?.map(revision => (
             <KeyValueList key={revision.id} items={[
-              { label: `Revision ${revision.revisionNo}`, value: revision.content },
+              { label: `Revision ${revision.revisionNo}`, value: oldVitals ? <>{revision.content}<OldVitalsLine /></> : revision.content },
               { label: 'Recorded', value: `${formatWhen(revision.createdAt)} · ${revision.changeReason}` },
             ]} />
           ))}
