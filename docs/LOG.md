@@ -2817,3 +2817,18 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-04: Health information and emergency contacts ready for launch
+
+From the patient launch audit (HE-01 to HE-12, HE-14), on `claude/patient-health-info-launch-ready` after merging main (`12d488f6`). Tests first in `HealthEmergencyLaunch.test.tsx`.
+
+- **Contact codes.** A wrong code (403 `EMERGENCY_CONTACT_CODE_INVALID`) said "You don't have access to do this." It now says "That code isn't right. Check it with <name> and try again." An expired one (`EMERGENCY_CONTACT_CODE_EXPIRED`) says "This code has expired. Send a new code.", and the code form offers Send a new code, which takes focus. While a refusal is shown, the code boxes are marked invalid and described by it.
+- **Add refusals.** A duplicate (409 `EMERGENCY_CONTACT_DUPLICATE`) and the limit of 5 (409 `EMERGENCY_CONTACT_LIMIT_REACHED`) said "Try again." Now: "This person is already one of your emergency contacts." under the field; "You already have 5 emergency contacts. Remove one to add another." with the form closed and the list read again.
+- **Where errors are said.** A refused phone number or email is said under the field (it was at the top of the block, out of view). Other refusals in the add, code, edit or remove step are said inside that step, above its buttons. Anything else is said under the heading, as before.
+- **Remove** moves focus to its question ("Remove <name>? …"), which names the confirmation group.
+- **Busy buttons** say Saving…, Sending…, Checking… or Removing…, with `aria-busy`.
+- **No contacts yet** is the shared empty state, saying what will appear.
+- **Phones.** The details take a real width (`flex-[1_1_12rem]`), so the status badge wraps under them. Measured in Chromium at 320, 360, 390 and 1366px: the details were 30 to 60px wide, and are now 216, 256, 286 and 376px, with no sideways scroll.
+- **Link to contacts that are not offered** (`/profile#emergency-contacts` while delivery is off and there are none, or where they are not served) now says "Emergency contacts aren't available for your account right now." instead of showing nothing.
+- **Health information.** A failed save keeps focus on Save, just under the error. Blood group is no longer described by it. A save conflict keeps what the patient changed and shows the latest for the rest. While the first read runs, the section shows "Loading…" (busy), with the emergency contacts in it, so the page does not jump; only a 404 removes it. Each text says "Up to 1,000 characters.", and a save too long to send marks and focuses the longest answer.
+- **Left for the shell.** The + menu still offers "Add an emergency contact" where contacts are not offered (`Portal.tsx`). The link now explains itself. Hiding the item would mean the shell reading contacts on every page.
