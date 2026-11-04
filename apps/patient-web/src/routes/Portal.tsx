@@ -677,7 +677,8 @@ export function RecordsPage() {
     {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
       loading={records.loading} reload={records.reload} pageHeading={heading} />}
     {ready && <>
-      {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
+      {/* A search that finds nothing anywhere, older records included, says so with a way back (RN-19). */}
+      {(searching ? matched === 0 : visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0) && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? searchHint()
           : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
