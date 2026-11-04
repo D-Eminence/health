@@ -516,7 +516,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         </EhrCard>
       </DetailGrid>
       {results && resultsOpen ? (
-        <ReleasedResults facilityId={chart.facilityId} requestId={record.id} revision={resultsRevision} onRefresh={() => setResultsRevision(count => count + 1)} />
+        <ReleasedResults facilityId={chart.facilityId} requestId={record.id} revision={resultsRevision} onRefresh={() => setResultsRevision(count => count + 1)} chart={chart} />
       ) : null}
       {rights.novu && route ? (
         <RouteCard
