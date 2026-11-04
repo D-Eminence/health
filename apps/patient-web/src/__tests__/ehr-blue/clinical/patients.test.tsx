@@ -421,6 +421,41 @@ describe('The open patient’s page', () => {
     expect(where()).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
+  it('tells a role that brings in paper records that this access covers them, only for an adult under direct care', async () => {
+    const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
+    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.activePatient = activePatient()
+    const view = open('/open')
+    expect(await screen.findByText(LINE)).toBeTruthy()
+    view.unmount()
+
+    // Not to a role without paper records, not under emergency access, not on a grant that can't add records, not for
+    // a patient under 18. Each page is read to the end before the line is looked for.
+    staff.permissions = [...ALL]
+    const noRole = open('/open')
+    await screen.findByText('You have access')
+    expect(screen.queryByText(LINE)).toBeNull()
+    noRole.unmount()
+    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.activePatient = activePatient('emergency')
+    const emergency = open('/open')
+    await screen.findByText('Emergency access')
+    expect(screen.queryByText(LINE)).toBeNull()
+    emergency.unmount()
+    staff.activePatient = activePatient()
+    api.consentStatus.mockResolvedValue({ ...CONSENT, writeAllowed: false })
+    const readOnly = open('/open')
+    await screen.findByText('View only')
+    expect(screen.queryByText(LINE)).toBeNull()
+    readOnly.unmount()
+    api.consentStatus.mockResolvedValue(CONSENT)
+    const child = new Date().getUTCFullYear() - 10
+    staff.activePatient = { ...activePatient(), lookup: { ...activePatient().lookup, patient: { ...activePatient().lookup.patient, dateOfBirth: `${child}-01-01` } } }
+    open('/open')
+    await screen.findByText('You have access')
+    expect(screen.queryByText(LINE)).toBeNull()
+  })
+
   it('hands the Health ID to the request form from Ask for more access', () => {
     staff.activePatient = activePatient()
     open('/open')
