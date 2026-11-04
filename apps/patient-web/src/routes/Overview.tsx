@@ -227,6 +227,9 @@ export function Overview() {
   // A tile only for a section the backend sends (recordSections.ts): production sends no documents or prescriptions, and
   // a tile there could only ever say 0. Each comes back by itself once the backend sends it.
   const sections = sectionsShown()
+  // Two tiles fill their row as two columns, not half of a row laid out for four (HCS-01).
+  const tileCount = 2 + (sections.includes('documents') ? 1 : 0) + (sections.includes('prescriptions') ? 1 : 0)
+  const tileCols = tileCount === 4 ? 4 : tileCount === 3 ? 3 : 2
 
   const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
   // The heading is there while the profile is read, as the page's own: a link that opened Home takes focus to it
@@ -254,22 +257,24 @@ export function Overview() {
         <HealthIdCard className="w-full" profile={shown} onChanged={profile.reload}
           verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null} shareTo={shareTo} sharePrimary={pending.length === 0}
           allergies={cardFact(savedHealth?.allergies, fromHid1?.content.allergies, savedHealth)}
-          bloodGroup={cardFact(savedHealth?.bloodGroup, fromHid1?.content.blood_group, savedHealth)} genotype={cardFact(savedHealth?.genotype, fromHid1?.content.genotype, savedHealth)} />
+          bloodGroup={cardFact(savedHealth?.bloodGroup, fromHid1?.content.blood_group, savedHealth)} genotype={cardFact(savedHealth?.genotype, fromHid1?.content.genotype, savedHealth)}
+          healthUnavailable={health.error !== null} />
         {/* A card shown to a front desk or an emergency team must not read as if no allergy is recorded (HCS-04). */}
         {health.error && <LoadProblem what="your blood group, genotype and allergies" error={health.error} buttonRef={healthRetry.button}
           onRetry={() => healthRetry.retry(health.reload)} name={<ItemName>loading your blood group, genotype and allergies</ItemName>} />}
       </div>
 
       <div className="flex min-w-0 flex-col gap-6 @3xl:col-start-1 @3xl:row-span-2 @3xl:row-start-1">
-        {!drawn && !topKnown ? <ColumnLoading tiles={2 + (sections.includes('documents') ? 1 : 0) + (sections.includes('prescriptions') ? 1 : 0)} /> : <>
+        {!drawn && !topKnown ? <ColumnLoading tiles={tileCount} cols={tileCols} /> : <>
         {/* Requests that could not be checked are said, not shown as none waiting (HCS-07). */}
         {requests.error && <Alert intent="error" title="Couldn’t check for access requests"
           action={<ButtonR ref={requestsRetry.button} size="sm" onClick={() => requestsRetry.retry(requests.reload)}>Try again <ItemName>checking for access requests</ItemName></ButtonR>}>{requests.error}</Alert>}
         {/* Each decision waiting for the patient, in words they act on (inverted pyramid). */}
         {/* One primary on the page: the first request's Review; the card's Share steps back while any waits. */}
-        {pending.map((item, index) => <Alert key={item.accessRequestId} intent="warning" icon={ShieldAlert}
+        {/* Notes, not alerts: they are there on every visit, so they are not said aloud each time (HCS-27). */}
+        {pending.map((item, index) => <Alert key={item.accessRequestId} intent="warning" icon={ShieldAlert} live={false}
           title={`${item.facilityName} wants to see your ${WORDS.records}`}
-          action={<Button to="/access" size="sm" variant={index === 0 ? 'primary' : 'secondary'}>Review</Button>}>
+          action={<Button to="/access" size="sm" variant={index === 0 ? 'primary' : 'secondary'}>Review <ItemName>the request from {item.facilityName}</ItemName></Button>}>
           {item.reason ? `“${item.reason}”` : 'No reason given.'}{forHowLong(item.requestedDurationMinutes)} Nothing is shared until you approve.
         </Alert>)}
         {notes.map(item => <Alert key={item.id} intent="info" icon={ATTENTION_ICON[item.id]} title={item.text} action={<Button to={item.to} size="sm">{ATTENTION_ACTION[item.id] ?? 'Open'}</Button>}>{ATTENTION_HINT[item.id]}</Alert>)}
@@ -289,7 +294,7 @@ export function Overview() {
         </Card>}
 
         {/* Blood group, genotype and allergies are on the card; these say what the record holds. */}
-        <StatGroup label="Your record at a glance">
+        <StatGroup label="Your record at a glance" cols={tileCols}>
           <StatCard icon={FolderHeart} tone="brand" label="Records" {...tileValue(counts?.records ?? null, recordsFailed)} to="/records" />
           {sections.includes('documents') && <StatCard icon={FileText} tone="violet" label="Documents" {...tileValue(counts?.documents ?? null, recordsFailed)} to="/records?tab=documents" />}
           <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'}
@@ -363,12 +368,17 @@ function forHowLong(minutes: number | null | undefined) {
   return unit(minutes, 'minute')
 }
 
+/** The tiles' columns as StatGroup lays them out (kasuwa/ui.tsx), for the loading column to match. */
+const STAT_COLS: Readonly<Record<2 | 3 | 4, string>> = {
+  2: 'grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]', 3: 'grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))]', 4: 'hid-stat-grid-4',
+}
+
 /** The column while what goes at its top is read: the tiles and a card, drawn as they will be, said to be loading. */
-function ColumnLoading({ tiles }: { tiles: number }) {
+function ColumnLoading({ tiles, cols }: { tiles: number; cols: 2 | 3 | 4 }) {
   const bar = 'animate-pulse rounded-md bg-hover'
   return <div role="status" aria-label="Loading your overview" className="flex flex-col gap-6">
     <span className="sr-only">Loading your overview…</span>
-    <div className="hid-stat-grid-4 grid gap-1.5 rounded-2xl bg-tray p-1.5" aria-hidden="true">
+    <div className={cx('grid gap-1.5 rounded-2xl bg-tray p-1.5', STAT_COLS[cols])} aria-hidden="true">
       {Array.from({ length: tiles }, (_, i) => <div key={i} className="rounded-xl bg-surface p-4 ring-1 ring-line sm:p-5">
         <div className={`${bar} size-10 rounded-full`} /><div className={`${bar} mt-3 h-7 w-12 sm:mt-5`} /><div className={`${bar} mt-2 h-3.5 w-20`} /></div>)}
     </div>

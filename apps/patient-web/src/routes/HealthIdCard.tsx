@@ -8,6 +8,7 @@ import type { PatientProfile } from '../api'
 import { Drawer } from '../kasuwa/interactive'
 import { useToast } from '../kasuwa/toast'
 import { Button, IconChip, cx } from '../kasuwa/ui'
+import { ButtonR } from './profileParts'
 import { PHOTO_SIDE, PhotoProblem, base64Of, reencodePhoto } from '../photoImage'
 import { useAnnounceProfileChange } from '../profileChange'
 import { useSession } from '../session'
@@ -28,12 +29,14 @@ import { initialsOf, useObjectUrl, usePatientPhoto } from './ProfilePhoto'
  * medallion says so. The actions sit under the card, not on it, so the card reads as a card. `links` leaves out the link
  * to the page it is on; Profile passes none.
  */
-export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergies, shareTo, links = ['share', 'profile'], sharePrimary = true, onChanged, className }: {
+export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergies, healthUnavailable = false, shareTo, links = ['share', 'profile'], sharePrimary = true, onChanged, className }: {
   profile: PatientProfile
   verified: boolean | null
   bloodGroup?: string | null
   genotype?: string | null
   allergies?: string | null
+  /** Blood group, genotype and allergies could not be read: the card says so, never reading as if none is recorded (HCS-04). */
+  healthUnavailable?: boolean
   shareTo: string
   links?: ReadonlyArray<'share' | 'profile'>
   /** Share is the screen's one primary action, unless something else on it is (a request waiting on Home). */
@@ -76,21 +79,26 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
     } finally { setBusy(null) }
   }
   const close = () => { if (busy === 'saving' || busy === 'removing') return; setOpen(false); setPrepared(null) }
+  const saveButton = useRef<HTMLButtonElement>(null)
+  const [saved, setSaved] = useState(false)
   const save = async () => {
     if (!prepared || busy) return
-    setBusy('saving')
+    setBusy('saving'); setSaved(false)
     try {
       await api.savePhoto(await base64Of(prepared))
       await onChanged?.(); void photo.reload(); announce()
-      // The card shows the new photo: that is the result, so no toast repeats it.
-      setOpen(false); setPrepared(null)
+      // The card shows the new photo; a screen reader is told in words, and focus goes back to the photo control (HCS-15).
+      setOpen(false); setPrepared(null); setSaved(true)
+      focusAfter(() => picker.current)
     } catch (cause) {
       toast.error({ title: 'Couldn’t save your photo', message: isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? 'Choose a JPEG or PNG photo.' : plainErrorText(cause, 'Please try again.') })
+      // Save photo was disabled while it saved: focus goes back to it, to press again (HCS-15).
+      focusAfter(() => saveButton.current)
     } finally { setBusy(null) }
   }
   const remove = async () => {
     if (busy) return
-    setBusy('removing')
+    setBusy('removing'); setSaved(false)
     try {
       await api.removePhoto(); photo.forget()
       await onChanged?.(); announce()
@@ -111,7 +119,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   const [allergiesOpen, setAllergiesOpen] = useState(false)
 
   return <div className={cx('flex flex-col gap-3', className)}>
-    <CardFace name={profile.fullName} hid={<HealthIdCode code={profile.hid} />} verified={verified} facts={facts} allergies={allergyList}
+    <CardFace name={profile.fullName} hid={<HealthIdCode code={profile.hid} />} verified={verified} facts={facts} allergies={allergyList} factsUnavailable={healthUnavailable}
       onAllergies={() => setAllergiesOpen(true)} medallion={editable ? <label className="group/photo absolute inset-0 cursor-pointer rounded-full">
         <span className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full bg-[#071a3d] ring-[.5cqw] ring-white/25 group-focus-within/photo:ring-white">{face}</span>
         {/* Seen as a control: a pill that says what it does; the whole medallion (well over 44px) is its target. */}
@@ -120,6 +128,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
         <input ref={picker} type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy !== null}
           aria-label={photo.url ? 'Change the photo on your card' : 'Add a photo to your card'} onChange={event => void choose(event)} />
       </label> : undefined} face={face} />
+
+    <p role="status" className="sr-only m-0">{saved ? 'Your photo was saved.' : ''}</p>
 
     {/* The photo is changed on the card; removing it is one step away, under it, and asked again in the drawer. */}
     {editable && photo.url && <Button size="sm" variant="ghost" icon={Trash2} className="self-center" disabled={busy !== null}
@@ -144,7 +154,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       footer={<>
         {photo.url && <Button variant="danger" icon={Trash2} className="mr-auto" loading={busy === 'removing'} disabled={busy !== null} onClick={() => void remove()}>Remove</Button>}
         <Button disabled={busy === 'saving' || busy === 'removing'} onClick={() => picker.current?.click()}>Choose another</Button>
-        <Button variant="primary" loading={busy === 'saving'} disabled={!prepared || busy !== null} onClick={() => void save()}>Save photo</Button></>}>
+        <ButtonR ref={saveButton} variant="primary" loading={busy === 'saving'} disabled={!prepared || busy !== null} onClick={() => void save()}>Save photo</ButtonR></>}>
       <div className="flex flex-col items-center gap-4 py-2">
         <div className="relative size-44 overflow-hidden rounded-2xl bg-tray ring-1 ring-line">
           {preview ? <img src={preview} alt="Your new photo, cropped to a square" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
@@ -164,12 +174,14 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
  * follows it (through CSS variables, never React state). `medallion` replaces the portrait with a control (the photo
  * picker); `onAllergies` makes the allergies a button.
  */
-export function CardFace({ name, hid, verified, facts, allergies, onAllergies, medallion, face, label = 'Patient card', still = false }: {
+export function CardFace({ name, hid, verified, facts, allergies, factsUnavailable = false, onAllergies, medallion, face, label = 'Patient card', still = false }: {
   name: string
   hid: ReactNode
   verified: boolean | null
   facts: ReadonlyArray<readonly [string, string]>
   allergies: readonly string[]
+  /** Blood group, genotype and allergies could not be read: printed as such in their place, not left blank (HCS-04). */
+  factsUnavailable?: boolean
   onAllergies?: () => void
   medallion?: ReactNode
   face: ReactNode
@@ -230,8 +242,9 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
         {medallion ?? <span className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full bg-[#071a3d] ring-[.5cqw] ring-white/25">{face}</span>}
       </div>
 
-      {/* What an emergency team needs first, printed under the chip. */}
-      {(facts.length > 0 || firstAllergy) && <dl className="absolute top-[30.5cqw] left-[7.5cqw] m-0 flex w-[59cqw] gap-[3.5cqw]">
+      {/* What an emergency team needs first, printed under the chip; when it could not be read, the card says so. */}
+      {factsUnavailable ? <p className="absolute top-[31cqw] left-[7.5cqw] m-0 w-[59cqw] text-[3.4cqw] leading-tight font-medium tracking-[.02em] text-white/90">Health details unavailable</p>
+        : (facts.length > 0 || firstAllergy) && <dl className="absolute top-[30.5cqw] left-[7.5cqw] m-0 flex w-[59cqw] gap-[3.5cqw]">
         {facts.map(([factLabel, value]) => <div key={factLabel} className="min-w-0 shrink-0">
           <dt className="text-[3cqw] leading-none font-medium tracking-[.06em] text-white/80 uppercase">{factLabel}</dt>
           <dd className="m-0 mt-[1.4cqw] truncate text-[3.6cqw] leading-none font-semibold tracking-[.02em] text-white">{value}</dd></div>)}
@@ -246,9 +259,11 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
       {/* The holder: name, NIN and the ID. */}
       <div className="absolute right-[7.5cqw] bottom-[6.5cqw] left-[7.5cqw] flex items-end justify-between gap-[4cqw]">
         <div className="min-w-0">
-          <p className="m-0 flex items-center gap-[1.2cqw] truncate text-[3.2cqw] leading-none font-medium tracking-[.12em] text-white/90 uppercase">{name}
-            {verified !== null && (verified ? <BadgeCheck className="size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
-              : <CircleAlert className="size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
+          {/* The whole name, over two lines if it must, a step smaller when long; the NIN mark beside it, never cut off (HCS-05). */}
+          <p className="m-0 flex items-start gap-[1.2cqw] text-white/90">
+            <span className={cx('line-clamp-2 min-w-0 font-medium tracking-[.12em] break-words uppercase', name.length > 28 ? 'text-[2.8cqw] leading-[1.2]' : 'text-[3.2cqw] leading-[1.15]')}>{name}</span>
+            {verified !== null && (verified ? <BadgeCheck className="mt-[.15cqw] size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
+              : <CircleAlert className="mt-[.15cqw] size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
           <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-note]:text-[3cqw] [&_.patient-hid-note]:tracking-normal [&_.patient-hid-note]:text-white/80">{hid}</div>
         </div>
       </div>
