@@ -298,3 +298,12 @@ describe('the patient\'s preview of what a card link shows', () => {
     expect(sent.some(item => item.path.startsWith('/card-share/'))).toBe(false)
   })
 })
+
+describe('signing in again on the way to the send flow', () => {
+  it('returns to /access/share/card, and never to the page a link opens', async () => {
+    const { PORTAL_RETURN_PATHS } = await import('../sso/handOff')
+    expect(PORTAL_RETURN_PATHS).toContain('/access/share/card')
+    expect(PORTAL_RETURN_PATHS).not.toContain('/card')
+    expect(PORTAL_RETURN_PATHS.some(path => path.startsWith('/card/stop'))).toBe(false)
+  })
+})

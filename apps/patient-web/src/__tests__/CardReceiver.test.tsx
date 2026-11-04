@@ -401,3 +401,14 @@ describe('the privacy notice', () => {
     }
   })
 })
+
+describe('a code that stopped working', () => {
+  it('offers a new code at once, without waiting a minute', async () => {
+    await startToCode(served({ 'POST /card-share/verify': () => problem(410, 'CARD_SHARE_CODE_EXPIRED', 'x') }))
+    expect(screen.queryByRole('button', { name: 'Send a new code' })).toBeNull()
+    await enterCode(screen.getByRole('textbox', { name: /Digit 1 of 6/ }), '111111')
+    expect(await screen.findByRole('button', { name: 'Send a new code' })).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send a new code' })) })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Open a shared Health ID card' })).toBeTruthy()
+  })
+})
