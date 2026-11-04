@@ -55,6 +55,14 @@ describe('while the page finds out which sign-up to show (SO-07)', () => {
     expect(within(stepsList()!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['1Your details', '2Password', '3Email code'])
   })
 
+  it('shows no NIN steps when it could not find out, only Try again', async () => {
+    renderPortal(<Enrollment />, gateway(() => problem(503, 'SERVICE_UNAVAILABLE', 'Down')), anonymous)
+    expect(await screen.findByText(/We couldn’t check whether new sign-ups are open/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+    expect(stepsList()).toBeNull()
+    expect(screen.queryByText('Verify who you are, confirm a contact, and choose a password.')).toBeNull()
+  })
+
   it('shows the NIN steps once the NIN sign-up is the one served', async () => {
     renderPortal(<Enrollment />, gateway(() => json({ open: true })), anonymous)
     await screen.findByLabelText('National Identification Number (NIN)')
