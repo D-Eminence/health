@@ -850,6 +850,14 @@ describe('Consultation record: diagnoses', () => {
     expect(await within(card('Diagnoses')).findByText('No diagnoses for this consultation.')).toBeTruthy()
   })
 
+  it('names a diagnosis recorded with no name by its code, with no More details', async () => {
+    records.diagnoses = [{ ...DIAGNOSIS, display: '' }]
+    await openEncounter()
+    const row = within(card('Diagnoses')).getByText('ICD-10 B54').closest('li')!
+    expect(within(row).getByText('Active · Provisional')).toBeTruthy()
+    expect(row.querySelector('details')).toBeNull()
+  })
+
   it('offers no change for one entered in error', async () => {
     records.diagnoses = [{ ...DIAGNOSIS, verificationStatus: 'entered_in_error' }]
     await openEncounter()

@@ -160,12 +160,13 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
               <li key={record.id} className="hid-ehr-clinical-consult-record">
                 <div className="hid-ehr-clinical-history-row">
                   <span>
-                    <strong>{field(record, 'display') || 'Diagnosis'}</strong>
+                    {/* The plain name first; a diagnosis recorded with no name shows its code (it is all there is). */}
+                    <strong>{field(record, 'display').trim() || codeText(field(record, 'codeSystem'), field(record, 'code')) || 'Diagnosis'}</strong>
                     <span className="hid-ehr-clinical-cell-sub">{detail(record)}</span>
                     {field(record, 'notes') ? <span className="hid-ehr-clinical-cell-sub">{field(record, 'notes')}</span> : null}
                     {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
-                    {codeText(field(record, 'codeSystem'), field(record, 'code')) ? (
-                      <MoreDetails about={field(record, 'display') || 'Diagnosis'}>
+                    {field(record, 'display').trim() && codeText(field(record, 'codeSystem'), field(record, 'code')) ? (
+                      <MoreDetails about={field(record, 'display')}>
                         <span>Code: {codeText(field(record, 'codeSystem'), field(record, 'code'))}</span>
                       </MoreDetails>
                     ) : null}
