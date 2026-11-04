@@ -34,11 +34,12 @@ export function isObservation(record: ClinicalRecord) {
 }
 
 /**
- * An observation saved under the old "Vitals" category (offered until 1 November 2026, no longer saved): a clinical
- * note, never range-checked and not in the vitals chart, so wherever its text shows, this line goes under it.
+ * An observation saved under the old "Vitals" category (no longer offered): a clinical note, never range-checked and
+ * not in the vitals chart, so wherever its text shows, this line goes under it. The check reads only the type and the
+ * title, never the date, and a note can still carry that title, so the line names no save date.
  */
 export const OLD_VITALS_CATEGORY = 'Vitals'
-export const OLD_VITALS_NOTE = 'Saved as a note before 1 November. These readings are not in the vitals chart.'
+export const OLD_VITALS_NOTE = 'Saved as a note under the old Vitals category. These readings are not in the vitals chart.'
 
 export function isOldVitalsNote(note: Readonly<Record<string, unknown>>): boolean {
   return note.noteType === NOTE_TYPE && typeof note.title === 'string' && note.title.trim() === OLD_VITALS_CATEGORY
