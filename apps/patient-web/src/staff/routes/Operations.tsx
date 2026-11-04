@@ -28,6 +28,7 @@ import {
 } from './CannotComplete'
 import { useLearnDocumentTypesServed, useWorkItemDocumentsOffered, WorkItemDocuments, workItemDocumentsTitleId } from './WorkItemDocuments'
 import { campaignStatusLabel, roleWords, sexText, statusLabel } from '../../ehr-blue/departments/outreach/outreachParts'
+import { notAnOcrId } from '../ocrIdWords'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -1257,7 +1258,7 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); setProblem(null)
     const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the patient ID.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter the whole patient ID, exactly as Health ID gave it.' }
+      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: notAnOcrId('patient', patientId) }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
@@ -1645,7 +1646,7 @@ export function Ocr() {
     // The last answer no longer applies, nor does a field refused before.
     setProblem(null); setError(''); setNotice('')
     const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
-      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter the whole document ID, exactly as Health ID gave it.' } : null
+      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: notAnOcrId('document', documentId.trim()) } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     await lookup()
     focus('ocr-find-submit', true)
@@ -1664,7 +1665,7 @@ export function Ocr() {
     // Create extraction job stays available, so a missing ID is said at its field, which takes focus. The
     // document ID needs no check here: Create is shown only once Find job has taken it, and editing it hides Create.
     const refused = !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
-      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter the whole patient ID, exactly as Health ID gave it.' } : null
+      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: notAnOcrId('patient', patientId.trim()) } : null
     setProblem(refused && refusal(refused))
     if (refused) { focus(refused.field); return }
     setBusy(true); setExtractions(null); setValidations(null)
@@ -1698,7 +1699,7 @@ export function Ocr() {
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
-      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} required {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
+      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document. Extract with OCR, on one of a patient’s documents, fills in the patient ID.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} required {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       {/* Mounted throughout, so a message put in it is announced. */}
       <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
@@ -1825,7 +1826,7 @@ export function Outreach() {
       caseAttempt.current = { signature, command: { localCommandId: crypto.randomUUID(), temporaryPatientId: `tmp_${crypto.randomUUID()}` } }
     }
     setBusy(true)
-    try { await staffApi.createOutreachCase(facilityId, input, caseAttempt.current.command); caseAttempt.current = null; setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
+    try { await staffApi.createOutreachCase(facilityId, input, caseAttempt.current.command); caseAttempt.current = null; setSuccess('Registration case created. It stays pending until it is linked to a verified Health ID patient.'); element.reset(); await cases.refresh() }
     catch (caught) { setError(errorText(caught, 'Registration case could not be created.')) }
     finally { setBusy(false) }
   }
@@ -1833,7 +1834,7 @@ export function Outreach() {
   // The blue Outreach's words (NO_OUTREACH): one sentence for everyone, as Document OCR's (see NO_OUTREACH for why).
   if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusalAt(facilityId, NO_OUTREACH)} />
   return <>
-    <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until it is linked to a verified patient.</PageHead>
+    <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration stays pending until it is linked to a verified Health ID patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was created is announced. */}
     <div id="outreach-status" role="status">{success && <p className="staff-success">{success}</p>}</div>

@@ -5,6 +5,7 @@ import { staffApi, type OcrExtraction, type OcrJob, type OcrValidation } from '.
 import { useStaff } from '../../../staff/App'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { focusIsLost, useFocusById } from '../../../staff/focus'
+import { notAnOcrId } from '../../../staff/ocrIdWords'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
@@ -201,7 +202,7 @@ export function Migrate() {
     setProblem(null); setError(''); setNotice('')
     const documentId = findDocument.trim()
     const refused = !documentId ? { field: 'ocr-document', message: 'Complete this field.' }
-      : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: 'Enter the whole document ID, exactly as Health ID gave it.' } : null
+      : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: notAnOcrId('document', documentId) } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     const result = await lookup(documentId)
     if (result?.job) { setView('detail'); setAction(null); focus('migrate-view-title') }
@@ -223,9 +224,9 @@ export function Migrate() {
     const documentId = newDocument.trim()
     const patient = patientId.trim()
     const refused = !documentId ? { field: 'ocr-new-document', message: 'Complete this field.' }
-      : !UUID_V4.test(documentId) ? { field: 'ocr-new-document', message: 'Enter the whole document ID, exactly as Health ID gave it.' }
+      : !UUID_V4.test(documentId) ? { field: 'ocr-new-document', message: notAnOcrId('document', documentId) }
       : !patient ? { field: 'ocr-patient', message: 'Complete this field.' }
-      : !UUID_V4.test(patient) ? { field: 'ocr-patient', message: 'Enter the whole patient ID, exactly as Health ID gave it.' } : null
+      : !UUID_V4.test(patient) ? { field: 'ocr-patient', message: notAnOcrId('patient', patient) } : null
     setProblem(refused && refusal(refused))
     if (refused) { focus(refused.field); return }
     setBusy(true); setStepFocus(null)
@@ -356,7 +357,7 @@ export function Migrate() {
   function newJob() {
     return <DeptSection>
       <form className="hid-ehr-dept-form" noValidate aria-label="New document job" onSubmit={event => void create(event)}>
-        <p className="hid-ehr-dept-muted">Create an extraction job for a verified patient document. The document must be virus scan clean. If it already has a job, that job opens instead.</p>
+        <p className="hid-ehr-dept-muted">Create an extraction job for a verified patient document. The document must be virus scan clean. If it already has a job, that job opens instead. Extract with OCR, on one of a patient’s documents, fills in both IDs.</p>
         <div className="hid-ehr-dept-form-grid">
           <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-new-document" error={problemText(problem, 'ocr-new-document')}>
             <EhrInput value={newDocument} required autoComplete="off"

@@ -274,7 +274,7 @@ describe('OCR-A11Y-01: validation failures keep focus at the refused field', () 
     fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
     await press(screen.getByRole('button', { name: 'Confirm source patient' }))
     await waitFor(() => expect(focused()).toBe(patient))
-    expect(document.getElementById(patient.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
+    expect(document.getElementById(patient.getAttribute('aria-describedby') ?? '')?.textContent).toBe('This needs the patient ID, not their Health ID.')
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 

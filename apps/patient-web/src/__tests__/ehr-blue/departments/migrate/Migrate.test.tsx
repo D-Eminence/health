@@ -192,7 +192,7 @@ describe('Migrate list view', () => {
     fireEvent.change(field, { target: { value: 'HID-ZDEMAAA2' } })
     await press(button('Find job'))
     await waitFor(() => expect(focused()).toBe(field))
-    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter the whole document ID, exactly as Health ID gave it.')
+    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe('This needs the document ID, not a Health ID.')
     // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
     expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     expect(api.findOcrJob).not.toHaveBeenCalled()
@@ -386,12 +386,17 @@ describe('Migrate: creating a job (New document job)', () => {
     const documentField = screen.getByLabelText(/^Document ID/)
     await waitFor(() => expect(focused()).toBe(documentField))
     expect(document.getElementById(documentField.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Complete this field.')
+    // The form says where both IDs come from, and a document ID that is not one is refused in plain words.
+    expect(screen.getByText(/Extract with OCR, on one of a patient’s documents, fills in both IDs\.$/)).toBeTruthy()
+    fireEvent.change(documentField, { target: { value: 'document-1' } })
+    await press(button('Save record'))
+    await waitFor(() => expect(document.getElementById(documentField.getAttribute('aria-describedby') ?? '')?.textContent).toBe('That isn’t a document ID. Check it and try again.'))
     fireEvent.change(documentField, { target: { value: DOCUMENT } })
     fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: 'HID-ZDEMAAA2' } })
     await press(button('Save record'))
     const patientField = screen.getByLabelText(/^Patient ID/)
     await waitFor(() => expect(focused()).toBe(patientField))
-    expect(document.getElementById(patientField.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
+    expect(document.getElementById(patientField.getAttribute('aria-describedby') ?? '')?.textContent).toBe('This needs the patient ID, not their Health ID.')
     // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
     expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     onlyCalled()
@@ -611,7 +616,7 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     expect(descriptions(patient)).toEqual(['Complete this field.'])
     fireEvent.change(patient, { target: { value: 'HID-ZDEMAAA2' } })
     await press(submit)
-    await waitFor(() => expect(descriptions(patient)).toEqual(['Enter the whole patient ID, exactly as Health ID gave it.']))
+    await waitFor(() => expect(descriptions(patient)).toEqual(['This needs the patient ID, not their Health ID.']))
     // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
     expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     fireEvent.change(patient, { target: { value: PATIENT } })

@@ -137,7 +137,7 @@ describe('creating a registration case', () => {
       ageYears: 34, phone: '0803 000 0000', operationalNotes: 'Met at the market clinic' }])
     expect(commands()[0]!.localCommandId).toMatch(UUID)
     expect(commands()[0]!.temporaryPatientId).toMatch(/^tmp_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-    expect(await screen.findByText('Registration case created for identity resolution.')).toBeTruthy()
+    expect(await screen.findByText('Registration case created. It stays pending until it is linked to a verified Health ID patient.')).toBeTruthy()
     expect(api.outreachCases).toHaveBeenCalledTimes(2)
   })
 
@@ -163,7 +163,7 @@ describe('creating a registration case', () => {
     // A different case: the age was mistyped.
     api.createOutreachCase.mockResolvedValueOnce(pendingCase)
     await press(await fillCase({ age: '43' }))
-    await screen.findByText('Registration case created for identity resolution.')
+    await screen.findByText('Registration case created. It stays pending until it is linked to a verified Health ID patient.')
     // The next case, though its details match the last.
     api.createOutreachCase.mockResolvedValueOnce(pendingCase)
     await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '43' }))
@@ -256,11 +256,18 @@ describe('what a case and a campaign say', () => {
     expect(screen.getByText('Not started')).toBeTruthy()
     const text = document.body.textContent ?? ''
     expect(text).toContain('34 years · Female · ')
-    for (const hidden of ['••••', 'Temporary ID', 'Membership', 'identity resolution pending', 'health worker', 'female', 'c0000000', 'member-1'])
+    for (const hidden of ['••••', 'Temporary ID', 'Membership', 'identity resolution', 'health worker', 'female', 'c0000000', 'member-1'])
       expect(text).not.toContain(hidden)
+    expect(text).toContain('A temporary registration stays pending until it is linked to a verified Health ID patient.')
     // The campaign badges say Running and Not started, never the stored status.
     expect(screen.queryByText('active')).toBeNull()
     expect(screen.queryByText('planned')).toBeNull()
+    // Link verified existing patient: asked for by a plain label, with Health ID's own note and no internal terms.
+    fireEvent.click(screen.getByText('Link verified existing patient'))
+    const form = screen.getByLabelText(/^Patient ID/).closest('form')!
+    expect(within(form).getByText('Health ID checks that you may open this patient and that the case hasn’t changed since you opened it.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('The server checks')
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
   })
 })
 

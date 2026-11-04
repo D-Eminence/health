@@ -46,7 +46,7 @@ describe('OCR identifiers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(field.getAttribute('aria-invalid')).toBe('true')
-    expect(described(field)).toBe('Enter the whole document ID, exactly as Health ID gave it.')
+    expect(described(field)).toBe('That isn’t a document ID. Check it and try again.')
     expect(api.findOcrJob).not.toHaveBeenCalled()
   })
 
@@ -68,7 +68,7 @@ describe('OCR identifiers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create extraction job' }))
     await waitFor(() => expect(document.activeElement).toBe(patient))
     expect(patient.getAttribute('aria-invalid')).toBe('true')
-    expect(described(patient)).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
+    expect(described(patient)).toBe('This needs the patient ID, not their Health ID.')
     expect(api.createOcrJob).not.toHaveBeenCalled()
   })
 
@@ -93,7 +93,7 @@ describe('OCR identifiers', () => {
     fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm source patient' }))
     await waitFor(() => expect(document.activeElement).toBe(patient))
-    expect(described(patient)).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
+    expect(described(patient)).toBe('That isn’t a patient ID. Check it and try again.')
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 })

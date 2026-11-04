@@ -141,7 +141,7 @@ describe('confirming the source patient of an OCR job', () => {
     patient.focus()
     await act(async () => { fireEvent.submit(patient.closest('form')!) })
     const first = await screen.findByRole('alert')
-    expect(first.textContent).toBe('Enter the whole patient ID, exactly as Health ID gave it.')
+    expect(first.textContent).toBe('This needs the patient ID, not their Health ID.')
     // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
     expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     expect(patient.getAttribute('aria-describedby')).toBe('ocr-confirm-patient-error')
