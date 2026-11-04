@@ -213,6 +213,8 @@ function CodeStep({ api, token, sentTo, resendAfterSeconds, headingRef, onOpened
     } catch (error) {
       if (controller.current?.signal.aborted) return
       if (isHidApiError(error) && error.code === 'CARD_SHARE_ENDED') { onEnded(); return }
+      // A code that stopped working can be replaced at once: a new code is asked for with a new security check.
+      if (isHidApiError(error) && error.code === 'CARD_SHARE_CODE_EXPIRED') setCanResend(true)
       setProblem(receiverProblem(error, 'verify'))
       setCode('')
       setBusy(false)

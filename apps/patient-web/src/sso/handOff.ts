@@ -66,7 +66,7 @@ export function hasSafeReturnShape(path: unknown): path is string {
  * RequireAccess): no query, no record or person in the address. Its record chat only where it is served
  * (chatFeatures.ts); Settings is only a way to the profile, and every other page is public.
  */
-export const PORTAL_RETURN_PATHS: readonly string[] = ['/', '/profile', '/records', '/access', '/access/share', '/notifications', '/card/preview']
+export const PORTAL_RETURN_PATHS: readonly string[] = ['/', '/profile', '/records', '/access', '/access/share', '/access/share/card', '/notifications', '/card/preview']
 
 function isPortalReturnPath(path: string): boolean {
   if (PORTAL_RETURN_PATHS.includes(path)) return true
