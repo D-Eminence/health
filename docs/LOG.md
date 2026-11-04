@@ -2855,3 +2855,32 @@ answering 204. Off, or 404, nothing is shown and no card request is sent. Contra
   scroll, no console errors, the token in no address or header. That walk found the records never read under React
   StrictMode (its rehearsal unmount aborted the reads); fixed test first. Not checked against a real backend: none
   serves these routes yet.
+
+### Card link: reconciled with the backend after review (4 Nov 2026)
+
+The review compared the website with the backend that serves card links (hid-system `claude/card-links-0118`,
+`docs/INTERFACE_CONTRACT.md` §33). Each finding was reproduced with a failing test first, then fixed on the website side,
+taking the backend's contract as the one in force:
+
+- **F1, every send refused.** The website sent `consentVersion`, which the backend's strict validation refuses. The body is
+  now `{ email, label?, scope, duration }` only, and the website's `CARD_SHARE_CONSENT_VERSION` names the backend's own
+  `card-share-v1`, which the backend records with each link.
+- **F2, Stop these emails.** `/card/stop#<stopToken>` now takes the backend's separate stop token (the link id, a dot, 43
+  characters), sends `POST card-share/stop { stopToken }` only when the person presses the button, and treats 204 as
+  done. No security check (the route takes none) and no link-or-address choice. The card page has no stop button: it
+  holds only the card's token, so it points to the link in the email. Turnstile action `card-share-stop` is gone.
+- **F3, medicines shown as "Not stated".** The records answer names them `medications` and `notes`; the website reads
+  those (and the profile names), and says "Not available" for a field the answer leaves out.
+- **F4, sending again replayed the old link.** The `Idempotency-Key` is kept only to retry one failed send: it is
+  dropped after a send that worked and on going back to the first step. A `replayed: true` answer says "Your card was
+  already sent".
+- **F5, the photo.** The backend shares none, so no photo is asked for, promised or shown in the preview, and the sharer's
+  first name comes from `sharedByFirstName`. `identity.cardSharePhoto` is removed from the registry.
+- **F6.** The wait for `CARD_SHARE_LOCKED` and `CARD_SHARE_CODE_LIMITED` is read from the problem body's
+  `retryAfterSeconds` when there is no `Retry-After` header (`@hid/http`, for any route). A right code from another
+  browser counts as wrong, so the words for a wrong code say to enter it in the browser that asked for it. The switch is
+  named `CARD_LINKS_ENABLED`. Inbox codes are the backend's: `SHARED_CARD_ENDED` (reason `too_many_wrong_codes`) and
+  `SHARED_CARD_STOPPED`.
+
+Still the backend's to decide: a contract test there that posts the website's exact body; and whether `card-share-v1`
+stays the name of the check step's wording.

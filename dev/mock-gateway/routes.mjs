@@ -1065,8 +1065,8 @@ function labRoute(method, path, { body } = {}) {
 // six digits open the card except 000000, which is refused as a wrong code. Links sent here live in memory only.
 const cardShares = []
 const CARD_VIEW = {
-  viewId: 'view-demo', card: { fullName: 'Adaeze Okafor', healthId: 'HID-ADA2345', ninVerified: true, hasPhoto: false },
-  scope: 'card_and_records', sharedBy: 'Adaeze', recipientHint: 'd•••@example.test', reference: 'K7P2-QX9M',
+  viewId: 'view-demo', card: { fullName: 'Adaeze Okafor', healthId: 'HID-ADA2345', ninVerified: true },
+  scope: 'card_and_records', sharedByFirstName: 'Adaeze', recipientHint: 'd•••@example.test', reference: 'K7P2-QX9M',
 }
 const cardHint = email => `${String(email)[0] ?? '?'}•••@${String(email).split('@')[1] ?? 'example.test'}`
 const cardProblem = (status, code, extra = {}) => [status, { type: 'about:blank', title: code, status, code, detail: code, ...extra }]
@@ -1091,7 +1091,7 @@ function cardShareRoute(method, path, request) {
       expiresAt: iso(duration === '7d' ? 7 * DAY : DAY), status: 'active', endedAt: null, endedReason: null, lockedUntil: null, delivery: 'sent',
       openCount: 0, lastOpenedAt: null }
     cardShares.unshift(share)
-    return [201, { share, delivery: 'sent', replacedId }]
+    return [201, { share, delivery: 'sent', replacedId, replayed: false }]
   }
   const end = path.match(/^\/identity\/me\/card-shares\/([^/]+)\/end$/)
   if (end && method === 'POST') {
@@ -1109,11 +1109,16 @@ function cardShareRoute(method, path, request) {
   if (path === '/card-share/view') return [200, { ...CARD_VIEW, expiresAt: iso(DAY), viewExpiresAt: iso(30 * MIN) }]
   if (path === '/card-share/records') {
     return [200, { encounters: patient.records.encounters, notes: patient.records.notes, importedRecords: [], importedHealthProfile: null,
-      healthProfile: patient.healthProfile, patientEntries: [], patientEntriesMore: false, diagnoses: [], prescriptions: [], labRequests: [],
+      // ehr-api's names: medications and notes (hid-system 0118 card-share-records.service.ts).
+      healthProfile: { bloodGroup: patient.healthProfile.bloodGroup, genotype: patient.healthProfile.genotype, allergies: patient.healthProfile.allergies,
+        chronicConditions: patient.healthProfile.chronicConditions, medications: patient.healthProfile.currentMedications, notes: patient.healthProfile.medicalNotes },
+      patientEntries: [], patientEntriesMore: false, diagnoses: [], prescriptions: [], labRequests: [],
       vitals: [], documents: [], limit: 50 }]
   }
   if (path === '/card-share/end-view') return [204, null]
-  if (path === '/card-share/stop-emails') return [200, { stopped: body.scope === 'address' ? 'address' : 'link' }]
+  if (path === '/card-share/stop' && method === 'POST') {
+    return /^[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/.test(String(body.stopToken ?? '')) ? [204, null] : cardProblem(400, 'CARD_SHARE_LINK_INVALID')
+  }
   return null
 }
 

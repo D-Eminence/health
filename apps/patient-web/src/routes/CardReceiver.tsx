@@ -8,7 +8,7 @@ import { useDocumentTitle } from '../authSteps'
 import { cardSharesEnabled } from '../cardSharesFlag'
 import { browserCardReceiverApi, type CardReceiverApi } from '../cardReceiverApi'
 import {
-  cardShareScopeLabel, isCardToken, receiverProblem, viewEndingOf,
+  cardShareScopeLabel, isCardToken, isStopToken, receiverProblem, viewEndingOf,
   type CardRecords, type CardView, type ViewEnding,
 } from '../cardShares'
 import { ImportedHistory } from '../ImportedHistory'
@@ -45,7 +45,7 @@ const CHECK_MS = 30_000
 type Phase =
   | { at: 'checking' } | { at: 'dormant' } | { at: 'unreachable' } | { at: 'no-link' } | { at: 'bad-link' }
   | { at: 'start' } | { at: 'code'; sentTo: string; resendAfterSeconds: number }
-  | { at: 'card'; view: CardView } | { at: 'over'; why: ViewEnding | 'closed' } | { at: 'stop' }
+  | { at: 'card'; view: CardView } | { at: 'over'; why: ViewEnding | 'closed' }
 
 /** The link's token, read once from after # and taken out of the address bar (and so out of history and any Referer). */
 function useLinkToken(): string | null | undefined {
@@ -123,12 +123,11 @@ function Receiver({ api: given }: { api?: CardReceiverApi }) {
     case 'bad-link': return <Shell><Panel heading="This link isn’t complete" headingRef={heading}>
       <p className="m-0 text-sm text-ink-2">Open it again from your email.</p></Panel></Shell>
     case 'start': return <Shell><StartStep api={api} token={token!} headingRef={heading}
-      onSent={(sentTo, resendAfterSeconds) => setPhase({ at: 'code', sentTo, resendAfterSeconds })} onStop={() => setPhase({ at: 'stop' })} /></Shell>
+      onSent={(sentTo, resendAfterSeconds) => setPhase({ at: 'code', sentTo, resendAfterSeconds })} /></Shell>
     case 'code': return <Shell><CodeStep api={api} token={token!} sentTo={phase.sentTo} resendAfterSeconds={phase.resendAfterSeconds} headingRef={heading}
       onOpened={view => setPhase({ at: 'card', view })} onEnded={() => end('link-ended')} onNewCode={() => setPhase({ at: 'start' })} /></Shell>
     case 'card': return <OpenCard api={api} view={phase.view} onEnd={end} />
     case 'over': return <Shell><Ended why={phase.why} headingRef={heading} /></Shell>
-    case 'stop': return <Shell><StopForm api={api} token={token!} headingRef={heading} /></Shell>
   }
 }
 
@@ -145,8 +144,8 @@ const SMALL_PRINT = <>
   <p className="m-0 text-[13px] text-ink-3">On a shared computer, press End view when you’re done.</p>
 </>
 
-function StartStep({ api, token, headingRef, onSent, onStop }: { api: CardReceiverApi; token: string; headingRef: React.Ref<HTMLHeadingElement>
-  onSent: (sentTo: string, resendAfterSeconds: number) => void; onStop: () => void }) {
+function StartStep({ api, token, headingRef, onSent }: { api: CardReceiverApi; token: string; headingRef: React.Ref<HTMLHeadingElement>
+  onSent: (sentTo: string, resendAfterSeconds: number) => void }) {
   const [check, setCheck] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -181,8 +180,9 @@ function StartStep({ api, token, headingRef, onSent, onStop }: { api: CardReceiv
       <Button type="submit" variant="primary" icon={Mail} loading={busy} disabled={busy || !check}>{busy ? 'Sending…' : 'Email me a code'}</Button>
     </form>}
     {SMALL_PRINT}
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">{PRIVACY}
-      <button type="button" onClick={onStop} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-semibold text-brand-ink underline">Stop these emails</button></div>
+    {/* Stopping needs the stop link in the email: this page holds only the card's token, which cannot stop anything. */}
+    <p className="m-0 text-[13px] text-ink-3">Don’t want these emails? Use the Stop these emails link at the bottom of the email.</p>
+    {PRIVACY}
   </Panel>
 }
 
@@ -243,11 +243,9 @@ function OpenCard({ api, view: opened, onEnd }: { api: CardReceiverApi; view: Ca
   const [view, setView] = useState(opened)
   const [records, setRecords] = useState<CardRecords | null>(null)
   const [recordsFailed, setRecordsFailed] = useState(false)
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [covered, setCovered] = useState(false)
   const [closing, setClosing] = useState(false)
   const viewId = opened.viewId
-  const photoRef = useRef<string | null>(null)
   const aborts = useRef(new AbortController())
   const finished = useRef(false)
   const coverHeading = useRef<HTMLHeadingElement>(null)
@@ -257,18 +255,14 @@ function OpenCard({ api, view: opened, onEnd }: { api: CardReceiverApi; view: Ca
     if (finished.current) return
     finished.current = true
     aborts.current.abort()
-    if (photoRef.current) { URL.revokeObjectURL(photoRef.current); photoRef.current = null }
     onEnd(why)
   }, [onEnd])
 
-  // Whatever ends the page ends the reads and frees the photo. A controller of its own for each mount: StrictMode's
-  // rehearsal unmount aborts the first, and the reads below start again with the second.
+  // Whatever ends the page ends the reads. A controller of its own for each mount: StrictMode's rehearsal unmount aborts
+  // the first, and the reads below start again with the second.
   useEffect(() => {
     aborts.current = new AbortController()
-    return () => {
-      aborts.current.abort()
-      if (photoRef.current) { URL.revokeObjectURL(photoRef.current); photoRef.current = null }
-    }
+    return () => { aborts.current.abort() }
   }, [])
 
   const failed = useCallback((error: unknown) => {
@@ -281,15 +275,7 @@ function OpenCard({ api, view: opened, onEnd }: { api: CardReceiverApi; view: Ca
     const signal = aborts.current.signal
     api.records(viewId, signal).then(read => { if (!signal.aborted) setRecords(read) },
       (error: unknown) => { if (!signal.aborted && !failed(error)) setRecordsFailed(true) })
-    if (opened.card.hasPhoto) {
-      api.photo(viewId, signal).then(blob => {
-        if (signal.aborted) return
-        const url = URL.createObjectURL(blob)
-        photoRef.current = url
-        setPhotoUrl(url)
-      }, (error: unknown) => { if (!signal.aborted) failed(error) })
-    }
-  }, [api, viewId, opened.card.hasPhoto, failed])
+  }, [api, viewId, failed])
 
   // Checked every 30 seconds while on screen, covered or not: an ending clears the page.
   useEffect(() => {
@@ -331,7 +317,7 @@ function OpenCard({ api, view: opened, onEnd }: { api: CardReceiverApi; view: Ca
     <Button onClick={() => void close()} loading={closing} disabled={closing}>End view</Button>
   </Panel></Shell>
 
-  return <CardShareView view={view} records={records} recordsFailed={recordsFailed} photoUrl={photoUrl} headingRef={cardHeading}
+  return <CardShareView view={view} records={records} recordsFailed={recordsFailed} headingRef={cardHeading}
     footer={<Button variant="primary" onClick={() => void close()} loading={closing} disabled={closing}>End view</Button>} />
 }
 
@@ -360,10 +346,11 @@ const None = ({ children }: { children: ReactNode }) => <p className="m-0 px-5 p
 /**
  * What the person sees with a right code, also the patient's own preview of it (SharedCard.tsx): the card face, who
  * shared it and until when, then (for a card-and-records link) each section, with a plain line where one is empty. The
- * footer names the address it was sent to, so a printout or screenshot says whose view it was.
+ * footer names the address it was sent to, so a printout or screenshot says whose view it was. No photo: the backend
+ * shares none (review F5), so the face shows initials, here and in the patient's preview alike.
  */
-export function CardShareView({ view, records, recordsFailed = false, photoUrl, headingRef, banner, footer }: {
-  view: CardView; records: CardRecords | null; recordsFailed?: boolean; photoUrl: string | null
+export function CardShareView({ view, records, recordsFailed = false, headingRef, banner, footer }: {
+  view: CardView; records: CardRecords | null; recordsFailed?: boolean
   headingRef?: React.Ref<HTMLHeadingElement>; banner?: ReactNode; footer?: ReactNode
 }) {
   const first = view.sharedBy
@@ -385,7 +372,7 @@ export function CardShareView({ view, records, recordsFailed = false, photoUrl, 
       <div className="mx-auto flex w-full max-w-[480px] min-w-0 flex-col gap-4 lg:max-w-none">
         <h1 ref={headingRef} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{view.card.fullName}’s Health ID card</h1>
         <Face card={{ name: view.card.fullName, hid: view.card.healthId, verified: view.card.ninVerified, bloodGroup: health?.bloodGroup ?? null,
-          genotype: health?.genotype ?? null, allergies: health?.allergies ?? null, photoUrl }} />
+          genotype: health?.genotype ?? null, allergies: health?.allergies ?? null, photoUrl: null }} />
         <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-line ring-1 ring-line [&>div:last-child:nth-child(odd)]:col-span-2">
           {facts.map(([label, value, I]) => <div key={label} className="bg-surface px-4 py-3">
             <dt className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-ink-3 uppercase"><I className="size-3.5" aria-hidden />{label}</dt>
@@ -422,7 +409,8 @@ function CardRecordSections({ records }: { records: CardRecords }) {
     <Section title="Health information they entered" icon={UserRound}>{!health ? <None>They haven’t entered any.</None>
       : <dl className="m-0 divide-y divide-line px-5 pb-2">{HEALTH_FIELDS.map(field => <div key={field} className="py-2.5">
         <dt className="text-[13px] text-ink-3">{HEALTH_LABELS[field]}</dt>
-        <dd className="m-0 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] text-ink">{health[field] ?? 'Not stated'}</dd></div>)}</dl>}</Section>
+        <dd className="m-0 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] text-ink">{health[field]
+          ?? (records.healthProfileAbsent.includes(field) ? 'Not available' : 'Not stated')}</dd></div>)}</dl>}</Section>
     {imported && <Section title="From their old Health ID account" icon={FileText}>
       <dl className="m-0 divide-y divide-line px-5 pb-2">{IMPORTED_HEALTH_FIELDS.filter(field => imported.content[field]).map(field => <div key={field} className="py-2.5">
         <dt className="text-[13px] text-ink-3">{IMPORTED_LABELS[field]}</dt>
@@ -445,62 +433,50 @@ function CardRecordSections({ records }: { records: CardRecords }) {
 // -------------------------------------------------------------------- stop --
 
 /**
- * "Stop these emails" (critique fix 20, owner answer 7): from the card page, or from the link in either email
- * (/card/stop#<token>). The person chooses to end only this link, or to stop all card emails to their address (the
- * block list). Asks for the security check, then sends the token in the body; the answer is the same for any link.
+ * "Stop these emails" (critique fix 20, owner answer 7), opened from the link in E5 or E6: /card/stop#<stopToken>. The stop
+ * token is its own secret (a link id, a dot, 43 characters), never the card's, so it cannot open the card. Nothing is sent
+ * until the person presses the button, so a mail scanner that loads the page stops nothing. The backend answers 204 for
+ * any well-formed token, known or not; a genuine one blocks card emails to that address and ends the links sent to it,
+ * and the patient is told it was stopped. It takes no security check (review F2).
  */
-function StopForm({ api, token, headingRef }: { api: CardReceiverApi; token: string; headingRef: React.Ref<HTMLHeadingElement> }) {
-  const [scope, setScope] = useState<'link' | 'address'>('link')
-  const [check, setCheck] = useState<string | null>(null)
-  const [resetKey, setResetKey] = useState(0)
+function StopForm({ api, stopToken, headingRef }: { api: CardReceiverApi; stopToken: string; headingRef: React.Ref<HTMLHeadingElement> }) {
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const [done, setDone] = useState<'link' | 'address' | null>(null)
-  const doneHeading = useHeadingFocus(done ?? 'form')
+  const [done, setDone] = useState(false)
+  const doneHeading = useHeadingFocus(done ? 'done' : 'form')
   const controller = useRef<AbortController | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
 
   const stop = async (event: FormEvent) => {
     event.preventDefault()
-    if (busy || !check) return
+    if (busy) return
     setBusy(true); setProblem(null)
     controller.current = new AbortController()
     try {
-      setDone((await api.stopEmails(token, scope, check, controller.current.signal)).stopped)
+      await api.stop(stopToken, controller.current.signal)
+      setDone(true)
     } catch (error) {
       if (controller.current?.signal.aborted) return
       setProblem(receiverProblem(error, 'stop'))
-      setCheck(null); setResetKey(value => value + 1)
     } finally { setBusy(false) }
   }
 
-  if (done === 'address') return <Panel heading="We’ve stopped these emails" headingRef={doneHeading}>
+  if (done) return <Panel heading="We’ve stopped these emails" headingRef={doneHeading}>
     <p className="m-0 text-sm text-ink-2">We won’t send Health ID card links or codes to this address again, and any card link sent to it has ended.
       To undo this, email support@healthidentitydirectory.com.</p></Panel>
-  if (done === 'link') return <Panel heading="We’ve ended this card link" headingRef={doneHeading}>
-    <p className="m-0 text-sm text-ink-2">No one can open the card with this link now. The person who shared it is told it was stopped from this address.</p></Panel>
 
   return <Panel heading="Stop these emails" headingRef={headingRef}>
     <p className="m-0 text-sm text-ink-2">If you didn’t expect a Health ID card, or don’t want these emails, you can stop them here.</p>
+    <p className="m-0 text-sm text-ink-2">We won’t send Health ID card links or codes to this address again, and any card link sent to it ends.</p>
     <form onSubmit={event => void stop(event)} className="flex flex-col gap-3">
-      <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-        <legend className="mb-1 p-0 text-[13px] font-medium text-ink-2">What to stop</legend>
-        {([['link', 'End only this card link', 'The person who shared it can still send you a new one.'],
-          ['address', 'Stop all Health ID card emails to this address', 'No one can send a Health ID card to this address until you ask support.']] as const).map(([value, label, hint]) =>
-          <label key={value} className={cx('flex cursor-pointer items-start gap-3 rounded-xl p-3 ring-1', scope === value ? 'bg-brand-soft ring-brand' : 'ring-line')}>
-            <input type="radio" name="card-stop" value={value} checked={scope === value} onChange={() => setScope(value)} className="mt-1" />
-            <span><span className="block text-sm font-semibold text-ink">{label}</span><span className="block text-[13px] text-ink-3">{hint}</span></span>
-          </label>)}
-      </fieldset>
       {problem && <Alert intent="error" size="sm">{problem}</Alert>}
-      <Turnstile action="card-share-stop" onTokenChange={setCheck} resetKey={resetKey} />
-      <Button type="submit" variant="primary" loading={busy} disabled={busy || !check}>{busy ? 'Stopping…' : 'Stop the emails'}</Button>
+      <Button type="submit" variant="primary" loading={busy} disabled={busy}>{busy ? 'Stopping…' : 'Stop these emails'}</Button>
     </form>
     {PRIVACY}
   </Panel>
 }
 
-/** /card/stop#<token>: the "Stop these emails" link in the card emails. Dormant while switched off. */
+/** /card/stop#<stopToken>: the "Stop these emails" link in the card emails. Dormant while switched off. */
 export function CardStopPage({ api }: { api?: CardReceiverApi }) {
   if (!cardSharesEnabled()) return <SharedCardPage />
   return <StopPage api={api} />
@@ -515,7 +491,7 @@ function StopPage({ api: given }: { api?: CardReceiverApi }) {
   useEffect(() => {
     if (token === undefined) return
     const controller = new AbortController()
-    api.availability(controller.signal).then(() => setPhase(token && isCardToken(token) ? 'form' : 'bad-link'), (error: unknown) => {
+    api.availability(controller.signal).then(() => setPhase(token && isStopToken(token) ? 'form' : 'bad-link'), (error: unknown) => {
       if (!controller.signal.aborted) setPhase(isHidApiError(error) && error.status === 404 ? 'dormant' : 'unreachable')
     })
     return () => controller.abort()
@@ -524,7 +500,7 @@ function StopPage({ api: given }: { api?: CardReceiverApi }) {
   return <Shell>{phase === 'checking' ? <p role="status" className="m-0 text-sm text-ink-3">Opening…</p>
     : phase === 'unreachable' ? <Panel heading="We couldn’t reach Health ID" headingRef={heading}><p className="m-0 text-sm text-ink-2">Check your connection, then open the link in your email again.</p></Panel>
     : phase === 'bad-link' ? <Panel heading="This link isn’t complete" headingRef={heading}><p className="m-0 text-sm text-ink-2">Open it again from your email.</p></Panel>
-    : <StopForm api={api} token={token!} headingRef={heading} />}</Shell>
+    : <StopForm api={api} stopToken={token!} headingRef={heading} />}</Shell>
 }
 
 // ----------------------------------------------------------------- privacy --
@@ -552,7 +528,7 @@ export function CardPrivacyPage() {
       <p>Cloudflare Turnstile checks that a real browser asks for a code.</p>
       <p>Sentry receives error reports from this page, without your address, the link or the code.</p></>)}
     {part('Your choices', <>
-      <p>Use Stop these emails, from the link in any of these emails or on the card page, to end a link or stop all card emails to your address.</p>
+      <p>Use the Stop these emails link at the bottom of any of these emails to stop all Health ID card emails to your address. Any card link sent to it ends, and the person who shared it is told.</p>
       <p>To ask what we hold about you, to have it deleted, or to object, email support@healthidentitydirectory.com.</p></>)}
   </Card></Shell>
 }
@@ -574,18 +550,18 @@ export function CardLinkPreview() {
   const cardRecords = useMemo<CardRecords | null>(() => own ? {
     encounters: (own.encounters ?? []).filter(visit => visit.status === 'completed'),
     notes: (own.notes ?? []).filter(note => note.status === 'signed' || note.status === 'amended'),
-    importedRecords: own.importedRecords ?? [], importedHealthProfile: own.importedHealthProfile ?? null,
+    importedRecords: own.importedRecords ?? [], importedHealthProfile: own.importedHealthProfile ?? null, healthProfileAbsent: [],
     healthProfile: saved ? Object.fromEntries(HEALTH_FIELDS.map(field => [field, saved[field] ?? null])) as unknown as CardRecords['healthProfile'] : null,
     patientEntries: (own.patientEntries ?? []).slice(0, 50), patientEntriesMore: (own.patientEntries ?? []).length > 50, limit: own.limit,
   } : null, [own, saved])
   if (!card) return <div className="p-6 text-sm text-ink-3" role="status">Loading your card…</div>
   const view: CardView = {
     viewId: 'preview', scope: 'card_and_records', reference: '', recipientHint: 'the person you send it to',
-    card: { fullName: card.name, healthId: card.hid, ninVerified: card.verified, hasPhoto: card.photoUrl !== null },
+    card: { fullName: card.name, healthId: card.hid, ninVerified: card.verified },
     sharedBy: card.name.split(' ')[0] ?? card.name,
     expiresAt: new Date(now + 24 * 3600_000).toISOString(), viewExpiresAt: new Date(now + 30 * 60_000).toISOString(),
   }
-  return <CardShareView view={view} records={cardRecords} photoUrl={card.photoUrl}
+  return <CardShareView view={view} records={cardRecords}
     banner={<div className="border-b border-brand-line bg-brand-soft"><div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-[13px] text-brand-ink">
       <span><strong className="font-semibold">Preview.</strong> This is what someone you send your card to sees.</span>
       <Link to="/access/share/card" className="font-semibold text-brand-ink no-underline hover:underline">Back to Send my card</Link></div></div>} />

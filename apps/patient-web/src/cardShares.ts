@@ -59,13 +59,17 @@ export interface CardShareCreated {
   share: CardShare
   delivery: CardShareDelivery
   replacedId: string | null
+  /** True when the server answered a send it had already made under the same Idempotency-Key: nothing new was sent. */
+  replayed: boolean
 }
 
 /**
- * What the check step showed, named so the backend can keep it with the link as the record of the patient's consent
- * (critique fix 19). A new wording of the check step is a new version.
+ * The version of the check step's wording that the backend records with each link as the patient's consent (critique
+ * fix 19; hid-system 0118 card-links.service.ts CARD_SHARE_CONSENT_VERSION). The backend keeps it itself: it is not sent,
+ * and the backend refuses any field it does not know (review F1). A new wording of the check step needs a new version
+ * on both sides.
  */
-export const CARD_SHARE_CONSENT_VERSION = 'card-share-check-v1'
+export const CARD_SHARE_CONSENT_VERSION = 'card-share-v1'
 
 /** The choices offered: 24 hours first. 30 days is not offered in v1 (it would need a reminder at day 7). */
 export const CARD_SHARE_DURATIONS: ReadonlyArray<{ value: '24h' | '7d'; label: string }> = [
@@ -75,7 +79,8 @@ export const CARD_SHARE_DURATIONS: ReadonlyArray<{ value: '24h' | '7d'; label: s
 export const cardShareDurationLabel = (value: CardShareDuration) => value === '24h' ? '24 hours' : value === '7d' ? '7 days' : '30 days'
 
 export const CARD_SHARE_SCOPES: ReadonlyArray<{ value: CardShareScope; label: string; description: string }> = [
-  { value: 'card', label: 'Card only', description: 'Your card: name, Health ID, photo, blood group, genotype and allergies.' },
+  // No photo: the backend's card view carries none (review F5).
+  { value: 'card', label: 'Card only', description: 'Your card: name, Health ID, blood group, genotype and allergies.' },
   { value: 'card_and_records', label: 'Card and records',
     description: 'Your card and your records: visits, signed notes, older records, the health information you entered and the records you added. It includes anything added while the link is open.' },
 ]
@@ -128,7 +133,8 @@ export function parseCardShareCreated(value: unknown): CardShareCreated {
   const answer = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
   const share = parseCardShare(answer.share)
   if (!share) throw new Error('The card link could not be read.')
-  return { share, delivery: oneOf(DELIVERIES, answer.delivery) ?? share.delivery, replacedId: text(answer.replacedId, 100) }
+  return { share, delivery: oneOf(DELIVERIES, answer.delivery) ?? share.delivery, replacedId: text(answer.replacedId, 100),
+    replayed: answer.replayed === true }
 }
 
 /** The words for a refused send or end, by code: ours, never the server's. */
@@ -199,10 +205,20 @@ export const saysCardSharesNotServed = (error: unknown) => isHidApiError(error) 
 /** The link's secret: 32 random bytes, base64url, 43 characters. Anything else is a link that isn't complete. */
 export const isCardToken = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value)
 
-/** What verify (and every later view read) answers: who the card is, what the link allows and until when. */
+/**
+ * The "Stop these emails" token in E5 and E6 (/card/stop#<stopToken>): the link's id, a dot, and 43 base64url characters
+ * (hid-system 0118 card-links.service.ts STOP_TOKEN). It is not the card's token and cannot open the card (review F2).
+ */
+export const isStopToken = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/.test(value)
+
+/**
+ * What verify (and every later view read) answers: who the card is, what the link allows and until when. No photo: the
+ * backend shares none (review F5).
+ */
 export interface CardView {
   viewId: string
-  card: { fullName: string; healthId: string; ninVerified: boolean | null; hasPhoto: boolean }
+  card: { fullName: string; healthId: string; ninVerified: boolean | null }
   scope: CardShareScope
   sharedBy: string
   recipientHint: string
@@ -220,8 +236,9 @@ export function parseCardView(value: unknown): CardView {
   if (!viewId || !fullName || !healthId || !scope || !expiresAt || !viewExpiresAt) throw new Error('The card could not be read.')
   return {
     viewId, scope, expiresAt, viewExpiresAt,
-    card: { fullName, healthId, ninVerified: typeof card.ninVerified === 'boolean' ? card.ninVerified : null, hasPhoto: card.hasPhoto === true },
-    sharedBy: text(answer.sharedBy, 100) ?? fullName.split(' ')[0] ?? fullName,
+    card: { fullName, healthId, ninVerified: typeof card.ninVerified === 'boolean' ? card.ninVerified : null },
+    // The backend's name is sharedByFirstName (null when it has none); then the first word of the card's name.
+    sharedBy: text(answer.sharedByFirstName, 100) ?? fullName.split(' ')[0] ?? fullName,
     recipientHint: text(answer.recipientHint, 320) ?? 'the address it was sent to',
     reference: text(answer.reference, 20) ?? '',
   }
@@ -234,16 +251,33 @@ export interface CardRecords {
   importedRecords: ImportedMedicalRecord[]
   importedHealthProfile: ImportedHealthProfile | null
   healthProfile: HealthFields | null
+  /** The health fields the answer left out (not sent at all, as opposed to sent empty): shown as "Not available". */
+  healthProfileAbsent: ReadonlyArray<keyof HealthFields>
   patientEntries: PatientEntry[]
   patientEntriesMore: boolean
   limit: number
 }
 
-function readHealthProfile(value: unknown): HealthFields | null {
-  if (typeof value !== 'object' || value === null) return null
+/**
+ * ehr-api's names for the health fields in a card link's records answer (hid-system 0118 card-share-records.service.ts):
+ * `medications` and `notes` where the patient's own profile says `currentMedications` and `medicalNotes` (review F3).
+ * Either name is read, the answer's own first.
+ */
+const CARD_HEALTH_NAMES: Readonly<Record<keyof HealthFields, readonly string[]>> = {
+  bloodGroup: ['bloodGroup'], genotype: ['genotype'], allergies: ['allergies'], chronicConditions: ['chronicConditions'],
+  currentMedications: ['medications', 'currentMedications'], medicalNotes: ['notes', 'medicalNotes'],
+}
+
+function readHealthProfile(value: unknown): { fields: HealthFields | null; absent: Array<keyof HealthFields> } {
+  if (typeof value !== 'object' || value === null) return { fields: null, absent: [] }
   const row = value as Record<string, unknown>
-  const fields = Object.fromEntries(HEALTH_FIELDS.map(field => [field, text(row[field], 2000)])) as unknown as HealthFields
-  return HEALTH_FIELDS.every(field => fields[field] === null) ? null : fields
+  const sent = (field: keyof HealthFields) => CARD_HEALTH_NAMES[field].find(name => Object.prototype.hasOwnProperty.call(row, name))
+  const fields = Object.fromEntries(HEALTH_FIELDS.map(field => {
+    const name = sent(field)
+    return [field, name ? text(row[name], 2000) : null]
+  })) as unknown as HealthFields
+  const absent = HEALTH_FIELDS.filter(field => !sent(field))
+  return HEALTH_FIELDS.every(field => fields[field] === null) ? { fields: null, absent: [] } : { fields, absent }
 }
 
 const listed = <T>(value: unknown): T[] => Array.isArray(value) ? value as T[] : []
@@ -254,9 +288,10 @@ export function parseCardRecords(value: unknown): CardRecords {
   try { imported = Array.isArray(answer.importedRecords) ? parseImportedRecords(answer.importedRecords) : [] } catch { imported = [] }
   let importedHealth: ImportedHealthProfile | null = null
   try { importedHealth = answer.importedHealthProfile ? parseImportedHealthProfile(answer.importedHealthProfile) : null } catch { importedHealth = null }
+  const health = readHealthProfile(answer.healthProfile)
   return {
     encounters: listed(answer.encounters), notes: listed(answer.notes), importedRecords: imported, importedHealthProfile: importedHealth,
-    healthProfile: readHealthProfile(answer.healthProfile), patientEntries: parsePatientEntries(answer.patientEntries) ?? [],
+    healthProfile: health.fields, healthProfileAbsent: health.absent, patientEntries: parsePatientEntries(answer.patientEntries) ?? [],
     patientEntriesMore: answer.patientEntriesMore === true, limit: typeof answer.limit === 'number' ? answer.limit : 50,
   }
 }
@@ -274,22 +309,27 @@ export function viewEndingOf(error: unknown): ViewEnding | null {
   return null
 }
 
+const minutesOf = (seconds: number | null) => seconds && seconds > 0 ? Math.max(1, Math.ceil(seconds / 60)) : null
+
 /** The words for a refused code request or verify, for the person who received the link. Never the server's. */
 export function receiverProblem(error: unknown, step: 'code' | 'verify' | 'stop'): string {
   if (isHidApiError(error)) {
     switch (error.code) {
       case 'CARD_SHARE_LINK_INVALID': return 'This link isn’t complete. Open it again from your email.'
       case 'CARD_SHARE_ENDED': return 'This card is no longer shared.'
-      case 'CARD_SHARE_CODE_LIMITED': return 'Too many codes asked for. Try again later.'
+      case 'CARD_SHARE_CODE_LIMITED': {
+        const minutes = minutesOf(retryAfterSeconds(error))
+        return minutes ? `Too many codes asked for. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.` : 'Too many codes asked for. Try again later.'
+      }
       case 'CARD_SHARE_CODE_EXPIRED': return 'That code has stopped working. Ask for a new one.'
       case 'CARD_SHARE_CODE_WRONG': {
         const left = error.attemptsLeft
-        return `That code isn’t right. Check the email and try again.${left !== null ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}`
+        // A right code entered in a browser other than the one that asked for it counts as wrong (the backend's rule).
+        return `That code isn’t right. Check the newest email, and enter the code in the browser where you asked for it.${left !== null ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}`
       }
       case 'CARD_SHARE_LOCKED': {
-        if (step === 'verify') return 'Too many wrong codes. Try again in an hour.'
-        const seconds = retryAfterSeconds(error)
-        const minutes = seconds && seconds > 0 ? Math.max(1, Math.ceil(seconds / 60)) : null
+        // The wait comes from Retry-After, or the problem's retryAfterSeconds (the backend sends only that).
+        const minutes = minutesOf(retryAfterSeconds(error))
         return minutes ? `Too many wrong codes. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.` : 'Too many wrong codes. Try again in an hour.'
       }
       default: break

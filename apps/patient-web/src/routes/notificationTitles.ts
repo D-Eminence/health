@@ -93,8 +93,16 @@ export function notificationTitle(item: PatientNotification): string {
   if (item.notificationCode === 'SHARED_CARD_LOCKED') {
     return `Too many wrong codes were entered for your card link${cardHint ? ` to ${cardHint}` : ''}. It’s paused for an hour.`
   }
-  if (item.notificationCode === 'SHARED_CARD_ENDED_WRONG_CODES') {
-    return `We ended your card link${cardHint ? ` to ${cardHint}` : ''} because of too many wrong codes. Send a new one if you still want to share.`
+  // The backend's codes (INTERFACE_CONTRACT §33): SHARED_CARD_ENDED, whose reason is too_many_wrong_codes when the second
+  // lock ended it, and SHARED_CARD_STOPPED when the address asked us to stop card emails.
+  if (item.notificationCode === 'SHARED_CARD_ENDED') {
+    return item.metadata?.reason === 'too_many_wrong_codes'
+      ? `We ended your card link${cardHint ? ` to ${cardHint}` : ''} because of too many wrong codes. Send a new one if you still want to share.`
+      : `Your card link${cardHint ? ` to ${cardHint}` : ''} has ended.`
+  }
+  if (item.notificationCode === 'SHARED_CARD_STOPPED') {
+    return cardHint ? `The person at ${cardHint} asked us to stop card emails, so your card link to them has ended.`
+      : 'Someone asked us to stop card emails to their address, so your card link to them has ended.'
   }
   if (item.notificationCode === 'SHARE_INVITATION_ACCEPTED') {
     return `A health worker at ${metadataName(item.metadata, 'facilityName') ?? 'a hospital'} accepted your invitation. Confirm it in Access & sharing`

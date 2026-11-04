@@ -145,8 +145,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.shareInvitationConfirm',
       // Sending the card by email, and opening it with a code (step 8, hid-system 0118; 404 while off until legal sign-off).
       'identity.myCardShares', 'identity.myCardShareEnd', 'identity.cardShareAvailability', 'identity.cardShareCode',
-      'identity.cardShareVerify', 'identity.cardShareView', 'identity.cardSharePhoto', 'identity.cardShareEndView',
-      'identity.cardShareStopEmails'],
+      'identity.cardShareVerify', 'identity.cardShareView', 'identity.cardShareEndView', 'identity.cardShareStop'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myPatientEntries', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',

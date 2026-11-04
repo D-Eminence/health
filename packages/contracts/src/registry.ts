@@ -78,7 +78,8 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
  */
 const NOT_ON_MAIN = 'Served by a hid-system staging branch; not served by hid-system main (41542fc).'
 /** Step 8 (hid-system 0118): sending the card by email, opened with a one-time code. */
-const CARD_SHARES = 'PROPOSED, hid-system 0118 (BACKEND-NEEDS.md §2); not served by hid-system main; 404 NOT_FOUND while off until legal sign-off.'
+const CARD_SHARES = 'PROPOSED, hid-system 0118 (BACKEND-NEEDS.md §2; INTERFACE_CONTRACT.md §33 on claude/card-links-0118); not served by '
+  + 'hid-system main; 404 NOT_FOUND while off (CARD_LINKS_ENABLED) until legal sign-off.'
 /** What every route the person who received a card link calls has in common. */
 const CARD_SHARE_PUBLIC = 'Public: ignores and never refreshes a patient\'s session, never 401. Cache-Control: no-store.'
 /** The same, for the reads and the end of a view opened with a code. */
@@ -781,8 +782,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'dailyLimit, liveCount, liveLimit }: live links and those ended in the last 30 days, CardShare = { id, reference, recipientEmail '
     + '(null once ended), label (private to the patient, null once ended), recipientHint, scope, duration, createdAt, expiresAt, status: '
     + 'active | locked | ended | expired, endedAt, endedReason, lockedUntil, delivery: sent | not_sent | pending, openCount, lastOpenedAt }. '
-    + 'POST (CSRF, Idempotency-Key, recent sign-in) { email, label?, scope: card | card_and_records, duration: 24h | 7d, consentVersion } '
-    + 'answers 201 { share, delivery, replacedId }: a live link to the same address ends (replacedId). 400 CARD_SHARE_EMAIL_INVALID, '
+    + 'POST (CSRF, Idempotency-Key, recent sign-in) { email, label?, scope: card | card_and_records, duration: 24h | 7d } and no other '
+    + 'field (an unknown one is a 400; the backend records the check step\'s version itself) answers 201 { share, delivery, replacedId, '
+    + 'replayed: false }, or 200 with replayed: true for the same key and body: a live link to the same address ends (replacedId). '
+    + '400 CARD_SHARE_EMAIL_INVALID, VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED, '
     + 'CARD_SHARE_OWN_EMAIL, CARD_SHARE_DURATION_INVALID, CARD_SHARE_SCOPE_INVALID, CARD_SHARE_LABEL_INVALID; 403 '
     + 'PATIENT_RECENT_AUTH_REQUIRED, PATIENT_RECENT_RECOVERY_HOLD; 409 IDEMPOTENCY_KEY_REUSED, CARD_SHARE_LIVE_LIMIT (20); 429 '
     + 'CARD_SHARE_CREATE_LIMITED (5 a day), CARD_SHARE_ADDRESS_LIMITED (2 a day to one address). A blocked or capped address, and a failed '
@@ -796,26 +799,29 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { token (43 characters, base64url), turnstileToken } (Turnstile action card-share-code), at most 1 KB: `
     + '202 { sentTo: the masked address, expiresInSeconds: 600, resendAfterSeconds: 60 }, and an HttpOnly session cookie binding the code '
     + 'to this browser. 400 CARD_SHARE_LINK_INVALID, TURNSTILE_*; 410 CARD_SHARE_ENDED for an unknown, ended or expired link alike; 429 '
-    + 'CARD_SHARE_LOCKED { retryAfterSeconds }, CARD_SHARE_CODE_LIMITED (3 an hour, 6 a day per link).')),
+    + 'CARD_SHARE_LOCKED { retryAfterSeconds }, CARD_SHARE_CODE_LIMITED { retryAfterSeconds } (1 a minute, 3 an hour, 6 a Lagos day per '
+    + 'link): the wait is in the problem body, with no Retry-After header; and the gateway\'s own 429.')),
   proposed(r('identity.cardShareVerify','identity','/api/v1/card-share/verify',P,true,undefined,
-    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { token, code: 6 digits }: 200 CardView { viewId, card: { fullName, healthId, ninVerified, hasPhoto }, `
-    + 'scope, sharedBy (first name), recipientHint, reference, expiresAt, viewExpiresAt } and the view cookie (HttpOnly, Secure, '
-    + 'SameSite=Strict, Path=/api/v1/card-share, no Max-Age). viewId is not a secret: every later read names it in X-Card-View. 400 '
-    + 'CARD_SHARE_CODE_WRONG { attemptsLeft }; 410 CARD_SHARE_CODE_EXPIRED (expired, used, out of tries, or asked for in another '
-    + 'browser), CARD_SHARE_ENDED; 429 CARD_SHARE_LOCKED.')),
+    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { token, code: 6 digits }: 200 CardView { viewId, card: { fullName, healthId, ninVerified }, `
+    + 'scope, sharedByFirstName, recipientHint, reference, expiresAt, viewExpiresAt } (no photo) and the view cookie '
+    + 'hid_cv_<viewId> (HttpOnly, Secure, SameSite=Strict, Path=/api/v1/card-share, no Max-Age; the server ends the view after 30 '
+    + 'minutes). One live view per link. viewId is not a secret: every later read names it in X-Card-View. 400 CARD_SHARE_CODE_FORMAT '
+    + '(no try used), CARD_SHARE_CODE_WRONG { attemptsLeft }: a right code from another browser counts as wrong; 410 '
+    + 'CARD_SHARE_CODE_EXPIRED, CARD_SHARE_ENDED (also when a second lock ends the link); 429 CARD_SHARE_LOCKED { retryAfterSeconds } '
+    + '(3 dead codes lock the link for an hour).')),
   proposed(r('identity.cardShareView','identity','/api/v1/card-share/view',G,true,undefined,
     `${CARD_SHARES} ${CARD_SHARE_VIEW} 200 the same CardView; the page asks every 30 seconds while the card is shown.`)),
-  { ...proposed(r('identity.cardSharePhoto','identity','/api/v1/card-share/photo',G,true,undefined,
-    `${CARD_SHARES} ${CARD_SHARE_VIEW} 200 the image bytes, inline, no-store; 404 CARD_SHARE_PHOTO_NOT_FOUND.`)), responseKind: 'download' },
   proposed(r('identity.cardShareEndView','identity','/api/v1/card-share/end-view',P,true,undefined,
     `${CARD_SHARES} ${CARD_SHARE_VIEW} No body: 204, and the view cookie cleared; 204 too when it had already ended.`)),
-  proposed(r('identity.cardShareStopEmails','identity','/api/v1/card-share/stop-emails',P,true,undefined,
-    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { token, scope: link | address, turnstileToken } (Turnstile action card-share-stop), from the `
-    + 'link in either email: link ends that card link; address also blocks card emails to the address until support removes the block. '
-    + '200 { stopped: scope } for any well-formed token, known or not, so nothing is learned from it.')),
+  proposed(r('identity.cardShareStop','identity','/api/v1/card-share/stop',P,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { stopToken } (the link id, a dot, 43 base64url characters: the stop token in E5 and E6's `
+    + '/card/stop#<stopToken>, never the card\'s token), no security check: 204 for any well-formed token, known or not, so nothing is '
+    + 'learned from it; a genuine one blocks card emails to the address, ends its live links and tells the patient (SHARED_CARD_STOPPED). '
+    + '400 CARD_SHARE_LINK_INVALID for a malformed one.')),
   proposed(r('ehr.cardShareRecords','ehr','/api/v1/card-share/records',G,true,undefined,
     `${CARD_SHARES} ${CARD_SHARE_VIEW} 200, every key present: { encounters, notes, importedRecords, importedHealthProfile, healthProfile: `
-    + '{ bloodGroup, genotype, allergies, currentMedications, chronicConditions, medicalNotes } | null, patientEntries (active, first 50), '
+    + '{ bloodGroup, genotype, allergies, chronicConditions, medications, notes } | null (ehr-api\'s names: the profile\'s currentMedications '
+    + 'and medicalNotes), patientEntries (active, first 50; [] while PATIENT_ENTRIES_ENABLED is off), '
     + 'patientEntriesMore, diagnoses: [], prescriptions: [], labRequests: [], vitals: [], documents: [], limit }. For a card-only link '
     + 'every list is empty and healthProfile holds blood group, genotype and allergies only. File names and types only: no download.')),
   // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes

@@ -22,10 +22,13 @@ export interface CardReceiverApi {
   requestCode(token: string, turnstileToken: string, signal?: AbortSignal): Promise<{ sentTo: string; expiresInSeconds: number; resendAfterSeconds: number }>
   verify(token: string, code: string, signal?: AbortSignal): Promise<CardView>
   view(viewId: string, signal?: AbortSignal): Promise<CardView>
-  photo(viewId: string, signal?: AbortSignal): Promise<Blob>
   records(viewId: string, signal?: AbortSignal): Promise<CardRecords>
   endView(viewId: string): Promise<void>
-  stopEmails(token: string, scope: 'link' | 'address', turnstileToken: string, signal?: AbortSignal): Promise<{ stopped: 'link' | 'address' }>
+  /**
+   * "Stop these emails", from the link in E5 or E6: the separate stop token (never the card's), in the body. 204 for any
+   * well-formed token, known or not; a genuine one blocks card emails to that address and ends its live links.
+   */
+  stop(stopToken: string, signal?: AbortSignal): Promise<void>
 }
 
 export function createCardReceiverApi({ baseUrl, fetchImpl }: { baseUrl: string; fetchImpl?: typeof fetch }): CardReceiverApi {
@@ -47,16 +50,9 @@ export function createCardReceiverApi({ baseUrl, fetchImpl }: { baseUrl: string;
     },
     verify: async (token, code, signal) => parseCardView(await call<unknown>('POST', 'verify', { body: { token, code }, signal })),
     view: async (viewId, signal) => parseCardView(await call<unknown>('GET', 'view', { signal, headers: viewHeader(viewId) })),
-    photo: async (viewId, signal) => {
-      const answer = await call<{ blob: Blob }>('GET', 'photo', { signal, headers: viewHeader(viewId), responseType: 'download' })
-      return answer.blob
-    },
     records: async (viewId, signal) => parseCardRecords(await call<unknown>('GET', 'records', { signal, headers: viewHeader(viewId) })),
     endView: async viewId => { await call<unknown>('POST', 'end-view', { headers: viewHeader(viewId) }) },
-    stopEmails: async (token, scope, turnstileToken, signal) => {
-      const answer = await call<{ stopped?: unknown } | null>('POST', 'stop-emails', { body: { token, scope, turnstileToken }, signal })
-      return { stopped: answer?.stopped === 'address' ? 'address' : scope }
-    },
+    stop: async (stopToken, signal) => { await call<unknown>('POST', 'stop', { body: { stopToken }, signal }) },
   }
 }
 

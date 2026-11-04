@@ -878,9 +878,11 @@ export function createPatientApi(sender: ApiClient) {
     // the check that it is served. The page the link opens has its own client (cardReceiverApi.ts), outside the session.
     cardShares: async (signal?: AbortSignal): Promise<CardShareList> =>
       parseCardShareList(await call<unknown>('GET', 'identity/me/card-shares', undefined, { signal })),
-    createCardShare: async (body: CardShareInput & { consentVersion: string }, idempotencyKey: string): Promise<CardShareCreated> =>
+    // Exactly these fields: the backend refuses any other (hid-system 0118 CreateCardShareDto, forbidNonWhitelisted), and
+    // records the check step's version itself (CARD_SHARE_CONSENT_VERSION).
+    createCardShare: async (body: CardShareInput, idempotencyKey: string): Promise<CardShareCreated> =>
       parseCardShareCreated(await call<unknown>('POST', 'identity/me/card-shares', {
-        email: body.email, ...(body.label ? { label: body.label } : {}), scope: body.scope, duration: body.duration, consentVersion: body.consentVersion,
+        email: body.email, ...(body.label ? { label: body.label } : {}), scope: body.scope, duration: body.duration,
       }, { headers: { 'Idempotency-Key': idempotencyKey } })),
     endCardShare: async (shareId: string): Promise<CardShare | null> => {
       const answer = await call<{ share?: unknown } | null>('POST', `identity/me/card-shares/${encodeURIComponent(shareId)}/end`)

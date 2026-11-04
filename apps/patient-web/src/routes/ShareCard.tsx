@@ -10,7 +10,7 @@ import { describedBy, useDocumentTitle, useStepFocus } from '../authSteps'
 import { cardSharesEnabled } from '../cardSharesFlag'
 import { PERSON_NAME, inviteEmailProblem } from '../shareRecords'
 import {
-  CARD_SHARE_CONSENT_VERSION, CARD_SHARE_DURATIONS, CARD_SHARE_SCOPES, cardShareDurationLabel, cardShareProblem, emailTypoSuggestion,
+  CARD_SHARE_DURATIONS, CARD_SHARE_SCOPES, cardShareDurationLabel, cardShareProblem, emailTypoSuggestion,
   type CardShareCreated, type CardShareScope,
 } from '../cardShares'
 import { useCardShareList } from './SharedCardLinks'
@@ -22,19 +22,26 @@ import { useCardShareList } from './SharedCardLinks'
  * Who (the address, a private label, card only or card and records, 24 hours or 7 days), then Check and send, which is
  * the patient's consent: it says what is shared, that records added while the link is open are included, that the
  * person can keep a copy of what they see, that anyone who can read that inbox can open it, and that an earlier link to
- * the same address ends. Its wording is versioned (CARD_SHARE_CONSENT_VERSION) and sent with the link. Email only: there
- * is never a link to copy (owner answer 3).
+ * the same address ends. Its wording is versioned (CARD_SHARE_CONSENT_VERSION), which the backend records with the link.
+ * Email only: there is never a link to copy (owner answer 3).
  */
 type Step = 'who' | 'check' | 'done'
 
-/** One key per send, kept while what it sends is the same, so sending again is answered as a replay. */
+/**
+ * One key per attempt to send: kept only while the same send is tried again (after a failure, with the same body), so a
+ * retry is answered as a replay and never makes a second link. It is forgotten after a send that worked and whenever the
+ * patient goes back to the first step, so sending again, even to the same address, makes a new link that ends the old
+ * one (owner answer 2; review F4).
+ */
 function useIdempotencyKey() {
   const held = useRef<{ body: string; key: string } | null>(null)
-  return useCallback((body: unknown) => {
+  const key = useCallback((body: unknown) => {
     const signature = JSON.stringify(body)
     if (held.current?.body !== signature) held.current = { body: signature, key: crypto.randomUUID() }
     return held.current.key
   }, [])
+  const forget = useCallback(() => { held.current = null }, [])
+  return { key, forget }
 }
 
 const until = (iso: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos' }).format(new Date(iso))
@@ -88,8 +95,11 @@ function SendFlow({ live, onSent }: { live: string[]; onSent: () => void }) {
   const stepFocus = useStepFocus()
   const errorFocus = useStepFocus()
   const fieldFocus = useStepFocus()
-  const key = useIdempotencyKey()
-  const go = (next: Step) => { setStep(next); setError(null); stepFocus.focus() }
+  const idempotency = useIdempotencyKey()
+  const go = (next: Step) => {
+    if (next === 'who') idempotency.forget()
+    setStep(next); setError(null); stepFocus.focus()
+  }
   // The first step's heading takes focus as the flow opens, as each later step's does.
   const { focus: focusStep } = stepFocus
   useEffect(() => { focusStep() }, [focusStep])
@@ -108,10 +118,11 @@ function SendFlow({ live, onSent }: { live: string[]; onSent: () => void }) {
   const send = async (event: FormEvent) => {
     event.preventDefault()
     if (busy) return
-    const body = { email: address, ...(who ? { label: who } : {}), scope, duration, consentVersion: CARD_SHARE_CONSENT_VERSION }
+    const body = { email: address, ...(who ? { label: who } : {}), scope, duration }
     setBusy(true); setError(null)
     try {
-      const answer = await api.createCardShare(body, key(body))
+      const answer = await api.createCardShare(body, idempotency.key(body))
+      idempotency.forget()
       setSent({ ...answer, email: address })
       onSent()
       go('done')
@@ -185,7 +196,7 @@ function SendFlow({ live, onSent }: { live: string[]; onSent: () => void }) {
       <dl className="m-0 divide-y divide-line rounded-xl ring-1 ring-line">
         <div className="flex items-start gap-3 px-4 py-3"><Eye className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden /><div className="min-w-0 flex-1"><dt className="text-[12px] text-ink-3">What they’ll see</dt>
           <dd className="m-0 text-sm text-ink">{scope === 'card'
-            ? 'They’ll see your Health ID card: your name, Health ID, photo, blood group, genotype and allergies. Not your records.'
+            ? 'They’ll see your Health ID card: your name, Health ID, blood group, genotype and allergies. Not your records.'
             : 'They’ll see your Health ID card, your visits, signed notes, older records, the health information you entered and the records you added.'}</dd>
           {scope === 'card_and_records' && <dd className="m-0 mt-1 text-[13px] text-warn-ink">They’ll also see anything added to your record until the link ends.</dd>}</div></div>
         <div className="flex items-start gap-3 px-4 py-3"><Clock className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden /><div className="min-w-0 flex-1"><dt className="text-[12px] text-ink-3">How long</dt>
@@ -207,8 +218,10 @@ function SendFlow({ live, onSent }: { live: string[]; onSent: () => void }) {
 
   if (step === 'done' && sent) return frame('done', <div className="flex flex-col items-center gap-3 py-4 text-center">
     <span className="inline-flex size-14 items-center justify-center rounded-full bg-success-soft text-success-ink"><CircleCheck className="size-7" aria-hidden /></span>
-    {heading('Your card link is on its way')}
-    <p className="m-0 max-w-md text-sm text-ink-2">Your card link is on its way to {sent.email}. It works until {until(sent.share.expiresAt)}, or until you end it. You’ll be told each time it’s opened.</p>
+    {sent.replayed ? <>{heading('Your card was already sent')}
+      <p className="m-0 max-w-md text-sm text-ink-2">We’d already sent this link to {sent.email}. Nothing new was sent. It works until {until(sent.share.expiresAt)}, or until you end it.</p></>
+      : <>{heading('Your card link is on its way')}
+      <p className="m-0 max-w-md text-sm text-ink-2">Your card link is on its way to {sent.email}. It works until {until(sent.share.expiresAt)}, or until you end it. You’ll be told each time it’s opened.</p></>}
     {sent.replacedId && <p className="m-0 text-[13px] text-ink-3">The link you sent to this address before has ended.</p>}
     {(sent.delivery === 'not_sent' || sent.delivery === 'failed') && <p className="m-0 text-[13px] text-warn-ink">We aren’t sure the email arrived. You can end this link and send a new one tomorrow.</p>}
     <p className="m-0 text-[13px] text-ink-3">We’ve also emailed you to say a card link was sent, so you’ll know if anyone else sends one.</p>
