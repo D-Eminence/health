@@ -259,10 +259,14 @@ function OpenCard({ api, view: opened, onEnd }: { api: CardReceiverApi; view: Ca
     onEnd(why)
   }, [onEnd])
 
-  // Whatever ends the page ends the reads and frees the photo.
-  useEffect(() => () => {
-    aborts.current.abort()
-    if (photoRef.current) { URL.revokeObjectURL(photoRef.current); photoRef.current = null }
+  // Whatever ends the page ends the reads and frees the photo. A controller of its own for each mount: StrictMode's
+  // rehearsal unmount aborts the first, and the reads below start again with the second.
+  useEffect(() => {
+    aborts.current = new AbortController()
+    return () => {
+      aborts.current.abort()
+      if (photoRef.current) { URL.revokeObjectURL(photoRef.current); photoRef.current = null }
+    }
   }, [])
 
   const failed = useCallback((error: unknown) => {
@@ -380,7 +384,7 @@ export function CardShareView({ view, records, recordsFailed = false, photoUrl, 
         <h1 ref={headingRef} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{view.card.fullName}’s Health ID card</h1>
         <Face card={{ name: view.card.fullName, hid: view.card.healthId, verified: view.card.ninVerified, bloodGroup: health?.bloodGroup ?? null,
           genotype: health?.genotype ?? null, allergies: health?.allergies ?? null, photoUrl }} />
-        <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-line ring-1 ring-line">
+        <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-line ring-1 ring-line [&>div:last-child:nth-child(odd)]:col-span-2">
           {facts.map(([label, value, I]) => <div key={label} className="bg-surface px-4 py-3">
             <dt className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-ink-3 uppercase"><I className="size-3.5" aria-hidden />{label}</dt>
             <dd className="m-0 mt-1 text-sm font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}

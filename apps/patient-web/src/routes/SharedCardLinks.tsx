@@ -102,8 +102,8 @@ export function SharedCardLinksCard() {
 
   const list = links.data
   return <Card aria-busy={(links.loading && list !== null) || undefined} aria-labelledby="card-links-heading">
-    <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+      <div className="min-w-[12rem] flex-1">
         <h2 ref={heading} id="card-links-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Your card, shared by email</h2>
         <p className="m-0 text-[13px] text-ink-3">Each person needs a code we email them to open it.</p>
       </div>
