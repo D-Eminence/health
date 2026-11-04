@@ -51,11 +51,12 @@
   }
 
   /* Below 1024px the shell's bottom menu (kasuwa AppShell) is fixed at the foot of the screen: 64px, the raised ➕ 20px
-     above it, and the phone's home-indicator inset. Keyboard focus scrolled into view stays clear of it too, so a
-     focused control is never hidden under it (WCAG 2.4.11). */
+     above it, and the phone's home-indicator inset; the Support chat launcher sits above it (packages/ui tokens.css:
+     76px up, 48px tall). Keyboard focus scrolled into view stays clear of both, so a focused control is never hidden
+     under them (WCAG 2.4.11). */
   @media (max-width: 1023px) {
     html {
-      scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom));
+      scroll-padding-bottom: calc(132px + env(safe-area-inset-bottom));
     }
   }
 
