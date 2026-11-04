@@ -94,7 +94,7 @@ describe('headings while a list loads or fails (SA-02, SA-11)', () => {
 
 describe('the page name and its tab in the address (SA-22, SA-08)', () => {
   it('is called Access & sharing, as the heading and the menu say', async () => {
-    accessPage(() => json([]))
+    accessPage(path => path === HISTORY ? json({ items: [] }) : json([]))
     await screen.findByRole('heading', { name: 'Nothing waiting for you' })
     expect(document.title).toBe('Access & sharing · Health ID')
   })
@@ -210,7 +210,7 @@ describe('who has access (SA-10, SA-15, SA-23, SA-16)', () => {
     const region = await screen.findByRole('region', { name: 'Invitations to share' })
     expect(await within(region).findByText('No invitations yet')).toBeTruthy()
     expect(within(region).getByRole('link', { name: 'Invite by email' }).getAttribute('href')).toBe('/access/share?by=email')
-    expect(region.querySelector('svg[viewBox="0 0 120 96"]')).not.toBeNull()
+    expect(region.querySelector('svg.h-20')).not.toBeNull()
   })
 })
 
@@ -361,7 +361,7 @@ describe('the share flow (SA-04, SA-06, SA-07, SA-08, SA-20)', () => {
     expect(refused(429, 'SHARE_SEARCH_LIMITED')).toBe('Too many searches. Try again in an hour.')
     expect(refused(409, 'SHARE_INVITATION_TOO_MANY_OPEN')).toBe('You have 20 open invitations. Cancel one to send another.')
     expect(refused(429, 'SHARE_INVITATION_LIMITED')).toBe('You can send 5 invitations a day. Try again tomorrow.')
-    expect(refused(409, 'SHARE_INVITATION_NOT_ACCEPTED')).toMatch(/hasn’t accepted/)
+    expect(refused(409, 'SHARE_INVITATION_NOT_ACCEPTED')).toMatch(/haven’t accepted/)
     expect(refused(409, 'SHARE_INVITATION_NOT_CANCELLABLE')).toMatch(/can’t be cancelled/)
     expect(refused(422, 'IDEMPOTENCY_KEY_REUSED')).toBe('Something changed while this was sending. Start again.')
   })
@@ -420,7 +420,7 @@ describe('orders sent elsewhere (SA-18, SA-19)', () => {
   it('offers Try again when the orders could not be read', async () => {
     let calls = 0
     renderPortal(<AccessPage />, path => {
-      if (path === '/ehr/me/order-routes') { calls += 1; return calls === 1 ? problem(503, 'UNAVAILABLE', 'down') : json({ items: [] }) }
+      if (path === '/ehr/me/order-routes') { calls += 1; return calls === 1 ? problem(400, 'BAD_REQUEST', 'down') : json({ items: [] }) }
       if (path === HISTORY) return json({ items: [] })
       if (path === '/identity/me') return json(profile)
       return json([])

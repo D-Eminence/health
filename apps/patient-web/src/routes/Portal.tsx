@@ -7,7 +7,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchPar
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
-import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
+import { Alert, Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
 import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
@@ -51,7 +51,9 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, purposeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { needsRecentSignIn, SignInAgainButton } from './RecentSignIn'
+import { supportHref } from '../supportContact'
 import { countryName } from '../profileParity'
 
 function date(value: string | null | undefined) {
@@ -698,7 +700,7 @@ export function AccessPage() {
   // Only to say the paper records rule to an adult: the profile's date of birth. Nothing shows until it is known.
   const profile = usePatientResource(api.profile)
   const adult = isAdult(profile.data?.dateOfBirth)
-  useDocumentTitle('Access and consent · Health ID')
+  useDocumentTitle(`${WORDS.accessPage} · Health ID`)
   const toast = useToast()
   const requests = usePatientResource(api.accessRequests)
   const history = usePatientResource(api.accessHistory)
@@ -718,8 +720,17 @@ export function AccessPage() {
   const [revoking, setRevoking] = useState<string | null>(null)
   const [revokeBusy, setRevokeBusy] = useState(false)
   const [revokeReason, setRevokeReason] = useState('')
-  // Which part shows: what waits for a decision first (Hick's law: one list at a time).
-  const [tab, setTab] = useState<'requests' | 'granted' | 'activity'>('requests')
+  // Which part shows: what waits for a decision first (Hick's law: one list at a time). Kept in the address (?tab=), as
+  // Records keeps its own, so a link, Back or a reload opens the same part.
+  const [params, setParams] = useSearchParams()
+  const tab = accessTabOf(params.get('tab'))
+  const setTab = (next: AccessTab) => setParams(current => {
+    const out = new URLSearchParams(current)
+    if (next === 'requests') out.delete('tab'); else out.set('tab', next)
+    return out
+  }, { replace: true })
+  // A refusal for an old sign-in on Approve, said in the drawer with the way through, until the next action.
+  const [signInFor, setSignInFor] = useState<string | null>(null)
   const requestsHeading = useRef<HTMLHeadingElement>(null)
   const historyHeading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
@@ -732,7 +743,7 @@ export function AccessPage() {
   const decide = async (id: string, decision: 'approve' | 'deny') => {
     if (working) return
     const facility = requests.data?.find(item => item.accessRequestId === id)?.facilityName ?? 'The facility'
-    setWorking(id)
+    setWorking(id); setSignInFor(null)
     try {
       if (decision === 'approve') await api.approveAccess(id)
       else await api.denyAccess(id, denialReason)
@@ -743,6 +754,20 @@ export function AccessPage() {
       else toast.success({ title: 'Denied', message: `Nothing was shared with ${facility}.` })
       focusAfter(() => requestsHeading.current)
     } catch (cause) {
+      if (needsRecentSignIn(cause)) {
+        // Said in the drawer, with the way through, and kept until the next action: a toast would be gone in seconds.
+        setSignInFor(id)
+        focusAfter(() => document.getElementById(`sign-in-again-${id}`))
+        return
+      }
+      if (changedElsewhere(cause)) {
+        // Decided or ended elsewhere (another device, or it ran out): the lists are read again, and say where it stands.
+        await Promise.all([requests.reload(), history.reload()])
+        closeReview()
+        toast.info({ title: 'Already changed', message: 'This request was already decided or has ended. The list is up to date.' })
+        focusAfter(() => requestsHeading.current)
+        return
+      }
       toast.error({ title: 'That didn’t go through', message: plainErrorText(cause, 'The request could not be updated.', { codes: PATIENT_REFUSALS }) })
       focusAfter(() => document.getElementById(decision === 'approve' ? `approve-${id}` : `deny-reason-${id}`)
         ?? document.querySelector<HTMLElement>('input[name="deny-reason-choice"]:checked'))
@@ -760,23 +785,36 @@ export function AccessPage() {
       toast.success({ title: 'Access ended', message: `${who ? grantee(who) : 'They'} can no longer see your records.` })
       focusAfter(() => historyHeading.current)
     } catch (cause) {
+      if (changedElsewhere(cause)) {
+        await history.reload()
+        setRevoking(null); setRevokeReason('')
+        toast.info({ title: 'Already ended', message: 'This access has already ended. The list is up to date.' })
+        focusAfter(() => historyHeading.current)
+        return
+      }
       toast.error({ title: 'Couldn’t end access', message: plainErrorText(cause, SAY.tryAgain, { codes: PATIENT_REFUSALS }) })
       focusAfter(byId(`revoke-reason-${grantId}`))
     } finally { setRevokeBusy(false) }
   }
 
   // A reason typed for one item is never carried to another.
-  const openReview = (id: string) => { if (reviewing !== id) { setReason(''); setQuick('unknown'); setReasonProblem(false); setDenying(false) } setReviewing(id) }
-  function closeReview() { setReviewing(null); setDenying(false); setReason(''); setQuick('unknown'); setReasonProblem(false) }
+  const openReview = (id: string) => { if (reviewing !== id) { setReason(''); setQuick('unknown'); setReasonProblem(false); setDenying(false); setSignInFor(null) } setReviewing(id) }
+  function closeReview() { setReviewing(null); setDenying(false); setReason(''); setQuick('unknown'); setReasonProblem(false); setSignInFor(null) }
   // The API needs a reason of at least 3 characters: a quick reason is one; "Other" needs a few words.
   const confirmDenial = (id: string) => {
-    if (denialReason.length < 3) { setReasonProblem(true); focusAfter(byId(`deny-reason-${id}`)); return }
+    // Focus goes to the box, so its problem is read with it, even from the Deny button, which keeps focus.
+    if (denialReason.length < 3) { setReasonProblem(true); document.getElementById(`deny-reason-${id}`)?.focus(); return }
     void decide(id, 'deny')
   }
   const openRevocation = (id: string) => { if (revoking !== id) setRevokeReason(''); setRevoking(id) }
 
-  const pendingCount = (requests.data && !requests.error ? requests.data : []).filter(item => item.status.toLowerCase() === 'pending').length
-  const activeCount = (history.data && !history.error ? history.data.items : []).filter(item => item.status === 'active').length
+  // A count is said only of a list read: while it loads, or after it failed, the heading names the section.
+  const requestsReady = requests.data !== null && !requests.error
+  const historyReady = history.data !== null && !history.error
+  const pendingCount = (requestsReady ? requests.data! : []).filter(item => item.status.toLowerCase() === 'pending').length
+  const activeCount = (historyReady ? history.data!.items : []).filter(item => item.status === 'active').length
+  // Invitations confirmed: whether the share each made still gives access, once who has access is known.
+  const activeGrants = historyReady ? new Set(history.data!.items.filter(item => item.status === 'active').map(item => item.consentGrantId)) : null
   const requestList = requests.data && !requests.error
     ? [...requests.data].sort((x, y) => Number(y.status.toLowerCase() === 'pending') - Number(x.status.toLowerCase() === 'pending')) : null
   const open = requestList?.find(item => item.accessRequestId === reviewing) ?? null
@@ -793,12 +831,12 @@ export function AccessPage() {
 
     {tab === 'requests' && <Card aria-busy={(requests.loading && requests.data !== null) || undefined}>
       <AccessHeading headingRef={requestsHeading} icon={ShieldCheck}
-        title={pendingCount ? `${pendingCount === 1 ? '1 request needs' : `${pendingCount} requests need`} your decision` : 'Nothing waiting for you'}
-        hint={pendingCount ? 'Nothing is shared until you approve.' : undefined} />
+        title={!requestsReady ? 'Requests' : pendingCount ? `${pendingCount === 1 ? '1 request needs' : `${pendingCount} requests need`} your decision` : 'Nothing waiting for you'}
+        hint={requestsReady && pendingCount ? 'Nothing is shared until you approve.' : undefined} />
       <div className="px-5 pb-4 empty:hidden"><PageState what="requests" loading={requests.loading} error={requests.error} hasData={requests.data !== null}
         onRetry={() => requestsRetry.retry(requests.reload)} retryRef={requestsRetry.button}>{null}</PageState></div>
       {requestList && (requestList.length === 0
-        ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">When a facility asks to see your records, you decide here.</p>
+        ? <div className="border-t border-line"><EmptyState compact icon={ShieldCheck} title="No requests yet" description="When a facility asks to see your records, you decide here." /></div>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
         {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending'
           return <li key={item.accessRequestId}>
@@ -823,19 +861,29 @@ export function AccessPage() {
       {usesNovuBackend() && <SentOrdersCard />}
       <Card aria-busy={(history.loading && history.data !== null) || undefined}>
         <AccessHeading headingRef={historyHeading} icon={Building2}
-          title={activeCount ? `${activeCount === 1 ? '1 facility has' : `${activeCount} facilities have`} access now` : 'No one has access now'}
-          hint={activeCount ? undefined : 'Past access stays listed, with when it ended.'} />
+          title={!historyReady ? 'Who has access' : activeCount ? `${activeCount === 1 ? '1 facility has' : `${activeCount} facilities have`} access now` : 'No one has access now'}
+          hint={historyReady && !activeCount ? 'Past access stays listed.' : undefined} />
         <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
           onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
         {history.data && !history.error && (history.data.items.length === 0
-          ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">Facilities you approve or share with appear here, with when their access ends.</p>
+          ? <div className="border-t border-line"><EmptyState compact icon={Building2} title="No one has had access yet"
+              description="Facilities you approve or share with appear here, with when their access ends."
+              action={shareServed === true ? <Button to="/access/share" size="sm" icon={Share2}>Share records</Button> : undefined} /></div>
           : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
           {history.data.items.map(item => <li key={item.consentGrantId} className="flex items-start gap-3 px-5 py-4">
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
-              {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
+              {item.status === 'active' && item.breakGlass && <div className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">
+                <p className="m-0">Used in an emergency. It ends by itself on {dateTime(item.expiresAt)}, and you can’t end it here.</p>
+                {item.reason?.trim() && <p className="m-0 [overflow-wrap:anywhere]">Reason given: “{item.reason.trim()}”</p>}
+                <UnexpectedAccess />
+              </div>}
+              {item.status === 'active' && !item.breakGlass && item.patientRevocable === false && <div className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">
+                <p className="m-0">Given by {item.facilityName}. It ends by itself on {date(item.expiresAt)}, and you can’t end it here.</p>
+                <UnexpectedAccess />
+              </div>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
@@ -845,7 +893,7 @@ export function AccessPage() {
         </ul>)}
       </Card>
       {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
-      <ShareInvitationsCard onShared={history.reload} />
+      <ShareInvitationsCard onShared={history.reload} activeGrants={activeGrants} />
     </>}
 
     {/* hid-system 0093: who viewed or changed the record. An Identity before it answers 404, and the section is not shown. */}
@@ -862,6 +910,8 @@ export function AccessPage() {
             <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
         : <Button onClick={closeReview}>Close</Button>}>
       {open && <div className="flex flex-col gap-5">
+        {signInFor === open.accessRequestId && <Alert intent="error" size="sm">{SAY.signInAgain}
+          <div className="mt-2"><SignInAgainButton back="/access" id={`sign-in-again-${open.accessRequestId}`} /></div></Alert>}
         {open.reason && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
@@ -899,7 +949,7 @@ export function AccessPage() {
       {ending && <div className="flex flex-col gap-5">
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
-          <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{ending.purpose}</dd></div>
+          <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{purposeLabel(ending.purpose)}</dd></div>
           <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.startsAt)}</dd></div>
           <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.expiresAt)}</dd></div>
           {sharedAs(ending) && <div className="col-span-2"><dt className="text-ink-3">How</dt><dd className="m-0 mt-0.5 font-medium text-ink">{sharedAs(ending)}</dd></div>}
@@ -911,7 +961,7 @@ export function AccessPage() {
               aria-describedby={`revoke-reason-hint-${ending.consentGrantId} revoke-pin-${ending.consentGrantId}`} />
           </Field>
           {/* Ending access leaves the Access PIN as it is: read with the field, so it is heard before the reason is sent. */}
-          <Hint id={`revoke-pin-${ending.consentGrantId}`}>If they have your Access PIN, they can use it to get access again. Change it in your profile too.</Hint>
+          <Hint id={`revoke-pin-${ending.consentGrantId}`}>If they have your Access PIN, they can use it to get access again. <Link to="/profile#access-pin" className="font-medium text-brand-ink">Change it in your profile</Link> too.</Hint>
         </form>
       </div>}
     </Drawer>
@@ -921,6 +971,19 @@ export function AccessPage() {
 /** One-tap reasons to deny a request; each is long enough for the API (3 characters at least). */
 type QuickReason = 'unknown' | 'not-now' | 'other'
 const QUICK_REASONS: Readonly<Record<QuickReason, string>> = { unknown: 'I don’t know them', 'not-now': 'Not now', other: 'Other' }
+
+/** The parts of Access & sharing, as the address names them (?tab=): Requests when none, or one not known. */
+type AccessTab = 'requests' | 'granted' | 'activity'
+const accessTabOf = (value: string | null): AccessTab => value === 'granted' || value === 'activity' ? value : 'requests'
+
+/** A command refused because the request or access changed elsewhere first (gone, decided, ended or out of date). */
+const changedElsewhere = (cause: unknown) => isHidApiError(cause) && (cause.status === 404 || cause.status === 409 || cause.status === 412)
+  && cause.code !== 'PATIENT_RECENT_AUTH_REQUIRED'
+
+/** Access the patient may not recognise: whom to tell. */
+function UnexpectedAccess() {
+  return <p className="m-0">Don’t recognise this? <a href={supportHref()} className="font-medium text-brand-ink">Contact Health ID support</a>.</p>
+}
 
 /** A card's own heading on Access: the icon, the title (where focus returns after a decision) and a short state. */
 function AccessHeading({ headingRef, icon: I, title, hint }: { headingRef: RefObject<HTMLHeadingElement | null>; icon: Icon; title: string; hint?: string }) {

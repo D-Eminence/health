@@ -17,7 +17,7 @@ import { HealthIdCard } from './HealthIdCard'
 import { completionOf, servedOrNull, useProfileSources } from './profileSources'
 import type { ProfileCompletion } from './profileCompletion'
 import { contactsToCount } from './AccountSafety'
-import { WHAT, accessLogActor } from './AccessLog'
+import { WHAT, accessLogActor, eventSentence } from './AccessLog'
 import { notificationTitle } from './notificationTitles'
 import { ninVerifiedOf } from './NinVerificationCard'
 import { neverSaved } from './HealthInformation'
@@ -63,7 +63,8 @@ export interface ActivityRow { id: string; at: string; text: string; to: string 
 /** The newest few of the access log's events and the inbox's notices, newest first. */
 export function recentActivity(log: AccessLogPage | null | undefined, notices: PatientNotification[] | null | undefined, rows = RECENT_ROWS): ActivityRow[] {
   const events = list<AccessLogEvent>(log?.events).map((event): ActivityRow => ({
-    id: `log-${event.id}`, at: event.at, text: `${accessLogActor(event)}: ${WHAT[event.action].toLowerCase()}`, to: '/access' }))
+    id: `log-${event.id}`, at: event.at, text: eventSentence(event) ?? `${accessLogActor(event)}: ${WHAT[event.action].toLowerCase()}`,
+    to: '/access?tab=activity' }))
   const inbox = list<PatientNotification>(notices).filter(item => typeof item?.id === 'string' && !Number.isNaN(stamp(item.createdAt)))
     .map((item): ActivityRow => ({ id: `notice-${item.id}`, at: item.createdAt, text: notificationTitle(item), to: '/notifications' }))
   return [...events, ...inbox].sort((a, b) => stamp(b.at) - stamp(a.at)).slice(0, rows)
@@ -219,7 +220,7 @@ export function Overview() {
         <StatGroup label="Your record at a glance">
           <StatCard icon={FolderHeart} tone="brand" label="Records" value={counts ? counts.records : '…'} to="/records" />
           {sections.includes('documents') && <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records?tab=documents" />}
-          <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access" />
+          <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access?tab=granted" />
           {sections.includes('prescriptions') && <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records?tab=prescriptions" />}
         </StatGroup>
 
@@ -238,7 +239,7 @@ export function Overview() {
       <Card className="min-w-0 self-start @3xl:col-start-2 @3xl:row-start-2" aria-labelledby="overview-activity" aria-busy={(notifications.loading && notifications.data !== null) || undefined}>
         <CardHeader as="h2" titleId="overview-activity" title="Activity" icon={History} actions={<Button to="/notifications" size="sm" variant="ghost" iconRight={ArrowRight}>All</Button>} />
         {notifications.error ? <div className="p-5"><Alert intent="error" title="Couldn't load activity" action={<Button size="sm" onClick={() => void notifications.reload()}>Try again <ItemName>loading recent activity</ItemName></Button>}>{notifications.error}</Alert></div>
-          : <Timeline items={activity.map(row => ({ id: row.id, text: row.text, when: timeAgo(row.at), to: row.to, tone: row.to === '/access' ? 'success' : undefined }))}
+          : <Timeline items={activity.map(row => ({ id: row.id, text: row.text, when: timeAgo(row.at), to: row.to, tone: row.to.startsWith('/access') ? 'success' : undefined }))}
               empty="When a facility asks for, opens or is given access, you'll see it here." />}
       </Card>
     </div>

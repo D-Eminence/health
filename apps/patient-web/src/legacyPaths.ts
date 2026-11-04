@@ -9,7 +9,7 @@ export const LEGACY_PATIENT_PATHS: Readonly<Record<string, string>> = Object.fre
   '/patient/biodata': '/profile',
   '/patient/records': '/records',
   '/patient/history': '/access',
-  '/logs': '/access',
+  '/logs': '/access?tab=activity',
   '/patient/notifications': '/notifications',
   '/patient/auth': '/sign-in',
   '/login': '/sign-in',

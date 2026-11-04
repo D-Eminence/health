@@ -277,7 +277,8 @@ describe('Access and consent with sharing', () => {
       return json({ items: list, limits: LIMITS })
     })
     const section = await card()
-    expect(screen.getByRole('link', { name: 'Share records' }).getAttribute('href')).toBe('/access/share')
+    // The page's action, and the next step in the empty list of who has access.
+    for (const link of screen.getAllByRole('link', { name: 'Share records' })) expect(link.getAttribute('href')).toBe('/access/share')
     const rows = within(section).getAllByRole('listitem')
     expect(rows[0]!.textContent).toContain('Dr New (dr.new@example.com)')
     expect(rows[0]!.textContent).toContain('View Only · 7 days')

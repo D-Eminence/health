@@ -48,7 +48,7 @@ describe('who viewed or changed your record', () => {
       expect.stringMatching(/^Dr Ada Obi at Lagos GeneralChanged your record27 Oct 2026/),
       expect.stringMatching(/^Yaba ClinicGot access to your record26 Oct 2026/),
       expect.stringMatching(/^You ended Yaba Clinic’s access25 Oct 2026/),
-      expect.stringMatching(/^Dr Emeka at Ikeja HospitalOpened your record in an emergency24 Oct 2026/),
+      expect.stringMatching(/^Dr Emeka at Ikeja HospitalOpened your record in an emergencyDon’t recognise this\? Contact Health ID support\.24 Oct 2026/),
     ])
     expect(rows[0]!.querySelector('time')?.getAttribute('dateTime')).toBe('2026-10-28T09:15:00Z')
     expect(within(card).queryByRole('button', { name: 'Show more' })).toBeNull()
@@ -73,11 +73,10 @@ describe('who viewed or changed your record', () => {
     expect(logReads(sent)).toHaveLength(2)
   })
 
-  it('is not shown where Identity does not serve the log (404), and says nothing', async () => {
+  it('shows an empty state, and no error, where Identity does not serve the log (404): the tab is never blank', async () => {
     const { sent } = await accessPage(() => problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/identity/me/access-log'))
     await waitFor(() => expect(logReads(sent)).toHaveLength(1))
-    await waitFor(() => expect(screen.queryByRole('heading', { name: TITLE })).toBeNull())
-    expect(screen.queryByRole('region', { name: TITLE })).toBeNull()
+    expect(await within(await section()).findByText('No activity yet')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
