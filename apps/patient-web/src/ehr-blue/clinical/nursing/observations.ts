@@ -40,7 +40,7 @@ export function isObservation(record: ClinicalRecord) {
 export const OLD_VITALS_CATEGORY = 'Vitals'
 export const OLD_VITALS_NOTE = 'Saved as a note before 1 November. These readings are not in the vitals chart.'
 
-export function isOldVitalsNote(note: { readonly noteType?: unknown; readonly title?: unknown }): boolean {
+export function isOldVitalsNote(note: Readonly<Record<string, unknown>>): boolean {
   return note.noteType === NOTE_TYPE && typeof note.title === 'string' && note.title.trim() === OLD_VITALS_CATEGORY
 }
 
