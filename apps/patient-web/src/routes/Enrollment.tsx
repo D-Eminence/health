@@ -880,7 +880,7 @@ export function Enrollment() {
   </section>
   // The NIN sign-up's steps and description only once it is the sign-up shown (SO-07): while the page still finds out
   // which one Identity serves, or cannot, a sign-up without a NIN may replace it. None at an ending (SO-15).
-  const stepsShown = ready && !closed && STEP_STAGES.includes(stage)
+  const stepsShown = ready && !closed && STEP_STAGES.includes(stage) && !(stage === 'nin' && registration === 'unknown')
   return <AuthLayout brandTo="/" title="Get your Health ID." titleId="enroll-title"
     lede={stepsShown ? 'Verify who you are, confirm a contact, and choose a password.' : undefined}
     steps={stepsShown ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
