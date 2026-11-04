@@ -91,4 +91,12 @@ describe('Records launch fixes', () => {
     expect(document.activeElement).toBe(search)
     expect(screen.getByText('Outpatient visit')).toBeTruthy()
   })
+
+  it('RN-19: a search that finds nothing offers Clear search when older records are shown too', async () => {
+    portal({ ...RECORDS, importedRecords: historyFixture })
+    await screen.findByRole('heading', { name: 'Older health records' })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search your records' }), { target: { value: 'zzzz nothing' } })
+    expect(await screen.findByText('Nothing matches')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeTruthy()
+  })
 })
