@@ -9,6 +9,8 @@ from staging_release import HOSTS, PRODUCTION_HOSTS, archive_files, chat_feature
 
 CONFIG = pathlib.Path(__file__).parents[1] / 'config'
 DSN = 'https://0123456789abcdef0123456789abcdef@o12345.ingest.us.sentry.io/4504123456789'
+# The owner's website project, in Sentry's EU region (created 2026-11-03). A DSN's key is public by design.
+PRODUCTION_DSN = 'https://64b3d8383c9310778f5e024d906090e9@o4512373598519296.ingest.de.sentry.io/4512373615886416'
 SOURCE = '0123456789abcdef0123456789abcdef01234567'
 
 
@@ -76,12 +78,29 @@ class ErrorReportingConfigTests(unittest.TestCase):
     def config(self, environment):
         return json.loads((CONFIG / (environment + '.json')).read_text(encoding='utf-8'))
 
-    def test_reporting_is_off_in_both_profiles_until_a_dsn_is_set(self):
+    def test_production_reports_to_the_owners_eu_project_and_staging_stays_off(self):
+        self.assertEqual(self.config('production')['sentry_dsn'], PRODUCTION_DSN)
+        staging = self.config('staging')
+        self.assertIn('sentry_dsn', staging)
+        self.assertIsNone(staging['sentry_dsn'])
+
+    def test_every_production_app_is_built_with_the_owners_dsn(self):
+        build = load_build()
+        config = self.config('production')
+        for app, host in PRODUCTION_HOSTS.items():
+            prefix = 'NEXT_PUBLIC_HID_' if app == 'public' else 'VITE_HID_'
+            self.assertEqual(build.app_environment(config, 'production', app, host, SOURCE, {})[prefix + 'SENTRY_DSN'], PRODUCTION_DSN)
+        for app, host in HOSTS.items():
+            prefix = 'NEXT_PUBLIC_HID_' if app == 'public' else 'VITE_HID_'
+            self.assertNotIn(prefix + 'SENTRY_DSN', build.app_environment(self.config('staging'), 'staging', app, host, SOURCE, {}))
+
+    def test_either_profile_accepts_null_or_a_public_dsn(self):
         for environment in ['staging', 'production']:
             config = self.config(environment)
             self.assertIn('sentry_dsn', config)
-            self.assertIsNone(config['sentry_dsn'])
             validate_config(config, environment)
+            validate_config({**config, 'sentry_dsn': None}, environment)
+            validate_config({**config, 'sentry_dsn': PRODUCTION_DSN}, environment)
             without = dict(config); del without['sentry_dsn']
             validate_config(without, environment)
             validate_config({**config, 'sentry_dsn': DSN}, environment)
@@ -122,7 +141,7 @@ class ErrorReportingConfigTests(unittest.TestCase):
 
     def test_the_build_environment_is_otherwise_unchanged(self):
         build = load_build()
-        config = self.config('production')
+        config = {**self.config('production'), 'sentry_dsn': None}
         self.assertEqual(build.app_environment(config, 'production', 'public', 'healthidentitydirectory.com', SOURCE, {}), {
             'NEXT_PUBLIC_HID_ENVIRONMENT': 'production',
             'NEXT_PUBLIC_HID_API_BASE_URL': 'https://healthidentitydirectory.com',

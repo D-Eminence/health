@@ -103,6 +103,17 @@ describe('parseDsn', () => {
     })
   })
 
+  it("reads the owner's EU-region DSN: an o<digits>.ingest.de.sentry.io host and a 32-hex key", () => {
+    const eu = 'https://64b3d8383c9310778f5e024d906090e9@o4512373598519296.ingest.de.sentry.io/4512373615886416'
+    expect(parseDsn(eu)).toEqual({
+      publicKey: '64b3d8383c9310778f5e024d906090e9',
+      host: 'o4512373598519296.ingest.de.sentry.io',
+      projectId: '4512373615886416',
+      endpoint: 'https://o4512373598519296.ingest.de.sentry.io/api/4512373615886416/envelope/'
+        + '?sentry_key=64b3d8383c9310778f5e024d906090e9&sentry_version=7',
+    })
+  })
+
   it('keeps a path prefix before the project id', () => {
     expect(parseDsn(`https://${KEY}@sentry.example.org/errors/sentry/42`)?.endpoint)
       .toBe(`https://sentry.example.org/errors/sentry/api/42/envelope/?sentry_key=${KEY}&sentry_version=7`)
