@@ -355,6 +355,80 @@ describe('Patient documents: opening and extracting', () => {
     expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
   })
 
+  it('Extract with OCR does not move the user off Create record when its answer comes later; the reading is listed', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    let answer!: (job: typeof queuedJob) => void
+    api.createOcrJob.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    await extract()
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    await press(screen.getByRole('button', { name: 'Create record' }))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['New document job'])
+    await act(async () => { answer(queuedJob) })
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['New document job'])
+    expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+    expect(document.getElementById('ocr-status')?.textContent).toBe('')
+    expect(screen.queryByRole('alert')).toBeNull()
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByRole('button', { name: 'Document ••••000001' })).toBeTruthy()
+  })
+
+  it('Extract with OCR does not replace a record the user opened while it was still sending', async () => {
+    const other = { ...queuedJob, id: 'j0000000-0000-4000-8000-000000000002', documentId: 'd0000000-0000-4000-8000-000000000009', status: 'awaiting_validation', version: 2 }
+    await openDocuments()
+    // A reading of another document, found first and then listed on this page.
+    api.findOcrJob.mockResolvedValue({ job: other })
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: other.documentId } })
+    await press(screen.getByRole('button', { name: 'Find job' }))
+    await screen.findByRole('heading', { name: 'Saved record' })
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    // Extract on the discharge summary: checked, then sent; the sending answers only after the other record is opened.
+    api.findOcrJob.mockImplementation(async (_facility: string, documentId: string) => ({ job: documentId === other.documentId ? other : null }))
+    let answer!: (job: typeof queuedJob) => void
+    api.createOcrJob.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    await extract()
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    await press(screen.getByRole('button', { name: 'Document ••••000009' }))
+    await screen.findByRole('heading', { name: 'Saved record' })
+    await act(async () => { answer(queuedJob) })
+    await waitFor(() => expect(api.findOcrJob).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, other.documentId))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000009'])
+    expect(screen.getAllByText('Ready to check').length).toBeGreaterThan(0)
+    expect(document.getElementById('ocr-status')?.textContent).toBe('')
+  })
+
+  it('once the page stops checking a reading by itself, the notice no longer says it updates by itself', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue(queuedJob)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await extract()
+      await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
+      api.findOcrJob.mockResolvedValue({ job: queuedJob })
+      for (let left = 185_000; left > 0; left -= 5_000) await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      expect(screen.getByText('This is taking longer than usual. Use Refresh status to check again.')).toBeTruthy()
+      expect(document.getElementById('ocr-status')?.textContent).toBe('')
+    }
+    finally { vi.useRealTimers() }
+  })
+
+  it('once a check of a reading fails, the notice no longer says the page updates by itself', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue(queuedJob)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await extract()
+      await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
+      api.findOcrJob.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      await waitFor(() => expect(screen.getByText('The document’s progress couldn’t be checked just now. Use Refresh status to try again.')).toBeTruthy())
+      expect(document.getElementById('ocr-status')?.textContent).toBe('')
+    }
+    finally { vi.useRealTimers() }
+  })
+
   it('going to a job and back keeps the encounter and page chosen, and reads nothing again', async () => {
     api.encounters.mockResolvedValueOnce({ items: [encounter, secondEncounter], nextCursor: 'cursor-demo-2' })
     await openDocuments()

@@ -167,6 +167,9 @@ export function Migrate() {
   const pollSince = useRef<{ jobId: string; at: number } | null>(null)
   const [pollStop, setPollStop] = useState<PollStop | null>(null)
   const [pollTick, setPollTick] = useState(0)
+  // Bumped when the user opens a record, starts a new one or goes back to the list, so a document still being checked
+  // or sent for reading in the background does not then replace what they went to.
+  const openRequest = useRef(0)
   // Each publication request's Idempotency-Key and OCR's wait, by request. Here, not in the review, so a read of the
   // job again (which remounts the reviews) keeps them; in memory only, so they last until this page is reloaded or left.
   const publicationAttempts = useRef(new Map<string, PublicationAttempt>())
@@ -208,17 +211,22 @@ export function Migrate() {
     if (pollSince.current?.jobId !== pollId) pollSince.current = { jobId: pollId, at: Date.now() }
     const since = pollSince.current.at
     let active = true
+    // Once the page stops reading the job by itself, a notice saying it updates by itself (shown or still to be shown)
+    // no longer holds: the record's progress line says what to do instead.
+    const stop = (reason: PollStop['reason']) => {
+      setPollStop({ jobId: pollId, reason }); setNotice(''); setStepFocus(current => current && { ...current, notice: undefined })
+    }
     const timer = setTimeout(() => {
-      if (Date.now() - since >= POLL_FOR_MS) { setPollStop({ jobId: pollId, reason: 'slow' }); return }
+      if (Date.now() - since >= POLL_FOR_MS) { stop('slow'); return }
       void staffApi.findOcrJob(facilityId, pollDocument).then(result => {
         if (!active) return
         const found = result.job
-        if (!found || found.id !== pollId) { setPollStop({ jobId: pollId, reason: 'failed' }); return }
+        if (!found || found.id !== pollId) { stop('failed'); return }
         if (found.status === pollStatus && found.version === pollVersion) { setPollTick(value => value + 1); return }
         setJob(found); remember(found); setLookupRevision(value => value + 1)
         // The status region says once that the reading has finished, and how.
         if (!jobInProgress(found.status)) setNotice(found.status === 'awaiting_validation' ? 'The document has been read and is ready to check.' : `${jobStatusWords(found.status)}.`)
-      }, () => { if (active) setPollStop({ jobId: pollId, reason: 'failed' }) })
+      }, () => { if (active) stop('failed') })
     }, POLL_EVERY_MS)
     return () => { active = false; clearTimeout(timer) }
   }, [facilityId, pollId, pollDocument, pollStatus, pollVersion, pollTick, remember])
@@ -264,6 +272,7 @@ export function Migrate() {
 
   /** Opens a job's record, read again; focus goes to its heading. */
   function openRecord(found: OcrJob) {
+    openRequest.current += 1
     setQuick(null); setAction(null); setProblem(null)
     setJob(found); setJobFacilityId(facilityId ?? ''); setCurrentDocument(found.documentId); setView('detail')
     focus('migrate-view-title')
@@ -272,11 +281,13 @@ export function Migrate() {
 
   function backToList() {
     const shown = visibleJob
+    openRequest.current += 1
     setView('list'); setAction(null); setProblem(null); setCreateError('')
     focus(shown ? [`ocr-row-${shown.id}`, 'ocr-find-title'] : 'ocr-find-title')
   }
 
   function startNew(documentId = '') {
+    openRequest.current += 1
     setView('new'); setProblem(null); setCreateError(''); setNotice('')
     if (documentId) setNewDocument(documentId)
     focus('migrate-view-title')
@@ -324,25 +335,30 @@ export function Migrate() {
 
   // A job is created only once a lookup has answered that the document has none: a failed or missing lookup must not
   // make a duplicate. A document that has one opens it instead. Either way its record opens and says which (true); a
-  // refusal is handed to `refuse`, and the view stays where it was (false).
+  // refusal is handed to `refuse`, and the view stays where it was (false). If the user has opened a record, started a
+  // new one or gone back to the list meanwhile, they stay there: a job made is only added to the list (false).
   async function openOrCreate(documentId: string, patient: string, words: OpenWords, refuse: (message: string) => void): Promise<boolean> {
     if (!facilityId) return false
+    const request = ++openRequest.current
+    const current = () => openRequest.current === request
     setBusy(true); setStepFocus(null)
     try {
       let existing: OcrJob | null
       try { existing = (await staffApi.findOcrJob(facilityId, documentId)).job }
-      catch (caught) { refuse(errorText(caught, words.uncheckable)); return false }
+      catch (caught) { if (current()) refuse(errorText(caught, words.uncheckable)); return false }
       if (existing) {
+        if (!current()) { remember(existing); return false }
         show(existing, documentId); setView('detail'); setAction(null)
         setStepFocus({ targets: ['ocr-job-title'], notice: words.existing })
         return true
       }
       const created = await staffApi.createOcrJob(facilityId, documentId, patient)
+      if (!current()) { remember(created); return false }
       show(created, documentId); setView('detail'); setAction(null)
       setStepFocus({ targets: ['ocr-job-title'], notice: words.created })
       return true
     }
-    catch (caught) { refuse(errorText(caught, words.refused)); return false }
+    catch (caught) { if (current()) refuse(errorText(caught, words.refused)); return false }
     finally { setBusy(false) }
   }
 
