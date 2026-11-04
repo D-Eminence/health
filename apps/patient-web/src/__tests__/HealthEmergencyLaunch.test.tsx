@@ -72,6 +72,8 @@ describe('HE-01 and HE-10: a refused code', () => {
     await enterCode(codeBox(), '123456')
     expect(shownText(await screen.findByRole('alert'))).toBe('This code has expired. Send a new code.')
     const again = screen.getByRole('button', { name: /^Send a new code/ })
+    // The boxes hold nothing left to correct: focus is on the way forward.
+    await waitFor(() => expect(document.activeElement).toBe(again))
     await press(again)
     await waitFor(() => expect(commands(sent).filter(request => request.path.endsWith('/verification'))).toHaveLength(2))
     expect(await screen.findByText(/^Code sent to c•••@example.com/)).toBeTruthy()
