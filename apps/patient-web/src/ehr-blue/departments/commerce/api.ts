@@ -235,7 +235,7 @@ function isRecordNotFound(code: string): boolean {
   return /^(COMMERCIAL|BILLING|PHARMACY|LAB)_[A-Z_]+_NOT_FOUND$/.test(code)
 }
 
-const PLAIN: Readonly<Record<string, string>> = {
+const WORDS: Readonly<Record<string, string>> = {
   OVERPAYMENT: 'That is more than the amount due. Take the amount due and give the change.',
   PAYMENT_REQUIRED: 'This needs to be paid first.',
   OUT_OF_STOCK: 'There isn’t enough in stock.',
@@ -244,12 +244,13 @@ const PLAIN: Readonly<Record<string, string>> = {
   FORBIDDEN: 'You don’t have permission to do this here.',
 }
 
+/** A refusal in plain words: this module's own for the codes it knows, else refusalText's (never the server's text). */
 function messageOf(caught: unknown): string {
   if (isHidApiError(caught)) {
-    if (PLAIN[caught.code]) return PLAIN[caught.code]!
-    if (caught.status === 403) return PLAIN.FORBIDDEN!
-    if (caught.status === 409 && /VERSION|CONFLICT/.test(caught.code)) return PLAIN.VERSION_CONFLICT!
-    if (caught.status === 0 || caught.status >= 500) return 'Couldn’t reach Health ID. Check the connection and try again.'
+    if (WORDS[caught.code]) return WORDS[caught.code]!
+    if (caught.status === 403) return WORDS.FORBIDDEN!
+    if (caught.status === 409 && /VERSION|CONFLICT/.test(caught.code)) return WORDS.VERSION_CONFLICT!
+    if ((caught.status === 0 && caught.code !== 'REQUEST_CANCELLED') || caught.status >= 500) return 'Couldn’t reach Health ID. Check the connection and try again.'
   }
   return refusalText(caught, 'Something went wrong. Try again.')
 }

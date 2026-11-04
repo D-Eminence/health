@@ -20,6 +20,11 @@ whose bytes aren't (a program renamed `scan.png`, say) is refused in the browser
 PDF."), never listed and never sent. Only the server can count the day, so it enforces the 10 a day (step 2), and
 enforces the type (step 4), size and 5 per entry again.
 
+**Patients only: staff uploads have no daily limit.** The 10 a day and the 5 per entry are for a patient's own uploads
+in Add a record only. Staff document uploads have no daily limit: EHR encounter documents, Lab and Pharmacy work-item
+documents, and Migrate / Document OCR, including the bulk migration of a facility's history. None of them counts toward
+a patient's 10 a day, and none is ever refused for it.
+
 **1. Save the entry.** `POST /api/v1/ehr/me/patient-entries`, with an `Idempotency-Key` header, one per Save and
 reused when that Save is retried. The body is at most 8000 bytes of JSON:
 
@@ -60,6 +65,9 @@ add up to 10 photos or files a day. Your record is saved; add the rest tomorrow.
 offers no Try again for it, and closing the drawer keeps the saved entry without it. It still asks for each of that
 Save's other files, and goes by each answer. A `429` with any other code (the edge's rate limit, for one) is an
 ordinary failed upload, which Try again may send again with the same key.
+Only these patient upload intents are counted and limited: a staff document upload (an EHR encounter document, a Lab or
+Pharmacy work-item document, Migrate / Document OCR, a facility's bulk migration of its history included) has no daily
+limit, never counts toward the patient's 10 and is never answered `429 PATIENT_DOCUMENT_DAILY_LIMIT`.
 
 *Photos arrive without their metadata.* Before a JPEG or PNG is hashed, the browser takes out its metadata without
 re-encoding it (`apps/patient-web/src/photoMetadata.ts`), so the picture's own bytes are unchanged. From a JPEG it
@@ -70,9 +78,16 @@ pictures phones append, each with its own EXIF and GPS); it keeps APP0 JFIF (wit
 From a PNG it keeps the critical chunks (IHDR, PLTE, IDAT, IEND) and the ancillary chunks display needs (tRNS; cHRM,
 gAMA, iCCP, sBIT, sRGB, cICP, mDCV, cLLI; bKGD, hIST, pHYs; APNG's acTL, fcTL, fdAT), each byte for byte, and drops
 every other chunk: eXIf (and its earlier spellings exIf and zxIf), tEXt, zTXt, iTXt, tIME, C2PA's caBX (which can
-carry the place), private chunks (Apple's iDOT among them), and anything after IEND. `sizeBytes`, `sha256Hex` and the
-PUT body are all of the stripped bytes, and the same file always strips to the same bytes, so Try again sends the
-same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
+carry the place), private chunks (Apple's iDOT among them), and anything after IEND. Of the EXIF, orientation alone is
+kept, so a photo a phone took upright doesn't show on its side: when the first APP1 EXIF before the first scan (or a
+PNG's first eXIf before IDAT) says an Orientation (tag 0x0112) other than 1, the browser writes a new APP1 (or eXIf,
+with its CRC) holding only that: a TIFF header in the original's byte order and an IFD0 with that one entry, no other
+tag, no next IFD (so no thumbnail), no EXIF, GPS or interoperability IFD pointer and no MakerNote. The APP1 goes
+straight after the start of image, or after APP0 JFIF; the eXIf where the original was, before IDAT. Orientation 1, no
+Orientation, or an EXIF that can't be read with certainty (a bad TIFF header, an offset outside it, a second
+Orientation, one that isn't a single SHORT of 1 to 8) leaves none, and the photo is still sent. `sizeBytes`,
+`sha256Hex` and the PUT body are all of the stripped bytes, and the same file always strips to the same bytes (the
+orientation's included), so Try again sends the same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
 frame or scan header whose length says more than its fields, a second frame, a PNG chunk whose CRC is wrong, and a
 critical chunk other than IHDR, PLTE, IDAT and IEND (or a second IHDR). PDFs are sent as they are, once their first
 bytes are `%PDF-` (above): a photo or a phone's video under a PDF's name, which would go up with its metadata, is

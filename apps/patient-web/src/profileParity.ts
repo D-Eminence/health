@@ -1,4 +1,5 @@
 import { PHONE_COUNTRIES } from './routes/enrollment/phoneCountries'
+import { PlainError } from '@hid/http'
 
 /**
  * hid-1.0 patient parity B3 (owner decisions of 2026-10-28, and the lead's for the wave): what the profile's coverage,
@@ -124,7 +125,7 @@ export function parseReportedHealthProfile(value: unknown): ReportedHealthProfil
 
 export function parseEmailChangeStarted(value: unknown): EmailChangeStarted {
   const changeId = record(value) && typeof value.changeId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value.changeId) ? value.changeId : null
-  if (!record(value) || changeId === null) throw new Error('The code could not be sent. Try again.')
+  if (!record(value) || changeId === null) throw new PlainError('The code could not be sent. Try again.')
   return {
     changeId,
     maskedContact: textOrNull(value.maskedContact, 254) ?? 'your new email address',
@@ -186,4 +187,24 @@ export function maskPhone(phone: string): string {
       .sort((a, b) => b.length - a.length)[0]
     : undefined
   return code ? `+${code} •••• ${last}` : `•••• ${last}`
+}
+
+/**
+ * The patient's country by its name ("Nigeria") where Health ID holds a two-letter code ("NG", as the preview's
+ * patient has). hid-system's patients.country is free text (a promoted hid-1.0 account keeps what it had), so anything
+ * else is shown as held, as is a code no country has: those ISO 3166-1 leaves for users to assign (AA, QM to QZ, XA to
+ * XZ, ZZ), some of which the browser names anyway ("Pseudo-Accents", "Outlying Oceania", "Unknown Region"), and any
+ * other the browser has no name for.
+ */
+export function countryName(country: string): string {
+  const held = country.trim()
+  if (!/^[a-z]{2}$/i.test(held)) return held
+  const code = held.toUpperCase()
+  if (/^(AA|Q[M-Z]|X[A-Z]|ZZ)$/.test(code)) return held
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' }).of(code)
+    return name && name !== code ? name : held
+  } catch {
+    return held
+  }
 }

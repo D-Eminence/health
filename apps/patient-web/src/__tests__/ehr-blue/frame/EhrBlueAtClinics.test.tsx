@@ -62,7 +62,7 @@ async function expectBlueHome() {
 
 /** The blue sign-in, as a clinic has it once the switch is on (frame/auth/BlueSignIn.tsx, its "Email"). */
 async function signIn() {
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Email' }), { target: { value: 'next.clinician@example.test' } })
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Work email' }), { target: { value: 'next.clinician@example.test' } })
   expect(document.querySelector('.hid-ehr-blue-auth')).not.toBeNull()
   fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'fictional passphrase for tests' } })
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
@@ -131,9 +131,8 @@ describe('at a clinic, with the clinic switch on', () => {
     })
     await openStaffApp('/provider')
     await expectBlueHome()
-    // The sidebar's facility switcher leads to Switch facility.
+    // The sidebar's facility switcher switches straight away: no patient is open.
     switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
-    fireEvent.click(await screen.findByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
 
     const heading = await screen.findByRole('heading', { name: 'Your session has ended' })
     expect(heading.closest('section')?.textContent).toContain(MFA_NOTICE)
@@ -196,8 +195,9 @@ describe('at a clinic, with the clinic switch on', () => {
     // The record has opened (its encounters read): every lookup it makes is in.
     await waitFor(() => expect(sent.some(call => call.route === ENCOUNTERS)).toBe(true))
     const lookups = sent.filter(call => call.route === LOOKUP).length
-    // The sidebar's facility switcher leads to Switch facility.
+    // With a patient open, the sidebar's facility switcher leads to Switch facility, which says the record will close.
     switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
+    expect(await screen.findByText(/The open patient record will close\./)).toBeDefined()
     fireEvent.click(await screen.findByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
@@ -258,5 +258,19 @@ describe('at a clinic, with the clinic switch on', () => {
     expect(logout?.headers.get('X-CSRF-Token')).toBe('csrf-staff')
     expect(logout?.headers.get('X-HID-Client')).toBe('staff-web')
     expect(sent.filter(call => call.route === SESSION).every(call => call.headers.get('X-HID-Client') === null)).toBe(true)
+  })
+
+  it('says a sign-out the server refused in plain words, never the server’s own text or code', async () => {
+    const refused = () => problem(503, 'SESSION_STORE_UNAVAILABLE', 'Redis cluster session-store-2 timed out at /api/v1/auth/logout')
+    serve({ [SESSION]: [sessionAt(riverside(), [riverside()])], [LOGOUT]: [refused, refused, refused, refused] })
+    await openStaffApp('/provider')
+    await expectBlueHome()
+    fireEvent.click(accountButton())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Couldn’t sign out')
+    expect(alert.textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(document.body.textContent).not.toMatch(/Redis|session-store|SESSION_STORE_UNAVAILABLE|\/api\/|503/)
+    expect(where()).toBe('/provider')
   })
 })

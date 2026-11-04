@@ -10,6 +10,8 @@ import {
 } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { sampleCheckText } from '../../../staff/orderRoutes'
+import { refusalText } from '../../../staff/fieldProblem'
+import { sameScientistCheck } from '../../../staff/labRevisions'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, REASON_MIN, REASON_SHORT, revisionText } from './labText'
@@ -49,7 +51,9 @@ const busyMark = (busy: boolean) => ({ 'aria-busy': busy || undefined, 'aria-dis
 /**
  * What a refused sample step says. Screens never repeat the server's words, so only the refusals the page words by their
  * code (errorText: a closed order, paused work, a workspace not in service, a fault between services) keep their
- * sentence, given the error without the server's message or the fields it names; anything else says `fallback`.
+ * sentence, given the error without the server's message or the fields it names; anything else says the words every
+ * page shares for its status (@hid/http plainErrorText: Health ID unavailable, changed meanwhile, no access…), or else
+ * `fallback`.
  */
 function sampleProblem(caught: unknown, fallback: string, routed: boolean) {
   return isHidApiError(caught) ? errorText(new HidApiError(caught.status, fallback, { code: caught.code }), fallback, routed) : fallback
@@ -334,14 +338,33 @@ function FinishForm({ facilityId, permissions, routed, onDone, onRefused, execut
 }
 
 // --------------------------------------------------------------- results --
+/**
+ * One-person lab (owner decision 33.3, hid-system 0111). Lab's result reads say whether the facility works as a
+ * one-person lab (onePersonLab) and, per version, whether the reader entered it (enteredByYou). At a two-person lab the
+ * one who entered a result is told before they try that someone else checks it; at a one-person lab they may check it
+ * themselves with a typed reason of 10 to 500 characters. Lab decides every check; with neither key, today's screen.
+ */
+const SECOND_PERSON = 'A second person must check this result.'
+const SECOND_PERSON_AFTER_SAVE = 'A second person must check this result after it is saved.'
+const SELF_CHECK_HINT = 'You entered this result. Your lab works as a one-person lab, so you can check it yourself. Say why.'
+const SELF_CHECK_MIN = 10
+const SELF_CHECK_MAX = 500
+
+/** A reason's length as Lab counts it: characters, not UTF-16 units, after trimming. */
+function reasonLength(reason: string): number {
+  return [...reason.trim()].length
+}
+
 type ResultErrors = Partial<Record<'value' | 'unit' | 'reason', string>>
 
 /**
  * Enter a result, or correct one (a new, unverified version; earlier and released versions are kept). A number needs
  * its unit; the flag follows the reference range until it is chosen by hand. Confirmed against the patient.
  */
-export function ResultForm({ facilityId, subject, routed, onDone, onRefused, execution, result, onCancel }: Omit<StepBase, 'permissions'> & {
+export function ResultForm({ facilityId, subject, routed, onDone, onRefused, execution, result, onCancel, facilityOnePerson }: Omit<StepBase, 'permissions'> & {
   readonly execution: LabExecution; readonly result: LabResult | null; readonly onCancel?: () => void
+  /** The facility's switch as another result in the same record carries it (Lab sends it on results, not executions). */
+  readonly facilityOnePerson?: boolean
 }) {
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   const id = execution.id
@@ -363,6 +386,9 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
     if (fromRange) setFlag(fromRange)
   }
   const auto = !chosen && kind === 'numeric' && flagFromRange(value, range) !== null
+  // Told before the result is entered (audit rank 22), only when Lab says the facility is two-person; else today's form.
+  // A first entry has no result of its own yet, so the switch comes from a sibling result in the same record.
+  const twoPerson = (result?.onePersonLab ?? execution.onePersonLab ?? facilityOnePerson) === false
 
   function check(event: FormEvent) {
     event.preventDefault()
@@ -441,6 +467,7 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
         <Textarea {...control('reason')} rows={2} maxLength={500} value={reason} onChange={event => { setReason(event.target.value); setErrors({}) }} />
       </Field>
     </> : null}
+    {twoPerson ? <p className="m-0 text-[14px] text-ink-2">{SECOND_PERSON_AFTER_SAVE}</p> : null}
     <Problem text={problem} />
     <FormActions sticky={false}>
       {onCancel ? <Button onClick={onCancel}>Cancel</Button> : null}
@@ -462,39 +489,109 @@ export function ResultValue({ result }: { readonly result: LabResult }) {
   </span>
 }
 
+/** Today's Laboratory page's words when Lab refuses a verify or a release (staff/routes/Operations.tsx, ResultGovernance). */
+const DECISION_FAILED = 'Decision could not be recorded. Refresh before retrying.'
+
 /**
- * Check & release: a second look at the result, then it is released to the patient's record. Verify first when it is
- * still unverified (Lab refuses a verify by the person who entered it: someone else checks), then release. Each is a
- * separate request with the review note as its reason.
+ * A verify refused because the person who entered the result is the one verifying: refreshing never changes that, so
+ * it says who must verify instead. The codes are the 409s the backend handoff asks Lab for (docs/BACKEND_OWNER_HANDOFF.md
+ * A12; Lab answers 500 today, which says DECISION_FAILED). NOT_VERIFIABLE covers both that and a result no longer
+ * waiting to be verified, so it says both. Only the code is compared; it is never shown.
+ */
+const VERIFY_REFUSED: Readonly<Record<string, string>> = {
+  LAB_RESULT_VERIFIER_NOT_INDEPENDENT: 'You entered this result, so someone else must verify it.',
+  LAB_RESULT_NOT_VERIFIABLE: 'You can’t verify this result now. If you entered it, someone else must verify it. If not, it may '
+    + 'have changed: refresh to see it as it is.',
+  // One-person lab (hid-system 0111).
+  LAB_RESULT_SECOND_CHECK_REQUIRED: SECOND_PERSON,
+  LAB_RESULT_SELF_CHECK_REASON_REQUIRED: 'You entered this result. Type why you are checking it yourself.',
+  LAB_RESULT_SELF_CHECK_REASON_INVALID: 'The reason must be 10 to 500 characters.',
+  LAB_RESULT_SELF_CHECK_NOT_YOURS: 'Someone else entered this result; check it normally.',
+}
+
+/** The self-check refusals about the reason itself: said at the reason, with the sheet still open to fix it. */
+const REASON_REFUSED: ReadonlySet<string> = new Set(['LAB_RESULT_SELF_CHECK_REASON_REQUIRED', 'LAB_RESULT_SELF_CHECK_REASON_INVALID'])
+
+/**
+ * The http client's own failures, when no answer came: refreshing while offline can fail to load the page, so these say
+ * to check the connection (the blue departments' sentence, as in commerce/api.ts) instead of DECISION_FAILED.
+ */
+const UNANSWERED: ReadonlySet<string> = new Set(['NETWORK_ERROR', 'REQUEST_TIMEOUT'])
+const DECISION_UNANSWERED = 'Couldn’t reach Health ID. Check the connection and try again.'
+
+/**
+ * A refused verify or release in the page's own words: the sentences errorText writes itself (an order from another
+ * facility that closed, a module not in service, paused work), the ones above, else today's sentence. errorText otherwise
+ * ends with the refusal's own message, which is the service's text, so that is never shown here.
+ */
+function decisionProblem(caught: unknown, routed: boolean): string {
+  const said = errorText(caught, DECISION_FAILED, routed)
+  if (said !== refusalText(caught, DECISION_FAILED)) return said
+  if (!isHidApiError(caught)) return DECISION_FAILED
+  return VERIFY_REFUSED[caught.code] ?? (UNANSWERED.has(caught.code) ? DECISION_UNANSWERED : DECISION_FAILED)
+}
+
+/** Each decision's permission and words, as on today's Laboratory page (Operations.tsx, ResultGovernance). */
+const DECISIONS = {
+  verify: {
+    permission: 'lab.result.verify', action: 'Verify result version', reason: 'Verification reason',
+    done: 'This exact result version was verified.',
+  },
+  selfCheck: {
+    permission: 'lab.result.verify', action: 'Check it yourself', reason: 'Why you are checking it yourself',
+    done: 'You checked this result yourself. Your reason is recorded with it. Release it in the next step.',
+  },
+  release: {
+    permission: 'lab.result.release', action: 'Release result version', reason: 'Release reason',
+    // Today says "to authorized readers"; who they are is said instead: releasing is what shows it outside the lab.
+    done: 'This exact verified result version was released. The patient and the ordering clinic can now see it.',
+  },
+} as const
+
+/**
+ * Check & release, as two separate actions, as on today's Laboratory page: verify an unverified result (Lab refuses a
+ * verify by the person who entered it: someone else checks), then release the verified one, which shows it to the
+ * patient and the ordering clinic. Each is its own request with its own permission and its own typed reason, so the
+ * audit says why each was done; one press never does both. Confirmed against the patient first.
  */
 export function CheckStep({ facilityId, permissions, subject, routed, onDone, onRefused, execution }: StepBase & { readonly execution: LabExecution }) {
   const result = execution.result!
   const needsVerify = result.status === 'entered_unverified'
-  const canVerify = permissions.includes('lab.result.verify')
-  const canRelease = permissions.includes('lab.result.release')
+  const current = result.revisions.find(revision => revision.version === result.currentVersion)
+  const enteredByYou = current?.enteredByYou === true
+  // One-person lab: only when Lab says so. A key it does not send (an older image) leaves today's step as it is.
+  const selfCheck = needsVerify && enteredByYou && result.onePersonLab === true
+  const secondPerson = needsVerify && enteredByYou && result.onePersonLab === false
+  const checkedBySame = !needsVerify && current ? sameScientistCheck(current) : null
+  const decision = selfCheck ? 'selfCheck' : needsVerify ? 'verify' : 'release'
+  const words = DECISIONS[decision]
+  const can = permissions.includes(words.permission)
   const [asking, setAsking] = useState(false)
-  const [note, setNote] = useState('')
-  const [noteError, setNoteError] = useState('')
+  const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState('')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState('')
-  const id = execution.id
-  const can = needsVerify ? canVerify : canRelease
-  const label = needsVerify ? (canRelease ? 'Check & release' : 'Check result') : 'Release result'
+  const reasonId = `lab-${decision === 'selfCheck' ? 'self-check' : decision}-reason-${execution.id}`
+  const typed = reasonLength(reason)
   async function run() {
     if (busy) return
-    if (!note.trim()) { setNoteError('Say what you checked, like “Matches the sample and the range”.'); document.getElementById(`lab-check-note-${id}`)?.focus(); return }
+    if (!reason.trim()) { setReasonError('Enter a reason for this decision.'); document.getElementById(reasonId)?.focus(); return }
+    if (selfCheck && (typed < SELF_CHECK_MIN || typed > SELF_CHECK_MAX)) {
+      setReasonError('Enter a reason of 10 to 500 characters.'); document.getElementById(reasonId)?.focus(); return
+    }
     setBusy(true); setProblem('')
-    let current = result
     try {
-      if (current.status === 'entered_unverified') current = await staffApi.verifyLabResult(facilityId, current, note.trim())
-      if (current.status === 'verified_not_released' && canRelease) {
-        current = await staffApi.releaseLabResult(facilityId, current, note.trim())
-        setAsking(false); onDone(`${execution.test.name} released. The patient can see it on their Health ID.`)
-      } else { setAsking(false); onDone(`${execution.test.name} checked. Someone who can release it does that next.`) }
+      // A self-check sends the reason exactly as typed (Lab counts it after trimming); the other two as today.
+      if (decision === 'selfCheck') await staffApi.verifyLabResult(facilityId, result, reason, { selfCheck: true })
+      else if (decision === 'verify') await staffApi.verifyLabResult(facilityId, result, reason.trim())
+      else await staffApi.releaseLabResult(facilityId, result, reason.trim())
+      setAsking(false); onDone(words.done)
     } catch (caught) {
-      setProblem(errorText(caught, current !== result ? 'The result was checked but not released. Try again.' : 'The result could not be checked. Someone other than the person who entered it must check it.', routed))
-      setAsking(false); onRefused(caught)
-      if (current !== result) onDone('Result checked, not released yet.')
+      const said = decisionProblem(caught, routed)
+      if (selfCheck && isHidApiError(caught) && REASON_REFUSED.has(caught.code)) {
+        setReasonError(said); document.getElementById(reasonId)?.focus()
+      } else { setAsking(false); setProblem(said) }
+      onRefused(caught)
     } finally { setBusy(false) }
   }
   return <div className="flex flex-col gap-3 rounded-xl p-4 ring-1 ring-inset ring-line">
@@ -505,18 +602,43 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
       </div>
       <Badge size="sm" tone={needsVerify ? 'warn' : 'info'}>{needsVerify ? 'To check' : 'Checked, not released'}</Badge>
     </div>
+    {checkedBySame ? <p className="m-0 text-[14px] text-ink-2">{checkedBySame.text}.</p> : null}
+    {selfCheck && can ? <p className="m-0 text-[14px] text-ink-2">{SELF_CHECK_HINT}</p> : null}
     <Problem text={problem} />
-    {can ? <FormActions sticky={false}><Button variant="primary" size="lg" icon={CheckCheck} onClick={() => { setNote(''); setNoteError(''); setAsking(true) }}>{label}</Button></FormActions>
-      : <p className="m-0 text-[14px] text-ink-2">{needsVerify ? 'Waiting for someone who can check results.' : 'Waiting for someone who can release results.'}</p>}
-    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={label} subject={subject.banner} busy={busy}
-      effect={<>{needsVerify ? 'Check' : 'Release'} the {execution.test.name} result for <strong>{subject.name}</strong>{needsVerify && canRelease ? ' and release it to their record' : ''}?</>}
-      undo={canRelease ? 'Once released the patient sees it. A wrong result can be corrected; every version is kept.' : undefined}
-      confirmLabel={label} onConfirm={() => void run()}>
-      <Field label="What you checked" htmlFor={`lab-check-note-${id}`} error={noteError} errorId={`lab-check-note-${id}-error`}>
-        <Textarea id={`lab-check-note-${id}`} rows={2} maxLength={500} value={note} aria-invalid={noteError ? true : undefined}
-          aria-describedby={noteError ? `lab-check-note-${id}-error` : undefined} onChange={event => { setNote(event.target.value); setNoteError('') }} />
+    {secondPerson ? <Alert intent="info" size="sm">{SECOND_PERSON} You entered it, so a colleague who can verify results checks it.</Alert>
+      : can ? <FormActions sticky={false}><Button variant="primary" size="lg" icon={CheckCheck} onClick={() => { setReason(''); setReasonError(''); setAsking(true) }}>{words.action}</Button></FormActions>
+        : <p className="m-0 text-[14px] text-ink-2">{needsVerify ? 'Waiting for someone who can verify results.' : 'Waiting for someone who can release results.'}</p>}
+    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={words.action} subject={subject.banner} busy={busy}
+      effect={selfCheck
+        ? <>Check version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> yourself?</>
+        : needsVerify
+          ? <>Verify version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> after independent review?</>
+          : <>Release verified version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> to the patient and the ordering clinic?</>}
+      undo={selfCheck
+        ? 'Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it. '
+          + 'It is released in a separate step; until then only the lab sees it.'
+        : needsVerify
+          ? 'The person who entered it cannot verify it. It is released in a separate step; until then only the lab sees it.'
+          : 'A wrong result can be corrected; every version is kept.'}
+      confirmLabel={words.action} onConfirm={() => void run()}>
+      <Field label={words.reason} htmlFor={reasonId} error={reasonError} errorId={`${reasonId}-error`}
+        hint={selfCheck ? `${SELF_CHECK_HINT} ${typed} of ${SELF_CHECK_MAX} characters; at least ${SELF_CHECK_MIN}.` : undefined}
+        hintId={selfCheck ? `${reasonId}-hint` : undefined}>
+        <Textarea id={reasonId} rows={selfCheck ? 3 : 2} maxLength={500} value={reason} aria-invalid={reasonError ? true : undefined}
+          aria-describedby={reasonError ? `${reasonId}-error` : selfCheck ? `${reasonId}-hint` : undefined}
+          onChange={event => { setReason(event.target.value); setReasonError('') }} />
       </Field>
     </ConfirmSheet>
+  </div>
+}
+
+/** One-person lab: a version checked by the scientist who entered it says so, with their reason where Lab sends it. */
+function sameScientist(entry: LabResultRevision) {
+  const same = sameScientistCheck(entry)
+  if (!same) return null
+  return <div className="mt-2 flex flex-col gap-0.5 text-[14px]">
+    <p className="m-0 font-medium text-ink">{same.text}</p>
+    {same.reason ? <p className="m-0 text-ink-2">Their reason: {same.reason}</p> : null}
   </div>
 }
 
@@ -583,7 +705,7 @@ export function ResultHistory({ facilityId, execution, onRefused }: {
             entry.releasedAt ? ['Released', dateText(entry.releasedAt)] : null,
             entry.referenceRange ? ['Normal range', entry.referenceRange] : null,
             entry.correctionReason ? ['Reason', entry.correctionReason] : null,
-          ]} /></div>
+          ]} />{sameScientist(entry)}</div>
         </details></li>)}
       </ul> : null}
     </div>

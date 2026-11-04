@@ -71,10 +71,24 @@ describe('Incoming at a laboratory', () => {
     expect(routes.incoming).toHaveBeenCalledWith('facility-1', 'lab', undefined)
     const card = within(incoming).getByText('Haemoglobin').closest('.staff-list-item') as HTMLElement
     expect(within(card).getByText('From General Hospital · Ordered by Dr Ade Okon · Licence on record: MDCN')).toBeTruthy()
-    expect(within(card).getByText(/^LOINC 718-7 · Specimen: Venous blood · Urgent$/)).toBeTruthy()
+    // Owner decision 33.4: the test's name leads; its LOINC code sits under a closed More details line.
+    expect(within(card).getByText('Specimen: Venous blood · Urgent')).toBeTruthy()
+    const details = card.querySelector('details')!
+    expect(details.open).toBe(false)
+    expect(within(details).getByText('More details', { exact: false }).textContent).toBe('More details: Haemoglobin')
+    expect(within(details).getByText('Code: LOINC 718-7')).toBeTruthy()
+    expect(card.textContent?.replace(details.textContent ?? '', '')).not.toMatch(/LOINC|718-7/)
     expect(within(card).getByText(/^Sent .* · Accept by .* · Ref 9C1B2D3E$/)).toBeTruthy()
     expect(within(card).getByText('Patient shown after you accept.')).toBeTruthy()
     expect(card.textContent).not.toMatch(/Tunde|Tired|12345/)
+  })
+
+  it('names a test with only a code by its code, with nothing more under More details', async () => {
+    routes.incoming.mockResolvedValue({ items: [incomingLab({ test: { codeSystem: 'LOINC', code: '2345-7', name: null } })],
+      crossFacilityOrders: true, crossFacilityWork: true })
+    const incoming = await openLaboratory()
+    const card = within(incoming).getByText('LOINC 2345-7').closest('.staff-list-item') as HTMLElement
+    expect(card.querySelector('details')).toBeNull()
   })
 
   it('finds a patient’s orders by their Health ID, and refuses one that is not a Health ID', async () => {
@@ -329,7 +343,8 @@ describe('Incoming at a pharmacy', () => {
     const incoming = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section')!
     expect(routes.incoming).toHaveBeenCalledWith('facility-1', 'pharmacy', undefined)
     expect(within(incoming).getByText('From General Hospital · Ordered by Dr Ade Okon · Licence not on record')).toBeTruthy()
-    expect(within(incoming).getByText('500 mg · Route: oral · Three times daily')).toBeTruthy()
+    expect(within(incoming).getByText('500 mg · by mouth · Three times daily')).toBeTruthy()
+    expect(within(incoming.querySelector('details')!).getByText('Route code: oral')).toBeTruthy()
     expect(within(incoming).getByText('If this is a controlled medicine, check the prescription as you would a paper one before you dispense it.')).toBeTruthy()
     expect(incoming.textContent).not.toMatch(/Take with food/)
 
@@ -344,6 +359,18 @@ describe('Incoming at a pharmacy', () => {
     expect(await within(incoming).findByText('Instructions: Take with food')).toBeTruthy()
     expect(routes.accept).toHaveBeenCalledWith('facility-1', 'pharmacy', { id: ROUTE, version: 1 }, { kind: 'health_id', value: 'HID-7KQ2M9' },
       'Patient at the counter with their card', expect.any(String), undefined)
+  })
+
+  it('writes the route in plain words, and a route with no plain words as the prescriber wrote it', async () => {
+    routes.incoming.mockResolvedValue({ items: [incomingRx({ id: 'r-po', routeCode: 'PO' }), incomingRx({ id: 'r-ng', routeCode: 'NG tube' })],
+      crossFacilityOrders: true, crossFacilityWork: true })
+    render(<MemoryRouter><Pharmacy /></MemoryRouter>)
+    const incoming = (await screen.findByRole('heading', { name: 'Incoming (2)' })).closest('section')!
+    const po = within(incoming).getByText('500 mg · by mouth · Three times daily').closest('.staff-list-item') as HTMLElement
+    expect(within(po.querySelector('details')!).getByText('Route code: PO')).toBeTruthy()
+    const ng = within(incoming).getByText('500 mg · NG tube · Three times daily').closest('.staff-list-item') as HTMLElement
+    expect(ng.querySelector('details')).toBeNull()
+    expect(incoming.textContent).not.toMatch(/Route:/)
   })
 
   it('offers a pharmacy the medicine’s decline reasons', async () => {

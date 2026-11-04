@@ -9,6 +9,7 @@ import { AttentionProvider, useReloadAccessRequests } from '../../../ehr-blue/fr
 import { AttentionLines, TodayCard } from '../../../ehr-blue/home/liveCards'
 import { RoleDashboard } from '../../../ehr-blue/home/RoleDashboard'
 import { RoleViewProvider } from '../../../ehr-blue/frame/roleView'
+import { SAID_REFUSED } from '../../said'
 
 /** Home's live cards with the staff API mocked: loading, empty, error and refusal states, in today's words. */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -52,13 +53,13 @@ describe('Needs attention: access requests', () => {
     expect(screen.getByRole('status').textContent).toBe('Loading access requests')
     const link = await screen.findByRole('link', { name: '1 pending access request' })
     expect(link.getAttribute('href')).toBe('/provider/requests')
-    expect(screen.getByText('Access request · waiting')).toBeDefined()
+    expect(screen.getByText('Access request · waiting for the patient to answer')).toBeDefined()
   })
 
   it('says a refusal in today\'s words', async () => {
     vi.mocked(staffApi.listAccessRequests).mockRejectedValue(refused('PERMISSION_DENIED', 'Denied'))
     inRouter(<Attention permissions={['identity.consent.write']} />)
-    expect(await screen.findByText('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')).toBeDefined()
+    expect(await screen.findByText('Your role here can’t see access requests. Ask your facility administrator if you need to.')).toBeDefined()
   })
 })
 
@@ -85,13 +86,18 @@ describe('Today: laboratory and pharmacy work', () => {
   it('lists work as the design does, naming no patient', async () => {
     vi.mocked(staffApi.labWorkItems).mockResolvedValue({ items: [
       { id: 'w1', patientId: 'p-000000abc123', version: 1, status: 'in_progress', testName: 'Full blood count' },
+      { id: 'w2', patientId: 'p-000000abc124', version: 1, status: 'accepted', testName: 'Malaria parasite', accessionId: 'acc-2',
+        specimenStatuses: ['received'] },
     ] })
     vi.mocked(staffApi.pharmacyWorkItems).mockResolvedValue({ items: [
       { id: 'x1', patientId: 'p-000000def456', version: 1, acceptedAt: '2026-10-29T09:00:00Z', medication: { display: 'Amoxicillin 500 mg capsule' } },
     ] })
     inRouter(<TodayCard facilityId={FACILITY_ID} lab pharmacy />)
     expect((await screen.findByRole('link', { name: 'Full blood count' })).getAttribute('href')).toBe('/provider/laboratory')
-    expect(screen.getByText('Laboratory · in progress')).toBeDefined()
+    // The Laboratory page's own stage, never Lab's raw status.
+    expect(screen.getByText('Laboratory · Waiting for sample')).toBeDefined()
+    expect(screen.getByText('Laboratory · Testing')).toBeDefined()
+    expect(document.body.textContent).not.toMatch(/in progress|accepted/)
     expect(await screen.findByText('Pharmacy · to dispense')).toBeDefined()
     expect(document.body.textContent).not.toMatch(/abc123|def456/)
   })
@@ -100,7 +106,8 @@ describe('Today: laboratory and pharmacy work', () => {
     vi.mocked(staffApi.pharmacyWorkItems).mockRejectedValue(refused('PERMISSION_DENIED', 'This membership cannot read pharmacy work.'))
     inRouter(<TodayCard facilityId={FACILITY_ID} lab={false} pharmacy />)
     expect(await screen.findByText('Pharmacy work could not be loaded')).toBeDefined()
-    expect(screen.getByText('This membership cannot read pharmacy work.')).toBeDefined()
+    expect(screen.getByText(SAID_REFUSED)).toBeDefined()
+    expect(document.body.textContent).not.toContain('This membership cannot read pharmacy work.')
   })
 })
 

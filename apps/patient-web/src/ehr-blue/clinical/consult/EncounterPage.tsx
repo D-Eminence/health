@@ -2,7 +2,7 @@ import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
-import { staffApi, type ClinicalRecord, type Encounter, type NoteRevision } from '../../../staff/api'
+import { staffApi, type ClinicalRecord, type DocumentRecord, type Encounter, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
@@ -16,14 +16,13 @@ import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
-import { HistoryPages } from '../triage/ConnectedHistory'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
-import { TITLE as TRIAGE_TITLE, vitalStatus } from '../triage/vitals'
+import { vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
   AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTERS_FAILED,
-  NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
+  NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_ON_LATER_PAGE, NOTE_STATUS_ON_LATER_PAGE, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
   RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
   WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
   isoNow, newDiagnosisBody, newDiagnosisCheck, reasonCheck, recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
@@ -31,8 +30,8 @@ import {
 import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
 import { KINDS, learnFrom } from './orders/orders'
-import { TodaySections } from './TodaySections'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
+import { VitalsCard } from './Vitals'
 
 /** One encounter's page, or the chart's own state. */
 export function EncounterPage() {
@@ -84,7 +83,7 @@ function EncounterLoader({ chart }: { chart: Chart }) {
     return () => { current = false }
   }, [facilityId, patientId, recordId, verify])
 
-  if (loaded.phase === 'loading') return <Loading label="Loading consultations…" />
+  if (loaded.phase === 'loading') return <Loading label="Loading consultation…" />
   if (loaded.phase === 'missing') return <RecordNotFound backHref={href()} />
   if (loaded.phase === 'failed') {
     return (
@@ -101,8 +100,11 @@ interface ActionDef {
   readonly id: string
   readonly label: string
   readonly fields: readonly FieldDef[]
-  /** The design's decision dialog: `word` asks for it typed (SIGN). */
-  readonly confirm?: { readonly word?: string }
+  /**
+   * The design's decision dialog: `word` asks for it typed (SIGN); `description` is what it says, when the change does
+   * more than change this record (a closing status: today's warning, which today's submit is described by).
+   */
+  readonly confirm?: { readonly word?: string; readonly description?: string }
   readonly warning?: string
   /** A plain line under the fields (today's "Notes are saved as drafts…"). */
   readonly hint?: string
@@ -130,12 +132,43 @@ const writeCheck = (values: FormValues): FieldErrors => {
   return errors
 }
 
-type Asking = { readonly label: string; readonly word?: string; readonly answer: (yes: boolean) => void }
+type Asking = { readonly label: string; readonly word?: string; readonly description?: string; readonly answer: (yes: boolean) => void }
 /** One step of a save: it keeps its idempotency key while its input is unchanged, and is never sent again once done. */
 type SaveStep = { readonly signature: string; readonly key: string; done: boolean }
 
 function step(previous: SaveStep | null, signature: string): SaveStep {
   return previous?.signature === signature ? previous : { signature, key: crypto.randomUUID(), done: false }
+}
+
+/** The visit's lists a change reads again. */
+type PageLists = Lists & { readonly documents: RecordList<DocumentRecord>; readonly revisions: RecordList<NoteRevision> }
+/** One list read again after a change, as that change reads it; it answers why it failed, or null. */
+type Reread = (lists: PageLists) => Promise<string | null>
+/** The reads still to make again, one per list (the latest change's read of it). */
+type Again = Readonly<Partial<Record<keyof PageLists, Reread>>>
+/**
+ * The page's error; after a failed re-read, the reads its "Try again" makes again, and how many times the sentence has
+ * been said, so a failure said again in the same words is a new line in the alert, and is announced again.
+ */
+type PageError = { readonly text: string; readonly again: Again; readonly said?: number }
+const NO_ERROR: PageError = { text: '', again: {} }
+/** The lists a cancel or entered in error changes, each read again after it. */
+const CLOSED_LISTS = ['notes', 'diagnoses', 'vitals', 'prescriptions', 'labs', 'documents'] as const
+
+/**
+ * A list whose read after a change failed keeps what was last read, and the page says the change was saved, once
+ * (today's page, staff/routes/Clinical.tsx:1448-1450, :1477), with "Try again" beside it for the reads that failed.
+ */
+function reloadFailed(failure: string, again: Again): PageError {
+  return { text: `${RELOAD_FAILED} ${failure}`.trim(), again }
+}
+
+/** Makes each read against these lists: null once all are read, else what the page says, with the reads that failed. */
+async function reread(reads: Again, lists: PageLists): Promise<PageError | null> {
+  const entries = Object.entries(reads) as [keyof PageLists, Reread][]
+  const answers = await Promise.all(entries.map(([, read]) => read(lists)))
+  const failure = answers.find((answer): answer is string => answer !== null)
+  return failure === undefined ? null : reloadFailed(failure, Object.fromEntries(entries.filter((_, index) => answers[index] !== null)))
 }
 
 function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: Encounter; others: readonly Encounter[] }) {
@@ -144,7 +177,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const { facilityId, patientId } = chart
   const [encounter, setEncounter] = useState(initial)
   const [success, setSuccess] = useState(() => (location.state as { created?: unknown } | null)?.created === true ? ENCOUNTER_CREATED : '')
-  const [pageError, setPageError] = useState('')
+  const [pageError, showPageError] = useState<PageError>(NO_ERROR)
+  const setPageError = (text: string) => showPageError(text ? { text, again: {} } : NO_ERROR)
+  // A failed re-read joins the reads not yet made again, so "Try again" reads every list still unread, each once.
+  const addFailed = (failed: PageError) =>
+    showPageError(current => ({ text: failed.text, again: { ...current.again, ...failed.again }, said: (current.said ?? 0) + 1 }))
   const [selected, setSelected] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [asking, setAsking] = useState<Asking | null>(null)
@@ -191,6 +228,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const latest = revisions.items?.at(-1) ?? null
   // Nothing is signed or amended unseen: its content must have been read (today's rule).
   const seen = !!note && !revisions.loading && !revisions.error && (revisions.items?.length ?? 0) > 0
+  const lists: PageLists = { notes, diagnoses, vitals, prescriptions, labs, documents, revisions }
+  const latestLists = useLatest(lists)
 
   // After a change removes the control that had focus, focus goes to "Actions", or back to the More actions button when
   // its form was closed (never from a deferred effect).
@@ -210,12 +249,24 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     setSuccess(message)
     setFocusRequest(count => count + 1)
   }
-  const reloaded = async (...reads: Promise<string | null>[]) => {
-    const failures = (await Promise.all(reads)).filter((failure): failure is string => failure !== null)
-    if (failures.length > 0) setPageError(`${RELOAD_FAILED} ${failures[0]}`.trim())
+  const reloaded = async (reads: Again) => {
+    const failed = await reread(reads, lists)
+    if (failed) addFailed(failed)
+  }
+  /**
+   * "Try again": the reads that failed, made again fresh, as the change made them (the page shown, and the first page
+   * with a later one). Reads need no access re-check. The sentence stays until they are read, then goes, focus moving
+   * to "Actions"; a change made meanwhile says its own outcome, which this never replaces. A try that fails says the
+   * sentence again, so it is announced even in the same words.
+   */
+  const tryAgain = async () => {
+    const shown = pageError
+    const failed = await reread(shown.again, latestLists.current)
+    showPageError(current => current !== shown ? current : failed ? { ...failed, said: (shown.said ?? 0) + 1 } : NO_ERROR)
+    if (!failed) setFocusRequest(count => count + 1)
   }
   const begin = () => { setSuccess(''); setPageError('') }
-  const ask = (label: string, word?: string) => new Promise<boolean>(answer => setAsking({ label, word, answer }))
+  const ask = (label: string, word?: string, description?: string) => new Promise<boolean>(answer => setAsking({ label, word, description, answer }))
   /**
    * A form left after its note change was saved but its diagnosis was not: the note is read again (its new version),
    * and the next change starts afresh.
@@ -225,7 +276,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     unreadRevision.current = false
     revisionAttempt.current = null
     diagnosisAttempt.current = null
-    void reloaded(notes.reload(true))
+    void reloaded({ notes: on => on.notes.reload(true) })
   }
 
   /**
@@ -271,7 +322,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     finish(diagnosis ? `${REVISION_RECORDED} ${RECORD_SAVED}` : REVISION_RECORDED)
     // The consultation note is on the first page: the list shows it again, with its revisions read afresh (a failed
     // re-read hides the old content and its actions), and a new diagnosis, today's create read: the first page.
-    await reloaded(notes.reload(true), revisions.refresh(), ...(diagnosis ? [diagnoses.reload(true)] : []))
+    await reloaded({
+      notes: on => on.notes.reload(true), revisions: on => on.revisions.refresh(),
+      ...(diagnosis ? { diagnoses: (on: PageLists) => on.diagnoses.reload(true) } : {}),
+    })
   }
 
   /** Today's note status change on the consultation note, under the clinician's typed reason. */
@@ -287,7 +341,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       return { formError: refusalText(caught, STATUS_FAILED), fieldErrors: refusedFieldErrors(caught, { changeReason: 'reason' }) }
     }
     finish(NOTE_STATUS_UPDATED)
-    await reloaded(notes.reload(true))
+    await reloaded({ notes: on => on.notes.reload(true) })
   }
 
   /** Today's "Add notes": a draft of the type and title typed; the list shows its first page again. */
@@ -305,7 +359,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     }
     attempt.current = null
     finish(RECORD_SAVED)
-    await reloaded(notes.reload(true))
+    await reloaded({ notes: on => on.notes.reload(true) })
   }
 
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
@@ -350,8 +404,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       if (read === encounterReads.current) setPageError(refusalText(caught, ENCOUNTERS_FAILED))
     }
     if (shown && read === encounterReads.current) setEncounter(shown)
+    // A cancel or entered in error changes the visit's records too: today's page says the change only once they are read
+    // again (Clinical.tsx:1576-1584), so no card still shows a record as it was when the page says it is done.
+    if (CLOSING_STATUSES.has(status)) await reloaded(Object.fromEntries(CLOSED_LISTS.map(name => [name, (on: PageLists) => on[name].reload()])))
     finish(ENCOUNTER_STATUS_UPDATED)
-    if (CLOSING_STATUSES.has(status)) await reloaded(...[notes, diagnoses, vitals, prescriptions, labs, documents].map(list => list.reload()))
   }
 
   // A new diagnosis may be typed with a note change (New consultation's fields, optional).
@@ -382,10 +438,12 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, validate: writeCheck, run: writeNote })
   }
   if (writes.encounter) {
+    const warning = encounterClosesRecords()
     for (const transition of ENCOUNTER_TRANSITIONS[encounter.status] ?? []) {
       more.push({
-        id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck,
-        confirm: CLOSING_STATUSES.has(transition.value) ? {} : undefined, warning: encounterClosesRecords(), run: encounterStatus(transition.value),
+        id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck, busy: UPDATING,
+        // The dialog's button is the one that sends a cancel or entered in error, so it says the warning too.
+        confirm: CLOSING_STATUSES.has(transition.value) ? { description: warning } : undefined, warning, run: encounterStatus(transition.value),
       })
     }
   }
@@ -402,7 +460,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   }
 
   const submitAction = (chosen: ActionDef) => async (values: FormValues): Promise<SubmitOutcome> => {
-    if (chosen.confirm && !(await ask(chosen.label, chosen.confirm.word))) return false
+    if (chosen.confirm && !(await ask(chosen.label, chosen.confirm.word, chosen.confirm.description))) return false
     return chosen.run(values)
   }
 
@@ -418,19 +476,28 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   ]
   if (reads.diagnoses) saved.push({ label: 'Diagnosis', value: currentDiagnoses.join(', ') })
   if (reads.notes) {
-    saved.push({ label: 'Note status', value: note ? statusLabel(recordStatus(note, 'unknown')) : '' })
-    saved.push({ label: 'Note', value: noteValue(notes, note, revisions, latest) })
+    // Nursing notes share the visit's notes, as in today's one Notes tab: when they fill the first page and there are
+    // more pages, the consultation note may be on a later one, so the Saved record says so instead of "Not recorded".
+    const onLaterPage = !note && (notes.first?.length ?? 0) > 0 && (notes.cursors.length >= 2 || notes.next !== null)
+    saved.push({ label: 'Note status', value: note ? statusLabel(recordStatus(note, 'unknown')) : onLaterPage ? NOTE_STATUS_ON_LATER_PAGE : '' })
+    saved.push({ label: 'Note', value: onLaterPage ? NOTE_ON_LATER_PAGE : noteValue(notes, note, revisions, latest) })
   }
 
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit
   // quietly behind More actions.
   const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : 'secondary'
 
-  // In the order a clinician works: the note, every note, diagnoses, orders, documents, then history and earlier versions.
+  // In the order a clinician works: the note, every note, vitals, diagnoses, orders, documents, then history and earlier versions.
   return (
     <>
       <RecordHeading title={encounterTitle(encounter)} backHref={href()} />
-      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+      {pageError.text ? (
+        <ErrorBox>
+          <p key={pageError.said ?? 0}>{pageError.text}</p>
+          {/* Busy, it stays focusable (aria-disabled, aria-busy), so focus stays on it, and a second press does nothing. */}
+          {Object.keys(pageError.again).length > 0 ? <p><EhrButton variant="secondary" size="sm" onClick={tryAgain}>Try again</EhrButton></p> : null}
+        </ErrorBox>
+      ) : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta status={encounter.status}>
         <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
@@ -490,31 +557,39 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         </EhrCard>
       </DetailGrid>
       {reads.notes ? (
-        <NotesCard chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError} />
+        <NotesCard
+          chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}
+          onReloadFailed={(failure, first) => addFailed(reloadFailed(failure, { notes: on => on.notes.reload(first) }))}
+        />
+      ) : null}
+      {/* Today's tab order: Notes, Vitals, Diagnoses (Clinical.tsx:25-32). */}
+      {reads.vitals ? (
+        <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
       ) : null}
       {reads.diagnoses ? (
-        <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
+        <DiagnosesCard
+          chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess}
+          onReloadFailed={(failure, first) => addFailed(reloadFailed(failure, { diagnoses: on => on.diagnoses.reload(first) }))}
+        />
       ) : null}
       {/* Only where it has something to show: this visit's orders (each create sits with its list, as in classic), or
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no
           empty card. */}
       {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId)) ? (
-        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} /></EhrCard>
+        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
       ) : null}
       {reads.documents ? (
         <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
       ) : null}
-      <TodaySections chart={chart} />
       <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
-        {/* Today's Vitals tab pages the encounter's vitals, 50 to a page (Clinical.tsx:1807): one past the first page is reached here. */}
-        <HistoryPages title={TRIAGE_TITLE} list={vitals} />
       </HistoryCard>
       <VersionsCard versions={versionItems(note, revisions.items)} />
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? ''}
         word={asking?.word}
+        description={asking?.description}
         onConfirm={() => { asking?.answer(true); setAsking(null) }}
         onCancel={() => { asking?.answer(false); setAsking(null) }}
       />

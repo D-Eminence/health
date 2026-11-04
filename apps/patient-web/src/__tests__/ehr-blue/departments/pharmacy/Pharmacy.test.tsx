@@ -3,11 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
-import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
+import { pharmacyPage, pharmacyPages } from '../../../../ehr-blue/departments/pharmacy/page'
+import { pointOfCareShown } from '../../../../ehr-blue/departments/commerce/served'
+import { OTHER_PHARMACY_PAGE_PERMISSIONS } from '../../../../staff/refusedWork'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { PharmacyRecord, type PharmacyRecordProps } from '../../../../ehr-blue/departments/pharmacy/PharmacyRecord'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
 import { DEMO_HOSPITAL_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 import {
   accepted, ALL, AMOXICILLIN, CREATE, deferred, dispensed, expectNoFullPatientIds, facts, IBUPROFEN, METFORMIN, otherActions,
   otherFacilityItem, pickCard, PRESCRIPTIONS, READ, recordStatus, reversed, row, SALBUTAMOL, showTab, Where,
@@ -89,6 +92,16 @@ describe('the page entry', () => {
     renderDept(<>{pharmacyPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBeTruthy()
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.')).toBeTruthy()
+  })
+
+  /*
+   * The classic Pharmacy chooses its words from the same list without loading these pages (staff/refusedWork.ts
+   * pharmacyWorkFor), and counts it only where the point-of-care pages open, as each of these shows only there.
+   */
+  it('names the other pages’ permissions as the classic Pharmacy reads them, and where they open, so both refusals name the same work', () => {
+    const others = pharmacyPages.filter(page => page !== pharmacyPage && page.permission !== undefined)
+    expect([...OTHER_PHARMACY_PAGE_PERMISSIONS].sort()).toEqual(others.map(page => page.permission).sort())
+    for (const page of others) expect(page.visible).toBe(pointOfCareShown)
   })
 })
 
@@ -249,7 +262,8 @@ describe('the queue', () => {
     renderPage()
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Couldn’t load prescriptions')).toBeTruthy()
-    expect(within(alert).getByText('You do not have permission to do that.')).toBeTruthy()
+    expect(within(alert).getByText(SAID_REFUSED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('You do not have permission to do that.')
     expect(screen.queryByText('Nothing waiting to dispense')).toBeNull()
     expect(document.body.textContent).not.toContain('Patient ••••')
     expectNoFullPatientIds()
@@ -260,14 +274,14 @@ describe('the queue', () => {
 
   it.each([
     ['a rejection with no message', { status: 0 }, 'Prescriptions could not be loaded. Please retry.'],
-    ['Pharmacy switched off on this deployment', new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }),
-      'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'],
-    ['a fault between Health ID services', new HidApiError(503, 'Upstream', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
+    ['Pharmacy switched off on this deployment', new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }), SAID_NOT_TURNED_ON],
+    ['a fault between Health ID services', new HidApiError(503, 'Upstream', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
   ])('says %s plainly', async (_case, refusal, text) => {
     api.pharmacyWorkItems.mockRejectedValueOnce(refusal)
     renderPage()
     expect(within(await screen.findByRole('alert')).getByText(text)).toBeTruthy()
+    // Never the gateway's words, a code or a word about deployments or services (owner's rule, 1 Nov 2026).
+    expect(document.body.textContent).not.toMatch(/Upstream|API_ROUTE|SERVICE_AUTH|deployment|between Health ID services/)
   })
 
   it('keeps the list on screen while it is read again, and when that read fails', async () => {
@@ -280,7 +294,8 @@ describe('the queue', () => {
     await act(async () => { reload.reject(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' })) })
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Couldn’t refresh prescriptions')).toBeTruthy()
-    expect(alert.textContent).toContain('Pharmacy work is temporarily unavailable. What is shown may be out of date.')
+    expect(alert.textContent).toContain(`${SAID_UNAVAILABLE} What is shown may be out of date.`)
+    expect(alert.textContent).not.toContain('Pharmacy work is temporarily unavailable.')
     expect(screen.getByRole('button', { name: AMOXICILLIN })).toBeTruthy()
   })
 })
@@ -360,8 +375,12 @@ describe('the picking view', () => {
     // Who it is for, in the same place on every record.
     expect(screen.getByRole('region', { name: 'Patient: Patient ••••6f8a10' }).textContent).toContain('Health ID not sent')
     expect(recordStatus()).toBe('To dispense')
-    expect(facts()).toEqual({ Medicine: AMOXICILLIN, Dose: '1capsule', 'How often': 'Three times daily', Route: 'oral',
+    expect(facts()).toEqual({ Medicine: AMOXICILLIN, Dose: '1capsule', 'How often': 'Three times daily', Route: 'By mouthMore details: RouteRoute code: oral',
       Instructions: 'Take with food.\nFinish the course.', Dispensed: 'No', Accepted: dateText(accepted.acceptedAt) })
+    // The route in plain words first; the prescriber's route code waits, closed, under More details (owner decision 33.4).
+    const route = screen.getByText('Route', { selector: 'dt' }).nextElementSibling!
+    expect(route.querySelector('details')?.open).toBe(false)
+    expect(screen.getByText('Pick', { selector: 'p' }).nextElementSibling?.nextElementSibling?.textContent).toMatch(/ · by mouth$/)
     // This member can't dispense or reverse: nothing is offered, and the record says why.
     expect(screen.getByText('You can’t dispense here')).toBeTruthy()
     expect(screen.queryByRole('form')).toBeNull()

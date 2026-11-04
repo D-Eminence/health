@@ -8,7 +8,7 @@ import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../pa
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  campaignFacts, MEMBERS_NOT_LOADED, NO_ACTIONS, reference, statusWords,
+  campaignFacts, campaignStatusLabel, MEMBERS_NOT_LOADED, NO_ACTIONS,
   type MembersRead,
 } from './outreachParts'
 
@@ -55,7 +55,7 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
   const loading = !members || (members.loading && !items)
   return (
     <DeptPage title={campaign.name} onBack={onBack}>
-      <DeptContextLine status={statusWords(campaign.status)}
+      <DeptContextLine status={campaignStatusLabel(campaign.status)}
         items={[campaign.services.length ? campaign.services.join(', ') : 'No services listed', `Starts ${dateText(campaign.startsAt)}`]} />
       <DeptRecordLayout
         main={<DeptSection title="Saved record"><DeptFacts facts={campaignFacts(campaign)} /></DeptSection>}
@@ -70,7 +70,7 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
               <li key={member.id}>
                 <div className="hid-ehr-dept-row-main">
                   <span className="hid-ehr-dept-row-title">Team member</span>
-                  <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)} · Reference {reference(member.membershipId)}</span>
+                  <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
                 <EhrBadge>{roleWords(member.role)}</EhrBadge>
               </li>

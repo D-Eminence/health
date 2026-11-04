@@ -52,6 +52,9 @@ export function FormActions({ children, sticky = true, className, align = 'end' 
     align === 'end' ? 'sm:justify-end' : 'sm:justify-start',
     '[&>*]:w-full sm:[&>*]:w-auto sm:[&>*]:max-w-full',
     sticky && 'max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)] max-sm:-mx-4 max-sm:border-t max-sm:border-line max-sm:bg-surface max-sm:px-4 max-sm:py-3',
+    // Where the Support chat launcher is on the page, it sits above the bottom menu too, at the bar's right end (48px,
+    // 16 to 20px in): the buttons end 8px or more before it, so a tap there is the button's.
+    sticky && 'max-sm:[:root:has(.hid-chat-launcher)_&]:pr-[76px]',
     className)}>
     {children}
   </div>

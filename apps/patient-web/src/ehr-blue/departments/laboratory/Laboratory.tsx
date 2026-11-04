@@ -98,7 +98,9 @@ export function Laboratory() {
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
-  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
+  // Payment setup is a point-of-care route Health ID does not serve yet (commerce/served.ts): read at the demo facilities
+  // only, as Pharmacy does, so a real facility sends no request and no test waits for payment.
+  const paymentSettings = usePaymentSettings(canRead && pointOfCareOpen(facilityId) ? facilityId : undefined)
   const settings: PaymentSettings | null = paymentSettings.status === 'ready' ? paymentSettings.data : null
 
   const items = list.items ? notCompleted.shown(list.items) : []
@@ -199,7 +201,8 @@ export function Laboratory() {
           ? 'use their Access PIN or ask them in the Health ID app' : 'ask them to approve your access in the Health ID app'}.</DeptNotice> : null}
       {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
-        onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded> : null}
+        onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId}
+        cannotCompleteBeside="opened" /></DeptEmbedded> : null}
       <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
       {lateCorrection ? <DeptEmbedded><LateWrongPatient service="lab" facilityId={workFacility} onEnded={endedLate} onNotCompleted={notCompletedHere}
         onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: workFacility, correction }) }} /></DeptEmbedded> : null}
