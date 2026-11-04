@@ -1003,7 +1003,7 @@ export function NotificationsPage() {
           </div>
           {(() => {
             const action = notificationAction(item)
-            return action || !item.readAt ? <div className="ml-auto flex flex-wrap items-center gap-2">
+            return action || !item.readAt ? <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
               {action && <Button to={action.to} size="sm">{action.label}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
               {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" aria-busy={working === item.id || undefined}
                 aria-disabled={working !== null || notifications.loading || undefined} onClick={() => void markRead(item.id)}>
