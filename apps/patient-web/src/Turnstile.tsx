@@ -50,6 +50,8 @@ export function loadTurnstileScript(): Promise<void> {
 export function Turnstile({ action, onTokenChange, resetKey }: {
   action: 'patient-enrollment' | 'patient-login' | 'patient-reset-start' | 'staff-reset' | 'admin-reset' | 'provider-enrollment'
     | 'clinician-application' | 'clinician-application-status' | 'staff-invitation'
+    // Step 8 (hid-system 0118): asking for a card link's code, and stopping card emails, on the patient portal's host.
+    | 'card-share-code' | 'card-share-stop'
   onTokenChange: (token: string | null) => void
   resetKey: number
 }) {
