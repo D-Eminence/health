@@ -2862,3 +2862,29 @@ fixes. Home still promises no lab results, medicines, diagnoses or vitals, and A
   unavailable" (HCS-04's optional part), and HCS-05 and HCS-15 wait. In `AccessLog.tsx`, the Access page's own log
   still reads "You: Got access to your record" (SA-13).
 - **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-04: Home and the Health ID card: the rest of the launch fixes
+
+Merged main (website batches 3 and 4) into the branch above, then finished what it had left. Tests first
+(`HomeLaunchReady.test.tsx`, `OverviewDashboard.test.tsx`, `ProfilePhoto.test.tsx`, `ShareRecords.test.tsx`).
+
+- **Merge.** Main's tiles for only the sections the backend sends (HCS-01) and the launch fixes' "Couldn't load" tile
+  values now go together. The page a shared link opens keeps "This link can't be opened" (no "yet"); its one link is
+  main's page for patients, on this deployment's own public site (`https://healthidentitydirectory.com/patients` in
+  production).
+- **HCS-01.** Where only Records and Facilities with access are shown (production), they fill the row as two columns;
+  the loading column draws as many tiles as will come.
+- **HCS-04.** When blood group, genotype and allergies can't be read, the card itself prints "Health details
+  unavailable" in their place, as well as the notice with Try again under it.
+- **HCS-05.** A long name prints whole on the card, over two lines and a step smaller, with the NIN mark beside it
+  (checked in Chromium at 320, 360, 390 and 1366 with a 41-letter name: two lines, nothing cut off, no sideways scroll).
+- **HCS-15.** After saving a card photo, a screen reader hears "Your photo was saved." and focus is on the photo
+  control; when saving fails, focus is back on Save photo (checked in Chromium).
+- **HCS-27.** The requests waiting on Home are notes, not alerts read out on every visit, and each Review is named for
+  its facility ("Review the request from Ikeja Medical Centre"); the visible word stays Review.
+- **HCS-03.** The share's done step no longer offers "Preview what they see…" while the card link is off; when it is
+  turned on, the link passes the share's level and end date.
+- **Still open.** `AccessLog.tsx`: the Access page's own log still reads "You: Got access to your record" (SA-13, the
+  sharing area). The share's done step still says "Your card is on its way… They can open your records", which is the
+  sharing area's to check against what a provider can open today.
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
