@@ -13,9 +13,14 @@ import {
 } from './access'
 import { SCOPE_LABELS } from './requests'
 
-/** Today always asks for 60 minutes, so 60 is the default; the person may choose less (the design's 1 to 60). */
+/**
+ * Today always asks for 60 minutes, so 60 is the default; the person may choose less, down to 5. Health ID accepts 5 to
+ * 1440 minutes, so the box's lowest value is 5 (below that Health ID refuses the request).
+ */
+export const MIN_MINUTES = 5
+export const MAX_MINUTES = 60
 export const DEFAULT_MINUTES = '60'
-export const DURATION_PROBLEM = 'Enter a number of minutes from 1 to 60.'
+export const DURATION_PROBLEM = 'Enter a number of minutes from 5 to 60.'
 export const REQUEST_TITLE = 'Ask the patient for access'
 /** Patients.tsx:165. */
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
@@ -26,7 +31,7 @@ function text(values: FormValues, key: string): string {
 }
 
 /**
- * Today's checks for an access request; the design's 1 to 60 minutes for the duration. A Health ID of HID- alone (the
+ * Today's checks for an access request; 5 to 60 minutes for the duration. A Health ID of HID- alone (the
  * field's start) is empty: "Enter the patient’s Health ID.".
  */
 export function requestProblems(values: FormValues): FieldErrors {
@@ -35,7 +40,7 @@ export function requestProblems(values: FormValues): FieldErrors {
   if (hidProblem) errors.hid = hidProblem
   if (text(values, 'reason').trim().length < 8) errors.reason = REASON_PROBLEM
   const minutes = text(values, 'duration').trim()
-  if (!/^\d{1,2}$/.test(minutes) || Number(minutes) < 1 || Number(minutes) > 60) errors.duration = DURATION_PROBLEM
+  if (!/^\d{1,2}$/.test(minutes) || Number(minutes) < MIN_MINUTES || Number(minutes) > MAX_MINUTES) errors.duration = DURATION_PROBLEM
   return errors
 }
 
@@ -139,8 +144,8 @@ export function RequestAccess() {
             </div>
           </fieldset>
 
-          <Field label="How long (minutes)" htmlFor={`${id}-duration`} hint="Up to 60 minutes." hintId={`${id}-duration-hint`} error={said('duration')} errorId={`${id}-duration-error`}>
-            <Input id={`${id}-duration`} type="number" inputMode="numeric" min={1} max={60} step={1} value={duration}
+          <Field label="How long (minutes)" htmlFor={`${id}-duration`} hint="From 5 to 60 minutes." hintId={`${id}-duration-hint`} error={said('duration')} errorId={`${id}-duration-error`}>
+            <Input id={`${id}-duration`} type="number" inputMode="numeric" min={MIN_MINUTES} max={MAX_MINUTES} step={1} value={duration}
               className="max-w-32" aria-invalid={errors.duration ? true : undefined} aria-describedby={describe('duration', true)}
               onChange={event => { setDuration(event.target.value); clear('duration') }} />
           </Field>
@@ -154,7 +159,10 @@ export function RequestAccess() {
           {formError ? <Alert intent="error" title="Couldn’t send the request">{formError}</Alert> : null}
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           <FormActions sticky={false}>
-            <Button type="submit" variant="primary" icon={Send} loading={busy} disabled={!facility || unavailable !== null}
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as Check PIN and open does: focus is not lost while the
+                request is sent, and a second press sends nothing (submit returns while one is on its way). */}
+            <Button type="submit" variant="primary" icon={Send} disabled={!facility || unavailable !== null}
+              aria-disabled={busy || undefined} aria-busy={busy || undefined}
               aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Working…' : 'Send access request'}</Button>
           </FormActions>
         </form>

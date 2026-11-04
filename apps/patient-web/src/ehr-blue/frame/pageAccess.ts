@@ -2,16 +2,24 @@ import type { StaffSession } from '../../staff/api'
 import { ownProductPage, siteOf } from '../../productSites'
 import { basePath, pageHrefOf } from './pageHref'
 import type { DemoRole } from './roleView'
-import { designRolesOf, samplePageOpen } from './sampleAccess'
+import { designRolesOf, samplePageOpen, samplesShownAt } from './sampleAccess'
 import type { EhrBluePage } from './types'
 
 /**
- * Whether a page is open to this session: its own visible() first, then, for a live or partial page, its live
- * permission; a sample page follows the design's role mapping instead (sampleAccess.ts), for the person's roles or the
- * demo role whose Home is being viewed.
+ * Whether a page shows at this session's facility at all: its own visible(), and a sample only at a demo facility
+ * (samplesShownAt). Where it does not, its address gives the frame's demo-only words (DeniedPage), not the page.
+ */
+export function pageShownHere(page: EhrBluePage, session: StaffSession): boolean {
+  return (page.visible?.(session) ?? true) && (page.status !== 'sample' || samplesShownAt(session))
+}
+
+/**
+ * Whether a page is open to this session: whether it shows here (pageShownHere) first, then, for a live or partial
+ * page, its live permission; a sample page follows the design's role mapping instead (sampleAccess.ts), for the
+ * person's roles or the demo role whose Home is being viewed.
  */
 export function pageAllowed(page: EhrBluePage, session: StaffSession | null, viewing: DemoRole | null = null): boolean {
-  if (!session || (page.visible && !page.visible(session))) return false
+  if (!session || !pageShownHere(page, session)) return false
   if (page.status === 'sample') return samplePageOpen(page, designRolesOf(session, viewing))
   const permissions = session.actor.facility?.permissions ?? []
   return !page.permission || permissions.includes(page.permission)

@@ -172,6 +172,24 @@ describe('Consultation record: today’s chart sections', () => {
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
   })
 
+  it('loads: reads them once while moving from the list to a visit and back, as today’s page keeps them mounted', async () => {
+    staff.permissions = [...BASE, 'ehr.record-chat.use']
+    builds.chat = true
+    builds.importedRecords = true
+    renderPage(<ConsultWorkspace />, 'consult')
+    expect(await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).toBeTruthy()
+    const card = screen.getByRole('heading', { level: 2, name: 'Reported by the patient' }).closest('section')!
+    fireEvent.click((await screen.findAllByRole('link', { name: /^Open / }))[0]!)
+    await screen.findByRole('heading', { level: 2, name: 'Note' })
+    await act(async () => {})
+    // The same card, never read again, below the visit.
+    expect(screen.getByRole('heading', { level: 2, name: 'Reported by the patient' }).closest('section')).toBe(card)
+    expect(screen.getByRole('heading', { level: 2, name: 'History' }).compareDocumentPosition(sections()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(await screen.findByRole('table')).toBeTruthy()
+    for (const read of [api.reportedHealthProfile, api.importedRecords]) expect(read).toHaveBeenCalledTimes(1)
+  })
+
   it('shows none of them for an emergency patient', async () => {
     staff.activePatient = activePatient('emergency')
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)

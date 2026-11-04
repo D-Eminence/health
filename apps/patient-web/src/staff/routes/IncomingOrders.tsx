@@ -11,9 +11,11 @@ import {
   licenceLine, priorityLabel, receivingAnswer, REFERENCE_PATTERN, REFERENCE_PROBLEM, rememberReceiving, routeMoment,
 } from '../orderRoutes'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
-import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
+import { WrongPatientEnded, WrongPatientForm, type CannotCompleteBeside, type WrongPatientEnding } from './WrongPatient'
 import { useWrongPatientServed } from '../../wrongPatientServed'
 import { useCannotCompleteServed } from '../../cannotCompleteServed'
+import { routeLabel } from '../../plainLabels'
+import { codeText, MoreDetails } from '../../ehr-blue/clinical/parts/MoreDetails'
 
 const HID_PROBLEM = 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
 /** How often Incoming is read again while the page is in view (SPEC-FINAL §13.3). */
@@ -30,15 +32,36 @@ type AcceptedWith = 'health_id' | 'date_of_birth' | 'date_of_birth_with_referenc
 
 /** What the order is, in its card's title. */
 function orderTitle(route: IncomingOrderRoute, service: ReceivingService): string {
-  return (service === 'lab' ? route.test?.name : route.medication?.display) ?? (service === 'lab' ? 'Lab request' : 'Prescription')
+  if (service === 'lab') return route.test?.name?.trim() || testCode(route) || 'Lab request'
+  return route.medication?.display ?? 'Prescription'
 }
 
-/** The prescription's dose, route and frequency, as far as they were written. */
+/** The test's code with its coding system ("LOINC 718-7"), or '' when there is none. */
+function testCode(route: IncomingOrderRoute): string {
+  return route.test ? codeText(route.test.codeSystem, route.test.code) : ''
+}
+
+/**
+ * The prescription's dose, route and frequency, as far as they were written: the route in plain words ("by mouth" for
+ * PO), or as the prescriber wrote it when there is no word for it here (owner decision 33.4).
+ */
 function doseLine(route: IncomingOrderRoute): string | null {
   const dose = route.doseQuantity === null || route.doseQuantity === undefined || route.doseQuantity === ''
     ? null : `${String(route.doseQuantity)} ${route.doseUnit ?? ''}`.trim()
-  const parts = [dose, route.routeCode ? `Route: ${route.routeCode}` : null, route.frequency ?? null].filter(Boolean)
+  const written = route.routeCode?.trim() ?? ''
+  const parts = [dose, written ? routeLabel(written) ?? written : null, route.frequency ?? null].filter(Boolean)
   return parts.length ? parts.join(' · ') : null
+}
+
+/** What the card keeps under "More details": the test's code beside its name, the route code beside its plain words. */
+function codeDetails(route: IncomingOrderRoute, service: ReceivingService): string[] {
+  if (service === 'lab') {
+    const code = testCode(route)
+    return code && route.test?.name?.trim() ? [`Code: ${code}`] : []
+  }
+  const written = route.routeCode?.trim() ?? ''
+  const plain = routeLabel(written)
+  return written && plain && written.toLowerCase() !== plain ? [`Route code: ${written}`] : []
 }
 
 /** "Tunde Bello, male, born 12 Mar 1985, Health ID ending 7KQ2". */
@@ -69,13 +92,14 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * on focus, since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong
  * person, so the page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details
  * at once). `closedRouteId` names an order the page ended from its work row because it couldn't be completed (D18): the
- * Accepted panel of that order closes (WB15).
+ * Accepted panel of that order closes (WB15). `cannotCompleteBeside` says where the page offers that ending: on the row
+ * (`panel`, today's pages) or on the order opened from the list (`opened`).
  */
 export function IncomingOrders({ service, facilityId, facilityName, membershipId, onAccepted, onEnded, probe = false, watch = false,
-  onFound, onAnswer, closedRouteId = null }: {
+  onFound, onAnswer, closedRouteId = null, cannotCompleteBeside = 'panel' }: {
   service: ReceivingService; facilityId: string; facilityName: string; membershipId?: string; onAccepted: () => void
   onEnded?: (routeId: string) => void; probe?: boolean; watch?: boolean; onFound?: () => void; onAnswer?: (answer: unknown) => void
-  closedRouteId?: string | null
+  closedRouteId?: string | null; cannotCompleteBeside?: CannotCompleteBeside
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
   const [missing, setMissing] = useState(false)
@@ -177,7 +201,7 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
     {ended && <WrongPatientEnded id={`${service}-wrong-patient-ended`} ending={ended} onClose={() => setEnded(null)} />}
     {accepted && <AcceptedPanel key={accepted.result.route.id} service={service} facilityId={facilityId} title={accepted.title}
       reference={accepted.reference} ordering={accepted.ordering} acceptedWith={accepted.acceptedWith} result={accepted.result}
-      onClose={() => setAccepted(null)} onChanged={onAccepted}
+      cannotCompleteBeside={cannotCompleteBeside} onClose={() => setAccepted(null)} onChanged={onAccepted}
       onEnded={ending => { setAccepted(null); setEnded(ending); onEnded?.(accepted.result.route.id); onAccepted() }} />}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {answer && items.length === 0 && <p className="staff-muted">{filter ? `No order for ${filter} is waiting here.`
@@ -205,10 +229,11 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
  * backend lets the receiver end an order (hid-system 0088: the work list's cards carry the route's version), the panel
  * only asks for the check, and neither offers the button nor says to end the order (D15).
  */
-function AcceptedPanel({ service, facilityId, title, reference, ordering, acceptedWith, result, onClose, onChanged, onEnded }: {
+function AcceptedPanel({ service, facilityId, title, reference, ordering, acceptedWith, result, onClose, onChanged, onEnded,
+  cannotCompleteBeside }: {
   service: ReceivingService; facilityId: string; title: string; reference: string | null; ordering: string
   acceptedWith: AcceptedWith; result: OrderRouteAccepted; onClose: () => void; onChanged: () => void
-  onEnded: (ending: WrongPatientEnding) => void
+  onEnded: (ending: WrongPatientEnding) => void; cannotCompleteBeside: CannotCompleteBeside
 }) {
   const [reporting, setReporting] = useState(false)
   const [version, setVersion] = useState(result.route.version)
@@ -219,7 +244,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
   const id = `${service}-accepted-${result.route.id}`
   const patient = result.patient?.fullName ?? null
   const served = useWrongPatientServed() === true
-  // D18: once served, an order this facility just can't do is ended from its row in the work list below (WB3).
+  // D18: once served, an order this facility just can't do is ended where cannotCompleteBeside says: its row in the work list below, or the order opened from that list (WB3).
   const cannotComplete = useCannotCompleteServed() === true && !moved
   // Cancel gives focus back to the button that opened the form, in the commit that shows it again.
   const focus = useFocusById()
@@ -242,8 +267,8 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
     {reporting
       ? <WrongPatientForm id={`${id}-wrong-patient`} service={service} facilityId={facilityId}
         route={{ id: result.route.id, version, reference }} patient={patient} ordering={ordering}
-        dispensed={moved ? undefined : false} notice={refreshed || undefined} cannotComplete={cannotComplete ? 'panel' : undefined}
-        onStale={reread} onReload={onChanged}
+        dispensed={moved ? undefined : false} notice={refreshed || undefined}
+        cannotComplete={cannotComplete ? cannotCompleteBeside : undefined} onStale={reread} onReload={onChanged}
         onCancel={() => { setReporting(false); focus(`${id}-wrong-patient-open`) }}
         onEnded={ended => onEnded({ service, title, reference, patient, ordering, result: ended,
           dateOfBirthOnly: acceptedWith === 'date_of_birth' })} />
@@ -339,15 +364,18 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, acceptabl
   }
 
   const dose = service === 'pharmacy' ? doseLine(route) : null
+  const labLine = service === 'lab' && route.test ? [route.specimenTypeCode ? `Specimen: ${route.specimenTypeCode}` : null,
+    route.priority ? priorityLabel(route.priority) : null].filter(Boolean).join(' · ') : ''
+  const details = codeDetails(route, service)
   return <div className="staff-list-item staff-stack" aria-labelledby={`${id}-title`}>
     <div className="staff-row"><strong id={`${id}-title`} tabIndex={-1}>{title}</strong>
       {route.priority && route.priority !== 'routine' && <Badge tone="warning">{priorityLabel(route.priority)}</Badge>}
       {route.acceptLocked && <Badge tone="danger">Can’t be accepted here</Badge>}</div>
     <p>From {ordering}{route.orderer.name ? ` · Ordered by ${route.orderer.name}` : ''}{route.orderer.name || route.test || route.medication
       ? ` · ${licenceLine(route.orderer.licenceBody)}` : ''}</p>
-    {service === 'lab' && route.test && <p className="staff-muted">{[route.test.codeSystem, route.test.code].filter(Boolean).join(' ')}
-      {route.specimenTypeCode ? ` · Specimen: ${route.specimenTypeCode}` : ''}{route.priority ? ` · ${priorityLabel(route.priority)}` : ''}</p>}
+    {labLine && <p className="staff-muted">{labLine}</p>}
     {dose && <p>{dose}</p>}
+    {details.length > 0 && <MoreDetails about={title}>{details.map(line => <span key={line}>{line}</span>)}</MoreDetails>}
     {service === 'pharmacy' && (route.startsOn || route.endsOn) && <p className="staff-muted">{[route.startsOn && `Starts ${calendarDate(route.startsOn)}`,
       route.endsOn && `Ends ${calendarDate(route.endsOn)}`].filter(Boolean).join(' · ')}</p>}
     <p className="staff-muted">Sent {routeMoment(route.sentAt)} · Accept by {routeMoment(route.respondBy)}{route.reference ? ` · Ref ${route.reference}` : ''}</p>

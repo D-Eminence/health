@@ -63,8 +63,7 @@ const WORK = ['lab.work-item.read']
 const READ = 'lab.document.read'
 const WRITE = 'lab.document.write'
 const DOCUMENTS = [...WORK, READ, WRITE]
-const HINT = 'PDF, JPEG, PNG or TIFF, up to 50 MiB. Images are kept exactly as uploaded, and Health ID reads a lab result by '
-  + 'itself once its virus scan is clean.'
+const HINT = 'PDF, JPEG or PNG, up to 50 MiB. The file is added to this work item and checked for viruses.'
 const ATTACHED = 'Result document attached. It can be opened once its virus scan is clean.'
 const NOT_HERE = 'Lab results can be uploaded only in the EHR, Lab or Migrate.'
 
@@ -389,7 +388,7 @@ describe('served, for a member who reads and attaches lab documents', () => {
     await openRecord()
     const field = fileField()
     expect(field.type).toBe('file')
-    expect(field.accept).toBe('.pdf,.jpg,.jpeg,.png,.tif,.tiff')
+    expect(field.accept).toBe('.pdf,.jpg,.jpeg,.png')
     expect(within(card()).getByText(HINT)).toBeTruthy()
     expect(field.getAttribute('aria-describedby')).toContain(within(card()).getByText(HINT).id)
   })
@@ -443,7 +442,8 @@ describe('served, for a member who reads and attaches lab documents', () => {
   it.each([
     ['no file', null, 'Select a file first.'],
     ['an empty file', new File([], 'empty.pdf', { type: 'application/pdf' }), 'Select a file first.'],
-    ['a file of another type', new File(['Patient One'], 'notes.txt', { type: 'text/plain' }), 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'],
+    ['a file of another type', new File(['Patient One'], 'notes.txt', { type: 'text/plain' }), 'Use PDF, JPEG or PNG, up to 50 MiB.'],
+    ['a TIFF image', new File(['II*'], 'scan.tiff', { type: 'image/tiff' }), 'Use PDF, JPEG or PNG, up to 50 MiB.'],
   ])('refuses %s before sending, with today’s words on the field, and moves focus to it', async (_case, file, message) => {
     renderPage()
     await openRecord()
@@ -463,7 +463,7 @@ describe('served, for a member who reads and attaches lab documents', () => {
     Object.defineProperty(file, 'size', { value: 52_428_801 })
     choose(file)
     attach()
-    expect(await within(card()).findByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(await within(card()).findByText('Use PDF, JPEG or PNG, up to 50 MiB.')).toBeTruthy()
     expect(api.uploadWorkItemDocument).not.toHaveBeenCalled()
   })
 

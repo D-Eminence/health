@@ -20,6 +20,11 @@ whose bytes aren't (a program renamed `scan.png`, say) is refused in the browser
 PDF."), never listed and never sent. Only the server can count the day, so it enforces the 10 a day (step 2), and
 enforces the type (step 4), size and 5 per entry again.
 
+**Patients only: staff uploads have no daily limit.** The 10 a day and the 5 per entry are for a patient's own uploads
+in Add a record only. Staff document uploads have no daily limit: EHR encounter documents, Lab and Pharmacy work-item
+documents, and Migrate / Document OCR, including the bulk migration of a facility's history. None of them counts toward
+a patient's 10 a day, and none is ever refused for it.
+
 **1. Save the entry.** `POST /api/v1/ehr/me/patient-entries`, with an `Idempotency-Key` header, one per Save and
 reused when that Save is retried. The body is at most 8000 bytes of JSON:
 
@@ -60,6 +65,9 @@ add up to 10 photos or files a day. Your record is saved; add the rest tomorrow.
 offers no Try again for it, and closing the drawer keeps the saved entry without it. It still asks for each of that
 Save's other files, and goes by each answer. A `429` with any other code (the edge's rate limit, for one) is an
 ordinary failed upload, which Try again may send again with the same key.
+Only these patient upload intents are counted and limited: a staff document upload (an EHR encounter document, a Lab or
+Pharmacy work-item document, Migrate / Document OCR, a facility's bulk migration of its history included) has no daily
+limit, never counts toward the patient's 10 and is never answered `429 PATIENT_DOCUMENT_DAILY_LIMIT`.
 
 *Photos arrive without their metadata.* Before a JPEG or PNG is hashed, the browser takes out its metadata without
 re-encoding it (`apps/patient-web/src/photoMetadata.ts`), so the picture's own bytes are unchanged. From a JPEG it
