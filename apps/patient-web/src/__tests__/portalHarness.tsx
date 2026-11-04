@@ -14,7 +14,8 @@ export function json(value: unknown, status = 200) {
 
 export const problem = (status: number, code: string, detail: string) => json({ type: 'about:blank', title: code, status, code, detail }, status)
 
-export type Handler = (path: string, method: string, body: unknown) => Response | Promise<Response>
+/** `search` is the request's query string ("?before=…"), or '' when it has none. */
+export type Handler = (path: string, method: string, body: unknown, search?: string) => Response | Promise<Response>
 export interface Sent { path: string; method: string; body: unknown }
 
 export const profile: PatientProfile = {
@@ -57,9 +58,10 @@ export function patientApi(handler: Handler, { parityB2 = false, parityB3 = fals
   { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean; webPush?: boolean } = {}) {
   const sent: Sent[] = []
   // Each request's headers, in the order sent, apart from `sent` so its entries stay comparable as they are.
-  const headers: Array<{ path: string; method: string; headers: Headers }> = []
+  const headers: Array<{ path: string; method: string; headers: Headers; search: string }> = []
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname.replace('/api/v1/', '/')
+    const search = new URL(String(input)).search
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) as unknown : null
     if (!parityB2 && isParityB2(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
@@ -67,8 +69,8 @@ export function patientApi(handler: Handler, { parityB2 = false, parityB3 = fals
     if (!parityB4 && isParityB4(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     if (!webPush && isWebPush(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     sent.push({ path, method, body })
-    headers.push({ path, method, headers: new Headers(init?.headers) })
-    return handler(path, method, body)
+    headers.push({ path, method, headers: new Headers(init?.headers), search })
+    return handler(path, method, body, search)
   }) as typeof fetch
   const api = createPatientApi(createRegisteredBrowserClient(createApiClient({
     baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl,

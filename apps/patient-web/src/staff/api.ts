@@ -2,6 +2,7 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
+import { parsePatientEntriesPage, type PatientEntriesPage } from '../patientEntries'
 import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
@@ -2043,6 +2044,14 @@ export const staffApi = {
   reportedHealthProfile: async (facilityId: string, patientId: string, signal?: AbortSignal): Promise<ReportedHealthProfile | null> =>
     parseReportedHealthProfile(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/reported-health-profile`,
       { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  // The records the patient added themselves (hid-system 0116; 404 NOT_FOUND from main, or while switched off): read-only,
+  // at the selected facility for direct care, a page at a time (`before`, the cursor a page answered), audited as a view.
+  patientEntries: async (facilityId: string, patientId: string, before: string | null, signal?: AbortSignal): Promise<PatientEntriesPage> => {
+    const page = parsePatientEntriesPage(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/patient-entries`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false, ...(before ? { query: { before } } : {}) }))
+    if (!page) throw new HidApiError(502, 'The records the patient added could not be read.', { code: 'INVALID_RESPONSE', retryable: false })
+    return page
+  },
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),

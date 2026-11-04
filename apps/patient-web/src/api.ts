@@ -15,6 +15,10 @@ import { portalHandsOff } from './sso/singleSignOn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 import { getEnvironment } from './env'
 import { learnPatientEntriesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
+import {
+  cleanOwnRecord, parsePatientEntries, parsePatientEntriesPage, patientEntriesCursor,
+  type OwnRecordInput, type PatientEntriesPage, type PatientEntry,
+} from './patientEntries'
 import { startsAsType } from './fileSignature'
 import {
   EDGE_BODY_MAX_BYTES, jsonBodyBytes, parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
@@ -145,21 +149,12 @@ export interface EnrollmentSignupDetails {
 }
 
 /**
- * A record the patient adds themselves ("Add a record"), PROPOSED (BACKEND-NEEDS.md §1, routes ehr.myPatientEntries and
- * the three after it in packages/contracts): the entry is saved first, with no file bytes in it; then each photo or file
- * goes up under it in the three steps staff uploads take (an upload link, a PUT of the exact bytes, a confirm).
+ * A record the patient adds themselves ("Add a record", hid-system 0116, BACKEND-NEEDS.md §1): the entry is saved, text only;
+ * photos and files go up under a saved entry later (step 7), in the three steps staff uploads take (an upload link, a PUT
+ * of the exact bytes, a confirm). What an entry is, and how one is read, are in patientEntries.ts, shared with the chart.
  */
-export const PATIENT_ENTRY_KINDS = ['visit', 'test', 'medicine', 'diagnosis', 'vaccination', 'other'] as const
-export type PatientEntryKind = typeof PATIENT_ENTRY_KINDS[number]
-
-/** What the patient enters for a record they add themselves: the Save's whole body. */
-export interface OwnRecordInput {
-  kind: PatientEntryKind
-  title: string
-  facilityName: string | null
-  occurredOn: string
-  notes: string | null
-}
+export { PATIENT_ENTRY_KINDS, parsePatientEntries } from './patientEntries'
+export type { OwnRecordInput, PatientEntry, PatientEntryDocument, PatientEntryKind, PatientEntriesPage } from './patientEntries'
 
 /** The photos and files one entry takes: these types only, at most 5, each 1 byte to 10 MB. */
 export const PATIENT_ENTRY_MEDIA_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const
@@ -175,37 +170,6 @@ export const PATIENT_DOCUMENT_DAILY_LIMIT_FILES = 10
 export const PATIENT_DOCUMENT_DAILY_LIMIT_CODE = 'PATIENT_DOCUMENT_DAILY_LIMIT'
 export const isPatientEntryMediaType = (value: string): value is PatientEntryMediaType =>
   (PATIENT_ENTRY_MEDIA_TYPES as readonly string[]).includes(value)
-
-/**
- * A confirmed photo or file of an entry, as the records answer lists it. A status it does not know reads as not yet
- * cleared, never as clean.
- */
-export interface PatientEntryDocument {
-  id: string
-  fileName: string
-  mediaType: string
-  /** Null when it is missing or not a number (a bigint may come as a string, and is read as a number). */
-  sizeBytes: number | null
-  status: 'uploaded' | 'available' | 'rejected'
-  scanStatus: 'pending' | 'clean' | 'rejected'
-  createdAt: string
-}
-
-/**
- * One record the patient added, as the records answer (GET ehr/me/records) lists it under `patientEntries`: newest
- * first, with removed entries and unconfirmed files left out. There is no list route of its own.
- */
-export interface PatientEntry {
-  id: string
-  source: 'patient'
-  kind: PatientEntryKind
-  title: string
-  facilityName: string | null
-  occurredOn: string
-  notes: string | null
-  createdAt: string
-  documents: PatientEntryDocument[]
-}
 
 /** What the upload intent takes for one file: the server sets the patient, the classification and the retention. */
 export interface PatientEntryUploadInput {
@@ -245,9 +209,12 @@ export interface PatientEntryWithdrawal {
   withdrawnAt: string
 }
 
-/** Exactly what a Save sends for `entry`, and nothing else it may carry. */
+/**
+ * Exactly what a Save sends for `entry`, and nothing else it may carry: cleaned as the backend reads it
+ * (patientEntries.ts cleanOwnRecord), so what is counted and checked here is what is sent.
+ */
 export function ownRecordBody(entry: OwnRecordInput): OwnRecordInput {
-  return { kind: entry.kind, title: entry.title, facilityName: entry.facilityName, occurredOn: entry.occurredOn, notes: entry.notes }
+  return cleanOwnRecord({ kind: entry.kind, title: entry.title, facilityName: entry.facilityName, occurredOn: entry.occurredOn, notes: entry.notes })
 }
 
 /** Whether a Save of `entry` fits under production's edge limit on a request body (profileParity.ts). */
@@ -255,56 +222,26 @@ export const ownRecordFits = (entry: OwnRecordInput): boolean => jsonBodyBytes(o
 
 const isRow = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const entryText = (value: unknown, max: number): string | null => typeof value === 'string' && value !== '' && value.length <= max ? value : null
-const entryTextOrNull = (value: unknown, max: number): string | null => typeof value === 'string' && value.length <= max ? value : null
 const notRead = (what: string) => new HidApiError(502, `${what} could not be read. Please try again.`, { code: 'INVALID_RESPONSE', retryable: false })
 const cancelled = () => new HidApiError(0, 'The upload was cancelled.', { code: 'REQUEST_CANCELLED', retryable: false })
 
-function parsePatientEntryDocument(value: unknown): PatientEntryDocument | null {
-  if (!isRow(value)) return null
-  const id = entryText(value.id, 128), fileName = entryText(value.fileName, 255), mediaType = entryText(value.mediaType, 128), createdAt = entryText(value.createdAt, 64)
-  if (!id || !fileName || !mediaType || !createdAt) return null
-  const size = typeof value.sizeBytes === 'number' || typeof value.sizeBytes === 'string' ? Number(value.sizeBytes) : NaN
-  return {
-    id, fileName, mediaType, createdAt,
-    sizeBytes: value.sizeBytes !== '' && Number.isFinite(size) && size >= 0 ? size : null,
-    status: value.status === 'available' || value.status === 'rejected' ? value.status : 'uploaded',
-    scanStatus: value.scanStatus === 'clean' || value.scanStatus === 'rejected' ? value.scanStatus : 'pending',
-  }
-}
-
-function parsePatientEntry(value: unknown): PatientEntry | null {
-  if (!isRow(value)) return null
-  const id = entryText(value.id, 128), title = entryText(value.title, 160), occurredOn = entryText(value.occurredOn, 32), createdAt = entryText(value.createdAt, 64)
-  if (!id || !title || !occurredOn || !createdAt || value.source !== 'patient') return null
-  return {
-    id, source: 'patient', title, occurredOn, createdAt,
-    kind: PATIENT_ENTRY_KINDS.find(kind => kind === value.kind) ?? 'other',
-    facilityName: entryTextOrNull(value.facilityName, 160) || null,
-    notes: entryTextOrNull(value.notes, 2000) || null,
-    documents: Array.isArray(value.documents)
-      ? value.documents.flatMap(document => { const read = parsePatientEntryDocument(document); return read ? [read] : [] }) : [],
-  }
-}
-
 /**
- * The records answer's `patientEntries`, read: an entry or document missing what it needs is left out, never shown half.
- * Null when it is not a list.
- */
-export function parsePatientEntries(value: unknown): PatientEntry[] | null {
-  return Array.isArray(value) ? value.flatMap(item => { const read = parsePatientEntry(item); return read ? [read] : [] }) : null
-}
-
-/**
- * The records the patient added themselves, as the records answer carries them (PROPOSED, BACKEND-NEEDS.md §1), read in
- * place, and what the answer says of whether they are served (patientEntriesServed.ts): the key `patientEntries`, a
- * list, says served; an answer without it (today's) says not served, but only while nothing has said otherwise. A key
- * that is not a list is left out and says neither.
+ * The records the patient added themselves, as the records answer carries them (hid-system 0116: the first page, with
+ * `patientEntriesMore` and `patientEntriesNextBefore`), read in place, and what the answer says of whether they are served
+ * (patientEntriesServed.ts): the key `patientEntries`, a list, says served; an answer without it (hid-system main, or 0116
+ * switched off) says not served, but only while nothing has said otherwise. A key that is not a list is left out and says
+ * neither. The cursor is kept only when `patientEntriesMore` is true and it is one the backend issues.
  */
 function readPatientEntries(records: PatientRecords): void {
+  const more = records.patientEntriesMore === true
+  const cursor = more ? patientEntriesCursor(records.patientEntriesNextBefore) : null
+  delete records.patientEntriesMore
+  delete records.patientEntriesNextBefore
   if (records.patientEntries === undefined) { learnPatientEntriesServed(false); return }
   const entries = parsePatientEntries(records.patientEntries)
   if (!entries) { delete records.patientEntries; return }
   records.patientEntries = entries
+  if (cursor) { records.patientEntriesMore = true; records.patientEntriesNextBefore = cursor }
   learnPatientEntriesServed(true)
 }
 
@@ -408,11 +345,14 @@ export interface PatientRecords {
    */
   importedHealthProfile?: ImportedHealthProfile | null
   /**
-   * PROPOSED (BACKEND-NEEDS.md §1): the records the patient added themselves ("Added by you"), newest first. No backend
-   * sends it yet; the key says the patient-entry routes are served (patientEntriesServed.ts), and is left out when it is
-   * not a list.
+   * hid-system 0116 (BACKEND-NEEDS.md §1): the first page of the records the patient added themselves ("Added by you"),
+   * newest first, at most 50. The key says the patient-entry routes are served (patientEntriesServed.ts), and is left out
+   * when it is not a list. Main, and 0116 switched off, send none of these three.
    */
   patientEntries?: PatientEntry[]
+  /** Set, as true, only when there are more and `patientEntriesNextBefore` is the cursor of the next page. */
+  patientEntriesMore?: boolean
+  patientEntriesNextBefore?: string | null
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
@@ -791,8 +731,8 @@ export function createPatientApi(sender: ApiClient) {
     enrollmentAvailability: () => call<EnrollmentAvailability>('GET', 'identity/patient-enrollments/availability'),
     /**
      * A record the patient adds themselves (a visit, a result, a medicine), with where it happened: the entry alone, no
-     * file bytes (each photo or file goes up after, with uploadOwnRecordDocument). PROPOSED (BACKEND-NEEDS.md §1): no
-     * backend serves it yet; until one does it answers 404 NOT_FOUND and nothing is saved. `idempotencyKey` is one per
+     * file bytes (photos and files are step 7's). hid-system 0116 serves it, on by default; main, and 0116 switched off,
+     * answer 404 NOT_FOUND and nothing is saved. `idempotencyKey` is one per
      * Save, sent again when that Save is retried, so the server answers a retry with the same entry. A body over the edge
      * limit is refused here, before anything is sent. A 201 says the routes are served; a 404 NOT_FOUND that they are not
      * (patientEntriesServed.ts). Kept as "added by you", never as a clinician's: the records answer lists it under
@@ -816,11 +756,21 @@ export function createPatientApi(sender: ApiClient) {
       return { id: saved }
     },
     /**
+     * The page of the records the patient added after `before` (GET ehr/me/patient-entries?before=, hid-system 0116): the
+     * records answer carries the first page and the cursor of the next. 400 INVALID_CURSOR (the list changed) is thrown as
+     * it is, and the Records page reads the list again from the start.
+     */
+    ownRecordsPage: async (before: string, signal?: AbortSignal): Promise<PatientEntriesPage> => {
+      const page = parsePatientEntriesPage(await call<unknown>('GET', 'ehr/me/patient-entries', undefined, { signal, query: { before } }))
+      if (!page) throw notRead('Your older records')
+      return page
+    },
+    /**
      * Removes an entry the patient added, with its photos and files: gone from the records answer's `patientEntries`, the
      * patient chat and every staff read. Nothing is erased (the website says "Removed from your records", never
      * "deleted"); a repeat answers the same. An id that is not one of the patient's entries answers 404
-     * PATIENT_ENTRY_NOT_FOUND, thrown as it is (the Records page says the record has already been removed). PROPOSED
-     * (BACKEND-NEEDS.md §1).
+     * PATIENT_ENTRY_NOT_FOUND, thrown as it is (the Records page says the record has already been removed). hid-system
+     * 0116 (BACKEND-NEEDS.md §1).
      */
     withdrawOwnRecord: async (entryId: string, signal?: AbortSignal): Promise<PatientEntryWithdrawal> => {
       const answer = await call<unknown>('POST', `ehr/me/patient-entries/${encodeURIComponent(entryId)}/withdraw`, undefined, { signal })

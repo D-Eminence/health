@@ -2,7 +2,7 @@ import { ImportedHistory, matchingImported } from '../ImportedHistory'
 import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
@@ -22,7 +22,8 @@ import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
-import { usePatientEntriesServed } from '../patientEntriesServed'
+import { usePatientEntriesServed, usePatientEntryFilesServed } from '../patientEntriesServed'
+import { saysListChanged } from '../patientEntries'
 import { sectionsShown } from './recordSections'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
@@ -31,7 +32,7 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 import { DeviceNotificationsCard, InstallAppCard } from './DeviceSettings'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
-import { useFocusOnPageChange } from '../pageFocus'
+import { focusLost, useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
 import { NinVerificationCard, ninVerifiedOf } from './NinVerificationCard'
 import { dayWords, groupByDay, matchesQuery } from './recordSearch'
@@ -135,6 +136,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   const shareTo = share === true ? '/access/share' : '/access'
   // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
   const adds = usePatientEntriesServed() === true
+  // Photos and files of an entry are a later step (step 7); hid-system 0116 is text only.
+  const addsPhotos = usePatientEntryFilesServed() === true
   const name = shown?.fullName ?? 'Your Health ID'
   const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
   const nav: NavGroup[] = [
@@ -161,7 +164,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     headerActions={<NotificationBell />}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
-      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true }] : []),
+      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: addsPhotos ? 'A visit, result or medicine, with a photo' : 'A visit, result or medicine', icon: FilePlus2, main: true }] : []),
       { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
       { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
       { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
@@ -435,6 +438,53 @@ const NOT_REMOVED = 'This record couldn’t be removed. Please try again.'
 /** The removal refused as the entry is no longer there (BACKEND-NEEDS.md §1): its status and code alone. */
 const saysAlreadyRemoved = (error: unknown): boolean => isHidApiError(error) && error.status === 404 && error.code === 'PATIENT_ENTRY_NOT_FOUND'
 
+// What showing older records comes to, in this page's own words.
+const OLDER_NOT_LOADED = 'Your older records couldn’t be loaded. Please try again.'
+const LIST_CHANGED = 'Your list changed, so it was loaded again from the start.'
+const olderShown = (count: number, last: boolean) => count === 0 ? 'No older records.'
+  : `${count === 1 ? '1 older record' : `${count} older records`} shown.${last ? ' That’s all of them.' : ''}`
+
+/**
+ * The records the patient added, a page at a time (hid-system 0116): the first page comes in the page's records answer
+ * (`first`, with the cursor of the next, `firstCursor`), the pages after it from GET ehr/me/patient-entries?before=. Each
+ * new records answer (after a Save, a removal, or a reload) starts again from its first page, so nothing shown is out of
+ * date and nothing is skipped. One page is asked for at a time; one still on its way is stopped as the page is left.
+ */
+function useOwnRecordPages(first: readonly PatientEntry[], firstCursor: string | null) {
+  const { api } = useSession()
+  const [pages, setPages] = useState<{ after: readonly PatientEntry[]; items: PatientEntry[]; nextBefore: string | null } | null>(null)
+  const current = pages && pages.after === first ? pages : null
+  const items = useMemo(() => {
+    const seen = new Set<string>()
+    return [...first, ...(current?.items ?? [])].filter(entry => !seen.has(entry.id) && Boolean(seen.add(entry.id)))
+  }, [first, current])
+  const cursor = current ? current.nextBefore : firstCursor
+  const [loading, setLoading] = useState(false)
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
+  /** The next page: what it added and whether it was the last, that the list changed meanwhile, or that it failed. */
+  const older = async (): Promise<{ added: PatientEntry[]; last: boolean } | 'changed' | 'failed' | null> => {
+    if (!cursor || request.current) return null
+    const controller = new AbortController()
+    request.current = controller
+    setLoading(true)
+    try {
+      const page = await api.ownRecordsPage(cursor, controller.signal)
+      if (controller.signal.aborted) return null
+      const known = new Set(items.map(entry => entry.id))
+      const added = page.items.filter(entry => !known.has(entry.id))
+      setPages({ after: first, items: [...(current?.items ?? []), ...added], nextBefore: page.nextBefore })
+      return { added, last: page.nextBefore === null }
+    } catch (error) {
+      if (controller.signal.aborted) return null
+      return saysListChanged(error) ? 'changed' : 'failed'
+    } finally {
+      if (!controller.signal.aborted) { request.current = null; setLoading(false) }
+    }
+  }
+  return { items, cursor, loading, older }
+}
+
 /** Notes longer than this, or on more than three lines, are shown cut short first. */
 const OWN_NOTES_SHORT = 160
 /** The start of long notes, cut at a word, or null when they are short enough to show whole. */
@@ -475,9 +525,11 @@ function OwnNotes({ id, title, notes }: { id: string; title: string; notes: stri
  * empty or the records could not be read again); the outcome is said in a live region mounted throughout, also while the
  * page shows that its records could not be read.
  */
-function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading }: {
-  /** The entries the records answer listed (none while it could not be read), and those the page's search matches. */
+function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading, pages }: {
+  /** The entries shown so far (none while the records could not be read), and those the page's search matches. */
   entries: readonly PatientEntry[]; matches: readonly PatientEntry[]; searching: boolean
+  /** The pages after the first (useOwnRecordPages). */
+  pages: Pick<ReturnType<typeof useOwnRecordPages>, 'cursor' | 'loading' | 'older'>
   /** With the records read, on the page's All tab. On another tab they are kept, but not shown. */
   shown: boolean
   /** Whether the page's records are being read again, and the way to read them again (usePatientResource's). */
@@ -496,6 +548,37 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
   const focusAfter = useActionFocus()
   const heading = useMemo(() => ({ get current(): HTMLElement | null { return title.current ?? pageHeading.current } }), [pageHeading])
   const byId = (id: string) => () => document.getElementById(id)
+  const [olderProblem, setOlderProblem] = useState<string | null>(null)
+  const [olderFocus, setOlderFocus] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    if (!olderFocus) return
+    setOlderFocus(null)
+    const target = olderFocus === 'own-records-title' ? heading.current : document.getElementById(olderFocus)
+    if (target?.isConnected && (focusLost() || document.activeElement?.id === 'own-records-older')) target.focus()
+  }, [olderFocus, heading])
+
+  /**
+   * "Show older": the next page, added below; focus goes to the first record it added, and how many is said. A list that
+   * changed meanwhile (400 INVALID_CURSOR) is read again from the start, and that is said; any other refusal is said under
+   * the button, in this page's words, and focus comes back to it.
+   */
+  const showOlder = async () => {
+    setOlderProblem(null); setNotice(null)
+    const outcome = await pages.older()
+    if (outcome === null) return
+    if (outcome === 'failed') { setOlderProblem(OLDER_NOT_LOADED); focusAfter(byId('own-records-older')); return }
+    if (outcome === 'changed') {
+      await reload()
+      setNotice(LIST_CHANGED)
+      focusAfter(() => heading.current)
+      return
+    }
+    setNotice(olderShown(outcome.added.length, outcome.last))
+    const firstAdded = outcome.added[0]
+    // From Show older to the first record it added (or, with none and none left, the list's heading), as long as focus is
+    // still on Show older or was lost while it was busy; focus the person moved elsewhere stays where it is.
+    if (firstAdded || outcome.last) setOlderFocus(firstAdded ? `own-record-title-${firstAdded.id}` : 'own-records-title')
+  }
 
   const ask = (entry: PatientEntry) => {
     setRemoving(entry.id); setProblem(null); setNotice(null)
@@ -544,7 +627,7 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
         const day = ownDay(entry.occurredOn)
         return <li key={entry.id} className="flex flex-col gap-3 px-5 py-4">
           <div className="min-w-0">
-            <h3 className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{entry.title}</h3>
+            <h3 id={`own-record-title-${entry.id}`} tabIndex={-1} className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink outline-none">{entry.title}</h3>
             <p className="m-0 mt-0.5 text-[13px] [overflow-wrap:anywhere] text-ink-3">{[OWN_KINDS[entry.kind], entry.facilityName, day].filter(Boolean).join(' · ')}</p>
           </div>
           {entry.notes && <OwnNotes id={entry.id} title={entry.title} notes={entry.notes} />}
@@ -571,9 +654,16 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
               Remove <ItemName>{entry.title}, {day}</ItemName></Button></Actions>}
         </li>
       })}</ul>
+      {(pages.cursor || olderProblem) && <div className="flex flex-col items-start gap-2 border-t border-line px-5 py-4">
+        {olderProblem && <Problem>{olderProblem}</Problem>}
+        {pages.cursor && <Button id="own-records-older" size="sm" loading={pages.loading} disabled={pages.loading || busy} onClick={() => void showOlder()}>
+          Show older <ItemName>records you added</ItemName></Button>}
+      </div>}
     </Card>}
   </>
 }
+
+const NO_ENTRIES: readonly PatientEntry[] = []
 
 export function RecordsPage() {
   const { api } = useSession()
@@ -599,7 +689,10 @@ export function RecordsPage() {
   // which also says whether they are served (api.records). Nothing is read for them alone: the page reads its records
   // again after "Add a record" saves one and after a removal. Without the key (today's backend) nothing more shows.
   const ownServed = usePatientEntriesServed()
-  const ownEntries = ready?.patientEntries ?? []
+  const ownPhotos = usePatientEntryFilesServed() === true
+  const ownFirst = useMemo(() => ready?.patientEntries ?? NO_ENTRIES, [ready])
+  const ownPages = useOwnRecordPages(ownFirst, ready?.patientEntriesNextBefore ?? null)
+  const ownEntries = ownPages.items
   const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
   const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
     matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
@@ -654,16 +747,17 @@ export function RecordsPage() {
     {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
       removal is said even when that read fails. */}
     {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
-      loading={records.loading} reload={records.reload} pageHeading={heading} />}
+      loading={records.loading} reload={records.reload} pageHeading={heading} pages={ownPages} />}
     {ready && <>
       {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
-          : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
+          : `Records from your providers appear here.${ownServed !== true ? ''
+            : ownPhotos ? ' You can add your own too, from any hospital, with a photo of the paper.' : ' You can add your own too, from any hospital or clinic.'}`}
         action={searching || ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
-    <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
+    <AddRecordDrawer open={adding} photos={ownPhotos} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
     {/* One record, in full, without losing the place in the list. */}
     <Drawer open={opened !== null} onClose={() => setOpened(null)} title={opened?.title ?? ''}
       icon={opened ? <IconChip icon={SECTION_UI[opened.section].icon} tone="brand" /> : undefined}
