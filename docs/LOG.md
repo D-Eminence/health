@@ -2817,3 +2817,38 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-04: records patients add themselves, switched on (hid-system 0116)
+
+The owner switched patient records on after legal approved patient uploads (4 Nov 2026). hid-system 0116 (PR #163,
+`claude/patient-entries-0116`) serves them as text only, on by default; `PATIENT_ENTRIES_ENABLED=false` for ehr-api
+switches them off, and then every route answers `404 NOT_FOUND`, which the website reads as not served. There is no
+website switch.
+
+- **Chats.** `packages/contracts/src/stagingChat.ts` accepts the source kind `patient_entry` (origin `patient`), so an
+  answer, and a saved conversation, that cites one stays readable; the source shows "You added this" to the patient and
+  "Added by the patient" to staff (ChatSource.tsx, as for every `patient` origin).
+- **Add a record.** No photo step until photos and files are served (`patientEntryFilesServed`, which only step 7 will
+  set). What a Save sends is what the backend reads (`patientEntries.ts cleanOwnRecord`): control characters as spaces,
+  CRLF and CR as a newline, each field trimmed. The name (2 to 160, an emoji counts one), place (160), day (1 January
+  1900 to today in Lagos) and notes (1000, UTF-16 units, with the count of what is left from 100 left) are checked as
+  the backend counts them before anything is sent, under the field, with focus there. One Idempotency-Key per Save,
+  reused while the values are the same; a new one after `409 IDEMPOTENCY_KEY_REUSED`. A replayed Save (200,
+  `replayed: true`) is saved. Plain words for `429 PATIENT_ENTRY_LIMITED`, `422 PATIENT_ENTRY_FILES_NOT_READY`,
+  `409 IDEMPOTENCY_KEY_REUSED`, `400 PATIENT_ENTRY_INVALID`, and `400 VALIDATION_FAILED` under each field it names.
+- **Records.** "Added by you" lists the first page from the records answer and offers Show older
+  (`GET ehr/me/patient-entries?before=`): focus moves to the first record shown and how many is said; an older page
+  that fails says so under the button, which takes focus back; `400 INVALID_CURSOR` reads the list again from the
+  start and says so. Remove is as before (confirm, focus and announcement), and starts the list again from its first
+  page.
+- **Staff chart.** The classic chart and the blue EHR's consultation sections list them read-only under "Added by the
+  patient", labelled "Added by the patient. Not checked by a health worker." (`GET ehr/patients/:id/patient-entries`,
+  direct care, `ehr.note.read`), with Show older; hidden on `404` and `403`, Retry on any other failure.
+- **Registry.** `ehr.myPatientEntries` (GET and POST), `ehr.myPatientEntryWithdraw` and `ehr.patientEntries` are
+  recorded as served by hid-system 0116 and not by main (`proposed`, which this registry keeps for routes main does not
+  serve). No separate `ehr.myPatientEntriesList`: the list is the GET of `ehr.myPatientEntries`, one path.
+- **Mock gateway.** Five fictional records, three a page, with Save, Remove, Show older and the staff read; the Node
+  server now passes the body, query and headers to the answers, as the in-page preview did.
+- **Checked in the preview** (mock gateway, Chromium) at 320, 360, 390 and 1366px: no page or drawer wider than the
+  window, no photo step, the notes count, Show older's focus, and the staff list in the blue EHR. Not checked here:
+  hid-system 0116 itself (the contract was read from PR #163), a real phone, and production.

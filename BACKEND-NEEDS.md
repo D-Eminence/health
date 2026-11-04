@@ -3,7 +3,18 @@
 The redesign changes the frontend only. Where a screen needs something the backend doesn't serve yet, it's
 listed here instead. The UI calls the proposed endpoint and says plainly when it isn't served.
 
-## 1. Patient-added records, with photos and files (proposed)
+## 1. Patient-added records: text served by hid-system 0116, photos and files proposed
+
+**Where this stands (4 Nov 2026).** hid-system 0116 (PR #163, `claude/patient-entries-0116`) serves the records as
+text only: the Save, the list (its first page in the records answer, the pages after it from
+`GET /api/v1/ehr/me/patient-entries?before=`), the removal, both chats (source kind `patient_entry`, origin `patient`)
+and the staff chart's read-only list (`GET /api/v1/ehr/patients/:patientId/patient-entries`). The owner switched it
+on after legal approval: on by default, `PATIENT_ENTRIES_ENABLED=false` for ehr-api switches it off, and then every
+route answers `404 NOT_FOUND` and the records answer has exactly its old keys, which the website reads as "not served".
+There is no website switch. hid-system main does not serve it yet. Photos and files (steps 2 to 4 below) are still
+proposed (step 7); 0116 answers a Save that lists files `422 PATIENT_ENTRY_FILES_NOT_READY`, and the website shows no
+photo step until a backend says it serves them (`patientEntryFilesServed`, which nothing sets yet). Where 0116's
+contract and this section differ, 0116's holds; the differences are marked "0116" below.
 
 Patients record their own care: a visit, test result, medicine, diagnosis or vaccine from any hospital, clinic, lab
 or pharmacy, with photos or PDFs of the paper. The entry is saved first, with no file bytes in it. Then each file goes
@@ -39,8 +50,15 @@ reused when that Save is retried. The body is at most 8000 bytes of JSON:
 ```
 
 `title` 2–160 characters; `facilityName` up to 160 characters or null, free text that gives that facility no access;
-`occurredOn` not after today in Lagos; `notes` ("Anything else to note?") up to 2000 characters or null. Answers
-`201 { entry }`; the same key with the same body replays the 201.
+`occurredOn` from 1900-01-01 to today in Lagos; `notes` ("Anything else to note?") up to 1000 characters or null
+(0116: CRLF and CR read as a newline, trimmed, the newline the only control character; the upper limits count UTF-16
+units, the title's two characters count code points). The website sends what the backend reads: a pasted tab or other
+control character as a space, each field trimmed, and checks every limit as the backend counts it before sending.
+Answers `201 { entry, replayed: false }`; the same key with the same values answers `200 { entry, replayed: true }`
+(0116; without a key, the same values within 60 seconds too), which the website takes as saved. 0116's other
+refusals: `400 VALIDATION_FAILED` with `errors[{ field, messages }]` (the website says, under each field it names,
+its own words), `400 PATIENT_ENTRY_INVALID`, `409 IDEMPOTENCY_KEY_REUSED` (the website makes a new key for the next
+Save), `422 PATIENT_ENTRY_FILES_NOT_READY` and `429 PATIENT_ENTRY_LIMITED` (30 in 24 hours).
 
 **2. Ask for an upload link.** `POST /api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents`, with an
 `Idempotency-Key` header, one per file. Body `{ fileName, mediaType, sizeBytes, sha256Hex }`: `mediaType` is
@@ -108,10 +126,13 @@ failed upload, which Try again sends again. One whose leading bytes aren't `medi
 `409 PATIENT_DOCUMENT_TYPE_MISMATCH`: the UI says "This file isn't a JPEG, PNG or PDF." beside it and offers no Try
 again for it, since the same bytes would be refused again.
 
-**List.** No route of its own: the records answer the Records page already reads, `GET /api/v1/ehr/me/records`,
-carries a new key
+**List.** The records answer the Records page already reads, `GET /api/v1/ehr/me/records`, carries the first page
 `patientEntries: [{ id, source: 'patient', kind, title, facilityName, occurredOn, notes, createdAt, documents: [{ id, fileName, mediaType, sizeBytes, status, scanStatus, createdAt }] }]`,
-newest first. Only confirmed documents are listed, and removed entries are left out. The UI lists these as "Added by
+newest `occurredOn` first, at most 50 (0116: `documents` is always `[]`), with `patientEntriesMore` and
+`patientEntriesNextBefore`. The pages after it come from `GET /api/v1/ehr/me/patient-entries?before=<cursor>`,
+answering `{ items, nextBefore }`; the website offers "Show older", moves focus to the first record it added and says
+how many, and reads the list again from the start on `400 INVALID_CURSOR` ("Your list changed, so it was loaded again
+from the start."). Each new records answer (after a Save, a removal or a reload) starts again from its first page. Only confirmed documents are listed, and removed entries are left out. The UI lists these as "Added by
 you" on the Records page from that answer, and reads the records again after a Save or a removal. An entry or file
 missing what it needs is left out, and a status the UI does not know never reads as clean. Each file shows its name,
 type, size and virus check ("Checking for viruses" while `scanStatus` is `pending`; "This file couldn't be added" when
@@ -125,7 +146,12 @@ the UI says "This record has already been removed." and reads the records again.
 
 **What the UI says of a refusal.** Its own fixed words, chosen by the status and `code` alone. It never shows the
 server's `detail`, `title` or any other text from an answer to any of these routes. The Save: `404 NOT_FOUND`,
-"This isn't set up for your account. Contact support. What you entered is still here."; `413`, or the UI's own
+"Adding your own records isn't available yet. What you entered is still here."; `429 PATIENT_ENTRY_LIMITED`, "You've
+added a lot of records today. Try again tomorrow."; `422 PATIENT_ENTRY_FILES_NOT_READY`, "Photos can't be added yet.
+Save the record without them."; `409 IDEMPOTENCY_KEY_REUSED`, "Your record wasn't saved. Please save it again.";
+`400 PATIENT_ENTRY_INVALID` (and a `400 VALIDATION_FAILED` naming no field it has), "Check the record's details and
+try again."; `400 VALIDATION_FAILED` naming fields, "Check the details marked below, then save again." with its own
+words under each (each of these ends "What you entered is still here."); `413`, or the UI's own
 `PATIENT_ENTRY_TOO_LARGE` (a body over 8000 bytes, refused before it is sent), "It's too long to send. Shorten the
 notes, then save again. What you entered is still here."; anything else, "Your record couldn't be saved. Please try
 again." A file's upload link, PUT and confirm: `429 PATIENT_DOCUMENT_DAILY_LIMIT`,
@@ -133,6 +159,12 @@ again." A file's upload link, PUT and confirm: `429 PATIENT_DOCUMENT_DAILY_LIMIT
 `409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE` as above; anything else is a file that didn't upload (counted in "2 of your
 photos or files didn't upload."), which Try again sends again. Remove: `404 PATIENT_ENTRY_NOT_FOUND` as above; anything
 else, "This record couldn't be removed. Please try again."
+
+**The staff chart (0116).** `GET /api/v1/ehr/patients/:patientId/patient-entries?before=` (`ehr.note.read`,
+`X-Facility-ID`, `X-Purpose-Of-Use: direct-care`, the patient's read access there) answers `{ items, more, nextBefore }`.
+The classic chart and the blue EHR's consultation sections list them read-only under "Added by the patient", labelled
+"Added by the patient. Not checked by a health worker.", with Show older; nothing is shown on `404` (main, or switched
+off) or `403`, and any other failure says "The records the patient added could not be loaded." with Retry.
 
 **Who reads.** The patient, always. Staff only as they read the patient's imported history: at a facility whose own
 membership holds an active consent grant for the patient (a share at any level, an approved access request, the desk
@@ -144,21 +176,23 @@ writes, at any share level.
 "Patient provided file; machine extracted, not clinician verified", and each entry's kind, title, place, date and notes
 as patient-reported.
 
-**Served or not.** The records answer carrying `patientEntries` (a list, empty or not), or a Save answering 201, means
+**Served or not.** (0116: this signal now means the records, text only; photos and files have a signal of their own,
+which only step 7 will set.) The records answer carrying `patientEntries` (a list, empty or not), or a Save answering 201, means
 served. A records answer without the key (today's), or a Save's 404 `NOT_FOUND` (an unrouted path), means not served,
 but only while nothing has said otherwise; a `patientEntries` that is not a list is left out and says neither. The UI
 keeps this in memory only (`apps/patient-web/src/patientEntriesServed.ts`). Without the key the Records page sends
-exactly today's requests and looks exactly as today. Until served, the drawer's Save gets that 404 and says "This
-isn't set up for your account"; no file leaves the device until the Save and that file's upload link have both been
-answered. While patient uploads are off (before NDPA sign-off or migration 0110), the records answer leaves out
-`patientEntries`, and every patient-entry route answers exactly as if it were not built (`404 NOT_FOUND`): off must
-look the same as not built, never a code of its own (a `404 PATIENT_ENTRIES_DISABLED`, say, would only read "Your
-record couldn't be saved. Please try again."). The backend must not send `patientEntries` until uploads are cleared
-under the NDPA, because that one served signal turns on both the entries list and uploads.
+exactly today's requests and looks exactly as today. Until served, the drawer's Save gets that 404 and says "Adding
+your own records isn't available yet"; no file leaves the device until the Save and that file's upload link have both
+been answered. Switched off (`PATIENT_ENTRIES_ENABLED=false`), every patient-entry route answers exactly as if it were
+not built (`404 NOT_FOUND`) and the records answer leaves out `patientEntries`: off looks the same as not built, never
+a code of its own (a `404 PATIENT_ENTRIES_DISABLED`, say, would only read "Your record couldn't be saved. Please try
+again."). Legal approved patient uploads on 4 Nov 2026 and the owner switched the records on; photos and files wait
+for step 7's routes and their own served signal.
 
-Registered as `ehr.myPatientEntries` (POST), `ehr.myPatientEntryUploadIntent`, `ehr.myPatientEntryDocumentComplete`
-and `ehr.myPatientEntryWithdraw` (status `proposed`) in `packages/contracts/src/registry.ts`; the list is part of
-`ehr.myRecords`.
+Registered in `packages/contracts/src/registry.ts` as `ehr.myPatientEntries` (GET for the list's later pages, POST
+for the Save), `ehr.myPatientEntryWithdraw` and `ehr.patientEntries` (the staff read), each `proposed` with a note that
+hid-system 0116 serves it and main does not; and `ehr.myPatientEntryUploadIntent` and
+`ehr.myPatientEntryDocumentComplete` (`proposed`, step 7). The first page is part of `ehr.myRecords`.
 
 ## 2. Sharing by card: the email and the link it carries
 
