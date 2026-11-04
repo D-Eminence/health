@@ -261,7 +261,7 @@ export function CardFace({ name, hid, verified, facts, allergies, factsUnavailab
         <div className="min-w-0">
           {/* The whole name, over two lines if it must, a step smaller when long; the NIN mark beside it, never cut off (HCS-05). */}
           <p className="m-0 flex items-start gap-[1.2cqw] text-white/90">
-            <span className={cx('line-clamp-2 min-w-0 font-medium tracking-[.12em] break-words uppercase', name.length > 28 ? 'text-[2.8cqw] leading-[1.2]' : 'text-[3.2cqw] leading-[1.15]')}>{name}</span>
+            <span className={cx('line-clamp-2 min-w-0 font-medium tracking-[.12em] break-words uppercase', (name?.length ?? 0) > 28 ? 'text-[2.8cqw] leading-[1.2]' : 'text-[3.2cqw] leading-[1.15]')}>{name}</span>
             {verified !== null && (verified ? <BadgeCheck className="mt-[.15cqw] size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
               : <CircleAlert className="mt-[.15cqw] size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
           <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-note]:text-[3cqw] [&_.patient-hid-note]:tracking-normal [&_.patient-hid-note]:text-white/80">{hid}</div>
