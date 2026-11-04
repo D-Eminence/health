@@ -1100,6 +1100,12 @@ describe('A lab request’s page', () => {
     expect(screen.queryByText('LOINC 718-7')).toBeNull()
   })
 
+  it('names a test with no name by its code, with no More details', async () => {
+    setLists([], [labRequest({ testDisplay: '  ' })])
+    await openOrder('laboratory', LAB)
+    expect(savedValue('Test')).toEqual({ lead: 'LOINC 718-7', more: undefined })
+  })
+
   it('offers today’s draft changes to a role that can’t send to Lab, and says who can', async () => {
     expect((await openOrder('laboratory', LAB)).textContent).toBe('Haemoglobin')
     expect(screen.getByRole('button', { name: 'Cancel order' })).toBeTruthy()
@@ -1180,6 +1186,21 @@ describe('A lab request’s page', () => {
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+  })
+
+  it('names released results for a test with no name by its code, with no More details', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValueOnce({ workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID,
+      acceptedAt: '2026-10-30T10:00:00.000Z', test: { codeSystem: 'LOINC', code: '718-7', name: '' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 1, currentReleasedVersion: 1, revisions: [
+        { version: 1, resultType: 'numeric', numericValue: 9.8, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low', entrySource: 'manual',
+          verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null },
+      ] }] })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    const named = await screen.findByText(/^LOINC 718-7 · accepted by Lab /)
+    expect(named.parentElement!.querySelector(':scope > details')).toBeNull()
   })
 
   it('says when no result is released, and today’s refusals', async () => {

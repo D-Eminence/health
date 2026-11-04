@@ -34,14 +34,15 @@ const TITLE_ID = 'order-title'
 const ACTIONS_ID = 'order-actions-title'
 /**
  * The test by its name, with its code under More details (owner decision 33.4): "Haemoglobin", then "Code: LOINC 718-7"
- * behind the disclosure. No code, the name alone; no name, "Not recorded" with the code still under More details.
+ * behind the disclosure. No code, the name alone; no name, the code alone (it is all that says which test).
  */
-function TestValue({ name, code }: { readonly name: string; readonly code: string }) {
-  if (!code) return <>{name || 'Not recorded'}</>
+function TestValue({ name: written, code }: { readonly name: string; readonly code: string }) {
+  const name = written.trim()
+  if (!code || !name) return <>{name || code || 'Not recorded'}</>
   return (
     <span className="flex flex-col gap-1">
-      <span>{name || 'Not recorded'}</span>
-      <MoreDetails about={name || 'Test'}><span>Code: {code}</span></MoreDetails>
+      <span>{name}</span>
+      <MoreDetails about={name}><span>Code: {code}</span></MoreDetails>
     </span>
   )
 }

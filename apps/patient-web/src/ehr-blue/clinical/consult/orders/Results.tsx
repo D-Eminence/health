@@ -66,9 +66,10 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: 
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       {released ? released.results.length === 0 ? <p>No result released yet.</p> : (
         <>
-          <p>{released.test.name} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
+          {/* The test by name; a test released with no name shows its code (it is all there is). */}
+          <p>{released.test.name?.trim() || codeText(released.test.codeSystem, released.test.code)} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
           {/* The test's code under More details, not inline (owner decision 33.4). */}
-          {codeText(released.test.codeSystem, released.test.code)
+          {released.test.name?.trim() && codeText(released.test.codeSystem, released.test.code)
             ? <MoreDetails about={released.test.name}><span>Code: {codeText(released.test.codeSystem, released.test.code)}</span></MoreDetails>
             : null}
           {released.results.map((result, index) => (
