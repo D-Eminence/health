@@ -160,33 +160,106 @@ Registered as `ehr.myPatientEntries` (POST), `ehr.myPatientEntryUploadIntent`, `
 and `ehr.myPatientEntryWithdraw` (status `proposed`) in `packages/contracts/src/registry.ts`; the list is part of
 `ehr.myRecords`.
 
-## 2. Sharing by card: the email and the link it carries
+## 2. Send my card by email, opened with a one-time code (step 8, hid-system 0118; proposed)
 
-The product decision (30 Oct 2026): when a patient shares, the provider receives the patient's **Health ID card by email**,
-in full (photo, name, Health ID, blood group, genotype, allergies). The **Open records** link under it opens the records the
-share allows, **with no sign-in or code**. This works whether or not the provider is on Health ID.
+**Status:** the website is built and **switched off** (`VITE_HID_CARD_SHARES`, false in `config/staging.json` and
+`config/production.json`; production's release refuses `true`). Every route below must answer a plain `404 NOT_FOUND`
+(as if unrouted) while the backend's `CARD_SHARES_ENABLED` is off. Turning either on needs legal sign-off (D13, NDPA).
+Design: Akos step 8 design and critique (4 Nov 2026), with the owner's answers to all 13 questions (the recommended
+options) and every critique fix. This replaces the old open link (`GET /identity/shared-cards/:token`, registered as
+`identity.sharedCard`), which carried the secret in its path and is retired.
 
-**What the backend needs to do**
+**What the website does.** The patient sends their card to any email address from Access and sharing ("Send my card"):
+the address, an optional private label (only the patient sees it), **Card only** or **Card and records**, and **24
+hours** or **7 days** (no 30 days in v1). The check step is the consent record; it says what is shared, that records
+added while the link is open are included, that the person can keep a copy of what they see, that anyone who can read
+that inbox can open it, and that an earlier link to the same address ends. Email only: the website never shows a link to
+copy. The person who receives it opens `/card#<token>`, presses **Email me a code**, enters the 6 digits and sees the card
+(and the records, if allowed), read only.
 
-1. On `POST /identity/me/shares` (and on a confirmed invitation), email the recipient using `docs/email/share-card.html`.
-   - Render the card as an image (PNG, 1200 × 756), because email clients drop CSS gradients.
-   - Fill the template's placeholders.
-   - Include a link `https://<patient host>/card/<token>`.
-2. `GET /api/v1/identity/shared-cards/:token` (public, proposed; registered as `identity.sharedCard`) answers:
-   `{ card: { fullName, hid, ninVerified, bloodGroup, genotype, allergies, photoUrl }, sharedBy, recipientEmail, level, duration, expiresAt, records }`,
-   where `records` has the `GET /ehr/me/records` shape, limited to what `level` allows.
+### Patient routes (identity-api, patient session, CSRF)
 
-**Safeguards that stand in for a sign-in**
+| Route | Body and answer |
+|---|---|
+| `GET /api/v1/identity/me/card-shares` | 200 `{ items: CardShare[], createdToday, dailyLimit, liveCount, liveLimit }`: live links and those ended in the last 30 days. Also the website's check that the feature is served. |
+| `POST /api/v1/identity/me/card-shares` | `Idempotency-Key` required; recent sign-in. Body `{ email, label?, scope: 'card' \| 'card_and_records', duration: '24h' \| '7d', consentVersion: 'card-share-check-v1' }`. 201 `{ share, delivery, replacedId }`. A live link to the same address ends (`replaced`). |
+| `POST /api/v1/identity/me/card-shares/:id/end` | No body. 200 `{ share }`, the same when it had already ended. The person it was sent to is not told. |
 
-- The token is random and single-share. It works only while the grant is active, and answers 404 once the grant expires
-  or the patient revokes it.
-- Every successful read is written to the patient's access log as "Opened by <recipientEmail>", and notifies the patient.
-- The answer carries `Cache-Control: no-store`, the page is read-only, and the page shows the recipient's email.
-- Rate limit per token, and alert on opens from many networks (a sign of forwarding).
+`CardShare = { id, reference, recipientEmail (null once ended), label (null once ended), recipientHint, scope, duration,
+createdAt, expiresAt, status: 'active' | 'locked' | 'ended' | 'expired', endedAt, endedReason, lockedUntil, delivery:
+'sent' | 'not_sent' | 'pending', openCount, lastOpenedAt }`. `endedReason` is one of `patient_ended`, `replaced`,
+`expired`, `account_deleted`, `patient_inactive`, `address_blocked`, `too_many_wrong_codes`.
 
-**Risk the product owner accepted:** anyone the email reaches can read the card and open the records, including on
-forwarding or misdelivery. Health data is sensitive personal data under the NDPA 2023, so legal or compliance sign-off is
-recommended before launch.
+Refusals the website words: 400 `CARD_SHARE_EMAIL_INVALID`, `CARD_SHARE_OWN_EMAIL`, `CARD_SHARE_DURATION_INVALID`,
+`CARD_SHARE_SCOPE_INVALID`, `CARD_SHARE_LABEL_INVALID`; 403 `PATIENT_RECENT_AUTH_REQUIRED`, `PATIENT_RECENT_RECOVERY_HOLD`;
+409 `IDEMPOTENCY_KEY_REUSED`, `CARD_SHARE_LIVE_LIMIT` (20 live); 429 `CARD_SHARE_CREATE_LIMITED` (5 a day),
+`CARD_SHARE_ADDRESS_LIMITED` (2 a day to one address, owner answer 10); 404 `CARD_SHARE_NOT_FOUND` on end.
+
+- **Limits per address across all patients** are a high cap with an ops alert, not a silent refusal, so a clinic inbox
+  is never blocked (critique 14). A blocked address, a capped one and a failed send all answer `delivery: 'not_sent'`
+  alike (critique 15); the list says "We couldn't email this one. Try again tomorrow."
+- **Email the patient on every new link** (E8, owner answer 9): a security notice with no health data. The done step says
+  so.
+
+### Receiver routes: one gateway prefix, `/api/v1/card-share/` (critique fix 2)
+
+All public, `Cache-Control: no-store`, **never 401** (a patient's session in the same browser is never read, refreshed
+or ended), and the token only ever in a POST body. Cookies are scoped `Path=/api/v1/card-share`. The website calls
+them with its own client outside the patient session, sends no `X-CSRF-Token`, and never retries.
+
+| Route | Body and answer |
+|---|---|
+| `GET availability` | 204 while on. 404 keeps the page dormant. |
+| `POST code` | `{ token (43 chars, base64url), turnstileToken }`, Turnstile action **`card-share-code`**. 202 `{ sentTo, expiresInSeconds: 600, resendAfterSeconds: 60 }`, plus an HttpOnly session cookie binding the code to this browser (critique 6). |
+| `POST verify` | `{ token, code }`. 200 `CardView` and the view cookie (HttpOnly, Secure, SameSite=Strict, **no Max-Age**: a session cookie; the server ends the view after 30 minutes). |
+| `GET view` | `X-Card-View: <viewId>`. 200 `CardView`. The page asks every 30 seconds while the card is shown (critique 4). |
+| `GET photo` | `X-Card-View`. 200 image bytes. |
+| `GET records` (ehr-api) | `X-Card-View`. 200, every key present (below). |
+| `POST end-view` | `X-Card-View`, no body. 204 and the cookie cleared; 204 too when already ended. |
+| `POST stop-emails` | `{ token, scope: 'link' \| 'address', turnstileToken }`, Turnstile action **`card-share-stop`**. 200 `{ stopped }` for any well-formed token, known or not. `link` ends that link; `address` also adds the address to the block list. |
+
+`CardView = { viewId, card: { fullName, healthId, ninVerified, hasPhoto }, scope, sharedBy (first name), recipientHint,
+reference, expiresAt, viewExpiresAt }`. **`viewId` is not a secret**: every later read names it in `X-Card-View`, and the
+server answers **409 `CARD_SHARE_VIEW_CHANGED`** when it is not the view the cookie holds, so two links opened in one
+browser can never show one patient's records under another's card (critique 1). Either one cookie per view
+(`hid_card_view_<viewId>`) or a check of the header against the single cookie works for the website.
+
+Records answer: `{ encounters, notes, importedRecords, importedHealthProfile, healthProfile: { bloodGroup, genotype,
+allergies, currentMedications, chronicConditions, medicalNotes } | null, patientEntries (active, first 50),
+patientEntriesMore, diagnoses: [], prescriptions: [], labRequests: [], vitals: [], documents: [], limit }`. For a
+**card-only** link every list is empty and `healthProfile` holds blood group, genotype and allergies only. File names
+and types only: no download.
+
+Refusals the website words: 400 `CARD_SHARE_LINK_INVALID`, `TURNSTILE_*`, `CARD_SHARE_CODE_WRONG` (with `attemptsLeft`);
+410 `CARD_SHARE_ENDED` (unknown, ended or expired alike: one constant answer), `CARD_SHARE_CODE_EXPIRED` (expired, used,
+out of tries, or asked for in another browser), `CARD_SHARE_VIEW_ENDED`; 409 `CARD_SHARE_VIEW_CHANGED`; 429
+`CARD_SHARE_LOCKED` (send `Retry-After` in seconds: the website reads the header), `CARD_SHARE_CODE_LIMITED`, and the
+gateway's own 429. The website never shows a server's own words.
+
+### Inbox and Activity
+
+- Inbox codes, resource type `card-share`, metadata `{ recipientHint, reference }` only: `SHARED_CARD_OPENED` ("Someone
+  opened your card using the link sent to a•••"), `SHARED_CARD_LOCKED` (at most one a day per link), and
+  **`SHARED_CARD_ENDED_WRONG_CODES`**, sent once when the second 1-hour lock ends the link (owner answer 11).
+- Activity (0093's access log): actions `card_opened` (actor kind `card_recipient`), `card_shared`, `card_ended` (actor
+  `patient`), each with **`recipientHint`** on the event. The website words them "using the link sent to a•••". An older
+  website drops unknown kinds.
+
+### Emails, retention and the receiver's notice
+
+- E5 (link) and E6 (code) carry nothing but the link, the code, the reference, the "Stop these emails" link
+  (`<patient host>/card/stop#<token>`) and the privacy notice link (`<patient host>/card/privacy`). Click and open
+  tracking off (owner answer 13). E6 says who asked and that the code must never be given to anyone.
+- Hosts: production `https://app.healthidentitydirectory.com/card`; staging `https://staging.healthidentitydirectory.com/card`
+  (the `web` host in `config/staging.json`).
+- Retention (owner answer 13): network data 30 days; hint and address hash 12 months after the link ends, then null;
+  block list until removed; card-share rows anonymised when an account deletion completes. Processors named: Amazon SES,
+  Brevo, Cloudflare Turnstile, Sentry. The website's notice at `/card/privacy` says exactly this.
+
+### Not in the website (backend or later)
+
+- The 30-day choice and its day-7 reminder (not offered in v1). The E8 email itself. The ops alerts.
+- `docs/email/share-card.html` still shows the old card-face email; replacing it with E5 is W0's.
 
 ## Lab and pharmacy queues need the patient's name and date of birth for sample matching
 

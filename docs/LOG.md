@@ -2817,3 +2817,41 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-04: Send my card by email, opened with a one-time code (step 8, switched off)
+
+Akos handover step 8 (hid-system migration 0118), built against the design and critique of 4 Nov 2026 with the owner's
+answers to all 13 questions (the recommended options) and every critique fix. **Switched off** until legal signs off
+(D13, NDPA): `VITE_HID_CARD_SHARES` is false in `config/staging.json` and `config/production.json`, `staging_release.py`
+requires it to be an exact boolean and refuses `true` for production, and the build sets it on the patient portal's
+host only. On, every page still waits for the backend: the patient's list answering 200, or the receiver's availability
+answering 204. Off, or 404, nothing is shown and no card request is sent. Contract in BACKEND-NEEDS.md §2.
+
+- **Patient, `/access/share/card`.** The address, an optional private label, Card only or Card and records, 24 hours
+  (first) or 7 days. Check and send says what is shared, that records added while the link is open are included, that
+  the person can save or screenshot what they see, that anyone who can read the inbox can open it, that an earlier link
+  to the same address ends, and asks about a mistyped domain (gmial.com). One `Idempotency-Key` per send; the wording's
+  version (`card-share-check-v1`) goes with it. The done step says the patient was emailed too, and what "not sent"
+  means. Email only: no link to copy.
+- **Who has access.** "Your card, shared by email": each link's recipient (label and address, the masked address once
+  ended), what it shows, until when, opens, reference and state (Active, Paused for now, Ended: reason, Expired), with
+  End now, asked once. Entry points: Access and sharing's header, the create menu, the share search step and the Health
+  ID card.
+- **The page the link opens, `/card#<token>`,** outside the patient session (its own client: never 401 handling, no
+  refresh, no CSRF token, no retries). The token leaves the address bar at once and goes only in POST bodies; nothing is
+  sent until Email me a code (Turnstile `card-share-code`, on that step only); 6 boxes for the code; the card and, if
+  allowed, the records, read only, no downloads; every read names its view (`X-Card-View`) and 409
+  `CARD_SHARE_VIEW_CHANGED` clears the screen; checked every 30 seconds; covered after 5 minutes idle; cleared on
+  leaving the page; End view; a reload needs the link and a new code. Plain words for each refusal, never the server's.
+  `/card/stop#<token>` and a link on the page: Stop these emails (this link, or every card email to the address;
+  Turnstile `card-share-stop`). `/card/privacy`: the receiver's notice (30 days, 12 months, the processors, how to ask).
+  `/card/:token` stays dormant always.
+- **Inbox and Activity.** `SHARED_CARD_OPENED`, `SHARED_CARD_LOCKED`, `SHARED_CARD_ENDED_WRONG_CODES`; subject "Shared
+  card". Activity's `card_opened` (by "Someone"), `card_shared`, `card_ended`, each "using the link sent to a•••".
+- **Registry.** Ten routes `proposed` (three patient, seven under `/api/v1/card-share/`, the photo a download), all
+  patient-web only; `identity.sharedCard` retired. Edge: the `/card` pages send `frame-ancestors 'none'` and no referrer.
+- **Mock.** Opt-in only: `MOCK_CARD_SHARES=1` (or `?cardShares=1` in the preview) with `VITE_HID_CARD_SHARES=true`.
+- **Checked** in Chromium against the mock at 320, 360, 390 and 1366px: the whole receiver and patient flow, no sideways
+  scroll, no console errors, the token in no address or header. That walk found the records never read under React
+  StrictMode (its rehearsal unmount aborted the reads); fixed test first. Not checked against a real backend: none
+  serves these routes yet.
