@@ -102,12 +102,8 @@ export function fakeHealthId({ sendsOpenWork }: { sendsOpenWork: boolean }) {
     && (item.routeId === null ? granted(person) : (routeOf(item)?.access ?? 'none') !== 'none')
   const current = (item: Work) => item.result?.revisions.at(-1) ?? null
   const releasedVersions = (item: Work) => (item.result?.revisions ?? []).filter(revision => revision.releasedAt)
-  const open = (item: Work) => {
-    const route = routeOf(item)
-    if (route && route.effectiveState !== 'accepted') return false
-    const latest = current(item)
-    return !(latest?.releasedAt)
-  }
+  // As lab-api's open_work: open until its result's current version is released, whatever the route's state.
+  const open = (item: Work) => !(current(item)?.releasedAt)
 
   function revisionView(revision: Revision) {
     return { version: revision.version, ...revision.value, entrySource: 'manual',
