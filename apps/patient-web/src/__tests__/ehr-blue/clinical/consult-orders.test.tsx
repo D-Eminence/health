@@ -1169,7 +1169,8 @@ describe('A lab request’s page', () => {
     await openOrder('laboratory', LAB)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
     expect(await screen.findByText('Checked by the same scientist who entered it')).toBeTruthy()
-    expect(screen.getByText('Their reason: Only scientist on the night shift')).toBeTruthy()
+    // getByText trims by default, so check the exact text to prove the reason is shown trimmed.
+    expect(screen.getByText('Their reason: Only scientist on the night shift').textContent).toBe('Their reason: Only scientist on the night shift')
   })
 
   it('one-person lab: shows nothing extra for a normal two-person check', async () => {
