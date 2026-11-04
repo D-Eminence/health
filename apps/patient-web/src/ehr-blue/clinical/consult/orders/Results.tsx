@@ -4,7 +4,7 @@ import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '
 import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
 import type { Chart } from '../../parts/chart'
 import { ErrorBox } from '../../parts/Notices'
-import { DiscussedWithPatient } from './Discussed'
+import { DiscussedWithPatient, useDiscussions } from './Discussed'
 import { releasedResultsRefusal } from './words'
 
 function dateText(value: string | null | undefined) {
@@ -49,6 +49,8 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, ch
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const headingId = useId()
+  // The held results and their marks, read with the results (and again with them) for a member who may mark only.
+  const discussions = useDiscussions(chart, revision)
   useEffect(() => {
     let active = true
     setReleased(null)
@@ -80,8 +82,11 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, ch
               {result.status === 'entered_in_error' ? <p>The latest released version was marked entered in error: do not use it.</p> : null}
               {skipsVersions(result.revisions) ? <p className="hid-ehr-clinical-orders-muted">Version numbers skip revisions that were never released; those are not shown.</p> : null}
               <Revisions revisions={result.revisions} />
-              {/* "Discussed with the patient" (owner Q24): nothing unless the backend says the patient chat holds it back. */}
-              <DiscussedWithPatient chart={chart} requestId={requestId} result={result} onReadAgain={onRefresh} describedBy={`${headingId}-${index}`} />
+              {/* "Discussed with the patient" (owner Q24): only on a result the patient chat holds back (hid-system #177). */}
+              {chart && discussions ? (
+                <DiscussedWithPatient key={`${result.id}-${revision}`} chart={chart} result={result} item={discussions.results.get(result.id) ?? null}
+                  onReadAgain={onRefresh} describedBy={`${headingId}-${index}`} />
+              ) : null}
             </div>
           ))}
         </>

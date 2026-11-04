@@ -97,6 +97,27 @@ describe('c4b5445 route registry', () => {
     expect(() => assertRegisteredBrowserRequest('POST', path)).toThrow(BrowserRouteError)
   })
 
+  it('registers "Discussed with the patient" on held Lab results, proposed until served (hid-system #177)', () => {
+    expect(findEndpoint('lab.resultDiscussions')).toMatchObject({ path: '/api/v1/lab/patients/:patientId/result-discussions',
+      methods: ['GET'], permissions: { GET: ['lab.result.released.read'] }, status: 'proposed' })
+    expect(findEndpoint('lab.resultDiscussion')).toMatchObject({ path: '/api/v1/lab/patients/:patientId/results/:resultId/discussion',
+      methods: ['POST'], permissions: { POST: ['lab.result.discuss'] }, status: 'proposed' })
+    expect(findEndpoint('lab.resultDiscussionWithdrawal')).toMatchObject({
+      path: '/api/v1/lab/patients/:patientId/results/:resultId/discussion/withdrawal',
+      methods: ['POST'], permissions: { POST: ['lab.result.discuss'] }, status: 'proposed' })
+    const patient = '/api/v1/lab/patients/0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const result = `${patient}/results/1a2b3c4d-6a55-4b4c-9a7e-2f4b8c1d3e5a`
+    expect(assertRegisteredBrowserRequest('GET', `${patient}/result-discussions`).name).toBe('lab.resultDiscussions')
+    expect(assertRegisteredBrowserRequest('POST', `${result}/discussion`).name).toBe('lab.resultDiscussion')
+    expect(assertRegisteredBrowserRequest('POST', `${result}/discussion/withdrawal`).name).toBe('lab.resultDiscussionWithdrawal')
+    expect(() => assertRegisteredBrowserRequest('POST', `${patient}/result-discussions`)).toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('GET', `${result}/discussion`)).toThrow(BrowserRouteError)
+    for (const name of ['lab.resultDiscussions', 'lab.resultDiscussion', 'lab.resultDiscussionWithdrawal']) {
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+      expect(() => assertEndpointAllowed('patient-web', name)).toThrow()
+    }
+  })
+
   it('keeps workload routes and absent legacy flows out of browser contracts', () => {
     expect(NON_FRONTEND_ENDPOINTS).toContain('/api/v1/lab/work-items/accept-ehr-order')
     expect(findEndpoint('outreach.signup')).toBeUndefined()
