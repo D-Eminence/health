@@ -1139,6 +1139,50 @@ describe('A lab request’s page', () => {
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
   })
 
+  function releasedWith(revision: Record<string, unknown>) {
+    api.labReleasedResultsForOrder.mockResolvedValue({
+      workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-10-30T10:00:00.000Z',
+      test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 1, currentReleasedVersion: 1, revisions: [
+        { version: 1, resultType: 'numeric', numericValue: 9.8, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low', entrySource: 'manual',
+          verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null,
+          ...revision },
+      ] }],
+    })
+  }
+
+  it('one-person lab: says a released result was checked by the same scientist who entered it, with no name or id', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    releasedWith({ checkedBySamePerson: true, enteredBy: 'a1000000-0000-4000-8000-00000000e001', verifiedBy: 'a1000000-0000-4000-8000-00000000e001' })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('Checked by the same scientist who entered it')).toBeTruthy()
+    expect(screen.queryByText(/Their reason/)).toBeNull()
+    expect(document.body.textContent).not.toContain('a1000000-0000-4000-8000-00000000e001')
+  })
+
+  it('one-person lab: shows the typed reason only where it is sent', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    releasedWith({ checkedBySamePerson: true, selfCheckReason: '  Only scientist on the night shift  ' })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('Checked by the same scientist who entered it')).toBeTruthy()
+    expect(screen.getByText('Their reason: Only scientist on the night shift')).toBeTruthy()
+  })
+
+  it('one-person lab: shows nothing extra for a normal two-person check', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    releasedWith({ checkedBySamePerson: false, selfCheckReason: 'not a self-check' })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('9.8 g/dL · low')).toBeTruthy()
+    expect(screen.queryByText('Checked by the same scientist who entered it')).toBeNull()
+    expect(screen.queryByText(/Their reason/)).toBeNull()
+  })
+
   it('says when no result is released, and today’s refusals', async () => {
     staff.permissions = [...READ_WRITE, 'lab.result.released.read']
     setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
