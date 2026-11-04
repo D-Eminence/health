@@ -3,7 +3,7 @@ import {
   type ImportedAttachmentDownload, type ImportedHealthProfile, type ImportedHistoryPage, type ImportedHistorySharing,
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
-import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
+import { stagingChatQuestion, parseNovuPatientChat, parseNovuPatientChatHistory, parseNovuPatientChatSource } from '@hid/contracts'
 import {
   HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject,
   type ApiClient, type DownloadResult, type PresignedUpload, type RequestSpec, type RetryPolicy,
@@ -708,12 +708,17 @@ export function createPatientApi(sender: ApiClient) {
       return () => { accepted.delete(listener) }
     },
     // Retained Novu backend: real ready/preparing replies, 10 exchanges/30 days,
-    // source reads and a 500-character question. No main-only notice endpoint.
+    // source reads and a 500-character question. No main-only notice endpoint. From hid-system #167 each source
+    // carries the server's origin label; a service before it sends none and the answer shows as before.
     novuChat: async (question: string, signal?: AbortSignal) =>
-      parseStagingPatientChat(await call<unknown>('POST', 'ehr/me/chat',
+      parseNovuPatientChat(await call<unknown>('POST', 'ehr/me/chat',
         { question: stagingChatQuestion(question) }, { signal, timeoutMs: 65_000 })),
     novuChatHistory: async (signal?: AbortSignal) =>
-      parseStagingChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+      parseNovuPatientChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+    // The source viewer (hid-system #167): only a source the current answer cites, else 404 CHAT_SOURCE_UNAVAILABLE.
+    novuChatSource: async (kind: string, id: string, signal?: AbortSignal) =>
+      parseNovuPatientChatSource(await call<unknown>('GET',
+        `ehr/me/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, undefined, { signal }), { kind, id }),
     clearNovuChatHistory: async (signal?: AbortSignal): Promise<{ cleared: true }> => {
       const answer = await call<{ cleared?: unknown }>('DELETE', 'ehr/me/chat/history', undefined, { signal })
       if (answer?.cleared !== true) throw new Error('The conversation could not be cleared.')
