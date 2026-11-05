@@ -174,7 +174,7 @@ describe('the review built from the choices', () => {
 
   it('past lab results: a changed result carries only the words typed; a flag written another way is not sent', () => {
     const payload = paperReading()
-    payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: 'L' } } : item)
+    payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: 'L' } } : item) as typeof payload.items
     const flagged = parsePaperReading(payload) as PaperReading
     const kept = built(buildValidation({ ...choices('LAB'), reading: flagged }))
     expect(kept.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', value: '11.2', unit: 'g/dL', referenceRange: '12-16' }])
