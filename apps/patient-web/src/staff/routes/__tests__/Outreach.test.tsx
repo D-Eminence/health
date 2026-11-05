@@ -358,3 +358,23 @@ describe('who can open Outreach', () => {
     expect(api.outreachCases).not.toHaveBeenCalled()
   })
 })
+
+/** Owner rule (IDs on screen): a case, its temporary record and a campaign member are said in words, never by an id. */
+describe('outreach names no ids', () => {
+  it('shows a case and its temporary record without the case’s or the temporary record’s id', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pendingCase, id: 'c1a5e111-1111-4111-8111-111111111111' }])
+    render(<Outreach />)
+    expect(await screen.findByText('Amaka Obi')).toBeTruthy()
+    expect(screen.getByText('A temporary record was made for this registration.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/••••|111111\b|tmp_|000001\b/)
+  })
+
+  it('names a campaign member by role, never by membership id', async () => {
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-membership`, campaignId, membershipId: 'm2222222-2222-4222-8222-222222222222', role: 'health_worker', createdAt: '2026-01-01T00:00:00.000Z' }])
+    render(<Outreach />)
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getAllByText('health worker').length).toBeGreaterThan(0))
+    expect(document.body.textContent).not.toMatch(/Membership|••••|222222\b/)
+  })
+})

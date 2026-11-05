@@ -418,19 +418,19 @@ describe('accepted prescription work list', () => {
     render(<Pharmacy />)
 
     const first = await findItem(AMOXICILLIN)
-    expect(within(first).getByText('Patient ••••6f8a10 · 1 capsule · Three times daily')).toBeTruthy()
+    expect(within(first).getByText('Patient (name not shown) · 1 capsule · Three times daily')).toBeTruthy()
     expect(within(first).getByText('Accepted')).toBeTruthy()
     expect(within(first).queryByText('Dispensed')).toBeNull()
     expect(within(first).queryByText('Reversed')).toBeNull()
 
     const second = await findItem(METFORMIN)
-    expect(within(second).getByText('Patient ••••a9b3c4 · 1 tablet · Twice daily with meals')).toBeTruthy()
+    expect(within(second).getByText('Patient (name not shown) · 1 tablet · Twice daily with meals')).toBeTruthy()
     expect(within(second).getByText('Dispensed')).toBeTruthy()
     expect(within(second).queryByText('Accepted')).toBeNull()
     expect(within(second).queryByText('Reversed')).toBeNull()
 
     const third = await findItem(SALBUTAMOL)
-    expect(within(third).getByText('Patient ••••7c6e58 · Dose not recorded · Frequency not recorded')).toBeTruthy()
+    expect(within(third).getByText('Patient (name not shown) · Dose not recorded · Frequency not recorded')).toBeTruthy()
     expect(within(third).getByText('Reversed')).toBeTruthy()
     expect(within(third).queryByText('Accepted')).toBeNull()
     expect(within(third).queryByText('Dispensed')).toBeNull()

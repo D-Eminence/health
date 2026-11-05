@@ -338,8 +338,10 @@ describe('the list', () => {
     expect(heading().textContent).toBe('Patient One')
     expect(document.activeElement).toBe(heading())
     const saved = cardOf(screen.getByRole('heading', { name: 'Registration' }))
-    expect(within(saved).getByText('Temporary patient ID')).toBeTruthy()
-    expect(within(saved).getByText('tmp_c0000000-0000-4000-8000-000000000001')).toBeTruthy()
+    // Owner rule (IDs on screen): the temporary record is said in words, never by its id.
+    expect(within(saved).getByText('Temporary record')).toBeTruthy()
+    expect(within(saved).getByText('Made for this registration')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/tmp_|c0000000-0000-4000-8000-000000000001/)
     // The campaign the case was registered under, by name.
     expect(within(saved).getByText('Demo screening week')).toBeTruthy()
   })
@@ -717,7 +719,7 @@ describe('a registration case', () => {
     // When it was registered, never its ID.
     expect(screen.getByText(/^Registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
     expect(screen.queryByText(/c0a5e000/)).toBeNull()
-    expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary patient ID', 'Campaign', 'Created'])
+    expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary record', 'Campaign', 'Created'])
     expect(within(registration()).getByText('34 years')).toBeTruthy()
     expect(within(registration()).getByText('Demo screening week')).toBeTruthy()
     expect(screen.getAllByText('Waiting to link').length).toBeGreaterThan(0)
@@ -947,7 +949,7 @@ describe('a case\'s phone number and notes', () => {
     renderPage()
     await openCase()
     expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(
-      ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Temporary patient ID', 'Campaign', 'Created', 'Notes for the team'])
+      ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Temporary record', 'Campaign', 'Created', 'Notes for the team'])
     expect(within(registration()).getByText(PHONE)).toBeTruthy()
     expect(within(registration()).queryByText(/••••/)).toBeNull()
     const notes = within(registration()).getByText(/^Met at the market stall\./)
