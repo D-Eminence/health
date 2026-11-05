@@ -3,14 +3,14 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. Every service and the database migration were rebuilt and redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 6aae042e (backend release run \"all\"), after today's OCR release train: #191 (several medicines per check, lab dates as written), #192 (0108 records-processing cover, signed by D-Eminence), #187 (plain route reasons), #188 (most capable model at high effort), #193 (page-image re-read for hard pages) and #189 (precheck and 403 when the patient has not allowed records processing; 4xx logged by code). So every service is pinned to 6aae042e. Browser-facing changes since 50089e9: the OCR validation accepts acceptedFields.medications and lab reportedAtAsWritten (used by health#173), the new 403 OCR_RECORDS_PROCESSING_CONSENT_REQUIRED (used by health#168), and the v2 paper reading gains optional fields (imageRereadSkipped, imageRereadFailedPages, new check reasons). Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-05: \"approve re-pin\" (about 14:06 UTC) for the re-pin once this train landed, and \"deploy it once its ready. i approved everything thta needs my approval\" (about 14:10 UTC).",
+  "review_reference": "The services as deployed now. ocr-api (and ocr-worker, not a website dependency) were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at f878102c for hid-system#194 (keep picture readings on handwriting whose scanned text is nonsense; PROMPT_VERSION 4 so the next Extract reads fresh). Every other service stays at 6aae042e, as deployed by the all-services release. Browser-facing change since 6aae042e: one new optional check reason in the paper reading (not_matched_to_scanned_text); the website shows unknown reasons as a plain fallback. Approved by the repository owner, D-Eminence, in chat on 2026-11-05: \"deploy it once you done\" (about 17:05 UTC) for this fix, under \"i approved everything thta needs my approval\" (about 14:10 UTC).",
   "backend_commits": {
     "gateway": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
     "identity-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
     "ehr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
     "lab-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
     "pharmacy-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "ocr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "ocr-api": "f878102cbf3229118cb88e018b7d8b1c3e0e7715",
     "outreach-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
     "support-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
     "notification-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01"
