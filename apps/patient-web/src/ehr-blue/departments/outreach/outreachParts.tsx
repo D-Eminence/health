@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../../../staff/api'
 import type { Tone } from '../../../kasuwa/ui'
 import type { DeptFact } from '../parts/DeptRecord'
-import { dateText } from '../parts/format'
+import { birthDateText, dateText } from '../parts/format'
 
 /*
  * Words and small parts the Outreach views share, in the design's voice (the target's
@@ -135,8 +135,13 @@ export function phoneText(phone: string | null | undefined): string {
  * notes for the team are listed when Outreach sends them (null: none was given); a backend without them sends neither,
  * and they are left out.
  */
-export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undefined): DeptFact[] {
+export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undefined, served = false): DeptFact[] {
   const notes = item.operationalNotes?.trim()
+  // Once 0115 is served, the case answer names its campaign itself (for a membership that can't read campaigns too), and
+  // its next follow-up date.
+  const extra = item as { campaignName?: unknown; nextFollowUpOn?: unknown }
+  const answerCampaign = served && typeof extra.campaignName === 'string' && extra.campaignName.trim() ? extra.campaignName.trim() : undefined
+  const followUp = served && typeof extra.nextFollowUpOn === 'string' ? dayText(extra.nextFollowUpOn) : ''
   return [
     { label: 'Full name', value: caseName(item) },
     { label: 'Age', value: ageText(item) },
@@ -144,8 +149,9 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
     { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
-    { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
+    { label: 'Campaign', value: item.campaignId || answerCampaign ? (campaign?.name ?? answerCampaign ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
+    ...(followUp ? [{ label: 'Next follow-up', value: followUp }] : []),
     ...(item.operationalNotes !== undefined
       ? [{ label: 'Notes for the team', value: notes ? <span className="whitespace-pre-wrap break-words">{notes}</span> : 'None' }]
       : []),
@@ -257,4 +263,57 @@ export function nextStepText(item: OutreachCase, canLink: boolean): string {
 /** A case is waiting while its identity is unresolved; every other status is done here. */
 export function caseWaiting(item: OutreachCase) {
   return item.status === PENDING
+}
+
+/*
+ * Follow-up visits, member names and linking by Health ID (hid-system 0115): the words the page says only once the
+ * backend serves them (outreachVisitsServed.ts). Never a code, an ID or a kind as it is sent.
+ */
+
+/** A visit's kind in words. A kind with no word here is said as a visit, never printed as its code. */
+const VISIT_KIND: Readonly<Record<string, string>> = { visit: 'Visit', referral: 'Referral', follow_up: 'Follow-up' }
+export function visitKindText(kind: string): string {
+  return (Object.hasOwn(VISIT_KIND, kind) ? VISIT_KIND[kind] : undefined) ?? 'Visit'
+}
+
+/** A calendar day (YYYY-MM-DD) as "5 Nov 2026"; '' when it isn't one. */
+export function dayText(value: string | null | undefined): string {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? birthDateText(value) : ''
+}
+
+/** "Next follow-up 12 Nov 2026", or '' when none is set. */
+export function followUpText(value: string | null | undefined): string {
+  const day = dayText(value)
+  return day ? `Next follow-up ${day}` : ''
+}
+
+/** Today in Lagos as YYYY-MM-DD: the day Outreach takes as the latest a visit can have happened. */
+export function lagosToday(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+}
+
+/** The earliest day Outreach takes for a visit. */
+export const FIRST_VISIT_DAY = '2020-01-01'
+
+export const VISITS_NOT_LOADED = 'Visits and follow-ups could not be loaded. Try again.'
+export const VISIT_FAILED = 'The visit could not be saved. Please retry.'
+export const VISIT_CONFLICT = 'The visit could not be saved because something changed at the same time. Check the details and save it again.'
+/** The case is no longer there (removed, or out of this membership's reach). */
+export const CASE_GONE = 'This registration is no longer here. It may have been removed. Go back to the list.'
+export const VISIT_DAY_REQUIRED = 'Enter the date it happened.'
+export const VISIT_DAY_INVALID = 'Enter a valid date.'
+export const VISIT_DAY_FUTURE = 'The date can’t be later than today.'
+export const VISIT_DAY_TOO_EARLY = 'Enter a date from 1 Jan 2020 onwards.'
+export const FOLLOW_UP_AFTER = 'Choose a date after the date it happened, or leave this blank.'
+export const REFERRED_TO_LENGTH = 'Enter at least 2 characters, or leave this blank.'
+
+/** Linking by Health ID once served: the preview's and the link's refusals, in plain words. */
+export const HEALTH_ID_LIMIT = 'You’ve checked a lot of Health IDs in the last hour. Try again later.'
+export const LINK_ALREADY_DONE = 'This registration has already been linked or closed. The case has been read again.'
+export const LINK_CHANGED = 'Someone changed this registration just now. It has been read again: check it, then try again.'
+
+/** "Registered by Ada Obi", when the answer names who registered the case. */
+export function registeredByText(item: { createdBy?: { name?: unknown } | null }): string {
+  const name = typeof item.createdBy?.name === 'string' ? item.createdBy.name.trim() : ''
+  return name ? `Registered by ${name}` : ''
 }

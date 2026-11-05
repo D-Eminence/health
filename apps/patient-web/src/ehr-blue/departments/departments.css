@@ -889,6 +889,60 @@
   cursor: not-allowed;
 }
 
+/* Follow-up visits (hid-system 0115, shown once served): the section's list and its "Record a visit" form. */
+.hid-ehr .hid-ehr-dept-outreach-visits {
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-visits .hid-ehr-card-header {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-saved {
+  margin: 0;
+  color: var(--ehr-success-600);
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-visit-form {
+  margin: 0 0 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-outreach-visit-title {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-visit-day {
+  font-weight: 400;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-visit-line {
+  color: var(--ehr-text);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-visit-notes {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A registration card's next follow-up date. */
+.hid-ehr .hid-ehr-dept-outreach-follow-up {
+  color: var(--ehr-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 
 /* ---- Staff & access ---------------------------------------------------------- */
 

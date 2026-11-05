@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { ArrowRight, ChevronRight, CircleCheck, Megaphone, Search, UserPlus, Users } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
@@ -17,8 +17,10 @@ import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
   ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, nextStepText, PENDING, sexText, statusLabel, type MembersRead,
+  followUpText, NO_FACILITY, nextStepText, PENDING, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
+import type { OutreachCaseServed } from './outreachVisitsApi'
+import { learnOutreachVisitsServed, useOutreachVisitsServed } from './outreachVisitsServed'
 
 /** The design's list shows this many records a page. */
 const PAGE_SIZE = 50
@@ -52,6 +54,8 @@ export function Outreach() {
   const campaigns = useFacilityRead(facilityId, canReadCampaigns, useCallback((id: string) => staffApi.outreachCampaigns(id), []), CAMPAIGNS_NOT_LOADED)
   const cases = useFacilityRead(facilityId, canReadCases, useCallback((id: string) => staffApi.outreachCases(id), []), CASES_NOT_LOADED)
   const caseAttempt = useRef<CaseAttempt>(null)
+  // Whether the backend serves follow-up visits (0115): learned from the case answers themselves, sending nothing new.
+  useEffect(() => { learnOutreachVisitsServed(cases.value) }, [cases.value])
 
   // Each campaign's members, as read for it, by campaign.
   const [members, setMembers] = useState<ReadonlyMap<string, MembersRead>>(() => new Map())
@@ -111,6 +115,7 @@ export function Outreach() {
   const clearCreatedNote = useCallback(() => setCreatedNote(null), [])
   const refreshCases = cases.refresh
   const onCreated = useCallback((created: OutreachCase) => {
+    learnOutreachVisitsServed([created])
     if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
     void refreshCases()
     // Open the case made, as the design opens a saved record. The form keeps the user on it until the answer comes.
@@ -148,7 +153,7 @@ export function Outreach() {
     const item = listed ?? (view.created || !settled ? view.snapshot : null)
     content = item
       ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite}
-        created={view.created} listError={cases.error} onBack={() => backToList(`outreach-case-${item.id}-open`)}
+        canRead={canReadCases} created={view.created} listError={cases.error} onBack={() => backToList(`outreach-case-${item.id}-open`)}
         onNew={canWrite ? () => show({ kind: 'new' }) : undefined}
         onChanged={cases.refresh} onFocusHeading={focusHeadingIfLost} />
       : <RecordNotFound onBack={() => backToList()} />
@@ -328,6 +333,9 @@ function CaseCard({ item, campaign, canLink, onOpen }: {
   readonly onOpen: () => void
 }) {
   const waiting = caseWaiting(item)
+  // Once served, the card may say when the person is next due (never their phone number).
+  const served = useOutreachVisitsServed()
+  const followUp = served ? followUpText((item as OutreachCaseServed).nextFollowUpOn) : ''
   return (
     <li className="flex min-w-0 overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line">
       <button type="button" id={`outreach-case-${item.id}-open`} onClick={onOpen}
@@ -337,6 +345,7 @@ function CaseCard({ item, campaign, canLink, onOpen }: {
           <Badge size="sm" tone={caseTone(item.status)}>{statusLabel(item.status)}</Badge>
         </span>
         <span className="text-[14px] text-ink-2">{ageText(item)} · {sexText(item)}{campaign ? ` · ${campaign.name}` : ''}</span>
+        {followUp ? <span className="hid-ehr-dept-outreach-follow-up">{followUp}</span> : null}
         <span className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2 text-[13px]">
           <span className={waiting ? 'inline-flex items-center gap-1 font-medium text-brand-ink' : 'text-ink-3'}>
             {nextStepText(item, canLink)}{waiting && canLink ? <ArrowRight className="size-3.5" aria-hidden /> : null}
