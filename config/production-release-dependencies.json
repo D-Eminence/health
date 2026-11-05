@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. Backend release backend-41837350227-1-5b83bd31f00f8c03 (D-Eminence/hid-system#164 at f95ce97) rebuilt and redeployed all twelve services and the database migration: migrations 0104 (records-processing cover) and 0105 (document virus scanner fields; scan routes internal-only), and new Health IDs that mix letters and digits. Then backend release backend-41856305880-1-9171f44467b57341 (D-Eminence/hid-system#167 at f11c9ec) redeployed ehr-api and lab-api: the patient chat cites only its own sources and adds the server's \"Talk to your doctor\" lines, the chat source viewer answers 404 CHAT_SOURCE_UNAVAILABLE for a source it may not show, and the staff chat covers one patient per chat. So ehr-api and lab-api are pinned to f11c9ec and every other service to f95ce97. Browser-facing changes since the previous pins (34d6955): the document fields scanStatus and detected type, the new Health ID format, and the patient chat changes above; nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-04: \"approve re-pin\" (Q29), in reply to the plan to point the website at the backend as deployed after the patient chat safety release, which also releases website batch 4.",
+  "review_reference": "The services as deployed now. Backend release backend-41938240195-1-5c8cc7133d6817a3 (D-Eminence/hid-system#180 at 50089e9) rebuilt and redeployed all twelve services and the database migration, applying 0106 (the OCR worker's workload account, so the OCR worker can claim jobs). So every service is pinned to 50089e9. Browser-facing changes since the previous pins (f95ce97 and f11c9ec): none; between them the backend changed only migration 0106, its database test and the OCR worker README. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-05 (about 00:32 UTC): \"approve re-pin\", in reply to the plan to point the website at the backend as deployed after the 0106 release, which also releases the Document OCR screens (health#163) and the corrected AI chat notices (health#165).",
   "backend_commits": {
-    "gateway": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "identity-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "ehr-api": "f11c9ec992f1338923774918717e94dd887981be",
-    "lab-api": "f11c9ec992f1338923774918717e94dd887981be",
-    "pharmacy-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "ocr-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "outreach-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "support-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "notification-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108"
+    "gateway": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "identity-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "ehr-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "lab-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "pharmacy-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "ocr-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "outreach-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "support-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
+    "notification-api": "50089e90924f5bd3da07183853688a5c0b7fec19"
   }
 }
