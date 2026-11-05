@@ -84,13 +84,24 @@ function deletionProblem(cause: unknown, fallback: string) {
 
 /**
  * A deletion confirmation that did not go through (PPS-12). Refused (a 4xx answer), the account was not deleted, and
- * that is said first. With no answer, or a failure on Identity's side, it may have gone through: that is not claimed
- * either way, and the status read again after it shows a scheduled deletion if there is one.
+ * that is said first. With no answer, or a failure on Identity's side, it may have gone through: the status is read
+ * again, and the outcome taken from it (`afterLostConfirmation`).
  */
-function confirmationProblem(cause: unknown) {
-  const refused = isHidApiError(cause) && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && !isConnectionFailure(cause)
-  return refused ? `Your account wasn’t deleted. ${deletionProblem(cause, 'Please start again.')}`
-    : `We couldn’t confirm the deletion. ${deletionProblem(cause, 'Please check below, and start again if it isn’t scheduled.')}`
+function confirmationRefused(cause: unknown) {
+  return isHidApiError(cause) && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && !isConnectionFailure(cause)
+}
+const notDeleted = (cause: unknown) => `Your account wasn’t deleted. ${deletionProblem(cause, 'Please start again.')}`
+
+/**
+ * What to say once the status was read again after a confirmation with no clear answer: nothing alarming when a
+ * deletion is scheduled (its date says so), "wasn't deleted" when none is, and neither claim when the status could
+ * not be read (`undefined`) or is not served (`null`).
+ */
+function afterLostConfirmation(cause: unknown, after: AccountDeletionStatus | null | undefined) {
+  if (!after) return `We couldn’t confirm the deletion. ${deletionProblem(cause, 'Please check below, and start again if it isn’t scheduled.')}`
+  const request = after.request
+  if (request && (request.state === 'pending' || request.state === 'completed')) return null
+  return notDeleted(cause)
 }
 
 const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
@@ -559,10 +570,17 @@ export function AccountDeletionCard() {
       if (result.state === 'completed') { setCompleted(true); focusAfter(() => completedHeading.current) }
       else { await status.reload(); focusAfter(() => heading.current) }
     } catch (cause) {
-      setPending(null); setPhrase('')
-      setError(confirmationProblem(cause)); setSignInAgain(needsRecentSignIn(cause))
-      // The status read again says whether a deletion is scheduled, where the answer was lost.
-      await status.reload()
+      setPending(null); setPhrase(''); setSignInAgain(needsRecentSignIn(cause))
+      if (confirmationRefused(cause)) { setError(notDeleted(cause)); await status.reload() }
+      else {
+        // The answer was lost: the status read again says whether a deletion is scheduled, and the message follows it.
+        let after: AccountDeletionStatus | null | undefined
+        try { after = await load(); if (after) status.replace(after) } catch { after = undefined }
+        if (after?.request?.state === 'completed') { setCompleted(true); focusAfter(() => completedHeading.current); return }
+        setError(afterLostConfirmation(cause, after))
+        // Not read: the card's own read says so, with Try again.
+        if (after === undefined) await status.reload()
+      }
       focusAfter(() => heading.current)
     } finally { setWorking(null) }
   }

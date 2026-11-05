@@ -116,15 +116,22 @@ export function DeviceNotificationsCard() {
 
   // This browser's side, read once Identity offers push, and again when the patient comes back to the page (after
   // allowing notifications in the browser's site settings, for one).
+  // A read that fails (the module did not load, or the browser threw) ends the card's loading state: it says so, with
+  // Try again (`readAgain`), rather than loading for good (PPS-15).
+  const [deviceUnread, setDeviceUnread] = useState(false)
+  const readAgain = useRef<() => Promise<void>>(async () => {})
   useEffect(() => {
     if (!offered) return
     let current = true
-    const read = () => {
-      if (working.current) return
-      void loadDevice().then(readDevice).then(value => { if (current && !working.current) setReading(value) }, () => { /* stays as it was */ })
+    const read = (): Promise<void> => {
+      if (working.current) return Promise.resolve()
+      return loadDevice().then(readDevice).then(value => {
+        if (current && !working.current) { setReading(value); setDeviceUnread(false) }
+      }, () => { if (current) setDeviceUnread(true) })
     }
-    read()
-    const visible = () => { if (document.visibilityState === 'visible') read() }
+    readAgain.current = read
+    void read()
+    const visible = () => { if (document.visibilityState === 'visible') void read() }
     document.addEventListener('visibilitychange', visible)
     return () => { current = false; document.removeEventListener('visibilitychange', visible) }
   }, [offered])
@@ -171,8 +178,12 @@ export function DeviceNotificationsCard() {
   }, [data, reading, subscribe])
 
   const ready = served === true && data !== null && reading !== null
-  const unread = !ready && (failed || (unreadShown && (server.loading || (served === true && data !== null))))
+  // Once the card has said it could not load this setting, it stays whatever Try again comes to, so focus is not lost.
+  const unread = !ready && (failed || unreadShown || (offered && deviceUnread))
   if (!ready && !unread) return null
+  // Try again was answered 404 (or the like): not offered here, said in the card the patient was on.
+  const notOffered = !ready && !server.error && !server.loading && data === null
+  const browserUnread = !ready && !server.error && offered && deviceUnread
   const state = ready ? stateOf(data, reading) : null
   const on = state === 'on'
   const withSwitch = state === 'denied' || state === 'on' || state === 'off'
@@ -231,7 +242,11 @@ export function DeviceNotificationsCard() {
     {/* Its read failed (PPS-15): said, with Try again; while that reads, a loading line. */}
     {!ready && server.error && <LoadProblem what="this setting" error={server.error} buttonRef={retryFocus.button}
       onRetry={() => retryFocus.retry(server.reload)} name={<ItemName>loading notifications on this device</ItemName>} />}
-    {!ready && !server.error && <div className="-mx-5"><LoadingRows rows={1} label="Loading this setting" /></div>}
+    {browserUnread && <LoadProblem what="this setting" error="Health ID couldn’t read this browser’s notification setting. Please try again."
+      buttonRef={retryFocus.button} name={<ItemName>loading notifications on this device</ItemName>}
+      onRetry={() => { setDeviceUnread(false); retryFocus.retry(() => readAgain.current()) }} />}
+    {notOffered && <p className="m-0 text-[13px] text-ink-3">Health ID can’t send notifications to this device right now.</p>}
+    {!ready && !server.error && !notOffered && !browserUnread && <div className="-mx-5"><LoadingRows rows={1} label="Loading this setting" /></div>}
     {withSwitch && <p id="device-notifications-sign-out" className="m-0 text-[12px] text-ink-3">Signing out turns this off.</p>}
     {error && <Alert intent="error" size="sm">{error}</Alert>}
     <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>

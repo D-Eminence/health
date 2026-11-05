@@ -10,7 +10,9 @@ export const needsRecentSignIn = (cause: unknown): boolean => isHidApiError(caus
 /**
  * "Sign in again" (PPS-09), beside the refusal of a step that needs a sign-in within the last 10 minutes (the Access PIN,
  * a contact change, Delete account): it signs out and opens sign-in, with the part of the page to come back to in the
- * router state (`returnTo`: this page and `#at`), so a sign-in that honours it brings the patient back to the step.
+ * router state `{ from }` (this page and `#at`), which the patient sign-in reads to bring the patient back to the step
+ * (signInReturn.ts). It opens sign-in itself even when the route guard has already sent the signed-out patient there,
+ * without saying where from.
  * A sign-out that fails is said here, and the patient stays.
  */
 export function SignInAgain({ at }: { at: string }) {
@@ -24,7 +26,7 @@ export function SignInAgain({ at }: { at: string }) {
     setBusy(true); setProblem(null)
     try {
       await signOut()
-      navigate('/sign-in', { replace: true, state: { returnTo: `${pathname}#${at}` } })
+      navigate('/sign-in', { replace: true, state: { from: `${pathname}#${at}` } })
     } catch (cause) {
       setProblem(plainErrorText(cause, PLAIN.signOutFailed))
       setBusy(false)
