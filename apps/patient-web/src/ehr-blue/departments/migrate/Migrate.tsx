@@ -13,7 +13,7 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
-import { NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, claimsPaperReading, parsePaperReading } from './paperReading'
+import { NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, parsePaperReading } from './paperReading'
 import {
   ConfirmForm, FormRefusal, ReviewForm, ReviewPublication, UUID_V4, jobInProgress, jobStatusWords, statusTone, statusWords, type PublicationAttempt,
 } from './ocrSteps'
@@ -514,6 +514,7 @@ export function Migrate() {
     const notWhole = !reading && claimsPaperReading(extraction.structuredPayload)
     const fields = reading || notWhole ? [] : extractedFields(extraction.structuredPayload)
     return <DeptSection title="What was read" headingId="ocr-read-title" actions={reading ? <PaperReadingSummary reading={reading} /> : undefined}>
+      {reading && <PaperReadingWarnings reading={reading} />}
       {extraction.confidence != null && <p className="hid-ehr-dept-muted">{`Read with ${Math.round(extraction.confidence * 100)}% confidence. Check it against the document.`}</p>}
       {reading && <PaperReadingView reading={reading} />}
       {notWhole && <p role="note" className="hid-ehr-dept-muted">{NOT_WHOLE_WORDS}</p>}
