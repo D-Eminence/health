@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. Backend release backend-41837350227-1-5b83bd31f00f8c03 (D-Eminence/hid-system#164 at f95ce97) rebuilt and redeployed all twelve services and the database migration: migrations 0104 (records-processing cover) and 0105 (document virus scanner fields; scan routes internal-only), and new Health IDs that mix letters and digits. Then backend release backend-41856305880-1-9171f44467b57341 (D-Eminence/hid-system#167 at f11c9ec) redeployed ehr-api and lab-api: the patient chat cites only its own sources and adds the server's \"Talk to your doctor\" lines, the chat source viewer answers 404 CHAT_SOURCE_UNAVAILABLE for a source it may not show, and the staff chat covers one patient per chat. So ehr-api and lab-api are pinned to f11c9ec and every other service to f95ce97. Browser-facing changes since the previous pins (34d6955): the document fields scanStatus and detected type, the new Health ID format, and the patient chat changes above; nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-04: \"approve re-pin\" (Q29), in reply to the plan to point the website at the backend as deployed after the patient chat safety release, which also releases website batch 4.",
+  "review_reference": "The services as deployed now. ocr-api (and ocr-worker, not a website dependency) were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at f878102c for hid-system#194 (keep picture readings on handwriting whose scanned text is nonsense; PROMPT_VERSION 4 so the next Extract reads fresh). Every other service stays at 6aae042e, as deployed by the all-services release. Browser-facing change since 6aae042e: one new optional check reason in the paper reading (not_matched_to_scanned_text); the website shows unknown reasons as a plain fallback. Approved by the repository owner, D-Eminence, in chat on 2026-11-05: \"deploy it once you done\" (about 17:05 UTC) for this fix, under \"i approved everything thta needs my approval\" (about 14:10 UTC).",
   "backend_commits": {
-    "gateway": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "identity-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "ehr-api": "f11c9ec992f1338923774918717e94dd887981be",
-    "lab-api": "f11c9ec992f1338923774918717e94dd887981be",
-    "pharmacy-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "ocr-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "outreach-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "support-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108",
-    "notification-api": "f95ce979364a08c74541ae93ac3b6b5dc6214108"
+    "gateway": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "identity-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "ehr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "lab-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "pharmacy-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "ocr-api": "f878102cbf3229118cb88e018b7d8b1c3e0e7715",
+    "outreach-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "support-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "notification-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01"
   }
 }

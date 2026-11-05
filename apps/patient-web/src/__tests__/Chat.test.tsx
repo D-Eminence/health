@@ -78,7 +78,26 @@ it('asks for the notice first: no question is sent until it is accepted', async 
   const api = apiFor()
   render(<ChatConversation api={api} />)
   await ready(false)
-  expect(screen.getByText(/Anthropic/)).toBeTruthy()
+  const notice = screen.getByRole('heading', { name: 'Before you ask' }).parentElement!.textContent!
+  expect(notice).toContain('Anthropic, an outside company, writes the answer. It handles the data in the United States.')
+  expect(notice).toContain('Amazon Web Services')
+  expect(notice).toContain('in Ireland')
+  // Identifier removal is by pattern and only on some fields: the notice says "we try" and names what it misses.
+  expect(notice).toContain('we try to remove your name, date of birth, Health ID, email addresses, phone numbers, NIN, BVN')
+  expect(notice).toContain('only where we recognise them. Some can still be sent')
+  expect(notice).toContain('Nothing is removed from test results, or from the allergies, conditions and medicines in your health profile.')
+  expect(notice).toContain('Web links and the names of other people, such as staff, are not removed.')
+  // Everything the patient query sends: visits, tests ordered and the imported health profile included.
+  expect(notice).toContain('finished visits and their notes, confirmed diagnoses, medicines, tests ordered and their results')
+  expect(notice).toContain('imported history, the text of your documents, and your age and sex')
+  expect(notice).toContain('health profile: blood group, genotype, allergies, long-term conditions, medicines and notes')
+  // Sensitive conditions are left out only of diagnoses, medicines and tests.
+  expect(notice).toContain('Diagnoses, medicines and tests for sensitive conditions')
+  expect(notice).toContain('notes, documents, imported history and your health profile are still sent, even when they mention these conditions')
+  // Old rows are hidden after 30 days and deleted only on the next use: nothing deletes them on a schedule.
+  expect(notice).toContain('up to 50 exchanges. After 30 days they are no longer shown. They are deleted the next time you open the chat')
+  for (const gone of [/web links and long numbers are removed/i, /until you delete them/, /Claude/, /deleted after 30 days/,
+    /are not used/, /numbers are removed/]) expect(notice).not.toMatch(gone)
   fireEvent.change(asked(), { target: { value: 'A question' } })
   expect(send().disabled).toBe(true)
   fireEvent.keyDown(asked(), { key: 'Enter' })
