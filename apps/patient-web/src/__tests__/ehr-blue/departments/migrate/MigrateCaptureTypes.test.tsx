@@ -327,9 +327,15 @@ describe('Patient documents with types: once served', () => {
 
   it('hands a clean lab result to OCR by its document and patient, as any document', async () => {
     await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue({ id: 'j0000000-0000-4000-8000-000000000001', documentId: LAB_DOCUMENT, patientId: PATIENT,
+      provider: 'textract', version: 1, status: 'queued' })
+    api.ocrExtractions.mockResolvedValue({ items: [] })
+    api.ocrValidations.mockResolvedValue({ items: [] })
     await press(within(row('full-blood-count.jpg')).getByRole('button', { name: 'Extract with OCR' }))
-    expect(screen.getByRole('heading', { level: 1, name: 'New document job' })).toBeTruthy()
-    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(LAB_DOCUMENT)
-    expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
+    await screen.findByRole('heading', { name: 'Saved record' })
+    expect(screen.queryByRole('heading', { level: 1, name: 'New document job' })).toBeNull()
+    expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, LAB_DOCUMENT)
+    expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, LAB_DOCUMENT, PATIENT)
   })
 })
