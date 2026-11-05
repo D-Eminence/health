@@ -7,6 +7,8 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import type { OutreachCampaignMemberServed } from './outreachVisitsApi'
+import { useOutreachVisitsServed } from './outreachVisitsServed'
 import {
   campaignFacts, campaignStatusLabel, MEMBERS_NOT_LOADED, NO_ACTIONS,
   type MembersRead,
@@ -52,6 +54,10 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
   readonly onBack: () => void
 }) {
   const items = members?.items ?? null
+  // Once served (0115), a member is named by their staff name, when the answer gives one; "Team member" otherwise.
+  const served = useOutreachVisitsServed()
+  const memberName = (member: OutreachCampaignMemberServed) =>
+    (served && typeof member.displayName === 'string' ? member.displayName.trim() : '') || 'Team member'
   const loading = !members || (members.loading && !items)
   return (
     <DeptPage title={campaign.name} onBack={onBack}>
@@ -69,7 +75,7 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
             {(items ?? []).map(member => (
               <li key={member.id}>
                 <div className="hid-ehr-dept-row-main">
-                  <span className="hid-ehr-dept-row-title">Team member</span>
+                  <span className="hid-ehr-dept-row-title">{memberName(member)}</span>
                   <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
                 <EhrBadge>{roleWords(member.role)}</EhrBadge>

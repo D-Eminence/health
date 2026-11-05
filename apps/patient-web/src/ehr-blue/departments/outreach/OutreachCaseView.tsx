@@ -10,12 +10,17 @@ import { useFocusById } from '../../../staff/focus'
 import { DeptPage } from '../parts/DeptPage'
 import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
+import { refusedFields } from '../../../staff/fieldProblem'
 import { birthDateText, dateText } from '../parts/format'
 import {
-  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
-  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
-  OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
+  ageText, CASE_GONE, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
+  HEALTH_ID_LIMIT, HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_ALREADY_DONE, LINK_CHANGED,
+  LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED, OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, registeredByText, sexText,
+  statusLabel, type FieldErrors,
 } from './outreachParts'
+import { outreachVisitsApi, type OutreachCaseServed, type OutreachLinkPreview } from './outreachVisitsApi'
+import { learnOutreachVisitsServed, useOutreachVisitsServed } from './outreachVisitsServed'
+import { OutreachVisits } from './OutreachVisits'
 
 type LinkField = 'patient' | 'reason'
 
@@ -37,6 +42,34 @@ function lookupFieldText(caught: unknown): string | undefined {
   return undefined
 }
 
+/** Where a refused Health ID preview or link leaves the form (hid-system 0115): a field's words, or the form's. */
+type ServedRefusal = { field: Partial<Record<LinkField, string>> } | { form: string; readAgain: boolean; reread: boolean }
+
+/**
+ * A refusal of the Health ID preview (`preview`) or of the link by Health ID, in plain words. A case already resolved, a
+ * version gone stale, or a case gone is read again, so the next attempt is made against what is there now.
+ */
+function servedRefusal(caught: unknown, step: 'preview' | 'link'): ServedRefusal {
+  const fallback = step === 'preview' ? LOOKUP_FAILED : LINK_FAILED
+  if (!isHidApiError(caught)) return { form: errorText(caught, fallback), readAgain: false, reread: false }
+  const { status, code } = caught
+  if (status === 404 && code === 'OUTREACH_HEALTH_ID_NOT_FOUND') return { field: { patient: HEALTH_ID_NOT_FOUND } }
+  if (status === 404 && code === 'OUTREACH_REGISTRATION_NOT_FOUND') return { form: CASE_GONE, readAgain: false, reread: true }
+  if (status === 429) return { field: { patient: HEALTH_ID_LIMIT } }
+  if (status === 409) return { form: LINK_ALREADY_DONE, readAgain: false, reread: true }
+  if (status === 412) return { form: LINK_CHANGED, readAgain: false, reread: true }
+  if (status === 400 && code === 'VALIDATION_FAILED') {
+    const fields = refusedFields(caught).map(entry => entry.field)
+    if (fields.includes('reason')) return { field: { reason: REASON_LENGTH } }
+    return { field: { patient: HEALTH_ID_FORMAT } }
+  }
+  if (status === 403 && code === 'PERMISSION_DENIED') return { field: { patient: HEALTH_ID_ROLE } }
+  // Reading the record needs access; linking it needs a share for care, which a PIN never gives.
+  if (status === 403 && step === 'preview' && NO_ACCESS.has(code)) return { field: { patient: HEALTH_ID_NO_ACCESS } }
+  if (status === 403 && step === 'link' && NO_WRITE.has(code)) return { field: { patient: LINK_NEEDS_SHARE } }
+  return { form: errorText(caught, fallback), readAgain: step === 'link', reread: step === 'link' }
+}
+
 /** The person's name as Identity holds it, never their ID. */
 function personName(patient: PatientSummary) {
   return patient.fullName?.trim() || [patient.firstName, patient.lastName].filter(Boolean).join(' ').trim() || 'Name not recorded'
@@ -47,9 +80,11 @@ function personName(patient: PatientSummary) {
  * step is today's one action (link a verified existing patient, for a membership that may write registrations); once
  * linked, a done state with the way on.
  */
-export function OutreachCaseView({ facilityId, item, campaign, canLink, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
+export function OutreachCaseView({ facilityId, item, campaign, canLink, canRead = true, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
   readonly facilityId: string
   readonly item: OutreachCase
+  /** The membership may read registrations: the case's visits are listed (once served). */
+  readonly canRead?: boolean
   readonly campaign: OutreachCampaign | undefined
   readonly canLink: boolean
   /** Opened from the create form, which made this case. */
@@ -80,7 +115,14 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
   const offered = canLink && pending
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
+  /** The key of the last link by Health ID sent, kept for a repeat of the same link (a lost answer) and dropped once settled. */
+  const linkAttempt = useRef<{ body: string; key: string } | null>(null)
   const doneId = `outreach-case-${item.id}-done`
+  const served = useOutreachVisitsServed()
+
+  /** Who this registration is, as the confirm sheet shows it above the person found. */
+  const confirmSubject = () => <Card className="px-4 py-3"><p className="m-0 text-title-3 text-ink">{caseName(item)}</p>
+    <p className="m-0 text-caption text-ink-2">{ageText(item)} · {sexText(item)} · registered {dateText(item.createdAt)}</p></Card>
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -98,6 +140,10 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
     else if (reason.length < 8) errors.reason = REASON_LENGTH
     if (refuse(errors)) return
     clearProblems()
+    if (served) {
+      await linkByHealthId(hid, reason)
+      return
+    }
     // The person is looked up by their Health ID first: who they are is confirmed by name and date of birth, and only
     // the lookup's own answer names the record linked. Its ID is sent, never shown.
     setBusy(true)
@@ -122,8 +168,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
     asking.current = true
     let confirmed = false
     try {
-      confirmed = await ask({ title: 'Confirm the link', subject: <Card className="px-4 py-3"><p className="m-0 text-title-3 text-ink">{caseName(item)}</p>
-        <p className="m-0 text-caption text-ink-2">{ageText(item)} · {sexText(item)} · registered {dateText(item.createdAt)}</p></Card>,
+      confirmed = await ask({ title: 'Confirm the link', subject: confirmSubject(),
       effect: <>Link this registration to the Health ID record of <strong>{personName(patient)}</strong>,
         {' '}{born ? <>born <strong>{born}</strong></> : 'whose date of birth is not recorded'}? Check it is the same person.
         {' '}Health ID checked: <strong>{hid}</strong>.</>,
@@ -151,6 +196,71 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
     }
   }
 
+  /**
+   * Once 0115 is served: Outreach previews the person the Health ID names (name, date of birth, the Health ID's last
+   * four), says so plainly when the link would be refused, and links by the Health ID itself, looking it up again.
+   */
+  async function linkByHealthId(hid: string, reason: string) {
+    setBusy(true)
+    setChecking(true)
+    let preview: OutreachLinkPreview | undefined
+    try {
+      preview = await outreachVisitsApi.previewLink(facilityId, item.id, hid)
+    } catch (caught) {
+      await sayRefusal(servedRefusal(caught, 'preview'))
+    } finally {
+      setBusy(false)
+      setChecking(false)
+    }
+    if (!preview) return
+    // They can be viewed (a PIN, or a read-only share) but not linked: said before anyone tries, with no Link offered.
+    if (!preview.canLink) {
+      refuse({ patient: LINK_NEEDS_SHARE })
+      return
+    }
+    const name = preview.patient.fullName?.trim() || 'Name not recorded'
+    const born = birthDateText(preview.patient.dateOfBirth)
+    const last4 = preview.patient.healthIdLast4
+    asking.current = true
+    let confirmed = false
+    try {
+      confirmed = await ask({ title: 'Confirm the link', subject: confirmSubject(),
+      effect: <>Link this registration to the Health ID record of <strong>{name}</strong>,
+        {' '}{born ? <>born <strong>{born}</strong></> : 'whose date of birth is not recorded'}? Check it is the same person.
+        {last4 ? <>{' '}Their Health ID ends in <strong>{last4}</strong>.</> : null}</>,
+      confirmLabel: 'Link patient' })
+    } finally { asking.current = false }
+    if (!confirmed) return
+    setBusy(true)
+    setLinked(false)
+    const body = JSON.stringify([item.id, hid, reason, item.rowVersion])
+    const key = linkAttempt.current?.body === body ? linkAttempt.current.key : crypto.randomUUID()
+    linkAttempt.current = { body, key }
+    try {
+      const answer = await outreachVisitsApi.linkByHealthId(facilityId, item, hid, reason, key)
+      linkAttempt.current = null
+      learnOutreachVisitsServed([answer])
+      setLinked(true)
+      setOpen(false)
+      focus(doneId)
+      await onChanged()
+      onFocusHeading()
+    } catch (caught) {
+      // Settled by the refusal: the case is read again, and a new attempt is a new link.
+      if (isHidApiError(caught) && (caught.status === 409 || caught.status === 412)) linkAttempt.current = null
+      await sayRefusal(servedRefusal(caught, 'link'), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Says a refusal of the preview or link by Health ID; reads the case again when it asks to (always, after a link). */
+  async function sayRefusal(refusal: ServedRefusal, afterLink = false) {
+    if ('field' in refusal) refuse(refusal.field)
+    else { setError(refusal.form); setReadAgain(refusal.readAgain) }
+    if (afterLink || ('reread' in refusal && refusal.reread)) await onChanged()
+  }
+
   /** Marks the refused fields, focus on the first (or an alert there, when focus is in it already). True when any was refused. */
   function refuse(errors: Partial<Record<LinkField, string>>): boolean {
     const first = errors.patient ? 'patient' : errors.reason ? 'reason' : undefined
@@ -168,7 +278,10 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
   const back = () => { if (!busy) onBack() }
-  const facts = caseFacts(item, campaign)
+  const facts = caseFacts(item, campaign, served)
+  // Once served: who registered the case, and its campaign by name (the answer's own, for a membership that can't read campaigns).
+  const registeredBy = served ? registeredByText(item as OutreachCaseServed) : ''
+  const campaignName = served ? (campaign?.name ?? (item as OutreachCaseServed).campaignName?.trim()) || '' : ''
 
   // The one next step, or the done state.
   let nextStep
@@ -234,6 +347,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
           <Badge tone={linked ? 'success' : caseTone(item.status)}>{linked ? 'Linked' : statusLabel(item.status)}</Badge>
           <span>{ageText(item)} · {sexText(item)}</span>
           <span className="text-ink-3">Registered {dateText(item.createdAt)}</span>
+          {registeredBy ? <span>{registeredBy}</span> : null}
+          {campaignName ? <span>{campaignName}</span> : null}
         </div>
         <ErrorBox message={listError} />
         {/* Mounted throughout, so what was recorded is announced. */}
@@ -254,6 +369,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
             </Card>
           </div>
         </div>
+        {served && (canRead || canLink) ? <OutreachVisits facilityId={facilityId} caseId={item.id} canRead={canRead} canWrite={canLink} onCaseChanged={onChanged} /> : null}
         {onNew && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={onNew}>Register another person</Button> : null}
       </div>
       {sheet}

@@ -101,6 +101,13 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
+/**
+ * Outreach follow-up visits, member names and linking by Health ID (hid-system 0115 on `staging-novu-ci-20261005`, behind
+ * OUTREACH_VISITS_ENABLED, default off). Off, each route answers a plain 404 NOT_FOUND; the page uses them only once a
+ * case answer carries `visitCount`, and sends today's requests until then.
+ */
+const OUTREACH_VISITS_NOTE = 'Served by hid-system staging-novu-ci-20261005 from migration 0115 behind OUTREACH_VISITS_ENABLED; not served by '
+  + 'hid-system main, and answers 404 NOT_FOUND while the switch is off. POST visits takes Idempotency-Key; the Health ID goes in the body.'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
@@ -997,6 +1004,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
+  // Follow-up visits and linking by Health ID (hid-system 0115, behind OUTREACH_VISITS_ENABLED): proposed until served.
+  proposed(r('outreach.caseVisits','outreach','/api/v1/outreach/registration-cases/:caseId/visits',GP,false,
+    {GET:['outreach.registration.read'],POST:['outreach.registration.write']},OUTREACH_VISITS_NOTE)),
+  proposed(r('outreach.linkPreview','outreach','/api/v1/outreach/registration-cases/:caseId/link-preview',P,false,
+    one('POST','outreach.registration.write'),OUTREACH_VISITS_NOTE)),
 
   r('commercial.pricing','commercial','/api/v1/commercial/pricing',G,true),
   r('commercial.demo','commercial','/api/v1/commercial/demo-requests',P,true),
