@@ -14,6 +14,7 @@ import { ItemName } from '../ItemName'
 import { usePatientResource } from './usePatientResource'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { useActionFocus, useRetryFocus } from './actionFocus'
+import { focusLost } from '../pageFocus'
 import { ProfileSection } from './ProfileSection'
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, Select } from '../kasuwa/ui'
 import { LoadingRows } from '../kasuwa/parts'
@@ -250,7 +251,8 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
   const card = usePatientResource(source.load, 'emergency-contacts')
   const [running, setRunning] = useState<Running | null>(null)
   const busy = running !== null
-  const [error, setError] = useState<{ message: string; at: Place } | null>(null)
+  // `alert`: focus was still on a control when the refusal came (Enter in a field), so it will not move and the words are read out.
+  const [error, setError] = useState<{ message: string; at: Place; alert: boolean } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // The code just refused: its boxes are marked until changed (HE-10); an expired one offers a new code in its form (HE-01).
   const [codeInvalid, setCodeInvalid] = useState(false)
@@ -294,7 +296,7 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
     let target: Find = toHeading
     try { target = (await action()) ?? toHeading } catch (cause) {
       const refusal = refused(cause)
-      setError({ message: refusal.message, at: refusal.at ?? 'top' }); target = refusal.focus
+      setError({ message: refusal.message, at: refusal.at ?? 'top', alert: !focusLost() }); target = refusal.focus
       if (refusal.read === 'availability') source.forget()
       if (refusal.read) await card.reload()
     } finally { setRunning(null); focusAfter(target) }
@@ -533,13 +535,14 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
             onChange={event => { setDraft({ ...draft, channel: event.target.value as EmergencyContactChannel, destination: '' }); if (destinationInvalid) setError(null) }}>
             {channels.map(value => <option key={value} value={value}>{CHANNEL_LABELS[value]}</option>)}</Select></Field>}
           <Field label={channel === 'sms' ? 'Phone number' : 'Email address'} htmlFor="contact-destination"
-            hintId={channel === 'sms' ? 'contact-destination-hint' : undefined} hint={channel === 'sms' ? 'Like 0803 123 4567 or +234 803 123 4567.' : undefined}
-            errorId="contact-destination-error" error={destinationInvalid ? error?.message : undefined}>
+            hintId={channel === 'sms' ? 'contact-destination-hint' : undefined} hint={channel === 'sms' ? 'Like 0803 123 4567 or +234 803 123 4567.' : undefined}>
             <Input id="contact-destination" required minLength={5} maxLength={254} autoComplete="off"
               type={channel === 'sms' ? 'tel' : 'email'} inputMode={channel === 'sms' ? 'tel' : 'email'} value={draft.destination}
               onChange={event => { setDraft({ ...draft, destination: event.target.value }); if (destinationInvalid) setError(null) }}
               aria-invalid={destinationInvalid || undefined}
-              aria-describedby={destinationInvalid ? 'contact-destination-error' : describedBy(channel === 'sms' && 'contact-destination-hint')} /></Field>
+              aria-describedby={describedBy(destinationInvalid && 'contact-destination-error', channel === 'sms' && 'contact-destination-hint')} />
+            {/* After Enter in this box focus stays here and a new description alone is not read, so it is then an alert. The example stays below. */}
+            {destinationInvalid && <p id="contact-destination-error" role={error?.alert ? 'alert' : undefined} className="m-0 text-xs font-medium text-danger-ink">{error?.message}</p>}</Field>
           {notifyBox(draft.notifyOnEmergencyAccess, next => setDraft({ ...draft, notifyOnEmergencyAccess: next }))}
           {problemAt('add')}
           <Actions><Button type="submit" variant="primary" loading={running === 'add'}
