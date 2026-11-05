@@ -2817,3 +2817,27 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-04: IDs on screen (patient app and staff screens)
+
+- Owner rule: screens show a Health ID and lab sample or accession numbers, and
+  no other ids, codes or permission names. Fixed in words:
+  - Patients (classic staff): sending an access request says "Access request
+    sent. The patient must approve it before records are available.", not the
+    request id and the server's status word.
+  - Access request lists (classic and blue) and lab and pharmacy work show a
+    patient the server has not named as "Patient (name not shown)", not the
+    last characters of their record id.
+  - Outreach (classic and blue): a case without its id, its temporary record as
+    "made" instead of its id, and campaign members by role ("(you)" for the
+    reader) instead of a membership id.
+  - Patient Records: lab tests and medicines say their status in words
+    (`labRequestStatusLabel`, `medicineStatusLabel` in `plainLabels.ts`).
+- Tests render fictional UUIDs and assert they, and any part of them, are absent.
+- Left for the owner (not changed): the order and share-invitation references
+  staff and patients read to each other (8 to 16 characters), the staff
+  invitation reference, the Registration ID used to continue a registration,
+  the Document OCR screens that find a job by document id, the outreach
+  "Patient ID" field, a diagnosis code shown when a patient opens a diagnosis,
+  the design sample workspaces (their names come from demo data), and the
+  platform admin site (correlation ids for support work).
