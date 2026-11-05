@@ -50,3 +50,34 @@ export function unreadPaper(status: string) {
   const payload = paperReading()
   return { ...payload, items: [], reading: { ...payload.reading, status, itemCount: 0 } }
 }
+
+/** The flagReasons codes the worker writes (FLAG_REASONS in its contract), in the order it writes them. */
+export const FLAG_REASONS = ['low_confidence', 'handwriting', 'many_dropped', 'ai_unsure', 'possible_missed_item', 'ai_declined'] as const
+
+/**
+ * A handwritten page of six medicine lines of which one item was picked out, as the worker writes it: the page is
+ * flagged for its handwriting, a dropped suggestion and lines no item cites.
+ */
+export function handwrittenPage() {
+  const lines = [1, 2, 3, 4, 5, 6].map(n => ({ id: `p1-l${n}`, text: `line ${n}`, box, confidence: n === 2 ? 0.81 : 0.42, handwritten: true }))
+  const item = { ...base('it-00000000000000a3', 1, 2), ...careful('The dose and how often were hard to read.', 'handwritten'), kind: 'medicine',
+    asWritten: 'Ceftriaxone ? IV', plain: 'Possibly ceftriaxone IV; dose and frequency unreadable',
+    fields: { name: 'Ceftriaxone', strength: null, form: null, route: 'into a vein', frequency: null, duration: null, status: 'unknown' } }
+  const payload = paperReading()
+  return {
+    ...payload,
+    pages: [{ page: 1, flagged: true, flagReasons: ['handwriting', 'many_dropped', 'possible_missed_item'], lines }],
+    identity: { nameAsWritten: null, dateOfBirthAsWritten: null, folderNumberAsWritten: null, sexAsWritten: null, lineIds: [], box: null },
+    items: [item],
+    reading: { ...payload.reading, rereadModel: 'second', rereadPages: [1], droppedUngrounded: 1, itemCount: 1 },
+  }
+}
+
+/** The fixture's pages with the given pages flagged for the given reasons. */
+export function flagged(flags: Record<number, readonly string[]>, overrides: Record<string, unknown> = {}) {
+  const payload = paperReading(overrides)
+  return { ...payload, pages: payload.pages.map(page => {
+    const reasons = flags[page.page] ?? []
+    return { ...page, flagged: reasons.length > 0, flagReasons: [...reasons] }
+  }) }
+}

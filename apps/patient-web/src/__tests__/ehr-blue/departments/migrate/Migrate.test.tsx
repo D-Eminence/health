@@ -6,7 +6,7 @@ import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
-import { paperReading, unreadPaper } from './paperReadingPayload'
+import { handwrittenPage, paperReading, unreadPaper } from './paperReadingPayload'
 
 /**
  * The blue Migrate page: today's Document OCR flow (staff/routes/Operations.tsx Ocr) in the design's list, new and
@@ -917,6 +917,22 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(within(read).queryByText('Contract')).toBeNull()
     expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Amlodipine 5mg od')
     expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+  })
+
+  it('warns first when the page may not be fully read, and never says the count is complete', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Ceftriaxone ? IV', structuredPayload: handwrittenPage() }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('1 item read so far — the page needs a full check · 1 needs a careful check')).toBeTruthy()
+    expect(within(read).queryByText('1 item read · 1 needs a careful check')).toBeNull()
+    const warning = within(read).getByText('Page 1 may not be fully read. Check the whole page against the paper and enter anything missing by hand.')
+    expect(within(read).getByText('Why: handwriting that is hard to read; some things the reader suggested could not be found on the page; some lines may have been missed.')).toBeTruthy()
+    expect(within(read).getByText('Some things the reader suggested were left out because they could not be found on the page.')).toBeTruthy()
+    // Above who the paper is about and the items.
+    const items = within(read).getByRole('region', { name: 'Medicines' })
+    expect(warning.compareDocumentPosition(within(read).getByText('Who the paper is about')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(warning.compareDocumentPosition(items) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    for (const code of ['many_dropped', 'possible_missed_item']) expect(read.textContent).not.toContain(code)
   })
 
   it('says plainly when the items could not be picked out, and still shows the text', async () => {
