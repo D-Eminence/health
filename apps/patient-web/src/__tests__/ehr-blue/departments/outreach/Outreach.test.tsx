@@ -359,7 +359,7 @@ describe('the list', () => {
     const saved = cardOf(screen.getByRole('heading', { name: 'Registration' }))
     // Its temporary patient ID (tmp_ and a UUID) is no number anyone uses, so no screen shows it (owner's answer on IDs).
     expect(within(saved).queryByText('Temporary patient ID')).toBeNull()
-    expect(document.body.textContent).not.toContain('c0000000-0000-4000-8000-000000000001')
+    expect(document.body.textContent).not.toMatch(/tmp_|c0000000-0000-4000-8000-000000000001/)
     // The campaign the case was registered under, by name.
     expect(within(saved).getByText('Demo screening week')).toBeTruthy()
   })
