@@ -5,6 +5,7 @@ import './chat.css'
 import { ChatAnswer } from '../ChatAnswer'
 import { askFailure, clearFailure } from '../chatErrors'
 import { CHAT_NOTICE_ACCEPT, CHAT_NOTICE_PARAGRAPHS, CHAT_NOTICE_TITLE } from '../chatNotice'
+import { ConfirmSheet } from '../kasuwa/parts'
 
 const suggestions = [
   { title: 'Summarise my history', detail: 'History and recent events', question: 'Summarise my medical history and important recent recorded events.' },
@@ -54,6 +55,9 @@ export function ChatConversation({ api }: { api: ChatConversationApi }) {
   const [historyAttempt, setHistoryAttempt] = useState(0)
   const [historyError, setHistoryError] = useState('')
   const [resetting, setResetting] = useState(false)
+  // New conversation deletes the saved one for good, so it is asked first (RN-16).
+  const [confirming, setConfirming] = useState(false)
+  const resetButton = useRef<HTMLButtonElement>(null)
   // The notice is accepted for this visit only: nothing about it is kept in the browser.
   const [accepted, setAccepted] = useState(false)
   const flight = useRef<AbortController | null>(null)
@@ -160,8 +164,11 @@ export function ChatConversation({ api }: { api: ChatConversationApi }) {
     <header className="record-chat-page-header">
       <div><p className="patient-eyebrow">Your record assistant</p><h1 id="record-chat-title" className="patient-page-title">Ask about your records</h1>
         <p className="patient-page-copy">A little clarity, from the records released to you.</p></div>
-      <button type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading' || (exchanges.length === 0 && !busy)} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
+      <button ref={resetButton} type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading' || (exchanges.length === 0 && !busy)} onClick={() => setConfirming(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
     </header>
+    <ConfirmSheet open={confirming} onClose={() => { setConfirming(false); resetButton.current?.focus() }} title="Delete this conversation?"
+      effect="Your saved questions and answers are deleted, and a new conversation starts." undo="This can’t be undone." confirmLabel="Delete" destructive
+      onConfirm={() => { setConfirming(false); void reset() }} />
     <div className="record-chat-panel">
       <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>Uses the records released to your patient account</p></div><span className="record-chat-private">Private to your account</span></header>
       {availability.status === 'loading' && <div className="record-chat-coverage"><p role="status">Checking whether record chat is available…</p></div>}

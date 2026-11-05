@@ -403,8 +403,10 @@ function RecordRow({ record, onOpen }: { record: OpenRecord; onOpen: (record: Op
 }
 
 /** A section's card: its rows under their day, newest first, or why there are none. */
-function SectionCard<S extends RecordSection>({ data, section, none, query, row }: {
+function SectionCard<S extends RecordSection>({ data, section, none, query, row, quietNoMatch = false }: {
   data: PatientRecords; section: S; none: string; query: string; row: (item: Row<S>) => ReactNode
+  /** The page already says nothing matches the search, with Clear search (RN-19): no second line here. */
+  quietNoMatch?: boolean
 }) {
   const all = data[section] as Array<Row<S>>
   const shown = sectionMatches(data, section, query)
@@ -413,7 +415,7 @@ function SectionCard<S extends RecordSection>({ data, section, none, query, row 
     <CardHeader as="h2" title={ui.title} icon={ui.icon} iconTone="brand"
       description={query.trim() && all.length > 0 ? `${shown.length} of ${all.length} match` : undefined} />
     {all.length === 0 ? <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">{emptyText(data, section, none)}</p>
-      : shown.length === 0 ? <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">None match your search.</p>
+      : shown.length === 0 ? (quietNoMatch ? null : <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">None match your search.</p>)
       : groupByDay(shown, DATED[section]).map(group => <div key={group.day ?? 'undated'} className="border-t border-line">
         <h3 className="m-0 bg-subtle px-5 py-2 text-overline text-ink-3">{group.label}</h3>
         <ul className="m-0 list-none divide-y divide-line p-0">{group.items.map(row)}</ul></div>)}
@@ -623,6 +625,10 @@ export function RecordsPage() {
   const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
   const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
     matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
+  // What the open tab's search finds: on one record type, only that type (RN-19). The rest match on other tabs.
+  const tabMatched = tab === 'all' ? matched : ready && searching ? sectionMatches(ready, tab, query).length : 0
+  const elsewhere = tab === 'all' ? 0 : matched - tabMatched
+  const noMatch = searching && tabMatched === 0
   // On All, a section with nothing in it (or nothing that matches) is left out: its tab still says 0.
   const visible = ready ? sectionsShown().filter(section => tab === section
     || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
@@ -663,13 +669,13 @@ export function RecordsPage() {
       {sectionsShown().length > 1 && <FilterTabs label="Record type" value={tab} onChange={setTab}
         options={[{ value: 'all' as const, label: 'All' }, ...sectionsShown().map(section => ({ value: section, label: SECTION_UI[section].tab, count: count(section) }))]} />}
     </div>}
-    {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} />}
+    {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} quietNoMatch={noMatch} />}
     {ready && <>
       {/* Only for a patient who has older records: one who never had an old account is not told of it (RN-07). */}
       {tab === 'all' && (ready.importedRecords?.length ?? 0) > 0 && <ImportedHistory records={ready.importedRecords ?? []} query={query} groupedByDay
-        limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
+        limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} quietNoMatch={noMatch} />}
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
-      {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
+      {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query} quietNoMatch={noMatch}
         row={rows[section] as (item: Row<typeof section>) => ReactNode} />)}
     </>}
     {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
@@ -678,11 +684,13 @@ export function RecordsPage() {
       loading={records.loading} reload={records.reload} pageHeading={heading} />}
     {ready && <>
       {/* A search that finds nothing anywhere, older records included, says so with a way back (RN-19). */}
-      {(searching ? matched === 0 : visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0) && <EmptyState icon={searching ? Search : FolderHeart}
-        title={searching ? 'Nothing matches' : 'No records yet'}
-        description={searching ? searchHint()
+      {/* On one record type, only that type counts; when others match, it says so and offers them (RN-19). */}
+      {(searching ? noMatch : visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0) && <EmptyState icon={searching ? Search : FolderHeart}
+        title={searching ? (elsewhere > 0 ? 'Nothing matches here' : 'Nothing matches') : 'No records yet'}
+        description={searching ? (elsewhere > 0 ? `${elsewhere === 1 ? '1 record' : `${elsewhere} records`} of another type ${elsewhere === 1 ? 'matches' : 'match'} your search.` : searchHint())
           : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
-        action={searching ? <Button onClick={clearSearch}>Clear search</Button>
+        action={searching ? <div className="flex flex-wrap gap-2">{elsewhere > 0 && <Button variant="primary" onClick={() => { setTab('all'); searchField.current?.focus() }}>Show all record types</Button>}
+          <Button onClick={clearSearch}>Clear search</Button></div>
           : ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
@@ -1043,8 +1051,12 @@ function ImportedNotificationsCard() {
   // Each problem beside the control that failed (RN-12): `at` is a row's id, or 'older' for Show older.
   const [error, setError] = useState<{ at: string; text: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // After Try again finds no old account, the card is gone: a quiet line takes the keyboard instead (RN-22).
+  const noneLine = useRef<HTMLParagraphElement>(null)
+  const [retried, setRetried] = useState(false)
   const focusAfter = useActionFocus()
-  const retryFocus = useRetryFocus(heading)
+  const retryTarget = useMemo(() => ({ get current(): HTMLElement | null { return heading.current ?? noneLine.current } }), [])
+  const retryFocus = useRetryFocus(retryTarget)
 
   const seen = new Set<string>()
   const items = [...first.data ?? [], ...older].filter(item => !seen.has(item.id) && (seen.add(item.id), true))
@@ -1052,9 +1064,10 @@ function ImportedNotificationsCard() {
   // Until a read has listed some, nothing says the patient had an old account (RN-22): a first read that fails is said
   // as "if you had one", with Try again, and no card.
   if (first.error && first.data === null) return <Alert intent="error" size="sm" title="If you had an old Health ID account, its notifications couldn’t be loaded."
-    action={<button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(first.reload)} className={buttonClass({ size: 'sm' })}>
+    action={<button ref={retryFocus.button} type="button" onClick={() => { setRetried(true); retryFocus.retry(first.reload) }} className={buttonClass({ size: 'sm' })}>
       <RotateCcw className="size-3.5" aria-hidden />Try again</button>}>{first.error}</Alert>
-  if (first.error === null && items.length === 0) return null
+  if (first.error === null && items.length === 0) return retried && first.data !== null
+    ? <p ref={noneLine} tabIndex={-1} role="status" className="m-0 text-[13px] text-ink-3">No notifications from an old account.</p> : null
   // A full page may have more after it.
   const more = !olderEnd && (older.length > 0 ? older.length % IMPORTED_NOTIFICATIONS_PAGE === 0
     : (first.data?.length ?? 0) === IMPORTED_NOTIFICATIONS_PAGE)

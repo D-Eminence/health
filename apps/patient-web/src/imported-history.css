@@ -22,5 +22,5 @@
 .imported-history-card li > span { display: block; margin-block: .3rem; }
 .imported-history-file > [role='alert'] { flex-basis: 100%; }
 /* Previous versions: a target at least 44px tall (RN-21). */
-.imported-history-card summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--color-brand-ink); font-weight: 600; }
+.imported-history-card summary { display: list-item; box-sizing: border-box; min-height: 44px; padding-block: 10px; cursor: pointer; color: var(--color-brand-ink); font-weight: 600; }
 .imported-history-card summary:focus-visible { outline: 3px solid var(--color-brand); outline-offset: 3px; }

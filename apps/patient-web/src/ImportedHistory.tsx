@@ -76,7 +76,7 @@ function VersionContent({ version, level }: { version: ImportedRecordVersion; le
   })}</div>
 }
 
-export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false, query = '', groupedByDay = false }: {
+export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false, query = '', groupedByDay = false, quietNoMatch = false }: {
   records: ImportedMedicalRecord[]; limit: number
   /** Read a page at a time (hid-system main): the footer counts what is shown rather than naming a limit. */
   paged?: boolean
@@ -86,6 +86,8 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
   query?: string
   /** Under day headings, newest day first, as the patient's records page lists them. */
   groupedByDay?: boolean
+  /** The page already says nothing matches the search (RN-19), so no second "no match" line is added here. */
+  quietNoMatch?: boolean
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   // A failure is said beside the file it is about (RN-05), not at the top of the section, out of view.
@@ -148,7 +150,7 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
     <h2>Older health records</h2>
     <p>From the old Health ID system.</p>
     {records.length === 0 ? <p>No older records.</p>
-      : shown.length === 0 ? <p>No older records match your search.</p>
+      : shown.length === 0 ? (quietNoMatch ? null : <p>No older records match your search.</p>)
       : groupedByDay ? byDay(shown, record => record.createdAt).map(group => <div className="imported-history-day" key={group.day ?? 'undated'}>
         <h3 className="m-0 rounded-md bg-subtle px-3 py-2 text-overline text-ink-3">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
       : <div className="imported-history-list">{shown.map(card)}</div>}
