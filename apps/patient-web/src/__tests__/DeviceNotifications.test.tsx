@@ -23,10 +23,12 @@ const fake = vi.hoisted(() => ({
   permission: 'default' as NotificationPermission,
   subscription: null as BrowserPushSubscription | null,
   calls: [] as string[],
+  /** This browser's side cannot be read (the module failed to load, or the browser threw). */
+  unreadable: false,
   turnOn: (async () => ({ outcome: 'dismissed' })) as (options: { applicationServerKey: string; keyId: string }) => Promise<TurnOnResult>,
 }))
 vi.mock('../pushDevice', () => ({
-  support: () => { fake.calls.push('support'); return fake.support },
+  support: () => { fake.calls.push('support'); if (fake.unreadable) throw new Error('unreadable'); return fake.support },
   permission: () => fake.permission,
   browserSubscription: async () => fake.subscription,
   turnOn: (options: { applicationServerKey: string; keyId: string }) => { fake.calls.push(`turnOn ${options.keyId}`); return fake.turnOn(options) },
@@ -77,7 +79,7 @@ const alertSaying = async (text: string) => (await screen.findByText(text)).clos
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = []
 beforeEach(() => {
   forgetWebPushServed()
-  Object.assign(fake, { support: 'supported', permission: 'default', subscription: null, calls: [],
+  Object.assign(fake, { support: 'supported', permission: 'default', subscription: null, calls: [], unreadable: false,
     turnOn: async () => ({ outcome: 'dismissed' }) })
   consoleSpies = (['log', 'info', 'warn', 'error', 'debug'] as const).map(method => vi.spyOn(globalThis.console, method))
 })
@@ -142,6 +144,38 @@ describe('Notifications on this device, when Identity could not be read (PPS-15)
     expect(await screen.findByRole('switch', { name: HEADING })).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: HEADING })))
     expect(fake.calls).toContain('support')
+  })
+})
+
+describe('Notifications on this device, after Try again (PPS-15)', () => {
+  it('says the setting is not offered when Try again is answered 404, with focus on its heading, never vanishing', async () => {
+    let fail = true
+    page(() => fail ? problem(500, 'INTERNAL', 'Push settings are broken') : problem(404, 'NOT_FOUND', 'Cannot GET'))
+    expect(await ready()).toBeTruthy()
+    const heading = await screen.findByRole('heading', { name: HEADING })
+    const card = heading.closest('[data-setting]') as HTMLElement
+    fail = false
+    await press(within(card).getByRole('button', { name: /^Try again/ }))
+    expect(await within(card).findByText('Health ID can’t send notifications to this device right now.')).toBeTruthy()
+    expect(within(card).queryByText('Loading this setting')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: HEADING })))
+  })
+
+  it('does not stay loading when this browser\'s side cannot be read: it says so, and Try again reads it again', async () => {
+    let fail = true
+    page(() => fail ? problem(500, 'INTERNAL', 'Push settings are broken') : json(pushState()))
+    expect(await ready()).toBeTruthy()
+    const card = (await screen.findByRole('heading', { name: HEADING })).closest('[data-setting]') as HTMLElement
+    fail = false
+    fake.unreadable = true
+    await press(within(card).getByRole('button', { name: /^Try again/ }))
+    const shown = await within(card).findByRole('alert')
+    expect(shown.textContent).toContain('Health ID couldn’t read this browser’s notification setting.')
+    expect(within(card).queryByText('Loading this setting')).toBeNull()
+    fake.unreadable = false
+    await press(within(card).getByRole('button', { name: /^Try again/ }))
+    expect(await screen.findByRole('switch', { name: HEADING })).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: HEADING })))
   })
 })
 

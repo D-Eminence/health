@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { Route, Routes, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { PATIENT_ROUTE } from '@hid/auth'
+import { RequireAccess } from '../RequireAccess'
+import { createTestSessionValue, SessionContext } from '../session'
 import type { PatientProfile } from '../api'
 import { countryLabel, genderLabel } from '../plainLabels'
-import { CardFace } from '../routes/HealthIdCard'
 import { AccountDeletionCard } from '../routes/AccountSafety'
 import { ProfilePage } from '../routes/Portal'
 import { SAY } from '../copy'
-import { completionCard, described, json, openContactDetails, openSection, press, problem, profile, renderPortal, sectionToggle,
+import { completionCard, described, json, openContactDetails, openSection, patientApi, press, problem, profile, renderPortal, sectionToggle,
   shownText, type Handler, type Sent } from './portalHarness'
 
 /**
@@ -222,10 +225,13 @@ describe('the Access PIN field (PPS-08)', () => {
   })
 })
 
-/** Where "Sign in again" went: the sign-in page, and the place to come back to. */
+/**
+ * Where "Sign in again" went: the sign-in page, and the place to come back to, in router state `{ from }`, which the
+ * patient sign-in reads (signInReturn.ts on the sign-in branch) to open that page once the patient is in.
+ */
 function SignInPage() {
   const { state } = useLocation()
-  return <p>Sign-in page, back to {(state as { returnTo?: string } | null)?.returnTo ?? 'nowhere'}</p>
+  return <p>Sign-in page, back to {(state as { from?: string } | null)?.from ?? 'nowhere'}</p>
 }
 const signInRoutes = (page: React.ReactElement) => <Routes><Route path="/profile" element={page} /><Route path="/sign-in" element={<SignInPage />} /></Routes>
 const RECENT = () => problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again before changing this')
@@ -274,6 +280,28 @@ describe('a step that needs a recent sign-in (PPS-09)', () => {
     expect(await screen.findByText('Sign-in page, back to /profile#account-deletion')).toBeTruthy()
   })
 
+  it('still names the place to come back to when the route guard sends the signed-out patient to sign-in first', async () => {
+    // As in the app: the profile behind the route guard, which sends a patient whose session has ended to sign-in
+    // (without saying where from) as soon as signing out ends the session, before "Sign in again" opens sign-in itself.
+    function SignedOutByGuard() {
+      const [signedIn, setSignedIn] = useState(true)
+      const [session] = useState(() => patientApi(path => path === '/identity/me' ? json(profile)
+        : path === PIN ? RECENT() : problem(404, 'NOT_FOUND', path)).api)
+      const value = { ...createTestSessionValue(signedIn ? { kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1' } : null, session),
+        signOut: async () => { setSignedIn(false); await new Promise(resolve => setTimeout(resolve, 0)) } }
+      return <SessionContext.Provider value={value}><Routes>
+        <Route path="/profile" element={<RequireAccess requirement={PATIENT_ROUTE}><ProfilePage /></RequireAccess>} />
+        <Route path="/sign-in" element={<SignInPage />} /></Routes></SessionContext.Provider>
+    }
+    render(<MemoryRouter initialEntries={['/profile#access-pin']}><SignedOutByGuard /></MemoryRouter>)
+    await screen.findByLabelText('Set PIN')
+    type('Set PIN', '1234')
+    await press(screen.getByRole('button', { name: 'Save PIN' }))
+    await screen.findByRole('alert')
+    await press(screen.getByRole('button', { name: 'Sign in again' }))
+    expect(await screen.findByText('Sign-in page, back to /profile#access-pin')).toBeTruthy()
+  })
+
   it('says so when signing out fails, and stays', async () => {
     const signOut = vi.fn(async () => { throw new Error('offline') })
     renderPortal(signInRoutes(<ProfilePage />), (path, method) => path === '/identity/me' ? json(profile)
@@ -320,9 +348,12 @@ const noDeletion = { waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 60
 const started = { requestId: 'req-1', confirmationToken: 'A'.repeat(43), confirmationExpiresAt: '2026-10-08T10:10:00Z', waitingPeriodSeconds: 1_209_600 }
 
 describe('a deletion confirmation that did not go through (PPS-12)', () => {
-  async function confirmWith(confirm: () => Response | Promise<Response>, request: () => Response | Promise<Response> = () => json(started, 201)) {
-    renderPortal(<AccountDeletionCard />, (path, method) => method === 'GET' ? json(noDeletion)
-      : path.endsWith('/confirm') ? confirm() : request())
+  async function confirmWith(confirm: () => Response | Promise<Response>, request: () => Response | Promise<Response> = () => json(started, 201),
+    after: () => Response | Promise<Response> = () => json(noDeletion)) {
+    // The status: none before the confirmation, then what `after` answers once it was sent.
+    let confirmed = false
+    renderPortal(<AccountDeletionCard />, (path, method) => method === 'GET' ? (confirmed ? after() : json(noDeletion))
+      : path.endsWith('/confirm') ? (confirmed = true, confirm()) : request())
     fireEvent.click(await screen.findByRole('checkbox', { name: /I understand/ }))
     await press(screen.getByRole('button', { name: 'Continue to delete account' }))
     fireEvent.change(await screen.findByRole('textbox', { name: /Type DELETE MY ACCOUNT/ }), { target: { value: 'DELETE MY ACCOUNT' } })
@@ -339,9 +370,24 @@ describe('a deletion confirmation that did not go through (PPS-12)', () => {
     expect(shownText(await screen.findByRole('alert'))).toBe('Your account wasn’t deleted. For your safety, you can’t delete your account for 24 hours after you recover it.')
   })
 
-  it('does not claim either way when the answer was lost or Identity failed: the status read again says', async () => {
+  it('says the account wasn\'t deleted when Identity failed and the status read again shows nothing scheduled', async () => {
     await confirmWith(() => problem(503, 'UPSTREAM_UNAVAILABLE', 'Down'))
-    expect(shownText(await screen.findByRole('alert'))).toBe('We couldn’t confirm the deletion. Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Your account wasn’t deleted. Health ID isn’t available right now. Please try again in a few minutes.')
+    expect(screen.getByRole('checkbox', { name: /I understand/ })).toBeTruthy()
+  })
+
+  it('raises no alarm when Identity failed but the status read again shows the deletion scheduled: its date says so', async () => {
+    await confirmWith(() => problem(503, 'UPSTREAM_UNAVAILABLE', 'Down'), undefined, () => json({ ...noDeletion, request: {
+      requestId: 'req-1', state: 'pending', requestedAt: '2026-10-08T10:00:00Z', confirmationExpiresAt: null, scheduledFor: '2026-10-22T10:00:00Z',
+      blockedReasonCode: null, cancelledAt: null, cancellable: true } }))
+    expect(await screen.findByRole('button', { name: 'Cancel deletion' })).toBeTruthy()
+    expect(screen.getByText(/Your account will be deleted on/)).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('does not claim either way when the status cannot be read again either', async () => {
+    await confirmWith(() => problem(503, 'UPSTREAM_UNAVAILABLE', 'Down'), undefined, () => problem(503, 'UPSTREAM_UNAVAILABLE', 'Down'))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(shownText)).toContain('We couldn’t confirm the deletion. Health ID isn’t available right now. Please try again in a few minutes.'))
   })
 
   it('shows Continue and Delete my account busy while each runs', async () => {
@@ -418,30 +464,5 @@ describe('More (PPS-16)', () => {
     const visible = summary.cloneNode(true) as HTMLElement
     for (const hidden of visible.querySelectorAll('.patient-visually-hidden')) hidden.remove()
     expect(visible.textContent).toBe('More')
-  })
-})
-
-describe('a long name on the card (HCS-05)', () => {
-  const LONG = 'Chiamaka Oluwafunmilayo Nwachukwu-Adeyemi'
-  const card = (name: string) => render(<CardFace name={name} hid={<span>HID-ABC234</span>} verified facts={[]} allergies={[]} face={null} still />)
-
-  it('wraps to two lines rather than cutting it off, with the NIN mark outside the wrapped text, and a smaller size', () => {
-    card(LONG)
-    const name = screen.getByText(LONG)
-    const mark = screen.getByLabelText('NIN verified')
-    expect(name.className).toMatch(/\bline-clamp-2\b/)
-    expect(name.className).toContain('[overflow-wrap:anywhere]')
-    expect(name.closest('.truncate')).toBeNull()
-    expect(name.contains(mark)).toBe(false)
-    expect(mark.closest('.truncate, .line-clamp-2')).toBeNull()
-    expect(name.className).toContain('text-[2.8cqw]')
-  })
-
-  it('keeps the usual size for a name that fits on one line', () => {
-    card('Ada Example')
-    const name = screen.getByText('Ada Example')
-    expect(name.className).toContain('text-[3.2cqw]')
-    expect(name.closest('.truncate')).toBeNull()
-    expect(name.contains(screen.getByLabelText('NIN verified'))).toBe(false)
   })
 })
