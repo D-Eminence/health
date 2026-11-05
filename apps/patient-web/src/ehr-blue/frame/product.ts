@@ -99,10 +99,9 @@ export function productLists(product: Product, path: string): boolean {
  *    keeps it to the demo facilities.
  *  - Facility setup: a facility that signed itself up works on its product's site (signup/AfterSubmit.tsx). Its own
  *    `visible` keeps it to those facilities' staff managers.
- *  - Patients and Access requests: a lab scientist or a pharmacist reaches a record only through a request the patient
- *    approves (parity report 3.1 #7), and the Notifications drawer's "access requests waiting" leads there.
+ * (Patients and Access requests are not among them: every product lists them, by permission, through SHARED above.)
  */
-const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'patients', 'requests'])
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding'])
 
 /**
  * The products with a till of their own (Till / End of day). It leads to the money pages at their own addresses

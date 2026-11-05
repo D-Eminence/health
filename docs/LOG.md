@@ -2817,3 +2817,14 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-05: EHR frame parity on the product sites (parity report 2.2, 3.1 #7, #15, #21)
+
+Branch `claude/ehr-frame-parity`, after merging main. Each item was checked against the frame on main first; what main already had is recorded, not rebuilt.
+
+- **Start menu (2.2).** The hint "Request record access: From another facility" said the request reached another facility. It asks the patient to share their record with this facility. Main already says "Ask a patient for access: Ask a patient to share their record here" (`ehr-blue/frame/BlueFrame.tsx`; `StartMenu.test.tsx`).
+- **Patients and Access requests on every product site (3.1 #7).** Main already lists both in the menu and search on lab., pharmacy., outreach. and migrate., each by its own permission (`ehr-blue/frame/product.ts` SHARED). This branch adds them to the phone tabs (Patients and Access first, then Staff and Audit, never one place twice) and to the Start menu (Find a patient, Ask a patient for access; registration and vitals stay the EHR's), test first (`EhrBlueProductMenu.test.tsx`). `registration-ehr-only.test.tsx` had asserted no Start menu at all on a product site; it now opens Start there and checks that it offers asking for access and never Register a patient. The leftover entries for both in `OPENED_UNLISTED`, and its comment calling them unlisted, are removed: they open because they are listed.
+- **A refused product page (#15, 2.4).** Main already lands on the Overview at `/provider` when the product's own page is not open to this session (lab., outreach., migrate.: `EhrBlueProductFallback.test.tsx`), and the pharmacy. site settles on Prescriptions' plain refusal instead of looping (`ProductSiteHome.test.tsx`). Nothing more needed.
+- **Page not found (#21).** Main already shows "Page not found / We can’t find that page." with one way back (Home, or a product's own first page), without the address (`ehr-blue/frame/NotFoundPage.tsx`; `EhrBlueFrame.test.tsx`). Nothing more needed.
+- **Not done here:** "Use the classic EHR" (2.3, owner decision), and the status labels in What's left (#21's other half).
+- **Gates:** typecheck, lint, boundaries, the full vitest (9859 tests; the one stale file above failed and passes after its update, rerun alone), the patient-web build and the launch-build check.
