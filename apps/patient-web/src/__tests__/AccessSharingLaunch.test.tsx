@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
+import { PATIENT_ROUTE, type AuthPrincipal } from '@hid/auth'
+import { RequireAccess } from '../RequireAccess'
 import type { AccessHistory, AccessRequest, PatientOrderRoute } from '../api'
 import type { AccessLogEvent } from '../accessLog'
 import type { ShareInvitation, ShareProvider } from '../shareRecords'
@@ -447,5 +450,98 @@ describe('orders sent elsewhere (SA-18, SA-19)', () => {
     await press(screen.getByRole('button', { name: /^Stop it/ }))
     await press(within(await screen.findByRole('dialog', { name: 'Stop this test request?' })).getByRole('button', { name: 'Stop it' }))
     await waitFor(() => expect(sent.filter(item => item.method === 'POST')).toHaveLength(1))
+  })
+})
+
+describe('Sign in again, with a sign-out that really ends the session (SA-04)', () => {
+  /**
+   * The session as the app keeps it: an external store read with useSyncExternalStore, which sign-out clears before it
+   * returns. The page guard (RequireAccess) then sees a signed-out patient in the same turn as the button's own move.
+   */
+  function guarded(handler: Handler, at: string) {
+    const { api } = patientApi(handler, { parityB4: true })
+    let principal: AuthPrincipal | null = { kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1' }
+    const listeners = new Set<() => void>()
+    const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
+    const signOut = vi.fn(async () => {
+      await Promise.resolve()
+      principal = null
+      listeners.forEach(listener => listener())
+    })
+    function Session({ children }: { children: ReactNode }) {
+      const current = useSyncExternalStore(subscribe, () => principal)
+      return <SessionContext.Provider value={{ ...createTestSessionValue(current, api), signOut }}>{children}</SessionContext.Provider>
+    }
+    const view = render(<MemoryRouter initialEntries={[at]}><Session><ToastProvider><Routes>
+      <Route path="/access" element={<RequireAccess requirement={PATIENT_ROUTE}><AccessPage /></RequireAccess>} />
+      <Route path="/access/share" element={<RequireAccess requirement={PATIENT_ROUTE}><ShareRecords /></RequireAccess>} />
+      <Route path="*" element={<p>Elsewhere</p>} />
+    </Routes><Where /></ToastProvider></Session></MemoryRouter>)
+    return { view, signOut }
+  }
+
+  /**
+   * Presses the button outside act(), so React and the router schedule their updates as they do in a browser (the
+   * router's in a transition), and not all in one batch at the end of act.
+   */
+  async function pressAsTheBrowserDoes(button: HTMLElement) {
+    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    const before = actEnvironment.IS_REACT_ACT_ENVIRONMENT
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
+    try {
+      button.focus()
+      button.click()
+      await new Promise(resolve => setTimeout(resolve, 50))
+    } finally { actEnvironment.IS_REACT_ACT_ENVIRONMENT = before }
+  }
+
+  it('comes back to Access & sharing from the request drawer', async () => {
+    const { signOut } = guarded((path, method) => {
+      if (path === REQUESTS) return json([pending])
+      if (path === HISTORY) return json({ items: [] })
+      if (method === 'POST') return problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Recent authentication required')
+      return json([])
+    }, '/access')
+    fireEvent.click(await screen.findByRole('button', { name: /^Lagos General/ }))
+    const drawer = within(screen.getByRole('dialog', { name: 'Lagos General' }))
+    await press(drawer.getByRole('button', { name: /^Approve/ }))
+    await pressAsTheBrowserDoes(await drawer.findByRole('button', { name: 'Sign in again' }))
+    expect(signOut).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(where()).toBe('/sign-in?next=%2Faccess'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(where()).toBe('/sign-in?next=%2Faccess')
+  })
+
+  it('comes back to the share flow', async () => {
+    guarded((path, method) => {
+      if (path === INVITATIONS && method === 'GET') return json({ items: [], limits: LIMITS })
+      if (path === '/identity/me/share-providers/search') return json({ items: providers })
+      return problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again.')
+    }, '/access/share')
+    fireEvent.change(await screen.findByLabelText('Name of the clinician or facility'), { target: { value: 'ada' } })
+    await press(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByLabelText(/Dr Ada Obi/))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await press(screen.getByRole('button', { name: 'Share my records' }))
+    await pressAsTheBrowserDoes(await screen.findByRole('button', { name: 'Sign in again' }))
+    await waitFor(() => expect(where()).toBe('/sign-in?next=%2Faccess%2Fshare'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(where()).toBe('/sign-in?next=%2Faccess%2Fshare')
+  })
+
+  it('comes back to Who has access after confirming an invitation was refused', async () => {
+    const offer = { clinicianName: 'Dr Chidi Eze', role: 'doctor' as const, facilityName: 'Ikeja Hospital', organizationName: 'Ikeja Health',
+      newOnHealthId: false }
+    guarded((path, method) => {
+      if (method === 'POST') return problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again.')
+      return path === INVITATIONS ? json({ items: [invitation({ status: 'accepted', offer })], limits: LIMITS })
+        : path === HISTORY ? json({ items: [] }) : json([])
+    }, '/access?tab=granted')
+    await press(await screen.findByRole('button', { name: /^Confirm and share/ }))
+    await pressAsTheBrowserDoes(await screen.findByRole('button', { name: 'Sign in again' }))
+    await waitFor(() => expect(where()).toBe('/sign-in?next=%2Faccess%3Ftab%3Dgranted'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(where()).toBe('/sign-in?next=%2Faccess%3Ftab%3Dgranted')
   })
 })

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { createApiClient } from '@hid/http'
 import { PATIENT_ROUTE, STAFF_ROUTE, type SessionState } from '@hid/auth'
 import { RequireAccess } from '../RequireAccess'
@@ -36,10 +36,16 @@ function stubApi(): PatientApi {
   return createPatientApi(client)
 }
 
+/** Where the sign-in screen will return to, from its `next`. */
+function SignInNext() {
+  const { search } = useLocation()
+  return <p data-testid="next">{new URLSearchParams(search).get('next') ?? 'none'}</p>
+}
+
 function renderGuard(state: SessionState, requirement = PATIENT_ROUTE,
-  sessionError: string | null = null, retrySessionCheck = vi.fn()) {
+  sessionError: string | null = null, retrySessionCheck = vi.fn(), at = '/') {
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={[at]}>
       <SessionContext.Provider value={{ ...createTestSessionValue(state.principal, stubApi()), state,
         sessionError, retrySessionCheck }}>
         <Routes>
@@ -51,7 +57,8 @@ function renderGuard(state: SessionState, requirement = PATIENT_ROUTE,
               </RequireAccess>
             }
           />
-          <Route path="/sign-in" element={<p>Sign-in screen</p>} />
+          <Route path="/access/*" element={<RequireAccess requirement={requirement}><p>Protected content</p></RequireAccess>} />
+          <Route path="/sign-in" element={<><p>Sign-in screen</p><SignInNext /></>} />
           <Route path="/verify" element={<p>Verification screen</p>} />
         </Routes>
       </SessionContext.Provider>
@@ -201,6 +208,19 @@ describe('RequireAccess', () => {
 
     expect(screen.getByText('Sign-in screen')).toBeDefined()
     expect(screen.queryByText('Protected content')).toBeNull()
+  })
+
+  it('sends a signed-out visitor to sign-in with the page they were on to come back to (SA-04)', () => {
+    renderGuard({ status: 'anonymous', principal: null }, PATIENT_ROUTE, null, vi.fn(), '/access?tab=granted')
+
+    expect(screen.getByText('Sign-in screen')).toBeDefined()
+    expect(screen.getByTestId('next').textContent).toBe('/access?tab=granted')
+  })
+
+  it('asks for no return from the home page: sign-in goes home anyway', () => {
+    renderGuard({ status: 'anonymous', principal: null })
+
+    expect(screen.getByTestId('next').textContent).toBe('none')
   })
 
   it('never renders protected content for the wrong portal', () => {
