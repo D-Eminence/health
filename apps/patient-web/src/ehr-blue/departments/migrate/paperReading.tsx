@@ -59,12 +59,24 @@ export const READING_STATUS_WORDS: Record<Exclude<PaperReadingStatus, 'read'>, s
   no_text: 'No text was found on this document.',
 }
 
+/** What the page says when a payload says it is a paper reading but is not whole, so its items are not shown. */
+export const NOT_WHOLE_WORDS = 'The items couldn’t be picked out automatically. Enter them by hand.'
+
 const MEDICINE_STATUS: Record<string, string> = {
   current: 'Currently taking', new: 'Newly started', stopped: 'Stopped', past: 'Taken in the past',
 }
 const DIAGNOSIS_STATUS: Record<string, string> = {
   confirmed: 'Confirmed', suspected: 'Suspected', ruled_out: 'Ruled out', history: 'Past history', family_history: 'Family history',
 }
+/**
+ * Statuses that say the item is not an active part of the patient's care now (stopped, in the past, ruled out, a
+ * relative's). They sit beside the bold reading, never at the end of its details, so the name is not taken as active.
+ */
+const NOT_ACTIVE: Readonly<Record<'medicine' | 'diagnosis', ReadonlySet<string>>> = {
+  medicine: new Set(['stopped', 'past']),
+  diagnosis: new Set(['ruled_out', 'history', 'family_history']),
+}
+
 const ALLERGY_SEVERITY: Record<string, string> = {
   mild: 'Mild', moderate: 'Moderate', severe: 'Severe', unknown: 'Severity not known',
 }
@@ -144,24 +156,34 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+/** The words for a status that says the item is not active now ("Ruled out", "Stopped"), or null. */
+export function itemNotActive(item: PaperItem): string | null {
+  if (item.kind !== 'medicine' && item.kind !== 'diagnosis') return null
+  const status = text(item.fields.status)
+  if (!NOT_ACTIVE[item.kind].has(status)) return null
+  return (item.kind === 'medicine' ? MEDICINE_STATUS : DIAGNOSIS_STATUS)[status] ?? null
+}
+
 /** An item's own details, by kind, as short phrases: what the bold reading and "As written" do not already say. */
 export function itemDetails(item: PaperItem): string[] {
   const f = item.fields
   const details: string[] = []
   const add = (value: string) => { if (value) details.push(value) }
   const labelled = (label: string, value: unknown) => { const words = text(value); if (words) details.push(`${label} ${words}`) }
+  // A status that says the item is not active is shown beside the reading (itemNotActive), so it is not repeated here.
+  const status = itemNotActive(item) ? '' : text(f.status)
   switch (item.kind) {
     case 'medicine':
       add(text(f.strength)); add(text(f.form)); add(text(f.route)); add(text(f.frequency))
       labelled('for', f.duration)
-      add(MEDICINE_STATUS[text(f.status)] ?? '')
+      add(MEDICINE_STATUS[status] ?? '')
       if (item.prescription) {
         labelled('Prescribed by', item.prescription.prescriberAsWritten)
         labelled('Prescribed on', item.prescription.dateAsWritten)
       }
       break
     case 'diagnosis':
-      add(DIAGNOSIS_STATUS[text(f.status)] ?? '')
+      add(DIAGNOSIS_STATUS[status] ?? '')
       break
     case 'allergy':
       if (f.noKnownAllergies === true) add('No known allergies')
@@ -202,10 +224,11 @@ export function readingSummary(items: readonly PaperItem[]): string {
 
 function PaperItemRow({ item }: { readonly item: PaperItem }) {
   const details = itemDetails(item)
+  const notActive = itemNotActive(item)
   const careful = item.confidence === 'check_carefully'
   return <li data-item-id={item.id}>
     <div className="hid-ehr-dept-row-main">
-      <strong>{item.plain.trim() || item.asWritten}</strong>
+      <strong>{item.plain.trim() || item.asWritten}{notActive && ` — ${notActive}`}</strong>
       <span className="hid-ehr-dept-muted">As written: {item.asWritten}</span>
       {details.length > 0 && <span>{details.join(' · ')}</span>}
       <span className="hid-ehr-dept-muted">Page {item.page}</span>

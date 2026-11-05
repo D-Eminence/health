@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import {
-  PaperReadingView, claimsPaperReading, itemDetails, orderItems, parsePaperReading, readingSummary, type PaperItem,
+  PaperReadingView, claimsPaperReading, itemDetails, itemNotActive, orderItems, parsePaperReading, readingSummary, type PaperItem,
 } from '../../../../ehr-blue/departments/migrate/paperReading'
 import { paperReading, unreadPaper } from './paperReadingPayload'
 
@@ -72,6 +72,24 @@ describe('item words', () => {
     expect(itemDetails(none)).toEqual(['No known allergies'])
   })
 
+  it.each([
+    ['it-00000000000000a1', 'stopped', 'Stopped'],
+    ['it-00000000000000a1', 'past', 'Taken in the past'],
+    ['it-00000000000000b1', 'ruled_out', 'Ruled out'],
+    ['it-00000000000000b1', 'history', 'Past history'],
+    ['it-00000000000000b1', 'family_history', 'Family history'],
+  ])('names a status that says the item is not active (%s, %s) apart from its details', (id, status, words) => {
+    const item = { ...byId(id), fields: { ...byId(id).fields, status } }
+    expect(itemNotActive(item)).toBe(words)
+    expect(itemDetails(item)).not.toContain(words)
+  })
+
+  it('leaves an active status in the details', () => {
+    expect(itemNotActive(byId('it-00000000000000a1'))).toBeNull()
+    expect(itemNotActive(byId('it-00000000000000b1'))).toBeNull()
+    expect(itemNotActive(byId('it-00000000000000c1'))).toBeNull()
+  })
+
   it('puts items that need a careful check first, then keeps reading order', () => {
     const medicines = items().filter(item => item.kind === 'medicine')
     expect(orderItems(medicines).map(item => item.id)).toEqual(['it-00000000000000a2', 'it-00000000000000a1'])
@@ -101,6 +119,23 @@ describe('PaperReadingView', () => {
     expect(within(medicines[1]!).getByText('Clear').getAttribute('data-tone')).toBe('positive')
     expect(within(medicines[1]!).getByText('Page 1')).toBeTruthy()
     expect(within(medicines[1]!).getByText(/^5 mg · tablet · by mouth · once a day · for 30 days · Currently taking/)).toBeTruthy()
+  })
+
+  it('puts a ruled-out diagnosis, a relative’s diagnosis and a stopped medicine beside the bold reading', () => {
+    const base = paperReading()
+    const byId = (id: string) => base.items.find((item: { id: string }) => item.id === id) as { fields: Record<string, unknown> }
+    const withStatus = (from: string, id: string, status: string) => ({ ...byId(from), id, fields: { ...byId(from).fields, status } })
+    render(<PaperReadingView reading={parsed(paperReading({ items: [
+      withStatus('it-00000000000000b1', 'it-00000000000000b8', 'ruled_out'), withStatus('it-00000000000000b1', 'it-00000000000000b9', 'family_history'),
+      withStatus('it-00000000000000a1', 'it-00000000000000a9', 'stopped'),
+    ], reading: { ...base.reading, itemCount: 3 } }))} />)
+    const diagnoses = within(screen.getByRole('region', { name: 'Diagnoses' })).getAllByRole('listitem')
+    expect(diagnoses.map(row => row.querySelector('strong')?.textContent))
+      .toEqual(['High blood pressure — Ruled out', 'High blood pressure — Family history'])
+    expect(within(diagnoses[0]!).queryByText('Ruled out')).toBeNull()
+    const stopped = within(screen.getByRole('region', { name: 'Medicines' })).getByRole('listitem')
+    expect(stopped.querySelector('strong')?.textContent).toBe('Amlodipine — Stopped')
+    expect(stopped.textContent?.match(/Stopped/g)).toHaveLength(1)
   })
 
   it('leaves out a group with nothing in it, and says when nothing was picked out of a read paper', () => {
