@@ -62,6 +62,11 @@ const ACTION_LABELS: Record<ActionId, string> = {
   retry: 'Retry job', validate: 'Validate extraction', reject: 'Reject extraction', confirm: 'Confirm source patient',
 }
 
+/** Who the job is for, in words: never any part of the patient's record id (owner rule, IDs on screen). */
+function patientWords(job: OcrJob) {
+  return job.patientId ? 'Patient (name not shown)' : 'Patient not given'
+}
+
 function jobName(job: OcrJob) {
   return `Document ${shortId(job.documentId)}`
 }
@@ -107,7 +112,8 @@ function jobFacts(job: OcrJob): DeptFact[] {
     { label: 'Version', value: String(job.version ?? 'unknown') },
     { label: 'Provider', value: job.provider },
     { label: 'Document', value: shortId(job.documentId) },
-    { label: 'Patient', value: job.patientId ? shortId(job.patientId) : 'Not given' },
+    // Said in words, never any part of the patient's record id (owner rule, IDs on screen).
+    { label: 'Patient', value: job.patientId ? 'Name not shown' : 'Not given' },
     { label: 'Source patient', value: job.patientConfirmation ? `Confirmed ${dateText(job.patientConfirmation.confirmedAt)}` : 'Not confirmed' },
     ...(job.attemptCount != null && job.maxAttempts != null ? [{ label: 'Attempts', value: `${job.attemptCount} of ${job.maxAttempts}` }] : []),
   ]
@@ -451,9 +457,9 @@ export function Migrate() {
           emptyMessage={rows.length ? 'Change your search.' : 'Find a job by its document ID, or create one when you have the appropriate permission.'}
           columns={[
             { id: 'record', header: 'Record', cell: row => <DeptRecordName id={`ocr-row-${row.job.id}`} name={jobName(row.job)}
-              reference={`Job ${shortId(row.job.id)}`} onOpen={() => openRecord(row.job)} /> },
+              onOpen={() => openRecord(row.job)} /> },
             { id: 'patient', header: 'Patient / context', cell: row => <div className="hid-ehr-dept-record-name">
-              <span>{row.job.patientId ? `Patient ${shortId(row.job.patientId)}` : 'Patient not given'}</span>
+              <span>{patientWords(row.job)}</span>
               <span className="hid-ehr-dept-reference">{`${row.job.provider} · version ${row.job.version ?? 'unknown'}`}</span></div> },
             { id: 'status', header: 'Status', cell: row => <EhrBadge tone={statusTone(row.job.status)}>{jobStatusWords(row.job.status)}</EhrBadge> },
             { id: 'read', header: 'Last read', cell: row => dateText(row.readAt) },
@@ -565,7 +571,7 @@ export function Migrate() {
     const read = extractions ? newestExtraction(extractions) : undefined
     return <>
       <DeptContextLine status={jobStatusWords(shown.status)} tone={statusTone(shown.status)}
-        items={[shown.patientId ? `Patient ${shortId(shown.patientId)}` : 'Patient not given', `Version ${shown.version ?? 'unknown'} · ${shown.provider}`]} />
+        items={[patientWords(shown), `Version ${shown.version ?? 'unknown'} · ${shown.provider}`]} />
       {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
       <DeptRecordLayout
         main={<>
