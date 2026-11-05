@@ -2840,7 +2840,10 @@ website switch.
   (`GET ehr/me/patient-entries?before=`): focus moves to the first record shown and how many is said; an older page
   that fails says so under the button, which takes focus back; `400 INVALID_CURSOR` reads the list again from the
   start and says so. Remove is as before (confirm, focus and announcement), and starts the list again from its first
-  page.
+  page. The page's search covers only the records loaded so far (nothing is sent, and the backend has no search):
+  while older ones are left to load, "Added by you" stays with Show older, its count says "of the N shown so far"
+  (or "None of the N shown so far match"), and each older page is searched as it comes, focus going to the first
+  match it added.
 - **Staff chart.** The classic chart and the blue EHR's consultation sections list them read-only under "Added by the
   patient", labelled "Added by the patient. Not checked by a health worker." (`GET ehr/patients/:id/patient-entries`,
   direct care, `ehr.note.read`), with Show older; hidden on `404` and `403`, Retry on any other failure.
@@ -2848,7 +2851,8 @@ website switch.
   recorded as served by hid-system 0116 and not by main (`proposed`, which this registry keeps for routes main does not
   serve). No separate `ehr.myPatientEntriesList`: the list is the GET of `ehr.myPatientEntries`, one path, and
   the registry names no two endpoints at one route and method (`staff-record-chat.test.ts`), so a second name for that
-  GET is refused by its own check.
+  GET is refused by its own check. For the owner to confirm: that this GET under `ehr.myPatientEntries` is acceptable
+  in place of the separate name the brief asked for; a separate name would need a documented exception to that check.
 - **Mock gateway.** Five fictional records, three a page, with Save, Remove, Show older and the staff read; the Node
   server now passes the body, query and headers to the answers, as the in-page preview did.
 - **Checked in the preview** (mock gateway, Chromium) at 320, 360, 390 and 1366px: no page or drawer wider than the

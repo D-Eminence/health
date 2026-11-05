@@ -439,8 +439,15 @@ const saysAlreadyRemoved = (error: unknown): boolean => isHidApiError(error) && 
 // What showing older records comes to, in this page's own words.
 const OLDER_NOT_LOADED = 'Your older records couldn’t be loaded. Please try again.'
 const LIST_CHANGED = 'Your list changed, so it was loaded again from the start.'
-const olderShown = (count: number, last: boolean) => count === 0 ? 'No older records.'
-  : `${count === 1 ? '1 older record' : `${count} older records`} shown.${last ? ' That’s all of them.' : ''}`
+/** What Show older added; while searching (`matching`, how many of them match), how many of those the search finds. */
+const olderShown = (count: number, last: boolean, matching: number | null = null) => count === 0 ? 'No older records.'
+  : `${count === 1 ? '1 older record' : `${count} older records`} shown${matching === null ? '' : `, ${matching} matching your search`}.${last ? ' That’s all of them.' : ''}`
+/**
+ * The list's count while searching. Only the records loaded so far are searched (nothing is sent), so while older ones are
+ * left to load it says so, and Show older stays offered to look further.
+ */
+const ownSearchCount = (matches: number, shown: number, more: boolean) => !more ? `${matches} of ${shown} match`
+  : `${matches === 0 ? 'None' : matches} of the ${shown} shown so far match. Show older to look further.`
 
 /**
  * The records the patient added, a page at a time (hid-system 0116): the first page comes in the page's records answer
@@ -523,9 +530,11 @@ function OwnNotes({ id, title, notes }: { id: string; title: string; notes: stri
  * empty or the records could not be read again); the outcome is said in a live region mounted throughout, also while the
  * page shows that its records could not be read.
  */
-function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading, pages }: {
+function OwnRecords({ entries, matches, searching, matchesSearch, shown, loading, reload, pageHeading, pages }: {
   /** The entries shown so far (none while the records could not be read), and those the page's search matches. */
   entries: readonly PatientEntry[]; matches: readonly PatientEntry[]; searching: boolean
+  /** Whether an entry matches the page's search (each older page is searched as it comes). */
+  matchesSearch: (entry: PatientEntry) => boolean
   /** The pages after the first (useOwnRecordPages). */
   pages: Pick<ReturnType<typeof useOwnRecordPages>, 'cursor' | 'loading' | 'older'>
   /** With the records read, on the page's All tab. On another tab they are kept, but not shown. */
@@ -571,8 +580,10 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
       focusAfter(() => heading.current)
       return
     }
-    setNotice(olderShown(outcome.added.length, outcome.last))
-    const firstAdded = outcome.added[0]
+    // While searching, only what matches is listed: focus goes to the first of those, and how many is said.
+    const added = searching ? outcome.added.filter(matchesSearch) : outcome.added
+    setNotice(olderShown(outcome.added.length, outcome.last, searching ? added.length : null))
+    const firstAdded = added[0]
     // From Show older to the first record it added (or, with none and none left, the list's heading), as long as focus is
     // still on Show older or was lost while it was busy; focus the person moved elsewhere stays where it is.
     if (firstAdded || outcome.last) setOlderFocus(firstAdded ? `own-record-title-${firstAdded.id}` : 'own-records-title')
@@ -615,13 +626,15 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
   }
 
   const listed = searching ? matches : entries
+  // While searching with older records left to load, the list stays, with Show older, even when nothing loaded matches.
+  const moreToSearch = searching && entries.length > 0 && pages.cursor !== null
   return <>
     <Saved>{notice}</Saved>
-    {shown && listed.length > 0 && <Card aria-labelledby="own-records-title">
+    {shown && (listed.length > 0 || moreToSearch) && <Card aria-labelledby="own-records-title">
       <CardHeader as="h2" titleId="own-records-title" icon={FilePlus2} iconTone="brand"
         title={<span ref={title} tabIndex={-1} className="outline-none">Added by you</span>}
-        description={searching ? `${matches.length} of ${entries.length} match` : 'What you added yourself, newest first.'} />
-      <ul className="m-0 list-none divide-y divide-line p-0" aria-busy={loading || undefined}>{listed.map(entry => {
+        description={searching ? ownSearchCount(matches.length, entries.length, pages.cursor !== null) : 'What you added yourself, newest first.'} />
+      {listed.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0" aria-busy={loading || undefined}>{listed.map(entry => {
         const day = ownDay(entry.occurredOn)
         return <li key={entry.id} className="flex flex-col gap-3 px-5 py-4">
           <div className="min-w-0">
@@ -651,7 +664,7 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
             : <Actions><Button id={`own-record-remove-${entry.id}`} size="sm" variant="danger" disabled={busy} onClick={() => ask(entry)}>
               Remove <ItemName>{entry.title}, {day}</ItemName></Button></Actions>}
         </li>
-      })}</ul>
+      })}</ul>}
       {(pages.cursor || olderProblem) && <div className="flex flex-col items-start gap-2 border-t border-line px-5 py-4">
         {olderProblem && <Problem>{olderProblem}</Problem>}
         {pages.cursor && <Button id="own-records-older" size="sm" loading={pages.loading} disabled={pages.loading || busy} onClick={() => void showOlder()}>
@@ -691,7 +704,10 @@ export function RecordsPage() {
   const ownFirst = useMemo(() => ready?.patientEntries ?? NO_ENTRIES, [ready])
   const ownPages = useOwnRecordPages(ownFirst, ready?.patientEntriesNextBefore ?? null)
   const ownEntries = ownPages.items
-  const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
+  const matchesOwn = useCallback((entry: PatientEntry) => matchesQuery(ownRecordText(entry), query), [query])
+  const ownMatches = searching ? ownEntries.filter(matchesOwn) : ownEntries
+  // While searching, older records left to load keep "Added by you" (with Show older) in place of "Nothing matches".
+  const ownMoreToSearch = ownServed === true && tab === 'all' && searching && ownEntries.length > 0 && ownPages.cursor !== null
   const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
     matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
   // On All, a section with nothing in it (or nothing that matches) is left out: its tab still says 0.
@@ -744,10 +760,10 @@ export function RecordsPage() {
     </>}
     {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
       removal is said even when that read fails. */}
-    {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
+    {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} matchesSearch={matchesOwn} shown={ready !== null && tab === 'all'}
       loading={records.loading} reload={records.reload} pageHeading={heading} pages={ownPages} />}
     {ready && <>
-      {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
+      {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && !ownMoreToSearch && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
           : `Records from your providers appear here.${ownServed !== true ? ''

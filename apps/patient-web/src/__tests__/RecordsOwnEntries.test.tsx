@@ -528,6 +528,33 @@ describe('the records the patient added, as hid-system 0116 serves them', () => 
     expect(document.body.textContent).not.toContain('Load it again from the start')
   })
 
+  it('keeps Show older while searching, counts only what is shown so far, and searches each older page as it comes', async () => {
+    renderPortal(<RecordsPage />, gateway(() => firstPage, pages(() => json({ items: [visit(7), visit(6)], nextBefore: null }))))
+    const card = await ownCard()
+    // Only an older record, not yet loaded, is from June.
+    search('June')
+    expect(within(card).getByText('None of the 2 shown so far match. Show older to look further.')).toBeTruthy()
+    expect(within(card).queryAllByRole('heading', { level: 3 })).toHaveLength(0)
+    expect(screen.queryByText('Nothing matches')).toBeNull()
+    await press(showOlder(card))
+    await waitFor(() => expect(titles(card)).toEqual(['Check-up 6']))
+    expect(within(card).getByText('1 of 4 match')).toBeTruthy()
+    expect(screen.getByText('2 older records shown, 1 matching your search. That’s all of them.').closest('[role="status"]')).not.toBeNull()
+    expect(document.activeElement).toBe(within(card).getByRole('heading', { level: 3, name: 'Check-up 6' }))
+    // With everything loaded, a search that matches nothing is said as the page says it.
+    search('typhoid')
+    expect(screen.queryByRole('region', { name: 'Added by you' })).toBeNull()
+    expect(screen.getByText('Nothing matches')).toBeTruthy()
+  })
+
+  it('says how many of those shown so far match while older records are left to load', async () => {
+    renderPortal(<RecordsPage />, gateway(() => firstPage))
+    const card = await ownCard()
+    search('September')
+    expect(within(card).getByText('1 of the 2 shown so far match. Show older to look further.')).toBeTruthy()
+    expect(showOlder(card)).toBeTruthy()
+  })
+
   it('starts from the first page again after a removal, so nothing shown is out of date', async () => {
     let records: object = firstPage
     const { sent } = renderPortal(<RecordsPage />, gateway(() => records, (path, method, body, search) => {
