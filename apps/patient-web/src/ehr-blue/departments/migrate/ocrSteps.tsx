@@ -26,6 +26,31 @@ export function statusWords(status: string) {
   return status.replaceAll('_', ' ').toLowerCase()
 }
 
+/**
+ * What is happening to a document's reading, in plain words, by OCR's job status (hid-system ocr-api OcrJobStatus):
+ * queued, processing and extracted are still being read; the others have finished, for now.
+ */
+const JOB_STATUS_WORDS: Readonly<Record<string, string>> = {
+  queued: 'Waiting to be read',
+  processing: 'Reading the document',
+  extracted: 'Reading the document',
+  awaiting_validation: 'Ready to check',
+  validated: 'Checked',
+  rejected: 'Not accepted',
+  failed: 'Couldn’t read this document',
+  cancelled: 'Stopped',
+}
+
+/** A document's reading status as a clinician reads it; one OCR adds later is shown as its own words. */
+export function jobStatusWords(status: string) {
+  return Object.hasOwn(JOB_STATUS_WORDS, status) ? JOB_STATUS_WORDS[status]! : statusWords(status)
+}
+
+/** OCR is still reading the document: the job has not reached a state that waits for a person or has ended. */
+export function jobInProgress(status: string) {
+  return status === 'queued' || status === 'processing' || status === 'extracted'
+}
+
 /** The design's single badge; a state that needs attention is critical, its word says which. */
 export function statusTone(status: string): EhrBadgeTone {
   return status === 'failed' || status === 'rejected' ? 'critical' : 'brand'
