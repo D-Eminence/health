@@ -27,7 +27,15 @@ const MAX_STACK_LENGTH = 50_000
 const CHROME_FRAME = /^\s*at\s+(.*)$/
 const LOCATION = /^(.*):(\d+):(\d+)$/
 const NATIVE_CODE = '[native code]'
-const FUNCTION_NAME = /^[\w$.<>[\] ]{1,80}$/
+/**
+ * A function name: one word without spaces (dots, brackets and <> allowed), with a space only where an engine puts one:
+ * after Chrome's `new ` or `async `, before Chrome's ` [as alias]`, or in Safari's `global code` and kin. So free text
+ * such as a person's name on a message line is never sent as a function.
+ */
+const FUNCTION_NAME = /^(?:(?:(?:new|async) )?[\w$.<>[\]]+(?: \[as [\w$.<>]+\])?|(?:global|module|eval) code)$/
+const MAX_FUNCTION_NAME_LENGTH = 80
+/** What Chrome writes in place of url:line:col when a frame has no script: built-in code or Promise.all's index. */
+const CHROME_PLACE = /^(?:native|<anonymous>|index \d+)$/
 const SCRIPT_PATH = /\.[mc]?js$/
 const ANONYMOUS = '<anonymous>'
 /** What Chrome writes before the message on a stack's first line: nothing, or the error's name and ": ". */
@@ -279,10 +287,12 @@ function chromeFrame(line: string): StackFrame | null {
   if (!match) return null
   const rest = (match[1] ?? '').trim()
   if (rest === '') return null
-  if (!rest.endsWith(')')) return frame(undefined, rest)
-  const open = matchingParenthesis(rest)
-  if (open < 0) return frame(undefined, rest)
-  return frame(open === 0 ? undefined : rest.slice(0, open).trim(), rest.slice(open + 1, -1))
+  const open = rest.endsWith(')') ? matchingParenthesis(rest) : -1
+  const name = open > 0 ? rest.slice(0, open).trim() : undefined
+  const location = open >= 0 ? rest.slice(open + 1, -1) : rest
+  // Text that is not a frame (a message or cause line that starts with "at") has no real location.
+  if (!LOCATION.test(location) && !CHROME_PLACE.test(location)) return null
+  return frame(name, location)
 }
 
 /** The index of the `(` that the final `)` closes, or -1. Eval frames nest a location inside the location. */
@@ -316,7 +326,7 @@ function frame(name: string | undefined, location: string): StackFrame {
   const colno = match ? position(match[3]) : undefined
   return {
     filename: scriptUrl(match ? match[1] ?? '' : location),
-    function: name !== undefined && FUNCTION_NAME.test(name) ? name : '?',
+    function: name !== undefined && name.length <= MAX_FUNCTION_NAME_LENGTH && FUNCTION_NAME.test(name) ? name : '?',
     ...(lineno === undefined ? {} : { lineno }),
     ...(colno === undefined ? {} : { colno }),
   }

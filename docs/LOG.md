@@ -2839,3 +2839,10 @@ The owner created the website's Sentry project in the EU region. `config/product
 - **Checked in Chromium.** The portal preview (Vite against the mock gateway) built with the production DSN, at 320, 360, 390 and 1366px: on `/card/HID-…?email=…#x`, thrown errors and a rejection whose messages held an email, a Health ID and a phone number were each posted once to `https://o4512373598519296.ingest.de.sentry.io/api/4512373615886416/envelope/` (the browser stopped them there; nothing reached Sentry) with the type, the frames, `/card/:id` and the build, and with no message, query, hash, cookie or referrer. The page looked as before. The public site's build with the DSN carries it in its bundle.
 - **Gates.** Typecheck, lint, boundaries, the full Vitest run (489 files, 9838 tests), the script tests (115), the portal build, the launch build audit, and the public site's build (given a local `NEXT_PUBLIC_HID_*` environment, which it needs).
 - **Not verified live.** No report has been sent to the real project from here.
+
+## 2026-11-05: a message line in a stack is never read as a frame
+
+An independent review found that a line in a Chrome stack that starts with "at" but is not a frame (a message line left in the stack after the message changed, or a line behind "Caused by:") was read as one, and a name such as "at Adaeze Okafor (Lagos)" could reach Sentry as a function name. The email-shaped text was already dropped; a name with a space was not.
+
+- **Fix.** `packages/observability/src/errorReporting.ts`: a Chrome line is a frame only when it ends in a real location (`url:line:col`, an eval location, `native`, `<anonymous>` or Promise.all's `index N`), as Firefox and Safari lines already were. A function name may hold a space only where an engine puts one (`new `, `async `, ` [as alias]`, Safari's `global code`); anything else is sent as `?`.
+- **Tests first.** `errorReporting.test.ts` checks that such lines give no frame, that names with stray spaces become `?`, and that neither stack sends the name or place in a report.
