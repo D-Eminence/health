@@ -99,4 +99,37 @@ describe('Records launch fixes', () => {
     expect(await screen.findByText('Nothing matches')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Clear search' })).toBeTruthy()
   })
+
+  it('RN-19: on one record type, a search that finds nothing says so once, with Clear search', async () => {
+    portal(RECORDS, '/records?tab=encounters')
+    await screen.findByText('Outpatient visit')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search your records' }), { target: { value: 'zzzz nothing' } })
+    expect(await screen.findByText('Nothing matches')).toBeTruthy()
+    expect(screen.queryByText('None match your search.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeTruthy()
+  })
+
+  it('RN-19: on All, older records do not add a second "no match" line under Nothing matches', async () => {
+    portal({ ...RECORDS, importedRecords: historyFixture })
+    await screen.findByRole('heading', { name: 'Older health records' })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search your records' }), { target: { value: 'zzzz nothing' } })
+    expect(await screen.findByText('Nothing matches')).toBeTruthy()
+    expect(screen.queryByText('No older records match your search.')).toBeNull()
+  })
+
+  it('RN-19: on one record type, a search that matches only other types says so, with a way to all records', async () => {
+    const note = { id: 'note-1', encounterId: 'enc-1', facilityId: 'facility-1', noteType: 'progress', title: 'Malaria review', status: 'signed', revisionNo: 1,
+      content: 'Fictional note content.', signedAt: '2026-10-08T10:20:00Z' }
+    portal({ ...RECORDS, notes: [note] }, '/records?tab=encounters')
+    await screen.findByText('Outpatient visit')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search your records' }), { target: { value: 'malaria review' } })
+    expect(await screen.findByText('Nothing matches here')).toBeTruthy()
+    expect(screen.getByText('1 record of another type matches your search.')).toBeTruthy()
+    expect(screen.queryByText('None match your search.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Show all record types' })) })
+    expect(await screen.findByText('Malaria review')).toBeTruthy()
+    expect(screen.queryByText('Nothing matches here')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search your records' }))
+  })
 })

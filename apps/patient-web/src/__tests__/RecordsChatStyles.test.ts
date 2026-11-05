@@ -16,6 +16,8 @@ const chatCss = read('../routes/chat.css')
 /** The declarations of every rule whose selector list holds `selector`. */
 const bodyOf = (css: string, selector: string) => parse(css).filter(rule => rule.selectors.includes(selector)).map(rule => rule.body).join(';')
 const HEX = /#[0-9a-f]{3,8}\b/i
+/** A summary draws its open/close arrow only while it stays a list item: flex, grid or inline-flex drop it. */
+const keepsArrow = (body: string) => !/display:\s*(flex|inline-flex|grid|inline-grid|inline-block)\b/.test(body)
 
 describe('older records cards (imported-history.css)', () => {
   it('RN-03: use theme colours only, so they read in dark mode', () => {
@@ -28,14 +30,16 @@ describe('older records cards (imported-history.css)', () => {
     expect(parse(importedCss).some(rule => rule.selectors.some(selector => /\bbutton\b/.test(selector) && selector.startsWith('.imported-history-card')))).toBe(false)
   })
 
-  it('RN-21: make Previous versions at least 44px tall', () => {
+  it('RN-21: make Previous versions at least 44px tall, keeping its open/close arrow', () => {
     expect(bodyOf(importedCss, '.imported-history-card summary')).toMatch(/min-height:\s*44px/)
+    expect(keepsArrow(bodyOf(importedCss, '.imported-history-card summary'))).toBe(true)
   })
 })
 
 describe('the chat screen (chat.css)', () => {
-  it('RN-21: make "Which records can I ask about?" at least 44px tall', () => {
+  it('RN-21: make "Which records can I ask about?" at least 44px tall, keeping its open/close arrow', () => {
     expect(bodyOf(chatCss, '.record-chat-coverage summary')).toMatch(/min-height:\s*44px/)
+    expect(keepsArrow(bodyOf(chatCss, '.record-chat-coverage summary'))).toBe(true)
   })
 
   it('RN-21: colour a hovered suggestion and the light tints with theme colours', () => {

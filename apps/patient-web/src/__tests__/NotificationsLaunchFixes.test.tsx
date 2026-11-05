@@ -93,6 +93,20 @@ describe('from your old Health ID account', () => {
     expect(screen.getByRole('button', { name: /Try again/ })).toBeTruthy()
   })
 
+  it('RN-22: a Try again that finds no old account says so and keeps the keyboard there', async () => {
+    let down = true
+    renderPortal(<NotificationsPage />, path => path === IMPORTED && down ? problem(503, 'UPSTREAM_UNAVAILABLE', 'unavailable') : json([]), {}, { parityB2: true })
+    await screen.findByText('If you had an old Health ID account, its notifications couldn’t be loaded.')
+    const retry = screen.getByRole('button', { name: /Try again/ })
+    retry.focus()
+    down = false
+    await act(async () => { fireEvent.click(retry) })
+    const said = await screen.findByText('No notifications from an old account.')
+    expect(said.getAttribute('role')).toBe('status')
+    await waitFor(() => expect(document.activeElement).toBe(said))
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
   it('RN-12: says a failed Show older beside the button, and keeps the button where the keyboard is', async () => {
     let calls = 0
     renderPortal(<NotificationsPage />, path => {
