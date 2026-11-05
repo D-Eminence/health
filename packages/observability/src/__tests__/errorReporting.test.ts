@@ -264,6 +264,44 @@ describe('parseStack', () => {
     expect(frames[0]?.function).toBe('f39')
   })
 
+  it('reads a Chrome line as a frame only when it ends in a real location', () => {
+    // A message or cause line that happens to start with "at" has no line and column, so it is not a frame.
+    const stack = [
+      'Error: outer',
+      '    at handler (https://app.example/assets/index-abc.js:1:2)',
+      `Caused by: Error: email ${EMAIL}`,
+      '    at Adaeze Okafor (Lagos)',
+      '    at Adaeze Okafor',
+      '    at Ward 3, Lagos',
+      '    at Array.forEach (<anonymous>)',
+      '    at Math.max (native)',
+      '    at async Promise.all (index 0)',
+    ].join('\n')
+    expect(parseStack(stack)).toEqual([
+      { filename: '<anonymous>', function: 'async Promise.all' },
+      { filename: '<anonymous>', function: 'Math.max' },
+      { filename: '<anonymous>', function: 'Array.forEach' },
+      { filename: 'https://app.example/assets/index-abc.js', function: 'handler', lineno: 1, colno: 2 },
+    ])
+  })
+
+  it('keeps a space in a function name only where Chrome or Safari put one', () => {
+    const names = [
+      ['new Patient', 'new Patient'],
+      ['async loadPatient', 'async loadPatient'],
+      ['Object.save [as onSave]', 'Object.save [as onSave]'],
+      ['global code', 'global code'],
+      ['Adaeze Okafor', '?'],
+      ['new Adaeze Okafor', '?'],
+      ['async Ward 3', '?'],
+      ['Object.save [as Adaeze Okafor]', '?'],
+    ]
+    for (const [name, expected] of names) {
+      const [chrome] = parseStack(`Error\n    at ${name} (https://app.example/assets/a.js:1:2)`)
+      expect(chrome?.function, name).toBe(expected)
+    }
+  })
+
   it('reads nothing from text that is not a stack', () => {
     expect(parseStack('')).toEqual([])
     expect(parseStack(`lookup failed for ${EMAIL}`)).toEqual([])
@@ -330,6 +368,26 @@ describe('buildEvent', () => {
       environment: 'production', mechanism: 'onerror' }))
     for (const secret of [...SECRETS, message, 'Ada Lovelace']) expect(text).not.toContain(secret)
     expect(text).not.toMatch(/"(?:message|value|request|user|breadcrumbs|contexts|extra|modules|server_name|fingerprint|transaction)"/)
+  })
+
+  it('sends no name from a message line left in the stack after the message changed or behind a cause', () => {
+    const caused = new Error('outer')
+    caused.stack = [
+      'Error: outer',
+      '    at handler (https://app.healthid.ng/assets/index-abc.js:1:2)',
+      'Caused by: Error: email adaeze@example.com',
+      '    at Adaeze Okafor (Lagos)',
+    ].join('\n')
+    const changed = new Error('Saving failed\n    at Adaeze Okafor (Ward 3)')
+    changed.stack = `Error: Saving failed\n    at Adaeze Okafor (Ward 3)\n    at save (https://app.healthid.ng/assets/index-abc.js:3:4)`
+    changed.message = 'Saving failed'
+    for (const error of [caused, changed]) {
+      const text = JSON.stringify(buildEvent({ error, route: '/x', build: 'b', environment: 'production', mechanism: 'onerror' }))
+      expect(text).not.toContain('Adaeze')
+      expect(text).not.toContain('Okafor')
+      expect(text).not.toContain('Ward 3')
+      expect(text).not.toContain('Lagos')
+    }
   })
 
   it('leaves the frames alone when the stack does not start with the message, as in Firefox and Safari', () => {
