@@ -143,6 +143,33 @@ describe('HE-05 and HE-09: add refusals said where they happen', () => {
     expect(screen.queryByText(/couldn’t be added. Try again/)).toBeNull()
   })
 
+  it('reads a refused address out when the patient pressed Enter in the field, where focus does not move', async () => {
+    // Review R1: focus stays in the field, so a new description alone is not read; the message must be an alert.
+    serve(on(), () => problem(400, 'EMERGENCY_CONTACT_DESTINATION_INVALID', 'Enter a valid email address'))
+    await fillNewContact('ada@example')
+    const field = screen.getByRole('textbox', { name: 'Email address' })
+    field.focus()
+    await act(async () => { fireEvent.submit(field.closest('form') as HTMLFormElement) })
+    const alert = await screen.findByRole('alert')
+    expect(shownText(alert)).toBe('Enter a valid email address.')
+    expect(document.activeElement).toBe(field)
+    expect(described(field)).toBe('Enter a valid email address.')
+  })
+
+  it('keeps the phone number example beside a refused number', async () => {
+    // Review R3: the patient told the number is not valid still sees, and hears, what a valid one looks like.
+    serve({ offer: { delivery: true, channels: ['sms'] }, listed: [] },
+      () => problem(400, 'EMERGENCY_CONTACT_DESTINATION_INVALID', 'Enter a valid phone number'))
+    await press(await screen.findByRole('button', { name: 'Add emergency contact' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Ada Obi' } })
+    const field = screen.getByRole('textbox', { name: 'Phone number' })
+    fireEvent.change(field, { target: { value: '08031' } })
+    await press(screen.getByRole('button', { name: 'Save contact' }))
+    await waitFor(() => expect(field.getAttribute('aria-invalid')).toBe('true'))
+    expect(described(field)).toBe('Enter a valid phone number. | Like 0803 123 4567 or +234 803 123 4567.')
+    expect(screen.getByText('Like 0803 123 4567 or +234 803 123 4567.')).toBeTruthy()
+  })
+
   it('says the limit of 5, closes the form and reads the list again', async () => {
     const { sent } = serve(on([contact()]), () => problem(409, 'EMERGENCY_CONTACT_LIMIT_REACHED', 'You can keep up to five emergency contacts'))
     await fillNewContact('ada@example.com')
