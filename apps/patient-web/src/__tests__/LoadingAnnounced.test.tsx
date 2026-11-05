@@ -177,6 +177,7 @@ describe('an action\'s notice is not inside the region that reloads', () => {
   it('Access PIN revoked', async () => {
     pin(true)
     await press(await screen.findByRole('button', { name: 'Remove PIN' }))
+    await press(within(await screen.findByRole('dialog', { name: 'Remove your Access PIN?' })).getByRole('button', { name: 'Remove PIN' }))
     await noticeOutsideBusy('PIN removed.', 'Set')
   })
 
