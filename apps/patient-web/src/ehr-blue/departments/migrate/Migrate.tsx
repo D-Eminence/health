@@ -1,8 +1,15 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type OcrExtraction, type OcrJob, type OcrValidation } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
+import { STAFF_PAPER_NEEDS_ACCESS } from '../../../paperRecordsWording'
+import { actionUnavailable, METHOD_ROUTES } from '../../clinical/consent/access'
+import { pageAllowed } from '../../frame/pageAccess'
+import { useOpenPages } from '../../frame/pageContext'
+import { pageHrefOf } from '../../frame/pageHref'
+import { modulePath } from '../../frame/sample/paths'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { focusIsLost, useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
@@ -38,6 +45,39 @@ interface StepFocus { readonly targets: readonly string[]; readonly notice?: str
  * documents, not document capture: a clinician refused here may still add documents to a visit.
  */
 export const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
+
+/**
+ * Whether OCR refused to make a job because the patient's own OK does not cover bringing in their paper records: its
+ * 403 OCR_RECORDS_PROCESSING_CONSENT_REQUIRED, or, before that answer ships, the 404 it gives today for the same reason
+ * (owner, 5 Nov 2026). A 404 from a module that is off (API_ROUTE_NOT_FOUND) keeps its own words.
+ */
+export function needsPatientAccess(caught: unknown): boolean {
+  if (!isHidApiError(caught)) return false
+  if (caught.status === 403) return caught.code === 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED'
+  return caught.status === 404 && caught.code !== 'API_ROUTE_NOT_FOUND'
+}
+
+/**
+ * The ways to the patient's own OK, under STAFF_PAPER_NEEDS_ACCESS: asking the patient (External record access's
+ * request form) and their Access PIN, each only where this session may open that page and its role may take that step.
+ * The Health ID is not known here (OCR has only the patient's record ID), so the form opens empty.
+ */
+function PatientAccessLinks({ permissions }: { readonly permissions: readonly string[] }) {
+  const { state } = useStaff()
+  const session = state.status === 'ready' ? state.session : null
+  const pages = useOpenPages()
+  const href = modulePath('consent')
+  const page = pages.find(candidate => pageHrefOf(candidate) === href)
+  if (!page || page.status === 'sample' || !pageAllowed(page, session)) return null
+  const links = [
+    ...(actionUnavailable(METHOD_ROUTES.request, permissions) === null ? [{ to: `${href}/new`, label: 'Ask the patient for access' }] : []),
+    ...(actionUnavailable(METHOD_ROUTES.pin, permissions) === null ? [{ to: `${href}/pin`, label: 'Enter their Access PIN' }] : []),
+  ]
+  if (!links.length) return null
+  return <div className="hid-ehr-state-action">
+    {links.map((link, index) => <Link key={link.to} className={index ? 'hid-ehr-button hid-ehr-button-secondary' : 'hid-ehr-button'} to={link.to}>{link.label}</Link>)}
+  </div>
+}
 
 /** A job this page has read, and when. */
 interface OpenedJob { readonly job: OcrJob; readonly readAt: string }
@@ -353,7 +393,13 @@ export function Migrate() {
         setStepFocus({ targets: ['ocr-job-title'], notice: words.existing })
         return true
       }
-      const created = await staffApi.createOcrJob(facilityId, documentId, patient)
+      let created: OcrJob
+      try { created = await staffApi.createOcrJob(facilityId, documentId, patient) }
+      catch (caught) {
+        // Refused for want of the patient's OK: said plainly, with the ways to ask for it.
+        if (current()) refuse(needsPatientAccess(caught) ? STAFF_PAPER_NEEDS_ACCESS : errorText(caught, words.refused))
+        return false
+      }
       if (!current()) { remember(created); return false }
       show(created, documentId); setView('detail'); setAction(null)
       setStepFocus({ targets: ['ocr-job-title'], notice: words.created })
@@ -482,6 +528,7 @@ export function Migrate() {
           {nothingFound && canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
         </div>
         {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+        {error === STAFF_PAPER_NEEDS_ACCESS && <PatientAccessLinks permissions={permissions} />}
       </DeptSection>
     </>
   }
@@ -501,6 +548,7 @@ export function Migrate() {
           </EhrField>
         </div>
         <FormRefusal error={createError} />
+        {createError === STAFF_PAPER_NEEDS_ACCESS && <PatientAccessLinks permissions={permissions} />}
         <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-create-submit" type="submit" busy={busy}>{busy ? 'Saving…' : 'Save record'}</EhrButton></div>
       </form>
     </DeptSection>

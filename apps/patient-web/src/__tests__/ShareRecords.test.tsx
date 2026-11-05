@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import type { AccessHistory, PatientNotification } from '../api'
 import type { ShareInvitation, ShareProvider } from '../shareRecords'
@@ -7,6 +7,7 @@ import { ShareRecords } from '../routes/ShareRecords'
 import { AccessPage } from '../routes/Portal'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from '../routes/notificationTitles'
 import { forgetShareServed, shareServed } from '../shareServed'
+import { SHARE_COVERS_PAPER } from '../paperRecordsWording'
 import { json, press, problem, renderPortal, shownText, type Handler } from './portalHarness'
 
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => true }))
@@ -191,6 +192,52 @@ describe('the share flow', () => {
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     await press(screen.getByRole('button', { name: 'Can’t find them? Invite them by email' }))
     expect(focused()).toBe(screen.getByRole('heading', { name: 'Invite them by email' }))
+  })
+})
+
+describe('paper records on the share screen (owner, 5 Nov 2026: shares count)', () => {
+  /** The share flow up to Check and share, the profile answering with `dateOfBirth` (or failing, with null and `fails`). */
+  async function toConfirm(dateOfBirth: string | null, fails = false) {
+    const { sent } = sharePage(path => {
+      if (path === '/identity/me') return fails ? problem(503, 'SERVICE_UNAVAILABLE', 'Down') : json({ hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth })
+      if (path === '/identity/me/share-providers/search') return json({ items: providers })
+      return problem(404, 'NOT_FOUND', path)
+    })
+    await screen.findByLabelText('Name of the clinician or facility')
+    type('Name of the clinician or facility', 'ada')
+    await press(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByLabelText(/Dr Ada Obi/))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Check and share' })
+    // The profile has answered before the line is looked for.
+    await waitFor(() => expect(sent.some(item => item.path === '/identity/me')).toBe(true))
+    await act(async () => { await Promise.resolve() })
+  }
+
+  it('is the decided sentence, word for word', () => {
+    expect(SHARE_COVERS_PAPER).toBe('Sharing also lets them add your old paper records to your Health ID while the share lasts.')
+  })
+
+  it('is said to an adult on Check and share, in the same form as Share my records', async () => {
+    await toConfirm('1991-03-04')
+    const line = await screen.findByText(SHARE_COVERS_PAPER)
+    expect(line.closest('form')?.id).toBe('share-confirm')
+    expect(screen.getByRole('button', { name: 'Share my records' }).getAttribute('form')).toBe('share-confirm')
+  })
+
+  it('is not said to someone under 18', async () => {
+    await toConfirm(`${new Date().getUTCFullYear() - 10}-01-01`)
+    expect(screen.queryByText(/paper records/)).toBeNull()
+  })
+
+  it('is not said while the age is unknown, nor when the profile could not be read', async () => {
+    await toConfirm(null)
+    expect(screen.queryByText(/paper records/)).toBeNull()
+    cleanup()
+    forgetShareServed()
+    await toConfirm('1991-03-04', true)
+    expect(screen.queryByText(/paper records/)).toBeNull()
   })
 })
 

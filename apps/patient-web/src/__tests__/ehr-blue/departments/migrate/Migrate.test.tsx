@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
+import { Migrate, needsPatientAccess } from '../../../../ehr-blue/departments/migrate/Migrate'
+import { OpenPagesProvider } from '../../../../ehr-blue/frame/pageContext'
+import type { EhrBluePage } from '../../../../ehr-blue/frame/types'
+import { STAFF_PAPER_NEEDS_ACCESS } from '../../../../paperRecordsWording'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
@@ -580,6 +583,94 @@ describe('Migrate: creating a job (New document job)', () => {
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
     await press(button('Back to list'))
     await waitFor(() => expect(focused()).toBe(heading('Find document job')))
+  })
+})
+
+describe('Migrate: a job refused for want of the patient’s OK (owner, 5 Nov 2026)', () => {
+  const SENTENCE = 'To bring in this patient’s paper records, ask the patient to approve access or enter their Access PIN.'
+  const consentRequired = () => new HidApiError(403, 'Records processing consent is required', { code: 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED' })
+  const notFound = () => new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })
+  // External record access as the clinical registry has it (frame/pages.ts): live, for identity.consent.write.
+  const REQUESTS: EhrBluePage = { path: 'requests/*', group: 'Clinical', label: 'Access requests', permission: 'identity.consent.write', status: 'live', element: <p>Access requests</p> }
+
+  /** New document job, sent with a document that has no job, `refusal` answering the create. */
+  async function refusedCreate(refusal: Error, open: readonly EhrBluePage[] | null = null) {
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockRejectedValue(refusal)
+    if (open) renderDept(<OpenPagesProvider value={open}><Migrate /></OpenPagesProvider>)
+    else renderMigrate()
+    await press(button('Create record'))
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    await press(button('Save record'))
+    return screen.findByRole('alert')
+  }
+
+  it('is the decided sentence, word for word', () => {
+    expect(STAFF_PAPER_NEEDS_ACCESS).toBe(SENTENCE)
+  })
+
+  it('says the sentence for OCR’s 403 OCR_RECORDS_PROCESSING_CONSENT_REQUIRED, never the service’s words, and stays in the form', async () => {
+    expect((await refusedCreate(consentRequired())).textContent).toBe(SENTENCE)
+    expect(document.body.textContent).not.toContain('Records processing consent is required')
+    expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+    await waitFor(() => expect(focused()).toBe(button('Save record')))
+  })
+
+  it('says the same for a 404 from making the job, which means the same before that answer ships', async () => {
+    expect((await refusedCreate(notFound())).textContent).toBe(SENTENCE)
+  })
+
+  it('keeps other refusals as they were: another 403, a module that is off, and a lookup’s own 404', async () => {
+    expect((await refusedCreate(new HidApiError(403, 'OCR access is not authorized', { code: 'OCR_ACCESS_DENIED' }))).textContent).not.toBe(SENTENCE)
+    expect(needsPatientAccess(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))).toBe(false)
+    expect(needsPatientAccess(new HidApiError(503, 'Down', { code: 'SERVICE_UNAVAILABLE' }))).toBe(false)
+    expect(needsPatientAccess(new Error('offline'))).toBe(false)
+    expect(needsPatientAccess(consentRequired())).toBe(true)
+    expect(needsPatientAccess(notFound())).toBe(true)
+  })
+
+  it('a module that is off still says so', async () => {
+    expect((await refusedCreate(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))).textContent).toBe(SAID_NOT_TURNED_ON)
+  })
+
+  it('a 404 from finding the document’s job is not read as wanting the patient’s OK, and nothing is made', async () => {
+    api.findOcrJob.mockRejectedValue(notFound())
+    renderMigrate()
+    await press(button('Create record'))
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    await press(button('Save record'))
+    expect((await screen.findByRole('alert')).textContent).not.toBe(SENTENCE)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('links to asking the patient and to their Access PIN, each where this session may open it and its role may take it', async () => {
+    session.permissions = [...ALL, 'identity.consent.write', 'identity.patient.read', 'identity.patient-access-pin.verify']
+    await refusedCreate(consentRequired(), [REQUESTS])
+    expect(screen.getByRole('link', { name: 'Ask the patient for access' }).getAttribute('href')).toBe('/provider/requests/new')
+    expect(screen.getByRole('link', { name: 'Enter their Access PIN' }).getAttribute('href')).toBe('/provider/requests/pin')
+  })
+
+  it('offers only the steps the role may take, and no link where the page is not open here', async () => {
+    session.permissions = [...ALL, 'identity.consent.write']
+    const first = await refusedCreate(consentRequired(), [REQUESTS])
+    expect(first.textContent).toBe(SENTENCE)
+    expect(screen.getByRole('link', { name: 'Ask the patient for access' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Enter their Access PIN' })).toBeNull()
+  })
+
+  it('offers no link without the page, saying the sentence alone', async () => {
+    session.permissions = [...ALL, 'identity.consent.write', 'identity.patient.read', 'identity.patient-access-pin.verify']
+    await refusedCreate(consentRequired(), [])
+    expect(screen.queryAllByRole('link')).toEqual([])
+    expect(screen.getByRole('alert').textContent).toBe(SENTENCE)
+  })
+
+  it('offers no link for another refusal', async () => {
+    session.permissions = [...ALL, 'identity.consent.write', 'identity.patient.read', 'identity.patient-access-pin.verify']
+    await refusedCreate(new HidApiError(409, 'The document is not virus scan clean', { code: 'OCR_DOCUMENT_NOT_READY' }), [REQUESTS])
+    expect(screen.queryAllByRole('link')).toEqual([])
   })
 })
 

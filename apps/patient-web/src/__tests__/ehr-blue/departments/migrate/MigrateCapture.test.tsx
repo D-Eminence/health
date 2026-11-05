@@ -81,8 +81,9 @@ async function extract() {
 }
 
 async function openDocuments() {
-  renderDept(<Migrate />)
+  const view = renderDept(<Migrate />)
   await screen.findByText('discharge-summary.pdf')
+  return view
 }
 
 function pdf(name = 'scan.pdf', type = 'application/pdf', body = '%PDF-1.7') {
@@ -353,6 +354,21 @@ describe('Patient documents: opening and extracting', () => {
     await extract()
     expect((await screen.findByRole('alert')).textContent).toBe('This document hasn’t finished its virus check yet. Try again once it has.')
     expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+  })
+
+  it('Extract with OCR refused for want of the patient’s OK (403, or today’s 404) says what to do, plainly, on the list', async () => {
+    const SENTENCE = 'To bring in this patient’s paper records, ask the patient to approve access or enter their Access PIN.'
+    for (const refusal of [new HidApiError(403, 'Records processing consent is required', { code: 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED' }),
+      new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })]) {
+      const view = await openDocuments()
+      api.findOcrJob.mockResolvedValue({ job: null })
+      api.createOcrJob.mockRejectedValue(refusal)
+      await extract()
+      expect((await screen.findByRole('alert')).textContent).toBe(SENTENCE)
+      expect(document.body.textContent).not.toContain('Records processing consent is required')
+      expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+      view.unmount()
+    }
   })
 
   it('Extract with OCR does not move the user off Create record when its answer comes later; the reading is listed', async () => {
