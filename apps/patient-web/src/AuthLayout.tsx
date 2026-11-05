@@ -125,7 +125,7 @@ function PrintedCard() {
             <div className="auth-print-head"><span className="auth-print-chip" /><span>HEALTH ID</span></div>
             <p className="auth-print-id">HID-•••• ••••</p>
             <ul>{CARD_LINES.map(line => <li key={line}><span>{line}</span><span className="auth-print-leader" /><span className="auth-print-tick">✓</span></li>)}</ul>
-            <div className="auth-print-foot"><span>Works at</span><span>Every Health ID facility</span></div>
+            <div className="auth-print-foot"><span>Works at</span><span>Health ID hospitals</span></div>
           </div>
         </div>
       </div>

@@ -463,7 +463,9 @@
 .auth-skin .auth-panel .patient-inline-error { color: var(--color-intent-error); }
 .auth-skin .auth-panel .patient-inline-success { color: var(--color-intent-success); }
 
-.auth-trust { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; color: var(--color-hero-ink-2); font-size: 12.5px; }
+.auth-trust { display: flex; align-items: flex-start; justify-content: center; gap: 6px; margin: 0; color: var(--color-hero-ink-2); font-size: 12.5px; }
+/* The lock lines up with the first line when the line wraps (320px). */
+.auth-trust svg { flex: none; margin-top: 2px; }
 
 /* The Health ID card that prints out of its slot (paytrail's welcome receipt). */
 .auth-printer { width: 100%; max-width: 380px; margin: 40px auto 0; }
