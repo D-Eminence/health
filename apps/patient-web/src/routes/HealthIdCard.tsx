@@ -117,9 +117,10 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   const allergyList = allergyItems(allergies)
   const facts = cardFacts(bloodGroup, genotype)
   const [allergiesOpen, setAllergiesOpen] = useState(false)
+  const [adviceHost, setAdviceHost] = useState<HTMLDivElement | null>(null)
 
   return <div className={cx('flex flex-col gap-3', className)}>
-    <CardFace name={profile.fullName} hid={<HealthIdCode code={profile.hid} />} verified={verified} facts={facts} allergies={allergyList} factsUnavailable={healthUnavailable}
+    <CardFace name={profile.fullName} hid={<HealthIdCode code={profile.hid} adviceIn={adviceHost} />} verified={verified} facts={facts} allergies={allergyList} factsUnavailable={healthUnavailable}
       onAllergies={() => setAllergiesOpen(true)} medallion={editable ? <label className="group/photo absolute inset-0 cursor-pointer rounded-full">
         <span className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full bg-[#071a3d] ring-[.5cqw] ring-white/25 group-focus-within/photo:ring-white">{face}</span>
         {/* Seen as a control: a pill that says what it does; the whole medallion (well over 44px) is its target. */}
@@ -129,6 +130,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
           aria-label={photo.url ? 'Change the photo on your card' : 'Add a photo to your card'} onChange={event => void choose(event)} />
       </label> : undefined} face={face} />
 
+    {/* Under the card, where it has room and covers nothing: the advice to copy the Health ID by hand (R2-HCS-23). */}
+    <div ref={setAdviceHost} className="empty:hidden [&_.patient-hid-note]:m-0 [&_.patient-hid-note]:text-[13px] [&_.patient-hid-note]:text-ink-2" />
     <p role="status" className="sr-only m-0">{saved ? 'Your photo was saved.' : ''}</p>
 
     {/* The photo is changed on the card; removing it is one step away, under it, and asked again in the drawer. */}
@@ -264,7 +267,8 @@ export function CardFace({ name, hid, verified, facts, allergies, factsUnavailab
             <span className={cx('line-clamp-2 min-w-0 font-medium tracking-[.12em] break-words uppercase', (name?.length ?? 0) > 28 ? 'text-[2.8cqw] leading-[1.2]' : 'text-[3.2cqw] leading-[1.15]')}>{name}</span>
             {verified !== null && (verified ? <BadgeCheck className="mt-[.15cqw] size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
               : <CircleAlert className="mt-[.15cqw] size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
-          <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-note]:text-[3cqw] [&_.patient-hid-note]:tracking-normal [&_.patient-hid-note]:text-white/80">{hid}</div>
+          {/* "Health ID copied." sits under the code, out of the holder's flow, so the name never moves when it shows (R1-HCS-05). */}
+          <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid]:relative [&_.patient-hid-note]:absolute [&_.patient-hid-note]:top-full [&_.patient-hid-note]:left-0 [&_.patient-hid-note]:mt-[1.2cqw] [&_.patient-hid-note]:text-[3cqw] [&_.patient-hid-note]:tracking-normal [&_.patient-hid-note]:text-white/80">{hid}</div>
         </div>
       </div>
     </section>

@@ -2888,3 +2888,18 @@ Merged main (website batches 3 and 4) into the branch above, then finished what 
   sharing area). The share's done step still says "Your card is on its way… They can open your records", which is the
   sharing area's to check against what a provider can open today.
 - **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-05: Home and the Health ID card: review fixes
+
+An independent review of the branch found two problems with copying the Health ID on the card. Both reproduced in
+Chromium at 320 and 390 with a 41-letter name; tests first (`HomeLaunchReady.test.tsx`, `HealthIdCode.test.tsx`).
+
+- **HCS-05 (copy note).** "Health ID copied." was a line inside the holder block at the foot of the card, so showing it
+  lifted the two-line name under the Add photo pill: letters and the NIN mark were hidden. The note now sits under the
+  code, out of the holder's flow, in the card's bottom margin. Measured in Chromium: the name's top is the same with and
+  without the note (297.9px at 320, 328.1px at 390), and the NIN mark stays visible.
+- **HCS-23 (copy failed).** The advice to copy by hand was printed on the card face, cut off at its edge, and also pushed
+  the name. It is now printed under the card, whole and wrapped, still as an alert, and still stays until the next try
+  (it is advice the patient needs while they copy by hand, so it is not timed out). `HealthIdCode` takes `adviceIn`, the
+  place outside the card to print it.
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.

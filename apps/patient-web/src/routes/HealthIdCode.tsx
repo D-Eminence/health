@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '../kasuwa/ui'
 
@@ -11,9 +12,10 @@ export const COPIED_FOR_MS = 3_000
  * hears that pressing it copies. The sign-up screens show it as hid-1.0 did, large in a dashed box with a "Copy HID"
  * button (`copyButton`), on one line however narrow the screen: Copy goes under it when the two do not fit side by side.
  * Copying happens only when the person asks. "Copied" is said for a few seconds; the advice to copy by hand, when the
- * browser will not copy, stays until the next try.
+ * browser will not copy, stays until the next try. On the card face there is no room for that advice (it was cut off at the
+ * card's edge and pushed the name under the photo pill): `adviceIn` is a place outside the card to print it, whole.
  */
-export function HealthIdCode({ code, copyButton = false }: { code: string; copyButton?: boolean }) {
+export function HealthIdCode({ code, copyButton = false, adviceIn = null }: { code: string; copyButton?: boolean; adviceIn?: HTMLElement | null }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const hint = useId()
 
@@ -30,6 +32,7 @@ export function HealthIdCode({ code, copyButton = false }: { code: string; copyB
   }
 
   if (!code) return null
+  const advice = <p role="alert" className="patient-hid-note">Copying is not available here. Press and hold your Health ID to copy it, or write it down.</p>
   if (copyButton) return <div className="flex flex-col gap-2">
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-line bg-brand-soft/50 px-4 py-3">
       <strong className="text-[clamp(18px,6vw,22px)] font-semibold tracking-[.08em] whitespace-nowrap text-ink tabular">{code}</strong>
@@ -44,6 +47,6 @@ export function HealthIdCode({ code, copyButton = false }: { code: string; copyB
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void copy() } }}>{code}</strong>
     <span id={hint} hidden>Copies your Health ID</span>
     <p role="status" className="patient-hid-note">{copyState === 'copied' ? 'Health ID copied.' : ''}</p>
-    {copyState === 'failed' && <p role="alert" className="patient-hid-note">Copying is not available here. Press and hold your Health ID to copy it, or write it down.</p>}
+    {copyState === 'failed' && (adviceIn ? createPortal(advice, adviceIn) : advice)}
   </div>
 }
