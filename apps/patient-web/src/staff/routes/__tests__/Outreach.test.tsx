@@ -374,7 +374,29 @@ describe('outreach names no ids', () => {
       [{ id: `${campaignId}-membership`, campaignId, membershipId: 'm2222222-2222-4222-8222-222222222222', role: 'health_worker', createdAt: '2026-01-01T00:00:00.000Z' }])
     render(<Outreach />)
     await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalled())
-    await waitFor(() => expect(screen.getAllByText('health worker').length).toBeGreaterThan(0))
-    expect(document.body.textContent).not.toMatch(/Membership|••••|222222\b/)
+    await waitFor(() => expect(screen.getAllByText('Health worker').length).toBeGreaterThan(0))
+    expect(document.body.textContent).not.toMatch(/Membership|••••|222222\b|health worker|health_worker/)
+  })
+
+  it('names a member with a role it has no word for as a member, never by the role’s code', async () => {
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-membership`, campaignId, membershipId: 'm3333333-3333-4333-8333-333333333333', role: 'field_supervisor', createdAt: '2026-01-01T00:00:00.000Z' }])
+    render(<Outreach />)
+    await waitFor(() => expect(screen.getAllByText('Member').length).toBeGreaterThan(0))
+    expect(document.body.textContent).not.toMatch(/field.supervisor/i)
+  })
+
+  it('says a case’s and a campaign’s status in words, never the server’s status word', async () => {
+    api.outreachCases.mockResolvedValue([pendingCase])
+    render(<Outreach />)
+    expect(await screen.findByText('Amaka Obi')).toBeTruthy()
+    await screen.findByText('Ikeja screening week')
+    expect(screen.getByText('Waiting to link')).toBeTruthy()
+    expect(screen.getByText('Running')).toBeTruthy()
+    expect(screen.getByText('Not started')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/identity resolution pending|identity_resolution_pending/)
+    // The campaign badges say words, not the server's "active" or "planned".
+    expect(screen.queryByText('active')).toBeNull()
+    expect(screen.queryByText('planned')).toBeNull()
   })
 })
