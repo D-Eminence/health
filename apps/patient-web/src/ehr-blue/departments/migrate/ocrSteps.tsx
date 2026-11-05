@@ -14,7 +14,8 @@ import { dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
 import { itemDetails, itemNotActive, parsePaperReading, type PaperItem } from './paperReading'
 import {
-  SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemName, itemTextId, offeredDomains, readingLine, reviewItems,
+  SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemName, itemResultId, itemTestId, itemTextId, labResult, labTest,
+  offeredDomains, readingLine, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
 
@@ -137,26 +138,56 @@ function ReviewItemCard({ item, index, decision, problem, onChange }: {
       </div>
       <span className="hid-ehr-dept-muted">{state}</span>
       {cardError && <p id={`${cardId}-error`} className="hid-ehr-error">{cardError}</p>}
-      {decision.choice === 'change' && <EhrField label="What the paper says" controlId={itemTextId(index)} error={problemText(problem, itemTextId(index))}>
-        <EhrInput value={decision.text} maxLength={2_000} autoComplete="off" onChange={event => onChange({ ...decision, text: event.target.value })} />
-      </EhrField>}
+      {decision.choice === 'change' && (item.kind === 'lab_result'
+        // A lab result is changed as its test and its result, so a corrected value is filed under the right test.
+        ? <>
+          <EhrField label="Test" controlId={itemTestId(index)} error={problemText(problem, itemTestId(index))}>
+            <EhrInput value={decision.test ?? labTest(item)} maxLength={240} autoComplete="off" onChange={event => onChange({ ...decision, test: event.target.value })} />
+          </EhrField>
+          <EhrField label="Result" controlId={itemResultId(index)} error={problemText(problem, itemResultId(index))}>
+            <EhrInput value={decision.result ?? labResult(item)} maxLength={2_000} autoComplete="off" onChange={event => onChange({ ...decision, result: event.target.value })} />
+          </EhrField>
+        </>
+        : <EhrField label="What the paper says" controlId={itemTextId(index)} error={problemText(problem, itemTextId(index))}>
+          <EhrInput value={decision.text} maxLength={2_000} autoComplete="off" onChange={event => onChange({ ...decision, text: event.target.value })} />
+        </EhrField>)}
     </div>
   </li>
 }
 
-/** The visits of the job's patient, read when a clinical note is chosen: a note is attached to one. */
+interface Visits {
+  readonly items?: readonly Encounter[]; readonly nextCursor?: string | null; readonly error?: string
+  /** Reading the next page: under way, or why it failed. */
+  readonly more?: { readonly busy: boolean; readonly error?: string }
+}
+
+/**
+ * The visits of the job's patient, read when a clinical note is chosen: a note is attached to one. EHR gives them a page
+ * at a time, newest first; "Show older visits" reads the next page and adds it.
+ */
 function useVisits(facilityId: string, patientId: string | null | undefined, wanted: boolean) {
-  const [visits, setVisits] = useState<{ readonly items?: readonly Encounter[]; readonly error?: string } | null>(null)
+  const [visits, setVisits] = useState<Visits | null>(null)
   const [reads, setReads] = useState(0)
   useEffect(() => {
     if (!wanted || !patientId) return
     let active = true
     setVisits(null)
-    void staffApi.encounters(facilityId, patientId).then(page => { if (active) setVisits({ items: page.items }) })
+    void staffApi.encounters(facilityId, patientId).then(page => { if (active) setVisits({ items: page.items, nextCursor: page.nextCursor }) })
       .catch(caught => { if (active) setVisits({ error: errorText(caught, 'The patient’s visits couldn’t be loaded.') }) })
     return () => { active = false }
   }, [facilityId, patientId, wanted, reads])
-  return { visits, retry: () => setReads(value => value + 1) }
+  async function more() {
+    const cursor = visits?.nextCursor
+    if (!patientId || !cursor || visits?.more?.busy) return
+    setVisits(current => current && { ...current, more: { busy: true } })
+    try {
+      const page = await staffApi.encounters(facilityId, patientId, { cursor })
+      setVisits(current => current && { items: [...(current.items ?? []), ...page.items], nextCursor: page.nextCursor })
+    } catch (caught) {
+      setVisits(current => current && { ...current, more: { busy: false, error: errorText(caught, 'Older visits couldn’t be loaded.') } })
+    }
+  }
+  return { visits, retry: () => setReads(value => value + 1), more }
 }
 
 function visitWords(visit: Encounter) {
@@ -192,7 +223,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const focus = useFocusById()
   const validating = disposition === 'validated'
-  const { visits, retry } = useVisits(facilityId, job.patientId, validating && saveAs === 'EHR')
+  const { visits, retry, more } = useVisits(facilityId, job.patientId, validating && saveAs === 'EHR')
+  const noteVisits = visitsForNote(visits?.items ?? [], facilityId)
 
   function chooseExtraction(id: string) {
     const next = extractions.find(item => item.id === id)
@@ -212,7 +244,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
       : buildRejection(selected.id, reason)
     if ('problem' in built) {
       // With no visit to choose from, the choice to change is Save as.
-      const shown = built.problem.field === 'ocr-review-visit' && !visits?.items?.length
+      const shown = built.problem.field === 'ocr-review-visit' && noteVisits.length === 0
         ? { field: 'ocr-review-domain', message: 'A clinical note needs a visit, and this patient has none that can be chosen. Choose another way to save it.' } : built.problem
       setProblem(refusal(shown)); focus(shown.field); return
     }
@@ -272,14 +304,21 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
       ? <p className="hid-ehr-dept-muted" role="status">Loading the patient’s visits…</p>
       : visits.error
         ? <DeptNotice tone="critical" role="alert">{visits.error} <EhrButton size="sm" variant="secondary" onClick={retry}>Try again</EhrButton></DeptNotice>
-        : (visits.items ?? []).length === 0
+        : noteVisits.length === 0 && !visits.nextCursor
           ? <p className="hid-ehr-dept-muted" role="note">This patient has no visits yet, so a clinical note can’t be attached. Choose another way to save it.</p>
-          : <EhrField label={<>Visit to attach the note to<span aria-hidden="true"> *</span></>} controlId="ocr-review-visit" error={problemText(problem, 'ocr-review-visit')}>
-            <EhrSelect value={encounterId} onChange={event => { setEncounterId(event.target.value); setProblem(null) }}>
-              <option value="">Choose a visit</option>
-              {(visits.items ?? []).map(visit => <option key={visit.id} value={visit.id}>{visitWords(visit)}</option>)}
-            </EhrSelect>
-          </EhrField>)}
+          : <>
+            {noteVisits.length > 0 && <EhrField label={<>Visit to attach the note to<span aria-hidden="true"> *</span></>} controlId="ocr-review-visit"
+              error={problemText(problem, 'ocr-review-visit')}>
+              <EhrSelect value={encounterId} onChange={event => { setEncounterId(event.target.value); setProblem(null) }}>
+                <option value="">Choose a visit</option>
+                {noteVisits.map(visit => <option key={visit.id} value={visit.id}>{visitWords(visit)}</option>)}
+              </EhrSelect>
+            </EhrField>}
+            {visits.nextCursor && <div>
+              <EhrButton size="sm" variant="secondary" busy={visits.more?.busy} onClick={() => void more()}>Show older visits</EhrButton>
+            </div>}
+            {visits.more?.error && <DeptNotice tone="critical" role="alert">{visits.more.error}</DeptNotice>}
+          </>)}
     {reasonField}
     {actions}
   </form>

@@ -1052,6 +1052,63 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
       acceptedFields: { encounterId: VISIT, noteType: 'Paper record', title: 'From a paper record', content: expect.stringContaining('- Amlodipine 5 mg once a day (page 1)') } })
   })
 
+  it('Change on a lab result asks for the test and the result, and sends the typed test name', async () => {
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
+    const haemoglobin = cards()[4]!
+    await press(within(haemoglobin).getByRole('button', { name: 'Change' }))
+    expect(within(haemoglobin).queryByLabelText('What the paper says')).toBeNull()
+    const test = within(haemoglobin).getByLabelText('Test') as HTMLInputElement
+    const result = within(haemoglobin).getByLabelText('Result') as HTMLInputElement
+    expect([test.value, result.value]).toEqual(['Haemoglobin', '11.2 g/dL'])
+    fireEvent.change(test, { target: { value: 'Haematocrit' } })
+    fireEvent.change(result, { target: { value: '34 %' } })
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'LAB' } })
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(save())
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect(input.acceptedFields.observations).toEqual([{ testName: 'Haematocrit', valueText: '34 %' }])
+    expect(input.corrections.map((item: { field: string }) => item.field)).toEqual(['test', 'result'])
+  })
+
+  it('offers only visits at this facility that still take a note, and reads older visits on request', async () => {
+    session.permissions = [...ALL, 'ehr.encounter.read']
+    const visit = (id: string, status: string, chiefComplaint: string, facilityId = DEMO_HOSPITAL_ID) => ({ id, patientId: PATIENT, facilityId,
+      encounterType: 'ambulatory', status, startedAt: '2026-03-02T09:00:00.000Z', chiefComplaint, rowVersion: 1 })
+    api.encounters.mockResolvedValueOnce({ items: [visit(VISIT, 'in_progress', 'Open visit'), visit('c0000000-0000-4000-8000-000000000002', 'cancelled', 'Cancelled visit'),
+      visit('c0000000-0000-4000-8000-000000000003', 'entered_in_error', 'Wrong visit'),
+      visit('c0000000-0000-4000-8000-000000000004', 'completed', 'Elsewhere', DEMO_LABORATORY_ID)], nextCursor: 'cursor-2' })
+    api.encounters.mockResolvedValueOnce({ items: [visit('c0000000-0000-4000-8000-000000000005', 'completed', 'Older visit')], nextCursor: null })
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'EHR' } })
+    const picker = await screen.findByLabelText(/^Visit to attach the note to/)
+    expect(optionsOf(picker).slice(1).map(text => text?.split(' · ').at(-1))).toEqual(['Open visit'])
+    await press(within(form()).getByRole('button', { name: 'Show older visits' }))
+    await waitFor(() => expect(optionsOf(screen.getByLabelText(/^Visit to attach the note to/)).slice(1).map(text => text?.split(' · ').at(-1)))
+      .toEqual(['Open visit', 'Older visit']))
+    expect(api.encounters).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, PATIENT, { cursor: 'cursor-2' })
+    expect(within(form()).queryByRole('button', { name: 'Show older visits' })).toBeNull()
+  })
+
+  it('says the patient has no visits when every visit is cancelled', async () => {
+    session.permissions = [...ALL, 'ehr.encounter.read']
+    api.encounters.mockResolvedValue({ items: [{ id: VISIT, patientId: PATIENT, facilityId: DEMO_HOSPITAL_ID, encounterType: 'ambulatory', status: 'cancelled',
+      startedAt: '2026-03-02T09:00:00.000Z', chiefComplaint: 'Cancelled visit', rowVersion: 1 }], nextCursor: null })
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'EHR' } })
+    expect(await within(form()).findByText('This patient has no visits yet, so a clinical note can’t be attached. Choose another way to save it.')).toBeTruthy()
+    expect(screen.queryByLabelText(/^Visit to attach the note to/)).toBeNull()
+  })
+
   it('a reading with no items offers only Keep the document only and Reject, without a Save as choice', async () => {
     withReading(unreadPaper('ai_failed'))
     await findJob(awaiting)

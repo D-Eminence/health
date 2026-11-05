@@ -4,14 +4,14 @@ import { PAPER_READING_CONTRACT, itemNotActive, orderItems, type PaperItem, type
 /*
  * The check of a paper reading, as staff make it on the Document OCR page: each item read is kept, changed or removed,
  * then the whole is saved as one of OCR's owning domains. Staff never see or type what is sent; it is built here from
- * their choices, in the shape ocr-api takes (hid-system, origin/main 6ef652e9):
+ * their choices, in the shape ocr-api takes (hid-system, origin/staging-novu-ci-20261005 605e971e, the branch production is built from):
  *
  * - services/ocr-api/src/ocr/dto/validate-ocr-job.dto.ts:12-31: validatedPayload and acceptedFields are objects
  *   (@IsObject), rejectedFields and corrections are arrays (@IsArray); the database holds them to the same shapes
  *   (ehr-api migrations 0013 lines 121-122, 0016 lines 29-32: jsonb_typeof object / array).
  * - services/ocr-api/src/ocr/ocr-publication-policy.ts:7-20 (assertCandidateClassification): the candidate type must be
  *   the one of its domain, and a validated review may not be UNCLASSIFIED.
- * - services/ocr-api/src/ocr/ocr.service.ts:284: a validated review's acceptedFields must pass the domain's own check
+ * - services/ocr-api/src/ocr/ocr.service.ts:297: a validated review's acceptedFields must pass the domain's own check
  *   (assertPublishableCandidate, ocr-publication-policy.ts:116-120) before anything is written:
  *   - EHR, clinicalNoteCandidate (ocr-publication-policy.ts:97-109): encounterId (a UUID), noteType (1-80 characters),
  *     title (1-240) and content (1-100,000). EHR then takes encounterId only as a version 4 UUID
@@ -24,13 +24,16 @@ import { PAPER_READING_CONTRACT, itemNotActive, orderItems, type PaperItem, type
  *     strengthText, doseText and frequencyText (up to 240) and historicalContext (up to 2,000). One review is one
  *     medicine.
  *   - DOCUMENT_ONLY: no check; any object.
- *   Each check picks only its own keys (the publication sends what it returns, ocr.service.ts:500-531), so the items
+ *   Each check picks only its own keys (the publication sends what it returns, ocr.service.ts:515-551), so the items
  *   kept are also stored in acceptedFields as `items`, as a record of the check, without changing what is published.
  */
 
 export type ItemChoice = 'keep' | 'change' | 'remove'
-/** One item's choice (null: not chosen yet) and, for Change, the words staff typed. */
-export interface ItemDecision { readonly choice: ItemChoice | null; readonly text: string }
+/**
+ * One item's choice (null: not chosen yet) and, for Change, the words staff typed. A lab result is changed as its test
+ * and its result, each its own text (`test`, `result`); any other item as one line (`text`).
+ */
+export interface ItemDecision { readonly choice: ItemChoice | null; readonly text: string; readonly test?: string; readonly result?: string }
 export type Decisions = Readonly<Record<string, ItemDecision>>
 
 /** The owning domains a check can be saved as. */
@@ -68,6 +71,16 @@ function words(...parts: unknown[]): string {
   return parts.map(text).filter(Boolean).join(' ')
 }
 
+/** A lab result's test, as read: the test the reader named, or the item's name. */
+export function labTest(item: PaperItem): string {
+  return text(item.fields.test) || itemName(item)
+}
+
+/** A lab result's result, as read ("11.2 g/dL"), or what is written when no value was picked out. */
+export function labResult(item: PaperItem): string {
+  return words(item.fields.value, item.fields.unit) || item.asWritten.trim()
+}
+
 /** An item's name as the page shows it in bold: the plain reading, or what is written. */
 export function itemName(item: PaperItem): string {
   return item.plain.trim() || item.asWritten.trim()
@@ -96,7 +109,10 @@ export function reviewItems(reading: PaperReading | null): PaperItem[] {
 
 /** Where each item starts: a clear item is kept; one to check carefully waits for staff to choose. */
 export function initialDecisions(items: readonly PaperItem[]): Record<string, ItemDecision> {
-  return Object.fromEntries(items.map(item => [item.id, { choice: item.confidence === 'clear' ? 'keep' : null, text: readingLine(item) }]))
+  return Object.fromEntries(items.map(item => [item.id, {
+    choice: item.confidence === 'clear' ? 'keep' : null, text: readingLine(item),
+    ...(item.kind === 'lab_result' ? { test: labTest(item), result: labResult(item) } : {}),
+  }]))
 }
 
 /** The domains a reading can be saved as. `canAttachNote`: the job names a patient whose visits this account can read. */
@@ -114,9 +130,25 @@ export function offeredDomains(reading: PaperReading | null, canAttachNote: bool
 /** A field of the form, by its control's id, and what to do about it. */
 export interface ReviewProblem { readonly field: string; readonly message: string }
 
+/**
+ * The visits a clinical note from a paper record can be attached to: this facility's, and not cancelled or entered in
+ * error. On staging-novu-ci-20261005, EHR files the note on the visit of this patient at this facility only
+ * (ehr-api database/migrations/0004_ehr_clinical_records.sql:79, the note's foreign key), and the record rule coming
+ * with it refuses a record on a cancelled or entered-in-error visit while a completed one still takes late notes
+ * (origin/main ehr-api src/ehr/shared/encounter-status.ts:38-46, refuseClosedEncounter for 'record'). Either refusal
+ * comes at publication, which is final, after the check can no longer be made again, so such a visit is never offered.
+ */
+const CLOSED_VISIT: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
+export function visitsForNote<T extends { readonly facilityId: string; readonly status: string }>(visits: readonly T[], facilityId: string): T[] {
+  return visits.filter(visit => visit.facilityId.toLowerCase() === facilityId.toLowerCase() && !CLOSED_VISIT.has(visit.status.trim().toLowerCase()))
+}
+
 /** The id of an item's card (a group, focusable) and of its Change text, by the item's place in the check. */
 export const itemCardId = (index: number) => `ocr-item-${index}`
 export const itemTextId = (index: number) => `ocr-item-${index}-text`
+/** A lab result's Change: its Test and Result texts. */
+export const itemTestId = (index: number) => `ocr-item-${index}-test`
+export const itemResultId = (index: number) => `ocr-item-${index}-result`
 
 export interface ReviewChoices {
   readonly extractionId: string
@@ -131,7 +163,11 @@ export interface ReviewChoices {
 interface AcceptedItem {
   readonly itemId: string; readonly kind: PaperItemKind; readonly page: number; readonly asWritten: string; readonly reading: string
 }
-interface CheckedItem { readonly item: PaperItem; readonly index: number; readonly decision: ItemDecision; readonly line: string; readonly final: string }
+interface CheckedItem {
+  readonly item: PaperItem; readonly index: number; readonly decision: ItemDecision; readonly line: string; readonly final: string
+  /** A lab result's test and result as saved: as read, or as typed on Change. */
+  readonly lab?: { readonly test: string; readonly result: string; readonly changed: boolean }
+}
 
 function optional<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== '')) as T
@@ -158,9 +194,9 @@ interface Observation {
 
 function observation(entry: CheckedItem): Observation {
   const f = entry.item.fields
-  const testName = text(f.test) || itemName(entry.item)
-  // A changed result carries only the words staff typed, so the reading's own value and unit can't contradict them.
-  if (entry.decision.choice === 'change' && entry.final !== entry.line) return { testName, valueText: entry.final }
+  const testName = entry.lab?.test ?? labTest(entry.item)
+  // A changed result carries the test and result staff typed, so the reading's own value and unit can't contradict them.
+  if (entry.lab?.changed) return { testName, valueText: entry.lab.result }
   const value = text(f.value)
   const flag = text(f.flag).toLowerCase()
   return optional<Observation>({
@@ -201,6 +237,16 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
   for (const [index, item] of items.entries()) {
     const decision = decisions[item.id] ?? { choice: null, text: readingLine(item) }
     if (!decision.choice) return { problem: { field: itemCardId(index), message: 'Choose Keep, Change or Remove for this item.' } }
+    if (item.kind === 'lab_result') {
+      const read = { test: labTest(item), result: labResult(item) }
+      const typed = decision.choice === 'change' ? { test: (decision.test ?? read.test).trim(), result: (decision.result ?? read.result).trim() } : read
+      if (!typed.test) return { problem: { field: itemTestId(index), message: 'Enter the test, or choose Keep or Remove.' } }
+      if (!typed.result) return { problem: { field: itemResultId(index), message: 'Enter the result, or choose Keep or Remove.' } }
+      const changed = typed.test !== read.test || typed.result !== read.result
+      checked.push({ item, index, decision, line: readingLine(item), final: changed ? `${typed.test} ${typed.result}` : readingLine(item),
+        lab: { ...typed, changed } })
+      continue
+    }
     const final = decision.choice === 'change' ? decision.text.trim() : readingLine(item)
     if (decision.choice === 'change' && !final) return { problem: { field: itemTextId(index), message: 'Enter what the paper says, or choose Keep or Remove.' } }
     if (decision.choice === 'change' && final.length > 2_000) return { problem: { field: itemTextId(index), message: 'Shorten this to 2,000 characters or fewer.' } }
@@ -210,8 +256,17 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
   const accepted: AcceptedItem[] = kept.map(({ item, final }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: final }))
   const rejectedFields = checked.filter(entry => entry.decision.choice === 'remove')
     .map(({ item, line }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: line, decision: 'removed' }))
-  const corrections = kept.filter(entry => entry.decision.choice === 'change' && entry.final !== entry.line)
-    .map(({ item, line, final }) => ({ itemId: item.id, kind: item.kind, page: item.page, field: 'reading', oldValue: line, newValue: final }))
+  const corrections = kept.filter(entry => entry.decision.choice === 'change').flatMap(entry => {
+    const { item, line, final, lab } = entry
+    const correction = (field: string, oldValue: string, newValue: string) => ({ itemId: item.id, kind: item.kind, page: item.page, field, oldValue, newValue })
+    if (lab) {
+      return [
+        ...(lab.test !== labTest(item) ? [correction('test', labTest(item), lab.test)] : []),
+        ...(lab.result !== labResult(item) ? [correction('result', labResult(item), lab.result)] : []),
+      ]
+    }
+    return final !== line ? [correction('reading', line, final)] : []
+  })
 
   let domainFields: Record<string, unknown> = {}
   const domainProblem = (message: string) => ({ problem: { field: 'ocr-review-domain', message } })
@@ -226,9 +281,14 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
     if (results.length === 0) return domainProblem('No lab result is kept, so nothing can be added to past lab results. Choose another way to save it.')
     if (results.length > 200) return domainProblem('This has more than 200 lab results, too many to add at once. Choose Keep the document only.')
     const observations = results.map(observation)
-    const tooLong = results.find((_, at) => observations[at]!.testName.length > 240 || (observations[at]!.value?.length ?? 0) > 240
-      || (observations[at]!.valueText?.length ?? 0) > 2_000)
-    if (tooLong) return { problem: { field: itemCardId(tooLong.index), message: 'This result is too long to add to past lab results. Use Change to shorten it.' } }
+    for (const [at, entry] of results.entries()) {
+      const { testName, value, valueText } = observations[at]!
+      const changed = entry.decision.choice === 'change'
+      if (testName.length > 240) return { problem: { field: changed ? itemTestId(entry.index) : itemCardId(entry.index),
+        message: 'This test name is too long to add to past lab results. Use Change to shorten the test name to 240 characters or fewer.' } }
+      if ((value?.length ?? 0) > 240 || (valueText?.length ?? 0) > 2_000) return { problem: { field: changed ? itemResultId(entry.index) : itemCardId(entry.index),
+        message: 'This result is too long to add to past lab results. Use Change to shorten it.' } }
+    }
     domainFields = { observations }
   } else if (saveAs === 'PHARMACY') {
     const medicine = kept.find(entry => entry.item.kind === 'medicine')

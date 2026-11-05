@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
-  CANDIDATE_TYPES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemTextId, offeredDomains, readingLine,
-  reviewItems, type Decisions, type ReviewChoices, type SaveAs,
+  CANDIDATE_TYPES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
+  offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
 import { handwrittenPage, paperReading } from './paperReadingPayload'
 
 /*
  * What staff choose on the check becomes the review ocr-api takes. The checks below are ocr-api's own, copied from
- * hid-system origin/main 6ef652e9, so a payload this page builds is held to what the service validates:
+ * hid-system origin/staging-novu-ci-20261005 605e971e, the branch production is built from, so a payload this page builds is held to what the service validates:
  * - services/ocr-api/src/ocr/dto/validate-ocr-job.dto.ts:12-35 (the body's shape)
  * - services/ocr-api/src/ocr/ocr-publication-policy.ts:7-20 (assertCandidateClassification)
  * - services/ocr-api/src/ocr/ocr-publication-policy.ts:32-120 (importedMedicationCandidate, importedLabCandidate,
- *   clinicalNoteCandidate, assertPublishableCandidate), which ocr.service.ts:284 runs on acceptedFields before saving.
+ *   clinicalNoteCandidate, assertPublishableCandidate), which ocr.service.ts:297 runs on acceptedFields before saving.
  * - lab-api dto/create-lab-import.dto.ts:12 (Lab's flag words) and ehr-api ocr-integration/dto/import-ocr-clinical-note.dto.ts:7
  *   (a version 4 visit ID), which publication then meets.
  * Fictional data only.
@@ -86,7 +86,7 @@ function clinicalNoteCandidate(fields: Record<string, unknown>) {
     || typeof content !== 'string' || content.trim().length < 1 || content.length > 100_000) throw new Refused('OCR_INVALID_CLINICAL_NOTE')
 }
 
-/** ocr.service.ts:284, assertPublishableCandidate (ocr-publication-policy.ts:116-120). */
+/** ocr.service.ts:297, assertPublishableCandidate (ocr-publication-policy.ts:116-120). */
 function assertAccepted(input: OcrValidationInput) {
   assertBody(input)
   if (input.disposition !== 'validated') return
@@ -126,7 +126,7 @@ describe('the check starts from the reading', () => {
     const start = initialDecisions(items)
     expect(start[METFORMIN]).toEqual({ choice: null, text: 'Metformin 500 mg twice a day' })
     expect(start[ALLERGY]!.choice).toBeNull()
-    expect(start[HAEMOGLOBIN]).toEqual({ choice: 'keep', text: 'Haemoglobin 11.2 g/dL' })
+    expect(start[HAEMOGLOBIN]).toEqual({ choice: 'keep', text: 'Haemoglobin 11.2 g/dL', test: 'Haemoglobin', result: '11.2 g/dL' })
   })
 
   it('offers Clinical note only when a visit can be chosen, past lab results when results were read, past medicines for one medicine', () => {
@@ -178,9 +178,31 @@ describe('the review built from the choices', () => {
     const flagged = parsePaperReading(payload) as PaperReading
     const kept = built(buildValidation({ ...choices('LAB'), reading: flagged }))
     expect(kept.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', value: '11.2', unit: 'g/dL', referenceRange: '12-16' }])
-    const changed = built(buildValidation(choices('LAB', { decisions: decided({ [HAEMOGLOBIN]: { choice: 'change', text: 'Haemoglobin 11.4 g/dL' } }) })))
+    const changed = built(buildValidation(choices('LAB', { decisions: decided({
+      [HAEMOGLOBIN]: { choice: 'change', text: '', test: 'Haemoglobin', result: '11.4 g/dL' } }) })))
     expect(() => assertAccepted(changed)).not.toThrow()
-    expect(changed.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', valueText: 'Haemoglobin 11.4 g/dL' }])
+    expect(changed.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', valueText: '11.4 g/dL' }])
+    expect(changed.corrections).toEqual([{ itemId: HAEMOGLOBIN, kind: 'lab_result', page: 2, field: 'result', oldValue: '11.2 g/dL', newValue: '11.4 g/dL' }])
+  })
+
+  it('past lab results: a changed test name is the test the result is filed under, and is listed as a correction', () => {
+    const input = built(buildValidation(choices('LAB', { decisions: decided({
+      [HAEMOGLOBIN]: { choice: 'change', text: '', test: ' Haematocrit ', result: '11.2 g/dL' } }) })))
+    expect(() => assertAccepted(input)).not.toThrow()
+    expect(input.acceptedFields.observations).toEqual([{ testName: 'Haematocrit', valueText: '11.2 g/dL' }])
+    expect(input.corrections).toEqual([{ itemId: HAEMOGLOBIN, kind: 'lab_result', page: 2, field: 'test', oldValue: 'Haemoglobin', newValue: 'Haematocrit' }])
+    const accepted = input.acceptedFields.items as Array<{ itemId: string; reading: string }>
+    expect(accepted.find(item => item.itemId === HAEMOGLOBIN)?.reading).toBe('Haematocrit 11.2 g/dL')
+  })
+
+  it('past lab results: an empty or too long test name is refused at the Test text, before sending', () => {
+    const at = items.findIndex(item => item.id === HAEMOGLOBIN)
+    const change = (test: string, result = '11.2 g/dL') => buildValidation(choices('LAB', { decisions: decided({ [HAEMOGLOBIN]: { choice: 'change', text: '', test, result } }) }))
+    expect(change(' ')).toEqual({ problem: { field: itemTestId(at), message: 'Enter the test, or choose Keep or Remove.' } })
+    expect(change('Haemoglobin', '')).toEqual({ problem: { field: itemResultId(at), message: 'Enter the result, or choose Keep or Remove.' } })
+    expect(change('H'.repeat(241))).toEqual({ problem: { field: itemTestId(at),
+      message: 'This test name is too long to add to past lab results. Use Change to shorten the test name to 240 characters or fewer.' } })
+    expect('input' in change('H'.repeat(240))).toBe(true)
   })
 
   it('past lab results with every result removed is refused at Save as, before sending', () => {
@@ -255,5 +277,15 @@ describe('what must be fixed before anything is sent', () => {
     expect(() => assertAccepted(result.input)).not.toThrow()
     expect(result.input).toEqual({ extractionId: EXTRACTION, validatedPayload: {}, acceptedFields: {}, rejectedFields: [], corrections: [],
       disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified', reason: 'The scan is unreadable' })
+  })
+})
+
+describe('the visits a clinical note can be attached to', () => {
+  const FACILITY = 'f0000000-0000-4000-8000-000000000001'
+  const visit = (id: string, status: string, facilityId = FACILITY) => ({ id, status, facilityId })
+  it('leaves out cancelled and entered-in-error visits and other facilities\' visits; a completed visit still takes a note', () => {
+    const offered = visitsForNote([visit('a', 'in_progress'), visit('b', 'cancelled'), visit('c', 'entered_in_error'), visit('d', 'completed'),
+      visit('e', 'planned'), visit('f', 'on_hold'), visit('g', 'in_progress', 'f0000000-0000-4000-8000-0000000000ff')], FACILITY.toUpperCase())
+    expect(offered.map(item => item.id)).toEqual(['a', 'd', 'e', 'f'])
   })
 })
