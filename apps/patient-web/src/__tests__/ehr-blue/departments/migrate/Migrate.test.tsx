@@ -7,6 +7,7 @@ import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
 import { handwrittenPage, paperReading, unreadPaper } from './paperReadingPayload'
+import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocrSteps'
 
 /**
  * The blue Migrate page: today's Document OCR flow (staff/routes/Operations.tsx Ocr) in the design's list, new and
@@ -15,7 +16,7 @@ import { handwrittenPage, paperReading, unreadPaper } from './paperReadingPayloa
 const api = vi.hoisted(() => ({
   findOcrJob: vi.fn(), ocrExtractions: vi.fn(), ocrValidations: vi.fn(), ocrPublications: vi.fn(),
   createOcrJob: vi.fn(), retryOcrJob: vi.fn(), validateOcrJob: vi.fn(), confirmOcrPatient: vi.fn(), publishOcrValidation: vi.fn(),
-  labImport: vi.fn(), pharmacyImport: vi.fn(),
+  labImport: vi.fn(), pharmacyImport: vi.fn(), encounters: vi.fn(),
 }))
 const session = vi.hoisted(() => ({ permissions: [] as string[], lock: null as string | null, actorId: 'staff-demo-1',
   facilityId: '98d00002-0000-4000-8000-000000000001' }))
@@ -117,6 +118,8 @@ async function openAction(name: string) {
 }
 
 const actionsCard = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+/** The check's item cards, in the order shown. */
+const cards = () => within(screen.getByRole('form', { name: 'Check and save' })).queryAllByRole('group')
 
 /** No staffApi member outside these was called. */
 function onlyCalled(...names: Array<keyof typeof api>) {
@@ -271,7 +274,7 @@ describe('Migrate record view', () => {
     expect(within(record).getByText('textract')).toBeTruthy()
     expect(within(record).getByText('Not confirmed')).toBeTruthy()
     expect(within(record).getByText('1 of 3')).toBeTruthy()
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
     expect(await screen.findByText('Extraction 1 · textract · confidence 92%')).toBeTruthy()
     expect(document.body.textContent).not.toContain(DOCUMENT)
     expect(document.body.textContent).not.toContain(PATIENT)
@@ -394,7 +397,7 @@ describe('Migrate: following a document while it is read', () => {
     const text = within(read).getByRole('region', { name: 'Text read from the document' })
     expect(text.textContent).toBe('Haemoglobin 12.1')
     expect(text.getAttribute('tabindex')).toBe('0')
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
   })
 
   it('says in plain words what is happening to the document', async () => {
@@ -586,114 +589,106 @@ describe('Migrate: creating a job (New document job)', () => {
 describe('Migrate: each step moves focus to where the work continues and says what happened', () => {
   it('review (validated): opens the next step, confirming the source patient, with focus on it', async () => {
     await findJob(awaiting)
-    await openAction('Validate extraction')
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
-    await press(within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' }))
+    await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(focused()).toBe(document.getElementById('ocr-confirm-title')))
     expect(focused()?.getAttribute('aria-expanded')).toBe('true')
     expect(statusRegion().textContent).toBe('Review recorded. Confirm the source patient next.')
     const [, , input] = api.validateOcrJob.mock.calls[0]!
-    expect(input).toMatchObject({ extractionId: 'extraction-1', disposition: 'validated', targetDomain: 'DOCUMENT_ONLY',
-      candidateType: 'document_only', validatedPayload: { title: 'Full blood count' }, acceptedFields: {}, rejectedFields: [], corrections: [],
+    // Not a paper reading: nothing to check item by item, so the document is kept with empty objects.
+    expect(input).toEqual({ extractionId: 'extraction-1', disposition: 'validated', targetDomain: 'DOCUMENT_ONLY',
+      candidateType: 'document_only', validatedPayload: {}, acceptedFields: {}, rejectedFields: [], corrections: [],
       reason: 'Checked against the scanned page' })
     expect(screen.getByRole('form', { name: 'Confirm source patient' })).toBeTruthy()
   })
 
   it('review (validated) to a chosen domain sends its candidate type', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
     await findJob(awaiting)
-    await openAction('Validate extraction')
-    fireEvent.change(screen.getByLabelText('Owning domain'), { target: { value: 'LAB' } })
-    fireEvent.change(screen.getByLabelText(/^Accepted fields/), { target: { value: '{"observations":[]}' } })
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    await openAction('Check and save')
+    for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'LAB' } })
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
-    await press(within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' }))
+    await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
     expect(api.validateOcrJob.mock.calls[0]![1]).toEqual(awaiting)
-    expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ targetDomain: 'LAB', candidateType: 'lab_document', acceptedFields: { observations: [] } })
+    expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ targetDomain: 'LAB', candidateType: 'lab_document',
+      acceptedFields: { observations: [{ testName: 'Haemoglobin', value: '11.2', unit: 'g/dL', referenceRange: '12-16', abnormalFlag: 'low' }] } })
   })
 
   it('review (validated) without the confirmation permission: focus goes to the saved record, naming no next step', async () => {
     session.permissions = ALL.filter(permission => permission !== 'ocr.patient.confirm')
     await findJob(awaiting)
-    await openAction('Validate extraction')
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
-    await press(within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' }))
+    await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(focused()).toBe(heading('Saved record')))
     expect(statusRegion().textContent).toBe('Review recorded.')
   })
 
   it('review (rejected): sends UNCLASSIFIED, focus goes to the saved record and the rejection is said', async () => {
     await findJob(awaiting)
-    await openAction('Reject extraction')
-    expect(screen.queryByLabelText('Owning domain')).toBeNull()
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'The scan is unreadable' } })
+    await openAction('Reject reading')
+    expect(screen.queryByLabelText('Save as')).toBeNull()
+    expect(screen.getByRole('form', { name: 'Reject reading' }).querySelectorAll('textarea, input, select')).toHaveLength(1)
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'The scan is unreadable' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: rejected })
-    await press(within(screen.getByRole('form', { name: 'Reject extraction' })).getByRole('button', { name: 'Reject extraction' }))
+    await press(within(screen.getByRole('form', { name: 'Reject reading' })).getByRole('button', { name: 'Reject reading' }))
     await waitFor(() => expect(focused()).toBe(heading('Saved record')))
     expect(statusRegion().textContent).toBe('Rejection recorded.')
     expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified' })
   })
 
-  it('review: a short reason and a payload that is not JSON take focus at their fields, and nothing is sent', async () => {
+  it('review: an item left undecided, then a short reason, take focus at their fields, and nothing is sent', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
     await findJob(awaiting)
-    await openAction('Validate extraction')
-    const reason = screen.getByLabelText(/^Review reason/)
+    await openAction('Check and save')
+    const reason = screen.getByLabelText(/^Why you’re/)
     fireEvent.change(reason, { target: { value: 'short' } })
-    const submit = within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' })
+    const submit = within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' })
+    await press(submit)
+    const [first, second] = cards()
+    await waitFor(() => expect(focused()).toBe(first))
+    expect(first!.getAttribute('aria-invalid')).toBe('true')
+    expect(descriptions(first!)).toEqual(['Choose Keep, Change or Remove for this item.'])
+    await press(within(first!).getByRole('button', { name: 'Keep' }))
+    await press(within(second!).getByRole('button', { name: 'Remove' }))
+    expect(first!.getAttribute('aria-invalid')).toBeNull()
     await press(submit)
     await waitFor(() => expect(focused()).toBe(reason))
-    expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter a review reason of at least 8 characters.')
-    const payload = screen.getByLabelText(/^Reviewed payload/)
-    fireEvent.change(payload, { target: { value: '{not json' } })
-    fireEvent.change(reason, { target: { value: 'Checked against the scanned page' } })
-    await press(submit)
-    await waitFor(() => expect(focused()).toBe(payload))
-    const [describedFirstBy, then] = (payload.getAttribute('aria-describedby') ?? '').split(' ')
-    expect(document.getElementById(describedFirstBy ?? '')?.textContent).toBe('Reviewed payload must be valid JSON.')
-    expect(then).toBe('ocr-review-requirements')
-    fireEvent.change(payload, { target: { value: '[]' } })
-    await press(submit)
-    await waitFor(() => expect(descriptions(payload)[0]).toBe('Reviewed payload must be a JSON object.'))
-    fireEvent.change(payload, { target: { value: '{}' } })
-    const corrections = screen.getByLabelText(/^Corrections/)
-    fireEvent.change(corrections, { target: { value: '[1]' } })
-    await press(submit)
-    await waitFor(() => expect(focused()).toBe(corrections))
-    expect(corrections.getAttribute('aria-invalid')).toBe('true')
-    expect(descriptions(corrections)).toEqual(['Corrections must be a JSON array of objects.'])
-    // The payload, no longer refused, is described only by what the owning domains require.
-    expect(payload.getAttribute('aria-invalid')).toBeNull()
-    expect(payload.getAttribute('aria-describedby')).toBe('ocr-review-requirements')
+    expect(descriptions(reason)[0]).toBe('Write at least 8 characters.')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
   })
 
   it('review: a refused review stays in its form, with focus back on its button and the reason kept', async () => {
     await findJob(awaiting)
-    await openAction('Validate extraction')
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockRejectedValue(new HidApiError(409, 'The job changed since it was read', { code: 'OCR_JOB_VERSION_CONFLICT' }))
-    const submit = within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' })
+    const submit = within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' })
     await press(submit)
     expect((await screen.findByRole('alert')).textContent).toBe(SAID_CHANGED)
     expect(document.body.textContent).not.toContain('The job changed since it was read')
     await waitFor(() => expect(focused()).toBe(submit))
-    expect((screen.getByLabelText(/^Review reason/) as HTMLTextAreaElement).value).toBe('Checked against the scanned page')
+    expect((screen.getByLabelText(/^Why you’re/) as HTMLTextAreaElement).value).toBe('Checked against the scanned page')
     expect(statusRegion().textContent).toBe('')
   })
 
   it('a review whose reload then fails: says it was recorded, and gives focus to finding the job', async () => {
     await findJob(awaiting)
-    await openAction('Validate extraction')
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockRejectedValue(unavailable())
-    await press(within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' }))
+    await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(focused()).toBe(button('Find job')))
     expect(statusRegion().textContent).toBe('Review recorded.')
     expect(screen.getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
@@ -823,13 +818,13 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
     await screen.findByRole('heading', { name: 'Saved record' })
-    await openAction('Validate extraction')
-    fireEvent.change(screen.getByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
     let answer: (value: unknown) => void = () => {}
     api.ocrExtractions.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
-    await press(within(screen.getByRole('form', { name: 'Validate extraction' })).getByRole('button', { name: 'Validate extraction' }))
+    await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
     await screen.findByRole('form', { name: 'Confirm source patient' })
     session.lock = 'away'
     view.rerender(<MemoryRouter><div className="hid-ehr"><Migrate /></div></MemoryRouter>)
@@ -916,7 +911,7 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(within(read).queryByText('Pages')).toBeNull()
     expect(within(read).queryByText('Contract')).toBeNull()
     expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Amlodipine 5mg od')
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
   })
 
   it('warns first when the page may not be fully read, and never says the count is complete', async () => {
@@ -954,7 +949,7 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(within(read).queryByText('Items')).toBeNull()
     expect(within(read).getByRole('note').textContent).toBe('The items couldn’t be picked out automatically. Enter them by hand.')
     expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Validate extraction', 'Reject extraction'])
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
   })
 
   it('keeps showing named fields for an extraction that is not a paper reading', async () => {
@@ -963,5 +958,137 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(within(read).getByText('Full blood count')).toBeTruthy()
     expect(within(read).queryByRole('note')).toBeNull()
     expect(within(read).queryByText('Who the paper is about')).toBeNull()
+  })
+})
+
+describe('Migrate: checking what was read, item by item, with no JSON on screen', () => {
+  const VISIT = 'c0000000-0000-4000-8000-000000000001'
+  const form = () => screen.getByRole('form', { name: 'Check and save' })
+  const save = () => within(form()).getByRole('button', { name: 'Save' })
+  const optionsOf = (control: HTMLElement) => Array.from(control.querySelectorAll('option')).map(option => option.textContent)
+  const withReading = (payload: object = paperReading()) =>
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: payload }] })
+
+  it('shows each item as a card: its name, what the paper says, Clear or Check carefully and its page, careful ones first and undecided', async () => {
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    const shown = cards()
+    expect(shown).toHaveLength(7)
+    expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Metformin', 'Penicillin allergy', 'Amlodipine',
+      'High blood pressure', 'Haemoglobin', 'Blood pressure 150/95', 'Come back in two weeks'])
+    const [metformin] = shown
+    expect(within(metformin!).getByText('On the paper: Metf?rmin 500 bd')).toBeTruthy()
+    expect(within(metformin!).getByText('Check carefully')).toBeTruthy()
+    expect(within(metformin!).getByText('Page 1')).toBeTruthy()
+    expect(within(metformin!).getByText('Not chosen yet')).toBeTruthy()
+    expect(within(shown[2]!).getByText('Clear')).toBeTruthy()
+    expect(within(shown[2]!).getByRole('button', { name: 'Keep' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(form()).getByRole('note').textContent).toBe('2 items need your choice before you can save.')
+    // No JSON anywhere: no box to type it in, no braces, no field named after it.
+    expect(document.body.textContent).not.toMatch(/JSON|[{}[\]]/)
+    expect(form().querySelectorAll('textarea')).toHaveLength(1)
+    expect(screen.queryByLabelText('Reading')).toBeNull()
+  })
+
+  it('Keep, Change and Remove become what OCR is sent: accepted, corrected and rejected', async () => {
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    const [metformin, allergy] = cards()
+    await press(within(metformin!).getByRole('button', { name: 'Change' }))
+    const typed = within(metformin!).getByLabelText('What the paper says') as HTMLInputElement
+    expect(typed.value).toBe('Metformin 500 mg twice a day')
+    fireEvent.change(typed, { target: { value: 'Metformin 850 mg twice a day' } })
+    await press(within(allergy!).getByRole('button', { name: 'Remove' }))
+    expect(within(allergy!).getByText('Removed: it won’t be saved')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(save())
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect(input).toMatchObject({ targetDomain: 'DOCUMENT_ONLY', candidateType: 'document_only', reason: 'Checked against the paper record',
+      corrections: [{ itemId: 'it-00000000000000a2', field: 'reading', oldValue: 'Metformin 500 mg twice a day', newValue: 'Metformin 850 mg twice a day' }],
+      rejectedFields: [{ itemId: 'it-00000000000000c1', reading: 'Penicillin allergy', decision: 'removed' }] })
+    expect(input.acceptedFields.items).toHaveLength(6)
+    expect(input.validatedPayload.items).toEqual(input.acceptedFields.items)
+  })
+
+  it.each([
+    ['a paper of two medicines, with the patient\'s visits readable', paperReading(), ['ehr.encounter.read'], ['Keep the document only', 'Clinical note', 'Past lab results']],
+    ['a paper of two medicines, without', paperReading(), [], ['Keep the document only', 'Past lab results']],
+    ['a paper of one medicine', handwrittenPage(), [], ['Keep the document only', 'Past medicines']],
+  ])('offers Save as in plain words for %s', async (_, payload, extra, offered) => {
+    session.permissions = [...ALL, ...extra]
+    withReading(payload)
+    await findJob(awaiting)
+    await openAction('Check and save')
+    expect(optionsOf(screen.getByLabelText('Save as'))).toEqual(offered)
+  })
+
+  it('a clinical note asks for the visit to attach it to, and sends it with the kept items as the note', async () => {
+    session.permissions = [...ALL, 'ehr.encounter.read']
+    api.encounters.mockResolvedValue({ items: [{ id: VISIT, patientId: PATIENT, facilityId: DEMO_HOSPITAL_ID, encounterType: 'ambulatory', status: 'finished',
+      startedAt: '2026-03-02T09:00:00.000Z', chiefComplaint: 'Blood pressure review', rowVersion: 1 }], nextCursor: null })
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'EHR' } })
+    const visit = await screen.findByLabelText(/^Visit to attach the note to/)
+    expect(api.encounters).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT)
+    expect(optionsOf(visit)[1]).toMatch(/^Outpatient visit · .+ · Blood pressure review$/)
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    await press(save())
+    await waitFor(() => expect(focused()).toBe(visit))
+    expect(descriptions(visit)[0]).toBe('Choose the visit to attach this note to.')
+    fireEvent.change(visit, { target: { value: VISIT } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(save())
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ targetDomain: 'EHR', candidateType: 'clinical_note',
+      acceptedFields: { encounterId: VISIT, noteType: 'Paper record', title: 'From a paper record', content: expect.stringContaining('- Amlodipine 5 mg once a day (page 1)') } })
+  })
+
+  it('a reading with no items offers only Keep the document only and Reject, without a Save as choice', async () => {
+    withReading(unreadPaper('ai_failed'))
+    await findJob(awaiting)
+    await openAction('Check and save')
+    expect(cards()).toHaveLength(0)
+    expect(screen.queryByLabelText('Save as')).toBeNull()
+    expect(within(form()).getByText('Keep the document only')).toBeTruthy()
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toContain('Reject reading')
+  })
+
+  it('names readings plainly when there are several, and checks the newest first', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, id: 'extraction-1', version: 1 },
+      { ...extraction, id: 'extraction-2', version: 2, structuredPayload: paperReading() }] })
+    await findJob(awaiting)
+    await openAction('Check and save')
+    const reading = screen.getByLabelText('Reading') as HTMLSelectElement
+    expect(optionsOf(reading)).toEqual(['Reading 1 of 2', 'Reading 2 of 2 (newest)'])
+    expect(reading.value).toBe('extraction-2')
+    expect(cards()).toHaveLength(7)
+    fireEvent.change(reading, { target: { value: 'extraction-1' } })
+    expect(cards()).toHaveLength(0)
+  })
+
+  it.each([
+    ['an account that may read but not save a check', new HidApiError(403, 'Forbidden', { code: 'OCR_ACCESS_DENIED' }), REVIEW_NOT_ALLOWED],
+    ['items OCR refuses for the domain', new HidApiError(400, 'Validated Lab candidate requires bounded imported observations', { code: 'OCR_INVALID_LAB_EVIDENCE' }),
+      'This couldn’t be saved as past lab results. Check the items you kept, or choose Keep the document only.'],
+  ])('says plainly when OCR refuses %s, never its code or words', async (_, refusal, words) => {
+    withReading()
+    await findJob(awaiting)
+    await openAction('Check and save')
+    for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'LAB' } })
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockRejectedValue(refusal)
+    await press(save())
+    expect((await screen.findByRole('alert')).textContent).toBe(words)
+    expect(document.body.textContent).not.toMatch(/OCR_|Forbidden|bounded imported/)
   })
 })
