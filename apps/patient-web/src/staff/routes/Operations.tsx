@@ -145,9 +145,9 @@ function useFacilityRead<T>(facilityId: string | undefined, enabled: boolean, lo
   return { value: result.facilityId === facilityId ? result.items : null, loading: result.facilityId !== facilityId || result.loading, error: result.facilityId === facilityId ? result.error : '', refresh }
 }
 
-/** Who the patient is on a work row: named once an order from another facility is accepted, else masked. */
+/** Who the patient is on a work row: named once an order from another facility is accepted, else said in words, never by id. */
 function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'] }): string {
-  return item.patient ? patientCard(item.patient) : `Patient ${shortId(item.patientId)}`
+  return item.patient ? patientCard(item.patient) : 'Patient (name not shown)'
 }
 
 /**
