@@ -14,6 +14,7 @@ import {
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { shareProblem } from './ShareRecords'
+import { isAdult, shareCoversPaper, shareCoversPaperText } from '../paperRecordsWording'
 
 /**
  * "Invitations to share" on Access and consent (hid-1.0 parity B4, hid-system 0095; contract b45-contract.md §2.7): the
@@ -49,6 +50,10 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
   }), [api])
   // Kept for the account under its own name: `load` is made again each time the card is.
   const invitations = usePatientResource<ShareInvitationList | null>(load, 'share-invitations')
+  // Paper records are said only to an adult whose age is known (paperRecordsWording.ts), and only for an invitation
+  // whose level lets them add to the record.
+  const profile = usePatientResource(api.profile)
+  const adult = !profile.error && isAdult(profile.data?.dateOfBirth)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -114,10 +119,13 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
         {item.status === 'pending' && <Actions>
           <Button id={`cancel-invitation-${item.invitationId}`} size="sm" variant="danger" disabled={busy}
             onClick={() => void act(item, 'cancel')}>Cancel invitation <ItemName>to {item.inviteeEmail}</ItemName></Button></Actions>}
+        {item.status === 'accepted' && adult && shareCoversPaper(item.level)
+          && <p id={`invitation-paper-${item.invitationId}`} className="m-0 text-[13px] text-ink-3">{shareCoversPaperText(item.level)}</p>}
         {item.status === 'accepted' && <div className="grid grid-cols-2 gap-2">
           <Button id={`decline-invitation-${item.invitationId}`} block disabled={busy}
             onClick={() => void act(item, 'decline')}>Decline <ItemName>the invitation to {item.inviteeEmail}</ItemName></Button>
           <Button id={`confirm-invitation-${item.invitationId}`} block variant="primary" disabled={busy}
+            aria-describedby={adult && shareCoversPaper(item.level) ? `invitation-paper-${item.invitationId}` : undefined}
             onClick={() => void act(item, 'confirm')}>Confirm and share <ItemName>with {item.offer?.clinicianName ?? item.inviteeEmail}</ItemName></Button></div>}
       </li>)}</ul>)}
     {list?.limits && <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-3">You can send {list.limits.remainingToday} more {list.limits.remainingToday === 1 ? 'invitation' : 'invitations'} today.</p>}
