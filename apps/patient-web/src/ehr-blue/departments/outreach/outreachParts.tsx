@@ -56,6 +56,13 @@ export function campaignStatusLabel(status: string) {
   return (Object.hasOwn(CAMPAIGN_STATUS, status) ? CAMPAIGN_STATUS[status] : undefined) ?? 'Status not known'
 }
 
+const ROLE_WORDS: Readonly<Record<string, string>> = { enumerator: 'Enumerator', health_worker: 'Health worker', admin: 'Campaign admin' }
+
+/** A campaign member's role in words: "Member" for one the page has no word for, never its code (parity report 3.1 #16). */
+export function memberRoleLabel(role: string): string {
+  return (Object.hasOwn(ROLE_WORDS, role) ? ROLE_WORDS[role] : undefined) ?? 'Member'
+}
+
 export function caseName(item: OutreachCase) {
   return item.fullName ?? 'Registrant'
 }

@@ -21,6 +21,8 @@ import {
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
 } from '../orderRoutes'
 import { IncomingOrders, patientCard } from './IncomingOrders'
+// Outreach says statuses and roles in the same words as the blue Outreach screens, never their codes.
+import { campaignStatusLabel, memberRoleLabel, statusLabel as outreachStatusLabel } from '../../ehr-blue/departments/outreach/outreachParts'
 import { WrongPatientEnded, type WrongPatientEnding } from './WrongPatient'
 import { LateCorrectionDone, LateWrongPatient, type LateCorrection } from './LateWrongPatient'
 import {
@@ -1734,8 +1736,8 @@ function CampaignCard({ facilityId, membershipId, campaign, onMembershipChange }
   useEffect(() => {
     if (members.items) onMembershipChange(campaign.id, members.items.some(member => member.membershipId === membershipId))
   }, [campaign.id, membershipId, members.items, onMembershipChange])
-  return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
-    <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')}{member.membershipId === membershipId ? ' (you)' : ''}</p>)}</details>
+  return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaignStatusLabel(campaign.status)}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
+    <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{memberRoleLabel(member.role)}{member.membershipId === membershipId ? ' (you)' : ''}</p>)}</details>
   </div>
 }
 
@@ -1762,7 +1764,7 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
     catch (caught) { setError(errorText(caught, 'Patient could not be linked. Verify access and refresh the case.')) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>{item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>A temporary record was made for this registration.</p>}
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{outreachStatusLabel(item.status)}</Badge></div><p>{item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>A temporary record was made for this registration.</p>}
     {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} error={problems.error(`outreach-patient-${item.id}`)} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required {...problems.control(`outreach-patient-${item.id}`)} /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} error={problems.error(`outreach-reason-${item.id}`)} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required {...problems.control(`outreach-reason-${item.id}`)} /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
