@@ -52,15 +52,24 @@ describe('StaffRecordChat', () => {
     const notice = screen.getByRole('heading', { name: 'Before you ask' }).parentElement!.textContent!
     expect(notice).toContain('the patient’s name, date of birth and sex')
     expect(notice).toMatch(/lab\s+requests and their reasons; lab results;/)
-    expect(notice).toContain('imported history; and the text and file names of documents, including restricted ones')
+    expect(notice).toContain('imported history; the imported health profile, with blood group, genotype, allergies, long-term '
+      + 'conditions, medicines and notes; and the text and file names of documents, including restricted ones')
+    expect(notice).toContain('sex; finished visits; notes;')
+    // The list is what may be sent; the panel above says which kinds this member can read.
+    expect(notice).toContain('“Which records can I ask about?” shows which kinds you can read. They can include')
     expect(notice).toContain('HIV, pregnancy, cancer and mental health, are included')
     expect(notice).toContain('Nothing is removed first')
     expect(notice).toContain('Anthropic, an outside company, writes the answer. It handles the data in the United States.')
     expect(notice).toContain('Amazon Web Services')
     expect(notice).toContain('in Ireland')
     expect(notice).toContain('direct care of the patient you have open. You and your facility are responsible for that.')
-    expect(notice).toContain('up to 50 exchanges. They are deleted after 30 days')
-    for (const gone of [/are not sent/, /removed first\. Names/, /web links and long numbers are removed/, /until you delete them/, /Claude/]) {
+    // Old rows are hidden after 30 days and deleted only on the next use: nothing deletes them on a schedule.
+    expect(notice).toContain('up to 50 exchanges. After 30 days they are no longer shown. They are deleted the next time you '
+      + 'open this patient’s chat, or sooner if you delete them.')
+    // Nothing shows that lab results or shared records are limited to this facility.
+    expect(document.body.textContent).not.toMatch(/Only this facility|at this facility/)
+    for (const gone of [/are not sent/, /removed first\. Names/, /web links and long numbers are removed/, /until you delete them/, /Claude/,
+      /deleted after 30 days/]) {
       expect(notice).not.toMatch(gone)
     }
     expect(send().disabled).toBe(true)
