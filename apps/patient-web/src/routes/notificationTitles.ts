@@ -86,3 +86,16 @@ export function notificationTitle(item: PatientNotification): string {
   }
   return NOTIFICATION_TITLES[item.notificationCode] ?? 'An update about your Health ID account'
 }
+
+/**
+ * Where a notice about access can be acted on (RN-10): an access request is answered in Access & sharing, and the
+ * access given, orders sent, invitations and record openings are seen there. Other notices need nothing done.
+ */
+export function notificationAction(item: PatientNotification): { to: string; label: string } | null {
+  switch (item.resourceType) {
+    case 'access-request': return { to: '/access', label: 'Review request' }
+    case 'consent-grant': case 'order-route': case 'share-invitation': case 'record-access':
+      return { to: '/access', label: 'Open Access & sharing' }
+    default: return null
+  }
+}

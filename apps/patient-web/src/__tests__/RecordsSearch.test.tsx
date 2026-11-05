@@ -159,8 +159,11 @@ describe('the records page', () => {
     fireEvent.click(tab('Vitals'))
     expect(within(cardOf('Vitals')).getByText('Not shared with you yet.')).toBeTruthy()
     expect(within(cardOf('Vitals')).queryByText('None match your search.')).toBeNull()
+    // Nothing matches on Visits: the page says so once, and that the medicine matches (RN-19), with no second line in the card.
     fireEvent.click(tab('Visits'))
-    expect(within(cardOf('Visits')).getByText('None match your search.')).toBeTruthy()
+    expect(within(cardOf('Visits')).queryByText('None match your search.')).toBeNull()
+    expect(screen.getByText('Nothing matches here')).toBeTruthy()
+    expect(screen.getByText('1 record of another type matches your search.')).toBeTruthy()
   })
 
   it('offers no search until the records are read', async () => {

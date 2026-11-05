@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { StagingStaffPatientChat as StaffPatientChat } from '../StagingStaffPatientChat'
 import { HidApiError } from '@hid/http'
 const api=vi.hoisted(()=>({patientChat:vi.fn(),patientChatHistory:vi.fn(),clearPatientChatHistory:vi.fn(),patientChatSource:vi.fn()}))
@@ -46,6 +46,7 @@ describe('embedded hospital patient chat',()=>{
     render(<StaffPatientChat {...props} />);open()
     await screen.findByRole('button',{name:'Retry loading conversation'})
     fireEvent.click(screen.getByRole('button',{name:'New conversation'}))
+    fireEvent.click(within(screen.getByRole('dialog',{name:'Delete this conversation?'})).getByRole('button',{name:'Delete'}))
     await waitFor(()=>expect(api.clearPatientChatHistory).toHaveBeenCalledWith('facility-a','patient-a',expect.any(AbortSignal)))
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Retry loading conversation'})).toBeNull())
   })
