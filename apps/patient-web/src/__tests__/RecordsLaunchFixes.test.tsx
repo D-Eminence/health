@@ -33,10 +33,10 @@ const portal = (records: unknown, at = '/records') => renderPortal(<ToastProvide
 beforeEach(() => { forgetPatientEntriesServed() })
 
 describe('Records launch fixes', () => {
-  it('RN-01/HCS-02: does not open "Add a record" from ?add=record where the backend does not keep patient records', async () => {
-    portal(RECORDS, '/records?add=record')
+  // An older ?add=record link still opens the drawer, as main intends: its Save is how the page learns (RecordsOwnEntries).
+  it('RN-01/HCS-02: offers no "Add a record" where the backend does not keep patient records', async () => {
+    portal(RECORDS)
     await screen.findByText('Outpatient visit')
-    expect(screen.queryByRole('dialog', { name: 'Add a record' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Add a record' })).toBeNull()
   })
 
@@ -57,7 +57,7 @@ describe('Records launch fixes', () => {
 
   it('RN-08: says only the newest are shown when a section comes back full, even without truncated flags', async () => {
     portal({ ...RECORDS, encounters: Array.from({ length: 50 }, (_, n) => visit(n)) })
-    expect(await screen.findByText('Showing your 50 most recent visits; older ones are not shown here.')).toBeTruthy()
+    expect(await screen.findByText('Showing your 50 most recent visits; older ones are not shown.')).toBeTruthy()
   })
 
   it('RN-08: says nothing about older ones when a section is not full', async () => {

@@ -331,8 +331,8 @@ function Truncated({ data, section }: { data: PatientRecords; section: RecordSec
   const cut = data.truncated?.[section] ?? (data.truncated === undefined && Number.isInteger(limit) && limit > 0 && sent >= limit)
   if (cut !== true) return null
   return <p className="m-0 text-[13px] text-ink-3">{limit
-    ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown here.`
-    : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown here.`}</p>
+    ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown.`
+    : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown.`}</p>
 }
 
 /** A word the search finds in each section's rows (SEARCHED), to suggest when a search finds nothing (RN-19). */
@@ -686,8 +686,7 @@ export function RecordsPage() {
           : ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
-    {/* ?add=record opens it only where the backend keeps the records a patient adds (patientEntriesServed.ts). */}
-    <AddRecordDrawer open={adding && ownServed === true} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
+    <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
     {/* One record, in full, without losing the place in the list. */}
     <Drawer open={opened !== null} onClose={() => setOpened(null)} title={opened?.title ?? ''}
       icon={opened ? <IconChip icon={SECTION_UI[opened.section].icon} tone="brand" /> : undefined}
