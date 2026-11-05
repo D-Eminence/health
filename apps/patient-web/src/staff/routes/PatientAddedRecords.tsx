@@ -103,7 +103,7 @@ export function PatientAddedRecords({ facilityId, patientId }: { facilityId: str
     <h2 id="patient-added-records-title" ref={title} tabIndex={-1}>Added by the patient</h2>
     <p><Badge tone="warning">Patient-reported</Badge> {LABEL}</p>
     {/* Mounted throughout, so what Show older and a reload say is announced. */}
-    <div role="status" className="staff-status">{notice && <p>{notice}</p>}</div>
+    <div role="status">{notice && <p>{notice}</p>}</div>
     {state.status === 'failed' ? <>
       <p>{NOT_LOADED}</p>
       <button type="button" className="staff-text-link" onClick={() => setRevision(value => value + 1)}>Retry records added by the patient</button>
