@@ -390,7 +390,8 @@ describe('outreach names no ids', () => {
     api.outreachCases.mockResolvedValue([pendingCase])
     render(<Outreach />)
     expect(await screen.findByText('Amaka Obi')).toBeTruthy()
-    await screen.findByText('Ikeja screening week')
+    // The running campaign is named twice once the case form's campaign choice has loaded: in the list and as an option.
+    await screen.findAllByText('Ikeja screening week')
     expect(screen.getByText('Waiting to link')).toBeTruthy()
     expect(screen.getByText('Running')).toBeTruthy()
     expect(screen.getByText('Not started')).toBeTruthy()
