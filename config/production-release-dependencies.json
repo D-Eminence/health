@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. Backend release backend-41938240195-1-5c8cc7133d6817a3 (D-Eminence/hid-system#180 at 50089e9) rebuilt and redeployed all twelve services and the database migration, applying 0106 (the OCR worker's workload account, so the OCR worker can claim jobs). So every service is pinned to 50089e9. Browser-facing changes since the previous pins (f95ce97 and f11c9ec): none; between them the backend changed only migration 0106, its database test and the OCR worker README. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-05 (about 00:32 UTC): \"approve re-pin\", in reply to the plan to point the website at the backend as deployed after the 0106 release, which also releases the Document OCR screens (health#163) and the corrected AI chat notices (health#165).",
+  "review_reference": "The services as deployed now. Every service and the database migration were rebuilt and redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 6aae042e (backend release run \"all\"), after today's OCR release train: #191 (several medicines per check, lab dates as written), #192 (0108 records-processing cover, signed by D-Eminence), #187 (plain route reasons), #188 (most capable model at high effort), #193 (page-image re-read for hard pages) and #189 (precheck and 403 when the patient has not allowed records processing; 4xx logged by code). So every service is pinned to 6aae042e. Browser-facing changes since 50089e9: the OCR validation accepts acceptedFields.medications and lab reportedAtAsWritten (used by health#173), the new 403 OCR_RECORDS_PROCESSING_CONSENT_REQUIRED (used by health#168), and the v2 paper reading gains optional fields (imageRereadSkipped, imageRereadFailedPages, new check reasons). Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-05: \"approve re-pin\" (about 14:06 UTC) for the re-pin once this train landed, and \"deploy it once its ready. i approved everything thta needs my approval\" (about 14:10 UTC).",
   "backend_commits": {
-    "gateway": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "identity-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "ehr-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "lab-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "pharmacy-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "ocr-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "outreach-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "support-api": "50089e90924f5bd3da07183853688a5c0b7fec19",
-    "notification-api": "50089e90924f5bd3da07183853688a5c0b7fec19"
+    "gateway": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "identity-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "ehr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "lab-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "pharmacy-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "ocr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "outreach-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "support-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
+    "notification-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01"
   }
 }
