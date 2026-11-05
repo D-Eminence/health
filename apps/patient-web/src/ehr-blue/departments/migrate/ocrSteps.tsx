@@ -15,7 +15,7 @@ import { FLAG_WORDS } from '../laboratory/labText'
 import { itemDetails, itemNotActive, parsePaperReading, type PaperItem } from './paperReading'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemName, itemResultId, itemTestId, itemTextId, labResult, labTest,
-  offeredDomains, readingLine, reviewItems, visitsForNote,
+  keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
 
@@ -103,7 +103,7 @@ const SAVE_AS_HINTS: Readonly<Record<SaveAs, string>> = {
   DOCUMENT_ONLY: 'The document is kept in the patient’s record with the items you kept. Nothing is added to their medicines, results or notes.',
   EHR: 'The items you keep are written into one clinical note on the visit you choose.',
   LAB: 'Only the lab results you keep are added to the patient’s past lab results. Everything else stays with the document.',
-  PHARMACY: 'Only the medicine is added to the patient’s past medicines. Everything else stays with the document.',
+  PHARMACY: 'Only the medicines you keep are added to the patient’s past medicines. Everything else stays with the document.',
 }
 
 const CHOICE_WORDS: Readonly<Record<ItemChoice, string>> = { keep: 'Keep', change: 'Change', remove: 'Remove' }
@@ -300,6 +300,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
         <p className="hid-ehr-hint">{SAVE_AS_HINTS.DOCUMENT_ONLY}</p>
         {problemText(problem, 'ocr-review-domain') && <p className="hid-ehr-error">{problemText(problem, 'ocr-review-domain')}</p>}
       </div>}
+    {saveAs === 'PHARMACY' && keptMedicines(items, decisions) > MAX_MEDICINES && <p className="hid-ehr-dept-muted" role="note">{TOO_MANY_MEDICINES}</p>}
     {saveAs === 'EHR' && (visits === null
       ? <p className="hid-ehr-dept-muted" role="status">Loading the patient’s visits…</p>
       : visits.error
