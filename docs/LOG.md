@@ -2830,7 +2830,15 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
     last characters of their record id.
   - Outreach (classic and blue): a case without its id, its temporary record as
     "made" instead of its id, and campaign members by role ("(you)" for the
-    reader) instead of a membership id.
+    reader) instead of a membership id. Classic Outreach now uses the blue
+    screens' words for a case's and a campaign's status ("Waiting to link",
+    "Running") and a member's role ("Health worker", "Member" for a role it
+    has no word for), not the server's codes (`memberRoleLabel` moved to
+    `outreachParts.tsx` so both share it).
+  - Document OCR (blue Migrate): a job's patient is "Patient (name not shown)"
+    or "Patient not given" in the list, Quick view and the opened job, and the
+    list no longer shows a "Job" reference, instead of the last characters of
+    the patient's record id and the job's id.
   - Patient Records: lab tests and medicines say their status in words
     (`labRequestStatusLabel`, `medicineStatusLabel` in `plainLabels.ts`).
 - Tests render fictional UUIDs and assert they, and any part of them, are absent.
