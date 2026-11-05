@@ -157,7 +157,7 @@ export function StaffRecordChat({ api, patientName, hid, facilityName, onAccessE
         <p role="status">Record chat is not available. Your saved conversation about this patient, if you have one, stays below, and you can delete it.</p></div>}
       {offered && <details className="record-chat-coverage"><summary>Which records can I ask about?</summary>
         <p>{offered.released.length > 0 ? `Record chat can read: ${offered.released.join(', ')}.` : 'Record chat can read none of this patient’s record with your permissions.'}
-          {offered.withheld && offered.withheld.length > 0 ? ` Not read: ${offered.withheld.join(', ')}.` : ''} Only this facility’s records are used.</p></details>}
+          {offered.withheld && offered.withheld.length > 0 ? ` Not read: ${offered.withheld.join(', ')}.` : ''}</p></details>}
       {offered && <section className="record-chat-notice" aria-labelledby="staff-record-chat-notice-title">
         <h3 id="staff-record-chat-notice-title">{STAFF_CHAT_NOTICE_TITLE}</h3>
         {STAFF_CHAT_NOTICE_PARAGRAPHS(offered.historyLimit).map(paragraph => <p key={paragraph}>{paragraph}</p>)}
