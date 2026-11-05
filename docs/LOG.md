@@ -2846,7 +2846,9 @@ website switch.
   direct care, `ehr.note.read`), with Show older; hidden on `404` and `403`, Retry on any other failure.
 - **Registry.** `ehr.myPatientEntries` (GET and POST), `ehr.myPatientEntryWithdraw` and `ehr.patientEntries` are
   recorded as served by hid-system 0116 and not by main (`proposed`, which this registry keeps for routes main does not
-  serve). No separate `ehr.myPatientEntriesList`: the list is the GET of `ehr.myPatientEntries`, one path.
+  serve). No separate `ehr.myPatientEntriesList`: the list is the GET of `ehr.myPatientEntries`, one path, and
+  the registry names no two endpoints at one route and method (`staff-record-chat.test.ts`), so a second name for that
+  GET is refused by its own check.
 - **Mock gateway.** Five fictional records, three a page, with Save, Remove, Show older and the staff read; the Node
   server now passes the body, query and headers to the answers, as the in-page preview did.
 - **Checked in the preview** (mock gateway, Chromium) at 320, 360, 390 and 1366px: no page or drawer wider than the
