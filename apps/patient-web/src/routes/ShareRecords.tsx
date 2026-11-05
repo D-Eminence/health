@@ -10,6 +10,8 @@ import { ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { learnShareServed, useShareServed } from '../shareServed'
+import { isAdult, shareCoversPaper, shareCoversPaperText } from '../paperRecordsWording'
+import { usePatientResource } from './usePatientResource'
 import {
   COLLABORATION_WARNING, PERSON_NAME, SHARE_DURATIONS, SHARE_LEVELS, SHARE_ROLE_LABELS, inviteEmailProblem, shareDurationLabel,
   shareDay, shareLevelLabel, shareUntil,
@@ -98,6 +100,10 @@ export function ShareRecords() {
 function ShareFlow() {
   const { api } = useSession()
   const myCard = useMyCard()
+  // Paper records are said only to an adult whose age is known (paperRecordsWording.ts): never to an under-18, nor while
+  // the profile has not answered.
+  const profile = usePatientResource(api.profile)
+  const adult = !profile.error && isAdult(profile.data?.dateOfBirth)
   const [params] = useSearchParams()
   const [step, setStep] = useState<Step>(() => params.get('by') === 'email' ? 'invite' : 'search')
   const [query, setQuery] = useState('')
@@ -286,6 +292,7 @@ function ShareFlow() {
         <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> how long</span></button></div>
     </dl>
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. {SAY.everyViewRecorded}</p>
+    {adult && shareCoversPaper(level) && <p className="m-0 text-[13px] text-ink-3">{shareCoversPaperText(level)}</p>}
     {/* Your card is what arrives: the email they will receive, there to open, so it doesn't push Share down. */}
     {myCard && <details className="group rounded-xl ring-1 ring-line">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 text-[13px] font-semibold text-brand-ink [&::-webkit-details-marker]:hidden">
@@ -324,6 +331,7 @@ function ShareFlow() {
     <LevelChoice name="invite-level" value={level} onChange={setLevel} />
     <DurationChoice name="invite-duration" value={duration} onChange={setDuration} />
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Nothing is shared until they join Health ID, accept, and you confirm.</p>
+    {adult && shareCoversPaper(level) && <p className="m-0 text-[13px] text-ink-3">{shareCoversPaperText(level)}</p>}
     {alert}
   </form>, <><Button disabled={busy} onClick={() => go('search')} icon={Search}>Search instead</Button>
     <Button type="submit" form="share-invite" variant="primary" icon={Mail} loading={busy} disabled={busy}>{busy ? 'Sending…' : 'Send invitation'}</Button></>)
