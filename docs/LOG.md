@@ -3107,3 +3107,27 @@ From the launch audit of the patient Records, Notifications and chat pages (RN-0
 - **Review (2026-11-05).** An independent review found four more; each fixed, test first. The 44px Previous versions and "Which records can I ask about?" had lost their open/close arrow (a flex summary draws none): they stay list items, with padding and a 44px minimum height (RN-21). On one record type, a search that found nothing said so twice: the page's "Nothing matches" with Clear search is now the only message, older records add no second "no match" line, and a search that matches only other types says how many and offers Show all record types (RN-19). New conversation on the hid-system main chat screen (`Chat.tsx`) deleted at once: it now asks first, as the staging screen does (RN-16). When Try again on old-account notifications finds none, focus no longer drops to the page: a quiet "No notifications from an old account." takes it (RN-22).
 - **Checked** in Chromium on the preview against the mock gateway at 320, 360, 390 and 1366px, light and dark: no sideways scroll, the older-records card readable in dark mode, a download failure in view beside its file, the empty Records page with one designed empty state, notification links and focus after Mark as read, and the chat tab title. Not checked on a real phone or on production.
 - **Not done here.** RN-02 and RN-15 are for the owner and the backend. Still needing the backend: paging (a cursor) for records and notifications and a Mark all as read route (RN-08, RN-11), and a facility name on visits and notes (RN-17). A build switch that keeps patient uploads off until the NDPA sign-off (RN-01, HCS-02) is the owner's call.
+
+## 2026-11-04: IDs on screen (patient app and staff screens)
+
+- Owner rule: screens show a Health ID and lab sample or accession numbers, and
+  no other ids, codes or permission names. Fixed in words:
+  - Patients (classic staff): sending an access request says "Access request
+    sent. The patient must approve it before records are available.", not the
+    request id and the server's status word.
+  - Access request lists (classic and blue) and lab and pharmacy work show a
+    patient the server has not named as "Patient (name not shown)", not the
+    last characters of their record id.
+  - Outreach (classic and blue): main already shows a case without its id or
+    its temporary record's id, and campaign members by role and date added
+    instead of a membership id; the tests here check that.
+  - Patient Records: lab tests and medicines say their status in words
+    (`labRequestStatusLabel`, `medicineStatusLabel` in `plainLabels.ts`).
+- Tests render fictional UUIDs and assert they, and any part of them, are absent.
+- Left for the owner (not changed): the order and share-invitation references
+  staff and patients read to each other (8 to 16 characters), the staff
+  invitation reference, the Registration ID used to continue a registration,
+  the Document OCR screens that find a job by document id, the outreach
+  "Patient ID" field, a diagnosis code shown when a patient opens a diagnosis,
+  the design sample workspaces (their names come from demo data), and the
+  platform admin site (correlation ids for support work).
