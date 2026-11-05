@@ -2817,3 +2817,89 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-03: Home and the Health ID card made ready for launch
+
+The launch audit's findings for Home, the Health ID and the shared-card pages (`Overview.tsx`, `HealthIdCode.tsx`,
+`SharedCard.tsx`). Tests first (`HomeLaunchReady.test.tsx`, `SharedCard.test.tsx`, `HealthIdCode.test.tsx`), then the
+fixes. Home still promises no lab results, medicines, diagnoses or vitals, and Add a record is not touched here.
+
+- **HCS-04.** When blood group, genotype and allergies can't be read, Home says so under the card with Try again, so
+  the card never reads as if no allergy is recorded. Once they load, focus goes to the card.
+- **HCS-07.** A failed check for access requests is said, with Try again, instead of showing none waiting. A failed
+  read of who viewed or changed the record is said inside Activity, with Try again; Activity shows what did load and
+  never says "nothing here" then.
+- **HCS-08.** The tiles say "Loading" to a screen reader while they load (no bare "…"), and after a failed read show a
+  dash with "Couldn't load" under it.
+- **HCS-09.** Activity and the providers card say they are loading and are marked busy while they read. The column
+  with the tiles is drawn once the requests waiting and what the profile lacks are known, so the tiles no longer move
+  down as late reads arrive (checked in Chromium: drawn once, at one place).
+- **HCS-10.** The patient's own actions read as theirs on Home: "You gave Lagos General Hospital access", "You ended
+  Ikeja Clinic's access".
+- **HCS-18.** The patient's card preview says when the card or the records can't be loaded, with Try again and Back to
+  Access & sharing, instead of "Loading…" for ever (behind the switch below).
+- **HCS-19.** The page a shared link opens says "This link can't be opened", with no "yet", and its one link is the
+  public site, healthidentitydirectory.com (www.staging. on staging), in the same tab. healthid.ng is gone.
+- **HCS-03.** The preview of a provider page that no provider can open is off (`CARD_LINK_OPENS`, false until Health ID
+  sends the one-time code): /card/preview opens Access & sharing. When it is turned on, the preview shows the share
+  just made, passed in the navigation state, and makes up no level or end date.
+- **HCS-20.** Each Try again on Home reads once however fast it is pressed again, and leaves focus on the heading of
+  what loaded, on the card, or on the new Try again when it failed again (`useRetryOnce`, `foundTarget` in
+  `actionFocus.ts`).
+- **HCS-23.** The card's Health ID tells a screen reader that pressing it copies; "Health ID copied." clears after three
+  seconds (the advice to copy by hand stays until the next try).
+- **HCS-24.** Home's empty sections use the shared empty state, with what will appear and the next step ("Show your
+  Health ID card at your next visit").
+- **HCS-28.** An empty profile answer says "We couldn't read your Health ID" with Try again and Email support. Before,
+  an answer with no body stopped the page (`profileSources.ts` now reads it as no profile).
+- **SO-14.** At the end of sign-up the new Health ID stays on one line at 320px, a little smaller, with Copy under it
+  when both do not fit (checked in Chromium at 320, 360, 390 and 1366).
+- **Left for later, in files #107 changes.** HCS-01 (no Documents or Medicines tile where the backend does not serve
+  them) and HCS-27 (the waiting-request notices as notes, not alerts, with "Review the request from …") are ready but
+  change what `OverviewDashboard.test.tsx` asserts; they follow once #107 is on main. In `ShareRecords.tsx`, the done
+  step's "Preview what they see…" link still shows (it now opens Access & sharing) and should go, or pass the share's
+  level and end date, with the card link. In `HealthIdCard.tsx`, the card could also print "Health details
+  unavailable" (HCS-04's optional part), and HCS-05 and HCS-15 wait. In `AccessLog.tsx`, the Access page's own log
+  still reads "You: Got access to your record" (SA-13).
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-04: Home and the Health ID card: the rest of the launch fixes
+
+Merged main (website batches 3 and 4) into the branch above, then finished what it had left. Tests first
+(`HomeLaunchReady.test.tsx`, `OverviewDashboard.test.tsx`, `ProfilePhoto.test.tsx`, `ShareRecords.test.tsx`).
+
+- **Merge.** Main's tiles for only the sections the backend sends (HCS-01) and the launch fixes' "Couldn't load" tile
+  values now go together. The page a shared link opens keeps "This link can't be opened" (no "yet"); its one link is
+  main's page for patients, on this deployment's own public site (`https://healthidentitydirectory.com/patients` in
+  production).
+- **HCS-01.** Where only Records and Facilities with access are shown (production), they fill the row as two columns;
+  the loading column draws as many tiles as will come.
+- **HCS-04.** When blood group, genotype and allergies can't be read, the card itself prints "Health details
+  unavailable" in their place, as well as the notice with Try again under it.
+- **HCS-05.** A long name prints whole on the card, over two lines and a step smaller, with the NIN mark beside it
+  (checked in Chromium at 320, 360, 390 and 1366 with a 41-letter name: two lines, nothing cut off, no sideways scroll).
+- **HCS-15.** After saving a card photo, a screen reader hears "Your photo was saved." and focus is on the photo
+  control; when saving fails, focus is back on Save photo (checked in Chromium).
+- **HCS-27.** The requests waiting on Home are notes, not alerts read out on every visit, and each Review is named for
+  its facility ("Review the request from Ikeja Medical Centre"); the visible word stays Review.
+- **HCS-03.** The share's done step no longer offers "Preview what they see…" while the card link is off; when it is
+  turned on, the link passes the share's level and end date.
+- **Still open.** `AccessLog.tsx`: the Access page's own log still reads "You: Got access to your record" (SA-13, the
+  sharing area). The share's done step still says "Your card is on its way… They can open your records", which is the
+  sharing area's to check against what a provider can open today.
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-05: Home and the Health ID card: review fixes
+
+An independent review of the branch found two problems with copying the Health ID on the card. Both reproduced in
+Chromium at 320 and 390 with a 41-letter name; tests first (`HomeLaunchReady.test.tsx`, `HealthIdCode.test.tsx`).
+
+- **HCS-05 (copy note).** "Health ID copied." was a line inside the holder block at the foot of the card, so showing it
+  lifted the two-line name under the Add photo pill: letters and the NIN mark were hidden. The note now sits under the
+  code, out of the holder's flow, in the card's bottom margin. Measured in Chromium: the name's top is the same with and
+  without the note (297.9px at 320, 328.1px at 390), and the NIN mark stays visible.
+- **HCS-23 (copy failed).** The advice to copy by hand was printed on the card face, cut off at its edge, and also pushed
+  the name. It is now printed under the card, whole and wrapped, still as an alert, and still stays until the next try
+  (it is advice the patient needs while they copy by hand, so it is not timed out). `HealthIdCode` takes `adviceIn`, the
+  place outside the card to print it.
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.

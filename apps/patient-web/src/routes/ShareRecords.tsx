@@ -6,7 +6,7 @@ import { Alert, Button, Card, Field, cx } from '../kasuwa/ui'
 import { FormPage, PageState } from '../kasuwa/parts'
 import { SAY, WORDS } from '../copy'
 import { InputR } from './profileParts'
-import { ShareEmailPreview, useMyCard } from './SharedCard'
+import { CARD_LINK_OPENS, ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { learnShareServed, useShareServed } from '../shareServed'
@@ -309,7 +309,9 @@ function ShareFlow() {
     <p className="m-0 max-w-md text-sm text-ink-2">Your card is on its way to {created.clinicianName ? `${created.clinicianName} at ${created.facilityName}` : `a provider at ${created.facilityName}`}. They can open your
       records {shareUntil(created.duration, created.expiresAt)}.</p>
     {created.replacedConsentGrantId && <p className="m-0 text-[13px] text-ink-3">This replaces the share you had with them before.</p>}
-    <Link to="/card/preview" className="text-[13px] font-semibold text-brand-ink no-underline hover:underline">Preview what they see when they open your card</Link>
+    {/* Only once a card's link opens the card (CARD_LINK_OPENS), with the share just made (HCS-03). */}
+    {CARD_LINK_OPENS && <Link to="/card/preview" state={{ level: created.level, expiresAt: created.expiresAt }}
+      className="text-[13px] font-semibold text-brand-ink no-underline hover:underline">Preview what they see when they open your card</Link>}
   </div>, <><Button onClick={() => startAgain('search')}>Share with someone else</Button>
     <Button to="/access" variant="primary">See who has access</Button></>)
 

@@ -39,7 +39,8 @@ export function useProfileSources() {
   const profile = usePatientResource(api.profile)
   const details = usePatientResource<ProfileDetails | null>(load.details, 'profile-details')
   const health = usePatientResource<HealthProfile | null>(load.health, 'health-profile')
-  const counted = profile.data !== null && !profile.error && completionServed(profile.data)
+  // An answer with no body reads as undefined, not null (HCS-28): it is no profile either, and nothing more is asked.
+  const counted = profile.data != null && !profile.error && completionServed(profile.data)
   const contacts = usePatientResource<ContactsView | null>(counted ? load.contacts : nothing, counted ? 'emergency-contacts' : 'emergency-contacts-unread')
   return { profile, details, health, contacts }
 }
