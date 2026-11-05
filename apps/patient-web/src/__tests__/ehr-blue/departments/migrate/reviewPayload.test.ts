@@ -375,6 +375,23 @@ describe('the review built from the choices', () => {
     expect(() => assertAccepted(moved, payload)).toThrow('OCR_MEDICATION_NOT_READ')
   })
 
+  it('past medicines: a medicine read as stopped or taken in the past carries that status, kept or changed', () => {
+    const payload = medicinesPaper(2)
+    ;(payload.items[0]!.fields as { status: string }).status = 'stopped'
+    ;(payload.items[1]!.fields as { status: string }).status = 'past'
+    const paper = parsePaperReading(payload) as PaperReading
+    const ids = paper.items.map(item => item.id)
+    expect(readingLine(paper.items[0]!)).toBe('Testamol 1 10 mg once a day (stopped)')
+    const input = built(buildValidation({ ...choices('PHARMACY'), reading: paper, decisions: { ...keepAll(paper),
+      [ids[1]!]: { choice: 'change', text: 'Testamol 2 20 mg once a day' } } }))
+    expect(() => assertAccepted(input, payload)).not.toThrow()
+    const medications = input.acceptedFields.medications as Array<Record<string, unknown>>
+    expect(medications[0]).toMatchObject({ medicationText: 'Testamol 1',
+      historicalContext: 'From a paper record, page 1. As written: Testamol 1 10mg od. Status: Stopped' })
+    expect(medications[1]).toMatchObject({ medicationText: 'Testamol 2 20 mg once a day',
+      historicalContext: 'From a paper record, page 2. As written: Testamol 2 10mg od. Status: Taken in the past' })
+  })
+
   it('past medicines, 51 kept: the first 50 on the paper are sent, the last stays with the document, and the form says so', () => {
     const payload = medicinesPaper(51)
     const paper = parsePaperReading(payload) as PaperReading
