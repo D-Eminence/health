@@ -84,6 +84,24 @@ describe('the Health ID on the profile and the dashboard', () => {
     expect(screen.getByRole('alert').textContent).toContain('Press and hold your Health ID to copy it')
   })
 
+  // R2-HCS-23: on the card face the advice was cut off at the card's edge. Given a place outside the card, the advice is
+  // printed there, whole, and stays there; nothing about it is left inside the code's own block.
+  it('prints the advice to copy by hand in the place it is given, outside the card, and keeps it there', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => { throw new Error('denied') }) } })
+    const outside = document.createElement('div')
+    document.body.append(outside)
+    const { container } = render(<HealthIdCode code="HID-AB2C3D" adviceIn={outside} />)
+    await act(async () => { fireEvent.click(screen.getByText('HID-AB2C3D')) })
+    const alert = screen.getByRole('alert')
+    expect(outside.contains(alert)).toBe(true)
+    expect(container.contains(alert)).toBe(false)
+    expect(alert.textContent).toBe('Copying is not available here. Press and hold your Health ID to copy it, or write it down.')
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(outside.contains(screen.getByRole('alert'))).toBe(true)
+    outside.remove()
+  })
+
   it('stops its timer when it is no longer shown', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } })

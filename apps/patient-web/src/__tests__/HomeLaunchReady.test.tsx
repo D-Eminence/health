@@ -149,6 +149,34 @@ describe('HCS-05: a long name on the card', () => {
     // Beside the name: the same line holder, after it.
     expect(name.parentElement?.contains(mark)).toBe(true)
   })
+
+  // R1-HCS-05: "Health ID copied." on the card lifted the holder block, so a two-line name slid under the Add photo pill.
+  // The note is taken out of the holder's flow, under the code, so the name does not move when it shows. (jsdom lays
+  // nothing out: the rule that takes it out of the flow is checked here; it was measured in a browser at 320 and 390.)
+  it('does not move the name when "Health ID copied." shows', async () => {
+    const long = 'Chiamaka Oluwafunmilayo Nwachukwu-Adebayo'
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } })
+    renderPortal(<Overview />, gateway({ '/identity/me': () => json({ ...patient, fullName: long }) }), {}, served)
+    const card = await screen.findByRole('region', { name: `${long}’s Health ID card` })
+    await press(within(card).getByRole('button', { name: patient.hid }))
+    const note = await within(card).findByText('Health ID copied.')
+    const holder = note.closest<HTMLElement>('.patient-hid')!.parentElement!
+    expect(holder.className.split(' ')).toEqual(expect.arrayContaining(['[&_.patient-hid]:relative', '[&_.patient-hid-note]:absolute', '[&_.patient-hid-note]:top-full']))
+    vi.unstubAllGlobals()
+  })
+
+  // R2-HCS-23: the advice to copy by hand was cut off at the card's edge and pushed the name into the pill. It is printed
+  // under the card, whole, where it can stay.
+  it('prints the advice to copy by hand under the card, not on it', async () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => { throw new Error('denied') }) } })
+    renderPortal(<Overview />, gateway(), {}, served)
+    const card = await screen.findByRole('region', { name: /Health ID card/ })
+    await press(within(card).getByRole('button', { name: patient.hid }))
+    const alert = await screen.findByText('Copying is not available here. Press and hold your Health ID to copy it, or write it down.')
+    expect(card.contains(alert)).toBe(false)
+    expect(alert.getAttribute('role')).toBe('alert')
+    vi.unstubAllGlobals()
+  })
 })
 
 describe('HCS-07: access requests and activity that could not be read', () => {
