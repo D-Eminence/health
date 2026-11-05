@@ -260,7 +260,7 @@ describe('patient access revocation', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Who has access/ }))
     const explanation = await screen.findByText(/^Used in an emergency\./)
     // Time-limited (it ends by itself), and not the patient's to end; every view is recorded, as the page says.
-    expect(explanation.textContent).toBe('Used in an emergency. It ends by itself, and you can’t end it here.')
+    expect(explanation.textContent).toMatch(/^Used in an emergency\. It ends by itself on 8 Oct 2026, \d{1,2}:\d{2}, and you can’t end it here\.$/)
     expect(screen.queryByText(/reviewed/)).toBeNull()
     expect(screen.queryByRole('button', { name: /^End access/ })).toBeNull()
   })

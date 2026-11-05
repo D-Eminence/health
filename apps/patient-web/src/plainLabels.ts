@@ -141,3 +141,26 @@ export function patientAccessStatusLabel(value: string | null | undefined): stri
   const key = (value ?? '').trim().toLowerCase()
   return Object.hasOwn(PATIENT_ACCESS_STATUSES, key) ? PATIENT_ACCESS_STATUSES[key]! : 'Closed'
 }
+
+const PURPOSES: Readonly<Record<string, string>> = {
+  direct_care: 'Your care', treatment: 'Your care', care: 'Your care',
+  patient_share: 'Shared by you', patient_request: 'Shared by you',
+  emergency: 'Emergency', break_glass: 'Emergency',
+}
+
+/** Why a facility has access, as the patient reads it: "Your care", "Shared by you", "Emergency"; "Your care" otherwise. */
+export function purposeLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return Object.hasOwn(PURPOSES, key) ? PURPOSES[key]! : 'Your care'
+}
+
+const PRIORITIES: Readonly<Record<string, string>> = {
+  routine: 'Routine', urgent: 'Urgent', asap: 'As soon as possible', stat: 'Immediately',
+}
+
+/** How soon a test is wanted, in words: "Routine", "Urgent", "As soon as possible", "Immediately". */
+export function priorityLabel(value: string | null | undefined): string | null {
+  const key = (value ?? '').trim().toLowerCase()
+  if (!key) return null
+  return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : plainCode(key)
+}

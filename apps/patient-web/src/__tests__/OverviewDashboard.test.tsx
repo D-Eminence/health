@@ -104,7 +104,7 @@ describe('the overview with patient parity served', () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     await waitFor(() => expect(facts()).toEqual([['Blood', 'B+'], ['Genotype', 'AA'], ['Allergy', 'Shellfish']]))
     // Production (Novu) sends visits and notes only: no Documents or Medicines tile that could only ever say 0.
-    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['1Facility with access', '/access']]))
+    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['1Facility with access', '/access?tab=granted']]))
   })
 
   it('shows the Documents and Medicines tiles where the backend sends documents and prescriptions', async () => {
@@ -112,7 +112,7 @@ describe('the overview with patient parity served', () => {
     try {
       renderPortal(<Overview />, gateway(), {}, parity)
       await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['0Documents', '/records?tab=documents'],
-        ['1Facility with access', '/access'], ['0Medicines', '/records?tab=prescriptions']]))
+        ['1Facility with access', '/access?tab=granted'], ['0Medicines', '/records?tab=prescriptions']]))
     } finally { novu.on = true }
   })
 
@@ -208,7 +208,7 @@ describe('the overview on today\'s backend', () => {
   it('shows no completion, health facts, health-information link or NIN badge where none is served, and asks nothing more', async () => {
     const { sent } = renderPortal(<Overview />, gateway({ '/identity/me': () => json(profile) }))
     await screen.findByText('HID-ABC234')
-    await waitFor(() => expect(tiles().at(-1)).toEqual(['1Facility with access', '/access']))
+    await waitFor(() => expect(tiles().at(-1)).toEqual(['1Facility with access', '/access?tab=granted']))
     expect(facts()).toEqual([])
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.queryByText(/% done/)).toBeNull()
@@ -250,7 +250,7 @@ describe('what the overview counts', () => {
     const rows = recentActivity(logPage, notices)
     expect(rows).toHaveLength(RECENT_ROWS)
     expect(rows.map(row => row.id)).toEqual(['log-e-1', 'notice-n-0', 'notice-n-1', 'notice-n-2', 'log-e-2'])
-    expect(rows[0]).toMatchObject({ to: '/access', text: 'Dr Bello at Lagos General: viewed your record' })
+    expect(rows[0]).toMatchObject({ to: '/access?tab=activity', text: 'Dr Bello at Lagos General: viewed your record' })
     expect(rows[1]).toMatchObject({ to: '/notifications' })
     expect(recentActivity(null, null)).toEqual([])
   })

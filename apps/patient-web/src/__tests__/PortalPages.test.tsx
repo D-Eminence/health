@@ -49,7 +49,7 @@ describe('patient portal pages', () => {
     const { unmount } = open('/records')
     await screen.findByRole('heading', { level: 1, name: 'Records' })
     expect(document.title).toBe('Health records · Health ID')
-    for (const [link, title] of [['Access & sharing', 'Access and consent · Health ID'],
+    for (const [link, title] of [['Access & sharing', 'Access & sharing · Health ID'],
       ['Profile', 'Your profile · Health ID'], ['Overview', 'Overview · Health ID']] as const) {
       fireEvent.click(nav().getByRole('link', { name: link }))
       await waitFor(() => expect(document.title).toBe(title))

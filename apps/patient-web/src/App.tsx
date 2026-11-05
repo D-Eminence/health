@@ -9,7 +9,7 @@ import { PatientSupport } from './PatientSupport'
 import { patientChatEnabled } from './chatFeatures'
 import { SelectedPatientChat as PatientChat } from './routes/SelectedPatientChat'
 import { Overview } from './routes/Overview'
-import { SignIn } from './routes/SignIn'
+import { SignedInReturn, SignIn } from './routes/SignIn'
 import { Enrollment } from './routes/Enrollment'
 import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
@@ -59,7 +59,7 @@ function PatientRoutes() {
     <Routes>
       {/* With single sign-on on (sso/singleSignOn.ts), app.'s sign-in entrance hands off to auth. once the session check
           finds none (RequireAccess), and a signed-in patient goes Home; unset, today's sign-in page. */}
-      <Route path="/sign-in" element={portalHandsOff() ? <RequireAccess requirement={PATIENT_ROUTE}><Navigate to="/" replace /></RequireAccess> : <SignIn />} />
+      <Route path="/sign-in" element={portalHandsOff() ? <RequireAccess requirement={PATIENT_ROUTE}><SignedInReturn /></RequireAccess> : <SignIn />} />
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />

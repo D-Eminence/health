@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
 import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
@@ -11,6 +11,7 @@ import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 import { signupHandoff } from './enrollment/signupHandoff'
 import { Alert, Button, Field, Input } from '../kasuwa/ui'
+import { safeReturnPath } from '../returnPath'
 
 const SUPPORT_EMAIL = 'support@healthidentitydirectory.com'
 /**
@@ -47,9 +48,23 @@ function withSupportLink(text: string) {
   return <>{text.slice(0, at)}<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>{text.slice(at + SUPPORT_EMAIL.length)}</>
 }
 
+/**
+ * Where sign-in goes once it has worked: the page that asked the patient to sign in again (its `next`, a path on this
+ * site only), else Home. With single sign-on on, the same for a patient back from auth.
+ */
+function useReturnPath() {
+  const [params] = useSearchParams()
+  return safeReturnPath(params.get('next'))
+}
+
+export function SignedInReturn() {
+  return <Navigate to={useReturnPath()} replace />
+}
+
 export function SignIn() {
   const { state, sessionError, otherPortalSession, signedOutElsewhere, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
+  const back = useReturnPath()
   useDocumentTitle('Sign in · Health ID')
   // Empty, with "HID-" only in the placeholder (the review of 2026-10-31): a prefilled HID- got in the way of the
   // people who sign in with an email or a phone number. One typed is still read as a Health ID (signInPrincipal).
@@ -65,7 +80,7 @@ export function SignIn() {
   // contact, and not offered that. A Google account no patient account has is offered the sign-up.
   const [refusal, setRefusal] = useState<'unfinished' | 'suspended' | 'google-not-registered' | null>(null)
 
-  if (state.status === 'authenticated') return <Navigate to="/" replace />
+  if (state.status === 'authenticated') return <Navigate to={back} replace />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -77,7 +92,7 @@ export function SignIn() {
     setRefusal(null)
     try {
       await signIn(signInPrincipal(email), password, turnstileToken)
-      navigate('/', { replace: true })
+      navigate(back, { replace: true })
     } catch (reason) {
       setError(refusalText(reason, 'Sign-in could not be completed. Please try again.'))
       setRefusal(suspended(reason) ? 'suspended' : isHidApiError(reason) && reason.status === 401 ? 'unfinished' : null)
@@ -97,7 +112,7 @@ export function SignIn() {
       const result = await api.googleExchange(idToken, turnstileToken, 'sign_in')
       if (!('actor' in result)) throw new PlainError('This Google account is not linked to a patient account.')
       acceptGoogleSession(result)
-      navigate('/', { replace: true })
+      navigate(back, { replace: true })
     } catch (reason) {
       setError(refusalText(reason, 'Google sign-in could not be completed.', { 401: GOOGLE_DENIED }))
       setRefusal(suspended(reason) ? 'suspended' : googleNotRegistered(reason) ? 'google-not-registered' : null)
