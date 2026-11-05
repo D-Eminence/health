@@ -1,9 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import {
-  PaperReadingView, claimsPaperReading, itemDetails, itemNotActive, orderItems, parsePaperReading, readingSummary, type PaperItem,
+  DROPPED_WORDS, FLAG_REASON_UNKNOWN, FLAG_REASON_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading,
+  flagReasonWords, itemDetails, itemNotActive, orderItems, pageWarnings, parsePaperReading, readingSummary, type PaperItem,
 } from '../../../../ehr-blue/departments/migrate/paperReading'
-import { paperReading, unreadPaper } from './paperReadingPayload'
+import { FLAG_REASONS, flagged, handwrittenPage, paperReading, unreadPaper } from './paperReadingPayload'
 
 /** The paper reading on Migrate's "What was read": checking the payload, the items' words and their order. Fictional data. */
 function parsed(payload: unknown = paperReading()) {
@@ -44,6 +45,14 @@ describe('parsePaperReading', () => {
     ['a prescription that is not a group', paperReading({ items: [{ ...paperReading().items[0], prescription: 'Dr Ade' }] })],
     ['an item that is not a group', paperReading({ items: [null] })],
     ['the same item twice', paperReading({ items: [paperReading().items[0], paperReading().items[0]] })],
+    ['no pages', paperReading({ pages: undefined })],
+    ['pages that are not a list', paperReading({ pages: { 1: {} } })],
+    ['a page with no number', paperReading({ pages: [{ ...paperReading().pages[0], page: 0 }] })],
+    ['a page whose flag is not yes or no', paperReading({ pages: [{ ...paperReading().pages[0], flagged: 'yes' }] })],
+    ['a page whose reasons are not a list', paperReading({ pages: [{ ...paperReading().pages[0], flagReasons: 'handwriting' }] })],
+    ['a page whose reason is not text', paperReading({ pages: [{ ...paperReading().pages[0], flagged: true, flagReasons: [3] }] })],
+    ['no count of left-out suggestions', paperReading({ reading: { ...paperReading().reading, droppedUngrounded: undefined } })],
+    ['a negative count of left-out suggestions', paperReading({ reading: { ...paperReading().reading, droppedUngrounded: -1 } })],
   ])('is not shown when it holds %s', (_, payload) => {
     expect(parsePaperReading(payload)).toBeNull()
   })
@@ -164,5 +173,89 @@ describe('PaperReadingView', () => {
     expect(screen.getByRole('note').textContent).toBe(words)
     expect(screen.queryByRole('region', { name: 'Medicines' })).toBeNull()
     expect(document.body.textContent).not.toContain(status)
+  })
+})
+
+describe('pages that may not be fully read', () => {
+  it('reads the pages and left-out count the worker writes', () => {
+    const reading = parsed(handwrittenPage())
+    expect(reading.pages).toEqual([{ page: 1, flagged: true, flagReasons: ['handwriting', 'many_dropped', 'possible_missed_item'] }])
+    expect(reading.droppedUngrounded).toBe(1)
+    expect(reading.items).toHaveLength(1)
+    expect(parsed().pages.map(page => page.flagged)).toEqual([false, false])
+  })
+
+  it('treats a page with reasons as flagged, whatever its flag says', () => {
+    const payload = paperReading()
+    const reading = parsed({ ...payload, pages: [{ ...payload.pages[0], flagged: false, flagReasons: ['handwriting'] }, payload.pages[1]] })
+    expect(reading.pages[0]!.flagged).toBe(true)
+  })
+
+  it('has plain words for every code the worker writes, and no others', () => {
+    expect(Object.keys(FLAG_REASON_WORDS).sort()).toEqual([...FLAG_REASONS].sort())
+    expect(FLAG_REASONS.map(code => flagReasonWords([code])[0])).toEqual([
+      'parts of it are hard to read',
+      'handwriting that is hard to read',
+      'some things the reader suggested could not be found on the page',
+      'the reader was not sure about this page',
+      'some lines may have been missed',
+      'the items on this page could not be picked out automatically',
+    ])
+  })
+
+  it.each([['an unknown code', ['smudged']], ['no code', []], ['a code that names an object property', ['constructor']]])(
+    'gives a general sentence for %s, never the code', (_, codes) => {
+      expect(flagReasonWords(codes)).toEqual([FLAG_REASON_UNKNOWN])
+    })
+
+  it('says each reason once', () => {
+    expect(flagReasonWords(['handwriting', 'smudged', 'handwriting', 'blurred'])).toEqual(['handwriting that is hard to read', FLAG_REASON_UNKNOWN])
+  })
+
+  it('warns for each flagged page, by page number', () => {
+    expect(pageWarnings(parsed(flagged({ 2: ['possible_missed_item', 'low_confidence'] })))).toEqual([{ key: 'page-2',
+      text: 'Page 2 may not be fully read. Check the whole page against the paper and enter anything missing by hand.',
+      why: 'Why: some lines may have been missed; parts of it are hard to read.' }])
+    expect(pageWarnings(parsed()))
+      .toEqual([])
+  })
+
+  it('warns once when every page is flagged', () => {
+    expect(pageWarnings(parsed(flagged({ 1: ['handwriting'], 2: ['ai_unsure', 'handwriting'] })))).toEqual([{ key: 'all',
+      text: 'Pages 1 and 2 may not be fully read. Check each whole page against the paper and enter anything missing by hand.',
+      why: 'Why: handwriting that is hard to read; the reader was not sure about this page.' }])
+  })
+
+  it('never says the count is complete when a page is flagged', () => {
+    const one = parsed(handwrittenPage())
+    expect(readingSummary(one.items, 1)).toBe('1 item read so far — the page needs a full check · 1 needs a careful check')
+    expect(readingSummary(parsed().items.slice(0, 1), 1)).toBe('1 item read so far — the page needs a full check')
+    expect(readingSummary(parsed().items, 2)).toBe('7 items read so far — the pages need a full check · 2 need a careful check')
+    render(<PaperReadingSummary reading={one} />)
+    expect(screen.getByText('1 item read so far — the page needs a full check · 1 needs a careful check')).toBeTruthy()
+  })
+
+  it('shows the live case: a warning in plain words and the left-out note, never a code', () => {
+    const { container } = render(<PaperReadingWarnings reading={parsed(handwrittenPage())} />)
+    expect(screen.getByText('Page 1 may not be fully read. Check the whole page against the paper and enter anything missing by hand.')).toBeTruthy()
+    expect(screen.getByText('Why: handwriting that is hard to read; some things the reader suggested could not be found on the page; some lines may have been missed.')).toBeTruthy()
+    expect(screen.getByText(DROPPED_WORDS)).toBeTruthy()
+    expect(container.querySelectorAll('.hid-ehr-dept-notice-caution')).toHaveLength(2)
+    // 'handwriting' is also a plain word, so only the coded names are looked for.
+    for (const code of FLAG_REASONS.filter(code => code.includes('_'))) expect(container.textContent).not.toContain(code)
+  })
+
+  it('notes left-out suggestions even when no page is flagged, and shows nothing when all is well', () => {
+    const { container, unmount } = render(<PaperReadingWarnings reading={parsed(paperReading({ reading: { ...paperReading().reading, droppedUngrounded: 2 } }))} />)
+    expect(container.textContent).toBe(DROPPED_WORDS)
+    unmount()
+    const quiet = render(<PaperReadingWarnings reading={parsed()} />)
+    expect(quiet.container.textContent).toBe('')
+  })
+
+  it('shows an unknown code as a general sentence', () => {
+    const { container } = render(<PaperReadingWarnings reading={parsed(flagged({ 1: ['smudged'] }))} />)
+    expect(screen.getByText(`Why: ${FLAG_REASON_UNKNOWN}.`)).toBeTruthy()
+    expect(container.textContent).not.toContain('smudged')
   })
 })

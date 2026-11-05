@@ -811,6 +811,37 @@
   align-items: flex-start;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-check {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-item > [role="group"] {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-publication,
 .hid-ehr .hid-ehr-dept-migrate-evidence {
   display: grid;

@@ -856,6 +856,27 @@ describe('Patient sharing', () => {
     expect(screen.queryByRole('button', { name: 'Accept invitation AB12' })).toBeNull()
   })
 
+  it('tells a role that brings in paper records that a share covers them too (owner, 5 Nov 2026), as it does for a request or PIN', async () => {
+    const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
+    staff.permissions = [...ALL, 'ocr.job.read']
+    // The record a share opens: the lookup names the share's grant, and nothing on it says how access came, so the line
+    // asks nothing about it (the grant is what Identity answers for).
+    const viaShare = (writeAllowed: boolean) => {
+      api.consentStatus.mockResolvedValue({ ...CONSENT, writeAllowed })
+      staff.activePatient = { ...activePatient(), lookup: { ...activePatient().lookup, authorization: { ...activePatient().lookup.authorization, consentGrantId: SHARE.consentGrantId } } }
+    }
+    viaShare(true)
+    const shared = open('/open')
+    expect(await screen.findByText(LINE)).toBeTruthy()
+    shared.unmount()
+
+    // A share that can't add to the record is gated as any other such grant: the line is not said.
+    viaShare(false)
+    open('/open')
+    await screen.findByText('View only')
+    expect(screen.queryByText(LINE)).toBeNull()
+  })
+
   it('reads no sharing without identity.consent.write', async () => {
     staff.permissions = ['identity.patient.read']
     open()
