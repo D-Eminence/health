@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -27,6 +30,16 @@ describe('the line under every auth form (SO-02)', () => {
     expect(container.querySelector('.auth-trust')?.textContent).toBe(TRUST)
     expect(container.textContent).not.toMatch(/only with the facilities you approve/)
   })
+
+  it('keeps the lock beside the first line when the line wraps on a small phone', () => {
+    // jsdom lays nothing out, so this reads the rule itself; the wrap at 320px was seen in Chromium.
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'authLayout.css'), 'utf8')
+    const rule = css.match(/\.auth-trust \{([^}]*)\}/)?.[1] ?? ''
+    expect(rule).toMatch(/align-items:\s*flex-start/)
+    const icon = css.match(/\.auth-trust svg \{([^}]*)\}/)?.[1] ?? ''
+    expect(icon).toMatch(/flex:\s*none/)
+    expect(icon).toMatch(/margin-top:/)
+  })
 })
 
 describe('what the wide-screen card says an account includes (SO-11)', () => {
@@ -40,6 +53,12 @@ describe('what the wide-screen card says an account includes (SO-11)', () => {
     const aside = container.querySelector('.auth-aside')?.textContent ?? ''
     expect(aside).not.toMatch(/lab results|prescriptions|every hospital|you approve who sees/i)
     expect(container.querySelector('.auth-aside-overline')?.textContent).not.toMatch(/every hospital/i)
+  })
+
+  it('says the card works at Health ID hospitals, not at every facility', () => {
+    const { container } = layout()
+    expect(container.querySelector('.auth-print-foot')?.textContent).toBe('Works atHealth ID hospitals')
+    expect(container.querySelector('.auth-aside')?.textContent).not.toMatch(/every health id facility|every facility/i)
   })
 
   it('does not promise records from every hospital in the sign-up\'s introduction', () => {
