@@ -101,7 +101,8 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
-    { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
+    // Said in words, never the temporary record's id (owner rule, IDs on screen).
+    { label: 'Temporary record', value: item.temporaryPatientId ? 'Made for this registration' : 'Not made yet' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined

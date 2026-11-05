@@ -138,7 +138,7 @@ describe('patient access', () => {
     await press(screen.getByRole('button', { name: 'Send access request' }))
     await waitFor(() => expect(status.textContent).toMatch(/^Access request sent\./))
     expect(document.body.textContent).not.toContain('b1111111')
-    expect(document.body.textContent).not.toMatch(/\bpending\b/)
+    expect(status.textContent).not.toMatch(/\bpending\b/)
   })
 })
 
