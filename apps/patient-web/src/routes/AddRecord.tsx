@@ -45,8 +45,9 @@ import { useSession } from '../session'
  * Save sends the entry alone (POST ehr/me/patient-entries, no file bytes, its body kept under the edge limit), then each
  * photo or file in turn under the saved entry, as staff uploads go: its exact bytes to a signed link, then a confirm
  * (api.uploadOwnRecordDocument). Nothing of a file leaves the device until the Save and that file's upload link have
- * both been answered. No backend serves it yet (BACKEND-NEEDS.md §1): until one does, the Save's 404 NOT_FOUND is said
- * plainly ("Adding your own records isn't available yet") and what was entered stays in the drawer.
+ * both been answered. hid-system 0116 serves the Save (BACKEND-NEEDS.md §1); where it is not served (hid-system main, or
+ * 0116 switched off) the Save's 404 NOT_FOUND is said plainly ("Adding your own records isn't available yet") and what was
+ * entered stays in the drawer.
  *
  * A refusal is said in this drawer's own fixed words, chosen by its status and code alone; the server's own words (its
  * message or detail) are never shown. The Save: 404 NOT_FOUND as above; 413, or PATIENT_ENTRY_TOO_LARGE (api.addOwnRecord's
