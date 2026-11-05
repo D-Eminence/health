@@ -786,6 +786,27 @@
   font-size: 12px;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-reading {
+  display: grid;
+  gap: 20px;
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reading h3 {
+  margin: 0 0 6px;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-confidence {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  max-width: 260px;
+  text-align: right;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-review {
   align-items: flex-start;
 }
