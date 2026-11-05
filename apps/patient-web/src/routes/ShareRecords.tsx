@@ -10,7 +10,7 @@ import { ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { learnShareServed, useShareServed } from '../shareServed'
-import { isAdult, SHARE_COVERS_PAPER } from '../paperRecordsWording'
+import { isAdult, SHARE_COVERS_PAPER, shareCoversPaper } from '../paperRecordsWording'
 import { usePatientResource } from './usePatientResource'
 import {
   COLLABORATION_WARNING, PERSON_NAME, SHARE_DURATIONS, SHARE_LEVELS, SHARE_ROLE_LABELS, inviteEmailProblem, shareDurationLabel,
@@ -292,7 +292,7 @@ function ShareFlow() {
         <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> how long</span></button></div>
     </dl>
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. {SAY.everyViewRecorded}</p>
-    {adult && <p className="m-0 text-[13px] text-ink-3">{SHARE_COVERS_PAPER}</p>}
+    {adult && shareCoversPaper(level) && <p className="m-0 text-[13px] text-ink-3">{SHARE_COVERS_PAPER}</p>}
     {/* Your card is what arrives: the email they will receive, there to open, so it doesn't push Share down. */}
     {myCard && <details className="group rounded-xl ring-1 ring-line">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 text-[13px] font-semibold text-brand-ink [&::-webkit-details-marker]:hidden">
@@ -331,6 +331,7 @@ function ShareFlow() {
     <LevelChoice name="invite-level" value={level} onChange={setLevel} />
     <DurationChoice name="invite-duration" value={duration} onChange={setDuration} />
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Nothing is shared until they join Health ID, accept, and you confirm.</p>
+    {adult && shareCoversPaper(level) && <p className="m-0 text-[13px] text-ink-3">{SHARE_COVERS_PAPER}</p>}
     {alert}
   </form>, <><Button disabled={busy} onClick={() => go('search')} icon={Search}>Search instead</Button>
     <Button type="submit" form="share-invite" variant="primary" icon={Mail} loading={busy} disabled={busy}>{busy ? 'Sending…' : 'Send invitation'}</Button></>)
