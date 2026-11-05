@@ -59,7 +59,7 @@ interface PollStop { readonly jobId: string; readonly reason: 'slow' | 'failed' 
 interface OpenWords { readonly created: string; readonly existing: string; readonly uncheckable: string; readonly refused: string }
 
 const ACTION_LABELS: Record<ActionId, string> = {
-  retry: 'Retry job', validate: 'Validate extraction', reject: 'Reject extraction', confirm: 'Confirm source patient',
+  retry: 'Retry job', validate: 'Check and save', reject: 'Reject reading', confirm: 'Confirm source patient',
 }
 
 function jobName(job: OcrJob) {
@@ -552,7 +552,7 @@ export function Migrate() {
           await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
         }} />
         : <ReviewForm key={`${id}-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} extractions={extractions ?? []}
-          disposition={id === 'validate' ? 'validated' : 'rejected'} onChanged={disposition => {
+          permissions={permissions} disposition={id === 'validate' ? 'validated' : 'rejected'} onChanged={disposition => {
             if (disposition !== 'validated') return afterStep(['ocr-job-title'], 'Rejection recorded.')
             // The next step, confirming the source patient, opens where the work continues.
             setAction('confirm')

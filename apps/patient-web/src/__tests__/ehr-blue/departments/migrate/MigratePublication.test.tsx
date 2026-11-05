@@ -624,9 +624,9 @@ describe('OCR-04: what a publication produced', () => {
 describe('a review names its owning domain in words', () => {
   it.each([
     ['EHR', 'Clinical note'],
-    ['LAB', 'Historical lab evidence'],
-    ['PHARMACY', 'Historical medication evidence'],
-    ['DOCUMENT_ONLY', 'Validated document'],
+    ['LAB', 'Past lab results'],
+    ['PHARMACY', 'Past medicines'],
+    ['DOCUMENT_ONLY', 'Document only'],
   ])('a %s review reads "%s", and its Publish button says so, never OCR\'s code', async (targetDomain, words) => {
     api.ocrValidations.mockResolvedValue({ items: [{ ...validation, targetDomain }] })
     await openJob()
