@@ -14,7 +14,7 @@ import {
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { shareProblem } from './ShareRecords'
-import { isAdult, SHARE_COVERS_PAPER, shareCoversPaper } from '../paperRecordsWording'
+import { isAdult, shareCoversPaper, shareCoversPaperText } from '../paperRecordsWording'
 
 /**
  * "Invitations to share" on Access and consent (hid-1.0 parity B4, hid-system 0095; contract b45-contract.md §2.7): the
@@ -120,7 +120,7 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
           <Button id={`cancel-invitation-${item.invitationId}`} size="sm" variant="danger" disabled={busy}
             onClick={() => void act(item, 'cancel')}>Cancel invitation <ItemName>to {item.inviteeEmail}</ItemName></Button></Actions>}
         {item.status === 'accepted' && adult && shareCoversPaper(item.level)
-          && <p id={`invitation-paper-${item.invitationId}`} className="m-0 text-[13px] text-ink-3">{SHARE_COVERS_PAPER}</p>}
+          && <p id={`invitation-paper-${item.invitationId}`} className="m-0 text-[13px] text-ink-3">{shareCoversPaperText(item.level)}</p>}
         {item.status === 'accepted' && <div className="grid grid-cols-2 gap-2">
           <Button id={`decline-invitation-${item.invitationId}`} block disabled={busy}
             onClick={() => void act(item, 'decline')}>Decline <ItemName>the invitation to {item.inviteeEmail}</ItemName></Button>

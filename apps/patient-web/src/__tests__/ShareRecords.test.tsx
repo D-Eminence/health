@@ -7,7 +7,7 @@ import { ShareRecords } from '../routes/ShareRecords'
 import { AccessPage } from '../routes/Portal'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from '../routes/notificationTitles'
 import { forgetShareServed, shareServed } from '../shareServed'
-import { SHARE_COVERS_PAPER } from '../paperRecordsWording'
+import { SHARE_COVERS_PAPER, SHARE_READS_PAPER } from '../paperRecordsWording'
 import { json, press, problem, renderPortal, shownText, type Handler } from './portalHarness'
 
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => true }))
@@ -218,6 +218,7 @@ describe('paper records on the share screen (owner, 5 Nov 2026: shares count)', 
 
   it('is the decided sentence, word for word', () => {
     expect(SHARE_COVERS_PAPER).toBe('Sharing also lets them add your old paper records to your Health ID while the share lasts.')
+    expect(SHARE_READS_PAPER).toBe('Sharing also lets them use Health ID to read your old paper records while the share lasts. Only someone you let make changes can add them to your record.')
   })
 
   it('is said to an adult on Check and share, in the same form as Share my records', async () => {
@@ -227,15 +228,17 @@ describe('paper records on the share screen (owner, 5 Nov 2026: shares count)', 
     expect(screen.getByRole('button', { name: 'Share my records' }).getAttribute('form')).toBe('share-confirm')
   })
 
-  it('is not said for View Only or Clinical Review, which do not let them add to the record', async () => {
+  it('says View Only and Clinical Review let them read paper records but not add them', async () => {
     await toConfirm('1991-03-04', false, /^View Only/)
     expect(document.getElementById('share-confirm')?.textContent).toContain('View Only')
-    expect(screen.queryByText(/paper records/)).toBeNull()
+    expect((await screen.findByText(SHARE_READS_PAPER)).closest('form')?.id).toBe('share-confirm')
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
     cleanup()
     forgetShareServed()
     await toConfirm('1991-03-04', false, /^Clinical Review/)
     expect(document.getElementById('share-confirm')?.textContent).toContain('Clinical Review')
-    expect(screen.queryByText(/paper records/)).toBeNull()
+    expect(await screen.findByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
   })
 
   it('follows the level when it is changed from Check and share', async () => {
@@ -250,18 +253,18 @@ describe('paper records on the share screen (owner, 5 Nov 2026: shares count)', 
     fireEvent.click(screen.getByRole('radio', { name: /^View Only/ }))
     await press(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Check and share' })
-    expect(screen.queryByText(/paper records/)).toBeNull()
+    expect(screen.getByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
   })
 
-  it('is said on the invite form for Clinical Collaboration only, to an adult', async () => {
+  it('is said on the invite form for each level, to an adult', async () => {
     const { sent } = sharePage(path => path === '/identity/me'
       ? json({ hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth: '1991-03-04' }) : problem(404, 'NOT_FOUND', path))
     await press(await screen.findByRole('button', { name: 'Can’t find them? Invite them by email' }))
     await waitFor(() => expect(sent.some(item => item.path === '/identity/me')).toBe(true))
     await act(async () => { await Promise.resolve() })
-    expect(screen.queryByText(/paper records/)).toBeNull()
     fireEvent.click(screen.getByRole('radio', { name: /^Clinical Review/ }))
-    expect(screen.queryByText(/paper records/)).toBeNull()
+    expect(screen.getByText(SHARE_READS_PAPER).closest('form')?.id).toBe('share-invite')
     fireEvent.click(screen.getByRole('radio', { name: /^Clinical Collaboration/ }))
     expect(screen.getByText(SHARE_COVERS_PAPER).closest('form')?.id).toBe('share-invite')
   })
@@ -429,11 +432,12 @@ describe('Access and consent with sharing', () => {
     const section = await answer('1991-03-04')()
     const line = await within(section).findByText(SHARE_COVERS_PAPER)
     const rows = within(section).getAllByRole('listitem')
-    expect(within(rows[0]!).queryByText(/paper records/)).toBeNull()
-    expect(within(rows[1]!).queryByText(/paper records/)).toBeNull()
+    expect(within(rows[0]!).getByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(within(rows[1]!).getByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(within(rows[2]!).queryByText(SHARE_READS_PAPER)).toBeNull()
     expect(rows[2]!.contains(line)).toBe(true)
     expect(within(rows[2]!).getByRole('button', { name: 'Confirm and share with c@example.com' }).getAttribute('aria-describedby')).toBe(line.id)
-    expect(within(rows[0]!).getByRole('button', { name: 'Confirm and share with a@example.com' }).getAttribute('aria-describedby')).toBeNull()
+    expect(within(rows[0]!).getByRole('button', { name: 'Confirm and share with a@example.com' }).getAttribute('aria-describedby')).toBe(within(rows[0]!).getByText(SHARE_READS_PAPER).id)
 
     const young = await answer(`${new Date().getUTCFullYear() - 10}-01-01`)()
     expect(within(young).queryByText(/paper records/)).toBeNull()

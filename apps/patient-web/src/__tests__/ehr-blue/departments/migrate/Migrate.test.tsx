@@ -587,7 +587,7 @@ describe('Migrate: creating a job (New document job)', () => {
 })
 
 describe('Migrate: a job refused for want of the patient’s OK (owner, 5 Nov 2026)', () => {
-  const SENTENCE = 'To bring in this patient’s paper records, ask the patient to approve access or enter their Access PIN.'
+  const SENTENCE = 'To bring in this patient’s paper records, ask the patient to approve access, share their records with you, or enter their Access PIN.'
   const consentRequired = () => new HidApiError(403, 'Records processing consent is required', { code: 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED' })
   const notFound = () => new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })
   // External record access as the clinical registry has it (frame/pages.ts): live, for identity.consent.write.
