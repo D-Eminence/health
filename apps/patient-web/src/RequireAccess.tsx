@@ -8,13 +8,14 @@
  */
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
 import { focusLost, focusPageHeading } from './pageFocus'
 import { portalHandsOff } from './sso/singleSignOn'
 import { PortalSignInHandOff } from './sso/SignInHandOff'
+import { signInReturningTo } from './returnPath'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement
@@ -24,6 +25,7 @@ export interface RequireAccessProps {
 export function RequireAccess({ requirement, children }: RequireAccessProps) {
   const { state, sessionError, retrySessionCheck } = useSession()
   const decision = evaluateAccess(state, requirement)
+  const location = useLocation()
   // 'Try again' is replaced while the session is checked again: focus then goes to
   // the page that opens, or to the new 'Try again' when the check fails again (PR-04).
   // Only an outcome after the check was seen to start counts, so the render that
@@ -65,7 +67,10 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
 
     case 'sign-in-required':
       // With single sign-on on, on app., the whole tab goes to auth. and back to this page when it may (contract v2).
-      return portalHandsOff() ? <PortalSignInHandOff /> : <Navigate to="/sign-in" replace />
+      // Off, sign-in comes back to this page once signed in (SA-04): after "Sign in again" on Access & sharing, this
+      // redirect can land after the button's own, so it must carry the same return; a session that ran out comes back too.
+      if (portalHandsOff()) return <PortalSignInHandOff />
+      return <Navigate to={signInTarget(location.pathname, location.search, location.hash)} replace />
 
     case 'mfa-required':
       return <Navigate to="/verify" replace />
@@ -93,4 +98,10 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
         </main>
       )
   }
+}
+
+/** The sign-in page's address from a page that needs a signed-in patient: plain from Home, else coming back to it. */
+function signInTarget(pathname: string, search: string, hash: string) {
+  const here = `${pathname}${search}${hash}`
+  return here === '/' ? '/sign-in' : signInReturningTo(here)
 }

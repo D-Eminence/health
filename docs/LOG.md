@@ -2832,8 +2832,13 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - A refusal for an old sign-in (403 `PATIENT_RECENT_AUTH_REQUIRED`) on Approve,
   Share my records or Confirm and share is said in place with a "Sign in again"
   button: it signs out and opens `/sign-in?next=…`. Sign-in goes back to `next`
-  when it is a path on this site (`returnPath.ts`), else Home; with single
-  sign-on on, the same after auth.
+  when it is a path on this site (`returnPath.ts`), else Home. Any signed-out
+  page now opens sign-in the same way (`RequireAccess`), so a session that ran
+  out also comes back to its page. With single sign-on on, `/sign-in?next=`
+  hands off with `return_to` set to `next` when it is one of app.'s exact
+  return pages (`/access` and `/access/share` are; `/access?tab=granted` is
+  not, so that one comes back Home), and the sign-out there may first leave for
+  the provider's end-session address. Single sign-on stays off at launch.
 - A request, access or invitation changed elsewhere (404, 409 or 412) reads the
   lists again, closes the drawer and says so. Share refusals have plain words
   and a next step, with "Choose someone else" for a person who can't receive
@@ -2852,3 +2857,11 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
   invitations are not in the access log (0093's classifier drops
   `identity.consent-grant.patient-share` and `identity.share-invitation.confirm`).
 - Verified in Chromium at 320, 360, 390 and 1366 px against the mock gateway.
+- Review (2026-11-05): "Sign in again" lost its return in the browser: the
+  page guard's own redirect to a bare `/sign-in` landed after the button's
+  `/sign-in?next=…`, so sign-in went Home. The guard now carries the page in
+  `next` (`RequireAccess.tsx`); with single sign-on on, the hand-off from
+  `/sign-in?next=` returns to `next` (`sso/SignInHandOff.tsx`). Tests first
+  (`RequireAccess.test.tsx`, `sso/handOffPages.test.tsx`, a guarded flow in
+  `AccessSharingLaunch.test.tsx`); checked again in Chromium: Approve, then
+  Sign in again, now stays on `/sign-in?next=%2Faccess`.
