@@ -10,8 +10,9 @@ import { isAdult, PIN_COVERS, paperRecordsOnApproval, STAFF_ACCESS_COVERS_PAPER 
 import { ToastProvider } from '../kasuwa/toast'
 
 /**
- * The paper records rule as the patient reads it (records processing, 0104; wording approved 3 Nov 2026, Q22): an approved
- * request, or the Access PIN, also lets the facility add the patient's old paper records while that access lasts.
+ * The paper records rule as the patient reads it (records processing, 0104; wording approved 3 Nov 2026, Q22; shares added
+ * 5 Nov 2026, with no 24-hour bound): an approved request, the Access PIN, or a share, also lets the facility add the
+ * patient's old paper records while that access lasts. The share screen's line is pinned in ShareRecords.test.tsx.
  * Said word for word, only on a pending request, and never to someone under 18 (paper records are refused for them).
  */
 function json(value: unknown, status = 200) {
@@ -48,7 +49,7 @@ async function review() {
 
 const WORDS = 'Approving also lets Lagos General add your old paper records to your Health ID while their access lasts.'
 
-describe('the 24-hour paper records rule, as the patient reads it', () => {
+describe('the paper records rule, as the patient reads it', () => {
   it('is the decided sentence, word for word', () => {
     expect(paperRecordsOnApproval('Lagos General')).toBe(WORDS)
     expect(PIN_COVERS).toBe('A hospital you give it to can use it to open your records, and to add your old paper records to your Health ID while that access lasts.')
