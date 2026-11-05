@@ -1,5 +1,6 @@
 import { EhrBadge } from '@hid/ui/ehr'
 import { DeptFacts } from '../parts/DeptRecord'
+import { DeptNotice } from '../parts/DeptNotice'
 
 /*
  * The reading of a paper record that the OCR worker writes as an extraction's structured payload under contract
@@ -33,10 +34,20 @@ export interface PaperIdentity {
   readonly folderNumberAsWritten: string | null
 }
 
+/** A page of the paper and why the worker thinks it may not be fully read (its flagReasons codes, as written). */
+export interface PaperPage {
+  readonly page: number
+  readonly flagged: boolean
+  readonly flagReasons: readonly string[]
+}
+
 export interface PaperReading {
   readonly identity: PaperIdentity
   readonly items: readonly PaperItem[]
   readonly status: PaperReadingStatus
+  readonly pages: readonly PaperPage[]
+  /** How many things the reader suggested were left out because they could not be found on the page. */
+  readonly droppedUngrounded: number
 }
 
 /** The groups, in the order the page shows them. */
@@ -58,6 +69,23 @@ export const READING_STATUS_WORDS: Record<Exclude<PaperReadingStatus, 'read'>, s
   ai_declined: 'The items couldn’t be picked out automatically. Enter them by hand.',
   no_text: 'No text was found on this document.',
 }
+
+/**
+ * Why a page may not be fully read, in plain words, for each of the worker's flagReasons codes (FLAG_REASONS in the
+ * contract). A code not listed here is never shown as it is: it gets FLAG_REASON_UNKNOWN.
+ */
+export const FLAG_REASON_WORDS: Readonly<Record<string, string>> = {
+  low_confidence: 'parts of it are hard to read',
+  handwriting: 'handwriting that is hard to read',
+  many_dropped: 'some things the reader suggested could not be found on the page',
+  ai_unsure: 'the reader was not sure about this page',
+  possible_missed_item: 'some lines may have been missed',
+  ai_declined: 'the items on this page could not be picked out automatically',
+}
+export const FLAG_REASON_UNKNOWN = 'something about this page may not have been read properly'
+
+/** What the page says when the reader left out things it could not find on the page. */
+export const DROPPED_WORDS = 'Some things the reader suggested were left out because they could not be found on the page.'
 
 /** What the page says when a payload says it is a paper reading but is not whole, so its items are not shown. */
 export const NOT_WHOLE_WORDS = 'The items couldn’t be picked out automatically. Enter them by hand.'
@@ -99,6 +127,15 @@ export function claimsPaperReading(payload: unknown): boolean {
   return isRecord(payload) && payload.contract === PAPER_READING_CONTRACT
 }
 
+function parsePage(value: unknown): PaperPage | null {
+  if (!isRecord(value)) return null
+  const { page, flagged, flagReasons } = value
+  if (typeof page !== 'number' || !Number.isInteger(page) || page < 1 || typeof flagged !== 'boolean') return null
+  if (!Array.isArray(flagReasons) || flagReasons.some(reason => typeof reason !== 'string')) return null
+  // A page with any reason is treated as flagged, whatever its flag says: a warning is never lost.
+  return { page, flagged: flagged || flagReasons.length > 0, flagReasons: flagReasons as string[] }
+}
+
 function parseItem(value: unknown): PaperItem | null {
   if (!isRecord(value)) return null
   const { id, kind, asWritten, plain, page, confidence } = value
@@ -130,8 +167,17 @@ function parseItem(value: unknown): PaperItem | null {
  */
 export function parsePaperReading(payload: unknown): PaperReading | null {
   if (!claimsPaperReading(payload) || !isRecord(payload)) return null
-  const { items, identity, reading } = payload
+  const { items, identity, reading, pages } = payload
   if (!Array.isArray(items) || !isRecord(reading) || typeof reading.status !== 'string' || !STATUSES.has(reading.status)) return null
+  if (!Array.isArray(pages)) return null
+  const { droppedUngrounded } = reading
+  if (typeof droppedUngrounded !== 'number' || !Number.isInteger(droppedUngrounded) || droppedUngrounded < 0) return null
+  const parsedPages: PaperPage[] = []
+  for (const value of pages) {
+    const page = parsePage(value)
+    if (!page) return null
+    parsedPages.push(page)
+  }
   if (identity !== undefined && identity !== null && !isRecord(identity)) return null
   const parsed: PaperItem[] = []
   const ids = new Set<string>()
@@ -149,6 +195,8 @@ export function parsePaperReading(payload: unknown): PaperReading | null {
     identity: { nameAsWritten: name, dateOfBirthAsWritten: dateOfBirth, folderNumberAsWritten: folderNumber },
     items: parsed,
     status: reading.status as PaperReadingStatus,
+    pages: parsedPages,
+    droppedUngrounded,
   }
 }
 
@@ -215,10 +263,47 @@ export function orderItems(items: readonly PaperItem[]): PaperItem[] {
     .map(({ item }) => item)
 }
 
-/** "12 items read · 3 need a careful check". */
-export function readingSummary(items: readonly PaperItem[]): string {
+/** The pages the worker flagged as perhaps not fully read, in page order. */
+export function flaggedPages(reading: Pick<PaperReading, 'pages'>): PaperPage[] {
+  return reading.pages.filter(page => page.flagged).sort((a, b) => a.page - b.page)
+}
+
+/** Why pages may not be fully read, in plain words, each said once; a code it does not know gets a general sentence. */
+export function flagReasonWords(codes: readonly string[]): string[] {
+  const words = codes.length === 0 ? [FLAG_REASON_UNKNOWN]
+    : codes.map(code => Object.prototype.hasOwnProperty.call(FLAG_REASON_WORDS, code) ? FLAG_REASON_WORDS[code]! : FLAG_REASON_UNKNOWN)
+  return [...new Set(words)]
+}
+
+function listed(numbers: readonly number[]): string {
+  return numbers.length === 1 ? String(numbers[0]) : `${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]}`
+}
+
+/**
+ * The warnings for pages that may not be fully read: one for each flagged page, or one for them all when every page
+ * of a paper of several pages is flagged. Each says what to do, then why in plain words.
+ */
+export function pageWarnings(reading: Pick<PaperReading, 'pages'>): Array<{ readonly key: string; readonly text: string; readonly why: string }> {
+  const flagged = flaggedPages(reading)
+  if (flagged.length === 0) return []
+  const why = (pages: readonly PaperPage[]) => `Why: ${flagReasonWords(pages.flatMap(page => page.flagReasons)).join('; ')}.`
+  if (flagged.length > 1 && flagged.length === reading.pages.length) {
+    return [{ key: 'all', why: why(flagged),
+      text: `Pages ${listed(flagged.map(page => page.page))} may not be fully read. Check each whole page against the paper and enter anything missing by hand.` }]
+  }
+  return flagged.map(page => ({ key: `page-${page.page}`, why: why([page]),
+    text: `Page ${page.page} may not be fully read. Check the whole page against the paper and enter anything missing by hand.` }))
+}
+
+/**
+ * "12 items read · 3 need a careful check". When any page may not be fully read it never sounds complete:
+ * "1 item read so far — the page needs a full check".
+ */
+export function readingSummary(items: readonly PaperItem[], flaggedPageCount = 0): string {
   const careful = items.filter(item => item.confidence === 'check_carefully').length
-  const read = `${items.length} ${items.length === 1 ? 'item' : 'items'} read`
+  const count = `${items.length} ${items.length === 1 ? 'item' : 'items'} read`
+  const read = flaggedPageCount === 0 ? count
+    : `${count} so far — ${flaggedPageCount === 1 ? 'the page needs' : 'the pages need'} a full check`
   return careful ? `${read} · ${careful} ${careful === 1 ? 'needs' : 'need'} a careful check` : read
 }
 
@@ -243,7 +328,23 @@ function PaperItemRow({ item }: { readonly item: PaperItem }) {
 /** The header's line: how many items were read and how many need a careful check. */
 export function PaperReadingSummary({ reading }: { readonly reading: PaperReading }) {
   if (reading.status !== 'read') return null
-  return <span className="hid-ehr-dept-muted">{readingSummary(reading.items)}</span>
+  return <span className="hid-ehr-dept-muted">{readingSummary(reading.items, flaggedPages(reading).length)}</span>
+}
+
+/**
+ * Shown first, above anything read and the header's count: the pages that may not be fully read, and the things the
+ * reader left out, so staff never take the items as all there is on the paper.
+ */
+export function PaperReadingWarnings({ reading }: { readonly reading: PaperReading }) {
+  const warnings = pageWarnings(reading)
+  if (warnings.length === 0 && reading.droppedUngrounded === 0) return null
+  return <div className="hid-ehr-dept-migrate-reading-warnings">
+    {warnings.map(warning => <DeptNotice key={warning.key} tone="caution" variant="box">
+      <p><strong>{warning.text}</strong></p>
+      <p>{warning.why}</p>
+    </DeptNotice>)}
+    {reading.droppedUngrounded > 0 && <DeptNotice tone="caution" variant="box">{DROPPED_WORDS}</DeptNotice>}
+  </div>
 }
 
 /** Who the paper is about, so staff can confirm it is the right patient, then the items, grouped by kind. */
