@@ -6,10 +6,10 @@ import { useStaff } from '../App'
 import { UNAVAILABLE, useFocusById } from '../focus'
 import { accessLevelLabel } from '../../plainLabels'
 
-/** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 /** The list names no patient, and never by any part of their record's id (owner rule, IDs on screen). */
 const PATIENT_NOT_NAMED = 'Patient (name not shown)'
 
+/** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 const OUTCOMES: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
   pending: { label: 'Waiting for the patient', tone: 'warning' },
   active: { label: 'Access active', tone: 'success' },

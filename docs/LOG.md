@@ -3120,7 +3120,13 @@ From the launch audit of the patient Records, Notifications and chat pages (RN-0
     last characters of their record id.
   - Outreach (classic and blue): main already shows a case without its id or
     its temporary record's id, and campaign members by role and date added
-    instead of a membership id; the tests here check that.
+    instead of a membership id, and classic Outreach already uses the blue
+    screens' words for a case's and a campaign's status and a member's role
+    (`memberRoleLabel` in `outreachParts.tsx`); the tests here check that.
+  - Document OCR (blue Migrate): main already says a job's patient as "Patient
+    (name not shown)" or "Patient not given" in the list, Quick view and the
+    opened job, with no "Job" reference; the tests here check that no part of
+    either id shows.
   - Patient Records: lab tests and medicines say their status in words
     (`labRequestStatusLabel`, `medicineStatusLabel` in `plainLabels.ts`).
 - Tests render fictional UUIDs and assert they, and any part of them, are absent.
