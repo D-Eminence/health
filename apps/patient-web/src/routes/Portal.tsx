@@ -666,7 +666,7 @@ export function RecordsPage() {
     {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} />}
     {ready && <>
       {/* Only for a patient who has older records: one who never had an old account is not told of it (RN-07). */}
-      {tab === 'all' && (ready.importedRecords?.length ?? 0) > 0 && <ImportedHistory records={ready.importedRecords} query={query} groupedByDay
+      {tab === 'all' && (ready.importedRecords?.length ?? 0) > 0 && <ImportedHistory records={ready.importedRecords ?? []} query={query} groupedByDay
         limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
       {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
