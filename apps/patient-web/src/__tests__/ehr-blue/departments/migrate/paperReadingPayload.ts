@@ -45,6 +45,18 @@ export function paperReading(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** A paper of `count` fictional medicines, all clear, over pages 1 and 2 in reading order. */
+export function medicinesPaper(count: number) {
+  const payload = paperReading()
+  const template = payload.items[0]!
+  payload.items = Array.from({ length: count }, (_, at) => ({
+    ...template, id: `it-${(0xb00 + at).toString(16).padStart(16, '0')}`, page: at < count / 2 ? 1 : 2, prescription: null,
+    lineIds: [`p${at < count / 2 ? 1 : 2}-l1`], asWritten: `Testamol ${at + 1} 10mg od`, plain: `Testamol ${at + 1}`,
+    fields: { ...template.fields, name: `Testamol ${at + 1}`, strength: '10 mg', frequency: 'once a day', duration: null },
+  })) as typeof payload.items
+  return payload
+}
+
 /** A reading whose items were not picked out, for each reason. */
 export function unreadPaper(status: string) {
   const payload = paperReading()

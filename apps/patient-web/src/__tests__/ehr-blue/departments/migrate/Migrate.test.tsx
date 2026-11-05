@@ -9,7 +9,7 @@ import { STAFF_PAPER_NEEDS_ACCESS } from '../../../../paperRecordsWording'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
-import { handwrittenPage, paperReading, unreadPaper } from './paperReadingPayload'
+import { handwrittenPage, medicinesPaper, paperReading, unreadPaper } from './paperReadingPayload'
 import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocrSteps'
 
 /**
@@ -1107,8 +1107,8 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   })
 
   it.each([
-    ['a paper of two medicines, with the patient\'s visits readable', paperReading(), ['ehr.encounter.read'], ['Keep the document only', 'Clinical note', 'Past lab results']],
-    ['a paper of two medicines, without', paperReading(), [], ['Keep the document only', 'Past lab results']],
+    ['a paper of two medicines, with the patient\'s visits readable', paperReading(), ['ehr.encounter.read'], ['Keep the document only', 'Clinical note', 'Past lab results', 'Past medicines']],
+    ['a paper of two medicines, without', paperReading(), [], ['Keep the document only', 'Past lab results', 'Past medicines']],
     ['a paper of one medicine', handwrittenPage(), [], ['Keep the document only', 'Past medicines']],
   ])('offers Save as in plain words for %s', async (_, payload, extra, offered) => {
     session.permissions = [...ALL, ...extra]
@@ -1163,8 +1163,29 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     await press(save())
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
     const input = api.validateOcrJob.mock.calls[0]![2]
-    expect(input.acceptedFields.observations).toEqual([{ testName: 'Haematocrit', valueText: '34 %' }])
+    expect(input.acceptedFields.observations).toEqual([{ testName: 'Haematocrit', valueText: '34 %', page: 2, itemId: 'it-00000000000000d1', reportedAtAsWritten: '01/03/2025' }])
     expect(input.corrections.map((item: { field: string }) => item.field)).toEqual(['test', 'result'])
+  })
+
+  it('past medicines sends every medicine kept, each its own entry, and says plainly when more than 50 are kept', async () => {
+    withReading(medicinesPaper(51))
+    await findJob(awaiting)
+    await openAction('Check and save')
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'PHARMACY' } })
+    expect(within(form()).getByRole('note').textContent).toBe('Only 50 medicines can be added at once. The first 50 on the paper are added. The rest stay with the document; add them in a clinical note.')
+    await press(within(cards()[0]!).getByRole('button', { name: 'Remove' }))
+    expect(within(form()).queryByRole('note')).toBeNull()
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(save())
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect(input).toMatchObject({ targetDomain: 'PHARMACY', candidateType: 'historical_medication_evidence' })
+    expect(input.acceptedFields.medications).toHaveLength(50)
+    expect(input.acceptedFields.medications[0]).toEqual({ itemId: 'it-0000000000000b01', page: 1, medicationText: 'Testamol 2', strengthText: '10 mg',
+      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. As written: Testamol 2 10mg od' })
+    expect(input.acceptedFields).not.toHaveProperty('medicationText')
   })
 
   it('offers only visits at this facility that still take a note, and reads older visits on request', async () => {

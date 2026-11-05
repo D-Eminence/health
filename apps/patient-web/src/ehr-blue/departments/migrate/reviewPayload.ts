@@ -4,28 +4,33 @@ import { PAPER_READING_CONTRACT, itemNotActive, orderItems, type PaperItem, type
 /*
  * The check of a paper reading, as staff make it on the Document OCR page: each item read is kept, changed or removed,
  * then the whole is saved as one of OCR's owning domains. Staff never see or type what is sent; it is built here from
- * their choices, in the shape ocr-api takes (hid-system, origin/staging-novu-ci-20261005 605e971e, the branch production is built from):
+ * their choices, in the shape ocr-api takes (hid-system, origin/staging-novu-ci-20261005 550c09d9, the branch production is built from):
  *
  * - services/ocr-api/src/ocr/dto/validate-ocr-job.dto.ts:12-31: validatedPayload and acceptedFields are objects
  *   (@IsObject), rejectedFields and corrections are arrays (@IsArray); the database holds them to the same shapes
  *   (ehr-api migrations 0013 lines 121-122, 0016 lines 29-32: jsonb_typeof object / array).
- * - services/ocr-api/src/ocr/ocr-publication-policy.ts:7-20 (assertCandidateClassification): the candidate type must be
+ * - services/ocr-api/src/ocr/ocr-publication-policy.ts:9-22 (assertCandidateClassification): the candidate type must be
  *   the one of its domain, and a validated review may not be UNCLASSIFIED.
- * - services/ocr-api/src/ocr/ocr.service.ts:297: a validated review's acceptedFields must pass the domain's own check
- *   (assertPublishableCandidate, ocr-publication-policy.ts:116-120) before anything is written:
- *   - EHR, clinicalNoteCandidate (ocr-publication-policy.ts:97-109): encounterId (a UUID), noteType (1-80 characters),
+ * - services/ocr-api/src/ocr/ocr.service.ts:297-303: a validated review's acceptedFields must pass the domain's own
+ *   check (assertPublishableCandidate, ocr-publication-policy.ts:295-300) before anything is written:
+ *   - EHR, clinicalNoteCandidate (ocr-publication-policy.ts:276-288): encounterId (a UUID), noteType (1-80 characters),
  *     title (1-240) and content (1-100,000). EHR then takes encounterId only as a version 4 UUID
  *     (ehr-api ocr-integration/dto/import-ocr-clinical-note.dto.ts:7).
- *   - LAB, importedLabCandidate (ocr-publication-policy.ts:57-95): 1-200 observations, each a testName (up to 240)
- *     and a value (up to 240) or valueText (up to 2,000); unit up to 80, referenceRange up to 240. Lab then takes
- *     abnormalFlag only as one of its own words and reportedAt only as a date (lab-api dto/create-lab-import.dto.ts:12-13),
- *     so a flag written another way is not sent and no date as written on paper is sent as one.
- *   - PHARMACY, importedMedicationCandidate (ocr-publication-policy.ts:32-55): medicationText (1-500), with
- *     strengthText, doseText and frequencyText (up to 240) and historicalContext (up to 2,000). One review is one
- *     medicine.
+ *   - LAB, importedLabCandidate (ocr-publication-policy.ts:208-274): 1-200 observations, each a testName (up to 240)
+ *     and a value (up to 240) or valueText (up to 2,000); unit up to 80, referenceRange up to 240, and optionally its
+ *     page (1-10,000) and reading itemId (231-237). Lab takes abnormalFlag only as one of its own words
+ *     (lab-api dto/create-lab-import.dto.ts:12), so a flag written another way is not sent. A date on the paper is sent
+ *     only as the text written, reportedAtAsWritten (1-120 characters, labDate 150-200); ocr-api turns it into a date
+ *     only when it is unambiguous and keeps the text either way (docs/INTERFACE_CONTRACT.md:1318-1346). No date is
+ *     guessed here. The reading has no collection or report date of the whole paper, so the top-level ones are not sent.
+ *   - PHARMACY, importedMedicationCandidates (ocr-publication-policy.ts:102-137): `medications`, 1 to 50 entries
+ *     (MAX_IMPORTED_MEDICATIONS, line 43) in reading order, each its own record: page (1-10,000), the reading itemId
+ *     (unique), medicationText (1-500), strengthText, doseText and frequencyText (up to 240) and historicalContext
+ *     (1-2,000, required; medicineFields 52-76). Never with the single-medicine fields beside it (line 112). The itemId
+ *     must be a medicine read on that page (ocr.service.ts:659-691, assertMedicinesWereRead).
  *   - DOCUMENT_ONLY: no check; any object.
- *   Each check picks only its own keys (the publication sends what it returns, ocr.service.ts:515-551), so the items
- *   kept are also stored in acceptedFields as `items`, as a record of the check, without changing what is published.
+ *   Each check picks only its own keys (the publication sends what it returns), so the items kept are also stored in
+ *   acceptedFields as `items`, as a record of the check, without changing what is published.
  */
 
 export type ItemChoice = 'keep' | 'change' | 'remove'
@@ -54,6 +59,9 @@ export const CANDIDATE_TYPES: Readonly<Record<OcrTargetDomain, OcrCandidateType>
 /** What a clinical note made from a paper record is called in the patient's record. */
 export const NOTE_TYPE = 'Paper record'
 export const NOTE_TITLE = 'From a paper record'
+
+/** The most medicines one review adds to past medicines (ocr-publication-policy.ts:43). */
+export const MAX_MEDICINES = 50
 
 /** Lab's own flag words (lab-api dto/create-lab-import.dto.ts:12); a flag written any other way is not sent. */
 const LAB_FLAGS: ReadonlySet<string> = new Set(['normal', 'low', 'high', 'critical', 'abnormal', 'unknown'])
@@ -122,10 +130,17 @@ export function offeredDomains(reading: PaperReading | null, canAttachNote: bool
   const offered = new Set<SaveAs>(['DOCUMENT_ONLY'])
   if (canAttachNote) offered.add('EHR')
   if (items.some(item => item.kind === 'lab_result')) offered.add('LAB')
-  // One review publishes one medicine, so a paper of several medicines is not offered as past medicines.
-  if (items.filter(item => item.kind === 'medicine').length === 1) offered.add('PHARMACY')
+  if (items.some(item => item.kind === 'medicine')) offered.add('PHARMACY')
   return SAVE_AS_ORDER.filter(domain => offered.has(domain))
 }
+
+/** How many medicines are kept or changed so far. */
+export function keptMedicines(items: readonly PaperItem[], decisions: Decisions): number {
+  return items.filter(item => item.kind === 'medicine' && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').length
+}
+
+/** What the form says when more medicines are kept than one review can add. */
+export const TOO_MANY_MEDICINES = `Only ${MAX_MEDICINES} medicines can be added at once. The first ${MAX_MEDICINES} on the paper are added. The rest stay with the document; add them in a clinical note.`
 
 /** A field of the form, by its control's id, and what to do about it. */
 export interface ReviewProblem { readonly field: string; readonly message: string }
@@ -190,18 +205,23 @@ function noteContent(kept: readonly CheckedItem[], read: readonly PaperItem[]): 
 interface Observation {
   readonly testName: string; readonly value?: string; readonly valueText?: string; readonly unit?: string
   readonly referenceRange?: string; readonly abnormalFlag?: string
+  readonly page: number; readonly itemId: string; readonly reportedAtAsWritten?: string
 }
 
 function observation(entry: CheckedItem): Observation {
-  const f = entry.item.fields
-  const testName = entry.lab?.test ?? labTest(entry.item)
+  const { item } = entry
+  const f = item.fields
+  const testName = entry.lab?.test ?? labTest(item)
+  // Where it was read, and its date only as written on the paper.
+  const source = { page: item.page, itemId: item.id, reportedAtAsWritten: upTo(text(item.dateAsWritten), 120) }
   // A changed result carries the test and result staff typed, so the reading's own value and unit can't contradict them.
-  if (entry.lab?.changed) return { testName, valueText: entry.lab.result }
+  if (entry.lab?.changed) return optional<Observation>({ testName, valueText: entry.lab.result, ...source })
   const value = text(f.value)
   const flag = text(f.flag).toLowerCase()
   return optional<Observation>({
-    testName, value: value || undefined, valueText: value ? undefined : entry.item.asWritten.trim(),
+    testName, value: value || undefined, valueText: value ? undefined : item.asWritten.trim(),
     unit: upTo(text(f.unit), 80), referenceRange: upTo(text(f.referenceRange), 240), abnormalFlag: LAB_FLAGS.has(flag) ? flag : undefined,
+    ...source,
   })
 }
 
@@ -209,8 +229,11 @@ function medication(entry: CheckedItem) {
   const { item } = entry
   const f = item.fields
   const changed = entry.decision.choice === 'change' && entry.final !== entry.line
+  // A status staff confirmed as not active ("Stopped") goes with the record, kept or changed, as it shows on the card.
+  const notActive = itemNotActive(item)
   const context = [
     `From a paper record, page ${item.page}. As written: ${item.asWritten.trim()}`,
+    notActive && `Status: ${notActive}`,
     text(f.duration) && `For ${text(f.duration)}`,
     item.prescription?.prescriberAsWritten?.trim() && `Prescribed by ${item.prescription.prescriberAsWritten.trim()}`,
     item.prescription?.dateAsWritten?.trim() && `Prescribed on ${item.prescription.dateAsWritten.trim()}`,
@@ -218,6 +241,7 @@ function medication(entry: CheckedItem) {
   ].filter(Boolean).join('. ')
   // A changed medicine is the words staff typed; the reading's strength and frequency are not sent beside them.
   return optional({
+    itemId: item.id, page: item.page,
     medicationText: changed ? entry.final : itemName(item),
     strengthText: changed ? undefined : upTo(text(f.strength), 240),
     frequencyText: changed ? undefined : upTo(text(f.frequency), 240),
@@ -291,12 +315,17 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
     }
     domainFields = { observations }
   } else if (saveAs === 'PHARMACY') {
-    const medicine = kept.find(entry => entry.item.kind === 'medicine')
-    if (!medicine) return domainProblem('The medicine was removed, so nothing can be added to past medicines. Choose another way to save it.')
-    const fields = medication(medicine)
-    if (fields.medicationText.length > 500) return { problem: { field: medicine.decision.choice === 'change' ? itemTextId(medicine.index) : itemCardId(medicine.index),
-      message: 'This medicine is too long to add to past medicines. Use Change to shorten it to 500 characters or fewer.' } }
-    domainFields = fields
+    // In the order they are on the paper, each its own record; past the most one review takes, they stay with the document.
+    const read = reading?.items ?? []
+    const medicines = kept.filter(entry => entry.item.kind === 'medicine')
+      .sort((a, b) => read.indexOf(a.item) - read.indexOf(b.item)).slice(0, MAX_MEDICINES)
+    if (medicines.length === 0) return domainProblem('No medicine is kept, so nothing can be added to past medicines. Choose another way to save it.')
+    const medications = medicines.map(medication)
+    for (const [at, entry] of medicines.entries()) {
+      if (medications[at]!.medicationText.length > 500) return { problem: { field: entry.decision.choice === 'change' ? itemTextId(entry.index) : itemCardId(entry.index),
+        message: 'This medicine is too long to add to past medicines. Use Change to shorten it to 500 characters or fewer.' } }
+    }
+    domainFields = { medications }
   }
 
   const reason = choices.reason.trim()
