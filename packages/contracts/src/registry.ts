@@ -34,7 +34,8 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
  * the push keys as well: callers treat a 404 as "not available yet" and show
- * nothing.
+ * nothing; and "Discussed with the patient" on held lab results (hid-system
+ * #177, migration 0107, draft), whose button stays hidden until it is served.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -925,6 +926,24 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.resultHistory','lab','/api/v1/lab/results/:resultId/history',G,false,one('GET','lab.result.released.read')),
   // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.
   r('lab.releasedResultsForOrder','lab','/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',G,false,one('GET','lab.result.released.read')),
+  // "Discussed with the patient" (hid-system #177, migration 0107, draft; 404 until served): a doctor or clinician with
+  // write access marks a released sensitive or critical result as discussed, one result version at a time, or withdraws
+  // the mark with a reason. Direct care only (X-Purpose-Of-Use), facility scoped; both commands need an Idempotency-Key.
+  proposed(r('lab.resultDiscussions','lab','/api/v1/lab/patients/:patientId/result-discussions',G,false,
+    one('GET','lab.result.released.read'),
+    'Answers { results: [{ resultId, resultVersion, test: { codeSystem, code, name }, releasedAt, gate: { sensitive, '
+    + 'critical }, finishedVisit, discussion: null | { state: discussed | withdrawn, eventNo, at, byMembershipId, '
+    + 'reasonCode }, visibleToPatient }], truncated }: gated results only, newest first, at most 500.')),
+  proposed(r('lab.resultDiscussion','lab','/api/v1/lab/patients/:patientId/results/:resultId/discussion',P,false,
+    one('POST','lab.result.discuss'),
+    'Body { resultVersion }; 201 { resultId, resultVersion, state: discussed, eventNo, discussedAt, visibleToPatient, '
+    + 'replayed }. 403 PERMISSION_DENIED, PATIENT_ACCESS_DENIED; 404 RESULT_NOT_FOUND; 409 RESULT_VERSION_CHANGED, '
+    + 'RESULT_NOT_RELEASED, RESULT_ENTERED_IN_ERROR, RESULT_DISCUSSION_CHANGED, IDEMPOTENCY_KEY_REUSED.')),
+  proposed(r('lab.resultDiscussionWithdrawal','lab','/api/v1/lab/patients/:patientId/results/:resultId/discussion/withdrawal',P,false,
+    one('POST','lab.result.discuss'),
+    'Body { resultVersion, reasonCode: marked_in_error | not_yet_discussed | wrong_patient | other, reason (8 to 500 '
+    + 'characters) }; 200 { resultId, resultVersion, state: withdrawn, eventNo, withdrawnAt, visibleToPatient, replayed }. '
+    + 'As the mark, and 409 RESULT_NOT_DISCUSSED.')),
   // P4c: lab requests other facilities send to this laboratory (Incoming and Recent), one of them, accept and decline.
   { ...proposed(r('lab.orderRoutes','lab','/api/v1/lab/order-routes',G,false,one('GET','lab.order-route.receive'),RECEIVE_ROUTE)),
     forbiddenQuery: { GET: ['healthId'] } },

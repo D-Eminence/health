@@ -1,8 +1,10 @@
 import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
 import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
+import type { Chart } from '../../parts/chart'
 import { ErrorBox } from '../../parts/Notices'
+import { DiscussedWithPatient, useDiscussions } from './Discussed'
 import { releasedResultsRefusal } from './words'
 
 function dateText(value: string | null | undefined) {
@@ -35,15 +37,20 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
  * Today's ReleasedResults (Clinical.tsx) as a card under the lab request: read only when opened or refreshed, since
  * Lab audits every read; what was shown is hidden while it is read again.
  */
-export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: {
+export function ReleasedResults({ facilityId, requestId, revision, onRefresh, chart }: {
   facilityId: string
   requestId: string
   revision: number
   onRefresh: () => void
+  /** The open chart, for "Discussed with the patient" (Discussed.tsx); without it that is never offered. */
+  chart?: Chart
 }) {
   const [released, setReleased] = useState<LabOrderReleasedResults | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const headingId = useId()
+  // The held results and their marks, read with the results (and again with them) for a member who may mark only.
+  const discussions = useDiscussions(chart, revision)
   useEffect(() => {
     let active = true
     setReleased(null)
@@ -69,12 +76,17 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: 
           {released.results.map((result, index) => (
             <div key={result.id} className="hid-ehr-clinical-orders-result">
               <div className="hid-ehr-clinical-orders-row">
-                <strong>Result {index + 1}</strong>
+                <strong id={`${headingId}-${index}`}>Result {index + 1}</strong>
                 <EhrBadge tone={result.status === 'entered_in_error' ? 'critical' : 'positive'}>{result.status === 'entered_in_error' ? 'Entered in error' : 'Released'}</EhrBadge>
               </div>
               {result.status === 'entered_in_error' ? <p>The latest released version was marked entered in error: do not use it.</p> : null}
               {skipsVersions(result.revisions) ? <p className="hid-ehr-clinical-orders-muted">Version numbers skip revisions that were never released; those are not shown.</p> : null}
               <Revisions revisions={result.revisions} />
+              {/* "Discussed with the patient" (owner Q24): only on a result the patient chat holds back (hid-system #177). */}
+              {chart && discussions ? (
+                <DiscussedWithPatient key={`${result.id}-${revision}`} chart={chart} result={result} item={discussions.results.get(result.id) ?? null}
+                  onReadAgain={onRefresh} describedBy={`${headingId}-${index}`} />
+              ) : null}
             </div>
           ))}
         </>
