@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { EhrBadge } from '@hid/ui/ehr'
 import { DeptFacts } from '../parts/DeptRecord'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -295,71 +296,136 @@ export function pageWarnings(reading: Pick<PaperReading, 'pages'>): Array<{ read
     text: `Page ${page.page} may not be fully read. Check the whole page against the paper and enter anything missing by hand.` }))
 }
 
+
 /**
- * "12 items read · 3 need a careful check". When any page may not be fully read it never sounds complete:
- * "1 item read so far — the page needs a full check".
+ * The words the reader writes for a part it could not read (hid-system services/ocr-worker reading/prompt.ts UNREADABLE).
+ * It stands for that part only, so an item can be read in part ("Metro[unreadable] 500").
+ */
+export const UNREADABLE = '[unreadable]'
+const UNREADABLE_ANYWHERE = /\[unreadable\]/gi
+
+/**
+ * True when nothing of an item could be read: what is written is only UNREADABLE (any case), with at most punctuation
+ * and spaces around it. Such an item is never shown as an item nor saved; an item read in part is shown, to check.
+ */
+export function isUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
+  return item.asWritten.replace(UNREADABLE_ANYWHERE, '').replace(/[\p{P}\p{S}\s]/gu, '') === ''
+}
+
+/** The items that could be read at all, in the order given. */
+export function readableItems(items: readonly PaperItem[]): PaperItem[] {
+  return items.filter(item => !isUnreadable(item))
+}
+
+/** The one line a doctor reads for an item: what is written (a part that couldn't be read as "…"), else the summary. */
+export function itemHeadline(item: PaperItem): string {
+  return item.asWritten.replace(UNREADABLE_ANYWHERE, '…').trim() || item.plain.trim()
+}
+
+/** Why an item needs checking, in the reader's words, or a general sentence. */
+export function checkReasonWords(item: PaperItem): string {
+  return item.checkReason?.trim() || 'Check this against the document.'
+}
+
+/** What a list says, in place of items, for the lines that couldn't be read at all. */
+export function unreadableWords(count: number): string {
+  return `${count} ${count === 1 ? 'line' : 'lines'} couldn’t be read. Check the paper.`
+}
+
+/** How sure the reading of a document is, as said under Details (or on its own for a reading that is not a paper reading). */
+export function confidenceWords(confidence: number): string {
+  return `Read with ${Math.round(confidence * 100)}% confidence. Check it against the document.`
+}
+
+/**
+ * The header's count: "7 items read · 2 to check". Lines that couldn't be read at all are not counted. When any page
+ * may not be fully read it never sounds complete: "1 item read so far · 1 to check".
  */
 export function readingSummary(items: readonly PaperItem[], flaggedPageCount = 0): string {
-  const careful = items.filter(item => item.confidence === 'check_carefully').length
-  const count = `${items.length} ${items.length === 1 ? 'item' : 'items'} read`
-  const read = flaggedPageCount === 0 ? count
-    : `${count} so far — ${flaggedPageCount === 1 ? 'the page needs' : 'the pages need'} a full check`
-  return careful ? `${read} · ${careful} ${careful === 1 ? 'needs' : 'need'} a careful check` : read
+  const readable = readableItems(items)
+  const careful = readable.filter(item => item.confidence === 'check_carefully').length
+  const read = `${readable.length} ${readable.length === 1 ? 'item' : 'items'} read${flaggedPageCount === 0 ? '' : ' so far'}`
+  return careful ? `${read} · ${careful} to check` : read
+}
+
+/**
+ * The one short line shown above a reading that may not be complete ("Hard handwriting. Check the items marked ?"), or
+ * null when the pages read cleanly and nothing was left out.
+ */
+export function readingStatusLine(reading: PaperReading): string | null {
+  const flagged = flaggedPages(reading)
+  if (flagged.length === 0 && reading.droppedUngrounded === 0) return null
+  const codes = new Set(flagged.flatMap(page => page.flagReasons))
+  const what = codes.has('handwriting') ? 'Hard handwriting.' : codes.has('low_confidence') ? 'Hard to read.' : 'May not be fully read.'
+  const marked = reading.status === 'read' && readableItems(reading.items).some(item => item.confidence === 'check_carefully')
+  return `${what} ${marked ? 'Check the items marked ?' : 'Check it against the paper.'}`
+}
+
+/** The small "?" an item to check carefully carries, and why, behind "Why?". */
+export function ItemCheck({ item }: { readonly item: PaperItem }) {
+  if (item.confidence !== 'check_carefully') return null
+  return <span className="hid-ehr-dept-migrate-check-mark">
+    {/* A screen reader hears "Check"; the eye sees the small "?" the line above the reading points to. */}
+    <span className="hid-ehr-sr-only">Check</span>
+    <span aria-hidden="true"><EhrBadge tone="caution">?</EhrBadge></span>
+    <details className="hid-ehr-dept-migrate-why">
+      <summary>Why?</summary>
+      <span className="hid-ehr-dept-muted">{checkReasonWords(item)}</span>
+    </details>
+  </span>
 }
 
 function PaperItemRow({ item }: { readonly item: PaperItem }) {
-  const details = itemDetails(item)
   const notActive = itemNotActive(item)
-  const careful = item.confidence === 'check_carefully'
-  return <li data-item-id={item.id}>
-    <div className="hid-ehr-dept-row-main">
-      <strong>{item.plain.trim() || item.asWritten}{notActive && ` — ${notActive}`}</strong>
-      <span className="hid-ehr-dept-muted">As written: {item.asWritten}</span>
-      {details.length > 0 && <span>{details.join(' · ')}</span>}
-      <span className="hid-ehr-dept-muted">Page {item.page}</span>
-    </div>
-    <div className="hid-ehr-dept-migrate-confidence">
-      <EhrBadge tone={careful ? 'caution' : 'positive'}>{careful ? 'Check carefully' : 'Clear'}</EhrBadge>
-      {careful && <span className="hid-ehr-dept-muted">{item.checkReason?.trim() || 'Check this against the document.'}</span>}
-    </div>
+  return <li data-item-id={item.id} className="hid-ehr-dept-migrate-line">
+    <strong>{itemHeadline(item)}{notActive && ` — ${notActive}`}</strong>
+    <ItemCheck item={item} />
   </li>
 }
 
-/** The header's line: how many items were read and how many need a careful check. */
+/** The header's line: how many items were read and how many to check. */
 export function PaperReadingSummary({ reading }: { readonly reading: PaperReading }) {
   if (reading.status !== 'read') return null
   return <span className="hid-ehr-dept-muted">{readingSummary(reading.items, flaggedPages(reading).length)}</span>
 }
 
 /**
- * Shown first, above anything read and the header's count: the pages that may not be fully read, and the things the
- * reader left out, so staff never take the items as all there is on the paper.
+ * Shown first, above anything read: one short line when the reading may not be complete, so staff never take the items
+ * as all there is on the paper. Which pages, why, what was left out and how sure the reading is wait under Details.
+ * Nothing when the pages read cleanly.
  */
-export function PaperReadingWarnings({ reading }: { readonly reading: PaperReading }) {
-  const warnings = pageWarnings(reading)
-  if (warnings.length === 0 && reading.droppedUngrounded === 0) return null
-  return <div className="hid-ehr-dept-migrate-reading-warnings">
-    {warnings.map(warning => <DeptNotice key={warning.key} tone="caution" variant="box">
-      <p><strong>{warning.text}</strong></p>
-      <p>{warning.why}</p>
-    </DeptNotice>)}
-    {reading.droppedUngrounded > 0 && <DeptNotice tone="caution" variant="box">{DROPPED_WORDS}</DeptNotice>}
-  </div>
+export function PaperReadingWarnings({ reading, confidence }: { readonly reading: PaperReading; readonly confidence?: number | null }) {
+  const line = readingStatusLine(reading)
+  if (!line) return null
+  return <DeptNotice tone="caution" className="hid-ehr-dept-migrate-reading-warnings">
+    <p><strong>{line}</strong></p>
+    <details className="hid-ehr-dept-migrate-details">
+      <summary>Details</summary>
+      {pageWarnings(reading).map(warning => <Fragment key={warning.key}>
+        <p>{warning.text}</p>
+        <p>{warning.why}</p>
+      </Fragment>)}
+      {reading.droppedUngrounded > 0 && <p>{DROPPED_WORDS}</p>}
+      {confidence != null && <p>{confidenceWords(confidence)}</p>}
+    </details>
+  </DeptNotice>
 }
+
+/** What the page says when none of name, date of birth or folder number was found on the paper. */
+export const NO_IDENTITY_WORDS = 'No name or date of birth on the paper. Make sure this is the right patient.'
 
 /** Who the paper is about, so staff can confirm it is the right patient, then the items, grouped by kind. */
 export function PaperReadingView({ reading }: { readonly reading: PaperReading }) {
   const { identity } = reading
-  const notOnPaper = 'Not found on the paper'
+  const facts = [
+    { label: 'Name on the paper', value: identity.nameAsWritten?.trim() },
+    { label: 'Date of birth on the paper', value: identity.dateOfBirthAsWritten?.trim() },
+    { label: 'Folder number', value: identity.folderNumberAsWritten?.trim() },
+  ].filter((fact): fact is { label: string; value: string } => !!fact.value)
   return <div className="hid-ehr-dept-migrate-reading">
     <div>
       <h3>Who the paper is about</h3>
-      <p className="hid-ehr-dept-muted">Check this is the right patient before anything else.</p>
-      <DeptFacts facts={[
-        { label: 'Name on the paper', value: identity.nameAsWritten?.trim() || notOnPaper },
-        { label: 'Date of birth on the paper', value: identity.dateOfBirthAsWritten?.trim() || notOnPaper },
-        { label: 'Folder number', value: identity.folderNumberAsWritten?.trim() || notOnPaper },
-      ]} />
+      {facts.length > 0 ? <DeptFacts facts={facts} /> : <p className="hid-ehr-dept-muted">{NO_IDENTITY_WORDS}</p>}
     </div>
     {reading.status !== 'read'
       ? <p role="note" className="hid-ehr-dept-muted">{READING_STATUS_WORDS[reading.status]}</p>
@@ -368,10 +434,13 @@ export function PaperReadingView({ reading }: { readonly reading: PaperReading }
         : GROUPS.map(group => {
           const items = orderItems(reading.items.filter(item => item.kind === group.kind))
           if (items.length === 0) return null
+          const readable = readableItems(items)
+          const unreadable = items.length - readable.length
           const headingId = `ocr-read-${group.kind}`
           return <section key={group.kind} aria-labelledby={headingId}>
             <h3 id={headingId}>{group.title}</h3>
-            <ul className="hid-ehr-dept-rows">{items.map(item => <PaperItemRow key={item.id} item={item} />)}</ul>
+            {readable.length > 0 && <ul className="hid-ehr-dept-rows">{readable.map(item => <PaperItemRow key={item.id} item={item} />)}</ul>}
+            {unreadable > 0 && <p className="hid-ehr-dept-muted">{unreadableWords(unreadable)}</p>}
           </section>
         })}
   </div>

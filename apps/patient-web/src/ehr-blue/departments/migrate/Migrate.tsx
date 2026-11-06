@@ -20,7 +20,9 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
-import { NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, parsePaperReading } from './paperReading'
+import {
+  NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
+} from './paperReading'
 import {
   ConfirmForm, FormRefusal, ReviewForm, ReviewPublication, UUID_V4, jobInProgress, jobStatusWords, statusTone, statusWords, type PublicationAttempt,
 } from './ocrSteps'
@@ -214,6 +216,9 @@ export function Migrate() {
   // Each publication request's Idempotency-Key and OCR's wait, by request. Here, not in the review, so a read of the
   // job again (which remounts the reviews) keeps them; in memory only, so they last until this page is reloaded or left.
   const publicationAttempts = useRef(new Map<string, PublicationAttempt>())
+  // Read again's Idempotency-Key, by the job it was pressed on: a press after an answer that was lost sends the same key,
+  // so OCR answers with the job it made then rather than making another; once answered, the next press takes a new key.
+  const readAgainAttempt = useRef<{ jobId: string; key: string } | null>(null)
   // The jobs read on this page, for this account at this facility, newest first.
   const scope = JSON.stringify([actorId ?? '', facilityId ?? ''])
   const [opened, setOpened] = useState<{ scope: string; rows: OpenedJob[] }>({ scope: '', rows: [] })
@@ -409,6 +414,34 @@ export function Migrate() {
     finally { setBusy(false) }
   }
 
+  /**
+   * Read again: the document is sent for reading once more, so a reading made by an older reader is read by the newest.
+   * OCR makes a new job only when the newest reader has not read it yet; otherwise it answers with the job it has, and
+   * the page says this is already the newest reading. A new job is shown and read again by itself, as after Create.
+   */
+  async function readAgain(shown: OcrJob) {
+    if (!facilityId || busy || !shown.patientId) return
+    const request = ++openRequest.current
+    const current = () => openRequest.current === request
+    if (readAgainAttempt.current?.jobId !== shown.id) readAgainAttempt.current = { jobId: shown.id, key: crypto.randomUUID() }
+    const { key } = readAgainAttempt.current
+    setBusy(true); setStepFocus(null); setError(''); setNotice('')
+    try {
+      const created = await staffApi.createOcrJob(facilityId, shown.documentId, shown.patientId, key)
+      readAgainAttempt.current = null
+      if (!current()) { remember(created); return }
+      if (created.id === shown.id) { setNotice('This is already the newest reading.'); return }
+      show(created, shown.documentId); setAction(null)
+      setStepFocus({ targets: ['ocr-job-title'], notice: 'Reading the document again. This page updates by itself when it’s ready.' })
+    }
+    catch (caught) {
+      if (!current()) return
+      setError(needsPatientAccess(caught) ? STAFF_PAPER_NEEDS_ACCESS : errorText(caught, 'The document wasn’t sent for reading again.'))
+      focus('ocr-read-again', true)
+    }
+    finally { setBusy(false) }
+  }
+
   async function retry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!facilityId || !visibleJob || busy) return
@@ -555,15 +588,22 @@ export function Migrate() {
   }
 
   /** What OCR read from the document, its newest extraction, shown as it is: checking it is a step of its own. */
-  function readOut(extraction: OcrExtraction) {
+  function readOut(extraction: OcrExtraction, shown: OcrJob) {
     // A paper reading shows its items; a payload that says it is one but is not whole shows only the text and says the
     // items must be entered by hand, never its parts as loose fields; any other payload shows its named fields.
     const reading = parsePaperReading(extraction.structuredPayload)
     const notWhole = !reading && claimsPaperReading(extraction.structuredPayload)
     const fields = reading || notWhole ? [] : extractedFields(extraction.structuredPayload)
-    return <DeptSection title="What was read" headingId="ocr-read-title" actions={reading ? <PaperReadingSummary reading={reading} /> : undefined}>
-      {reading && <PaperReadingWarnings reading={reading} />}
-      {extraction.confidence != null && <p className="hid-ehr-dept-muted">{`Read with ${Math.round(extraction.confidence * 100)}% confidence. Check it against the document.`}</p>}
+    // Read again, for a reading OCR has finished, of a document and patient OCR takes.
+    const canReadAgain = canWrite && !jobInProgress(shown.status) && !!shown.patientId && UUID_V4.test(shown.patientId) && UUID_V4.test(shown.documentId)
+    const actions = reading || canReadAgain ? <div className="hid-ehr-dept-migrate-read-actions">
+      {reading && <PaperReadingSummary reading={reading} />}
+      {canReadAgain && <EhrButton id="ocr-read-again" size="sm" variant="secondary" busy={busy} onClick={() => void readAgain(shown)}>Read again</EhrButton>}
+    </div> : undefined
+    return <DeptSection title="What was read" headingId="ocr-read-title" actions={actions}>
+      {/* A paper reading says how sure it is under its Details, and only when it may not be complete. */}
+      {reading && <PaperReadingWarnings reading={reading} confidence={extraction.confidence} />}
+      {!reading && extraction.confidence != null && <p className="hid-ehr-dept-muted">{confidenceWords(extraction.confidence)}</p>}
       {reading && <PaperReadingView reading={reading} />}
       {notWhole && <p role="note" className="hid-ehr-dept-muted">{NOT_WHOLE_WORDS}</p>}
       {fields.length > 0 && <DeptFacts facts={fields} />}
@@ -616,6 +656,7 @@ export function Migrate() {
       <DeptContextLine status={jobStatusWords(shown.status)} tone={statusTone(shown.status)}
         items={[shown.patientId ? `Patient ${shortId(shown.patientId)}` : 'Patient not given', `Version ${shown.version ?? 'unknown'} · ${shown.provider}`]} />
       {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+      {error === STAFF_PAPER_NEEDS_ACCESS && <PatientAccessLinks permissions={permissions} />}
       <DeptRecordLayout
         main={<>
           <DeptSection title="Saved record" headingId="ocr-job-title">
@@ -623,7 +664,7 @@ export function Migrate() {
             {progress && <p id="ocr-progress" className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">{progress}</p>}
             {shown.status === 'failed' && !canRetryJob && <p className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">The extraction attempt limit has been reached. This job cannot be retried.</p>}
           </DeptSection>
-          {read && readOut(read)}
+          {read && readOut(read, shown)}
         </>}
         aside={<DeptActions empty="No further actions for your permission and this record state.">
           {[

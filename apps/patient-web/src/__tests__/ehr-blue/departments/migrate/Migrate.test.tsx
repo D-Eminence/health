@@ -9,7 +9,7 @@ import { STAFF_PAPER_NEEDS_ACCESS } from '../../../../paperRecordsWording'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
-import { handwrittenPage, medicinesPaper, paperReading, unreadPaper } from './paperReadingPayload'
+import { handwrittenPage, medicinesPaper, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
 import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocrSteps'
 
 /**
@@ -121,8 +121,8 @@ async function openAction(name: string) {
 }
 
 const actionsCard = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
-/** The check's item cards, in the order shown. */
-const cards = () => within(screen.getByRole('form', { name: 'Check and save' })).queryAllByRole('group')
+/** The check's item cards, in the order shown (a card's Why? is a disclosure, a group of its own, not a card). */
+const cards = () => within(screen.getByRole('form', { name: 'Check and save' })).queryAllByRole('group').filter(group => group.tagName !== 'DETAILS')
 
 /** No staffApi member outside these was called. */
 function onlyCalled(...names: Array<keyof typeof api>) {
@@ -991,13 +991,17 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: paperReading() }] })
     await findJob(awaiting)
     const read = await readSection()
-    expect(within(read).getByText('7 items read · 2 need a careful check')).toBeTruthy()
+    expect(within(read).getByText('7 items read · 2 to check')).toBeTruthy()
     expect(within(read).getByText('Name on the paper').nextSibling?.textContent).toBe('Bisi Fictional')
     expect(within(read).getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
       .toEqual(['Who the paper is about', 'Medicines', 'Diagnoses', 'Allergies', 'Lab results', 'Vitals', 'Notes'])
     const medicines = within(within(read).getByRole('region', { name: 'Medicines' })).getAllByRole('listitem')
-    expect(medicines.map(row => row.querySelector('strong')?.textContent)).toEqual(['Metformin', 'Amlodipine'])
-    expect(within(medicines[0]!).getByText('Check carefully')).toBeTruthy()
+    expect(medicines.map(row => row.querySelector('strong')?.textContent)).toEqual(['Metf?rmin 500 bd', 'Amlodipine 5mg od x 30/7'])
+    expect(within(medicines[0]!).getByText('?')).toBeTruthy()
+    // A clean page says nothing more: no warning line, no Details, no confidence line.
+    expect(read.querySelector('.hid-ehr-dept-notice-caution')).toBeNull()
+    expect(within(read).queryByText('Details')).toBeNull()
+    expect(within(read).queryByText(/confidence/)).toBeNull()
     // The reading's own parts never show as loose fields.
     expect(within(read).queryByText('Pages')).toBeNull()
     expect(within(read).queryByText('Contract')).toBeNull()
@@ -1009,11 +1013,19 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Ceftriaxone ? IV', structuredPayload: handwrittenPage() }] })
     await findJob(awaiting)
     const read = await readSection()
-    expect(within(read).getByText('1 item read so far — the page needs a full check · 1 needs a careful check')).toBeTruthy()
-    expect(within(read).queryByText('1 item read · 1 needs a careful check')).toBeNull()
-    const warning = within(read).getByText('Page 1 may not be fully read. Check the whole page against the paper and enter anything missing by hand.')
-    expect(within(read).getByText('Why: handwriting that is hard to read; some things the reader suggested could not be found on the page; some lines may have been missed.')).toBeTruthy()
-    expect(within(read).getByText('Some things the reader suggested were left out because they could not be found on the page.')).toBeTruthy()
+    expect(within(read).getByText('1 item read so far · 1 to check')).toBeTruthy()
+    expect(within(read).queryByText('1 item read · 1 to check')).toBeNull()
+    const warning = within(read).getByText('Hard handwriting. Check the items marked ?')
+    // The reasons, what was left out and how sure the reading is wait under Details, closed; no other confidence line.
+    const details = within(read).getByText('Details').closest('details')!
+    expect(details.open).toBe(false)
+    expect(within(details).getByText('Page 1 may not be fully read. Check the whole page against the paper and enter anything missing by hand.')).toBeTruthy()
+    expect(within(details).getByText('Why: handwriting that is hard to read; some things the reader suggested could not be found on the page; some lines may have been missed.')).toBeTruthy()
+    expect(within(details).getByText('Some things the reader suggested were left out because they could not be found on the page.')).toBeTruthy()
+    expect(within(details).getByText('Read with 92% confidence. Check it against the document.')).toBeTruthy()
+    expect(within(read).getAllByText(/confidence/)).toHaveLength(1)
+    expect(within(read).getByText('No name or date of birth on the paper. Make sure this is the right patient.')).toBeTruthy()
+    expect(within(read).queryByText(/Not found/)).toBeNull()
     // Above who the paper is about and the items.
     const items = within(read).getByRole('region', { name: 'Medicines' })
     expect(warning.compareDocumentPosition(within(read).getByText('Who the paper is about')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -1060,20 +1072,25 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   const withReading = (payload: object = paperReading()) =>
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: payload }] })
 
-  it('shows each item as a card: its name, what the paper says, Clear or Check carefully and its page, careful ones first and undecided', async () => {
+  it('shows each item as a card: one line as written, a "?" with Why? when to check, careful ones first and undecided', async () => {
     withReading()
     await findJob(awaiting)
     await openAction('Check and save')
     const shown = cards()
     expect(shown).toHaveLength(7)
-    expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Metformin', 'Penicillin allergy', 'Amlodipine',
-      'High blood pressure', 'Haemoglobin', 'Blood pressure 150/95', 'Come back in two weeks'])
+    expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Metf?rmin 500 bd', 'Allergic to penicillin - rash',
+      'Amlodipine 5mg od x 30/7', 'HTN', 'Hb 11.2 g/dL', 'BP 150/95', 'Review in 2 weeks'])
     const [metformin] = shown
-    expect(within(metformin!).getByText('On the paper: Metf?rmin 500 bd')).toBeTruthy()
-    expect(within(metformin!).getByText('Check carefully')).toBeTruthy()
-    expect(within(metformin!).getByText('Page 1')).toBeTruthy()
+    // Each card is named by its reading.
+    expect(metformin!.getAttribute('aria-labelledby')).toBe(metformin!.querySelector('strong')?.id)
+    expect(within(metformin!).getByText('?')).toBeTruthy()
+    const why = within(metformin!).getByText('Why?').closest('details')!
+    expect(why.open).toBe(false)
+    expect(within(why).getByText('The handwriting was hard to read.')).toBeTruthy()
     expect(within(metformin!).getByText('Not chosen yet')).toBeTruthy()
-    expect(within(shown[2]!).getByText('Clear')).toBeTruthy()
+    expect(within(shown[2]!).queryByText('?')).toBeNull()
+    expect(within(shown[2]!).queryByText('Why?')).toBeNull()
+    expect(form().textContent).not.toMatch(/On the paper|Page 1|Check carefully|Clear/)
     expect(within(shown[2]!).getByRole('button', { name: 'Keep' }).getAttribute('aria-pressed')).toBe('true')
     expect(within(form()).getByRole('note').textContent).toBe('2 items need your choice before you can save.')
     // No JSON anywhere: no box to type it in, no braces, no field named after it.
@@ -1259,5 +1276,134 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     await press(save())
     expect((await screen.findByRole('alert')).textContent).toBe(words)
     expect(document.body.textContent).not.toMatch(/OCR_|Forbidden|bounded imported/)
+  })
+})
+
+describe('Migrate: a handwritten page with lines that couldn’t be read, shown clean', () => {
+  const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
+  const form = () => screen.getByRole('form', { name: 'Check and save' })
+  beforeEach(() => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, confidence: 0.31, rawText: 'Ceftriaxone ? IV', structuredPayload: unreadablePage() }] })
+  })
+
+  it('reads in seconds: one status line, one line per item read, one line for what couldn’t be read, no card for it', async () => {
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Hard handwriting. Check the items marked ?')).toBeTruthy()
+    expect(within(read).getByText('Details').closest('details')!.open).toBe(false)
+    expect(within(read).getByText('1 item read so far · 1 to check')).toBeTruthy()
+    expect(within(read).getByText('No name or date of birth on the paper. Make sure this is the right patient.')).toBeTruthy()
+    const medicines = within(within(read).getByRole('region', { name: 'Medicines' }))
+    expect(medicines.getAllByRole('listitem').map(row => row.querySelector('strong')?.textContent)).toEqual(['Ceftriaxone ? IV'])
+    expect(medicines.getByText('5 lines couldn’t be read. Check the paper.')).toBeTruthy()
+    const notes = within(within(read).getByRole('region', { name: 'Notes' }))
+    expect(notes.queryAllByRole('listitem')).toHaveLength(0)
+    expect(notes.getByText('4 lines couldn’t be read. Check the paper.')).toBeTruthy()
+    // Outside the closed Details and the scrolling text: no "[unreadable]", no long sentence, no "As written".
+    const shown = read.cloneNode(true) as HTMLElement
+    for (const hidden of shown.querySelectorAll('details, pre')) hidden.remove()
+    expect(shown.textContent).not.toMatch(/\[unreadable\]|As written|Not found|Possibly ceftriaxone|confidence|Why:/i)
+  })
+
+  it('checks only the line that was read, and saves the unreadable lines as removed, never kept', async () => {
+    await findJob(awaiting)
+    await openAction('Check and save')
+    const shown = cards()
+    expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Ceftriaxone ? IV'])
+    expect(within(form()).getByText('9 lines couldn’t be read. Check the paper.')).toBeTruthy()
+    expect(within(form()).getByRole('note').textContent).toBe('1 item needs your choice before you can save.')
+    await press(within(shown[0]!).getByRole('button', { name: 'Keep' }))
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'PHARMACY' } })
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(within(form()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect(input.acceptedFields.items.map((item: { itemId: string }) => item.itemId)).toEqual(['it-00000000000000a3'])
+    expect(input.acceptedFields.medications.map((entry: { itemId: string }) => entry.itemId)).toEqual(['it-00000000000000a3'])
+    expect(input.rejectedFields).toHaveLength(9)
+    expect(input.rejectedFields.every((field: { decision: string }) => field.decision === 'removed')).toBe(true)
+  })
+})
+
+describe('Migrate: Read again', () => {
+  const newer = { ...queued, id: 'j0000000-0000-4000-8000-000000000002', version: 1 }
+  const readAgain = () => within(screen.getByRole('heading', { name: 'What was read' }).closest('section') as HTMLElement).getByRole('button', { name: 'Read again' })
+
+  it('is offered on a reading OCR has finished, to an account that may send documents for reading, beside what was read', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(readAgain()).toBeTruthy()
+    // The actions card keeps its own buttons.
+    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+  })
+
+  it('is not offered without OCR job write, nor while the document is still being read', async () => {
+    session.permissions = ['ocr.job.read']
+    const { unmount } = await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(screen.queryByRole('button', { name: 'Read again' })).toBeNull()
+    unmount()
+    session.permissions = ALL
+    await findJob({ ...queued, status: 'processing' })
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(screen.queryByRole('button', { name: 'Read again' })).toBeNull()
+  })
+
+  it('sends the document for reading again with a fresh key, shows the new job, says so and reads it again by itself', async () => withFakeTimers(async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockResolvedValue(newer)
+    api.ocrExtractions.mockResolvedValue({ items: [] })
+    await press(readAgain())
+    await waitFor(() => expect(statusRegion().textContent).toBe('Reading the document again. This page updates by itself when it’s ready.'))
+    expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT, PATIENT, expect.stringMatching(/^[0-9a-f-]{36}$/))
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    expect(screen.getAllByText('Waiting to be read').length).toBeGreaterThan(0)
+    expect(api.ocrExtractions).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, newer.id)
+    // The new job is read again by itself, as after Create.
+    api.findOcrJob.mockResolvedValue({ job: { ...newer, status: 'awaiting_validation', version: 2 } })
+    await wait(5_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(statusRegion().textContent).toBe('The document has been read and is ready to check.'))
+  }))
+
+  it('says when this is already the newest reading, and shows nothing new', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockResolvedValue(awaiting)
+    const control = readAgain()
+    await press(control)
+    await waitFor(() => expect(statusRegion().textContent).toBe('This is already the newest reading.'))
+    expect(api.ocrExtractions).toHaveBeenCalledTimes(1)
+    expect(focused()).toBe(control)
+  })
+
+  it('a press after an answer that was lost sends the same key; the next press after an answer takes a new one', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(unavailable())
+    await press(readAgain())
+    expect((await screen.findByRole('alert')).textContent).not.toMatch(/SERVICE_UNAVAILABLE/)
+    await waitFor(() => expect(focused()).toBe(readAgain()))
+    api.createOcrJob.mockResolvedValue(awaiting)
+    await press(readAgain())
+    await waitFor(() => expect(statusRegion().textContent).toBe('This is already the newest reading.'))
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(3))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[1])
+  })
+
+  it('says plainly when the patient’s OK is needed, in the record', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED' }))
+    await press(readAgain())
+    expect((await screen.findByRole('alert')).textContent).toBe(STAFF_PAPER_NEEDS_ACCESS)
+    expect(heading('Saved record')).toBeTruthy()
   })
 })

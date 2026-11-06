@@ -93,3 +93,24 @@ export function flagged(flags: Record<number, readonly string[]>, overrides: Rec
     return { ...page, flagged: reasons.length > 0, flagReasons: [...reasons] }
   }) }
 }
+
+/**
+ * The live case the owner sent: a handwritten page with one medicine read, five medicine lines and four note lines the
+ * reader marked as unreadable ('[unreadable]', some as clear and some to check, as the reader may write them), no name,
+ * date of birth or folder number, and the page flagged for its handwriting.
+ */
+export function unreadablePage() {
+  const payload = handwrittenPage()
+  const unreadable = (kind: 'medicine' | 'note', at: number, clear: boolean) => ({
+    ...base(`it-${((kind === 'medicine' ? 0xc00 : 0xd00) + at).toString(16).padStart(16, '0')}`, 1, at + 1),
+    ...(clear ? {} : careful('This line could not be read.')), kind, asWritten: at === 2 ? ' [Unreadable]. ' : '[unreadable]',
+    plain: kind === 'medicine' ? 'A medicine that could not be read' : 'A note that could not be read',
+    fields: kind === 'medicine' ? { name: null, strength: null, form: null, route: null, frequency: null, duration: null, status: 'unknown' } : { text: null },
+  })
+  const items = [
+    ...payload.items,
+    ...[0, 1, 2, 3, 4].map(at => unreadable('medicine', at, at % 2 === 0)),
+    ...[0, 1, 2, 3].map(at => unreadable('note', at, at % 2 === 1)),
+  ]
+  return { ...payload, items, reading: { ...payload.reading, itemCount: items.length } }
+}

@@ -799,12 +799,42 @@
   font-weight: 600;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-confidence {
-  display: grid;
-  justify-items: end;
-  gap: 4px;
-  max-width: 260px;
-  text-align: right;
+.hid-ehr .hid-ehr-dept-migrate-read-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+/* One line per item read: the words as written, then a small "?" and Why? when it needs a check. */
+.hid-ehr .hid-ehr-dept-rows > li.hid-ehr-dept-migrate-line {
+  justify-content: flex-start;
+  gap: 8px 12px;
+  padding: 8px 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-mark {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why > summary,
+.hid-ehr .hid-ehr-dept-migrate-details > summary {
+  cursor: pointer;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why[open] > span {
+  display: block;
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-details > p {
+  margin: 4px 0 0;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-review {
@@ -822,7 +852,7 @@
 .hid-ehr .hid-ehr-dept-migrate-check-item > [role="group"] {
   display: grid;
   gap: 4px;
-  padding: 12px;
+  padding: 8px 12px;
   border: 1px solid var(--ehr-line);
   border-radius: 8px;
 }
@@ -831,15 +861,18 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head > strong {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-check-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-publication,

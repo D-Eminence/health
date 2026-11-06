@@ -2214,9 +2214,11 @@ export const staffApi = {
   ocrJob: (facilityId: string, jobId: string) =>
     client.get<OcrJob>(`/api/v1/ocr/jobs/${encodeURIComponent(jobId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
-  createOcrJob: (facilityId: string, documentId: string, patientId: string) =>
+  // OCR makes a new job for a document only for a new Idempotency-Key, and only when the newest reader has not read it
+  // yet; otherwise it answers with the job it has. A caller that may send the same request again holds the key.
+  createOcrJob: (facilityId: string, documentId: string, patientId: string, idempotencyKey?: string) =>
     client.post<OcrJob>('/api/v1/ocr/jobs', { documentId, patientId, provider: 'textract', purpose: 'healthcare-operations' },
-      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders() } }),
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
   ocrExtractions: (facilityId: string, jobId: string) =>
     client.get<{ items: OcrExtraction[] }>(`/api/v1/ocr/jobs/${encodeURIComponent(jobId)}/extractions`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
