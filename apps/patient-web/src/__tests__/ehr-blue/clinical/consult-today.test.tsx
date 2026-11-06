@@ -12,7 +12,7 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, pa
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), records: vi.fn(), noteRevisions: vi.fn(),
-  documents: vi.fn(), reportedHealthProfile: vi.fn(), importedHistory: vi.fn(), importedRecords: vi.fn(), recordChatAvailability: vi.fn(),
+  documents: vi.fn(), reportedHealthProfile: vi.fn(), patientEntries: vi.fn(), importedHistory: vi.fn(), importedRecords: vi.fn(), recordChatAvailability: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 const builds = vi.hoisted(() => ({ chat: false, importedRecords: false }))
@@ -58,6 +58,7 @@ beforeEach(() => {
   api.noteRevisions.mockResolvedValue([])
   api.documents.mockResolvedValue({ items: [], nextCursor: null })
   api.reportedHealthProfile.mockResolvedValue(PROFILE)
+  api.patientEntries.mockResolvedValue({ items: [], nextBefore: null })
   api.importedHistory.mockReturnValue(new Promise(() => {}))
   api.importedRecords.mockReturnValue(new Promise(() => {}))
   api.recordChatAvailability.mockReturnValue(new Promise(() => {}))
@@ -72,6 +73,19 @@ async function openEncounter() {
 const sections = () => document.querySelector('.hid-ehr-clinical-today')
 
 describe('Consultation record: today’s chart sections', () => {
+  it('shows "Added by the patient" (hid-system 0116), read-only and labelled as not checked by a health worker, in the design’s card', async () => {
+    api.patientEntries.mockResolvedValue({ items: [{ id: '00000009-1111-4111-8111-111111111111', source: 'patient', kind: 'test',
+      title: 'Malaria test (fictional)', facilityName: null, occurredOn: '2026-10-20', notes: null, createdAt: '2026-10-21T08:00:00.000Z',
+      documents: [] }], nextBefore: null })
+    await openEncounter()
+    const card = (await screen.findByRole('heading', { level: 2, name: 'Added by the patient' })).closest('section')!
+    expect(sections()?.contains(card)).toBe(true)
+    expect(within(card).getByText('Added by the patient. Not checked by a health worker.')).toBeTruthy()
+    expect(within(card).getByRole('heading', { level: 3, name: 'Malaria test (fictional)' })).toBeTruthy()
+    expect(within(card).queryAllByRole('button')).toEqual([])
+    expect(api.patientEntries).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, null, expect.any(AbortSignal))
+  })
+
   it('shows "Reported by the patient" as today does, labelled as not clinically verified, in the design’s card', async () => {
     await openEncounter()
     const card = (await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).closest('section')!
@@ -107,6 +121,7 @@ describe('Consultation record: today’s chart sections', () => {
     await openEncounter()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
     expect(api.importedRecords).not.toHaveBeenCalled()
+    expect(api.patientEntries).not.toHaveBeenCalled()
   })
 
   it('reads staff imported history only with ehr.imported-history.read, as today', async () => {

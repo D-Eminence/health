@@ -8,15 +8,17 @@ import {
   PATIENT_DOCUMENT_DAILY_LIMIT_CODE, PATIENT_DOCUMENT_DAILY_LIMIT_FILES, PATIENT_ENTRY_MAX_FILE_BYTES, PATIENT_ENTRY_MAX_FILES, PATIENT_ENTRY_MEDIA_TYPES,
 } from '../api'
 import { forgetPatientEntriesServed, patientEntriesServed } from '../patientEntriesServed'
-import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
+import { described, json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 import { NEVER_LEFT, PLAIN_JPEG, contains, gpsTaggedJpeg, metadataPng } from './photoFixtures'
 
 vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'staging' }) }))
 
 /**
- * "Add a record" (BACKEND-NEEDS.md §1): the entry is saved with no file bytes in it, then each photo or file goes up
- * under it as staff uploads do (an upload link, a PUT of the very File to it, a confirm). Dormant until a backend serves
- * it: today's 404 NOT_FOUND on the Save keeps today's words, and nothing of a file leaves the device.
+ * "Add a record" (BACKEND-NEEDS.md §1, hid-system 0116): the entry is saved with no file bytes in it. hid-system 0116 is
+ * text only, so the Records page opens the drawer without its photo step; the tests that pass `photos` are of the photo
+ * step as it will be once a backend serves photos and files (step 7): each goes up under the saved entry as staff
+ * uploads do (an upload link, a PUT of the very File to it, a confirm). A backend that does not serve the entries (404
+ * NOT_FOUND on the Save) keeps its own words, and nothing of a file leaves the device.
  */
 
 const ENTRY_ID = '7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d'
@@ -34,6 +36,8 @@ const pdf = (name = 'discharge.pdf', content = '%PDF-1.7 fictional discharge sum
   new File([bytesOf(content)], name, { type: 'application/pdf', lastModified: 2 })
 
 interface Options {
+  /** The photo step, as it will be once photos and files are served (step 7). On unless a test says otherwise. */
+  photos?: boolean
   save?: (body: unknown) => Response | Promise<Response>
   intent?: (body: { fileName: string }) => Response | undefined
   complete?: (documentId: string) => Response | undefined
@@ -91,17 +95,17 @@ function storage(answer: (put: number) => Response | 'hold' = () => new Response
 }
 
 /** The Records page's use of the drawer: open, closed by its own controls, and opened again with "Add a record". */
-function Host({ onSaved }: { onSaved: () => void }) {
+function Host({ onSaved, photos }: { onSaved: () => void; photos: boolean }) {
   const [open, setOpen] = useState(true)
   return <ToastProvider>
     <button type="button" onClick={() => setOpen(true)}>Add a record</button>
-    <AddRecordDrawer open={open} onClose={() => setOpen(false)} onSaved={onSaved} />
+    <AddRecordDrawer open={open} photos={photos} onClose={() => setOpen(false)} onSaved={onSaved} />
   </ToastProvider>
 }
 
 function renderDrawer(options: Options = {}) {
   const onSaved = vi.fn()
-  const view = renderPortal(<Host onSaved={onSaved} />, gateway(options))
+  const view = renderPortal(<Host onSaved={onSaved} photos={options.photos ?? true} />, gateway(options))
   return { ...view, onSaved }
 }
 
@@ -110,7 +114,7 @@ function Portal() {
   const [onPage, setOnPage] = useState(true)
   return <ToastProvider>
     <button type="button" onClick={() => setOnPage(false)}>Leave the page</button>
-    {onPage && <AddRecordDrawer open onClose={() => setOnPage(false)} />}
+    {onPage && <AddRecordDrawer open photos onClose={() => setOnPage(false)} />}
   </ToastProvider>
 }
 
@@ -252,14 +256,13 @@ describe('Add a record, before a backend serves it', () => {
     expect(screen.getByRole('button', { name: 'Save record' })).toHaveProperty('disabled', false)
   })
 
-  it('does not send a Save over the edge limit of 8000 bytes, and says so plainly', async () => {
+  it('sends a pasted control character as a space, as the backend reads it, so the Save is not refused for it', async () => {
     const { sent } = renderDrawer()
     fill()
-    // Pasted text whose characters JSON escapes (6 bytes each): within the field's 2000 characters, over 8000 bytes.
-    fireEvent.change(screen.getByLabelText(/Anything else to note/), { target: { value: `Copied from the slip ${'\u0002'.repeat(1970)}` } })
+    fireEvent.change(screen.getByLabelText(/Anything else to note/), { target: { value: `Copied\tfrom the slip\u0002 ` } })
     await press(screen.getByRole('button', { name: 'Save record' }))
-    expect(await screen.findByText(TOO_LONG)).toBeTruthy()
-    expect(entryRequests(sent)).toEqual([])
+    await screen.findByText('Record added')
+    expect(entryRequests(sent)).toEqual([{ path: ENTRIES, method: 'POST', body: { ...SAVED_BODY, notes: 'Copied from the slip' } }])
   })
 })
 
@@ -983,5 +986,143 @@ describe('a file the server refuses at its confirm', () => {
     expect(onSaved).toHaveBeenCalledTimes(1)
     expect(puts).toHaveLength(2)
     expect(headerOf(headers, intentPath, 1)).toBe(headerOf(headers, intentPath, 0))
+  })
+})
+
+/** hid-system 0116, switched on: text only, its limits counted as the backend counts them, and its refusals in plain words. */
+describe('Add a record as hid-system 0116 serves it (text only)', () => {
+  const textOnly = (options: Options = {}) => renderDrawer({ photos: false, ...options })
+  const notesField = () => screen.getByLabelText(/Anything else to note/) as HTMLTextAreaElement
+  const saveButton = () => screen.getByRole('button', { name: 'Save record' })
+
+  it('shows no photo step while photos and files are not served, and saves the text alone', async () => {
+    const { sent, onSaved } = textOnly()
+    expect(screen.queryByRole('button', { name: 'Take a photo' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upload a file' })).toBeNull()
+    expect(dialog().querySelector('input[type=file]')).toBeNull()
+    expect(shownText(dialog())).not.toMatch(/photo|PDF|10 MB/i)
+    expect(screen.getByRole('heading', { name: /Notes/ })).toBeTruthy()
+    fill()
+    await press(saveButton())
+    expect(await screen.findByText('Record added')).toBeTruthy()
+    expect(entryRequests(sent)).toEqual([{ path: ENTRIES, method: 'POST', body: SAVED_BODY }])
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes a replayed Save (200, replayed) as saved', async () => {
+    textOnly({ save: () => json({ entry: { id: ENTRY_ID, source: 'patient' }, replayed: true }) })
+    fill()
+    await press(saveButton())
+    expect(await screen.findByText('Record added')).toBeTruthy()
+  })
+
+  it('caps the notes at 1000 characters, counted as the backend counts them, and says how many are left near the end', async () => {
+    const { sent } = textOnly()
+    fill()
+    expect(notesField().maxLength).toBe(1000)
+    expect(described(notesField())).toContain('Up to 1,000 characters')
+    // A Windows line break counts once, as the backend reads it; spaces at the ends are not counted.
+    fireEvent.change(notesField(), { target: { value: `  ${'x'.repeat(997)}\r\ny ` } })
+    expect(described(notesField())).toContain('1 character left')
+    await press(saveButton())
+    await screen.findByText('Record added')
+    expect((entryRequests(sent)[0]?.body as { notes: string }).notes).toBe(`${'x'.repeat(997)}\ny`)
+  })
+
+  it('does not send notes over 1000 characters, says so under the field, and moves focus there', async () => {
+    const { sent } = textOnly()
+    fill()
+    fireEvent.change(notesField(), { target: { value: 'x'.repeat(1001) } })
+    await press(saveButton())
+    expect(described(notesField())).toContain('Use at most 1,000 characters. Shorten the notes, then save again.')
+    expect(notesField().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(notesField())
+    expect(entryRequests(sent)).toEqual([])
+  })
+
+  it('counts the name’s two characters as the backend does: one emoji is not enough', async () => {
+    const { sent } = textOnly()
+    fill()
+    fireEvent.change(screen.getByLabelText('Name it'), { target: { value: ' 💊 ' } })
+    await press(saveButton())
+    expect(described(screen.getByLabelText('Name it'))).toContain('Give it a name of at least 2 letters.')
+    expect(document.activeElement).toBe(screen.getByLabelText('Name it'))
+    expect(entryRequests(sent)).toEqual([])
+  })
+
+  it('takes a day from 1 January 1900 to today only, and says so under the field', async () => {
+    const { sent } = textOnly()
+    fill()
+    const when = screen.getByLabelText('When') as HTMLInputElement
+    expect(when.min).toBe('1900-01-01')
+    for (const day of ['1899-12-31', '2999-01-01', '']) {
+      fireEvent.change(when, { target: { value: day } })
+      await press(saveButton())
+      expect(described(when), day).toContain('Use a real date from 1 January 1900 to today.')
+      expect(document.activeElement).toBe(when)
+    }
+    expect(entryRequests(sent)).toEqual([])
+  })
+
+  it.each([
+    [429, 'PATIENT_ENTRY_LIMITED', 'You’ve added a lot of records today. Try again tomorrow. What you entered is still here.'],
+    [422, 'PATIENT_ENTRY_FILES_NOT_READY', 'Photos can’t be added yet. Save the record without them. What you entered is still here.'],
+    [409, 'IDEMPOTENCY_KEY_REUSED', 'Your record wasn’t saved. Please save it again. What you entered is still here.'],
+    [400, 'PATIENT_ENTRY_INVALID', 'Check the record’s details and try again. What you entered is still here.'],
+  ])('says a %s %s in its own words, never the server’s, and keeps what was entered', async (status, code, words) => {
+    textOnly({ save: () => problem(status, code, 'Server words that are never shown (request 7f3c-fictional).') })
+    fill()
+    await press(saveButton())
+    expect(await screen.findByText(words)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Server words|7f3c/)
+    expect(notesField().value).toBe('Positive, given ACT')
+    expect(saveButton()).toHaveProperty('disabled', false)
+  })
+
+  it('makes a new key after 409 IDEMPOTENCY_KEY_REUSED, and keeps it for a retry of the same values', async () => {
+    let answer = () => problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This request was already used for a different record.')
+    const { sent, headers } = textOnly({ save: () => answer() })
+    fill()
+    await press(saveButton())
+    await screen.findByText(/Your record wasn’t saved/)
+    answer = () => problem(503, 'EHR_UNAVAILABLE', 'Down.')
+    await press(saveButton())
+    await screen.findByText(NOT_SAVED)
+    await press(saveButton())
+    await waitFor(() => expect(entryRequests(sent)).toHaveLength(3))
+    const keys = [0, 1, 2].map(at => headerOf(headers, ENTRIES, at))
+    expect(keys[1]).not.toBe(keys[0])
+    expect(keys[2]).toBe(keys[1])
+  })
+
+  it('says which field the backend refused (400 VALIDATION_FAILED) in its own words, under that field', async () => {
+    textOnly({ save: () => json({ type: 'about:blank', title: 'VALIDATION_FAILED', status: 400, code: 'VALIDATION_FAILED',
+      detail: 'One or more request fields are invalid.', errors: [
+        { field: 'facilityName', messages: ['Server words for the place.'] }, { field: 'notes', messages: ['Server words for the notes.'] },
+        { field: 'secret', messages: ['Server words for another field.'] }] }, 400) })
+    fill()
+    await press(saveButton())
+    expect(await screen.findByText('Check the details marked below, then save again. What you entered is still here.')).toBeTruthy()
+    expect(described(screen.getByLabelText(/Where were you treated/))).toContain('Use at most 160 characters, on one line.')
+    expect(described(notesField())).toContain('Use at most 1,000 characters. Shorten the notes, then save again.')
+    expect(document.body.textContent).not.toMatch(/Server words/)
+    // Changing a field clears what was said of it.
+    fireEvent.change(notesField(), { target: { value: 'Shorter' } })
+    expect(described(notesField())).not.toContain('Use at most 1,000')
+  })
+
+  it('sends one Save however often it is pressed while it goes', async () => {
+    let release: (response: Response) => void = () => {}
+    const { sent } = textOnly({ save: () => new Promise<Response>(resolve => { release = resolve }) })
+    fill()
+    const button = saveButton()
+    await press(button)
+    fireEvent.click(button)
+    fireEvent.submit(dialog().querySelector('form')!)
+    expect(entryRequests(sent)).toHaveLength(1)
+    expect(button.getAttribute('aria-busy') === 'true' || (button as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { release(json({ entry: { id: ENTRY_ID }, replayed: false }, 201)) })
+    expect(await screen.findByText('Record added')).toBeTruthy()
+    expect(entryRequests(sent)).toHaveLength(1)
   })
 })

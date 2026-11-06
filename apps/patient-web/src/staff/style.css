@@ -175,6 +175,12 @@ body { margin: 0; }
 .staff-reported-health { display: grid; gap: 4px; margin: 8px 0 0; }
 .staff-reported-health dd { margin: 0; }
 .staff-multiline { white-space: pre-line; }
+/* hid-system 0116: the records the patient added themselves, read-only on the chart. */
+.staff-patient-added { list-style: none; margin: 8px 0 12px; padding: 0; }
+.staff-patient-added li { border-top: 1px solid var(--color-line); padding: 10px 0; }
+.staff-patient-added h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.staff-patient-added h3:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.staff-patient-added p { margin: 4px 0 0; overflow-wrap: anywhere; }
 .staff-share-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
 .staff-audit-events { list-style: none; margin: 12px 0 0; padding: 0; }
 .staff-audit-event p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }

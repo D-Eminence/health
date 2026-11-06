@@ -1,5 +1,6 @@
 import { usesNovuBackend } from '../../../backendContract'
 import { ImportedPatientHistory } from '../../../staff/routes/ImportedPatientHistory'
+import { PatientAddedRecords } from '../../../staff/routes/PatientAddedRecords'
 import { PatientReportedHealth } from '../../../staff/routes/PatientReportedHealth'
 import { StaffImportedHistory } from '../../../staff/routes/StaffImportedHistory'
 import { StaffPatientChat } from '../../../staff/routes/StaffPatientChat'
@@ -9,7 +10,8 @@ import { useClinical } from '../parts/Workspace'
 
 /**
  * Today's chart sections, below the consultation list and a visit (mounted once for both, ConsultWorkspace): staff
- * imported history, the patient assistant, "Reported by the patient" and the imported medical history. Each is today's
+ * imported history, the patient assistant, "Reported by the patient", "Added by the patient" (hid-system 0116) and the
+ * imported medical history. Each is today's
  * own component, with today's reads, permission checks, build switches and keys (staff/routes/Clinical.tsx), so a
  * previous actor, facility, patient or permission set never survives; each key names its section, so React keeps the
  * sections apart while they stay mounted. clinical.css draws them in the design's card style. Direct care only, as today.
@@ -38,6 +40,8 @@ export function TodaySections({ chart }: { chart: Chart }) {
         />
       ) : null}
       {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={`reported-health:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
+      {/* hid-system 0116: the records the patient added themselves, read-only; 404 (main, or switched off) shows nothing. */}
+      {permissions.includes('ehr.note.read') ? <PatientAddedRecords key={`patient-added:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
       {permissions.includes('ehr.note.read') && importedRecordsEnabled() ? (
         <ImportedPatientHistory
           key={`imported-records:${key}`}

@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import { StagingChatConversation, type StagingChatConversationApi } from '../routes/StagingChat'
 import { SessionContext, createTestSessionValue, useSession } from '../session'
 import { SupportChat } from '@hid/ui'
+import { parseStagingPatientChat } from '@hid/contracts'
 
 /**
  * The staging branches' record chat screen (routes/StagingChat.tsx), which the hospital chat renders: its
@@ -260,4 +261,27 @@ it('says to a clinician where each source came from, about the patient', async (
   expect(sourceRow('Malaria test you added').textContent).not.toContain('You added this')
   expect(sourceRow('Clinic visit').textContent).toContain('Recorded by a health worker')
   expect(sourceRow('Your profile').textContent).toContain('From the patient’s Health ID profile')
+})
+// A record the patient added themselves (hid-system 0116, kind patient_entry), read through the chat's own parser: the
+// answer shows, with where it came from, to the patient and to a clinician.
+const addedByPatient = parseStagingPatientChat({ status: 'ready', answer: 'You noted amoxicillin twice a day [1].', sources: [{ number: 1,
+  kind: 'patient_entry', id: '22222222-2222-4222-8222-222222222297', version: '1', title: 'Amoxicillin 500 mg', recordedAt: '2026-10-02T09:00:00.000Z',
+  effectiveAt: '2026-10-01T00:00:00.000Z', provenance: 'Record added by the patient, not checked by a health worker', quality: 'patient-reported',
+  origin: 'patient', originLabel: 'Server words' }] })
+it('shows an answer citing a record the patient added, labelled for the patient and for a clinician', async () => {
+  const send = async () => {
+    await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+    fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'What medicine do I take?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    await screen.findByText(addedByPatient.answer)
+  }
+  const patientView = render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(vi.fn().mockResolvedValue(addedByPatient)) as never)}><PatientChat /></SessionContext.Provider>)
+  await send()
+  expect(sourceRow('Amoxicillin 500 mg').textContent).toContain('You added this')
+  expect(document.body.textContent).not.toContain('Server words')
+  patientView.unmount()
+  const api = { ...apiFor(vi.fn().mockResolvedValue(addedByPatient)), chatSource: vi.fn() } as unknown as StagingChatConversationApi
+  render(<StagingChatConversation api={api} staff={{ patientName: 'Synthetic A', hid: 'HID-AAAAAA', facilityName: 'Synthetic hospital' }} />)
+  await send()
+  expect(sourceRow('Amoxicillin 500 mg').textContent).toContain('Added by the patient')
 })

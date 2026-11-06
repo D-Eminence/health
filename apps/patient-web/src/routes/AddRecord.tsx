@@ -3,11 +3,11 @@ import { Camera, FileText, FlaskConical, HeartPulse, ImagePlus, Lock, NotebookPe
 import { isHidApiError } from '@hid/http'
 import { Drawer } from '../kasuwa/interactive'
 import { useToast } from '../kasuwa/toast'
-import { Alert, Field, IconChip, Input, Textarea, cx, type Icon } from '../kasuwa/ui'
+import { Alert, Field, IconChip, cx, type Icon } from '../kasuwa/ui'
 import { Step } from '../kasuwa/parts'
-import { ButtonR, InputR } from './profileParts'
+import { ButtonR, InputR, TextareaR } from './profileParts'
 import { useActionFocus } from './actionFocus'
-import type { OwnRecordInput } from '../api'
+import { FIRST_DAY, NOTES_MAX, PLACE_MAX, TITLE_MAX, cleanOwnRecord, ownRecordLength, titleLongEnough, type OwnRecordInput } from '../patientEntries'
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
 import { saysPatientEntriesNotServed } from '../patientEntriesServed'
 import { fileStartsAsItsType } from '../fileSignature'
@@ -16,7 +16,20 @@ import { useSession } from '../session'
 
 /**
  * "Add a record": a patient keeps their own history: a visit, a test result, a medicine, from any hospital, clinic or
- * pharmacy, with a photo of the paper or the file they were given. One drawer, top to bottom in the order a person
+ * pharmacy, and (once photos and files are served, step 7) a photo of the paper or the file they were given.
+ *
+ * hid-system 0116 serves the record as text only, on by default (the owner's decision of 4 Nov 2026). The photo step is
+ * shown only with `photos` (the Records page passes patientEntriesServed.ts usePatientEntryFilesServed(), which nothing
+ * sets until step 7), so with 0116 the drawer is the kind, the name, the place, the day and the notes. What is sent is
+ * what the backend reads (patientEntries.ts cleanOwnRecord): a pasted tab or other control character as a space, CRLF and
+ * CR as a newline, each field trimmed. Its limits are checked as the backend counts them before anything is sent: a name
+ * of 2 to 160 characters (an emoji is one), a place of at most 160, a day from 1 January 1900 to today in Lagos, notes of
+ * at most 1000 (UTF-16 units, as maxLength counts; the count of what is left is said from 100 left). One that is not met
+ * is said under its field, which takes focus; nothing is sent. The backend's own refusals, by status and code alone:
+ * 400 VALIDATION_FAILED is said under each field it names, in these words; 400 PATIENT_ENTRY_INVALID that the details need
+ * checking; 409 IDEMPOTENCY_KEY_REUSED that it wasn't saved (the next Save makes a new key); 422
+ * PATIENT_ENTRY_FILES_NOT_READY that photos can't be added yet; 429 PATIENT_ENTRY_LIMITED that a lot were added today,
+ * to try tomorrow. A Save answered 200 with replayed: true is saved, as a 201 is. One drawer, top to bottom in the order a person
  * recalls it (what, where, when), the camera within thumb reach on a phone. Photos and files stay in this page's
  * memory until sent and are never kept in the browser; previews are object URLs, let go with their files. Saved as
  * "added by you", so a clinician can tell it apart.
@@ -32,8 +45,9 @@ import { useSession } from '../session'
  * Save sends the entry alone (POST ehr/me/patient-entries, no file bytes, its body kept under the edge limit), then each
  * photo or file in turn under the saved entry, as staff uploads go: its exact bytes to a signed link, then a confirm
  * (api.uploadOwnRecordDocument). Nothing of a file leaves the device until the Save and that file's upload link have
- * both been answered. No backend serves it yet (BACKEND-NEEDS.md §1): until one does, the Save's 404 NOT_FOUND is said
- * plainly ("Adding your own records isn't available yet") and what was entered stays in the drawer.
+ * both been answered. hid-system 0116 serves the Save (BACKEND-NEEDS.md §1); where it is not served (hid-system main, or
+ * 0116 switched off) the Save's 404 NOT_FOUND is said plainly ("Adding your own records isn't available yet") and what was
+ * entered stays in the drawer.
  *
  * A refusal is said in this drawer's own fixed words, chosen by its status and code alone; the server's own words (its
  * message or detail) are never shown. The Save: 404 NOT_FOUND as above; 413, or PATIENT_ENTRY_TOO_LARGE (api.addOwnRecord's
@@ -81,6 +95,24 @@ const NOT_ADDED = 'Couldn’t add your record'
 const NOT_SET_UP = 'Adding your own records isn’t available yet. What you entered is still here.'
 const TOO_LONG = 'It’s too long to send. Shorten the notes, then save again. What you entered is still here.'
 const NOT_SAVED = 'Your record couldn’t be saved. Please try again.'
+const STILL_HERE = ' What you entered is still here.'
+const LIMITED = `You’ve added a lot of records today. Try again tomorrow.${STILL_HERE}`
+const FILES_NOT_READY = `Photos can’t be added yet. Save the record without them.${STILL_HERE}`
+const KEY_REUSED = `Your record wasn’t saved. Please save it again.${STILL_HERE}`
+const CHECK_DETAILS = `Check the record’s details and try again.${STILL_HERE}`
+const CHECK_BELOW = `Check the details marked below, then save again.${STILL_HERE}`
+/** What is said under a field the drawer, or the backend, found does not fit; in this drawer's words only. */
+type FieldName = 'title' | 'facilityName' | 'occurredOn' | 'notes'
+const FIELD_WORDS: Readonly<Record<FieldName, string>> = {
+  title: 'Give it a name of at least 2 letters.',
+  facilityName: `Use at most ${PLACE_MAX} characters, on one line.`,
+  occurredOn: 'Use a real date from 1 January 1900 to today.',
+  notes: 'Use at most 1,000 characters. Shorten the notes, then save again.',
+}
+/** The backend's own words for a refused name are about its length too, so a refused name says both. */
+const SERVER_TITLE_WORDS = `Use 2 to ${TITLE_MAX} characters, on one line.`
+/** From how many characters left the notes say how many are left. */
+const NOTES_NEAR = 100
 /** A file whose bytes aren't its type's: refused as it is picked, and said of one the server refuses for it. */
 const NOT_ITS_TYPE = 'This file isn’t a JPEG, PNG or PDF.'
 
@@ -117,15 +149,40 @@ function uploadRefused(error: unknown): Exclude<Sending, 'sending' | 'sent'> {
   return 'failed'
 }
 
+/**
+ * The fields a 400 VALIDATION_FAILED names (its `errors[].field`), in this drawer's words; the server's messages are never
+ * read. Empty when it names none the drawer has.
+ */
+function refusedFields(error: unknown): Partial<Record<FieldName, string>> {
+  const named: Partial<Record<FieldName, string>> = {}
+  const errors = isHidApiError(error) && Array.isArray(error.details) ? error.details as unknown[] : []
+  for (const item of errors) {
+    const field = typeof item === 'object' && item !== null ? (item as { field?: unknown }).field : undefined
+    if (field === 'title') named.title = SERVER_TITLE_WORDS
+    else if (field === 'facilityName' || field === 'occurredOn' || field === 'notes') named[field] = FIELD_WORDS[field]
+  }
+  return named
+}
+
 /** Why the Save was refused, in this drawer's words, by its status and code alone: never the server's own words. */
-function notSavedWords(error: unknown): string {
+function notSavedWords(error: unknown, fields: Partial<Record<FieldName, string>>): string {
   // Only the Save's own 404 NOT_FOUND (no backend serves it) reads as "not available yet".
   if (saysPatientEntriesNotServed(error)) return NOT_SET_UP
-  if (isHidApiError(error) && (error.status === 413 || error.code === 'PATIENT_ENTRY_TOO_LARGE')) return TOO_LONG
+  if (!isHidApiError(error)) return NOT_SAVED
+  if (error.status === 413 || error.code === 'PATIENT_ENTRY_TOO_LARGE') return TOO_LONG
+  if (error.status === 429 && error.code === 'PATIENT_ENTRY_LIMITED') return LIMITED
+  if (error.status === 422 && error.code === 'PATIENT_ENTRY_FILES_NOT_READY') return FILES_NOT_READY
+  if (error.status === 409 && error.code === 'IDEMPOTENCY_KEY_REUSED') return KEY_REUSED
+  if (error.status === 400 && error.code === 'VALIDATION_FAILED') return Object.keys(fields).length > 0 ? CHECK_BELOW : CHECK_DETAILS
+  if (error.status === 400 && error.code === 'PATIENT_ENTRY_INVALID') return CHECK_DETAILS
   return NOT_SAVED
 }
 
-export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved?: () => void }) {
+export function AddRecordDrawer({ open, onClose, onSaved, photos = false }: {
+  open: boolean; onClose: () => void; onSaved?: () => void
+  /** The photo step: only once photos and files are served (step 7). hid-system 0116 is text only. */
+  photos?: boolean
+}) {
   const { api } = useSession()
   const toast = useToast()
   const [kind, setKind] = useState<OwnRecordInput['kind']>('visit')
@@ -141,8 +198,19 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
   const [problem, setProblem] = useState<string | null>(null)
   // Why the record wasn't saved, said in the drawer (it stays open, with what was entered).
   const [notSaved, setNotSaved] = useState<{ title: string; message: string } | null>(null)
-  const [titleProblem, setTitleProblem] = useState(false)
+  // What is said under each field that does not fit, as the drawer checks it or the backend refused it.
+  const [fieldProblems, setFieldProblems] = useState<Partial<Record<FieldName, string>>>({})
+  const titleProblem = fieldProblems.title
   const titleField = useRef<HTMLInputElement>(null)
+  const placeField = useRef<HTMLInputElement>(null)
+  const whenField = useRef<HTMLInputElement>(null)
+  const notesField = useRef<HTMLTextAreaElement>(null)
+  const clearProblem = (field: FieldName) => setFieldProblems(current => {
+    if (!(field in current)) return current
+    const next = { ...current }
+    delete next[field]
+    return next
+  })
   const [places, setPlaces] = useState<string[]>([])
   const camera = useRef<HTMLInputElement>(null)
   const upload = useRef<HTMLInputElement>(null)
@@ -231,7 +299,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
   }))
   const reset = () => {
     files.forEach(item => { if (item.preview) { URL.revokeObjectURL(item.preview); urls.current.delete(item.preview) } })
-    setKind('visit'); setTitle(''); setFacility(''); setWhen(today()); setNotes(''); setFiles([]); setProblem(null); setNotSaved(null); setTitleProblem(false)
+    setKind('visit'); setTitle(''); setFacility(''); setWhen(today()); setNotes(''); setFiles([]); setProblem(null); setNotSaved(null); setFieldProblems({})
     setSaved(null); setSending({}); setRetrying(false)
     entryKey.current = null; fileKeys.current = new Map()
   }
@@ -291,10 +359,17 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       await send(saved, again, controller, notUploaded - again.length)
       return
     }
-    // Save is never silently off: what is missing is said under its field, and focus goes there.
-    if (title.trim().length < 2) { setTitleProblem(true); titleField.current?.focus(); return }
-    if (!when) return
-    const entry: OwnRecordInput = { kind, title: title.trim(), facilityName: facility.trim() || null, occurredOn: when, notes: notes.trim() || null }
+    // Save is never silently off: what does not fit is said under its field, and focus goes to the first of them. Counted
+    // as the backend counts it, on what would be sent.
+    const entry: OwnRecordInput = cleanOwnRecord({ kind, title, facilityName: facility, occurredOn: when, notes })
+    const problems: Partial<Record<FieldName, string>> = {}
+    if (!titleLongEnough(title) || entry.title.length > TITLE_MAX) problems.title = FIELD_WORDS.title
+    if ((entry.facilityName ?? '').length > PLACE_MAX) problems.facilityName = FIELD_WORDS.facilityName
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(when) || when < FIRST_DAY || when > today()) problems.occurredOn = FIELD_WORDS.occurredOn
+    if (ownRecordLength(notes) > NOTES_MAX) problems.notes = FIELD_WORDS.notes
+    setFieldProblems(problems)
+    const first = problems.title ? titleField : problems.facilityName ? placeField : problems.occurredOn ? whenField : problems.notes ? notesField : null
+    if (first) { setNotSaved(null); first.current?.focus(); return }
     setProblem(null)
     // Production's edge refuses a body over 8000 bytes: one that would be is not sent at all (api.addOwnRecord checks again).
     if (jsonBodyBytes(entry) > EDGE_BODY_MAX_BYTES) {
@@ -302,6 +377,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       return
     }
     const body = JSON.stringify(entry)
+    // One key per Save, sent again while what it sends is the same, so a retry is answered with the same entry.
     const held = entryKey.current?.body === body ? entryKey.current : { body, key: crypto.randomUUID() }
     entryKey.current = held
     const controller = new AbortController()
@@ -316,8 +392,12 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       if (controller.signal.aborted || run.current !== controller) return
       run.current = null
       setBusy(false)
-      // In this drawer's own words, never the server's.
-      setNotSaved({ title: NOT_ADDED, message: notSavedWords(cause) })
+      // The key was used for other values: the next Save makes a new one.
+      if (isHidApiError(cause) && cause.status === 409 && cause.code === 'IDEMPOTENCY_KEY_REUSED') entryKey.current = null
+      // In this drawer's own words, never the server's; a field the backend refused is said under it.
+      const fields = isHidApiError(cause) && cause.status === 400 && cause.code === 'VALIDATION_FAILED' ? refusedFields(cause) : {}
+      setFieldProblems(fields)
+      setNotSaved({ title: NOT_ADDED, message: notSavedWords(cause, fields) })
       // Save was disabled while it went: focus comes back to it, in the drawer, if it was lost meanwhile.
       focusAfter(() => primary.current)
       return
@@ -378,9 +458,13 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
     return busy && locked ? 'Waiting' : null
   }
   const listId = useMemo(() => `own-record-places-${Math.random().toString(36).slice(2)}`, [])
+  // The notes' limit, and from 100 left, how many are left: counted as the backend counts them.
+  const notesLeft = NOTES_MAX - ownRecordLength(notes)
+  const notesHint = notesLeft > NOTES_NEAR ? 'Up to 1,000 characters.'
+    : notesLeft >= 0 ? `${notesLeft} ${notesLeft === 1 ? 'character' : 'characters'} left.` : `${-notesLeft} too many.`
   const lockedLook = 'read-only:bg-subtle read-only:text-ink-2'
   return <Drawer open={open} onClose={close} title="Add a record" icon={<IconChip icon={FileText} tone="brand" />}
-    description="A visit, result or medicine from anywhere, with a photo of the paper."
+    description={photos ? 'A visit, result or medicine from anywhere, with a photo of the paper.' : 'A visit, result or medicine from anywhere.'}
     footer={<><ButtonR ref={closeButton} onClick={close} disabled={busy}>{locked ? 'Close' : 'Cancel'}</ButtonR>
       {offersTryAgain && <ButtonR ref={primary} variant="primary" type="submit" form="own-record-form" loading={busy} disabled={busy || preparing}>{(locked && !busy) || retrying ? 'Try again' : 'Save record'}</ButtonR>}</>}>
     <form id="own-record-form" noValidate onSubmit={event => void submit(event)} className="flex flex-col gap-4">
@@ -395,23 +479,29 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
               <k.icon className="size-5" aria-hidden />{k.label}</label>)}
           </div>
         </fieldset>
-        <Field label="Name it" htmlFor="own-record-title" errorId="own-record-title-problem" error={titleProblem ? 'Give it a name of at least 2 letters.' : undefined}>
-          <InputR id="own-record-title" ref={titleField} required minLength={2} maxLength={160} value={title} placeholder={`e.g. ${example}`} readOnly={locked} className={lockedLook}
-            onChange={e => { setTitle(e.target.value); if (e.target.value.trim().length >= 2) setTitleProblem(false) }}
-            aria-invalid={titleProblem || undefined} aria-describedby={titleProblem ? 'own-record-title-problem' : undefined} />
+        <Field label="Name it" htmlFor="own-record-title" errorId="own-record-title-problem" error={titleProblem}>
+          <InputR id="own-record-title" ref={titleField} required minLength={2} maxLength={TITLE_MAX} value={title} placeholder={`e.g. ${example}`} readOnly={locked} className={lockedLook}
+            onChange={e => { setTitle(e.target.value); if (titleLongEnough(e.target.value)) clearProblem('title') }}
+            aria-invalid={titleProblem ? true : undefined} aria-describedby={titleProblem ? 'own-record-title-problem' : undefined} />
         </Field>
       </Step>
       <Step n={2} title="Where and when">
-        <Field label="Where were you treated?" hint="Hospital, clinic, lab or pharmacy" htmlFor="own-record-place" optional>
-          <Input id="own-record-place" list={listId} maxLength={160} value={facility} readOnly={locked} className={lockedLook} onChange={e => setFacility(e.target.value)} placeholder="Start typing a name" />
+        <Field label="Where were you treated?" hint="Hospital, clinic, lab or pharmacy" hintId="own-record-place-hint" htmlFor="own-record-place" optional
+          errorId="own-record-place-problem" error={fieldProblems.facilityName}>
+          <InputR id="own-record-place" ref={placeField} list={listId} maxLength={PLACE_MAX} value={facility} readOnly={locked} className={lockedLook}
+            onChange={e => { setFacility(e.target.value); clearProblem('facilityName') }} placeholder="Start typing a name"
+            aria-invalid={fieldProblems.facilityName ? true : undefined}
+            aria-describedby={fieldProblems.facilityName ? 'own-record-place-problem' : 'own-record-place-hint'} />
           <datalist id={listId}>{places.map(name => <option key={name} value={name} />)}</datalist>
         </Field>
-        <Field label="When" htmlFor="own-record-when">
-          <Input id="own-record-when" type="date" required max={today()} value={when} readOnly={locked} className={lockedLook} onChange={e => setWhen(e.target.value)} />
+        <Field label="When" htmlFor="own-record-when" errorId="own-record-when-problem" error={fieldProblems.occurredOn}>
+          <InputR id="own-record-when" ref={whenField} type="date" required min={FIRST_DAY} max={today()} value={when} readOnly={locked} className={lockedLook}
+            onChange={e => { setWhen(e.target.value); clearProblem('occurredOn') }}
+            aria-invalid={fieldProblems.occurredOn ? true : undefined} aria-describedby={fieldProblems.occurredOn ? 'own-record-when-problem' : undefined} />
         </Field>
       </Step>
-      <Step n={3} title="Photos and notes" hint="Optional">
-        <div id="own-record-photos" aria-busy={preparing || undefined}>
+      <Step n={3} title={photos ? 'Photos and notes' : 'Notes'} hint="Optional">
+        {photos && <div id="own-record-photos" aria-busy={preparing || undefined}>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => camera.current?.click()} disabled={files.length >= MAX_FILES || busy || locked || preparing}
               className="flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-line-strong bg-surface text-[13px] font-medium text-ink hover:border-brand hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50">
@@ -435,9 +525,13 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
             </li>)}
           </ul>}
           {files.length === 0 && <div aria-hidden="true" className="mt-3 flex items-center gap-2 text-[12px] text-ink-3"><ImagePlus className="size-4" />No photos yet</div>}
-        </div>
-        <Field label="Anything else to note?" htmlFor="own-record-notes" optional>
-          <Textarea id="own-record-notes" rows={3} maxLength={2000} value={notes} readOnly={locked} className={lockedLook} onChange={e => setNotes(e.target.value)} placeholder="Dose, results, what the doctor said" />
+        </div>}
+        <Field label="Anything else to note?" htmlFor="own-record-notes" optional hintId="own-record-notes-hint" hint={notesHint}
+          errorId="own-record-notes-problem" error={fieldProblems.notes}>
+          <TextareaR id="own-record-notes" ref={notesField} rows={3} maxLength={NOTES_MAX} value={notes} readOnly={locked} className={lockedLook}
+            onChange={e => { setNotes(e.target.value); clearProblem('notes') }} placeholder="Dose, results, what the doctor said"
+            aria-invalid={fieldProblems.notes ? true : undefined}
+            aria-describedby={fieldProblems.notes ? 'own-record-notes-problem' : 'own-record-notes-hint'} />
         </Field>
       </Step>
       <p className="m-0 flex gap-2 text-[12px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Marked “added by you”, so a clinician knows it came from you. Shared only when you share your records.</p>

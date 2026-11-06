@@ -207,7 +207,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The Overview's orders that the receiver ended as accepted for the wrong person (item 3, D10; proposed, 404 until served).
       'ehr.orderRoutesWrongPatient',
       // The health information the patient entered, on the chart as reported by the patient (hid-system 0094; 404 until served).
-      'ehr.patientReportedHealthProfile'],
+      'ehr.patientReportedHealthProfile',
+      // The records the patient added themselves, read-only on the chart (hid-system 0116; 404 until served or while off).
+      'ehr.patientEntries'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',
@@ -268,6 +270,11 @@ export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
   if ((endpointName === 'ehr.myHealthProfile' && app !== 'patient-web')
     || (endpointName === 'ehr.patientReportedHealthProfile' && !['staff-web', 'ehr-web'].includes(app))) {
     throw new BoundaryViolationError('Patient-reported health information is available only in its patient or provider context.')
+  }
+  // Records patients add themselves (0116): the patient adds and removes them in the portal; a clinician reads them in the chart.
+  if ((['ehr.myPatientEntries', 'ehr.myPatientEntryWithdraw'].includes(endpointName) && app !== 'patient-web')
+    || (endpointName === 'ehr.patientEntries' && !['staff-web', 'ehr-web'].includes(app))) {
+    throw new BoundaryViolationError('Records the patient added are available only in their patient or provider context.')
   }
   const descriptor = findEndpoint(endpointName)
 

@@ -52,12 +52,16 @@ createServer((req, res) => {
   if (!url.pathname.startsWith('/api/v1/')) return send(res, 404, { code: 'NOT_FOUND', detail: 'Not a gateway path' })
   const path = url.pathname.slice('/api/v1'.length).replace(/\/$/, '')
   const method = req.method ?? 'GET'
-  req.resume() // bodies are ignored
+  // The request's JSON body, query and headers, for the answers that use them (a record the patient adds, say).
+  const chunks = []
+  req.on('data', chunk => chunks.push(chunk))
   req.on('end', () => {
+    let body
+    try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined } catch { body = undefined }
     let pagePath = ''
     try { pagePath = new URL(req.headers.referer ?? '').pathname } catch { /* no referer */ }
     const workspace = workspaceFor(path, pagePath, process.env.MOCK_ROLE)
-    const hit = respond(method, path, workspace)
+    const hit = respond(method, path, workspace, { body, query: url.searchParams, headers: req.headers })
     if (hit) {
       console.log(`  ${workspace.padEnd(8)} ${method} ${path} → ${hit.status}`)
       return send(res, hit.status, hit.body, hit.headers)
