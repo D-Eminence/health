@@ -82,9 +82,10 @@ describe('a record the patient adds themselves', () => {
     expect(findEndpoint('ehr.myPatientEntryWithdraw')?.note).toContain('404 PATIENT_ENTRY_NOT_FOUND')
   })
 
-  it('says uploads switched off look exactly as not built, and patientEntries waits for NDPA clearance', () => {
+  it('says switched off looks exactly as not built, and uploads have their own flag that waits for NDPA clearance', () => {
     const note = findEndpoint('ehr.myPatientEntries')?.note
     expect(note).toContain('every patient-entry route answers exactly as if it were not built (404 NOT_FOUND)')
-    expect(note).toContain('must not send patientEntries until uploads are cleared under the NDPA')
+    expect(note).toContain('offers uploads only once the records answer carries patientEntryFiles: true')
+    expect(note).toContain('must not send patientEntryFiles: true until uploads are cleared under the NDPA')
   })
 })

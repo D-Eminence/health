@@ -9,7 +9,7 @@ import { ButtonR, InputR } from './profileParts'
 import { useActionFocus } from './actionFocus'
 import type { OwnRecordInput } from '../api'
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
-import { saysPatientEntriesNotServed } from '../patientEntriesServed'
+import { saysPatientEntriesNotServed, usePatientEntryFilesServed } from '../patientEntriesServed'
 import { fileStartsAsItsType } from '../fileSignature'
 import { withoutPhotoMetadata } from '../photoMetadata'
 import { useSession } from '../session'
@@ -34,6 +34,10 @@ import { useSession } from '../session'
  * (api.uploadOwnRecordDocument). Nothing of a file leaves the device until the Save and that file's upload link have
  * both been answered. No backend serves it yet (BACKEND-NEEDS.md §1): until one does, the Save's 404 NOT_FOUND is said
  * plainly ("Adding your own records isn't available yet") and what was entered stays in the drawer.
+ *
+ * Photos and files have their own switch (patientEntryFilesServed): until a records answer has carried
+ * `patientEntryFiles: true`, the drawer is for text entries only. It shows no "Take a photo" or "Upload a file", takes
+ * no file, and its Save sends the entry alone, with no upload link asked for and nothing sent to storage.
  *
  * A refusal is said in this drawer's own fixed words, chosen by its status and code alone; the server's own words (its
  * message or detail) are never shown. The Save: 404 NOT_FOUND as above; 413, or PATIENT_ENTRY_TOO_LARGE (api.addOwnRecord's
@@ -128,6 +132,8 @@ function notSavedWords(error: unknown): string {
 export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved?: () => void }) {
   const { api } = useSession()
   const toast = useToast()
+  // Whether photos and files are taken (patientEntryFilesServed): without it, no picker and no upload request.
+  const filesOffered = usePatientEntryFilesServed()
   const [kind, setKind] = useState<OwnRecordInput['kind']>('visit')
   const [title, setTitle] = useState('')
   const [facility, setFacility] = useState('')
@@ -190,7 +196,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
    * nothing is sent.
    */
   const add = async (list: FileList | null) => {
-    if (!list || busy || locked || preparingNow.current) return
+    if (!list || !filesOffered || busy || locked || preparingNow.current) return
     // Taken now: the picker is emptied as soon as this returns.
     const chosen = Array.from(list)
     preparingNow.current = true
@@ -306,8 +312,8 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
     entryKey.current = held
     const controller = new AbortController()
     run.current = controller
-    // What goes up is what is picked now: picking and removing wait while it saves.
-    const items = files
+    // What goes up is what is picked now: picking and removing wait while it saves. Nothing, while uploads aren't taken.
+    const items = filesOffered ? files : []
     setBusy(true); setNotSaved(null)
     let id: string
     try {
@@ -380,7 +386,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
   const listId = useMemo(() => `own-record-places-${Math.random().toString(36).slice(2)}`, [])
   const lockedLook = 'read-only:bg-subtle read-only:text-ink-2'
   return <Drawer open={open} onClose={close} title="Add a record" icon={<IconChip icon={FileText} tone="brand" />}
-    description="A visit, result or medicine from anywhere, with a photo of the paper."
+    description={filesOffered ? 'A visit, result or medicine from anywhere, with a photo of the paper.' : 'A visit, result or medicine from anywhere.'}
     footer={<><ButtonR ref={closeButton} onClick={close} disabled={busy}>{locked ? 'Close' : 'Cancel'}</ButtonR>
       {offersTryAgain && <ButtonR ref={primary} variant="primary" type="submit" form="own-record-form" loading={busy} disabled={busy || preparing}>{(locked && !busy) || retrying ? 'Try again' : 'Save record'}</ButtonR>}</>}>
     <form id="own-record-form" noValidate onSubmit={event => void submit(event)} className="flex flex-col gap-4">
@@ -410,8 +416,8 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
           <Input id="own-record-when" type="date" required max={today()} value={when} readOnly={locked} className={lockedLook} onChange={e => setWhen(e.target.value)} />
         </Field>
       </Step>
-      <Step n={3} title="Photos and notes" hint="Optional">
-        <div id="own-record-photos" aria-busy={preparing || undefined}>
+      <Step n={3} title={filesOffered ? 'Photos and notes' : 'Notes'} hint="Optional">
+        {filesOffered && <div id="own-record-photos" aria-busy={preparing || undefined}>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => camera.current?.click()} disabled={files.length >= MAX_FILES || busy || locked || preparing}
               className="flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-line-strong bg-surface text-[13px] font-medium text-ink hover:border-brand hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50">
@@ -435,7 +441,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
             </li>)}
           </ul>}
           {files.length === 0 && <div aria-hidden="true" className="mt-3 flex items-center gap-2 text-[12px] text-ink-3"><ImagePlus className="size-4" />No photos yet</div>}
-        </div>
+        </div>}
         <Field label="Anything else to note?" htmlFor="own-record-notes" optional>
           <Textarea id="own-record-notes" rows={3} maxLength={2000} value={notes} readOnly={locked} className={lockedLook} onChange={e => setNotes(e.target.value)} placeholder="Dose, results, what the doctor said" />
         </Field>

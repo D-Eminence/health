@@ -22,7 +22,7 @@ import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
-import { usePatientEntriesServed } from '../patientEntriesServed'
+import { usePatientEntriesServed, usePatientEntryFilesServed } from '../patientEntriesServed'
 import { sectionsShown } from './recordSections'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
@@ -135,6 +135,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   const shareTo = share === true ? '/access/share' : '/access'
   // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
   const adds = usePatientEntriesServed() === true
+  // Its hint promises a photo only when photos and files are taken too (patientEntryFilesServed).
+  const addsFiles = usePatientEntryFilesServed()
   const name = shown?.fullName ?? 'Your Health ID'
   const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
   const nav: NavGroup[] = [
@@ -161,7 +163,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     headerActions={<NotificationBell />}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
-      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true }] : []),
+      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: addsFiles ? 'A visit, result or medicine, with a photo' : 'A visit, result or medicine', icon: FilePlus2, main: true }] : []),
       { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
       { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
       { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
@@ -599,6 +601,8 @@ export function RecordsPage() {
   // which also says whether they are served (api.records). Nothing is read for them alone: the page reads its records
   // again after "Add a record" saves one and after a removal. Without the key (today's backend) nothing more shows.
   const ownServed = usePatientEntriesServed()
+  // Photos and files are offered on their own switch (patientEntryFilesServed), so the page mentions them only then.
+  const ownFiles = usePatientEntryFilesServed()
   const ownEntries = ready?.patientEntries ?? []
   const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
   const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
@@ -659,7 +663,7 @@ export function RecordsPage() {
       {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
-          : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
+          : `Records from your providers appear here.${ownServed === true ? ` You can add your own too, from any hospital${ownFiles ? ', with a photo of the paper' : ''}.` : ''}`}
         action={searching || ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}

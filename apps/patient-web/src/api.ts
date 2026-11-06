@@ -14,7 +14,7 @@ import { endSessionHref } from './sso/handOff'
 import { portalHandsOff } from './sso/singleSignOn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 import { getEnvironment } from './env'
-import { learnPatientEntriesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
+import { learnPatientEntriesServed, learnPatientEntryFilesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
 import { startsAsType } from './fileSignature'
 import {
   EDGE_BODY_MAX_BYTES, jsonBodyBytes, parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
@@ -298,9 +298,11 @@ export function parsePatientEntries(value: unknown): PatientEntry[] | null {
  * The records the patient added themselves, as the records answer carries them (PROPOSED, BACKEND-NEEDS.md §1), read in
  * place, and what the answer says of whether they are served (patientEntriesServed.ts): the key `patientEntries`, a
  * list, says served; an answer without it (today's) says not served, but only while nothing has said otherwise. A key
- * that is not a list is left out and says neither.
+ * that is not a list is left out and says neither. Apart from that, `patientEntryFiles: true` says photos and files are
+ * taken too (patientEntryFilesServed); any other value of that key says nothing.
  */
 function readPatientEntries(records: PatientRecords): void {
+  if (records.patientEntryFiles === true) learnPatientEntryFilesServed()
   if (records.patientEntries === undefined) { learnPatientEntriesServed(false); return }
   const entries = parsePatientEntries(records.patientEntries)
   if (!entries) { delete records.patientEntries; return }
@@ -413,6 +415,12 @@ export interface PatientRecords {
    * not a list.
    */
   patientEntries?: PatientEntry[]
+  /**
+   * PROPOSED (BACKEND-NEEDS.md §1): `true` when the backend takes the photos and files of those records (their upload
+   * link, PUT and confirm). Only exactly `true` turns uploads on in "Add a record" (patientEntryFilesServed); without it
+   * the patient can still add text entries.
+   */
+  patientEntryFiles?: unknown
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
@@ -795,7 +803,8 @@ export function createPatientApi(sender: ApiClient) {
      * backend serves it yet; until one does it answers 404 NOT_FOUND and nothing is saved. `idempotencyKey` is one per
      * Save, sent again when that Save is retried, so the server answers a retry with the same entry. A body over the edge
      * limit is refused here, before anything is sent. A 201 says the routes are served; a 404 NOT_FOUND that they are not
-     * (patientEntriesServed.ts). Kept as "added by you", never as a clinician's: the records answer lists it under
+     * (patientEntriesServed.ts). Neither says anything of photos and files, which only the records answer's
+     * `patientEntryFiles: true` turns on. Kept as "added by you", never as a clinician's: the records answer lists it under
      * `patientEntries` once read again.
      */
     addOwnRecord: async (entry: OwnRecordInput, idempotencyKey: string, signal?: AbortSignal): Promise<{ id: string }> => {
