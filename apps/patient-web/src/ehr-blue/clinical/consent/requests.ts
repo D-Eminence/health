@@ -39,9 +39,9 @@ export function methodLabel(request: AccessRequest): string {
   return request.authorizationMethod === 'patient_access_pin' ? 'Patient PIN' : 'Patient approval'
 }
 
-/** Today's patient context: never a name or Health ID, only the last four characters of the patient's id. */
-export function patientContext(request: AccessRequest): string {
-  return `Patient ••••${request.patientId.slice(-4)}`
+/** Today's patient context: the list names no patient, and never by any part of their record's id (owner rule, IDs on screen). */
+export function patientContext(_request: AccessRequest): string {
+  return 'Patient (name not shown)'
 }
 
 /** Whether the request's grant is active and can be closed by this clinician. */

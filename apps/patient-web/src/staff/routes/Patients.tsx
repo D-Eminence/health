@@ -179,8 +179,9 @@ export function Patients() {
     try {
       if (!facility) throw new PlainError('Select a facility first.')
       if (mode === 'request') {
-        const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
-        setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
+        // Said in words: never the request's id or the server's status word (owner rule, IDs on screen).
+        await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
+        setMessage('Access request sent. The patient must approve it before records are available.')
       } else if (mode === 'pin') {
         try { await staffApi.verifyPin(facility.id, normalized, compactPin) }
         catch (caught) {

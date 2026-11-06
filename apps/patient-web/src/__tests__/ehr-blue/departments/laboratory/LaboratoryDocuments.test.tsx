@@ -58,7 +58,7 @@ vi.mock('../../../../staff/session', () => ({ staffSessionGeneration: () => 1, u
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test', apiBaseUrl: 'https://gateway.example.test' }) }))
 
 const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
-const MASKED = 'Patient ••••4f9c2e'
+const MASKED = 'Patient (name not shown)'
 const WORK = ['lab.work-item.read']
 const READ = 'lab.document.read'
 const WRITE = 'lab.document.write'

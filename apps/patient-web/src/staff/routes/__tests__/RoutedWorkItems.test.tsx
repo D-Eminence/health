@@ -53,7 +53,7 @@ describe('work from another facility on the Laboratory page', () => {
     expect(within(fromElsewhere).getByText(/^Tunde Bello, male, born 12 Mar 1985, Health ID ending 7KQ2 · Accepted /)).toBeTruthy()
     expect(within(fromElsewhere).getByText('From General Hospital · Ref 9C1B2D3E · Ordered by Dr Ade Okon · Licence on record: MDCN MDCN/12345')).toBeTruthy()
     const ours = row('Malaria parasite')
-    expect(within(ours).getByText(/^Patient ••••aa11bb · Accepted /)).toBeTruthy()
+    expect(within(ours).getByText(/^Patient \(name not shown\) · Accepted /)).toBeTruthy()
     expect(ours.textContent).not.toMatch(/From |Tunde/)
   })
 
@@ -317,7 +317,7 @@ describe('this isn’t the order’s patient, on a work row', () => {
     const ended = 'You ended this order: it was accepted for someone who is not its patient. Nothing more can be recorded on it.'
     expect(within(row('Haemoglobin')).getByText(ended)).toBeTruthy()
     expect(within(row('Urea')).getByText(ended)).toBeTruthy()
-    expect(within(row('Haemoglobin')).getByText(/^Patient ••••4f9c2e · Accepted /)).toBeTruthy()
+    expect(within(row('Haemoglobin')).getByText(/^Patient \(name not shown\) · Accepted /)).toBeTruthy()
     expect(within(row('Lipid profile')).getByText('Closed by Health ID support: stop work.')).toBeTruthy()
     expect(within(row('Blood film')).getByText('Cancelled by General Hospital: stop work.')).toBeTruthy()
     expect(row('Haemoglobin').textContent).not.toMatch(/Cancelled by|is closed/)

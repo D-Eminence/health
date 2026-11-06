@@ -296,7 +296,7 @@ describe('the patient', () => {
     choose(png())
     attach()
     await within(card()).findByText(ATTACHED)
-    expect(screen.getAllByText(`Patient ••••${PATIENT_A.slice(-6)}`).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Patient (name not shown)').length).toBeGreaterThan(0)
     expect(card().textContent).not.toContain('Patient')
     expect(window.document.body.innerHTML).not.toContain('Patient One')
     expectNoFullPatientIds()
