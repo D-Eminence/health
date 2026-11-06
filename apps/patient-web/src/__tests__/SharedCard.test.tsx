@@ -67,6 +67,12 @@ describe('the patient\'s preview of their card', () => {
     }
   })
 
+  it('names the tab for what it is, as every patient page does', async () => {
+    preview(productionRecords)
+    expect(await screen.findByRole('heading', { name: 'Visits' })).toBeTruthy()
+    expect(document.title).toBe('Card preview · Health ID')
+  })
+
   it('says there are no records yet when production sends none', async () => {
     preview({ encounters: [], notes: [], limit: 50 })
     expect(await screen.findByText('No records yet')).toBeTruthy()
