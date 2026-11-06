@@ -918,6 +918,23 @@
   gap: 8px;
 }
 
+/* A campaign refused the case: what happened, and the one way on (save without the campaign). */
+.hid-ehr .hid-ehr-dept-outreach-refused {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-refused:focus-visible {
+  outline: 2px solid var(--ehr-danger-300);
+  outline-offset: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-refused-text {
+  margin: 0;
+}
+
 /* A button that keeps its focus while it cannot be used (aria-disabled), dimmed as a disabled one. */
 .hid-ehr .hid-ehr-dept-outreach-unavailable[aria-disabled='true'] {
   opacity: 0.55;

@@ -28,7 +28,7 @@ vi.mock('../../../../staff/App', async () => {
 
 const api = vi.hoisted(() => ({
   outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
-  linkExistingOutreachCase: vi.fn(),
+  linkExistingOutreachCase: vi.fn(), lookupPatient: vi.fn(),
 }))
 // Every staff API member the page reaches for that this test does not provide, such as a campaign write.
 const unprovided = vi.hoisted(() => new Set<string>())
@@ -68,6 +68,10 @@ const resolvedCase = {
   createdAt: '2026-10-11T09:00:00.000Z', rowVersion: 5,
 }
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'
+/** The Health ID typed to link: Identity's lookup answers with the record's own ID (PATIENT), which is sent, never shown. */
+const HID = 'HID-ZDEMAAA2'
+const LOOKED_UP = { authorization: { decision: 'allow', scope: 'read_records' },
+  patient: { patientId: PATIENT, hid: HID, fullName: 'Patient One Demo', dateOfBirth: '1992-03-04', gender: 'female', version: 1 } }
 
 let setItem: ReturnType<typeof vi.spyOn>
 
@@ -78,6 +82,7 @@ beforeEach(() => {
   session.facility = 'hospital'
   session.selfService = undefined
   api.outreachCampaigns.mockResolvedValue(CAMPAIGNS)
+  api.lookupPatient.mockResolvedValue(LOOKED_UP)
   api.outreachCases.mockResolvedValue([pendingCase, resolvedCase])
   api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) => MEMBER_OF.has(campaignId)
     ? [{ id: `${campaignId}-member`, campaignId, membershipId: MEMBERSHIP, role: 'health_worker', createdAt: '2026-01-02T00:00:00.000Z' }]
@@ -697,9 +702,9 @@ const linkOpener = () => screen.getByRole('button', { name: 'Link existing patie
 const registration = () => cardOf(screen.getByRole('heading', { name: 'Registration' }))
 
 /** Fills the link form and sends it, then answers the confirm sheet (Link patient, or Cancel). */
-async function link(patientId: string, reason: string, answer: 'Link patient' | 'Cancel' = 'Link patient') {
+async function link(healthId: string, reason: string, answer: 'Link patient' | 'Cancel' = 'Link patient') {
   const form = screen.getByRole('form', { name: 'Link existing patient' })
-  fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: patientId } })
+  fireEvent.change(within(form).getByLabelText(/^Health ID/), { target: { value: healthId } })
   fireEvent.change(within(form).getByLabelText(/^How you know/), { target: { value: reason } })
   await press(within(form).getByRole('button', { name: 'Link existing patient' }))
   const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
@@ -733,7 +738,7 @@ describe('a registration case', () => {
     await press(opener)
     const form = screen.getByRole('form', { name: 'Link existing patient' }) as HTMLFormElement
     expect(controls).toBe(form.id)
-    expect(within(form).getByLabelText(/^Patient ID/)).toBeTruthy()
+    expect(within(form).getByLabelText(/^Health ID/)).toBeTruthy()
     expect(within(form).getByLabelText(/^How you know it’s the same person/)).toBeTruthy()
     expect(form.noValidate).toBe(true)
     await press(within(form).getByRole('button', { name: 'Cancel' }))
@@ -745,13 +750,16 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(screen.getByLabelText(/^Health ID/), { target: { value: HID } })
     fireEvent.change(screen.getByLabelText(/^How you know/), { target: { value: 'Same name and phone as the record' } })
     await press(screen.getByRole('button', { name: 'Link existing patient' }))
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
     expect(within(sheet).getByText('Patient One')).toBeTruthy()
     expect(within(sheet).getByText(/^34 years · Female · registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
-    expect(within(sheet).getByText(PATIENT)).toBeTruthy()
+    // The person Identity holds under that Health ID, by name and date of birth only: never their record's ID.
+    expect(within(sheet).getByText('Patient One Demo')).toBeTruthy()
+    expect(within(sheet).getByText('4 Mar 1992')).toBeTruthy()
+    expect(document.body.textContent).not.toContain(PATIENT)
     await press(within(sheet).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
@@ -764,7 +772,7 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    await link(` ${PATIENT} `, ' Same name, age and phone as the Health ID record ')
+    await link(` ${HID.toLowerCase()} `, ' Same name, age and phone as the Health ID record ')
     await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, pendingCase, PATIENT,
       'Same name, age and phone as the Health ID record'))
     const status = document.getElementById(`outreach-case-status-${CASE_ID}`)!
@@ -786,13 +794,13 @@ describe('a registration case', () => {
     const form = screen.getByRole('form', { name: 'Link existing patient' })
     const submit = within(form).getByRole('button', { name: 'Link existing patient' })
     await press(submit)
-    const patient = within(form).getByLabelText(/^Patient ID/)
+    const patient = within(form).getByLabelText(/^Health ID/)
     await waitFor(() => expect(document.activeElement).toBe(patient))
     expect(document.getElementById(patient.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Complete this field.')
     const reason = within(form).getByLabelText(/^How you know/)
     expect(reason.getAttribute('aria-invalid')).toBe('true')
 
-    fireEvent.change(patient, { target: { value: PATIENT } })
+    fireEvent.change(patient, { target: { value: HID } })
     fireEvent.change(reason, { target: { value: ' short  ' } })
     await press(submit)
     await waitFor(() => expect(document.activeElement).toBe(reason))
@@ -812,14 +820,14 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    const form = await link(PATIENT, 'Same name and phone as the record')
+    const form = await link(HID, 'Same name and phone as the record')
     expect((await within(form).findByRole('alert')).textContent).toBe(message)
     if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
     expect(within(form).getByText('The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.')).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
     // The form keeps what was entered.
-    expect((within(form).getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
+    expect((within(form).getByLabelText(/^Health ID/) as HTMLInputElement).value).toBe(HID)
   })
 
   it('retries a link refused for a stale version with the version read since', async () => {
@@ -829,7 +837,7 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    const form = await link(PATIENT, 'Same name and phone as the record')
+    const form = await link(HID, 'Same name and phone as the record')
     await within(form).findByRole('alert')
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
     const submit = within(form).getByRole('button', { name: 'Link existing patient' })
@@ -847,7 +855,7 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    await link(PATIENT, 'Same name and phone as the record')
+    await link(HID, 'Same name and phone as the record')
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Link existing patient' })).toBeNull())
     expect(screen.getByRole('alert').textContent).toBe(SAID_CHANGED)
     expect(document.body.textContent).not.toContain('This registration case has already been resolved.')
@@ -861,7 +869,7 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    await link(PATIENT, 'Same name and phone as the record')
+    await link(HID, 'Same name and phone as the record')
     const back = screen.getByRole('button', { name: 'Back to list' })
     expect(back.getAttribute('aria-disabled')).toBe('true')
     await press(back)
@@ -897,7 +905,7 @@ describe('a registration case', () => {
     renderPage()
     await openCase()
     await press(linkOpener())
-    await link(PATIENT, 'Same name and phone as the record')
+    await link(HID, 'Same name and phone as the record')
     // Read again, the list no longer holds the case: it is not shown from memory.
     await waitFor(() => expect(heading().textContent).toBe('Record not found'))
     expect(screen.getByText('The record is missing or outside your authorized hospital / branch.')).toBeTruthy()
@@ -982,5 +990,294 @@ describe('a case\'s phone number and notes', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search Outreach' }), { target: { value: '' } })
     expect(card(await casesList(), 'Patient One').textContent).not.toContain('4567')
     expect(document.body.textContent).not.toContain('8031234567')
+  })
+})
+
+/*
+ * Linking by Health ID (launch blocker F1): the officer types the Health ID on the person's card or app. Identity's
+ * patient lookup names the record, shown by name and date of birth only to confirm; its own ID is what is sent, and is
+ * never on screen. Each refusal is said at the Health ID field in plain words, the field marked and focused.
+ */
+describe('linking a registration by Health ID', () => {
+  async function openLinkForm() {
+    renderPage()
+    await openCase()
+    await press(linkOpener())
+    return screen.getByRole('form', { name: 'Link existing patient' })
+  }
+  /** Fills the form and sends it, without answering a confirm sheet. */
+  async function lookUp(form: HTMLElement, healthId: string) {
+    fireEvent.change(within(form).getByLabelText(/^Health ID/), { target: { value: healthId } })
+    fireEvent.change(within(form).getByLabelText(/^How you know/), { target: { value: 'Same name, age and phone' } })
+    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+  }
+  const healthIdField = (form: HTMLElement) => within(form).getByLabelText(/^Health ID/) as HTMLInputElement
+  const describedBy = (control: HTMLElement) => document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent
+
+  it('asks for the Health ID, says where to find it, and says what linking needs', async () => {
+    const form = await openLinkForm()
+    expect(screen.getByText('Ask for their Health ID. We look them up, you check it’s the same person, and their temporary record joins their Health ID record.')).toBeTruthy()
+    const field = healthIdField(form)
+    expect(field.name).toBe('healthId')
+    expect(describedBy(field)).toBe('The Health ID on their card or in their Health ID app. It starts with HID-.')
+    expect(within(form).getByText('You can link someone only if they have shared their record with your facility for care. You’ll see their name and date of birth to check before anything is linked.')).toBeTruthy()
+    expect(within(form).queryByLabelText(/^Patient ID/)).toBeNull()
+  })
+
+  it('looks the person up, shows only their name and date of birth to confirm, then links the record found', async () => {
+    api.linkExistingOutreachCase.mockResolvedValue({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 })
+    const form = await openLinkForm()
+    await lookUp(form, ' hid-zdemaaa2 ')
+    await waitFor(() => expect(api.lookupPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, HID))
+    const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
+    expect(sheet.textContent).toContain('Link this registration to the Health ID record of Patient One Demo, born 4 Mar 1992? Check it is the same person.')
+    expect(sheet.textContent).not.toContain('female')
+    expect(document.body.textContent).not.toContain(PATIENT)
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
+    await press(within(sheet).getByRole('button', { name: 'Link patient' }))
+    await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, pendingCase, PATIENT, 'Same name, age and phone'))
+    expect(await screen.findByRole('heading', { name: 'Patient linked' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain(PATIENT)
+  })
+
+  it('takes a Health ID typed without HID- at the front', async () => {
+    const form = await openLinkForm()
+    await lookUp(form, 'zdemaaa2')
+    await waitFor(() => expect(api.lookupPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, HID))
+    await screen.findByRole('dialog', { name: 'Confirm the link' })
+  })
+
+  it('says when Identity holds no date of birth', async () => {
+    api.lookupPatient.mockResolvedValue({ ...LOOKED_UP, patient: { ...LOOKED_UP.patient, fullName: undefined, firstName: 'Patient', lastName: 'One', dateOfBirth: undefined } })
+    const form = await openLinkForm()
+    await lookUp(form, HID)
+    const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
+    expect(sheet.textContent).toContain('Link this registration to the Health ID record of Patient One, whose date of birth is not recorded? Check it is the same person.')
+  })
+
+  it('looks nothing up for something that is not a Health ID, and says how it is written', async () => {
+    const form = await openLinkForm()
+    await lookUp(form, PATIENT)
+    const field = healthIdField(form)
+    await waitFor(() => expect(document.activeElement).toBe(field))
+    expect(field.getAttribute('aria-invalid')).toBe('true')
+    expect(describedBy(field)).toBe('Enter the Health ID as it’s written on their card or app. It starts with HID-.')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it.each([
+    ['no one has it', new HidApiError(404, 'Patient was not found or is not available', { code: 'NOT_FOUND' }),
+      'No one has this Health ID. Check it with them and try again.'],
+    ['this facility has no access', new HidApiError(403, 'Patient access is not authorized', { code: 'ACCESS_DENIED' }),
+      'You can’t open this person’s record yet. Ask them to share their record with you, or approve your access request.'],
+    ['the role may not look people up', new HidApiError(403, 'Missing permission identity.patient.read', { code: 'PERMISSION_DENIED' }),
+      'Your role can’t look people up by Health ID. Ask your facility administrator to link this registration, or to change your role.'],
+    ['Identity refuses its format', new HidApiError(400, 'hid must match /^HID-/', { code: 'VALIDATION_FAILED' }),
+      'Enter the Health ID as it’s written on their card or app. It starts with HID-.'],
+  ])('says at the Health ID field when %s, focus on it, and links nothing', async (_name, error, words) => {
+    api.lookupPatient.mockRejectedValue(error)
+    const form = await openLinkForm()
+    await lookUp(form, HID)
+    const field = healthIdField(form)
+    await waitFor(() => expect(field.getAttribute('aria-invalid')).toBe('true'))
+    expect(describedBy(field)).toBe(words)
+    expect(document.activeElement).toBe(field)
+    expect(document.body.textContent).not.toContain(error.message)
+    expect(document.body.textContent).not.toMatch(new RegExp(`\\b${error.status}\\b`))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
+    expect(field.value).toBe(HID)
+  })
+
+  it('takes a lookup that does not allow the record as no access', async () => {
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'deny' } })
+    const form = await openLinkForm()
+    await lookUp(form, HID)
+    const field = healthIdField(form)
+    await waitFor(() => expect(describedBy(field)).toBe('You can’t open this person’s record yet. Ask them to share their record with you, or approve your access request.'))
+    expect(document.activeElement).toBe(field)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('says a refusal alert in the field when focus is in it already', async () => {
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient was not found', { code: 'NOT_FOUND' }))
+    const form = await openLinkForm()
+    const field = healthIdField(form)
+    fireEvent.change(field, { target: { value: HID } })
+    fireEvent.change(within(form).getByLabelText(/^How you know/), { target: { value: 'Same name, age and phone' } })
+    field.focus()
+    await act(async () => { fireEvent.submit(form) })
+    await waitFor(() => expect(alertTexts()).toContain('No one has this Health ID. Check it with them and try again.'))
+  })
+
+  it('says a lookup that failed for another reason plainly in the form, without the note about reading the case again', async () => {
+    api.lookupPatient.mockRejectedValue(new HidApiError(0, 'The network request failed.', { code: 'NETWORK_ERROR' }))
+    const form = await openLinkForm()
+    await lookUp(form, HID)
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_NETWORK)
+    expect(within(form).queryByText(/The case has been read again/)).toBeNull()
+    expect(healthIdField(form).getAttribute('aria-invalid')).toBeNull()
+    expect(api.outreachCases).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['IDENTITY_AUTHORIZATION_DENIED', 'OUTREACH_PATIENT_ACCESS_REQUIRED'])('says a link refused for want of write access (%s) at the field: they must share for care', async code => {
+    api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Existing patient access is not authorized', { code }))
+    const form = await openLinkForm()
+    await link(HID, 'Same name, age and phone')
+    const field = healthIdField(form)
+    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'))
+    expect(field.getAttribute('aria-invalid')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(field))
+    await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
+    expect(document.body.textContent).not.toContain('Existing patient access is not authorized')
+    expect(document.body.textContent).not.toContain(PATIENT)
+    expect(screen.queryByText('Patient linked')).toBeNull()
+  })
+
+  it('says any other 403 on the link as the general failure, not as a want of sharing', async () => {
+    api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Access denied', { code: 'ACCESS_DENIED' }))
+    const form = await openLinkForm()
+    await link(HID, 'Same name, age and phone')
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(healthIdField(form).getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(/A PIN only lets you view/)).toBeNull()
+    expect(document.body.textContent).not.toContain('ACCESS_DENIED')
+    expect(document.body.textContent).not.toContain('Access denied')
+  })
+
+  it('holds the Health ID and reason still while they are checked, and shows the Health ID checked in the sheet', async () => {
+    let answer: (value: unknown) => void = () => {}
+    api.lookupPatient.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    const form = await openLinkForm()
+    await lookUp(form, 'zdemaaa2')
+    const field = healthIdField(form)
+    const reason = within(form).getByLabelText(/^How you know/) as HTMLTextAreaElement
+    await within(form).findByRole('button', { name: 'Checking…' })
+    expect(field.readOnly).toBe(true)
+    expect(reason.readOnly).toBe(true)
+    answer(LOOKED_UP)
+    const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
+    expect(sheet.textContent).toContain('Health ID checked: HID-ZDEMAAA2.')
+    expect(sheet.textContent).not.toContain(PATIENT)
+    await press(within(sheet).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(field.readOnly).toBe(false))
+    expect(reason.readOnly).toBe(false)
+  })
+
+  it('clears the field error once a later lookup is allowed', async () => {
+    api.lookupPatient.mockRejectedValueOnce(new HidApiError(404, 'Patient was not found', { code: 'NOT_FOUND' }))
+    const form = await openLinkForm()
+    await lookUp(form, HID)
+    const field = healthIdField(form)
+    await waitFor(() => expect(field.getAttribute('aria-invalid')).toBe('true'))
+    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await screen.findByRole('dialog', { name: 'Confirm the link' })
+    expect(field.getAttribute('aria-invalid')).toBeNull()
+  })
+})
+
+/*
+ * A campaign that refuses the registration (launch blocker F2): 403 OUTREACH_CAMPAIGN_ACCESS_DENIED, 409
+ * OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS, and the 500 today's backend answers for every campaign-linked case
+ * until 0120. The officer is told plainly and offered one way on: the same person saved without the campaign.
+ */
+describe('a campaign that refuses the registration', () => {
+  async function openWithCampaign() {
+    renderPage()
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(4))
+    const form = await openNew()
+    await waitFor(() => expect(within(form).getAllByRole('option', { name: 'Demo screening week' })).toHaveLength(1))
+    return form
+  }
+  const REFUSED = '“Demo screening week” isn’t taking this registration right now. You can save this person without the campaign. Everything you typed is kept.'
+  const typed = { campaign: 'campaign-1', fullName: 'Patient One', sex: 'female', age: '34', phone: '+2348000000001', notes: 'Met at the market clinic' }
+
+  it.each([
+    ['refused to this membership', new HidApiError(403, 'Campaign access is denied', { code: 'OUTREACH_CAMPAIGN_ACCESS_DENIED' })],
+    ['not taking registrations', new HidApiError(409, 'Campaign is not accepting registrations', { code: 'OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS' })],
+    ['failing on it (before backend 0120)', new HidApiError(500, 'permission denied for table campaign_members', { code: 'INTERNAL_ERROR' })],
+  ])('says a campaign %s plainly, focus on it, with one way on and no retry note', async (_name, error) => {
+    api.createOutreachCase.mockRejectedValueOnce(error)
+    const form = await openWithCampaign()
+    await press(fill(form, typed))
+    const message = await screen.findByText(REFUSED)
+    const box = message.parentElement as HTMLElement
+    await waitFor(() => expect(document.activeElement).toBe(box))
+    expect(within(box).getByRole('button', { name: 'Save without the campaign' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: REFUSED })).toBe(box)
+    expect(screen.queryByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeNull()
+    expect(screen.queryByText(SAID_UNAVAILABLE)).toBeNull()
+    expect(screen.queryByText(SAID_REFUSED)).toBeNull()
+    expect(document.body.textContent).not.toContain(error.message)
+    expect(document.body.textContent).not.toContain(error.code)
+  })
+
+  it('saves the same person without the campaign, as a new command, keeping everything typed', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(409, 'Campaign is not accepting registrations', { code: 'OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS' }))
+    let answer: (value: unknown) => void = () => {}
+    api.createOutreachCase.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    const form = await openWithCampaign()
+    await press(fill(form, typed))
+    const again = await screen.findByRole('button', { name: 'Save without the campaign' })
+    await press(again)
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(2))
+    const [first, second] = api.createOutreachCase.mock.calls.map(call => call[1])
+    expect(first).toEqual({ campaignId: 'campaign-1', fullName: 'Patient One', sex: 'female', ageYears: 34, phone: '+2348000000001', operationalNotes: 'Met at the market clinic' })
+    expect(second).toEqual({ ...first, campaignId: undefined })
+    expect(commands()[1]!.localCommandId).not.toBe(commands()[0]!.localCommandId)
+    expect(commands()[1]!.temporaryPatientId).not.toBe(commands()[0]!.temporaryPatientId)
+    expect(commands()[1]!.localCommandId).toMatch(UUID)
+    // While it is sent, the form still holds what was typed, its campaign now none.
+    expect((within(form).getByLabelText(/^Campaign/) as HTMLSelectElement).value).toBe('')
+    expect((within(form).getByLabelText(/^Full name/) as HTMLInputElement).value).toBe('Patient One')
+    expect((within(form).getByLabelText(/^Age/) as HTMLInputElement).value).toBe('34')
+    expect((within(form).getByLabelText(/^Phone/) as HTMLInputElement).value).toBe('+2348000000001')
+    expect((within(form).getByLabelText(/^Notes for the team/) as HTMLTextAreaElement).value).toBe('Met at the market clinic')
+    expect(screen.queryByText(REFUSED)).toBeNull()
+    // Focus waits on Save, which says it is saving, not lost with the button pressed.
+    expect(document.activeElement).toBe(within(form).getByRole('button', { name: 'Saving…' }))
+    await act(async () => { answer(createdCase) })
+    await waitFor(() => expect(heading().textContent).toBe('Patient One'))
+  })
+
+  it('sends the case without the campaign again as the same command when that is retried', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(403, 'Campaign access is denied', { code: 'OUTREACH_CAMPAIGN_ACCESS_DENIED' }))
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'The network request failed.', { code: 'NETWORK_ERROR' }))
+    api.createOutreachCase.mockResolvedValueOnce(createdCase)
+    const form = await openWithCampaign()
+    await press(fill(form, typed))
+    await press(await screen.findByRole('button', { name: 'Save without the campaign' }))
+    // Not a campaign's refusal: the case had none. Said as any lost answer, with how to retry.
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+    expect(screen.getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
+    await press(within(form).getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(3))
+    expect(commands()[2]).toEqual(commands()[1])
+  })
+
+  it('says a failure of a case with no campaign as it does today', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(500, 'Internal error', { code: 'INTERNAL_ERROR' }))
+    renderPage()
+    const form = await openNew()
+    await press(fill(form, { fullName: 'Patient One', sex: 'female', age: '34' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(screen.queryByRole('button', { name: 'Save without the campaign' })).toBeNull()
+  })
+
+  it('offers only campaigns inside their start and end times, when the list carries them', async () => {
+    const day = 24 * 60 * 60 * 1000
+    api.outreachCampaigns.mockResolvedValue([
+      { ...CAMPAIGNS[0]!, endsAt: new Date(Date.now() + day).toISOString() },
+      { ...CAMPAIGNS[0]!, id: 'campaign-5', name: 'Demo Outreach ended', endsAt: new Date(Date.now() - day).toISOString() },
+      { ...CAMPAIGNS[0]!, id: 'campaign-6', name: 'Demo Outreach next month', startsAt: new Date(Date.now() + 30 * day).toISOString() },
+    ])
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-member`, campaignId, membershipId: MEMBERSHIP, role: 'health_worker', createdAt: '2026-01-02T00:00:00.000Z' }])
+    renderPage()
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(3))
+    const form = await openNew()
+    const select = within(form).getByLabelText(/^Campaign/) as HTMLSelectElement
+    await waitFor(() => expect(Array.from(select.options).map(option => option.textContent)).toEqual(['No campaign', 'Demo screening week']))
   })
 })
