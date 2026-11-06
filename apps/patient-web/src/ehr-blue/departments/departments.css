@@ -665,6 +665,13 @@
   margin: 0;
 }
 
+/* The page's can't-complete endings: over an open request, in that request's centred column (FormPage's 48rem). */
+.hid-ehr .hid-ehr-dept-laboratory-said-on-request {
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
 /* One execution's facts under its sample. */
 .hid-ehr .hid-ehr-dept-laboratory-execution {
   padding: 12px 0;
