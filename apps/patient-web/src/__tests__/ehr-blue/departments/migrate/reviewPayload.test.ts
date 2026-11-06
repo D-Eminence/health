@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
   CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
-  keptMedicines, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
+  keptMedicines, keptText, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
-import { handwrittenPage, medicinesPaper, paperReading } from './paperReadingPayload'
+import { handwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
 
 /*
  * What staff choose on the check becomes the review ocr-api takes. The checks below are ocr-api's own, copied from
@@ -459,5 +459,95 @@ describe('the visits a clinical note can be attached to', () => {
     const offered = visitsForNote([visit('a', 'in_progress'), visit('b', 'cancelled'), visit('c', 'entered_in_error'), visit('d', 'completed'),
       visit('e', 'planned'), visit('f', 'on_hold'), visit('g', 'in_progress', 'f0000000-0000-4000-8000-0000000000ff')], FACILITY.toUpperCase())
     expect(offered.map(item => item.id)).toEqual(['a', 'd', 'e', 'f'])
+  })
+})
+
+describe('lines that could not be read are never saved', () => {
+  const payload = unreadablePage()
+  const page = parsePaperReading(payload) as PaperReading
+  const pageItems = reviewItems(page)
+  const CEFTRIAXONE = 'it-00000000000000a3'
+  const unreadableIds = pageItems.filter(item => item.id !== CEFTRIAXONE).map(item => item.id)
+  /** Every item kept: what a careless or scripted Keep on everything would send. */
+  const keepEverything = () => Object.fromEntries(pageItems.map(item => [item.id, { choice: 'keep' as const, text: readingLine(item) }]))
+
+  it('start as removed, whatever the reader said of them, so they never wait for a choice', () => {
+    expect(unreadableIds).toHaveLength(9)
+    const start = initialDecisions(pageItems)
+    for (const id of unreadableIds) expect(start[id]!.choice).toBe('remove')
+    expect(start[CEFTRIAXONE]!.choice).toBeNull()
+    // Only the one line that was read waits for a choice: it is the first, and only, card to ask.
+    expect(buildValidation({ ...choices('DOCUMENT_ONLY'), reading: page, decisions: start }))
+      .toEqual({ problem: { field: itemCardId(pageItems.findIndex(item => item.id === CEFTRIAXONE)), message: 'Choose Keep, Change or Remove for this item.' } })
+  })
+
+  it('are rejected, never accepted or published, even when Keep or Change is sent for them', () => {
+    const decisions = { ...keepEverything(), [unreadableIds[0]!]: { choice: 'change' as const, text: 'Paracetamol 1 g' } }
+    for (const saveAs of ['DOCUMENT_ONLY', 'EHR', 'PHARMACY'] as const) {
+      const input = built(buildValidation({ ...choices(saveAs), reading: page, decisions, encounterId: VISIT }))
+      expect(() => assertAccepted(input, payload)).not.toThrow()
+      expect((input.acceptedFields.items as Array<{ itemId: string }>).map(item => item.itemId)).toEqual([CEFTRIAXONE])
+      expect((input.validatedPayload.items as Array<{ itemId: string }>).map(item => item.itemId)).toEqual([CEFTRIAXONE])
+      expect(input.rejectedFields.map(field => (field as { itemId: string; decision: string }).itemId).sort()).toEqual([...unreadableIds].sort())
+      expect(input.rejectedFields.every(field => (field as { decision: string }).decision === 'removed')).toBe(true)
+      expect(input.corrections).toEqual([])
+      if (saveAs === 'PHARMACY') expect((input.acceptedFields.medications as Array<{ itemId: string }>).map(entry => entry.itemId)).toEqual([CEFTRIAXONE])
+      if (saveAs === 'EHR') expect(input.acceptedFields.content).not.toMatch(/\[unreadable\]|could not be read/i)
+    }
+  })
+
+  it('offer nothing to save them as, and are not counted as medicines kept', () => {
+    expect(keptMedicines(pageItems, keepEverything())).toBe(1)
+    const onlyUnreadable = { ...payload, items: payload.items.filter(item => item.id !== CEFTRIAXONE) }
+    expect(offeredDomains(parsePaperReading(onlyUnreadable), true)).toEqual(['DOCUMENT_ONLY'])
+    const unreadableMedicines = { ...payload, items: [payload.items.find(item => item.kind === 'note')!, ...payload.items.filter(item => item.kind === 'medicine' && item.id !== CEFTRIAXONE)] }
+    expect(offeredDomains(parsePaperReading(unreadableMedicines), true)).toEqual(['DOCUMENT_ONLY'])
+    expect(offeredDomains(page, true)).toEqual(['DOCUMENT_ONLY', 'EHR', 'PHARMACY'])
+  })
+
+  it('a lab result that couldn’t be read is rejected, never added to past lab results, even with Keep', () => {
+    const base = paperReading()
+    const lab = base.items.find(item => item.kind === 'lab_result')!
+    const blank = { ...lab, id: 'it-0000000000000d99', asWritten: '[unreadable]', fields: { test: null, value: null, unit: null, referenceRange: null, flag: null } }
+    const payloadWithBlank = paperReading({ items: [lab, blank], reading: { ...base.reading, itemCount: 2 } })
+    const reading = parsePaperReading(payloadWithBlank) as PaperReading
+    const items = reviewItems(reading)
+    expect(initialDecisions(items)[blank.id]!.choice).toBe('remove')
+    const decisions = Object.fromEntries(items.map(item => [item.id, { choice: 'keep' as const, text: readingLine(item) }]))
+    const input = built(buildValidation({ ...choices('LAB'), reading, decisions }))
+    expect(() => assertAccepted(input, payloadWithBlank)).not.toThrow()
+    expect((input.acceptedFields.observations as Array<{ itemId?: string }>).map(entry => entry.itemId)).toEqual([lab.id])
+    expect(input.rejectedFields.map(field => (field as { itemId: string }).itemId)).toEqual([blank.id])
+  })
+})
+
+describe('a line read in part', () => {
+  it('waits for a choice even when the reader called it clear, so it is never kept unseen', () => {
+    const base = paperReading()
+    const partly = { ...base.items[0], asWritten: 'Metro[unreadable] 500' }
+    const reading = parsePaperReading(paperReading({ items: [partly], reading: { ...base.reading, itemCount: 1 } })) as PaperReading
+    expect(reading.items[0]!.confidence).toBe('clear')
+    expect(initialDecisions(reading.items)[reading.items[0]!.id]!.choice).toBeNull()
+  })
+})
+
+describe('what Keep saves', () => {
+  const items = (parsePaperReading(paperReading()) as PaperReading).items
+  const byId = (id: string) => items.find(item => item.id === id)!
+
+  it('is the reading line, or a lab result’s test and result as they go to past lab results', () => {
+    expect(keptText(byId('it-00000000000000a1'))).toBe('Amlodipine 5 mg once a day')
+    expect(keptText(byId('it-00000000000000d1'))).toBe('Haemoglobin 11.2 g/dL')
+    expect(keptText(byId('it-00000000000000f1'))).toBe('Come back in two weeks')
+  })
+
+  it('is what a validation built with Keep accepts', () => {
+    const reading = parsePaperReading(paperReading()) as PaperReading
+    const decisions = Object.fromEntries(reading.items.map(item => [item.id, { choice: 'keep' as const, text: readingLine(item) }]))
+    const input = built(buildValidation({ ...choices('DOCUMENT_ONLY'), reading, decisions }))
+    for (const accepted of input.acceptedFields.items as Array<{ itemId: string; reading: string }>) {
+      const item = byId(accepted.itemId)
+      if (item.kind !== 'lab_result') expect(accepted.reading).toBe(keptText(item))
+    }
   })
 })

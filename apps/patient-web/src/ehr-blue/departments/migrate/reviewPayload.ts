@@ -1,5 +1,5 @@
 import type { OcrCandidateType, OcrTargetDomain, OcrValidationInput } from '../../../staff/api'
-import { PAPER_READING_CONTRACT, itemNotActive, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
+import { PAPER_READING_CONTRACT, isUnreadable, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
 /*
  * The check of a paper reading, as staff make it on the Document OCR page: each item read is kept, changed or removed,
@@ -95,6 +95,14 @@ export function itemName(item: PaperItem): string {
 }
 
 /**
+ * What Keep saves for an item, as the check shows it: a lab result's test and result as they go to past lab results,
+ * any other item's readingLine.
+ */
+export function keptText(item: PaperItem): string {
+  return item.kind === 'lab_result' ? `${labTest(item)} ${labResult(item)}` : readingLine(item)
+}
+
+/**
  * An item's reading as one line of plain words, the value staff keep or change: the name with what matters most for
  * its kind ("Amlodipine 5 mg once a day", "Haemoglobin 11.2 g/dL").
  */
@@ -115,17 +123,22 @@ export function reviewItems(reading: PaperReading | null): PaperItem[] {
   return reading && reading.status === 'read' ? orderItems(reading.items) : []
 }
 
-/** Where each item starts: a clear item is kept; one to check carefully waits for staff to choose. */
+/**
+ * Where each item starts: a clear item is kept; one to check (the reader said so, or part of it couldn't be read) waits
+ * for staff to choose. A line that couldn't be read at all is removed, and stays removed whatever is chosen
+ * (buildValidation): it is never saved.
+ */
 export function initialDecisions(items: readonly PaperItem[]): Record<string, ItemDecision> {
   return Object.fromEntries(items.map(item => [item.id, {
-    choice: item.confidence === 'clear' ? 'keep' : null, text: readingLine(item),
+    choice: isUnreadable(item) ? 'remove' : needsCheck(item) ? null : 'keep', text: readingLine(item),
     ...(item.kind === 'lab_result' ? { test: labTest(item), result: labResult(item) } : {}),
   }]))
 }
 
 /** The domains a reading can be saved as. `canAttachNote`: the job names a patient whose visits this account can read. */
 export function offeredDomains(reading: PaperReading | null, canAttachNote: boolean): SaveAs[] {
-  const items = reviewItems(reading)
+  // A line that couldn't be read is never kept, so it offers nothing to save it as.
+  const items = reviewItems(reading).filter(item => !isUnreadable(item))
   if (items.length === 0) return ['DOCUMENT_ONLY']
   const offered = new Set<SaveAs>(['DOCUMENT_ONLY'])
   if (canAttachNote) offered.add('EHR')
@@ -136,7 +149,7 @@ export function offeredDomains(reading: PaperReading | null, canAttachNote: bool
 
 /** How many medicines are kept or changed so far. */
 export function keptMedicines(items: readonly PaperItem[], decisions: Decisions): number {
-  return items.filter(item => item.kind === 'medicine' && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').length
+  return items.filter(item => item.kind === 'medicine' && !isUnreadable(item) && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').length
 }
 
 /** What the form says when more medicines are kept than one review can add. */
@@ -259,7 +272,9 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
   const items = reviewItems(reading)
   const checked: CheckedItem[] = []
   for (const [index, item] of items.entries()) {
-    const decision = decisions[item.id] ?? { choice: null, text: readingLine(item) }
+    // A line that couldn't be read at all is always removed: it is listed as rejected and never accepted or published.
+    const decision: ItemDecision = isUnreadable(item) ? { choice: 'remove', text: readingLine(item) }
+      : decisions[item.id] ?? { choice: null, text: readingLine(item) }
     if (!decision.choice) return { problem: { field: itemCardId(index), message: 'Choose Keep, Change or Remove for this item.' } }
     if (item.kind === 'lab_result') {
       const read = { test: labTest(item), result: labResult(item) }

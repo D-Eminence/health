@@ -12,9 +12,9 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
-import { itemDetails, itemNotActive, parsePaperReading, type PaperItem } from './paperReading'
+import { ItemCheck, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import {
-  SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemName, itemResultId, itemTestId, itemTextId, labResult, labTest,
+  SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
@@ -108,35 +108,42 @@ const SAVE_AS_HINTS: Readonly<Record<SaveAs, string>> = {
 
 const CHOICE_WORDS: Readonly<Record<ItemChoice, string>> = { keep: 'Keep', change: 'Change', remove: 'Remove' }
 
-/** One item read from the paper, with Keep, Change and Remove. */
+/** Words compared without case or extra spaces, so "Keep saves" is shown only when it says something new. */
+function sameWords(words: string): string {
+  return words.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * One item read from the paper, on one line as it is written, with Keep, Change and Remove; a Check mark and Why? when
+ * to check. When what Keep saves is not the line as written, it is shown under it, so nothing is saved unseen.
+ */
 function ReviewItemCard({ item, index, decision, problem, onChange }: {
   readonly item: PaperItem; readonly index: number; readonly decision: ItemDecision; readonly problem: FieldProblem | null
   readonly onChange: (decision: ItemDecision) => void
 }) {
   const cardId = itemCardId(index)
   const nameId = `${cardId}-name`
-  const careful = item.confidence === 'check_carefully'
-  const details = itemDetails(item)
-  const notActive = itemNotActive(item)
+  const line = itemLine(item)
   const cardError = problemText(problem, cardId)
   const state = decision.choice === 'keep' ? 'Kept' : decision.choice === 'remove' ? 'Removed: it won’t be saved'
     : decision.choice === 'change' ? 'Changed: your words are saved' : 'Not chosen yet'
+  // Kept and not chosen are what the pressed button already shows, so only a screen reader hears them.
+  const stateSeen = decision.choice === 'remove' || decision.choice === 'change'
+  const saved = keptText(item)
+  const showSaved = decision.choice !== 'change' && decision.choice !== 'remove' && sameWords(saved) !== sameWords(line)
   return <li className="hid-ehr-dept-migrate-check-item" data-item-id={item.id}>
     <div id={cardId} role="group" tabIndex={-1} aria-labelledby={nameId} aria-describedby={cardError ? `${cardId}-error` : undefined}
       aria-invalid={cardError ? true : undefined}>
       <div className="hid-ehr-dept-migrate-check-head">
-        <strong id={nameId}>{itemName(item)}{notActive && ` — ${notActive}`}</strong>
-        <EhrBadge tone={careful ? 'caution' : 'positive'}>{careful ? 'Check carefully' : 'Clear'}</EhrBadge>
+        <strong id={nameId}>{line}</strong>
+        <ItemCheck item={item} />
+        <div className="hid-ehr-dept-migrate-check-choices">
+          {(['keep', 'change', 'remove'] as const).map(choice => <EhrButton key={choice} size="sm" variant={decision.choice === choice ? 'primary' : 'secondary'}
+            aria-pressed={decision.choice === choice} onClick={() => onChange({ ...decision, choice })}>{CHOICE_WORDS[choice]}</EhrButton>)}
+        </div>
+        <span className={stateSeen ? 'hid-ehr-dept-muted' : 'hid-ehr-sr-only'}>{state}</span>
       </div>
-      <span>On the paper: {item.asWritten}</span>
-      {details.length > 0 && <span className="hid-ehr-dept-muted">{details.join(' · ')}</span>}
-      <span className="hid-ehr-dept-muted">Page {item.page}</span>
-      {careful && <span className="hid-ehr-dept-muted">{item.checkReason?.trim() || 'Check this against the document.'}</span>}
-      <div className="hid-ehr-dept-migrate-check-choices">
-        {(['keep', 'change', 'remove'] as const).map(choice => <EhrButton key={choice} size="sm" variant={decision.choice === choice ? 'primary' : 'secondary'}
-          aria-pressed={decision.choice === choice} onClick={() => onChange({ ...decision, choice })}>{CHOICE_WORDS[choice]}</EhrButton>)}
-      </div>
-      <span className="hid-ehr-dept-muted">{state}</span>
+      {showSaved && <span className="hid-ehr-dept-muted">{`Keep saves: ${saved}`}</span>}
       {cardError && <p id={`${cardId}-error`} className="hid-ehr-error">{cardError}</p>}
       {decision.choice === 'change' && (item.kind === 'lab_result'
         // A lab result is changed as its test and its result, so a corrected value is filed under the right test.
@@ -271,24 +278,28 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     {reasonField}
     {actions}
   </form>
-  const undecided = items.filter(item => !decisions[item.id]?.choice).length
+  // Lines that couldn't be read at all are never saved (buildValidation removes them): one line says how many, no card each.
+  const unreadable = items.filter(isUnreadable).length
+  const undecided = items.filter(item => !isUnreadable(item) && !decisions[item.id]?.choice).length
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label={label} onSubmit={event => void submit(event)}>
     {ordered.length > 1 && <EhrField label="Reading" controlId="ocr-review-extraction">
       <EhrSelect value={selected?.id ?? ''} onChange={event => chooseExtraction(event.target.value)}>
         {ordered.map((item, at) => <option key={item.id} value={item.id}>{`Reading ${at + 1} of ${ordered.length}${at === ordered.length - 1 ? ' (newest)' : ''}`}</option>)}
       </EhrSelect>
     </EhrField>}
-    {items.length > 0
+    {items.length > unreadable
       ? <>
         <p className="hid-ehr-dept-muted">Look at each item against the paper. Keep it, change it, or remove it.</p>
         {undecided > 0 && <p className="hid-ehr-dept-muted" role="note">{`${undecided} ${undecided === 1 ? 'item needs' : 'items need'} your choice before you can save.`}</p>}
         <ul className="hid-ehr-dept-migrate-check">
-          {items.map((item, index) => <ReviewItemCard key={`${selected?.id}-${item.id}`} item={item} index={index}
+          {/* Each card keeps its place among all the items read, the place buildValidation names it by. */}
+          {items.map((item, index) => isUnreadable(item) ? null : <ReviewItemCard key={`${selected?.id}-${item.id}`} item={item} index={index}
             decision={decisions[item.id] ?? { choice: null, text: readingLine(item) }} problem={problem}
             onChange={decision => { setDecisions(current => ({ ...current, [item.id]: decision })); setProblem(null) }} />)}
         </ul>
       </>
       : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
+    <UnreadableLines items={items} />
     {offered.length > 1
       ? <EhrField label="Save as" controlId="ocr-review-domain" hint={SAVE_AS_HINTS[saveAs]} error={problemText(problem, 'ocr-review-domain')}>
         <EhrSelect value={saveAs} onChange={event => { setSaveAs(event.target.value as SaveAs); setProblem(null) }}>
