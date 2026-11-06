@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at d3e67b0a for hid-system#196 (best-guess readings on hard handwritten pages, checked against the Nigeria Essential Medicines List; PROMPT_VERSION 5). Every other service stays at 6aae042e. Browser-facing change: new optional check reasons in the paper reading; the website shows the reason text as given. Approved by the repository owner, D-Eminence, in chat on 2026-11-05: hard-page best guesses and drug list (about 18:40 UTC), under \"i approved everything thta needs my approval\" (about 14:10 UTC).",
+  "review_reference": "The services as deployed now: every service was redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 14bac287 (production backend run 42205946734). Since the previous pins, only ocr-api and ocr-worker changed in code (hid-system#197 official lists and doctors' signs, #198 zoom, PROMPT_VERSION 7) and gateway/Dockerfile pins patched musl (#199). The runtime assessment for CVE-2026-76844 was approved by the owner, D-Eminence, in chat on 2026-11-06 (\"approve zlib\"). Browser-facing change: none beyond the OCR reading payload the website already handles. Re-pins and deploys of the OCR train approved by the owner in chat on 2026-11-05 (\"i approved everything thta needs my approval\", about 14:10 UTC).",
   "backend_commits": {
-    "gateway": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "identity-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "ehr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "lab-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "pharmacy-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "ocr-api": "7c573e555ed0a9e7ce62ed066003bcad1f37aedc",
-    "outreach-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "support-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "notification-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01"
+    "gateway": "14bac28708251f639b726348fc5c03c080de96c1",
+    "identity-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "ehr-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "lab-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "pharmacy-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "ocr-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "outreach-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "support-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "notification-api": "14bac28708251f639b726348fc5c03c080de96c1"
   }
 }
