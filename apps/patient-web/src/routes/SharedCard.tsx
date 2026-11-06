@@ -32,7 +32,7 @@ import logoSrc from '../../../public-web/public/brand/logo.png'
 
 export interface CardData { name: string; hid: string; verified: boolean | null; bloodGroup: string | null; genotype: string | null; allergies: string | null; photoUrl: string | null }
 
-function Face({ card, still }: { card: CardData; still?: boolean }) {
+export function Face({ card, still }: { card: CardData; still?: boolean }) {
   const face = card.photoUrl ? <img src={card.photoUrl} alt="" className="size-full object-cover" />
     : <span className="text-[5.4cqw] font-light tracking-[.12em] text-white/85" aria-hidden="true">{initialsOf({ fullName: card.name })}</span>
   return <CardFace name={card.name} hid={card.hid} verified={card.verified} facts={cardFacts(card.bloodGroup, card.genotype)}

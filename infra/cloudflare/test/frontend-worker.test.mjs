@@ -1183,3 +1183,18 @@ test('the public site\'s static files a product site serves are none of the port
     assert.notEqual(await response.text(), 'public', path)
   }
 })
+
+test('the card link pages on the patient portal cannot be framed and send no referrer (step 8, critique fix 5)', async () => {
+  const config = environment({ APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com' })
+  for (const path of ['/card', '/card/stop', '/card/privacy', '/card/preview']) {
+    const response = await worker.fetch(new Request(`https://app.healthidentitydirectory.com${path}`), config)
+    assert.equal(response.status, 200, path)
+    assert.equal(response.headers.get('x-frame-options'), 'DENY', path)
+    assert.equal(response.headers.get('content-security-policy'), "frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'", path)
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer', path)
+  }
+  // Other pages keep today's headers: no policy is added to them by this.
+  const other = await worker.fetch(new Request('https://app.healthidentitydirectory.com/cards'), config)
+  assert.equal(other.headers.get('content-security-policy'), null)
+  assert.equal(other.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
+})

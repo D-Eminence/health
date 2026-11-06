@@ -430,6 +430,25 @@ describe('retryAfterSeconds', () => {
     expect(retryAfterSeconds(new Error('no'))).toBeNull()
     expect(retryAfterSeconds(undefined)).toBeNull()
   })
+
+  // hid-system 0118 (card links) names the wait only in the problem body, as `retryAfterSeconds`, with no header.
+  it('falls back to the problem\'s retryAfterSeconds member when there is no header', async () => {
+    const { client } = makeClient({}, [{ status: 429, body: { code: 'CARD_SHARE_LOCKED', retryAfterSeconds: 1800 } }])
+    const error = await client.post('/codes', undefined, { auth: 'none' }).catch((reason: unknown) => reason)
+    expect(retryAfterSeconds(error)).toBe(1800)
+  })
+
+  it('prefers the header to the body, and ignores a body value that is not a whole number of seconds', async () => {
+    const { client } = makeClient({}, [
+      { status: 429, body: { code: 'X', retryAfterSeconds: 1800 }, headers: { 'Retry-After': '42' } },
+      { status: 429, body: { code: 'X', retryAfterSeconds: '1800' } },
+      { status: 429, body: { code: 'X', retryAfterSeconds: -5 } },
+      { status: 429, body: { code: 'X', retryAfterSeconds: 10 ** 9 } },
+    ])
+    const seconds: Array<number | null> = []
+    for (let i = 0; i < 4; i += 1) seconds.push(retryAfterSeconds(await client.post('/codes', undefined, { auth: 'none' }).catch((reason: unknown) => reason)))
+    expect(seconds).toEqual([42, null, null, null])
+  })
 })
 
 describe('beforeAttempt', () => {

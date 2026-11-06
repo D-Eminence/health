@@ -109,3 +109,22 @@ describe('ssoEnabled', () => {
       NEXT_PUBLIC_HID_APP_ORIGIN: 'https://patient.staging.example', NEXT_PUBLIC_HID_SSO: '1' }, 'NEXT_PUBLIC_HID_').ssoEnabled).toBe(true)
   })
 })
+
+/**
+ * Step 8 (hid-system 0118): sending the card by email, switched on in config since legal approved (4 Nov 2026). Off unless the build
+ * sets VITE_HID_CARD_SHARES to exactly true; anything else that is not false fails the configuration.
+ */
+describe('cardSharesEnabled', () => {
+  it('is off when unset, empty or false', () => {
+    expect(resolveEnvironment(env(), PREFIX).cardSharesEnabled).toBe(false)
+    for (const value of ['', 'false']) expect(resolveEnvironment(env({ VITE_HID_CARD_SHARES: value }), PREFIX).cardSharesEnabled).toBe(false)
+  })
+
+  it('is on only for true', () => {
+    expect(resolveEnvironment(env({ VITE_HID_CARD_SHARES: 'true' }), PREFIX).cardSharesEnabled).toBe(true)
+  })
+
+  it.each(['1', 'yes', 'TRUE', 'on'])('refuses %j', value => {
+    expect(() => resolveEnvironment(env({ VITE_HID_CARD_SHARES: value }), PREFIX)).toThrow(/VITE_HID_CARD_SHARES must be true or false/)
+  })
+})

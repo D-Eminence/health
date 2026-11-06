@@ -10,6 +10,7 @@ import { ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { learnShareServed, useShareServed } from '../shareServed'
+import { useCardSharesServed } from '../cardShares'
 import { isAdult, shareCoversPaper, shareCoversPaperText } from '../paperRecordsWording'
 import { usePatientResource } from './usePatientResource'
 import {
@@ -100,6 +101,7 @@ export function ShareRecords() {
 function ShareFlow() {
   const { api } = useSession()
   const myCard = useMyCard()
+  const sendsCard = useCardSharesServed() === true
   // Paper records are said only to an adult whose age is known (paperRecordsWording.ts): never to an under-18, nor while
   // the profile has not answered.
   const profile = usePatientResource(api.profile)
@@ -263,6 +265,8 @@ function ShareFlow() {
         {choosing && alert}
       </form>
       <button type="button" className="inline-flex cursor-pointer items-center gap-2 self-start border-0 bg-transparent p-0 text-[13px] font-semibold text-brand-ink hover:underline" onClick={() => go('invite')}><Mail className="size-4" aria-hidden />Can’t find them? Invite them by email</button>
+      {/* Step 8: once card links are served, the card itself can go to anyone by email (no Health ID needed). */}
+      {sendsCard && <Link to="/access/share/card" className="inline-flex items-center gap-2 self-start text-[13px] font-semibold text-brand-ink no-underline hover:underline"><Mail className="size-4" aria-hidden />Or send your card to anyone by email</Link>}
     </>, <><Button to="/access" variant="ghost">Cancel</Button>
       {items.length > 0 && <Button type="submit" form="share-choose" variant="primary" iconRight={ArrowRight}>Continue</Button>}</>)
   }

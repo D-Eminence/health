@@ -27,6 +27,8 @@ so all three work side by side.
 Options (environment variables):
 
 - `MOCK_FACILITY=classic` shows the classic provider workspace instead of the blue EHR.
+- `MOCK_CARD_SHARES=1` serves the card link routes (step 8, switched off until legal signs off) for UI work only: build or
+  serve the portal with `VITE_HID_CARD_SHARES=true` too. Any six digits open the card except `000000`. Never on by default.
 - `MOCK_PORT=3001` runs on another port (set `HID_LOCAL_GATEWAY_ORIGIN` in `apps/patient-web/.env.local` to match).
 
 On Windows PowerShell: `$env:MOCK_FACILITY="classic"; npm run dev:mock`.

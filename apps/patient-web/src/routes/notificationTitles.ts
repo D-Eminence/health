@@ -37,6 +37,8 @@ export const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
   'share-invitation': 'Invitation to share',
   // hid-1.0 parity B5 (hid-system 0096): the patient's own account deletion.
   'account-deletion': 'Account',
+  // Step 8 (hid-system 0118): the card the patient sent by email.
+  'card-share': 'Shared card',
 }
 
 /**
@@ -80,6 +82,27 @@ export function notificationTitle(item: PatientNotification): string {
   // one), and a provider accepted the patient's invitation. Each names the facility only, never the clinician or a record.
   if (item.notificationCode === 'RECORDS_OPENED') {
     return `${metadataName(item.metadata, 'facilityName') ?? 'A hospital'} opened your health records`
+  }
+  // Step 8 (hid-system 0118): the card sent by email was opened, or locked by wrong codes, or ended by them. Each names
+  // the masked address it was sent to (metadata recipientHint), never more, and says "someone": whoever has the link
+  // can ask for a code (critique fix 10).
+  const cardHint = metadataName(item.metadata, 'recipientHint')
+  if (item.notificationCode === 'SHARED_CARD_OPENED') {
+    return cardHint ? `Someone opened your card using the link sent to ${cardHint}` : 'Someone opened your card using a link you sent'
+  }
+  if (item.notificationCode === 'SHARED_CARD_LOCKED') {
+    return `Too many wrong codes were entered for your card link${cardHint ? ` to ${cardHint}` : ''}. It’s paused for an hour.`
+  }
+  // The backend's codes (INTERFACE_CONTRACT §33): SHARED_CARD_ENDED, whose reason is too_many_wrong_codes when the second
+  // lock ended it, and SHARED_CARD_STOPPED when the address asked us to stop card emails.
+  if (item.notificationCode === 'SHARED_CARD_ENDED') {
+    return item.metadata?.reason === 'too_many_wrong_codes'
+      ? `We ended your card link${cardHint ? ` to ${cardHint}` : ''} because of too many wrong codes. Send a new one if you still want to share.`
+      : `Your card link${cardHint ? ` to ${cardHint}` : ''} has ended.`
+  }
+  if (item.notificationCode === 'SHARED_CARD_STOPPED') {
+    return cardHint ? `The person at ${cardHint} asked us to stop card emails, so your card link to them has ended.`
+      : 'Someone asked us to stop card emails to their address, so your card link to them has ended.'
   }
   if (item.notificationCode === 'SHARE_INVITATION_ACCEPTED') {
     return `A health worker at ${metadataName(item.metadata, 'facilityName') ?? 'a hospital'} accepted your invitation. Confirm it in Access & sharing`
