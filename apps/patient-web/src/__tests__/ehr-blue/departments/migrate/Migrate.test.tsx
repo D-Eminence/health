@@ -997,7 +997,7 @@ describe('Migrate: what was read from a paper record, item by item', () => {
       .toEqual(['Who the paper is about', 'Medicines', 'Diagnoses', 'Allergies', 'Lab results', 'Vitals', 'Notes'])
     const medicines = within(within(read).getByRole('region', { name: 'Medicines' })).getAllByRole('listitem')
     expect(medicines.map(row => row.querySelector('strong')?.textContent)).toEqual(['Metf?rmin 500 bd', 'Amlodipine 5mg od x 30/7'])
-    expect(within(medicines[0]!).getByText('?')).toBeTruthy()
+    expect(within(medicines[0]!).getByText('Check')).toBeTruthy()
     // A clean page says nothing more: no warning line, no Details, no confidence line.
     expect(read.querySelector('.hid-ehr-dept-notice-caution')).toBeNull()
     expect(within(read).queryByText('Details')).toBeNull()
@@ -1009,13 +1009,12 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
   })
 
-  it('warns first when the page may not be fully read, and never says the count is complete', async () => {
+  it('warns first when the page may not be fully read, in one line above the count', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Ceftriaxone ? IV', structuredPayload: handwrittenPage() }] })
     await findJob(awaiting)
     const read = await readSection()
-    expect(within(read).getByText('1 item read so far · 1 to check')).toBeTruthy()
-    expect(within(read).queryByText('1 item read · 1 to check')).toBeNull()
-    const warning = within(read).getByText('Hard handwriting. Check the items marked ?')
+    expect(within(read).getByText('1 item read · 1 to check')).toBeTruthy()
+    const warning = within(read).getByText('Hard handwriting. Check the marked items.')
     // The reasons, what was left out and how sure the reading is wait under Details, closed; no other confidence line.
     const details = within(read).getByText('Details').closest('details')!
     expect(details.open).toBe(false)
@@ -1072,7 +1071,7 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   const withReading = (payload: object = paperReading()) =>
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: payload }] })
 
-  it('shows each item as a card: one line as written, a "?" with Why? when to check, careful ones first and undecided', async () => {
+  it('shows each item as a card: one line as written, a Check mark with Why? when to check, careful ones first and undecided', async () => {
     withReading()
     await findJob(awaiting)
     await openAction('Check and save')
@@ -1083,12 +1082,14 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     const [metformin] = shown
     // Each card is named by its reading.
     expect(metformin!.getAttribute('aria-labelledby')).toBe(metformin!.querySelector('strong')?.id)
-    expect(within(metformin!).getByText('?')).toBeTruthy()
+    expect(within(metformin!).getByText('Check')).toBeTruthy()
     const why = within(metformin!).getByText('Why?').closest('details')!
     expect(why.open).toBe(false)
     expect(within(why).getByText('The handwriting was hard to read.')).toBeTruthy()
-    expect(within(metformin!).getByText('Not chosen yet')).toBeTruthy()
-    expect(within(shown[2]!).queryByText('?')).toBeNull()
+    // "Not chosen yet" and "Kept" repeat what the buttons show, so only a screen reader hears them.
+    expect(within(metformin!).getByText('Not chosen yet').className).toBe('hid-ehr-sr-only')
+    expect(within(shown[2]!).getByText('Kept').className).toBe('hid-ehr-sr-only')
+    expect(within(shown[2]!).queryByText('Check')).toBeNull()
     expect(within(shown[2]!).queryByText('Why?')).toBeNull()
     expect(form().textContent).not.toMatch(/On the paper|Page 1|Check carefully|Clear/)
     expect(within(shown[2]!).getByRole('button', { name: 'Keep' }).getAttribute('aria-pressed')).toBe('true')
@@ -1289,9 +1290,9 @@ describe('Migrate: a handwritten page with lines that couldn’t be read, shown 
   it('reads in seconds: one status line, one line per item read, one line for what couldn’t be read, no card for it', async () => {
     await findJob(awaiting)
     const read = await readSection()
-    expect(within(read).getByText('Hard handwriting. Check the items marked ?')).toBeTruthy()
+    expect(within(read).getByText('Hard handwriting. Check the marked items.')).toBeTruthy()
     expect(within(read).getByText('Details').closest('details')!.open).toBe(false)
-    expect(within(read).getByText('1 item read so far · 1 to check')).toBeTruthy()
+    expect(within(read).getByText('1 item read · 1 to check')).toBeTruthy()
     expect(within(read).getByText('No name or date of birth on the paper. Make sure this is the right patient.')).toBeTruthy()
     const medicines = within(within(read).getByRole('region', { name: 'Medicines' }))
     expect(medicines.getAllByRole('listitem').map(row => row.querySelector('strong')?.textContent)).toEqual(['Ceftriaxone ? IV'])
@@ -1310,6 +1311,8 @@ describe('Migrate: a handwritten page with lines that couldn’t be read, shown 
     await openAction('Check and save')
     const shown = cards()
     expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Ceftriaxone ? IV'])
+    // What Keep saves is not the line as written, so the card shows it: nothing is saved that wasn't seen.
+    expect(within(shown[0]!).getByText('Keep saves: Possibly ceftriaxone IV; dose and frequency unreadable')).toBeTruthy()
     expect(within(form()).getByText('9 lines couldn’t be read. Check the paper.')).toBeTruthy()
     expect(within(form()).getByRole('note').textContent).toBe('1 item needs your choice before you can save.')
     await press(within(shown[0]!).getByRole('button', { name: 'Keep' }))
@@ -1324,6 +1327,25 @@ describe('Migrate: a handwritten page with lines that couldn’t be read, shown 
     expect(input.acceptedFields.medications.map((entry: { itemId: string }) => entry.itemId)).toEqual(['it-00000000000000a3'])
     expect(input.rejectedFields).toHaveLength(9)
     expect(input.rejectedFields.every((field: { decision: string }) => field.decision === 'removed')).toBe(true)
+    // What was saved is what the card showed.
+    const savedText = input.acceptedFields.medications[0].medicationText as string
+    expect(input.acceptedFields.items[0].reading).toBe(savedText)
+    expect(shown[0]!.textContent).toContain(savedText)
+  })
+
+  it('a page where no line could be read has no cards: it says so and offers the document only', async () => {
+    const page = unreadablePage()
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: { ...page, items: page.items.slice(1),
+      reading: { ...page.reading, itemCount: page.items.length - 1 } } }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('0 items read')).toBeTruthy()
+    await openAction('Check and save')
+    expect(cards()).toHaveLength(0)
+    expect(within(form()).getByText('No items were picked out to check one by one. You can keep the document only, or reject this reading.')).toBeTruthy()
+    expect(within(form()).getByText('9 lines couldn’t be read. Check the paper.')).toBeTruthy()
+    expect(within(form()).queryByRole('note')).toBeNull()
+    expect(within(form()).queryByLabelText('Save as')).toBeNull()
   })
 })
 
@@ -1337,6 +1359,29 @@ describe('Migrate: Read again', () => {
     expect(readAgain()).toBeTruthy()
     // The actions card keeps its own buttons.
     expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+  })
+
+  it.each([['validated', validated], ['confirmed for the patient', confirmed]])(
+    'is not offered once the reading is checked (%s), so it is never saved into the record twice', async (_, job) => {
+      await findJob(job)
+      await screen.findByRole('heading', { name: 'What was read' })
+      expect(screen.queryByRole('button', { name: 'Read again' })).toBeNull()
+    })
+
+  it.each([['failed', failed], ['rejected', rejected]])('is offered on a reading that %s, as nothing of it was saved', async (_, job) => {
+    api.ocrExtractions.mockResolvedValue({ items: [extraction] })
+    await findJob(job)
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(readAgain()).toBeTruthy()
+  })
+
+  it('says the new reading is ready when OCR answers with another job that is already read', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(statusRegion().textContent).toBe('The document has been read and is ready to check.'))
+    expect(api.ocrExtractions).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, newer.id)
   })
 
   it('is not offered without OCR job write, nor while the document is still being read', async () => {

@@ -1,9 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import {
-  DROPPED_WORDS, FLAG_REASON_UNKNOWN, FLAG_REASON_WORDS, NO_IDENTITY_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings,
-  claimsPaperReading, flagReasonWords, isUnreadable, itemDetails, itemHeadline, itemNotActive, orderItems, pageWarnings, parsePaperReading,
-  readingStatusLine, readingSummary, unreadableWords, type PaperItem,
+  CHECK_IDENTITY_WORDS, DROPPED_WORDS, FLAG_REASON_UNKNOWN, FLAG_REASON_WORDS, NO_IDENTITY_WORDS, PaperReadingSummary, PaperReadingView,
+  PaperReadingWarnings, checkReasonWords, claimsPaperReading, flagReasonWords, isUnreadable, itemHeadline, itemLine, itemNotActive,
+  itemStatusWords, needsCheck, orderItems, pageWarnings, parsePaperReading, readerGuess, readingStatusLine, readingSummary, unreadableWords,
+  type PaperItem,
 } from '../../../../ehr-blue/departments/migrate/paperReading'
 import { FLAG_REASONS, flagged, handwrittenPage, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
 
@@ -67,31 +68,24 @@ describe('item words', () => {
   const items = () => parsed().items
   const byId = (id: string) => items().find(item => item.id === id) as PaperItem
 
-  it('gives each kind its own details in plain words', () => {
-    expect(itemDetails(byId('it-00000000000000a1'))).toEqual(['5 mg', 'tablet', 'by mouth', 'once a day', 'for 30 days', 'Currently taking',
-      'Prescribed by Dr Ade Fictional', 'Prescribed on 02/03/2025'])
-    expect(itemDetails(byId('it-00000000000000b1'))).toEqual(['Confirmed'])
-    expect(itemDetails(byId('it-00000000000000c1'))).toEqual(['Reaction: rash', 'Moderate'])
-    expect(itemDetails(byId('it-00000000000000d1'))).toEqual(['11.2 g/dL', 'Normal range 12-16', 'Flag: low', 'Dated 01/03/2025'])
-    expect(itemDetails(byId('it-00000000000000e1'))).toEqual(['Blood pressure', '150/95 mmHg'])
-    expect(itemDetails(byId('it-00000000000000f1'))).toEqual([])
-  })
-
-  it('says when the paper records no known allergies', () => {
-    const none = { ...byId('it-00000000000000c1'), fields: { substance: null, reaction: null, severity: null, noKnownAllergies: true } }
-    expect(itemDetails(none)).toEqual(['No known allergies'])
-  })
-
   it.each([
     ['it-00000000000000a1', 'stopped', 'Stopped'],
     ['it-00000000000000a1', 'past', 'Taken in the past'],
     ['it-00000000000000b1', 'ruled_out', 'Ruled out'],
     ['it-00000000000000b1', 'history', 'Past history'],
     ['it-00000000000000b1', 'family_history', 'Family history'],
-  ])('names a status that says the item is not active (%s, %s) apart from its details', (id, status, words) => {
+  ])('names a status that says the item is not active (%s, %s) beside its line', (id, status, words) => {
     const item = { ...byId(id), fields: { ...byId(id).fields, status } }
     expect(itemNotActive(item)).toBe(words)
-    expect(itemDetails(item)).not.toContain(words)
+    expect(itemLine(item)).toBe(`${itemHeadline(item)} — ${words}`)
+  })
+
+  it('says a suspected diagnosis is suspected, so it is never read as confirmed', () => {
+    const suspected = { ...byId('it-00000000000000b1'), asWritten: 'Malaria', fields: { name: 'Malaria', status: 'suspected' } }
+    expect(itemNotActive(suspected)).toBeNull()
+    expect(itemStatusWords(suspected)).toBe('Suspected')
+    expect(itemLine(suspected)).toBe('Malaria — Suspected')
+    expect(itemLine(byId('it-00000000000000b1'))).toBe('HTN')
   })
 
   it('leaves an active status in the details', () => {
@@ -120,20 +114,21 @@ describe('PaperReadingView', () => {
     expect(screen.getByText('Date of birth on the paper').nextSibling?.textContent).toBe('14/07/1980')
     expect(screen.getByText('Folder number').nextSibling?.textContent).toBe('F-0042')
     expect(screen.queryByText(NO_IDENTITY_WORDS)).toBeNull()
+    expect(screen.getByText(CHECK_IDENTITY_WORDS)).toBeTruthy()
     expect(screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
       .toEqual(['Who the paper is about', 'Medicines', 'Diagnoses', 'Allergies', 'Lab results', 'Vitals', 'Notes'])
     const medicines = within(screen.getByRole('region', { name: 'Medicines' })).getAllByRole('listitem')
     // The reading is what is written on the paper, not the reader's sentence about it.
     expect(medicines.map(row => row.querySelector('strong')?.textContent)).toEqual(['Metf?rmin 500 bd', 'Amlodipine 5mg od x 30/7'])
-    // To check: a small "?" (heard as "Check"), and the reason only behind Why?, closed.
+    // To check: a small "Check" mark (a word, never a "?" that could be taken for one on the paper), and the reason
+    // only behind Why?, closed.
     const [metformin, amlodipine] = medicines
-    expect(within(metformin!).getByText('?').getAttribute('data-tone')).toBe('caution')
-    expect(within(metformin!).getByText('Check').className).toBe('hid-ehr-sr-only')
+    expect(within(metformin!).getByText('Check').getAttribute('data-tone')).toBe('caution')
     const why = within(metformin!).getByText('Why?').closest('details')!
     expect(why.open).toBe(false)
     expect(within(why).getByText('The handwriting was hard to read.')).toBeTruthy()
     // A clear item is the reading alone: no badge, no Why?, no page, no details, no "As written".
-    expect(within(amlodipine!).queryByText('?')).toBeNull()
+    expect(within(amlodipine!).queryByText('Check')).toBeNull()
     expect(within(amlodipine!).queryByText('Why?')).toBeNull()
     expect(amlodipine!.textContent).toBe('Amlodipine 5mg od x 30/7')
     expect(document.body.textContent).not.toMatch(/As written|Page 1|Check carefully|Clear|Possibly/)
@@ -179,6 +174,7 @@ describe('PaperReadingView', () => {
     expect(screen.queryByText('Date of birth on the paper')).toBeNull()
     expect(screen.queryByText('Folder number')).toBeNull()
     expect(screen.queryByText(NO_IDENTITY_WORDS)).toBeNull()
+    expect(screen.getByText(CHECK_IDENTITY_WORDS)).toBeTruthy()
   })
 
   it.each([
@@ -244,19 +240,18 @@ describe('pages that may not be fully read', () => {
       why: 'Why: handwriting that is hard to read; the reader was not sure about this page.' }])
   })
 
-  it('never says the count is complete when a page is flagged', () => {
+  it('counts a flagged page’s items without "so far": the line above the reading says it may not be complete', () => {
     const one = parsed(handwrittenPage())
-    expect(readingSummary(one.items, 1)).toBe('1 item read so far · 1 to check')
-    expect(readingSummary(parsed().items.slice(0, 1), 1)).toBe('1 item read so far')
-    expect(readingSummary(parsed().items, 2)).toBe('7 items read so far · 2 to check')
+    expect(readingSummary(one.items)).toBe('1 item read · 1 to check')
     render(<PaperReadingSummary reading={one} />)
-    expect(screen.getByText('1 item read so far · 1 to check')).toBeTruthy()
+    expect(screen.getByText('1 item read · 1 to check')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('so far')
   })
 
   it('shows the live case as one short line, with the pages, reasons, left-out note and confidence under a closed Details', () => {
     const { container } = render(<PaperReadingWarnings reading={parsed(handwrittenPage())} confidence={0.31} />)
     expect(container.querySelectorAll('.hid-ehr-dept-notice-caution')).toHaveLength(1)
-    expect(container.querySelector('strong')?.textContent).toBe('Hard handwriting. Check the items marked ?')
+    expect(container.querySelector('strong')?.textContent).toBe('Hard handwriting. Check the marked items.')
     const details = screen.getByText('Details').closest('details')!
     expect(details.open).toBe(false)
     expect(within(details).getByText('Page 1 may not be fully read. Check the whole page against the paper and enter anything missing by hand.')).toBeTruthy()
@@ -265,15 +260,15 @@ describe('pages that may not be fully read', () => {
     expect(within(details).getByText('Read with 31% confidence. Check it against the document.')).toBeTruthy()
     // Nothing but the line and the word Details shows until Details is opened.
     expect(Array.from(container.querySelectorAll('strong, summary')).map(element => element.textContent).join(' '))
-      .toBe('Hard handwriting. Check the items marked ? Details')
+      .toBe('Hard handwriting. Check the marked items. Details')
     // 'handwriting' is also a plain word, so only the coded names are looked for.
     for (const code of FLAG_REASONS.filter(code => code.includes('_'))) expect(container.textContent).not.toContain(code)
   })
 
   it.each([
-    ['handwriting', { 1: ['handwriting'] }, 'Hard handwriting. Check the items marked ?'],
-    ['parts hard to read', { 1: ['low_confidence'] }, 'Hard to read. Check the items marked ?'],
-    ['lines that may be missed', { 1: ['possible_missed_item'] }, 'May not be fully read. Check the items marked ?'],
+    ['handwriting', { 1: ['handwriting'] }, 'Hard handwriting. Check the marked items.'],
+    ['parts hard to read', { 1: ['low_confidence'] }, 'Hard to read. Check the marked items.'],
+    ['lines that may be missed', { 1: ['possible_missed_item'] }, 'May not be fully read. Check the marked items.'],
   ])('says in its line what is wrong (%s)', (_, flags, line) => {
     expect(readingStatusLine(parsed(flagged(flags)))).toBe(line)
   })
@@ -285,7 +280,7 @@ describe('pages that may not be fully read', () => {
 
   it('notes left-out suggestions even when no page is flagged, and shows nothing when all is well', () => {
     const { container, unmount } = render(<PaperReadingWarnings reading={parsed(paperReading({ reading: { ...paperReading().reading, droppedUngrounded: 2 } }))} />)
-    expect(container.querySelector('strong')?.textContent).toBe('May not be fully read. Check the items marked ?')
+    expect(container.querySelector('strong')?.textContent).toBe('May not be fully read. Check the marked items.')
     expect(within(screen.getByText('Details').closest('details')!).getByText(DROPPED_WORDS)).toBeTruthy()
     unmount()
     const quiet = render(<PaperReadingWarnings reading={parsed()} confidence={0.92} />)
@@ -306,6 +301,39 @@ describe('lines that could not be read', () => {
     expect(isUnreadable({ asWritten: '- [unreadable] ?' })).toBe(true)
     expect(isUnreadable({ asWritten: 'Metro[unreadable] 500' })).toBe(false)
     expect(isUnreadable({ asWritten: 'Metf?rmin 500 bd' })).toBe(false)
+  })
+
+  it('keeps a mark written only in symbols as a reading', () => {
+    for (const asWritten of ['+++', '✓', '√', '[unreadable] +']) expect(isUnreadable({ asWritten })).toBe(false)
+  })
+
+  it('marks a line read in part to check, with a reason, even when the reader called it clear', () => {
+    const item = { ...parsed().items[0]!, asWritten: 'Metro[unreadable] 500' }
+    expect(item.confidence).toBe('clear')
+    expect(needsCheck(item)).toBe(true)
+    expect(checkReasonWords(item)).toBe('Part of this line couldn’t be read.')
+    expect(readingSummary([item])).toBe('1 item read · 1 to check')
+    render(<PaperReadingView reading={parsed(paperReading({ items: [{ ...paperReading().items[0], asWritten: 'Metro[unreadable] 500' }],
+      reading: { ...paperReading().reading, itemCount: 1 } }))} />)
+    const row = within(screen.getByRole('region', { name: 'Medicines' })).getByRole('listitem')
+    expect(within(row).getByText('Check')).toBeTruthy()
+    expect(within(row.querySelector('details')!).getByText('Part of this line couldn’t be read.')).toBeTruthy()
+  })
+
+  it('names what the reader guessed for a line it couldn’t read, behind a closed disclosure, and never as an item', () => {
+    const base = paperReading()
+    const guessed = { ...base.items[0], id: 'it-0000000000000c99', asWritten: '[unreadable]', plain: 'Paracetamol',
+      fields: { name: 'Paracetamol', strength: '500 mg', form: null, route: null, frequency: null, duration: null, status: 'unknown' } }
+    const reading = parsed(paperReading({ items: [base.items[1], guessed], reading: { ...base.reading, itemCount: 2 } }))
+    expect(readerGuess(reading.items[1]!)).toBe('Paracetamol 500 mg')
+    expect(readerGuess(parsed(unreadablePage()).items[1]!)).toBeNull()
+    render(<PaperReadingView reading={reading} />)
+    const medicines = screen.getByRole('region', { name: 'Medicines' })
+    expect(within(medicines).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(medicines).getByText('1 line couldn’t be read. Check the paper.')).toBeTruthy()
+    const guess = within(medicines).getByText('What the reader guessed').closest('details')!
+    expect(guess.open).toBe(false)
+    expect(within(guess).getByText('Not saved: Paracetamol 500 mg.')).toBeTruthy()
   })
 
   it('shows a line read in part as written, with the part that couldn’t be read as …', () => {
@@ -329,6 +357,8 @@ describe('lines that could not be read', () => {
     expect(notes.getByText('4 lines couldn’t be read. Check the paper.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('[unreadable]')
     expect(screen.getByText(NO_IDENTITY_WORDS)).toBeTruthy()
-    expect(readingSummary(reading.items, 1)).toBe('1 item read so far · 1 to check')
+    expect(readingSummary(reading.items)).toBe('1 item read · 1 to check')
+    // The reader filled in nothing for these lines, so there is no guess to name.
+    expect(screen.queryByText('What the reader guessed')).toBeNull()
   })
 })

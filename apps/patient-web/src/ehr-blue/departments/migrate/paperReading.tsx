@@ -106,14 +106,6 @@ const NOT_ACTIVE: Readonly<Record<'medicine' | 'diagnosis', ReadonlySet<string>>
   diagnosis: new Set(['ruled_out', 'history', 'family_history']),
 }
 
-const ALLERGY_SEVERITY: Record<string, string> = {
-  mild: 'Mild', moderate: 'Moderate', severe: 'Severe', unknown: 'Severity not known',
-}
-const VITAL_MEASURE: Record<string, string> = {
-  blood_pressure: 'Blood pressure', pulse: 'Pulse', temperature: 'Temperature', respiratory_rate: 'Breathing rate',
-  oxygen_saturation: 'Oxygen saturation', weight: 'Weight', height: 'Height', blood_glucose: 'Blood glucose',
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -213,46 +205,13 @@ export function itemNotActive(item: PaperItem): string | null {
   return (item.kind === 'medicine' ? MEDICINE_STATUS : DIAGNOSIS_STATUS)[status] ?? null
 }
 
-/** An item's own details, by kind, as short phrases: what the bold reading and "As written" do not already say. */
-export function itemDetails(item: PaperItem): string[] {
-  const f = item.fields
-  const details: string[] = []
-  const add = (value: string) => { if (value) details.push(value) }
-  const labelled = (label: string, value: unknown) => { const words = text(value); if (words) details.push(`${label} ${words}`) }
-  // A status that says the item is not active is shown beside the reading (itemNotActive), so it is not repeated here.
-  const status = itemNotActive(item) ? '' : text(f.status)
-  switch (item.kind) {
-    case 'medicine':
-      add(text(f.strength)); add(text(f.form)); add(text(f.route)); add(text(f.frequency))
-      labelled('for', f.duration)
-      add(MEDICINE_STATUS[status] ?? '')
-      if (item.prescription) {
-        labelled('Prescribed by', item.prescription.prescriberAsWritten)
-        labelled('Prescribed on', item.prescription.dateAsWritten)
-      }
-      break
-    case 'diagnosis':
-      add(DIAGNOSIS_STATUS[status] ?? '')
-      break
-    case 'allergy':
-      if (f.noKnownAllergies === true) add('No known allergies')
-      labelled('Reaction:', f.reaction)
-      add(ALLERGY_SEVERITY[text(f.severity)] ?? '')
-      break
-    case 'lab_result':
-      add([text(f.value), text(f.unit)].filter(Boolean).join(' '))
-      labelled('Normal range', f.referenceRange)
-      labelled('Flag:', f.flag)
-      break
-    case 'vital':
-      add(VITAL_MEASURE[text(f.measure)] ?? '')
-      add([text(f.value), text(f.unit)].filter(Boolean).join(' '))
-      break
-    case 'note':
-      break
-  }
-  labelled('Dated', item.dateAsWritten)
-  return details
+/**
+ * The status said beside an item's one line: one that says it is not active now ("Stopped", "Ruled out"), or
+ * "Suspected" for a diagnosis that is not confirmed, so it is never read as confirmed. Null otherwise.
+ */
+export function itemStatusWords(item: PaperItem): string | null {
+  if (item.kind === 'diagnosis' && text(item.fields.status) === 'suspected') return DIAGNOSIS_STATUS.suspected ?? null
+  return itemNotActive(item)
 }
 
 /** Items that need a careful check come first; otherwise the order they were read in (page, then as given). */
@@ -307,9 +266,38 @@ const UNREADABLE_ANYWHERE = /\[unreadable\]/gi
 /**
  * True when nothing of an item could be read: what is written is only UNREADABLE (any case), with at most punctuation
  * and spaces around it. Such an item is never shown as an item nor saved; an item read in part is shown, to check.
+ * A mark written only in symbols ("+++", "✓") is a reading, so it stays an item.
  */
 export function isUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
-  return item.asWritten.replace(UNREADABLE_ANYWHERE, '').replace(/[\p{P}\p{S}\s]/gu, '') === ''
+  return item.asWritten.replace(UNREADABLE_ANYWHERE, '').replace(/[\p{P}\s]/gu, '') === ''
+}
+
+/** True when part of what is written couldn't be read ("Metro[unreadable] 500"). */
+function partlyUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
+  return /\[unreadable\]/i.test(item.asWritten)
+}
+
+/**
+ * True when an item must be checked before it is kept: the reader said so, or part of what is written couldn't be read
+ * (even when the reader marked it clear), so it never starts as kept and always carries the Check mark.
+ */
+export function needsCheck(item: Pick<PaperItem, 'asWritten' | 'confidence'>): boolean {
+  return item.confidence === 'check_carefully' || partlyUnreadable(item)
+}
+
+/** Keys of an item's fields that say nothing read from the paper by themselves. */
+const NOT_A_READING = new Set(['status', 'measure', 'noKnownAllergies', 'severity', 'flag'])
+
+/**
+ * What the reader guessed for a line it couldn't read, from the fields it still filled in ("Paracetamol 500 mg"), or
+ * null when it filled in none. Never saved: only named under the line that says how many couldn't be read.
+ */
+export function readerGuess(item: PaperItem): string | null {
+  const parts = Object.entries(item.fields)
+    .filter(([key]) => !NOT_A_READING.has(key))
+    .map(([, value]) => typeof value === 'number' && Number.isFinite(value) ? String(value) : text(value))
+    .filter(Boolean)
+  return parts.length > 0 ? parts.join(' ') : null
 }
 
 /** The items that could be read at all, in the order given. */
@@ -324,7 +312,7 @@ export function itemHeadline(item: PaperItem): string {
 
 /** Why an item needs checking, in the reader's words, or a general sentence. */
 export function checkReasonWords(item: PaperItem): string {
-  return item.checkReason?.trim() || 'Check this against the document.'
+  return item.checkReason?.trim() || (partlyUnreadable(item) ? 'Part of this line couldn’t be read.' : 'Check this against the document.')
 }
 
 /** What a list says, in place of items, for the lines that couldn't be read at all. */
@@ -338,18 +326,18 @@ export function confidenceWords(confidence: number): string {
 }
 
 /**
- * The header's count: "7 items read · 2 to check". Lines that couldn't be read at all are not counted. When any page
- * may not be fully read it never sounds complete: "1 item read so far · 1 to check".
+ * The header's count: "7 items read · 2 to check". Lines that couldn't be read at all are not counted. A page that may
+ * not be fully read is said by the line above the reading, not here.
  */
-export function readingSummary(items: readonly PaperItem[], flaggedPageCount = 0): string {
+export function readingSummary(items: readonly PaperItem[]): string {
   const readable = readableItems(items)
-  const careful = readable.filter(item => item.confidence === 'check_carefully').length
-  const read = `${readable.length} ${readable.length === 1 ? 'item' : 'items'} read${flaggedPageCount === 0 ? '' : ' so far'}`
+  const careful = readable.filter(needsCheck).length
+  const read = `${readable.length} ${readable.length === 1 ? 'item' : 'items'} read`
   return careful ? `${read} · ${careful} to check` : read
 }
 
 /**
- * The one short line shown above a reading that may not be complete ("Hard handwriting. Check the items marked ?"), or
+ * The one short line shown above a reading that may not be complete ("Hard handwriting. Check the marked items."), or
  * null when the pages read cleanly and nothing was left out.
  */
 export function readingStatusLine(reading: PaperReading): string | null {
@@ -357,17 +345,18 @@ export function readingStatusLine(reading: PaperReading): string | null {
   if (flagged.length === 0 && reading.droppedUngrounded === 0) return null
   const codes = new Set(flagged.flatMap(page => page.flagReasons))
   const what = codes.has('handwriting') ? 'Hard handwriting.' : codes.has('low_confidence') ? 'Hard to read.' : 'May not be fully read.'
-  const marked = reading.status === 'read' && readableItems(reading.items).some(item => item.confidence === 'check_carefully')
-  return `${what} ${marked ? 'Check the items marked ?' : 'Check it against the paper.'}`
+  const marked = reading.status === 'read' && readableItems(reading.items).some(needsCheck)
+  return `${what} ${marked ? 'Check the marked items.' : 'Check it against the paper.'}`
 }
 
-/** The small "?" an item to check carefully carries, and why, behind "Why?". */
+/**
+ * The small "Check" mark an item to check carries, and why, behind "Why?". A word, not "?", so it is never taken for a
+ * "?" copied off the paper ("Ceftriaxone ? IV").
+ */
 export function ItemCheck({ item }: { readonly item: PaperItem }) {
-  if (item.confidence !== 'check_carefully') return null
+  if (!needsCheck(item)) return null
   return <span className="hid-ehr-dept-migrate-check-mark">
-    {/* A screen reader hears "Check"; the eye sees the small "?" the line above the reading points to. */}
-    <span className="hid-ehr-sr-only">Check</span>
-    <span aria-hidden="true"><EhrBadge tone="caution">?</EhrBadge></span>
+    <EhrBadge tone="caution">Check</EhrBadge>
     <details className="hid-ehr-dept-migrate-why">
       <summary>Why?</summary>
       <span className="hid-ehr-dept-muted">{checkReasonWords(item)}</span>
@@ -375,10 +364,32 @@ export function ItemCheck({ item }: { readonly item: PaperItem }) {
   </span>
 }
 
+/** An item's one line with its status, when it has one ("Malaria — Suspected"). */
+export function itemLine(item: PaperItem): string {
+  const status = itemStatusWords(item)
+  return `${itemHeadline(item)}${status ? ` — ${status}` : ''}`
+}
+
+/**
+ * Under a list, in place of the lines that couldn't be read at all: how many, and what the reader guessed for any of
+ * them, behind a closed disclosure, so nothing it suggested is hidden without a word. None of it is saved.
+ */
+export function UnreadableLines({ items }: { readonly items: readonly PaperItem[] }) {
+  const unreadable = items.filter(isUnreadable)
+  if (unreadable.length === 0) return null
+  const guesses = unreadable.map(readerGuess).filter((guess): guess is string => !!guess)
+  return <div className="hid-ehr-dept-migrate-unreadable">
+    <p className="hid-ehr-dept-muted">{unreadableWords(unreadable.length)}</p>
+    {guesses.length > 0 && <details className="hid-ehr-dept-migrate-why">
+      <summary>What the reader guessed</summary>
+      <span className="hid-ehr-dept-muted">{`Not saved: ${guesses.join('; ')}.`}</span>
+    </details>}
+  </div>
+}
+
 function PaperItemRow({ item }: { readonly item: PaperItem }) {
-  const notActive = itemNotActive(item)
   return <li data-item-id={item.id} className="hid-ehr-dept-migrate-line">
-    <strong>{itemHeadline(item)}{notActive && ` — ${notActive}`}</strong>
+    <strong>{itemLine(item)}</strong>
     <ItemCheck item={item} />
   </li>
 }
@@ -386,7 +397,7 @@ function PaperItemRow({ item }: { readonly item: PaperItem }) {
 /** The header's line: how many items were read and how many to check. */
 export function PaperReadingSummary({ reading }: { readonly reading: PaperReading }) {
   if (reading.status !== 'read') return null
-  return <span className="hid-ehr-dept-muted">{readingSummary(reading.items, flaggedPages(reading).length)}</span>
+  return <span className="hid-ehr-dept-muted">{readingSummary(reading.items)}</span>
 }
 
 /**
@@ -413,6 +424,8 @@ export function PaperReadingWarnings({ reading, confidence }: { readonly reading
 
 /** What the page says when none of name, date of birth or folder number was found on the paper. */
 export const NO_IDENTITY_WORDS = 'No name or date of birth on the paper. Make sure this is the right patient.'
+/** What the page says under the name, date of birth or folder number found on the paper. */
+export const CHECK_IDENTITY_WORDS = 'Make sure this is the right patient.'
 
 /** Who the paper is about, so staff can confirm it is the right patient, then the items, grouped by kind. */
 export function PaperReadingView({ reading }: { readonly reading: PaperReading }) {
@@ -425,7 +438,9 @@ export function PaperReadingView({ reading }: { readonly reading: PaperReading }
   return <div className="hid-ehr-dept-migrate-reading">
     <div>
       <h3>Who the paper is about</h3>
-      {facts.length > 0 ? <DeptFacts facts={facts} /> : <p className="hid-ehr-dept-muted">{NO_IDENTITY_WORDS}</p>}
+      {facts.length > 0
+        ? <><DeptFacts facts={facts} /><p className="hid-ehr-dept-muted">{CHECK_IDENTITY_WORDS}</p></>
+        : <p className="hid-ehr-dept-muted">{NO_IDENTITY_WORDS}</p>}
     </div>
     {reading.status !== 'read'
       ? <p role="note" className="hid-ehr-dept-muted">{READING_STATUS_WORDS[reading.status]}</p>
@@ -435,12 +450,11 @@ export function PaperReadingView({ reading }: { readonly reading: PaperReading }
           const items = orderItems(reading.items.filter(item => item.kind === group.kind))
           if (items.length === 0) return null
           const readable = readableItems(items)
-          const unreadable = items.length - readable.length
           const headingId = `ocr-read-${group.kind}`
           return <section key={group.kind} aria-labelledby={headingId}>
             <h3 id={headingId}>{group.title}</h3>
             {readable.length > 0 && <ul className="hid-ehr-dept-rows">{readable.map(item => <PaperItemRow key={item.id} item={item} />)}</ul>}
-            {unreadable > 0 && <p className="hid-ehr-dept-muted">{unreadableWords(unreadable)}</p>}
+            <UnreadableLines items={items} />
           </section>
         })}
   </div>

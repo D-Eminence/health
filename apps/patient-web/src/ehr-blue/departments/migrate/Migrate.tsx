@@ -93,6 +93,8 @@ type ActionId = 'retry' | 'validate' | 'reject' | 'confirm'
  */
 const POLL_EVERY_MS = 5_000
 const POLL_FOR_MS = 3 * 60_000
+/** The job states Read again is offered in: nothing of the reading is saved yet (no check, no publication). */
+const READ_AGAIN_STATUSES: ReadonlySet<string> = new Set(['awaiting_validation', 'failed', 'rejected'])
 
 /** Why the page stopped reading a job again by itself: it took too long, or a read did not answer. */
 interface PollStop { readonly jobId: string; readonly reason: 'slow' | 'failed' }
@@ -432,7 +434,10 @@ export function Migrate() {
       if (!current()) { remember(created); return }
       if (created.id === shown.id) { setNotice('This is already the newest reading.'); return }
       show(created, shown.documentId); setAction(null)
-      setStepFocus({ targets: ['ocr-job-title'], notice: 'Reading the document again. This page updates by itself when it’s ready.' })
+      // A job OCR answers with that is already read (one it made for an earlier press, or one it reuses) is not polled.
+      setStepFocus({ targets: ['ocr-job-title'], notice: jobInProgress(created.status)
+        ? 'Reading the document again. This page updates by itself when it’s ready.'
+        : created.status === 'awaiting_validation' ? 'The document has been read and is ready to check.' : `${jobStatusWords(created.status)}.` })
     }
     catch (caught) {
       if (!current()) return
@@ -594,8 +599,10 @@ export function Migrate() {
     const reading = parsePaperReading(extraction.structuredPayload)
     const notWhole = !reading && claimsPaperReading(extraction.structuredPayload)
     const fields = reading || notWhole ? [] : extractedFields(extraction.structuredPayload)
-    // Read again, for a reading OCR has finished, of a document and patient OCR takes.
-    const canReadAgain = canWrite && !jobInProgress(shown.status) && !!shown.patientId && UUID_V4.test(shown.patientId) && UUID_V4.test(shown.documentId)
+    // Read again, only before a check is saved: for a reading waiting to be checked, one that failed, or one rejected,
+    // and never once the patient is confirmed. A checked or saved reading read again could be saved into the record twice.
+    const canReadAgain = canWrite && READ_AGAIN_STATUSES.has(shown.status) && !shown.patientConfirmation
+      && !!shown.patientId && UUID_V4.test(shown.patientId) && UUID_V4.test(shown.documentId)
     const actions = reading || canReadAgain ? <div className="hid-ehr-dept-migrate-read-actions">
       {reading && <PaperReadingSummary reading={reading} />}
       {canReadAgain && <EhrButton id="ocr-read-again" size="sm" variant="secondary" busy={busy} onClick={() => void readAgain(shown)}>Read again</EhrButton>}

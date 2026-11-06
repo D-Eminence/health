@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
   CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
-  keptMedicines, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
+  keptMedicines, keptText, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
 import { handwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
@@ -503,5 +503,51 @@ describe('lines that could not be read are never saved', () => {
     const unreadableMedicines = { ...payload, items: [payload.items.find(item => item.kind === 'note')!, ...payload.items.filter(item => item.kind === 'medicine' && item.id !== CEFTRIAXONE)] }
     expect(offeredDomains(parsePaperReading(unreadableMedicines), true)).toEqual(['DOCUMENT_ONLY'])
     expect(offeredDomains(page, true)).toEqual(['DOCUMENT_ONLY', 'EHR', 'PHARMACY'])
+  })
+
+  it('a lab result that couldn’t be read is rejected, never added to past lab results, even with Keep', () => {
+    const base = paperReading()
+    const lab = base.items.find(item => item.kind === 'lab_result')!
+    const blank = { ...lab, id: 'it-0000000000000d99', asWritten: '[unreadable]', fields: { test: null, value: null, unit: null, referenceRange: null, flag: null } }
+    const payloadWithBlank = paperReading({ items: [lab, blank], reading: { ...base.reading, itemCount: 2 } })
+    const reading = parsePaperReading(payloadWithBlank) as PaperReading
+    const items = reviewItems(reading)
+    expect(initialDecisions(items)[blank.id]!.choice).toBe('remove')
+    const decisions = Object.fromEntries(items.map(item => [item.id, { choice: 'keep' as const, text: readingLine(item) }]))
+    const input = built(buildValidation({ ...choices('LAB'), reading, decisions }))
+    expect(() => assertAccepted(input, payloadWithBlank)).not.toThrow()
+    expect((input.acceptedFields.observations as Array<{ itemId?: string }>).map(entry => entry.itemId)).toEqual([lab.id])
+    expect(input.rejectedFields.map(field => (field as { itemId: string }).itemId)).toEqual([blank.id])
+  })
+})
+
+describe('a line read in part', () => {
+  it('waits for a choice even when the reader called it clear, so it is never kept unseen', () => {
+    const base = paperReading()
+    const partly = { ...base.items[0], asWritten: 'Metro[unreadable] 500' }
+    const reading = parsePaperReading(paperReading({ items: [partly], reading: { ...base.reading, itemCount: 1 } })) as PaperReading
+    expect(reading.items[0]!.confidence).toBe('clear')
+    expect(initialDecisions(reading.items)[reading.items[0]!.id]!.choice).toBeNull()
+  })
+})
+
+describe('what Keep saves', () => {
+  const items = (parsePaperReading(paperReading()) as PaperReading).items
+  const byId = (id: string) => items.find(item => item.id === id)!
+
+  it('is the reading line, or a lab result’s test and result as they go to past lab results', () => {
+    expect(keptText(byId('it-00000000000000a1'))).toBe('Amlodipine 5 mg once a day')
+    expect(keptText(byId('it-00000000000000d1'))).toBe('Haemoglobin 11.2 g/dL')
+    expect(keptText(byId('it-00000000000000f1'))).toBe('Come back in two weeks')
+  })
+
+  it('is what a validation built with Keep accepts', () => {
+    const reading = parsePaperReading(paperReading()) as PaperReading
+    const decisions = Object.fromEntries(reading.items.map(item => [item.id, { choice: 'keep' as const, text: readingLine(item) }]))
+    const input = built(buildValidation({ ...choices('DOCUMENT_ONLY'), reading, decisions }))
+    for (const accepted of input.acceptedFields.items as Array<{ itemId: string; reading: string }>) {
+      const item = byId(accepted.itemId)
+      if (item.kind !== 'lab_result') expect(accepted.reading).toBe(keptText(item))
+    }
   })
 })
