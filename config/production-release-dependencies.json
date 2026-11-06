@@ -3,14 +3,14 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now: every service was redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 14bac287 (production backend run 42205946734). Since the previous pins, only ocr-api and ocr-worker changed in code (hid-system#197 official lists and doctors' signs, #198 zoom, PROMPT_VERSION 7) and gateway/Dockerfile pins patched musl (#199). The runtime assessment for CVE-2026-76844 was approved by the owner, D-Eminence, in chat on 2026-11-06 (\"approve zlib\"). Browser-facing change: none beyond the OCR reading payload the website already handles. Re-pins and deploys of the OCR train approved by the owner in chat on 2026-11-05 (\"i approved everything thta needs my approval\", about 14:10 UTC).",
+  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at f411b760 for hid-system#200 (chat-style best-guess readings on hard handwritten pages; PROMPT_VERSION 8). Every other service stays at 14bac287. Browser-facing change: none to the contract; as-written text may now carry ? marks such as [dose?] and (crossed out: X?), shown as given. Requested by the owner, D-Eminence, in chat on 2026-11-06 (\"i want the output clean ... doctor no get time\"); OCR train deploys approved 2026-11-05 (\"i approved everything thta needs my approval\").",
   "backend_commits": {
     "gateway": "14bac28708251f639b726348fc5c03c080de96c1",
     "identity-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "ehr-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "lab-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "pharmacy-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "ocr-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "ocr-api": "f411b76026c2b21250532e489b5ac062f3292946",
     "outreach-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "support-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "notification-api": "14bac28708251f639b726348fc5c03c080de96c1"
