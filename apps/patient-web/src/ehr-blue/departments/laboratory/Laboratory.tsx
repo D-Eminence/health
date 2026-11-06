@@ -1,11 +1,12 @@
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Clock, FlaskConical, Plus, RotateCcw, Search } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Badge, Button, Card, EmptyState, FilterTabs, Input, PageHeader } from '../../../kasuwa/ui'
 import { staffApi, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
+import { selfServiceType } from '../../../staff/staffAccess'
+import { cannotCompleteOffered, holdsReceivePermission, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
 import { CannotCompleteEndings, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
@@ -24,13 +25,13 @@ import { isUrgent, urgencyRank } from '../parts/WorkQueue'
 import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
-  useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
+  readsKept, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
 } from '../parts/routedWork'
 import { usePaymentSettings } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, paysFirst } from '../pharmacy/pocFields'
 import { LabRequest } from './LabRequest'
 import {
-  ageSex, byUrgencyThenWait, factsOfItem, nextAction, personOf, requestOf, stageOf, STAGE_LABEL, STAGES, waitedText, type LabStage,
+  ageSex, byUrgencyThenWait, factsOfItem, listSaysStage, nextAction, personOf, requestOf, stageOf, STAGE_LABEL, STAGES, waitedText, type LabStage,
 } from './stage'
 
 /** The work list's address; a request opens below it (`/work/:id`), so Back and a refresh keep the place. */
@@ -38,6 +39,12 @@ export const WORK_HREF = '/provider/laboratory/work'
 const STAGE_PARAM = 'stage'
 
 const isStage = (value: string | null): value is LabStage => value !== null && (STAGES as readonly string[]).includes(value)
+
+/** What each stage says with nothing in it. Lab's list has no day limit (done work stays, newest first), so never "today". */
+const EMPTY_TITLE: Readonly<Record<LabStage, string>> = {
+  collect: 'No one is waiting for a sample', testing: 'No samples being tested', enter: 'No results to enter',
+  check: 'No results to check', done: 'Nothing finished yet',
+}
 
 /** The request open in the address, if any. */
 function openId(pathname: string): string | null {
@@ -104,6 +111,8 @@ export function Laboratory() {
   })
   const groups = groupsOf(searched)
   const count = (stage: LabStage) => groups.filter(group => group.stage === stage).length
+  // Today's work list sends nothing past the sample, so it can't tell what is finished (as on Results).
+  const listsStage = items.some(listSaysStage)
   const asked = params.get(STAGE_PARAM)
   // With no stage in the address: the first with work waiting, else Waiting for sample.
   const stage: LabStage = isStage(asked) ? asked : STAGES.find(value => value !== 'done' && groupsOf(items).some(group => group.stage === value)) ?? 'collect'
@@ -156,13 +165,20 @@ export function Laboratory() {
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
-    if (chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
+    // As today (Operations.tsx notCompletedHere): where its reads ended at once, nothing of it is shown again; where
+    // they are kept, the request stays open, read only, with the ending said above it.
+    if (!readsKept(ending.result) && chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
     void list.refresh()
   }
   const pick = (value: LabStage) => setParams(previous => { const next = new URLSearchParams(previous); next.set(STAGE_PARAM, value); return next }, { replace: true })
   const siblings = chosen ? items.filter(item => item.id !== chosen.id && requestOf(item) && requestOf(item)?.id === requestOf(chosen)?.id) : []
 
-  return <div className="hid-ehr-dept-laboratory">
+  return <div className="hid-ehr-dept-laboratory flex flex-col gap-5">
+    {/* Mounted once, outside the hidden list, so an ending is said on the request it kept open as on the list (each
+        ending takes focus as it mounts: a second copy would move it to the oldest). */}
+    {notCompleted.endings.length > 0 ? <DeptEmbedded>
+      <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
+    </DeptEmbedded> : null}
     {chosen ? <LabRequest key={chosen.id} facilityId={workFacility} item={chosen} siblings={siblings} permissions={permissions} settings={settings}
       said={said.rowSaid(chosen.orderRoute?.id)} backTo={listHref} onListChanged={() => void list.refresh()}
       onEnded={ending => endedHere(chosen, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} /> : null}
@@ -173,17 +189,21 @@ export function Laboratory() {
           {/* Busy while the list is read, but never disabled: a disabled button would lose the focus it has. */}
           <Button icon={RotateCcw} aria-busy={list.loading || undefined} aria-disabled={list.loading || undefined}
             onClick={() => { if (!list.loading) void list.refresh() }}>Refresh</Button>
-          {permissions.includes('lab.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new">New request</Button> : null}
+          {/* New request is point of care, which Health ID does not serve yet: offered only where it may answer (commerce/served.ts). */}
+          {permissions.includes('lab.walk-in.create') && pointOfCareOpen(facilityId) ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new">New request</Button> : null}
         </>} />
       <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
+      {/* Lab lists a doctor's request at this facility only to someone holding their own access to that patient (hid-system
+          0086 lab.work_item_allows, a grant per member): said where the lab is part of the facility, not a lab of its own.
+          The Access PIN is offered only to a role that may use it (0033: doctor, clinician and nurse). */}
+      {permissions.includes('identity.patient.read') && selfServiceType(facility) !== 'laboratory' ? <DeptNotice>A doctor’s request shows here
+        once you have access to that patient. <Link to="/provider/patients">Find the patient</Link>, then {permissions.includes('identity.patient-access-pin.verify')
+          ? 'use their Access PIN or ask them in the Health ID app' : 'ask them to approve your access in the Health ID app'}.</DeptNotice> : null}
       {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
         facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
         onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId}
         cannotCompleteBeside="opened" /></DeptEmbedded> : null}
       <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
-      {notCompleted.endings.length > 0 ? <DeptEmbedded>
-        <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
-      </DeptEmbedded> : null}
       {lateCorrection ? <DeptEmbedded><LateWrongPatient service="lab" facilityId={workFacility} onEnded={endedLate} onNotCompleted={notCompletedHere}
         onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: workFacility, correction }) }} /></DeptEmbedded> : null}
       <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
@@ -192,13 +212,15 @@ export function Laboratory() {
 
       <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <FilterTabs<LabStage> label="Stage" value={stage} onChange={pick}
-          options={STAGES.map(value => ({ value, label: STAGE_LABEL[value], count: count(value) }))} />
+          options={STAGES.map(value => ({ value, label: STAGE_LABEL[value], count: list.items ? count(value) : undefined }))} />
         <Input icon={Search} type="search" aria-label="Search the work list" placeholder="Name, phone, test or number" value={search}
           onChange={event => setSearch(event.target.value)} className="@4xl:w-80" />
       </div>
       <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
-        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet' : `Nothing in ${STAGE_LABEL[stage]}`,
-          description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
+        empty={shown.length === 0 ? { icon: FlaskConical,
+          title: search.trim() ? 'Nothing matches' : stage === 'done' && !listsStage ? 'Finished requests aren’t listed here yet' : EMPTY_TITLE[stage],
+          description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.'
+            : stage === 'done' && !listsStage ? 'For now a finished request still shows under Testing. Open it there to see its result.' : undefined } : null}>
         <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}
             below={group.items.map(item => {
@@ -223,8 +245,10 @@ function RequestCard({ group, settings, onOpen, below }: {
   const urgent = group.items.some(item => isUrgent(item.priority))
   const bill = billOf(first)
   const owing = group.stage === 'collect' && paysFirst(settings, 'lab') && billOwing(bill)
-  const action = nextAction(group.stage, factsOfItem(first), owing)
-  const waited = waitedText(first.acceptedAt)
+  // An ended order from another facility is read only: its card names no step. Neither it nor finished work is waiting.
+  const ended = group.items.every(item => routeClosedForWork(item.orderRoute))
+  const action = ended ? 'See what was recorded' : nextAction(group.stage, factsOfItem(first), owing)
+  const waited = ended || group.stage === 'done' ? null : waitedText(first.acceptedAt)
   const details = [ageSex(person), person.healthId ?? (person.hidText === 'No Health ID' ? null : person.hidText)].filter(Boolean).join(' · ')
   return <Card as="li" className="@container flex min-w-0 flex-col gap-3 p-4">
     <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
@@ -240,7 +264,7 @@ function RequestCard({ group, settings, onOpen, below }: {
     <p className="m-0 text-[15px] font-medium text-ink break-words">{group.items.map(item => item.testName ?? 'Lab test').join(' · ')}</p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <span className="inline-flex items-center gap-1.5 text-caption text-ink-3 tabular">
-        <Clock className="size-3.5" aria-hidden />{waited ? `Waiting ${waited}` : 'Just in'}{requestOf(first) ? ` · ${requestOf(first)!.number}` : ''}
+        <Clock className="size-3.5" aria-hidden />{waited ? `Waiting ${waited}` : ended ? 'Ended' : group.stage === 'done' ? 'Finished' : 'Just in'}{requestOf(first) ? ` · ${requestOf(first)!.number}` : ''}
       </span>
       <Button id={`lab-${first.id}-record`} variant="soft" onClick={() => onOpen(first)} className="whitespace-nowrap @max-xs:w-full">
         {action}<span className="sr-only">: {person.name}, {group.items.map(item => item.testName ?? 'Lab test').join(', ')}</span>

@@ -306,7 +306,7 @@ describe('the list cut short at 200', () => {
   it('says newer work can’t be reached here, and that work Pharmacy won’t dispense still counts', async () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: many(200) })
     renderPage()
-    expect(await screen.findByText(/^This list can show only the 200 oldest accepted work items\./)).toBeTruthy()
+    expect(await screen.findByText(/^This list shows at most 200 requests:/)).toBeTruthy()
     expect(screen.getByText(/^Work whose prescription changed after Pharmacy accepted it can’t be/).textContent?.replace(/\s+/g, ' '))
       .toBe('Work whose prescription changed after Pharmacy accepted it can’t be dispensed, but it stays listed and counts toward these 200.')
   })
@@ -315,7 +315,7 @@ describe('the list cut short at 200', () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: many(199) })
     renderPage()
     await screen.findAllByRole('button', { name: AMOXICILLIN })
-    expect(screen.queryByText(/oldest accepted work items/)).toBeNull()
+    expect(screen.queryByText(/^This list shows at most 200 requests:/)).toBeNull()
     expect(screen.queryByText(/counts toward these 200/)).toBeNull()
   })
 

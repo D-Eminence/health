@@ -1131,12 +1131,62 @@ describe('A lab request’s page', () => {
     const view = screen.getByRole('button', { name: 'View released results' })
     fireEvent.click(view)
     expect(view.getAttribute('aria-expanded')).toBe('true')
-    expect(await screen.findByText('9.8 g/dL · low')).toBeTruthy()
-    expect(screen.getByText('Reference range: 12.0-15.5')).toBeTruthy()
+    expect(await screen.findByText('9.8 g/dL · Low')).toBeTruthy()
+    expect(screen.getByText('Normal range: 12.0-15.5')).toBeTruthy()
     expect(screen.getByText('Result 1')).toBeTruthy()
+    expect(screen.getByText('Latest released result')).toBeTruthy()
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows a corrected result first as the latest released one, the replaced one under it with why it changed, in plain words', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    const released = (version: number, value: number, reason: string | null) => ({ version, resultType: 'numeric', numericValue: value, textValue: null,
+      unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: value < 12 ? 'low' : 'normal', entrySource: 'manual', verificationStatus: 'verified',
+      releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: reason })
+    api.labReleasedResultsForOrder.mockResolvedValue({
+      workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-10-30T10:00:00.000Z',
+      test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 3, currentReleasedVersion: 3,
+        // Version 2 was never released, so Lab sends only 1 and 3 (lab-executions.service.ts releasedView).
+        revisions: [released(1, 7.1, null), released(3, 12.4, 'Typed 7.1 for 12.4')] }],
+    })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    const current = (await screen.findByText('Latest released result')).closest('li')!
+    expect(within(current).getByText('12.4 g/dL · Normal')).toBeTruthy()
+    expect(within(current).getByText('Why it was changed: Typed 7.1 for 12.4')).toBeTruthy()
+    const earlier = screen.getByText('Earlier released result').closest('li')!
+    expect(within(earlier).getByText('7.1 g/dL · Low')).toBeTruthy()
+    expect(within(earlier).getByText('Replaced')).toBeTruthy()
+    expect(screen.getByText('Some versions were never released, so they aren’t shown.')).toBeTruthy()
+    // The newest comes first, and no status or flag is shown as the service writes it.
+    expect(current.compareDocumentPosition(earlier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/not released|verified|critical candidate|\bVersion \d|Reference range|Reason:/)
+  })
+
+  it('says a released result marked entered in error is not to be used, in plain words', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValue({
+      workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-10-30T10:00:00.000Z',
+      test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'entered_in_error', verificationStatus: 'entered_in_error', currentVersion: 1, currentReleasedVersion: 1,
+        revisions: [{ version: 1, resultType: 'numeric', numericValue: 7.1, textValue: null, unit: 'g/dL', referenceRange: null, abnormalFlag: 'unknown',
+          entrySource: 'manual', verificationStatus: 'entered_in_error', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z',
+          releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null }] }],
+    })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('Don’t use this result: the lab marked it as entered in error.')).toBeTruthy()
+    // A result not to be used is never called the current one.
+    expect(screen.getByText('Latest released result')).toBeTruthy()
+    expect(screen.queryByText('Current result')).toBeNull()
+    // A flag the lab did not set says nothing.
+    expect(screen.getByText('7.1 g/dL')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/do not use it|unknown|Not set/)
   })
 
   it('says when no result is released, and today’s refusals', async () => {

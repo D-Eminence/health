@@ -23,7 +23,7 @@ import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
 import { useLabRecord } from './labRecord'
 import { Labels, usePrint } from './labPrint'
 import { CheckStep, CollectStep, ResultForm, ResultHistory, ResultValue, TestingStep, type LabSubject } from './labSteps'
-import { LAB_RESULTS_HIDDEN, stampText } from './labText'
+import { correctionWaiting, LAB_RESULTS_HIDDEN, stampText } from './labText'
 import {
   ageSex, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
 } from './stage'
@@ -41,7 +41,7 @@ export function personBanner(person: LabPerson, compact = false): ReactNode {
 
 export function subjectOf(item: LabWorkItem): LabSubject {
   const person = personOf(item)
-  return { name: person.name, banner: personBanner(person, true) }
+  return { name: person.name, banner: personBanner(person, true), named: Boolean(item.patient || walkInOf(item)) }
 }
 
 /** The five stages as a track, the current one marked: where this request is, and how far it has to go. */
@@ -143,13 +143,15 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
   const defaultReason = walkIn?.clinicalNote ?? (outside ? `Asked for by ${outside.prescriberName}` : walkIn ? 'Walk-in request' : '')
+  // How long it has waited, only while it waits: a finished request, or an ended order, is not waiting.
+  const waited = stage === 'done' || closed ? null : waitedText(item.acceptedAt)
 
   return <FormPage wide back={{ to: backTo, label: 'Back to the work list' }}
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}
-    description={[isUrgent(item.priority) ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
-      .filter(Boolean).join(' · ') || undefined}>
+    description={[isUrgent(item.priority) ? 'Urgent' : null, waited ? `waiting ${waited}` : null].filter(Boolean).join(' · ') || undefined}>
     {personBanner(person)}
-    <StageTrack stage={stage} />
+    {/* With its results hidden the stage can't be told, so no track claims one. */}
+    {record.hidden ? null : <StageTrack stage={stage} />}
     {/* Focusable, so focus can be put on what a refused ending said once its form is gone. */}
     {said && route ? <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice> : null}
     {route ? <DeptEmbedded className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></DeptEmbedded> : null}
@@ -174,15 +176,34 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {stage === 'collect' && !closed && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
           defaultType={sampleGuess} defaultReason={defaultReason} onRegistered={value => setMade(value)} onListChanged={onListChanged} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
+        {closed && stage !== 'done' ? <p className="m-0 text-[15px] text-ink-2">Nothing more can be done on this order.</p> : null}
         {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. A sample
-            still waiting beside one taken keeps its step, since each sample is collected on its own. */}
-        {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'required' || specimen.status === 'collected'
+            still waiting beside one taken keeps its step, since each sample is collected on its own. On an ended order no
+            step is offered at any stage, as at Waiting for sample: Lab refuses every write on it (ORDER_ROUTE_CLOSED). */}
+        {stage === 'testing' && accession && !record.hidden && !closed ? accession.specimens.filter(specimen => specimen.status === 'required' || specimen.status === 'collected'
           || specimen.status === 'received').map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen}
             accessionId={accession.id} test={test} executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
-        {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
+        {stage === 'enter' && !record.hidden && !closed ? (permissions.includes('lab.result.enter')
           ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} facilityOnePerson={facilityOnePerson} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}
-        {stage === 'check' && !record.hidden ? toCheck.map(execution => <CheckStep key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} {...step} execution={execution} />) : null}
+        {/* A result waiting to be checked can be corrected first (a new version, checked in its turn), as on today's page
+            (Operations.tsx ExecutionCard): whoever spots a mistake before release fixes it instead of checking it. A
+            correction of a released result says, above its check, that the clinician still sees the earlier one. On an ended
+            order the result is only shown, as never released: no one can check or release it. */}
+        {stage === 'check' && !record.hidden ? toCheck.map(execution => <div key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} className="flex flex-col gap-3">
+          {correctionWaiting(execution.result) ? <Alert intent="warning" size="sm">{closed
+            ? 'This corrects a result that was already released. The clinician still sees the earlier result.'
+            : <>This corrects a result that was already released. Until this one is released, the clinician still sees the earlier result.</>}</Alert> : null}
+          {closed ? <div className="flex flex-col gap-1">
+            <p className="m-0 text-title-3 text-ink break-words">{execution.test.name}</p>
+            <ResultValue result={execution.result!} />
+            <p className="m-0 text-caption text-ink-3">Never released.</p>
+          </div> : <CheckStep {...step} execution={execution} />}
+          {canCorrect(execution) && correcting !== execution.id ? <Button variant="ghost" icon={Pencil} className="self-start" onClick={() => setCorrecting(execution.id)}>
+            Correct<span className="sr-only">: {execution.test.name}</span></Button> : null}
+          {correcting === execution.id ? <ResultForm {...step} execution={execution} result={execution.result} onCancel={() => setCorrecting(null)}
+            onDone={message => { setCorrecting(null); done(message) }} /> : null}
+        </div>) : null}
         {stage === 'done' && !record.hidden ? <>
           {released.length > 0 ? <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
             {released.map(execution => <li key={execution.id} className="flex flex-col gap-3 py-3 first:pt-0">
@@ -217,7 +238,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         walkIn?.clinicalNote ? ['Clinical note', walkIn.clinicalNote] : null,
         outside ? ['Referred by', [outside.prescriberName, outside.facilityName].filter(Boolean).join(', ')] : null,
         route?.ordererName ? ['Ordered by', route.ordererName + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '')] : null,
-        ['Waiting', waitedText(item.acceptedAt) ?? 'Not known'],
+        stage === 'done' || closed ? null : ['Waiting', waited ?? 'Not known'],
       ]} />
     </Card>
 
