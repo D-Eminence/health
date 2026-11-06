@@ -1,7 +1,7 @@
 import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
-import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
+import { revisionValue, sameScientistCheck, skipsVersions } from '../../../../staff/labRevisions'
 import { ErrorBox } from '../../parts/Notices'
 import { releasedResultsRefusal } from './words'
 
@@ -9,11 +9,14 @@ function dateText(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : 'Not available'
 }
 
-/** Today's RevisionList (staff/labRevisions.tsx) in the design's list style, with its words. */
+/**
+ * Today's RevisionList (staff/labRevisions.tsx) in the design's list style, with its words, including whether the
+ * scientist who entered a revision also checked it (one-person lab, owner decision 33(3)).
+ */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
   return (
     <ul className="hid-ehr-clinical-orders-revisions">
-      {revisions.map(revision => (
+      {revisions.map(revision => { const same = sameScientistCheck(revision); return (
         <li key={revision.version} className="hid-ehr-clinical-orders-revision">
           <div className="hid-ehr-clinical-orders-row">
             <strong>Version {revision.version}</strong>
@@ -25,8 +28,10 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
           {revision.releasedAt ? <p>Released {dateText(revision.releasedAt)}</p> : null}
           {revision.referenceRange ? <p>Reference range: {revision.referenceRange}</p> : null}
           {revision.correctionReason ? <p>Reason: {revision.correctionReason}</p> : null}
+          {same ? <p>{same.text}</p> : null}
+          {same?.reason ? <p>Their reason: {same.reason}</p> : null}
         </li>
-      ))}
+      ) })}
     </ul>
   )
 }
