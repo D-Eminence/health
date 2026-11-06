@@ -523,7 +523,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(await view().findByText('Malaria (fictional)')).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: 'dx-cursor-2', fresh: false })
     expect(view().getAllByRole('listitem')).toHaveLength(1)
-    expect(view().getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
+    expect(view().getByText('Active · Provisional')).toBeTruthy()
     expect(pager().getByText('Page 2')).toBeTruthy()
     // A read only: nothing to change, add or update.
     expect(view().queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()

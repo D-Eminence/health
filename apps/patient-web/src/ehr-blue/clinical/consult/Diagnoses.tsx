@@ -6,6 +6,7 @@ import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
 import { formatWhen, statusWords } from '../parts/format'
+import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
@@ -51,16 +52,15 @@ function choiceLabel(choices: readonly StatusOption[], value: string): string {
   return choices.find(choice => choice.value === value)?.label ?? (value ? statusWords(value) : '')
 }
 
-/** Its code, then its clinical status and verification in words: "ICD-10 B54 · Active · Provisional". */
+/** Its clinical status and verification in words: "Active · Provisional". Its code waits under More details (33.4). */
 function detail(record: ClinicalRecord) {
-  const code = [field(record, 'codeSystem'), field(record, 'code')].filter(Boolean).join(' ')
-  return [code, choiceLabel(DIAGNOSIS_CLINICAL_STATUSES, field(record, 'clinicalStatus')), choiceLabel(VERIFICATION_CHOICES, field(record, 'verificationStatus'))]
+  return [choiceLabel(DIAGNOSIS_CLINICAL_STATUSES, field(record, 'clinicalStatus')), choiceLabel(VERIFICATION_CHOICES, field(record, 'verificationStatus'))]
     .filter(Boolean).join(' · ')
 }
 
 /**
- * The encounter's diagnoses (today's Diagnoses tab), on today's record pages: each with its code and status, "Change
- * this diagnosis" while it is not entered in error, and "Add diagnoses". Every change re-checks access first and is
+ * The encounter's diagnoses (today's Diagnoses tab), on today's record pages: each with its status and its code under
+ * More details, "Change this diagnosis" while it is not entered in error, and "Add diagnoses". Every change re-checks access first and is
  * kept in the history; a new diagnosis shows the first page again, a change the page shown (today's reads).
  */
 export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onReloadFailed }: {
@@ -160,10 +160,16 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
               <li key={record.id} className="hid-ehr-clinical-consult-record">
                 <div className="hid-ehr-clinical-history-row">
                   <span>
-                    <strong>{field(record, 'display') || 'Diagnosis'}</strong>
+                    {/* The plain name first; a diagnosis recorded with no name shows its code (it is all there is). */}
+                    <strong>{field(record, 'display').trim() || codeText(field(record, 'codeSystem'), field(record, 'code')) || 'Diagnosis'}</strong>
                     <span className="hid-ehr-clinical-cell-sub">{detail(record)}</span>
                     {field(record, 'notes') ? <span className="hid-ehr-clinical-cell-sub">{field(record, 'notes')}</span> : null}
                     {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
+                    {field(record, 'display').trim() && codeText(field(record, 'codeSystem'), field(record, 'code')) ? (
+                      <MoreDetails about={field(record, 'display')}>
+                        <span>Code: {codeText(field(record, 'codeSystem'), field(record, 'code'))}</span>
+                      </MoreDetails>
+                    ) : null}
                   </span>
                   {/* Today's warning badge for a diagnosis entered in error; the shared status map has no tone for it. */}
                   {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : <StatusBadge status={diagnosisStatus(record)} />}

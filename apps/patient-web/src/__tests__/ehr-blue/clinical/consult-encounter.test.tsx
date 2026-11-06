@@ -340,7 +340,7 @@ describe('Consultation record', () => {
     const history = within(card('History'))
     expect(within(history.getByText('Diagnoses · Malaria (fictional)').closest('li') as HTMLElement).getByText('Refuted')).toBeTruthy()
     expect(within(history.getByText('Diagnoses · Fever (fictional)').closest('li') as HTMLElement).getByText('Active')).toBeTruthy()
-    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Refuted')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('Active · Refuted')).toBeTruthy()
   })
 
   it('says the role grants no access to encounter records when it holds none of the record reads', async () => {
@@ -795,7 +795,14 @@ describe('Consultation record: diagnoses', () => {
     await openEncounter()
     const diagnoses = within(card('Diagnoses'))
     expect(diagnoses.getByText('Malaria (fictional)')).toBeTruthy()
-    expect(diagnoses.getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
+    expect(diagnoses.getByText('Active · Provisional')).toBeTruthy()
+    // The diagnosis leads with its name; its code waits under a closed "More details" (owner decision 33.4).
+    const row = diagnoses.getByText('Malaria (fictional)').closest('li')!
+    const details = row.querySelector('details')!
+    expect(row.textContent!.replace(details.textContent!, '')).not.toContain('B54')
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary')?.textContent).toBe('More details: Malaria (fictional)')
+    expect(details.querySelector(':scope > div')?.textContent).toBe('Code: ICD-10 B54')
     // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
     expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
     const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
@@ -841,6 +848,14 @@ describe('Consultation record: diagnoses', () => {
     await openEncounter()
     // Today's empty sentence (Clinical.tsx:1808).
     expect(await within(card('Diagnoses')).findByText('No diagnoses for this consultation.')).toBeTruthy()
+  })
+
+  it('names a diagnosis recorded with no name by its code, with no More details', async () => {
+    records.diagnoses = [{ ...DIAGNOSIS, display: '' }]
+    await openEncounter()
+    const row = within(card('Diagnoses')).getByText('ICD-10 B54').closest('li')!
+    expect(within(row).getByText('Active · Provisional')).toBeTruthy()
+    expect(row.querySelector('details')).toBeNull()
   })
 
   it('offers no change for one entered in error', async () => {
@@ -1319,7 +1334,7 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     fireEvent.click(row.getByRole('button', { name: 'Update diagnosis' }))
     expect(await screen.findByText('Diagnosis updated.')).toBeTruthy()
     await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}Try again`))
-    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Provisional')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('Active · Provisional')).toBeTruthy()
     records.diagnoses = [{ ...DIAGNOSIS, verificationStatus: 'confirmed', rowVersion: 2 }]
     api.records.mockImplementation(read)
     const reads = api.records.mock.calls.length
@@ -1328,7 +1343,7 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     await waitFor(() => expect(sentence()).toBeNull())
     expect(api.records.mock.calls.slice(reads)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: undefined, fresh: true }]])
     expect(api.lookupPatient.mock.calls.length).toBe(checks)
-    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Confirmed')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('Active · Confirmed')).toBeTruthy()
     expect(screen.getByText('Diagnosis updated.')).toBeTruthy()
   })
 
@@ -1392,7 +1407,7 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     await waitFor(() => expect(sentence()).toBeNull())
     expect(api.records.mock.calls.slice(reads).map(call => call[3]).sort()).toEqual(['clinical-notes', 'diagnoses'])
     expect(row().getByText('Entered in error')).toBeTruthy()
-    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Confirmed')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('Active · Confirmed')).toBeTruthy()
   })
 
   it('keeps the outcome of a change made while Try again reads: a later failure of that read does not bring the sentence back', async () => {
