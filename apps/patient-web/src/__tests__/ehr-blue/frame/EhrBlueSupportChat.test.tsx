@@ -5,7 +5,7 @@ import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, homeHeading, json, ope
 
 /**
  * Help in the blue EHR: Health ID's support assistant (support-api, anonymous), in a drawer of the frame, for any
- * signed-in staff member, where the build offers it (the ehr build), from the sidebar's account menu. Its privacy guard
+ * signed-in staff member, where the build offers it (each staff product site's build), from the sidebar's account menu. Its privacy guard
  * keeps patients out of it: the notice above the question, and a question that could hold a Health ID, a NIN, an email
  * address or a phone number refused before anything is sent, saying what to remove. The guard refuses shapes, not
  * words (#61, option a): some ordinary questions are refused on purpose, and a Health ID of letters only, written other
