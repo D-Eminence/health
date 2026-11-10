@@ -151,6 +151,16 @@ function newestExtraction(items: readonly OcrExtraction[]) {
   return items.reduce<OcrExtraction | undefined>((newest, item) => !newest || item.version > newest.version ? item : newest, undefined)
 }
 
+/** Whether OCR read any text at all: text that is only spaces or line breaks is none. */
+function hasText(text: string | null | undefined): text is string {
+  return !!text && text.trim().length > 0
+}
+
+/** The text OCR read, as it is. It scrolls, so it takes focus: a keyboard can then scroll it. */
+function scannedText(text: string) {
+  return <pre tabIndex={0} role="region" aria-label="Text read from the document" className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{text}</pre>
+}
+
 function jobFacts(job: OcrJob): DeptFact[] {
   return [
     { label: 'Status', value: jobStatusWords(job.status) },
@@ -628,10 +638,15 @@ export function Migrate() {
       {reading && <PaperReadingView reading={reading} />}
       {notWhole && <p role="note" className="hid-ehr-dept-muted">{NOT_WHOLE_WORDS}</p>}
       {fields.length > 0 && <DeptFacts facts={fields} />}
-      {extraction.rawText
-        // It scrolls, so it takes focus: a keyboard can then scroll it.
-        ? <pre tabIndex={0} role="region" aria-label="Text read from the document" className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
-        : <p className="hid-ehr-dept-muted">No text was read from this document.</p>}
+      {/* A paper reading's items are what staff check, so the scanned text waits closed at the end; without one it shows as it is. */}
+      {reading
+        ? hasText(extraction.rawText) && <details className="hid-ehr-dept-migrate-details hid-ehr-dept-migrate-raw">
+          <summary>Scanned text (raw)</summary>
+          {scannedText(extraction.rawText)}
+        </details>
+        : hasText(extraction.rawText)
+          ? scannedText(extraction.rawText)
+          : <p className="hid-ehr-dept-muted">No text was read from this document.</p>}
     </DeptSection>
   }
 
@@ -708,10 +723,11 @@ export function Migrate() {
         entries={(extractions ?? []).map(extraction => ({
           key: extraction.id,
           summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
-          detail: extraction.rawText
+          // An extraction with no text shows its summary line alone, never an empty block.
+          detail: hasText(extraction.rawText)
             // It scrolls, so it takes focus: a keyboard can then scroll it.
             ? <pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
-            : <p className="hid-ehr-dept-muted">No text was extracted.</p>,
+            : undefined,
         }))} />
       {validations && validations.length > 0 && <DeptSection title="Review and publication history" headingId="ocr-history-title">
         <ul className="hid-ehr-dept-rows">{validations.map(validation => <ReviewPublication key={validation.id} actorId={actorId} facilityId={facilityId!}

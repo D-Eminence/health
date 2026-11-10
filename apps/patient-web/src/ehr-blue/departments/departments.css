@@ -837,6 +837,14 @@
   margin: 4px 0 0;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-raw {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-raw > pre {
+  margin: 8px 0 0;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-review {
   align-items: flex-start;
 }
