@@ -331,6 +331,12 @@
   cursor: pointer;
 }
 
+.hid-ehr .hid-ehr-dept-history-line {
+  margin: 0;
+  color: var(--ehr-text);
+  font-weight: 500;
+}
+
 .hid-ehr .hid-ehr-dept-history summary:focus-visible {
   outline: 3px solid var(--ehr-brand);
   outline-offset: 3px;
@@ -786,8 +792,101 @@
   font-size: 12px;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-reading {
+  display: grid;
+  gap: 20px;
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reading h3 {
+  margin: 0 0 6px;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-read-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+/* One line per item read: the words as written, then a small "?" and Why? when it needs a check. */
+.hid-ehr .hid-ehr-dept-rows > li.hid-ehr-dept-migrate-line {
+  justify-content: flex-start;
+  gap: 8px 12px;
+  padding: 8px 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-mark {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why > summary,
+.hid-ehr .hid-ehr-dept-migrate-details > summary {
+  cursor: pointer;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why[open] > span {
+  display: block;
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-details > p {
+  margin: 4px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-raw {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-raw > pre {
+  margin: 8px 0 0;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-review {
   align-items: flex-start;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-item > [role="group"] {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head > strong {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-publication,

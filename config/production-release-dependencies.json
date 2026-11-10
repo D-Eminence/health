@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now, after backend release backend-41472309905-1-92af4593c4d92277 (D-Eminence/hid-system#149 at 34d6955), which rebuilt and redeployed all twelve services and the database migration from that commit: migrations 0102 (the sealed demo story and the demo patients' Access PIN) and 0103 (the platform super admin can list, check the CAC of, approve and reject organization applications), identity-api's demo-requests audit actions renamed to admin.*, and the gateway's libexpat 2.10.0-r0 pin. Browser-facing changes since the previous pins (a42b48a, 6f900b6, 6c6fc18): the admin Overview's Organization applications and Demo requests now load for the platform super admin; the demo patients are named Adaeze Okafor and Chinedu Okafor and have an Access PIN; nothing this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-02: \"approve 0102 and 0103\", in reply to the plan to sign and merge the backend release, then update the website to match and release it, and \"done\" when patient2@'s password was set.",
+  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 013c3eff for hid-system#205 (reader cleanups: one alternative per field, headings and duplicate stop notes dropped; PROMPT_VERSION 12), on top of #204 (last-resort read). Every other service stays at 14bac287. No browser-facing contract change. OCR train deploys approved by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\"); clean output requested 2026-11-06.",
   "backend_commits": {
-    "gateway": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "identity-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "ehr-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "lab-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "pharmacy-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "ocr-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "outreach-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "support-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7",
-    "notification-api": "34d69557382a2d99d21399f1e65f959c3b6e2ff7"
+    "gateway": "14bac28708251f639b726348fc5c03c080de96c1",
+    "identity-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "ehr-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "lab-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "pharmacy-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "ocr-api": "013c3eff0940795158cd0147a4cab3502a78d64d",
+    "outreach-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "support-api": "14bac28708251f639b726348fc5c03c080de96c1",
+    "notification-api": "14bac28708251f639b726348fc5c03c080de96c1"
   }
 }
