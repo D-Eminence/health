@@ -296,7 +296,11 @@ describe('Migrate record view', () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, confidence: 0.38, rawText: ' \n\t ' }] })
     await findJob(awaiting)
     const summary = await screen.findByText('Extraction 1 · textract · confidence 38%')
-    const entry = summary.closest('details')!
+    // A plain line, not a disclosure that opens to nothing.
+    expect(summary.tagName).toBe('P')
+    expect(summary.closest('details')).toBeNull()
+    const entry = summary.closest('.hid-ehr-dept-history')!
+    expect(entry.querySelector('summary')).toBeNull()
     expect(entry.querySelector('pre')).toBeNull()
     expect(entry.querySelector('.hid-ehr-dept-history-detail')).toBeNull()
     expect(entry.textContent).toBe('Extraction 1 · textract · confidence 38%')

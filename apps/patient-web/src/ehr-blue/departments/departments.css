@@ -331,6 +331,12 @@
   cursor: pointer;
 }
 
+.hid-ehr .hid-ehr-dept-history-line {
+  margin: 0;
+  color: var(--ehr-text);
+  font-weight: 500;
+}
+
 .hid-ehr .hid-ehr-dept-history summary:focus-visible {
   outline: 3px solid var(--ehr-brand);
   outline-offset: 3px;
