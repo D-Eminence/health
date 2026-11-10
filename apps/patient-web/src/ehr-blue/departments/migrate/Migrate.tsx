@@ -305,10 +305,12 @@ export function Migrate() {
   /** Shows a job just read or made, and reads its review evidence. */
   function show(found: OcrJob, documentId: string) {
     setJob(found); setJobFacilityId(facilityId ?? ''); setCurrentDocument(documentId); setSearched(true)
-    setExtractions(null); setValidations(null); setLookupRevision(value => value + 1); remember(found); restartPolling()
+    setExtractions(null); setValidations(null); setLookupRevision(value => value + 1); remember(found); restartPolling(); setPollLong(null)
   }
 
-  /** A job shown afresh is read again by itself for a full POLL_FOR_MS once more (what it says of a long read stays). */
+  /** A job read again is read again by itself for a full POLL_FOR_MS once more. What it says of a long read stays after
+   * Check now or Refresh status; a job opened, found, made or retried afresh clears it (setPollLong(null)), so the first
+   * minute says what it always has. */
   function restartPolling() {
     pollSince.current = null; setPollStop(null)
   }
@@ -332,7 +334,7 @@ export function Migrate() {
   /** Opens a job's record, read again; focus goes to its heading. */
   function openRecord(found: OcrJob) {
     openRequest.current += 1
-    setQuick(null); setAction(null); setProblem(null)
+    setQuick(null); setAction(null); setProblem(null); setPollLong(null)
     setJob(found); setJobFacilityId(facilityId ?? ''); setCurrentDocument(found.documentId); setView('detail')
     focus('migrate-view-title')
     void lookup(found.documentId).then(result => { if (!result?.job) focus('ocr-find-submit', true) })
@@ -362,6 +364,7 @@ export function Migrate() {
     const refused = !documentId ? { field: 'ocr-document', message: 'Complete this field.' }
       : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
+    setPollLong(null)
     const result = await lookup(documentId)
     if (result?.job) { setView('detail'); setAction(null); focus('migrate-view-title') }
     else focus('ocr-find-submit', true)
@@ -470,7 +473,7 @@ export function Migrate() {
     setBusy(true); setError(''); setNotice('')
     try {
       const retried = await staffApi.retryOcrJob(facilityId, visibleJob, reason)
-      setJob(retried); remember(retried); setLookupRevision(value => value + 1); restartPolling()
+      setJob(retried); remember(retried); setLookupRevision(value => value + 1); restartPolling(); setPollLong(null)
       setStepFocus({ targets: ['ocr-job-title'], notice: 'Retry requested.' })
     }
     catch (caught) { setRetryError(errorText(caught, 'The OCR job was not retried.')); focus('ocr-retry-submit', true) }

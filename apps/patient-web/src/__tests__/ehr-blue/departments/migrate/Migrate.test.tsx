@@ -497,6 +497,25 @@ describe('Migrate: following a document while it is read', () => {
     expect(api.findOcrJob).toHaveBeenCalledTimes(done)
   }))
 
+  it('a job retried after a long read says what it always has in its first minute again', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    await wait(70_000)
+    await waitFor(() => expect(screen.getByText(READING_LONG)).toBeTruthy())
+    api.findOcrJob.mockResolvedValue({ job: { ...failed, version: 5 } })
+    await wait(15_000)
+    await waitFor(() => expect(screen.queryByText(READING_LONG)).toBeNull())
+    await openAction('Retry job')
+    fireEvent.change(screen.getByLabelText(/^Retry reason/), { target: { value: 'The scan was replaced with a clearer copy' } })
+    api.retryOcrJob.mockResolvedValue({ ...queued, version: 6, attemptCount: 2 })
+    api.findOcrJob.mockResolvedValue({ job: { ...queued, version: 6, attemptCount: 2 } })
+    await press(within(screen.getByRole('form', { name: 'Retry job' })).getByRole('button', { name: 'Retry job' }))
+    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy()
+    expect(screen.queryByText(READING_LONG)).toBeNull()
+    await wait(30_000)
+    expect(screen.queryByText(READING_LONG)).toBeNull()
+  }))
+
   it('after 20 minutes says it is still reading, and Check now reads it once and starts again', async () => withFakeTimers(async () => {
     await findJob(queued)
     await wait(20 * 60_000 + 30_000)
