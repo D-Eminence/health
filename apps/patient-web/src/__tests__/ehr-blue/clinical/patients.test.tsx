@@ -456,21 +456,25 @@ describe('The open patient’s page', () => {
     expect(screen.queryByText(LINE)).toBeNull()
   })
 
-  it('hands the Health ID to the request form from Ask for more access', () => {
+  // The patient's Access PIN already lets staff see and add to their records for 24 hours (owner, 10 Nov 2026), so an
+  // open record offers no separate step to ask for more access, whatever the role holds.
+  it('offers no Ask for more access, even to a role with identity.consent.write, and hands no Health ID over', async () => {
+    staff.permissions = [...ALL, ...WRITES, 'identity.consent.write']
     staff.activePatient = activePatient()
     open('/open')
-    fireEvent.click(screen.getByRole('button', { name: /^Ask for more access/ }))
-    expect(where()).toBe('/provider/requests/new')
-    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals'])
+    expect(screen.queryByRole('button', { name: /more access/i })).toBeNull()
+    expect(screen.queryByText(/More time, or the right to add records/)).toBeNull()
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    expect(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) })).toBeTruthy()
   })
 
-  it('hand-off 01: offers Ask for more access only with identity.consent.write, so no Health ID is handed to a page the role cannot open', async () => {
+  it('hand-off 01: a role that may not write sees bare Next steps, while Open chart and the visits work', async () => {
     staff.permissions = ['identity.patient.read', 'ehr.encounter.read']
     staff.activePatient = activePatient()
     open('/open')
     expect(screen.getByRole('heading', { level: 2, name: 'Next steps' })).toBeTruthy()
     expect(nextSteps()).toEqual([])
-    expect(screen.queryByRole('button', { name: /^Ask for more access/ })).toBeNull()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
     expect(screen.getByRole('button', { name: 'Open chart' })).toBeTruthy()
     expect(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) })).toBeTruthy()
@@ -480,21 +484,18 @@ describe('The open patient’s page', () => {
     staff.permissions = ['identity.patient.read', 'identity.consent.write']
     staff.activePatient = activePatient()
     open('/open')
-    expect(nextSteps()).toEqual(['Ask for more access'])
+    expect(nextSteps()).toEqual([])
     expect(screen.queryByRole('button', { name: 'Open chart' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: /^Ask for more access/ }))
-    expect(where()).toBe('/provider/requests/new')
-    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
   })
 
   it('hand-off 01: offers Start a consultation and Record vitals only to a role that may write them', () => {
     staff.permissions = [...ALL, ...WRITES]
     staff.activePatient = activePatient()
     const first = open('/open')
-    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Ask for more access'])
+    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals'])
     fireEvent.click(screen.getByRole('button', { name: /^Start a consultation/ }))
     expect(where()).toBe('/provider/clinical/new')
     first.unmount()
@@ -505,11 +506,11 @@ describe('The open patient’s page', () => {
     // Each step needs its own write permission.
     staff.permissions = [...ALL, 'ehr.vital.read', 'ehr.vital.write']
     const third = open('/open')
-    expect(nextSteps()).toEqual(['Record vitals', 'Ask for more access'])
+    expect(nextSteps()).toEqual(['Record vitals'])
     third.unmount()
     staff.permissions = [...ALL, 'ehr.encounter.write', 'ehr.vital.read']
     open('/open')
-    expect(nextSteps()).toEqual(['Start a consultation', 'Ask for more access'])
+    expect(nextSteps()).toEqual(['Start a consultation'])
   })
 
   it('hand-off 01: a role with neither sees bare Next steps at a real facility, and the sample walk-in visit at a demo one', async () => {
@@ -531,7 +532,7 @@ describe('The open patient’s page', () => {
     staff.permissions = [...ALL, ...WRITES]
     staff.activePatient = activePatient()
     open('/open')
-    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Register a walk-in visit', 'Ask for more access'])
+    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Register a walk-in visit'])
     const end = screen.getByRole('button', { name: 'End my access' })
     const steps = Array.from(screen.getByRole('heading', { level: 2, name: 'Next steps' }).closest('section')!.querySelectorAll('li button'))
     for (const button of steps) {
@@ -560,24 +561,19 @@ describe('The open patient’s page', () => {
     staff.roles = ['org_admin']
     staff.activePatient = activePatient()
     open('/open')
-    expect(nextSteps()).toEqual(['Ask for more access'])
+    expect(nextSteps()).toEqual([])
     expect(screen.queryByRole('button', { name: /appointment/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Register a walk-in visit/ })).toBeNull()
   })
 
-  it('leads into no sample at a real facility: no walk-in visit, while the chart and Ask for more access work', () => {
+  it('leads into no sample at a real facility: no walk-in visit, while the chart works', () => {
     staff.activePatient = activePatient()
-    const first = open('/open')
-    expect(nextSteps()).toEqual(['Ask for more access'])
+    open('/open')
+    expect(nextSteps()).toEqual([])
     expect(screen.queryByRole('button', { name: /^Register a walk-in visit/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /appointment/i })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open chart' }))
     expect(where()).toBe('/provider/clinical')
-    first.unmount()
-    open('/open')
-    fireEvent.click(screen.getByRole('button', { name: /^Ask for more access/ }))
-    expect(where()).toBe('/provider/requests/new')
-    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
   })
 
   it('shows the visits loading, then a failure to read them', async () => {
@@ -615,7 +611,7 @@ describe('The open patient’s page', () => {
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
-  it('keeps an emergency patient read-only: no visit, Ask for more access or chart steps, only the ways to direct care, and no encounters read', async () => {
+  it('keeps an emergency patient read-only: no visit or chart steps, only the ways to direct care, and no encounters read', async () => {
     // At a demo facility, where the visit step would otherwise show: emergency access alone hides it.
     atDemoHospital()
     staff.permissions = [...ALL, ...WRITES]
@@ -626,7 +622,7 @@ describe('The open patient’s page', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Next steps' })).toBeTruthy()
     expect(nextSteps()).toEqual(['Use their Access PIN', 'Ask the patient'])
     expect(screen.queryByRole('button', { name: /^Register a walk-in visit/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Ask for more access/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /more access/i })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open chart' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open emergency summary' }))
@@ -640,10 +636,11 @@ describe('The open patient’s page', () => {
     staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     open('/open')
-    // The chart's own sentence, as Consultation, Triage and Nursing say it, then how to get changes.
-    expect(await screen.findByText(`${READ_ONLY} To make changes, ask the patient to let you see and add to their records.`)).toBeTruthy()
+    // The chart's own sentence, as Consultation, Triage and Nursing say it, and no step to ask for more (owner, 10 Nov 2026).
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
     expect(screen.getByText('View only')).toBeTruthy()
-    expect(nextSteps()).toEqual(['Ask for more access'])
+    expect(screen.queryByText(/To make changes/)).toBeNull()
+    expect(nextSteps()).toEqual([])
   })
 
   it('ends my access at once, as today, then shows no open patient and says so', async () => {
@@ -996,9 +993,9 @@ describe('Hospital-only steps on a product’s site', () => {
     open('/open')
     expect(screen.getByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Open chart' })).toBeNull()
-    expect(nextSteps()).toEqual(['Ask for more access'])
-    // Ask for more access is still a step, so the plain line is not needed.
-    expect(screen.queryByText(ON_EHR)).toBeNull()
+    // No step is left here, so one plain line says where they are.
+    expect(nextSteps()).toEqual([])
+    expect(screen.getByText(ON_EHR)).toBeTruthy()
     // Each visit opens in Consultation, so none is listed, and none is read.
     expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
     await act(async () => {})
@@ -1044,7 +1041,7 @@ describe('Hospital-only steps on a product’s site', () => {
     staff.activePatient = activePatient()
     const page = open('/open')
     expect(screen.getByRole('button', { name: 'Open chart' })).toBeTruthy()
-    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Register a walk-in visit', 'Ask for more access', 'Emergency access'])
+    expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Register a walk-in visit', 'Emergency access'])
     expect(screen.queryByText(ON_EHR)).toBeNull()
     expect(await screen.findByRole('heading', { name: 'Visits here' })).toBeTruthy()
     page.unmount()
@@ -1604,7 +1601,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       staff.permissions = [...WITH_ACCESS]
       staff.activePatient = activePatient()
       openTracked('/open')
-      expect(nextSteps()).toEqual(['Register a walk-in visit', 'Ask for more access', 'Emergency access'])
+      expect(nextSteps()).toEqual(['Register a walk-in visit', 'Emergency access'])
       const step = screen.getByRole('button', { name: /^Emergency access/ }) as HTMLButtonElement
       expect(step.disabled).toBe(false)
       fireEvent.click(step)
@@ -1618,7 +1615,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       staff.permissions = [...ALL, 'identity.patient-access-pin.verify']
       staff.activePatient = activePatient()
       openTracked('/open')
-      expect(nextSteps()).toEqual(['Register a walk-in visit', 'Ask for more access'])
+      expect(nextSteps()).toEqual(['Register a walk-in visit'])
       expect(screen.queryByRole('button', { name: /^Emergency access/ })).toBeNull()
       expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('')
     })
@@ -1628,7 +1625,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       staff.permissions = [...WITH_ACCESS]
       staff.activePatient = activePatient()
       openTracked('/open')
-      expect(nextSteps()).toEqual(['Ask for more access'])
+      expect(nextSteps()).toEqual([])
       expect(screen.queryByRole('button', { name: /^Emergency access/ })).toBeNull()
       await settle()
     })
