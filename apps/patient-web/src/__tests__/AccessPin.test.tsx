@@ -30,15 +30,17 @@ const pinCard = () => within(screen.getByRole('heading', { name: 'Access PIN' })
 
 describe('patient Access PIN', () => {
   // A PIN opens all of the patient's records, to see and add to, for 24 hours (owner, 10 Nov 2026), and the patient can
-  // end that access on Access & sharing.
+  // end that access on Access & sharing. Each use makes a new 24-hour grant, so the card also says to change the PIN.
   it('tells everyone what sharing the PIN allows and that they can end it; an adult also hears about paper records', async () => {
-    const ADULT = 'A hospital you give your PIN to can see and add to your records for 24 hours. While that access lasts, they can '
-      + 'also add your old paper records to your Health ID. You can end their access at any time in Access & sharing.'
+    const ADULT = 'A hospital you give your PIN to can see and add to your records for 24 hours each time they use it. While that '
+      + 'access lasts, they can also add your old paper records to your Health ID. You can end their access at any time in '
+      + 'Access & sharing, and change your PIN to stop them using it again.'
     renderSettings(() => json({ configured: true }))
     expect(await screen.findByText(ADULT)).toBeTruthy()
     cleanup()
     renderSettings(() => json({ configured: true }), `${new Date().getUTCFullYear() - 10}-01-01`)
-    expect(await screen.findByText('A hospital you give your PIN to can see and add to your records for 24 hours. You can end their access at any time in Access & sharing.')).toBeTruthy()
+    expect(await screen.findByText('A hospital you give your PIN to can see and add to your records for 24 hours each time they use it. '
+      + 'You can end their access at any time in Access & sharing, and change your PIN to stop them using it again.')).toBeTruthy()
     expect(screen.queryByText(/paper records/)).toBeNull()
   })
 

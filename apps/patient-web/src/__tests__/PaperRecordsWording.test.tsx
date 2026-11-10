@@ -52,8 +52,8 @@ const WORDS = 'Approving also lets Lagos General add your old paper records to y
 describe('the paper records rule, as the patient reads it', () => {
   it('is the decided sentence, word for word', () => {
     expect(paperRecordsOnApproval('Lagos General')).toBe(WORDS)
-    expect(PIN_COVERS).toBe('A hospital you give your PIN to can see and add to your records for 24 hours. While that access lasts, they can also add your old paper records to your Health ID. You can end their access at any time in Access & sharing.')
-    expect(PIN_ALLOWS).toBe('A hospital you give your PIN to can see and add to your records for 24 hours. You can end their access at any time in Access & sharing.')
+    expect(PIN_COVERS).toBe('A hospital you give your PIN to can see and add to your records for 24 hours each time they use it. While that access lasts, they can also add your old paper records to your Health ID. You can end their access at any time in Access & sharing, and change your PIN to stop them using it again.')
+    expect(PIN_ALLOWS).toBe('A hospital you give your PIN to can see and add to your records for 24 hours each time they use it. You can end their access at any time in Access & sharing, and change your PIN to stop them using it again.')
     expect(STAFF_ACCESS_COVERS_PAPER).toBe('This access also lets you bring in the patient’s paper records while it lasts.')
   })
 
