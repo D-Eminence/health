@@ -1968,8 +1968,10 @@ export const staffApi = {
   requestAccess: (facilityId: string, hid: string, scope: 'read_records' | 'write_records', reason: string, durationMinutes: number) =>
     client.post<AccessRequest>('/api/v1/identity/access-requests', { hid: hid.trim().toUpperCase(), scope, reason, durationMinutes },
       { headers: facilityHeaders(facilityId) }),
+  // A patient's Access PIN opens their records for 24 hours, to see and add to (owner, 10 Nov 2026). Identity accepts at
+  // most 1440 minutes once hid-system's PIN change is live; a backend before it refuses more than 60.
   verifyPin: (facilityId: string, hid: string, pin: string) =>
-    client.post<GrantResult>('/api/v1/identity/standard-access/pin', { hid: hid.trim().toUpperCase(), pin, durationMinutes: 60 },
+    client.post<GrantResult>('/api/v1/identity/standard-access/pin', { hid: hid.trim().toUpperCase(), pin, durationMinutes: 1440 },
       { headers: facilityHeaders(facilityId) }),
   breakGlass: (facilityId: string, hid: string, reason: string) =>
     client.post<GrantResult>('/api/v1/identity/break-glass', { hid: hid.trim().toUpperCase(), reason, durationMinutes: 30 },
