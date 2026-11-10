@@ -85,6 +85,13 @@ async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
 }
 
+/** Refresh status, under the record's Details (closed until opened). */
+async function refreshStatus() {
+  const details = document.getElementById('ocr-details') as HTMLDetailsElement
+  if (!details.open) await act(async () => { fireEvent.click(within(details).getByText('Details')) })
+  await press(within(details).getByRole('button', { name: 'Refresh status' }))
+}
+
 /** The Idempotency-Key each publication request was sent with. */
 const keys = () => api.publishOcrValidation.mock.calls.map(call => call[4] as unknown)
 
@@ -149,7 +156,7 @@ describe('publishing validated OCR evidence', () => {
     await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await screen.findByRole('button', { name: 'Retry publication' })
 
-    await press(screen.getByRole('button', { name: 'Refresh status' }))
+    await refreshStatus()
     letTimePass(OCR_RETRY_WAIT)
     api.publishOcrValidation.mockResolvedValueOnce(published)
     await press(await screen.findByRole('button', { name: 'Retry publication' }))
@@ -198,13 +205,13 @@ describe('publishing validated OCR evidence', () => {
     await screen.findByRole('button', { name: 'Retry publication' })
 
     session.actorId = 'staff-demo-2'
-    await press(screen.getByRole('button', { name: 'Refresh status' }))
+    await refreshStatus()
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull())
     expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
     expect(screen.getByText(/can be retried only from the page where Publish was pressed/)).toBeTruthy()
 
     session.actorId = 'staff-demo-1'
-    await press(screen.getByRole('button', { name: 'Refresh status' }))
+    await refreshStatus()
     expect(await screen.findByRole('button', { name: 'Retry publication' })).toBeTruthy()
   })
 

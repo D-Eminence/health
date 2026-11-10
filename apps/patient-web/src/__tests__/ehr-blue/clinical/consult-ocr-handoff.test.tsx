@@ -35,6 +35,7 @@ const PATIENT_HID = 'HID-ZDEMAAA2'
 const PATIENT_NAME = 'Ngozi Example (fictional)'
 const ENCOUNTER_ID = 'e0000000-0000-4000-8000-0000000000c1'
 const DOCUMENT_ID = 'd0000000-0000-4000-8000-0000000000c1'
+const JOB_ID = 'j0000000-0000-4000-8000-0000000000c1'
 
 const LOOKUP = 'POST /api/v1/identity/patient-lookup'
 const CONSENT = 'POST /api/v1/identity/consent-status'
@@ -42,6 +43,7 @@ const ENCOUNTERS = `GET /api/v1/ehr/patients/${PATIENT_ID}/encounters`
 const ENCOUNTER_READ = `GET /api/v1/ehr/patients/${PATIENT_ID}/encounters/${ENCOUNTER_ID}`
 const DOCUMENTS = 'GET /api/v1/ehr/documents'
 const OCR_JOBS = 'GET /api/v1/ocr/jobs'
+const OCR_CREATE = 'POST /api/v1/ocr/jobs'
 
 const ENCOUNTER = {
   id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: REAL_FACILITY, encounterType: 'ambulatory', status: 'in_progress',
@@ -51,6 +53,8 @@ const DOCUMENT = {
   id: DOCUMENT_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, fileName: 'referral-letter.pdf', mediaType: 'application/pdf',
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-11-02T08:30:00.000Z',
 }
+const JOB = { id: JOB_ID, documentId: DOCUMENT_ID, patientId: PATIENT_ID, provider: 'textract', status: 'queued', version: 1,
+  attemptCount: 0, maxAttempts: 3, patientConfirmation: null }
 const many = <T,>(answer: T, count = 20): T[] => Array.from({ length: count }, () => answer)
 const allowed = () => json({
   authorization: { decision: 'allow', consentGrantId: GRANT_ID, scope: 'read_records', expiresAt: '2026-11-02T18:00:00.000Z', breakGlass: false },
@@ -79,7 +83,11 @@ async function openOnEhr(path: string) {
     [ENCOUNTERS]: many(() => json({ items: [ENCOUNTER], nextCursor: null })),
     [ENCOUNTER_READ]: many(() => json(ENCOUNTER)),
     [DOCUMENTS]: many(() => json({ items: [DOCUMENT], nextCursor: null })),
-    [OCR_JOBS]: [() => json({ job: null })],
+    // The document has no job yet; once made, reading it again finds the one made.
+    [OCR_JOBS]: [() => json({ job: null }), ...many(() => json({ job: JOB }))],
+    [OCR_CREATE]: [() => json(JOB, 201)],
+    [`GET /api/v1/ocr/jobs/${JOB_ID}/extractions`]: many(() => json({ items: [] })),
+    [`GET /api/v1/ocr/jobs/${JOB_ID}/validations`]: many(() => json({ items: [] })),
   })
   onSite(EHR, path)
   const { App } = await import('../../../App')
@@ -89,7 +97,7 @@ async function openOnEhr(path: string) {
 }
 
 describe('Extract with OCR on the EHR’s own site', () => {
-  it('opens Document OCR here, with the document and the patient filled in, and puts nothing about them in the address', async () => {
+  it('opens Document OCR here, straight to the document’s reading (the document and the patient handed over), and puts nothing about them in the address', async () => {
     const { seen } = await openOnEhr('/provider/patients')
 
     // The chart opens only with the patient's permission: Find a patient's lookup, which Identity allows.
@@ -112,22 +120,22 @@ describe('Extract with OCR on the EHR’s own site', () => {
     expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
 
-    // The blue Document OCR, with the document chosen in Find document job.
-    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
-    const find = screen.getByRole('form', { name: 'Find document job' })
-    expect((within(find).getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT_ID)
+    // The blue Document OCR, straight to the document's reading: sent for reading at once (this account writes OCR
+    // jobs), with no form to fill in.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Progress' })).toBeTruthy()
+    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Document ••••0000c1'])
+    expect(screen.queryByRole('form', { name: 'Find document job' })).toBeNull()
     // The hand-off is spent: the history entry keeps no ids.
     await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
 
-    // The document filled in is the one OCR is asked about.
-    fireEvent.click(within(find).getByRole('button', { name: 'Find job' }))
-    expect(await screen.findByText('No OCR job for this document')).toBeTruthy()
-    const asked = vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url))).filter(url => url.pathname === '/api/v1/ocr/jobs')
-    expect(asked.map(url => url.searchParams.get('documentId'))).toEqual([DOCUMENT_ID])
-    // And the patient: Create record opens the new job with the patient filled in. The page header has its own
-    // Create record, so this is the one under the answer.
-    fireEvent.click(within(find.parentElement as HTMLElement).getByRole('button', { name: 'Create record' }))
-    expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT_ID)
+    // The document handed over is the one OCR is asked about, then sent for reading once, for the patient handed over.
+    const ocr = vi.mocked(fetch).mock.calls.map(([url, init]) => ({ url: new URL(String(url)), method: String(init?.method ?? 'GET'), body: init?.body }))
+      .filter(call => call.url.pathname === '/api/v1/ocr/jobs')
+    expect(ocr[0]?.method).toBe('GET')
+    expect(ocr[0]?.url.searchParams.get('documentId')).toBe(DOCUMENT_ID)
+    const made = ocr.filter(call => call.method === 'POST')
+    expect(made).toHaveLength(1)
+    expect(JSON.parse(String(made[0]!.body))).toMatchObject({ documentId: DOCUMENT_ID, patientId: PATIENT_ID })
 
     // Nothing ever opened another site.
     expect(address()).toBe('/provider/ocr')
