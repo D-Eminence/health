@@ -90,8 +90,14 @@ def archive_files(archive):
         return files
 
 
+# The builds that offer Health ID's support assistant: the patient portal and the website (its pages also open on each
+# site's front page), and each staff product site's Help (the blue frame), behind its own privacy guard. Not the
+# admin console. The hospital's "Ask about this patient" stays on the ehr build only (staffPatientChatEnabled).
+SUPPORT_CHAT_APPS = ('web', 'public', 'ehr', 'lab', 'pharmacy', 'ocr', 'outreach')
+
+
 def chat_features(config, app):
-    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in ('web', 'public', 'ehr'),
+    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in SUPPORT_CHAT_APPS,
             'patientChatEnabled': config['chat']['patientChatEnabled'] and app == 'web',
             'supportContact': config['chat']['supportContact'],
             'backendContract': config.get('backend_contract', 'main-v1'),

@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 import zipfile
-from staging_release import ROOT, archive_files, chat_features, digest, tree_digest, validate_config
+from staging_release import ROOT, SUPPORT_CHAT_APPS, archive_files, chat_features, digest, tree_digest, validate_config
 
 
 def run(*args, env=None):
@@ -35,7 +35,7 @@ def main(environment='staging'):
         env.update({prefix + 'ENVIRONMENT': environment, prefix + 'API_BASE_URL': 'https://' + host,
                     prefix + 'APP_ORIGIN': 'https://' + host,
                     prefix + 'TURNSTILE_SITE_KEY': config['turnstile_site_key'],
-                    prefix + 'SUPPORT_CHAT_ENABLED': str(config['chat']['supportChatEnabled'] and app in ['web', 'public', 'ehr']).lower(),
+                    prefix + 'SUPPORT_CHAT_ENABLED': str(config['chat']['supportChatEnabled'] and app in SUPPORT_CHAT_APPS).lower(),
                     prefix + 'PATIENT_CHAT_ENABLED': str(config['chat']['patientChatEnabled'] and app == 'web').lower(),
                     prefix + 'SUPPORT_CONTACT': config['chat']['supportContact'],
                     'NEXT_TELEMETRY_DISABLED': '1'})
