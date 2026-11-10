@@ -269,7 +269,185 @@ const UNREADABLE_ANYWHERE = /\[unreadable\]/gi
  * A mark written only in symbols ("+++", "✓") is a reading, so it stays an item.
  */
 export function isUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
-  return item.asWritten.replace(UNREADABLE_ANYWHERE, '').replace(/[\p{P}\s]/gu, '') === ''
+  return item.asWritten.replace(UNREADABLE_ANYWHERE, '').replace(GAP_ANYWHERE, '').replace(/[\p{P}\s]/gu, '') === ''
+}
+
+/*
+ * The reader's marks in what is written (hid-system services/ocr-worker reading/prompt.ts), and how the page shows them.
+ * The marks are the reader's, not the paper's, so none is shown as a "?":
+ *
+ * - "word?": a word the reader is unsure of. Shown without the "?", underlined with dots and said as "not sure".
+ * - "(or X?)": another possible reading of the word before it. Only under Why?, never in the line nor saved.
+ * - "[dose?]", "[freq?]", "[route?]", "[drug?]", "[?]": one part with no readable letters. A small grey "dose",
+ *   "frequency", "route", "medicine" or "word"; never saved.
+ * - "(? on paper)": a question mark written on the paper itself. Shown and saved as "(? on paper)".
+ * - "(crossed out: X)": words crossed out on the paper. Shown struck through; never saved.
+ * - "Am… (Ampiclox?)": a word cut off, then the medicine it most likely is. The medicine is shown, as unsure; the
+ *   cut-off word is under Why?.
+ * - A "-" or "—" bullet at the start of the line is dropped.
+ *
+ * readingParts splits the words into these parts once; the line shown (ReadingText) and the words saved (cleanReading)
+ * are both made from them, so what is seen and what is kept can't differ.
+ */
+export type ReadingPart =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'unsure'; readonly text: string }
+  | { readonly kind: 'gap'; readonly field: GapField }
+  | { readonly kind: 'paper_mark' }
+  | { readonly kind: 'crossed'; readonly text: string }
+  | { readonly kind: 'alternative'; readonly text: string }
+  | { readonly kind: 'cut_off'; readonly text: string }
+
+export type GapField = 'dose' | 'frequency' | 'route' | 'medicine' | 'word'
+
+/** What a part that couldn't be read is called, by its mark ("[freq?]" is the frequency). */
+const GAP_FIELDS: Readonly<Record<string, GapField>> = {
+  dose: 'dose', freq: 'frequency', frequency: 'frequency', route: 'route', drug: 'medicine', medicine: 'medicine', '': 'word',
+}
+const GAP = /^\[\s*(dose|freq|frequency|route|drug|medicine)?\s*\?\s*\]/i
+const GAP_ANYWHERE = /\[\s*(?:dose|freq|frequency|route|drug|medicine)?\s*\?\s*\]/gi
+/** Words for the marks shown in place of a "?". */
+export const PAPER_MARK = '(? on paper)'
+export const NOT_SURE_WORDS = 'not sure'
+export const COULD_NOT_READ_WORDS = 'couldn’t be read'
+
+/** The index of the bracket that closes the one at `start`, or -1 when it is never closed. */
+function closingBracket(source: string, start: number): number {
+  let depth = 0
+  for (let at = start; at < source.length; at++) {
+    if (source[at] === '(') depth++
+    else if (source[at] === ')' && --depth === 0) return at
+  }
+  return -1
+}
+
+/** A run of plain words: each word ending in "?" is unsure, without its "?" (punctuation after it stays plain). */
+function wordParts(run: string): ReadingPart[] {
+  return run.split(/(\s+)/).filter(Boolean).flatMap((word): ReadingPart[] => {
+    const unsure = /^(.*[^?\s])\?+([)\],.;:!]*)$/u.exec(word)
+    // A "?" alone, or inside a word ("Metf?rmin"), is left as it is: it is not the reader's mark for an unsure word.
+    if (!unsure) return [{ kind: 'text', text: word }]
+    return [{ kind: 'unsure', text: unsure[1]! }, ...(unsure[2] ? [{ kind: 'text' as const, text: unsure[2] }] : [])]
+  })
+}
+
+/** Plain parts side by side become one, and spaces left where a part was taken out become one space. */
+function joined(parts: readonly ReadingPart[]): ReadingPart[] {
+  const out: ReadingPart[] = []
+  for (const part of parts) {
+    const last = out[out.length - 1]
+    if (part.kind === 'text' && last?.kind === 'text') out[out.length - 1] = { kind: 'text', text: (last.text + part.text).replace(/\s+/g, ' ') }
+    else out.push(part.kind === 'text' ? { kind: 'text', text: part.text.replace(/\s+/g, ' ') } : part)
+  }
+  return out
+}
+
+/** The last word of the line so far that is shown: the word another possible reading is compared with. */
+function lastShownWord(parts: readonly ReadingPart[]): string {
+  for (let at = parts.length - 1; at >= 0; at--) {
+    const part = parts[at]!
+    if (part.kind !== 'text' && part.kind !== 'unsure') continue
+    const words = part.text.trim().split(/\s+/).filter(Boolean)
+    if (words.length > 0) return words[words.length - 1]!
+  }
+  return ''
+}
+
+/** What is written, split into the reader's marks and the words between them (see above). */
+export function readingParts(asWritten: string): ReadingPart[] {
+  const source = asWritten.replace(/^\s*[-–—•*]+\s+/u, '')
+  const parts: ReadingPart[] = []
+  let run = ''
+  const flush = () => { if (run) parts.push(...wordParts(run)); run = '' }
+  for (let at = 0; at < source.length;) {
+    const char = source[at]!
+    if (char === '[') {
+      const gap = GAP.exec(source.slice(at))
+      if (gap) {
+        flush()
+        parts.push({ kind: 'gap', field: GAP_FIELDS[(gap[1] ?? '').toLowerCase()] ?? 'word' })
+        at += gap[0].length
+        continue
+      }
+    }
+    if (char === '(') {
+      const end = closingBracket(source, at)
+      const inside = end > at ? source.slice(at + 1, end).trim() : null
+      if (inside !== null && /^\?\s*on (the )?paper$/i.test(inside)) {
+        flush(); parts.push({ kind: 'paper_mark' }); at = end + 1; continue
+      }
+      const crossed = inside !== null ? /^crossed out\s*:\s*([\s\S]*)$/i.exec(inside) : null
+      if (crossed) {
+        flush()
+        const text = cleanReading(crossed[1]!)
+        if (text) parts.push({ kind: 'crossed', text })
+        at = end + 1; continue
+      }
+      const alternative = inside !== null ? /^or\s+([\s\S]*)$/i.exec(inside) : null
+      if (alternative) {
+        flush()
+        const text = cleanReading(alternative[1]!)
+        // One that is only a part that couldn't be read, or the same as the word it is another reading of, says nothing.
+        if (text && text.toLowerCase() !== lastShownWord(parts).toLowerCase()) parts.push({ kind: 'alternative', text })
+        at = end + 1; continue
+      }
+      const cutOff = inside ? /(\S+(?:…|\.\.\.))\s*$/u.exec(run) : null
+      const match = inside ? cleanReading(inside) : ''
+      if (cutOff && match) {
+        run = run.slice(0, cutOff.index)
+        flush()
+        parts.push({ kind: 'cut_off', text: cutOff[1]! }, { kind: 'unsure', text: match })
+        at = end + 1; continue
+      }
+    }
+    run += char
+    at++
+  }
+  flush()
+  return joined(parts)
+}
+
+/**
+ * What is saved for words read from the paper: the reading alone, with no reader's marks. An unsure word is kept
+ * without its "?"; another possible reading, a part that couldn't be read, words crossed out and a cut-off word are
+ * left out; a question mark written on the paper is kept as "(? on paper)". Pure, and the same parts the line shows.
+ */
+export function cleanReading(asWritten: string): string {
+  return partsText(readingParts(asWritten))
+}
+
+/** The parts' words as shown in the line and saved, in plain text. */
+function partsText(parts: readonly ReadingPart[]): string {
+  return parts.map(part => part.kind === 'text' || part.kind === 'unsure' ? part.text : part.kind === 'paper_mark' ? ` ${PAPER_MARK} ` : ' ')
+    .join('').replace(/\s+/g, ' ').replace(/\s+([,.;:)])/g, '$1').replace(/\(\s+/g, '(').trim()
+}
+
+/** What the reader also said about a line, for Why?: other possible readings, and a word cut off on the paper. */
+export function readingNotes(asWritten: string): string[] {
+  const notes = readingParts(asWritten).flatMap(part => part.kind === 'alternative' ? [`Other possible reading: ${part.text}`]
+    : part.kind === 'cut_off' ? [`Written as: ${part.text}`] : [])
+  return [...new Set(notes)]
+}
+
+/** The words of a line read from the paper, with the reader's marks shown as words and styles, never as "?". */
+export function ReadingText({ text }: { readonly text: string }) {
+  const parts = readingParts(text).filter(part => part.kind !== 'alternative' && part.kind !== 'cut_off')
+  // Spaces where a part was taken out are said once, and none at either end.
+  const shown = joined(parts).map((part, at, all) => {
+    if (part.kind !== 'text') return part
+    const start = at === 0 ? part.text.trimStart() : part.text
+    return { ...part, text: at === all.length - 1 ? start.trimEnd() : start }
+  })
+  return <>{shown.map((part, at) => {
+    switch (part.kind) {
+      case 'text': return <Fragment key={at}>{part.text}</Fragment>
+      case 'unsure': return <span key={at} className="hid-ehr-dept-migrate-unsure" title={NOT_SURE_WORDS}>{part.text}<span className="hid-ehr-sr-only">{` (${NOT_SURE_WORDS})`}</span></span>
+      case 'gap': return <span key={at} className="hid-ehr-dept-migrate-gap" title={COULD_NOT_READ_WORDS}>{part.field}<span className="hid-ehr-sr-only">{` ${COULD_NOT_READ_WORDS}`}</span></span>
+      case 'paper_mark': return <span key={at} className="hid-ehr-dept-migrate-gap" title="A question mark written on the paper">? on paper</span>
+      case 'crossed': return <s key={at} className="hid-ehr-dept-migrate-crossed"><span className="hid-ehr-sr-only">crossed out: </span>{part.text}</s>
+      default: return null
+    }
+  })}</>
 }
 
 /** True when part of what is written couldn't be read ("Metro[unreadable] 500"). */
@@ -305,9 +483,18 @@ export function readableItems(items: readonly PaperItem[]): PaperItem[] {
   return items.filter(item => !isUnreadable(item))
 }
 
-/** The one line a doctor reads for an item: what is written (a part that couldn't be read as "…"), else the summary. */
+/**
+ * The one line a doctor reads for an item, with the reader's marks: what is written (a part that couldn't be read as
+ * "…"), else the summary. Shown through ReadingText; its words alone are itemHeadlineText.
+ */
 export function itemHeadline(item: PaperItem): string {
-  return item.asWritten.replace(UNREADABLE_ANYWHERE, '…').trim() || item.plain.trim()
+  const written = item.asWritten.replace(UNREADABLE_ANYWHERE, '…').trim()
+  return written && cleanReading(written) ? written : item.plain.trim()
+}
+
+/** The words of an item's one line as they are shown and saved, with no reader's marks. */
+export function itemHeadlineText(item: PaperItem): string {
+  return cleanReading(itemHeadline(item))
 }
 
 /** Why an item needs checking, in the reader's words, or a general sentence. */
@@ -354,20 +541,30 @@ export function readingStatusLine(reading: PaperReading): string | null {
  * "?" copied off the paper ("Ceftriaxone ? IV").
  */
 export function ItemCheck({ item }: { readonly item: PaperItem }) {
-  if (!needsCheck(item)) return null
+  const check = needsCheck(item)
+  // Other possible readings and a cut-off word wait here, closed, so the line itself carries one reading.
+  const notes = readingNotes(itemHeadline(item))
+  if (!check && notes.length === 0) return null
   return <span className="hid-ehr-dept-migrate-check-mark">
-    <EhrBadge tone="caution">Check</EhrBadge>
+    {check && <EhrBadge tone="caution">Check</EhrBadge>}
     <details className="hid-ehr-dept-migrate-why">
       <summary>Why?</summary>
-      <span className="hid-ehr-dept-muted">{checkReasonWords(item)}</span>
+      {check && <span className="hid-ehr-dept-muted">{checkReasonWords(item)}</span>}
+      {notes.map(note => <span key={note} className="hid-ehr-dept-muted">{note}</span>)}
     </details>
   </span>
 }
 
-/** An item's one line with its status, when it has one ("Malaria — Suspected"). */
+/** An item's one line with its status, when it has one ("Malaria — Suspected"), in words, with no reader's marks. */
 export function itemLine(item: PaperItem): string {
   const status = itemStatusWords(item)
-  return `${itemHeadline(item)}${status ? ` — ${status}` : ''}`
+  return `${itemHeadlineText(item)}${status ? ` — ${status}` : ''}`
+}
+
+/** An item's one line as shown: the words with the reader's marks as styles (ReadingText), then its status. */
+export function ItemLineText({ item }: { readonly item: PaperItem }) {
+  const status = itemStatusWords(item)
+  return <><ReadingText text={itemHeadline(item)} />{status ? ` — ${status}` : ''}</>
 }
 
 /**
@@ -389,7 +586,7 @@ export function UnreadableLines({ items }: { readonly items: readonly PaperItem[
 
 function PaperItemRow({ item }: { readonly item: PaperItem }) {
   return <li data-item-id={item.id} className="hid-ehr-dept-migrate-line">
-    <strong>{itemLine(item)}</strong>
+    <strong><ItemLineText item={item} /></strong>
     <ItemCheck item={item} />
   </li>
 }

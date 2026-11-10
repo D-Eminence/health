@@ -1,5 +1,5 @@
 import type { OcrCandidateType, OcrTargetDomain, OcrValidationInput } from '../../../staff/api'
-import { PAPER_READING_CONTRACT, isUnreadable, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
+import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
 /*
  * The check of a paper reading, as staff make it on the Document OCR page: each item read is kept, changed or removed,
@@ -75,23 +75,28 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+/** Words read from the paper as they are saved: with no reader's marks (cleanReading), so no "?" the reader added. */
+function clean(value: unknown): string {
+  return cleanReading(text(value))
+}
+
 function words(...parts: unknown[]): string {
-  return parts.map(text).filter(Boolean).join(' ')
+  return parts.map(clean).filter(Boolean).join(' ')
 }
 
 /** A lab result's test, as read: the test the reader named, or the item's name. */
 export function labTest(item: PaperItem): string {
-  return text(item.fields.test) || itemName(item)
+  return clean(item.fields.test) || itemName(item)
 }
 
 /** A lab result's result, as read ("11.2 g/dL"), or what is written when no value was picked out. */
 export function labResult(item: PaperItem): string {
-  return words(item.fields.value, item.fields.unit) || item.asWritten.trim()
+  return words(item.fields.value, item.fields.unit) || itemHeadlineText(item)
 }
 
-/** An item's name as the page shows it in bold: the plain reading, or what is written. */
+/** An item's name as saved: the plain reading, or what is written, each with no reader's marks. */
 export function itemName(item: PaperItem): string {
-  return item.plain.trim() || item.asWritten.trim()
+  return clean(item.plain) || itemHeadlineText(item)
 }
 
 /**
@@ -229,11 +234,11 @@ function observation(entry: CheckedItem): Observation {
   const source = { page: item.page, itemId: item.id, reportedAtAsWritten: upTo(text(item.dateAsWritten), 120) }
   // A changed result carries the test and result staff typed, so the reading's own value and unit can't contradict them.
   if (entry.lab?.changed) return optional<Observation>({ testName, valueText: entry.lab.result, ...source })
-  const value = text(f.value)
+  const value = clean(f.value)
   const flag = text(f.flag).toLowerCase()
   return optional<Observation>({
-    testName, value: value || undefined, valueText: value ? undefined : item.asWritten.trim(),
-    unit: upTo(text(f.unit), 80), referenceRange: upTo(text(f.referenceRange), 240), abnormalFlag: LAB_FLAGS.has(flag) ? flag : undefined,
+    testName, value: value || undefined, valueText: value ? undefined : itemHeadlineText(item),
+    unit: upTo(clean(f.unit), 80), referenceRange: upTo(clean(f.referenceRange), 240), abnormalFlag: LAB_FLAGS.has(flag) ? flag : undefined,
     ...source,
   })
 }
@@ -245,9 +250,9 @@ function medication(entry: CheckedItem) {
   // A status staff confirmed as not active ("Stopped") goes with the record, kept or changed, as it shows on the card.
   const notActive = itemNotActive(item)
   const context = [
-    `From a paper record, page ${item.page}. As written: ${item.asWritten.trim()}`,
+    `From a paper record, page ${item.page}. As written: ${itemHeadlineText(item)}`,
     notActive && `Status: ${notActive}`,
-    text(f.duration) && `For ${text(f.duration)}`,
+    clean(f.duration) && `For ${clean(f.duration)}`,
     item.prescription?.prescriberAsWritten?.trim() && `Prescribed by ${item.prescription.prescriberAsWritten.trim()}`,
     item.prescription?.dateAsWritten?.trim() && `Prescribed on ${item.prescription.dateAsWritten.trim()}`,
     item.dateAsWritten?.trim() && `Dated ${item.dateAsWritten.trim()}`,
@@ -256,8 +261,8 @@ function medication(entry: CheckedItem) {
   return optional({
     itemId: item.id, page: item.page,
     medicationText: changed ? entry.final : itemName(item),
-    strengthText: changed ? undefined : upTo(text(f.strength), 240),
-    frequencyText: changed ? undefined : upTo(text(f.frequency), 240),
+    strengthText: changed ? undefined : upTo(clean(f.strength), 240),
+    frequencyText: changed ? undefined : upTo(clean(f.frequency), 240),
     historicalContext: context.slice(0, 2_000),
   })
 }
