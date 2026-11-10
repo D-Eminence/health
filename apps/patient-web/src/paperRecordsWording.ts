@@ -16,10 +16,13 @@ export function paperRecordsOnApproval(facilityName: string): string {
  * On the patient's Access PIN: what sharing it allows (all of their records, to see and add to, for 24 hours; owner,
  * 10 Nov 2026) and that they can end it (a PIN grant is the patient's to end on Access & sharing, hid-system 0095). Each use of the PIN
  * makes a new 24-hour grant and ending one leaves the PIN working, so the card also says to change the PIN.
- * PIN_ALLOWS is said to everyone; PIN_COVERS adds the paper records rule for an adult.
+ * PIN_ALLOWS is said to everyone; PIN_COVERS adds the paper records rule for an adult. Both are built from the same
+ * sentences, so the adult and under-18 cards cannot drift apart.
  */
-export const PIN_ALLOWS = 'A hospital you give your PIN to can see and add to your records for 24 hours each time they use it. You can end their access at any time in Access & sharing, and change your PIN to stop them using it again.'
-export const PIN_COVERS = 'A hospital you give your PIN to can see and add to your records for 24 hours each time they use it. While that access lasts, they can also add your old paper records to your Health ID. You can end their access at any time in Access & sharing, and change your PIN to stop them using it again.'
+const PIN_GIVES = 'A hospital you give your PIN to can see and add to your records for 24 hours each time they use it.'
+const PIN_END = 'You can end their access at any time in Access & sharing, and change your PIN to stop them using it again.'
+export const PIN_ALLOWS = `${PIN_GIVES} ${PIN_END}`
+export const PIN_COVERS = `${PIN_GIVES} While that access lasts, they can also add your old paper records to your Health ID. ${PIN_END}`
 
 /**
  * On the patient's share screen, next to Share my records, on the invite form and next to Confirm and share on an
