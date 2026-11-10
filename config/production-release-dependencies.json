@@ -3,14 +3,14 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at f411b760 for hid-system#200 (chat-style best-guess readings on hard handwritten pages; PROMPT_VERSION 8). Every other service stays at 14bac287. Browser-facing change: none to the contract; as-written text may now carry ? marks such as [dose?] and (crossed out: X?), shown as given. Requested by the owner, D-Eminence, in chat on 2026-11-06 (\"i want the output clean ... doctor no get time\"); OCR train deploys approved 2026-11-05 (\"i approved everything thta needs my approval\").",
+  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 399673ac for hid-system#201 (hard-page reads: high thinking, at most 4 zooms per read, 32k output cap, 150 s deadline; PROMPT_VERSION 9). Every other service stays at 14bac287. No browser-facing contract change. Owner decisions in chat: 'High (Recommended)' thinking on 2026-11-10 about 16:40 UTC; OCR train deploys approved 2026-11-05 (\"i approved everything thta needs my approval\").",
   "backend_commits": {
     "gateway": "14bac28708251f639b726348fc5c03c080de96c1",
     "identity-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "ehr-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "lab-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "pharmacy-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "ocr-api": "f411b76026c2b21250532e489b5ac062f3292946",
+    "ocr-api": "399673ac9ac5dc7e875a5614cc047d6f24355600",
     "outreach-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "support-api": "14bac28708251f639b726348fc5c03c080de96c1",
     "notification-api": "14bac28708251f639b726348fc5c03c080de96c1"
