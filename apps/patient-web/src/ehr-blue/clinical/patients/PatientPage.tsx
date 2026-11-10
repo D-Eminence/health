@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { HEALTH_FIELDS, type HealthFields, type ReportedHealthProfile } from '../../../profileParity'
-import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
+import { ChartGate, type Chart } from '../parts/chart'
 import { LoadingRows } from '../../../kasuwa/parts'
 import { consultationLabel, visitClassLabel } from '../../../plainLabels'
 import { formatDate, formatWhen } from '../parts/format'
@@ -26,8 +26,6 @@ import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording
 export const CLOSED_NOTICE = 'closed'
 /** Said where a lab's or a pharmacy's site hides every next step: those pages are the hospital EHR's alone. */
 export const ON_HOSPITAL_EHR = 'Charts, visits and emergency access are on the Hospital EHR.'
-/** After the chart's READ_ONLY, on the patient page only: how to get changes. */
-const READ_ONLY_HOW = 'To make changes, ask the patient to let you see and add to their records.'
 
 function sexText(value: string | undefined) {
   if (!value) return ''
@@ -164,7 +162,7 @@ export function PatientPage() {
 }
 
 function PatientRecord({ chart }: { chart: Chart }) {
-  const { facility, permissions, can, setActivePatient } = useClinical()
+  const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const sampleCan = useSampleCan()
@@ -202,12 +200,11 @@ function PatientRecord({ chart }: { chart: Chart }) {
   }
 
   /**
-   * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
-   * identity.consent.write (the frame's rule, the permission its request form needs). The two steps that move an
-   * emergency patient to direct care are the exception: a role that cannot take one sees it turned off with today's
-   * reason, as on Find a patient.
+   * As the design's Next steps, a step shows only to a role that may take it. The two steps that move an emergency
+   * patient to direct care are the exception: a role that cannot take one sees it turned off with today's reason, as on
+   * Find a patient. There is no step to ask for more access: the patient's Access PIN already lets staff see and add to
+   * their records for 24 hours (owner, 10 Nov 2026).
    */
-  const mayOpenConsent = can('identity.consent.write')
   const mayOpenChart = chart.can('ehr.encounter.read')
   // Starting a consultation or recording vitals needs the grant to allow changes and the role to hold what that page
   // writes with (Consultation's ehr.encounter.write; Triage's ehr.vital.read and ehr.vital.write): no dead-end step.
@@ -224,14 +221,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const showWalkIn = isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') && opens('journey')
   const showEmergency = isDemoFacility(chart.facilityId) && emergencyUnavailable === null && opens('emergency')
   const showSummary = opens('emergency')
-  const noSteps = !showStart && !showVitals && !showWalkIn && !mayOpenConsent && !showEmergency
-
-  /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
-  function openConsent() {
-    if (!mayOpenConsent) return
-    offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
-    navigate(href.to('consent', 'new'))
-  }
+  const noSteps = !showStart && !showVitals && !showWalkIn && !showEmergency
 
   /**
    * The access steps, as Find a patient takes them: under direct care at the demo facilities only, emergency access
@@ -285,10 +275,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
         <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
           actions={emergency ? (showSummary ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button> : undefined)
             : showChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
-        {/* Read only, said once. */}
+        {/* Read only, said once: the chart's own sentence, with no step to ask for more (owner, 10 Nov 2026). */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
-          : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
-            ? `${READ_ONLY} ${READ_ONLY_HOW}` : chart.writeNotice}</Alert> : null}
+          : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice}</Alert> : null}
         {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
 
         {!emergency ? <Card>
@@ -300,7 +289,6 @@ function PatientRecord({ chart }: { chart: Chart }) {
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities, and only to a design role
                 that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
             {showWalkIn ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
-            {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
                 record, so a real facility keeps it on Find a patient's Obtain access. Shown, as this card's steps are,
                 only to a role that may take it. */}
