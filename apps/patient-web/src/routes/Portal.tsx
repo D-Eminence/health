@@ -14,7 +14,7 @@ import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
-import { isAdult, paperRecordsOnApproval, PIN_COVERS } from '../paperRecordsWording'
+import { isAdult, paperRecordsOnApproval, PIN_ALLOWS, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
@@ -1110,7 +1110,7 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-busy={loading || undefined}>
       <Badge size="sm" tone={profile.accessPinConfigured ? 'success' : 'neutral'}>{profile.accessPinConfigured ? 'Set' : 'Not set'}</Badge>
       {/* The paper records part only to an adult (under-18s are refused paper records). */}
-      {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
+      {isAdult(profile.dateOfBirth) ? PIN_COVERS : PIN_ALLOWS}</p>
     <Saved>{notice}</Saved>
     <form onSubmit={event => void configurePin(event)} className="flex flex-wrap items-start gap-2">
       <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."

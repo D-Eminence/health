@@ -6,7 +6,7 @@ import { createApiClient } from '@hid/http'
 import { createPatientApi, type AccessRequest } from '../api'
 import { createTestSessionValue, SessionContext } from '../session'
 import { AccessPage } from '../routes/Portal'
-import { isAdult, PIN_COVERS, paperRecordsOnApproval, STAFF_ACCESS_COVERS_PAPER } from '../paperRecordsWording'
+import { isAdult, PIN_ALLOWS, PIN_COVERS, paperRecordsOnApproval, STAFF_ACCESS_COVERS_PAPER } from '../paperRecordsWording'
 import { ToastProvider } from '../kasuwa/toast'
 
 /**
@@ -52,7 +52,8 @@ const WORDS = 'Approving also lets Lagos General add your old paper records to y
 describe('the paper records rule, as the patient reads it', () => {
   it('is the decided sentence, word for word', () => {
     expect(paperRecordsOnApproval('Lagos General')).toBe(WORDS)
-    expect(PIN_COVERS).toBe('A hospital you give it to can use it to open your records, and to add your old paper records to your Health ID while that access lasts.')
+    expect(PIN_COVERS).toBe('A hospital you give your PIN to can see and add to your records for 24 hours. While that access lasts, they can also add your old paper records to your Health ID. You can end their access at any time in Access & sharing.')
+    expect(PIN_ALLOWS).toBe('A hospital you give your PIN to can see and add to your records for 24 hours. You can end their access at any time in Access & sharing.')
     expect(STAFF_ACCESS_COVERS_PAPER).toBe('This access also lets you bring in the patient’s paper records while it lasts.')
   })
 
