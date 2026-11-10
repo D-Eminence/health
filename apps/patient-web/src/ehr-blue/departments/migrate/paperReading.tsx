@@ -268,8 +268,11 @@ const UNREADABLE_ANYWHERE = /\[unreadable\]/gi
  * and spaces around it. Such an item is never shown as an item nor saved; an item read in part is shown, to check.
  * A mark written only in symbols ("+++", "✓") is a reading, so it stays an item.
  */
-export function isUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
-  return item.asWritten.replace(UNREADABLE_ANYWHERE, '').replace(GAP_ANYWHERE, '').replace(/[\p{P}\s]/gu, '') === ''
+export function isUnreadable(item: Pick<PaperItem, 'asWritten'> & { readonly plain?: string }): boolean {
+  const left = item.asWritten.replace(UNREADABLE_ANYWHERE, '')
+  if (left.replace(GAP_ANYWHERE, '').replace(/[\p{P}\s]/gu, '') === '') return true
+  // Only marks with no reading of their own ("(or Quinine?)", "[dose?] (crossed out: X)") and no summary: nothing to show or save.
+  return cleanReading(left) === '' && !item.plain?.trim()
 }
 
 /*
@@ -284,7 +287,8 @@ export function isUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
  * - "(crossed out: X)": words crossed out on the paper. Shown struck through; never saved.
  * - "Am… (Ampiclox?)": a word cut off, then the medicine it most likely is. The medicine is shown, as unsure; the
  *   cut-off word is under Why?.
- * - A "-" or "—" bullet at the start of the line is dropped.
+ * - A "-" or "—" bullet at the start of a whole line is dropped (withoutBullet), never from a field and never when it
+ *   is a minus ("- 2.5", "- ve").
  *
  * readingParts splits the words into these parts once; the line shown (ReadingText) and the words saved (cleanReading)
  * are both made from them, so what is seen and what is kept can't differ.
@@ -324,10 +328,12 @@ function closingBracket(source: string, start: number): number {
 /** A run of plain words: each word ending in "?" is unsure, without its "?" (punctuation after it stays plain). */
 function wordParts(run: string): ReadingPart[] {
   return run.split(/(\s+)/).filter(Boolean).flatMap((word): ReadingPart[] => {
-    const unsure = /^(.*[^?\s])\?+([)\],.;:!]*)$/u.exec(word)
+    const unsure = /^([([]*)(.*[^?\s])\?+([)\],.;:!]*)$/u.exec(word)
     // A "?" alone, or inside a word ("Metf?rmin"), is left as it is: it is not the reader's mark for an unsure word.
     if (!unsure) return [{ kind: 'text', text: word }]
-    return [{ kind: 'unsure', text: unsure[1]! }, ...(unsure[2] ? [{ kind: 'text' as const, text: unsure[2] }] : [])]
+    // Brackets around the word ("(Ampiclox?)") stay plain words, outside the unsure mark.
+    return [...(unsure[1] ? [{ kind: 'text' as const, text: unsure[1] }] : []), { kind: 'unsure', text: unsure[2]! },
+      ...(unsure[3] ? [{ kind: 'text' as const, text: unsure[3] }] : [])]
   })
 }
 
@@ -355,7 +361,7 @@ function lastShownWord(parts: readonly ReadingPart[]): string {
 
 /** What is written, split into the reader's marks and the words between them (see above). */
 export function readingParts(asWritten: string): ReadingPart[] {
-  const source = asWritten.replace(/^\s*[-–—•*]+\s+/u, '')
+  const source = asWritten
   const parts: ReadingPart[] = []
   let run = ''
   const flush = () => { if (run) parts.push(...wordParts(run)); run = '' }
@@ -391,12 +397,15 @@ export function readingParts(asWritten: string): ReadingPart[] {
         if (text && text.toLowerCase() !== lastShownWord(parts).toLowerCase()) parts.push({ kind: 'alternative', text })
         at = end + 1; continue
       }
-      const cutOff = inside ? /(\S+(?:…|\.\.\.))\s*$/u.exec(run) : null
-      const match = inside ? cleanReading(inside) : ''
-      if (cutOff && match) {
+      // A cut-off word then the one name it most likely is ("Am… (Ampiclox?)"): only when the bracket holds a single
+      // unsure name that starts as the cut-off word does. Any other bracket ("1g… (if febrile)") is words as written.
+      const cutOff = inside ? /(\S+?)(?:…|\.\.\.)\s*$/u.exec(run) : null
+      const match = inside && /^[^()[\]?]+\??$/u.test(inside) ? cleanReading(inside) : ''
+      const stem = cutOff ? cutOff[1]!.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase() : ''
+      if (cutOff && match && stem && match.toLowerCase().startsWith(stem)) {
         run = run.slice(0, cutOff.index)
         flush()
-        parts.push({ kind: 'cut_off', text: cutOff[1]! }, { kind: 'unsure', text: match })
+        parts.push({ kind: 'cut_off', text: cutOff[0].trim() }, { kind: 'unsure', text: match })
         at = end + 1; continue
       }
     }
@@ -460,7 +469,15 @@ function partlyUnreadable(item: Pick<PaperItem, 'asWritten'>): boolean {
  * (even when the reader marked it clear), so it never starts as kept and always carries the Check mark.
  */
 export function needsCheck(item: Pick<PaperItem, 'asWritten' | 'confidence'>): boolean {
-  return item.confidence === 'check_carefully' || partlyUnreadable(item)
+  return item.confidence === 'check_carefully' || partlyUnreadable(item) || hasDoubt(item.asWritten)
+}
+
+/**
+ * True when the reader marked doubt in the words: an unsure word, a part that couldn't be read, another possible
+ * reading or a cut-off word. The saved words drop those marks, so such a line is always checked before it is kept.
+ */
+function hasDoubt(asWritten: string): boolean {
+  return readingParts(asWritten).some(part => part.kind === 'unsure' || part.kind === 'gap' || part.kind === 'alternative' || part.kind === 'cut_off')
 }
 
 /** Keys of an item's fields that say nothing read from the paper by themselves. */
@@ -488,8 +505,19 @@ export function readableItems(items: readonly PaperItem[]): PaperItem[] {
  * "…"), else the summary. Shown through ReadingText; its words alone are itemHeadlineText.
  */
 export function itemHeadline(item: PaperItem): string {
-  const written = item.asWritten.replace(UNREADABLE_ANYWHERE, '…').trim()
+  const written = withoutBullet(item.asWritten.replace(UNREADABLE_ANYWHERE, '…').trim())
   return written && cleanReading(written) ? written : item.plain.trim()
+}
+
+/**
+ * A whole line without the "-", "—" or "•" bullet it starts with on the paper. A minus is kept: a "-" followed by a
+ * number or "ve" ("- 2.5", "- ve") is the reading itself.
+ */
+export function withoutBullet(line: string): string {
+  const bullet = /^\s*[-–—•*]+\s+/u.exec(line)
+  if (!bullet) return line
+  const rest = line.slice(bullet[0].length)
+  return /^[-–]\s*$/u.test(bullet[0].trim()) && /^(\d|\.\d|ve\b)/iu.test(rest) ? line : rest
 }
 
 /** The words of an item's one line as they are shown and saved, with no reader's marks. */
@@ -499,7 +527,8 @@ export function itemHeadlineText(item: PaperItem): string {
 
 /** Why an item needs checking, in the reader's words, or a general sentence. */
 export function checkReasonWords(item: PaperItem): string {
-  return item.checkReason?.trim() || (partlyUnreadable(item) ? 'Part of this line couldn’t be read.' : 'Check this against the document.')
+  return item.checkReason?.trim() || (partlyUnreadable(item) ? 'Part of this line couldn’t be read.'
+    : hasDoubt(item.asWritten) ? 'Some words couldn’t be read for sure.' : 'Check this against the document.')
 }
 
 /** What a list says, in place of items, for the lines that couldn't be read at all. */

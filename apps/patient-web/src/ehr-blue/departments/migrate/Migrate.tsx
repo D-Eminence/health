@@ -157,9 +157,12 @@ function hasText(text: string | null | undefined): text is string {
   return !!text && text.trim().length > 0
 }
 
-/** True when a paper reading's items were picked out: the items are shown and checked, never the scanned text beside them. */
+/**
+ * True when a paper reading's items were picked out: the items are shown and checked, never the scanned text beside them.
+ * A reading with no items shows its scanned text, so staff still have the words to check.
+ */
 function showsItems(reading: PaperReading | null): boolean {
-  return reading?.status === 'read'
+  return reading?.status === 'read' && reading.items.length > 0
 }
 
 /** The text OCR read, as it is. It scrolls, so it takes focus: a keyboard can then scroll it. */

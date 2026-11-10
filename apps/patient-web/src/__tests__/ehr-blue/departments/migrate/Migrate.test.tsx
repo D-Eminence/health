@@ -1115,6 +1115,15 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(screen.getByRole('region', { name: 'Extracted text, version 1', hidden: true }).textContent).toBe('Haemoglobin 12.1')
   })
 
+  it('still shows the scanned text when a paper reading was read but found no items, so staff have words to check', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading({ items: [],
+      reading: { ...paperReading().reading, itemCount: 0 } }) }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
+    expect(screen.getByRole('region', { name: 'Extracted text, version 1', hidden: true }).textContent).toBe('Haemoglobin 12.1')
+  })
+
   it('warns first when the page may not be fully read, in one line above the count', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Ceftriaxone ? IV', structuredPayload: handwrittenPage() }] })
     await findJob(awaiting)
@@ -1358,7 +1367,7 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     expect(input).toMatchObject({ targetDomain: 'PHARMACY', candidateType: 'historical_medication_evidence' })
     expect(input.acceptedFields.medications).toHaveLength(50)
     expect(input.acceptedFields.medications[0]).toEqual({ itemId: 'it-0000000000000b01', page: 1, medicationText: 'Testamol 2', strengthText: '10 mg',
-      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. As written: Testamol 2 10mg od' })
+      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. Read as: Testamol 2 10mg od' })
     expect(input.acceptedFields).not.toHaveProperty('medicationText')
   })
 

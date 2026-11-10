@@ -7,7 +7,7 @@ import {
   type PaperItem,
 } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
-  ItemCheck, ReadingText, cleanReading, itemHeadlineText, readingNotes, readingParts,
+  ItemCheck, ReadingText, cleanReading, itemHeadlineText, readingNotes, readingParts, withoutBullet,
 } from '../../../../ehr-blue/departments/migrate/paperReading'
 import { FLAG_REASONS, flagged, handwrittenPage, hardHandwrittenPage, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
 
@@ -383,8 +383,16 @@ describe('the reader\'s marks: shown without "?" and saved clean', () => {
     ['a cut-off word and the medicine it most likely is', 'IV? Am… (Ampiclox?) 500mg?', 'IV Ampiclox 500mg'],
     ['a cut-off word written with three dots', 'Am... (Ampiclox) 500mg', 'Ampiclox 500mg'],
     ['a question mark written on the paper', 'Paracetamol 1g (? on paper)', 'Paracetamol 1g (? on paper)'],
-    ['a bullet', '- Dc Gentamicin?', 'Dc Gentamicin'],
-    ['a long-dash bullet', '— Transfer to the ward', 'Transfer to the ward'],
+    ['a cut-off word whose bracket is not the medicine (a dose is kept)', 'Ceftriaxone 1g... (if febrile)', 'Ceftriaxone 1g... (if febrile)'],
+    ['a cut-off value then words in brackets', 'BP 120/… (sitting)', 'BP 120/… (sitting)'],
+    ['a cut-off word then a dose in brackets', 'Metro… (500mg)', 'Metro… (500mg)'],
+    ['a cut-off word then a frequency in brackets', 'Cipro… (bd)', 'Cipro… (bd)'],
+    ['a cut-off word then a duration in brackets', 'Metro… (x5 days)', 'Metro… (x5 days)'],
+    ['a cut-off word then an unsure medicine it is not', 'Am… (Quinine?) 300mg', 'Am… (Quinine) 300mg'],
+    ['a cut-off word then the medicine, in any case', 'cipro… (Ciprofloxacin?) bd', 'Ciprofloxacin bd'],
+    ['an unsure word in brackets, with nothing cut off', 'Tab (Ampiclox?) 500mg', 'Tab (Ampiclox) 500mg'],
+    ['a dash at the start of a field is a minus, kept', '- ve', '- ve'],
+    ['a dash at the start of a field is kept', '- Dc Gentamicin?', '- Dc Gentamicin'],
     ['a dash inside the line', '21/8? [?] - Transfer to the ward', '21/8 - Transfer to the ward'],
     ['a "?" alone, kept as it was', 'Ceftriaxone ? IV', 'Ceftriaxone ? IV'],
     ['a "?" inside a word, kept as it was', 'Metf?rmin 500 bd', 'Metf?rmin 500 bd'],
@@ -396,6 +404,30 @@ describe('the reader\'s marks: shown without "?" and saved clean', () => {
   ])('cleanReading: %s', (_, written, saved) => {
     expect(cleanReading(written)).toBe(saved)
     expect(cleanReading(written)).not.toMatch(/\w\?(\s|$)/)
+  })
+
+  it('drops a bullet from a whole line, never a minus', () => {
+    expect(withoutBullet('- Dc Gentamicin?')).toBe('Dc Gentamicin?')
+    expect(withoutBullet('— Transfer to the ward')).toBe('Transfer to the ward')
+    expect(withoutBullet('• Admit')).toBe('Admit')
+    expect(withoutBullet('- ve')).toBe('- ve')
+    expect(withoutBullet('- VE')).toBe('- VE')
+    expect(withoutBullet('- 2.5')).toBe('- 2.5')
+    expect(withoutBullet('-ve')).toBe('-ve')
+    expect(withoutBullet('21/8 - Transfer')).toBe('21/8 - Transfer')
+  })
+
+  it('marks only an unsure word in brackets, never the brackets', () => {
+    expect(readingParts('Tab (Ampiclox?) 500mg')).toEqual([
+      { kind: 'text', text: 'Tab (' }, { kind: 'unsure', text: 'Ampiclox' }, { kind: 'text', text: ') 500mg' },
+    ])
+  })
+
+  it('treats a cut-off word as a medicine match only when the bracket names one starting the same way', () => {
+    for (const line of ['Ceftriaxone 1g... (if febrile)', 'BP 120/… (sitting)', 'Metro… (500mg)', 'Cipro… (bd)', 'Metro… (x5 days)']) {
+      expect(readingParts(line).some(part => part.kind === 'cut_off')).toBe(false)
+      expect(readingNotes(line)).toEqual([])
+    }
   })
 
   it('splits a line into its marks once, for the line and for what is saved', () => {
@@ -466,7 +498,7 @@ describe('the reader\'s marks: shown without "?" and saved clean', () => {
       'Admit',
       '21/8 - Transfer to the ward',
     ])
-    expect(reading.items.map(itemHeadlineText)).toEqual(reading.items.map(item => cleanReading(item.asWritten)))
+    expect(reading.items.map(itemHeadlineText)).toEqual(reading.items.map(item => cleanReading(withoutBullet(item.asWritten))))
     const { container } = render(<PaperReadingView reading={reading} />)
     const medicines = within(screen.getByRole('region', { name: 'Medicines' })).getAllByRole('listitem')
     expect(medicines.map(row => row.querySelector('strong')?.textContent)).toEqual([
@@ -501,11 +533,30 @@ describe('the reader\'s marks: shown without "?" and saved clean', () => {
     expect(isUnreadable({ asWritten: '(? on paper)' })).toBe(false)
   })
 
-  it('shows Why? with other possible readings even on a line the reader was sure of, with no Check mark', () => {
+  it('counts a line of only another reading or words crossed out, with no summary, as a line that couldn\'t be read', () => {
+    expect(isUnreadable({ asWritten: '(or Quinine?)', plain: '' })).toBe(true)
+    expect(isUnreadable({ asWritten: '[dose?] (or Quinine?)', plain: ' ' })).toBe(true)
+    expect(isUnreadable({ asWritten: '(crossed out: Ceftriaxone?)', plain: '' })).toBe(true)
+    // With a summary, the summary is the line shown and saved.
+    expect(isUnreadable({ asWritten: '(or Quinine?)', plain: 'Quinine' })).toBe(false)
+    const item = { ...parsed().items[0]!, asWritten: '(or Quinine?)', plain: 'Quinine 300 mg' }
+    expect(itemHeadlineText(item)).toBe('Quinine 300 mg')
+  })
+
+  it('checks a line the reader called clear when it carries the reader\'s doubt, with Why? and a Check mark', () => {
     const item = { ...parsed().items[0]!, asWritten: 'Amlodipine (or Amiloride) 5mg od' }
+    expect(item.confidence).toBe('clear')
+    expect(needsCheck(item)).toBe(true)
+    expect(checkReasonWords(item)).toBe('Some words couldn’t be read for sure.')
     const { container } = render(<ItemCheck item={item} />)
-    expect(within(container).queryByText('Check')).toBeNull()
+    expect(within(container).getByText('Check')).toBeTruthy()
     expect(within(container).getByText('Other possible reading: Amiloride')).toBeTruthy()
+    for (const asWritten of ['Amoxicillin [dose?] 8hrly', 'Give (or withhold?) Digoxin', 'Allergy: Penicillin? (or nil?)', 'Na? 130 (or 150?)', 'Am… (Amoxil?) 500mg']) {
+      expect(needsCheck({ ...item, asWritten })).toBe(true)
+    }
+    for (const asWritten of ['Amlodipine 5mg od', 'Paracetamol 1g (? on paper)', 'Quinine (crossed out: Chloroquine)', '?Malaria', 'Metf?rmin 500 bd']) {
+      expect(needsCheck({ ...item, asWritten })).toBe(false)
+    }
   })
 })
 

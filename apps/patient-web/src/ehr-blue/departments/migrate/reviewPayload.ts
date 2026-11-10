@@ -250,7 +250,7 @@ function medication(entry: CheckedItem) {
   // A status staff confirmed as not active ("Stopped") goes with the record, kept or changed, as it shows on the card.
   const notActive = itemNotActive(item)
   const context = [
-    `From a paper record, page ${item.page}. As written: ${itemHeadlineText(item)}`,
+    `From a paper record, page ${item.page}. Read as: ${itemHeadlineText(item)}`,
     notActive && `Status: ${notActive}`,
     clean(f.duration) && `For ${clean(f.duration)}`,
     item.prescription?.prescriberAsWritten?.trim() && `Prescribed by ${item.prescription.prescriberAsWritten.trim()}`,
