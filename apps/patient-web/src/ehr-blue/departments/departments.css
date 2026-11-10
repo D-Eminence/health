@@ -331,6 +331,12 @@
   cursor: pointer;
 }
 
+.hid-ehr .hid-ehr-dept-history-line {
+  margin: 0;
+  color: var(--ehr-text);
+  font-weight: 500;
+}
+
 .hid-ehr .hid-ehr-dept-history summary:focus-visible {
   outline: 3px solid var(--ehr-brand);
   outline-offset: 3px;
@@ -835,6 +841,14 @@
 
 .hid-ehr .hid-ehr-dept-migrate-details > p {
   margin: 4px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-raw {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-raw > pre {
+  margin: 8px 0 0;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-review {

@@ -292,6 +292,21 @@ describe('Migrate record view', () => {
     expect(text.textContent).toBe('Haemoglobin 12.1')
   })
 
+  it('shows only the summary line for an extraction with no text, never an empty block', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, confidence: 0.38, rawText: ' \n\t ' }] })
+    await findJob(awaiting)
+    const summary = await screen.findByText('Extraction 1 · textract · confidence 38%')
+    // A plain line, not a disclosure that opens to nothing.
+    expect(summary.tagName).toBe('P')
+    expect(summary.closest('details')).toBeNull()
+    const entry = summary.closest('.hid-ehr-dept-history')!
+    expect(entry.querySelector('summary')).toBeNull()
+    expect(entry.querySelector('pre')).toBeNull()
+    expect(entry.querySelector('.hid-ehr-dept-history-detail')).toBeNull()
+    expect(entry.textContent).toBe('Extraction 1 · textract · confidence 38%')
+    expect(screen.queryByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeNull()
+  })
+
   it('says when no extraction is available yet, and loading before that', async () => {
     let answer: (value: unknown) => void = () => {}
     api.ocrExtractions.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
@@ -1069,8 +1084,27 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     // The reading's own parts never show as loose fields.
     expect(within(read).queryByText('Pages')).toBeNull()
     expect(within(read).queryByText('Contract')).toBeNull()
-    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Amlodipine 5mg od')
+    // The scanned text waits closed at the very end, under its own summary, and can still be read and scrolled.
+    const raw = within(read).getByText('Scanned text (raw)')
+    expect(raw.tagName).toBe('SUMMARY')
+    const disclosure = raw.closest('details')!
+    expect(disclosure.open).toBe(false)
+    expect(read.lastElementChild).toBe(disclosure)
+    const text = within(disclosure).getByRole('region', { name: 'Text read from the document', hidden: true })
+    expect(text.textContent).toBe('Amlodipine 5mg od')
+    expect(text.getAttribute('tabindex')).toBe('0')
+    // Only there: never as an open block among the items.
+    expect(within(read).getAllByRole('region', { name: 'Text read from the document', hidden: true })).toEqual([text])
     expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+  })
+
+  it('shows no scanned text disclosure for a paper reading when no text was read', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: '  \n ', structuredPayload: paperReading() }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('7 items read · 2 to check')).toBeTruthy()
+    expect(within(read).queryByText('Scanned text (raw)')).toBeNull()
+    expect(within(read).queryByRole('region', { name: 'Text read from the document', hidden: true })).toBeNull()
   })
 
   it('warns first when the page may not be fully read, in one line above the count', async () => {
