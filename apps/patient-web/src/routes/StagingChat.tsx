@@ -23,10 +23,12 @@ const staffSuggestions = [
 ]
 interface Exchange { id: number; question: string; reply?: StagingPatientChatReply; error?: string }
 /**
- * A 503: ehr-api could not answer this turn, or the gateway answered for it (it turns every 502, 503 and 504
- * into its own 503), so the two cannot be told apart. Worded for a patient and for staff alike.
+ * A 503: ehr-api could not answer this turn (the model, or a source such as the Lab service, was unavailable:
+ * CHAT_HISTORY_SOURCE_UNAVAILABLE among them), or the gateway answered for it (it turns every 502, 503 and 504
+ * into its own 503), so the cause cannot be told apart and the words promise nothing about it. Worded for a
+ * patient and for staff alike.
  */
-const UNAVAILABLE_503 = 'Record chat could not answer just now. Please try again in a minute. If it happens again, ask about one thing, such as recent medicines or one test.'
+const UNAVAILABLE_503 = 'Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.'
 function failure(reason: unknown): string {
   if (!isHidApiError(reason)) return 'Record chat is unavailable. Please try later.'
   if (reason.status === 401) return 'Your session ended. Please sign in again.'

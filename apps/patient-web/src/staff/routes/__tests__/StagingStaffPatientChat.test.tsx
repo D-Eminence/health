@@ -56,7 +56,7 @@ describe('embedded hospital patient chat',()=>{
     await waitFor(()=>expect(screen.queryByText('Loading your saved conversation…')).toBeNull())
     fireEvent.change(input,{target:{value:'Summarise this patient’s history'}});fireEvent.click(screen.getByRole('button',{name:'Send question'}))
     const alert=await screen.findByRole('alert')
-    expect(alert.textContent).toBe('Record chat could not answer just now. Please try again in a minute. If it happens again, ask about one thing, such as recent medicines or one test.')
+    expect(alert.textContent).toBe('Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.')
     expect(alert.textContent).not.toMatch(/\byour\b|platform service/i)
     expect(screen.getByRole('log').textContent).toContain('Summarise this patient’s history')
   })
