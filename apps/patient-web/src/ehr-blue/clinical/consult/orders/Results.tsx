@@ -2,6 +2,7 @@ import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
 import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
+import { FLAG_WORDS } from '../../../departments/laboratory/labText'
 import { ErrorBox } from '../../parts/Notices'
 import { releasedResultsRefusal } from './words'
 
@@ -9,22 +10,27 @@ function dateText(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : 'Not available'
 }
 
-/** Today's RevisionList (staff/labRevisions.tsx) in the design's list style, with its words. */
+/**
+ * A result's released versions, newest first: "Latest released result", then each earlier one it replaced, with why it
+ * was changed. Only released versions reach a clinician (lab-executions.service.ts releasedView), so no status is shown,
+ * and the newest is never called current: a correction waiting to be checked in the lab is not sent here.
+ * Each flag in the lab's plain words (labText.ts); "not set" says nothing, so it is left out.
+ */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
+  const newestFirst = [...revisions].sort((a, b) => b.version - a.version)
   return (
     <ul className="hid-ehr-clinical-orders-revisions">
-      {revisions.map(revision => (
+      {newestFirst.map((revision, index) => (
         <li key={revision.version} className="hid-ehr-clinical-orders-revision">
           <div className="hid-ehr-clinical-orders-row">
-            <strong>Version {revision.version}</strong>
-            <EhrBadge tone={revision.releaseStatus === 'released' ? 'positive' : 'caution'}>{revision.releaseStatus.replaceAll('_', ' ')}</EhrBadge>
-            {revision.verificationStatus === 'entered_in_error' ? <EhrBadge tone="critical">Entered in error</EhrBadge> : null}
+            <strong>{index === 0 ? 'Latest released result' : 'Earlier released result'}</strong>
+            {revision.verificationStatus === 'entered_in_error' ? <EhrBadge tone="critical">Entered in error</EhrBadge>
+              : index > 0 ? <EhrBadge tone="caution">Replaced</EhrBadge> : null}
           </div>
-          <p>{revisionValue(revision)} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
-          <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
+          <p>{revisionValue(revision)}{revision.abnormalFlag !== 'unknown' && FLAG_WORDS[revision.abnormalFlag] ? ` · ${FLAG_WORDS[revision.abnormalFlag]}` : ''}</p>
+          {revision.referenceRange ? <p>Normal range: {revision.referenceRange}</p> : null}
           {revision.releasedAt ? <p>Released {dateText(revision.releasedAt)}</p> : null}
-          {revision.referenceRange ? <p>Reference range: {revision.referenceRange}</p> : null}
-          {revision.correctionReason ? <p>Reason: {revision.correctionReason}</p> : null}
+          {revision.correctionReason ? <p>Why it was changed: {revision.correctionReason}</p> : null}
         </li>
       ))}
     </ul>
@@ -72,8 +78,8 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: 
                 <strong>Result {index + 1}</strong>
                 <EhrBadge tone={result.status === 'entered_in_error' ? 'critical' : 'positive'}>{result.status === 'entered_in_error' ? 'Entered in error' : 'Released'}</EhrBadge>
               </div>
-              {result.status === 'entered_in_error' ? <p>The latest released version was marked entered in error: do not use it.</p> : null}
-              {skipsVersions(result.revisions) ? <p className="hid-ehr-clinical-orders-muted">Version numbers skip revisions that were never released; those are not shown.</p> : null}
+              {result.status === 'entered_in_error' ? <p>Don’t use this result: the lab marked it as entered in error.</p> : null}
+              {skipsVersions(result.revisions) ? <p className="hid-ehr-clinical-orders-muted">Some versions were never released, so they aren’t shown.</p> : null}
               <Revisions revisions={result.revisions} />
             </div>
           ))}

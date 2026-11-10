@@ -14,9 +14,9 @@ import { outsideOf } from '../pharmacy/pocFields'
 import { personBanner, subjectOf } from './LabRequest'
 import { useLabRecord } from './labRecord'
 import { ResultSlip, usePrint, type SlipLine } from './labPrint'
-import { flagLevel, LAB_RESULTS_HIDDEN, revisionText, stampText } from './labText'
+import { correctionWaiting, flagLevel, LAB_RESULTS_HIDDEN, revisionText, stampText } from './labText'
 import { ShareResult } from './ShareResult'
-import { ageSex, personOf, releasedAtOf, requestOf, stageOf } from './stage'
+import { ageSex, listSaysStage, personOf, releasedAtOf, requestOf, stageOf } from './stage'
 
 const RESULTS_HREF = '/provider/laboratory/results'
 
@@ -46,6 +46,8 @@ export function Results() {
   const [search, setSearch] = useState('')
   const id = openId(location.pathname)
   const items = (read.value?.items ?? []).filter(item => stageOf(item) === 'done')
+  // Today's work list sends no stage past the sample, so it can't say which results are released: then this list says so, not "none".
+  const listsResults = (read.value?.items ?? []).some(listSaysStage)
   const chosen = id ? read.value?.items.find(item => item.id === id) ?? null : null
   const last = useRef(id)
   useLayoutEffect(() => {
@@ -71,8 +73,9 @@ export function Results() {
       <Input icon={Search} type="search" aria-label="Search results" placeholder="Name, phone, test or number" value={search}
         onChange={event => setSearch(event.target.value)} className="@3xl:max-w-md" />
       <PageState loading={read.loading} error={read.error || null} hasData={read.value !== null} onRetry={() => void read.refresh()} what="results" rows={4}
-        empty={shown.length === 0 ? { icon: FileText, title: search.trim() ? 'Nothing matches' : 'No results released yet',
-          description: search.trim() ? 'Check the spelling.' : 'Results show here once they are checked and released.' } : null}>
+        empty={shown.length === 0 ? { icon: FileText, title: search.trim() ? 'Nothing matches' : listsResults ? 'No results released yet' : 'Results aren’t listed here yet',
+          description: search.trim() ? 'Check the spelling.' : listsResults ? 'Results show here once they are checked and released.'
+            : 'Open a request from the Work list to see its result and give it to the patient.' } : null}>
         <ul aria-label="Released results" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(item => {
             const person = personOf(item)
@@ -104,6 +107,9 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
   const outside = outsideOf(item)
   const record = useLabRecord(facilityId, item.accessionId, permissions.includes('lab.accession.read'), permissions.includes('lab.execution.read'))
   const released = record.executions.flatMap(execution => { const revision = releasedOf(execution); return revision ? [{ execution, revision }] : [] })
+  // A correction waiting to be checked: the released value shown is the one being corrected, so it is not given out.
+  const correcting = record.executions.filter(execution => correctionWaiting(execution.result))
+  const givable = released.length > 0 && correcting.length === 0
   const { print, area } = usePrint()
   // Sharing a result is a point-of-care route Health ID does not serve yet: offered only where it may answer (commerce/served.ts).
   const canShare = pointOfCareOpen(facilityId) && permissions.includes('lab.result.share') && Boolean(item.accessionId)
@@ -119,8 +125,11 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}>
     {personBanner(person)}
     <Card>
-      <CardHeader as="h2" title="Result" actions={released.length > 0 ? <Button icon={Printer} onClick={() => print('slip', slip)}>Print</Button> : undefined} />
+      <CardHeader as="h2" title="Result" actions={givable ? <Button icon={Printer} onClick={() => print('slip', slip)}>Print</Button> : undefined} />
       <div className="flex flex-col gap-4 p-5">
+        {correcting.length > 0 ? <Alert intent="warning" title="A correction is waiting to be checked">
+          {correcting.map(execution => execution.test.name).join(', ')}: the result below is being corrected. Don’t print or give it out until the
+          correction is checked and released.</Alert> : null}
         {record.error ? <Alert intent="error" title="Couldn’t load the result" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Try again</Button>}>{record.error}</Alert> : null}
         {record.hidden ? <Alert intent="warning" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Refresh</Button>}>{LAB_RESULTS_HIDDEN[record.hidden]}</Alert> : null}
         {record.loading && released.length === 0 ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
@@ -129,15 +138,15 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
           {released.map(({ execution, revision }) => <li key={execution.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
             <span className="text-[15px] font-medium text-ink">{execution.test.name}</span>
             <span className="text-[19px]"><Value value={revisionText(revision)} unit={revision.unit} flag={flagLevel(revision.abnormalFlag)} /></span>
-            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range ${revision.referenceRange}` : null,
+            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range: ${revision.referenceRange}` : null,
               revision.releasedAt ? `Released ${stampText(revision.releasedAt)}` : null].filter(Boolean).join(' · ')}</span>
             {sameScientistCheck(revision) ? <span className="text-caption text-ink-2">{SAME_SCIENTIST}</span> : null}
           </li>)}
         </ul> : null}
       </div>
     </Card>
-    {canShare && released.length > 0 ? <Card>
-      <CardHeader as="h2" title="Give the result" description="A link to this result only. The patient also sees it on their Health ID, if they have one." />
+    {canShare && givable ? <Card>
+      <CardHeader as="h2" title="Give the result" description="A link to this result only." />
       <div className="flex flex-col gap-4 p-5">
         <div className="flex flex-col gap-2">
           <h3 className="m-0 text-[15px] font-semibold text-ink">To {person.name}</h3>
