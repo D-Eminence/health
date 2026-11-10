@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RELOAD_FAILED } from '../../../ehr-blue/clinical/consult/encounters'
 import { CONNECTED_ORDERS_NOTE, EncounterOrderPages, EncounterOrders, orderPath } from '../../../ehr-blue/clinical/consult/orders'
 import { learnFrom } from '../../../ehr-blue/clinical/consult/orders/orders'
+import { readDiscussionList } from '../../../ehr-blue/clinical/consult/orders/discussed'
 import { useRecordList } from '../../../ehr-blue/clinical/consult/records'
 import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
 import { ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/parts/chart'
@@ -32,6 +33,9 @@ vi.mock('../../../staff/api', async () => ({
   orderRoutesApi: routes,
   isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup,
 }))
+// "Discussed with the patient" (hid-system #177): no backend serves its list by default (null, as for a 404).
+const discussed = vi.hoisted(() => ({ list: vi.fn(), mark: vi.fn(), withdraw: vi.fn() }))
+vi.mock('../../../ehr-blue/clinical/consult/orders/discussedApi', () => ({ discussedApi: discussed }))
 vi.mock('../../../staff/App', async () => {
   const harness = await import('./harness')
   return { useStaff: () => harness.staffValue(staff as never) }
@@ -78,6 +82,7 @@ function setLists(prescriptions: unknown[], labs: unknown[], extra: Record<strin
 }
 
 beforeEach(() => {
+  discussed.list.mockResolvedValue(null)
   staff.facilityId = undefined
   staff.roles = undefined
   vi.clearAllMocks()
@@ -1137,6 +1142,33 @@ describe('A lab request’s page', () => {
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+  })
+
+  it('offers "Discussed with the patient" on the order page only for a held result, once the routes are served', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read', 'lab.result.discuss']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    const answer = {
+      workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-10-30T10:00:00.000Z',
+      test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 1, currentReleasedVersion: 1,
+        revisions: [
+          { version: 1, resultType: 'numeric', numericValue: 9.8, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low', entrySource: 'manual',
+            verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null },
+        ] }],
+    }
+    // Today's backends do not serve the list: nothing is said.
+    api.labReleasedResultsForOrder.mockResolvedValue(answer)
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('9.8 g/dL · low')).toBeTruthy()
+    await waitFor(() => expect(discussed.list).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID))
+    expect(document.body.textContent).not.toContain('Discussed')
+    discussed.list.mockResolvedValue(readDiscussionList({ results: [{ resultId: 'r1', resultVersion: 1, test: answer.test,
+      releasedAt: '2026-10-30T11:30:00.000Z', gate: { sensitive: false, critical: true }, finishedVisit: true, discussion: null,
+      visibleToPatient: false }], truncated: false }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
+    expect(await screen.findByRole('button', { name: 'Discussed with the patient' })).toBeTruthy()
+    expect(discussed.list).toHaveBeenCalledTimes(2)
   })
 
   it('says when no result is released, and today’s refusals', async () => {

@@ -1028,6 +1028,11 @@
   margin: 16px 0 0;
 }
 
+/* "Discussed with the patient" under one released result (Discussed.tsx). */
+.hid-ehr .hid-ehr-clinical-orders-discussed {
+  margin-top: 12px;
+}
+
 /* The chosen action shows it is open, as the design's pressed action button does. */
 .hid-ehr .hid-ehr-clinical-orders-actions .hid-ehr-button[aria-expanded='true'] {
   background: var(--ehr-surface-sunk);
