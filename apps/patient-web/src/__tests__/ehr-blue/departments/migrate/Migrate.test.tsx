@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { Migrate, needsPatientAccess } from '../../../../ehr-blue/departments/migrate/Migrate'
+import { Migrate, READING_LONG, STILL_READING, needsPatientAccess } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { OpenPagesProvider } from '../../../../ehr-blue/frame/pageContext'
 import type { EhrBluePage } from '../../../../ehr-blue/frame/types'
 import { STAFF_PAPER_NEEDS_ACCESS } from '../../../../paperRecordsWording'
@@ -469,17 +469,81 @@ describe('Migrate: following a document while it is read', () => {
     expect(api.findOcrJob).toHaveBeenCalledTimes(1)
   }))
 
-  it('after about 3 minutes stops, says it is taking longer than usual, and Refresh status starts again', async () => withFakeTimers(async () => {
+  it('keeps reading a hard page past 3 minutes, every 15 seconds after the first minute, and stops once it is read', async () => withFakeTimers(async () => {
     await findJob(queued)
-    await wait(185_000)
+    await wait(30_000)
+    expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy()
+    expect(screen.queryByText(READING_LONG)).toBeNull()
+    api.findOcrJob.mockResolvedValue({ job: { ...queued, status: 'processing' } })
+    await wait(40_000)
+    await waitFor(() => expect(screen.getByText(READING_LONG)).toBeTruthy())
+    await wait(5 * 60_000)
     const reads = api.findOcrJob.mock.calls.length
-    expect(reads).toBe(36)
-    expect(screen.getByText('This is taking longer than usual. Use Refresh status to check again.')).toBeTruthy()
     await wait(60_000)
+    // About one read every 15 seconds, still going after 6 minutes, with nothing said to have failed.
+    expect(api.findOcrJob.mock.calls.length - reads).toBeGreaterThanOrEqual(3)
+    expect(api.findOcrJob.mock.calls.length - reads).toBeLessThanOrEqual(5)
+    expect(screen.getByText(READING_LONG)).toBeTruthy()
+    expect(screen.queryByText(STILL_READING)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    api.ocrExtractions.mockResolvedValue({ items: [extraction] })
+    api.findOcrJob.mockResolvedValue({ job: { ...awaiting, version: 5 } })
+    await wait(15_000)
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(statusRegion().textContent).toBe('The document has been read and is ready to check.')
+    expect(screen.queryByText(READING_LONG)).toBeNull()
+    const done = api.findOcrJob.mock.calls.length
+    await wait(5 * 60_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(done)
+  }))
+
+  it('a job retried after a long read says what it always has in its first minute again', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    await wait(70_000)
+    await waitFor(() => expect(screen.getByText(READING_LONG)).toBeTruthy())
+    api.findOcrJob.mockResolvedValue({ job: { ...failed, version: 5 } })
+    await wait(15_000)
+    await waitFor(() => expect(screen.queryByText(READING_LONG)).toBeNull())
+    await openAction('Retry job')
+    fireEvent.change(screen.getByLabelText(/^Retry reason/), { target: { value: 'The scan was replaced with a clearer copy' } })
+    api.retryOcrJob.mockResolvedValue({ ...queued, version: 6, attemptCount: 2 })
+    api.findOcrJob.mockResolvedValue({ job: { ...queued, version: 6, attemptCount: 2 } })
+    await press(within(screen.getByRole('form', { name: 'Retry job' })).getByRole('button', { name: 'Retry job' }))
+    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy()
+    expect(screen.queryByText(READING_LONG)).toBeNull()
+    await wait(30_000)
+    expect(screen.queryByText(READING_LONG)).toBeNull()
+  }))
+
+  it('after 20 minutes says it is still reading, and Check now reads it once and starts again', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    await wait(20 * 60_000 + 30_000)
+    expect(screen.getByText(STILL_READING)).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    const reads = api.findOcrJob.mock.calls.length
+    // About 12 reads in the first minute, then one every 15 seconds.
+    expect(reads).toBeGreaterThan(70)
+    expect(reads).toBeLessThan(95)
+    await wait(5 * 60_000)
     expect(api.findOcrJob).toHaveBeenCalledTimes(reads)
+    await press(button('Check now'))
+    await waitFor(() => expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 1))
+    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    expect(screen.queryByText(STILL_READING)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull()
+    expect(screen.getByText(READING_LONG)).toBeTruthy()
+    await wait(5_000)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 2)
+  }))
+
+  it('Refresh status also starts reading again after 20 minutes', async () => withFakeTimers(async () => {
+    await findJob(queued)
+    await wait(20 * 60_000 + 30_000)
+    const reads = api.findOcrJob.mock.calls.length
     await press(button('Refresh status'))
     await waitFor(() => expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 1))
-    await waitFor(() => expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy())
+    await waitFor(() => expect(screen.queryByText(STILL_READING)).toBeNull())
     await wait(5_000)
     expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 2)
   }))

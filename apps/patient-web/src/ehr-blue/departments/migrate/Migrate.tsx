@@ -88,11 +88,17 @@ type View = 'list' | 'new' | 'detail'
 type ActionId = 'retry' | 'validate' | 'reject' | 'confirm'
 
 /**
- * While OCR is still reading the shown document, the page reads its job again this often, one read at a time, for at
- * most POLL_FOR_MS; each read is audited, so never faster, and never from the list.
+ * While OCR is still reading the shown document, the page reads its job again, one read at a time, for at most
+ * POLL_FOR_MS: every POLL_EVERY_MS for the first POLL_FAST_FOR_MS, then every POLL_SLOW_EVERY_MS, as a hard handwritten
+ * page can take many minutes. Each read is audited, so never faster, and never from the list.
  */
 const POLL_EVERY_MS = 5_000
-const POLL_FOR_MS = 3 * 60_000
+const POLL_FAST_FOR_MS = 60_000
+const POLL_SLOW_EVERY_MS = 15_000
+const POLL_FOR_MS = 20 * 60_000
+/** What the record says once a job has been read for longer than POLL_FAST_FOR_MS, and after POLL_FOR_MS. */
+export const READING_LONG = 'Reading the page. Hard handwriting can take a few minutes. This page updates by itself.'
+export const STILL_READING = 'Still reading. Check again in a few minutes.'
 /** The job states Read again is offered in: nothing of the reading is saved yet (no check, no publication). */
 const READ_AGAIN_STATUSES: ReadonlySet<string> = new Set(['awaiting_validation', 'failed', 'rejected'])
 
@@ -212,6 +218,8 @@ export function Migrate() {
   const pollSince = useRef<{ jobId: string; at: number } | null>(null)
   const [pollStop, setPollStop] = useState<PollStop | null>(null)
   const [pollTick, setPollTick] = useState(0)
+  // The job read by itself for longer than POLL_FAST_FOR_MS, so the record says a hard page takes a while.
+  const [pollLong, setPollLong] = useState<string | null>(null)
   // Bumped when the user opens a record, starts a new one or goes back to the list, so a document still being checked
   // or sent for reading in the background does not then replace what they went to.
   const openRequest = useRef(0)
@@ -234,7 +242,7 @@ export function Migrate() {
   useEffect(() => {
     setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError(''); setCreateError(''); setRetryError('')
     setProblem(null); setNotice(''); setStepFocus(null); setView('list'); setAction(null); setQuick(null); setPollStop(null)
-    pollSince.current = null
+    setPollLong(null); pollSince.current = null
   }, [facilityId])
   useEffect(() => {
     if (!facilityId || !visibleJob?.id || !canRead) return
@@ -246,8 +254,9 @@ export function Migrate() {
   }, [facilityId, visibleJob?.id, canRead, lookupRevision])
   // While the record shows a job OCR is still reading, its job is read again every POLL_EVERY_MS: one read at a time,
   // only once the last has answered and no other lookup is running, never from the list, nor while the workspace is
-  // locked. It stops when the job has finished, the view changes or the page is left, and after POLL_FOR_MS, when the
-  // record says so and Refresh status reads it again.
+  // locked, every POLL_SLOW_EVERY_MS once it has gone on for POLL_FAST_FOR_MS. It stops when the job has finished, the
+  // view changes or the page is left, and after POLL_FOR_MS, when the record says it is still reading and Check now (or
+  // Refresh status) reads it again and starts again.
   const polled = view === 'detail' && canRead && !lock && !busy && visibleJob && jobInProgress(visibleJob.status) &&
     pollStop?.jobId !== visibleJob.id ? visibleJob : null
   const pollId = polled?.id
@@ -265,7 +274,9 @@ export function Migrate() {
       setPollStop({ jobId: pollId, reason }); setNotice(''); setStepFocus(current => current && { ...current, notice: undefined })
     }
     const timer = setTimeout(() => {
-      if (Date.now() - since >= POLL_FOR_MS) { stop('slow'); return }
+      const elapsed = Date.now() - since
+      if (elapsed >= POLL_FOR_MS) { stop('slow'); return }
+      if (elapsed >= POLL_FAST_FOR_MS) setPollLong(pollId)
       void staffApi.findOcrJob(facilityId, pollDocument).then(result => {
         if (!active) return
         const found = result.job
@@ -275,7 +286,7 @@ export function Migrate() {
         // The status region says once that the reading has finished, and how.
         if (!jobInProgress(found.status)) setNotice(found.status === 'awaiting_validation' ? 'The document has been read and is ready to check.' : `${jobStatusWords(found.status)}.`)
       }, () => { if (active) stop('failed') })
-    }, POLL_EVERY_MS)
+    }, Date.now() - since < POLL_FAST_FOR_MS ? POLL_EVERY_MS : POLL_SLOW_EVERY_MS)
     return () => { active = false; clearTimeout(timer) }
   }, [facilityId, pollId, pollDocument, pollStatus, pollVersion, pollTick, remember])
   // After a step, focus moves to where the work continues in the commit that shows it: the job's review evidence is
@@ -294,10 +305,12 @@ export function Migrate() {
   /** Shows a job just read or made, and reads its review evidence. */
   function show(found: OcrJob, documentId: string) {
     setJob(found); setJobFacilityId(facilityId ?? ''); setCurrentDocument(documentId); setSearched(true)
-    setExtractions(null); setValidations(null); setLookupRevision(value => value + 1); remember(found); restartPolling()
+    setExtractions(null); setValidations(null); setLookupRevision(value => value + 1); remember(found); restartPolling(); setPollLong(null)
   }
 
-  /** A job shown afresh is read again by itself for a full POLL_FOR_MS once more. */
+  /** A job read again is read again by itself for a full POLL_FOR_MS once more. What it says of a long read stays after
+   * Check now or Refresh status; a job opened, found, made or retried afresh clears it (setPollLong(null)), so the first
+   * minute says what it always has. */
   function restartPolling() {
     pollSince.current = null; setPollStop(null)
   }
@@ -321,7 +334,7 @@ export function Migrate() {
   /** Opens a job's record, read again; focus goes to its heading. */
   function openRecord(found: OcrJob) {
     openRequest.current += 1
-    setQuick(null); setAction(null); setProblem(null)
+    setQuick(null); setAction(null); setProblem(null); setPollLong(null)
     setJob(found); setJobFacilityId(facilityId ?? ''); setCurrentDocument(found.documentId); setView('detail')
     focus('migrate-view-title')
     void lookup(found.documentId).then(result => { if (!result?.job) focus('ocr-find-submit', true) })
@@ -351,6 +364,7 @@ export function Migrate() {
     const refused = !documentId ? { field: 'ocr-document', message: 'Complete this field.' }
       : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
+    setPollLong(null)
     const result = await lookup(documentId)
     if (result?.job) { setView('detail'); setAction(null); focus('migrate-view-title') }
     else focus('ocr-find-submit', true)
@@ -459,7 +473,7 @@ export function Migrate() {
     setBusy(true); setError(''); setNotice('')
     try {
       const retried = await staffApi.retryOcrJob(facilityId, visibleJob, reason)
-      setJob(retried); remember(retried); setLookupRevision(value => value + 1); restartPolling()
+      setJob(retried); remember(retried); setLookupRevision(value => value + 1); restartPolling(); setPollLong(null)
       setStepFocus({ targets: ['ocr-job-title'], notice: 'Retry requested.' })
     }
     catch (caught) { setRetryError(errorText(caught, 'The OCR job was not retried.')); focus('ocr-retry-submit', true) }
@@ -655,8 +669,9 @@ export function Migrate() {
           }} />
     const stopped = pollStop?.jobId === shown.id ? pollStop.reason : null
     const progress = !jobInProgress(shown.status) ? ''
-      : stopped === 'slow' ? 'This is taking longer than usual. Use Refresh status to check again.'
+      : stopped === 'slow' ? STILL_READING
       : stopped === 'failed' ? 'The document’s progress couldn’t be checked just now. Use Refresh status to try again.'
+      : pollLong === shown.id ? READING_LONG
       : 'The document is being read. This page updates by itself every few seconds.'
     const read = extractions ? newestExtraction(extractions) : undefined
     return <>
@@ -669,6 +684,12 @@ export function Migrate() {
           <DeptSection title="Saved record" headingId="ocr-job-title">
             <DeptFacts facts={jobFacts(shown)} />
             {progress && <p id="ocr-progress" className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">{progress}</p>}
+            {/* One read of the job, then reading it by itself again; focus then goes to the record, as Check now is gone. */}
+            {progress && stopped === 'slow' && <div className="hid-ehr-dept-form-actions">
+              <EhrButton id="ocr-check-now" variant="secondary" busy={busy} aria-describedby="ocr-progress"
+                onClick={() => { if (!busy) void lookup(currentDocument).then(result => focus(result?.job ? ['ocr-job-title', 'ocr-find-submit'] : 'ocr-find-submit', true)) }}>
+                Check now</EhrButton>
+            </div>}
             {shown.status === 'failed' && !canRetryJob && <p className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">The extraction attempt limit has been reached. This job cannot be retried.</p>}
           </DeptSection>
           {read && readOut(read, shown)}
