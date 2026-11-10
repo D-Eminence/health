@@ -422,8 +422,8 @@ describe('Patient documents: opening and extracting', () => {
       await extract()
       await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
       api.findOcrJob.mockResolvedValue({ job: queuedJob })
-      for (let left = 185_000; left > 0; left -= 5_000) await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
-      expect(screen.getByText('This is taking longer than usual. Use Refresh status to check again.')).toBeTruthy()
+      for (let left = 20 * 60_000 + 30_000; left > 0; left -= 5_000) await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      expect(screen.getByText('Still reading. Check again in a few minutes.')).toBeTruthy()
       expect(document.getElementById('ocr-status')?.textContent).toBe('')
     }
     finally { vi.useRealTimers() }
