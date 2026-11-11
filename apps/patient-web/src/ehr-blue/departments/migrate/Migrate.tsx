@@ -770,7 +770,7 @@ export function Migrate() {
               afterStep(['ocr-confirm-title', 'ocr-job-title'], 'Review recorded.', true)} />}
       </DeptSection>}
       {canConfirm && <DeptSection title="Confirm the patient" headingId="ocr-confirm-title">
-        <ConfirmForm key={`confirm-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} onChanged={async message => {
+        <ConfirmForm key={`confirm-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} permissions={permissions} onChanged={async message => {
           // An answer that the job was confirmed already is said only once the job has been read again.
           if (message) {
             const reloaded = await lookup(currentDocument)

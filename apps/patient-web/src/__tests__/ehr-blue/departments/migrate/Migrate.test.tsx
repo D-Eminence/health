@@ -20,18 +20,20 @@ import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocr
 const api = vi.hoisted(() => ({
   findOcrJob: vi.fn(), ocrExtractions: vi.fn(), ocrValidations: vi.fn(), ocrPublications: vi.fn(),
   createOcrJob: vi.fn(), retryOcrJob: vi.fn(), validateOcrJob: vi.fn(), confirmOcrPatient: vi.fn(), publishOcrValidation: vi.fn(),
-  labImport: vi.fn(), pharmacyImport: vi.fn(), encounters: vi.fn(),
+  labImport: vi.fn(), pharmacyImport: vi.fn(), encounters: vi.fn(), lookupPatient: vi.fn(),
 }))
 const session = vi.hoisted(() => ({ permissions: [] as string[], lock: null as string | null, actorId: 'staff-demo-1',
-  facilityId: '98d00002-0000-4000-8000-000000000001' }))
+  facilityId: '98d00002-0000-4000-8000-000000000001', activePatient: null as null | object }))
 
-vi.mock('../../../../staff/api', () => ({ staffApi: api }))
+vi.mock('../../../../staff/api', () => ({ staffApi: api,
+  isAllowedPatientLookup: (lookup: { authorization: { decision: string }; patient?: object }) => lookup.authorization.decision === 'allow' && !!lookup.patient }))
 vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext } = await import('../harness')
   return {
     useStaff: () => {
       const context = staffContext(fakeFacility(session.permissions, { id: session.facilityId, name: 'Demo Hospital' }))
-      return { ...context, lock: session.lock, state: { ...context.state, session: { actor: { ...context.state.session.actor, id: session.actorId } } } }
+      return { ...context, lock: session.lock, activePatient: session.activePatient,
+        state: { ...context.state, session: { actor: { ...context.state.session.actor, id: session.actorId } } } }
     },
   }
 })
@@ -66,6 +68,7 @@ beforeEach(() => {
   session.lock = null
   session.actorId = 'staff-demo-1'
   session.facilityId = DEMO_HOSPITAL_ID
+  session.activePatient = null
   api.ocrExtractions.mockResolvedValue({ items: [extraction] })
   api.ocrValidations.mockResolvedValue({ items: [] })
   api.ocrPublications.mockResolvedValue({ items: [] })
@@ -90,6 +93,17 @@ const statusRegion = () => {
   const region = document.getElementById('ocr-status')
   if (!region) throw new Error('Expected the status region to stay mounted.')
   return region
+}
+
+/** The patient opened for this visit (Patient documents or the clinical record's hand-off): Patient One, fictional. */
+const OTHER_PATIENT = 'a0000000-0000-4000-8000-0000000000b2'
+const PATIENT_ONE = { hid: 'HID-ZDEMAAA2', purpose: 'direct-care' as const, lookup: { authorization: { decision: 'allow' as const },
+  patient: { patientId: PATIENT, hid: 'HID-ZDEMAAA2', fullName: 'Patient One', dateOfBirth: '1980-03-12' } } }
+const confirmButton = () => within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' })
+/** Picks the one patient offered and the first way of checking. */
+async function pickPatientAndReason() {
+  await press(screen.getByRole('radio', { name: 'This is the patient' }))
+  await press(screen.getByRole('radio', { name: 'Name and date of birth match' }))
 }
 
 /** Finds a job by its document ID from the list view; with a job, its record opens. */
@@ -891,66 +905,76 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   })
 
   it('confirm: moves focus to the review and publication history', async () => {
+    session.activePatient = PATIENT_ONE
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(validated)
-    expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
-    fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
+    await pickPatientAndReason()
     api.confirmOcrPatient.mockResolvedValue({ id: 'confirmation-1' })
     api.findOcrJob.mockResolvedValue({ job: confirmed })
-    await press(within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' }))
+    await press(confirmButton())
     await waitFor(() => expect(focused()).toBe(heading('Review and publication history')))
     expect(statusRegion().textContent).toBe('Source patient confirmed.')
     expect(api.confirmOcrPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, validated, PATIENT, 'Name and date of birth match', expect.any(String))
   })
 
-  it('confirm: refuses an empty or malformed patient ID and a short reason at their fields', async () => {
+  it('confirm: refuses no patient picked, no way of checking and a short Other reason at their choices', async () => {
+    session.activePatient = PATIENT_ONE
     await findJob(validated)
-    const patient = screen.getByLabelText(/^Patient ID/)
-    const submit = within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' })
-    fireEvent.change(patient, { target: { value: '' } })
+    const submit = confirmButton()
     await press(submit)
-    await waitFor(() => expect(focused()).toBe(patient))
-    expect(descriptions(patient)).toEqual(['Complete this field.'])
-    fireEvent.change(patient, { target: { value: 'HID-ZDEMAAA2' } })
+    const pick = screen.getByRole('radio', { name: 'This is the patient' })
+    await waitFor(() => expect(focused()).toBe(pick))
+    expect(descriptions(pick)[0]).toBe('Choose the patient on the paper.')
+    await press(pick)
     await press(submit)
-    await waitFor(() => expect(descriptions(patient)).toEqual(['This needs the patient ID, not their Health ID.']))
     // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
     expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
-    fireEvent.change(patient, { target: { value: PATIENT } })
-    const reason = screen.getByLabelText(/^Confirmation reason/)
-    fireEvent.change(reason, { target: { value: 'short' } })
+    const first = screen.getByRole('radio', { name: 'Name and date of birth match' })
+    await waitFor(() => expect(focused()).toBe(first))
+    expect(descriptions(first)).toEqual(['Choose how you checked.'])
+    expect(first.getAttribute('aria-invalid')).toBe('true')
+    await press(screen.getByRole('radio', { name: 'Other' }))
+    const other = screen.getByLabelText(/^What you checked/)
+    fireEvent.change(other, { target: { value: 'short' } })
     await press(submit)
-    await waitFor(() => expect(focused()).toBe(reason))
-    expect(descriptions(reason)).toEqual(['Enter a patient confirmation reason of at least 8 characters.'])
-    expect(reason.getAttribute('aria-invalid')).toBe('true')
-    expect(patient.getAttribute('aria-describedby')).toBeNull()
+    await waitFor(() => expect(focused()).toBe(other))
+    expect(descriptions(other)).toEqual(['Write at least 8 characters.'])
+    expect(pick.getAttribute('aria-invalid')).toBeNull()
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
+    fireEvent.change(other, { target: { value: 'Matched the hospital folder label' } })
+    api.confirmOcrPatient.mockResolvedValue({ id: 'confirmation-1' })
+    api.findOcrJob.mockResolvedValue({ job: confirmed })
+    await press(submit)
+    await waitFor(() => expect(api.confirmOcrPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, validated, PATIENT, 'Matched the hospital folder label', expect.any(String)))
   })
 
   it('confirm: a retry of the same confirmation reuses its key; a different one takes a new key', async () => {
+    session.activePatient = PATIENT_ONE
     await findJob(validated)
-    fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
+    await pickPatientAndReason()
     api.confirmOcrPatient.mockRejectedValue(unavailable())
-    const submit = within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' })
+    const submit = confirmButton()
     await press(submit)
     await screen.findByRole('alert')
     await waitFor(() => expect(focused()).toBe(submit))
     await press(submit)
     await waitFor(() => expect(api.confirmOcrPatient).toHaveBeenCalledTimes(2))
     expect(api.confirmOcrPatient.mock.calls[1]![4]).toBe(api.confirmOcrPatient.mock.calls[0]![4])
-    fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name, date of birth and address match' } })
+    await press(screen.getByRole('radio', { name: 'Confirmed with the patient' }))
     await press(submit)
     await waitFor(() => expect(api.confirmOcrPatient).toHaveBeenCalledTimes(3))
+    expect(api.confirmOcrPatient.mock.calls[2]![3]).toBe('Confirmed with the patient')
     expect(api.confirmOcrPatient.mock.calls[2]![4]).not.toBe(api.confirmOcrPatient.mock.calls[0]![4])
   })
 
   it('confirm: a job confirmed already is read again, and says so', async () => {
+    session.activePatient = PATIENT_ONE
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(validated)
-    fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
+    await pickPatientAndReason()
     api.confirmOcrPatient.mockRejectedValue(new HidApiError(409, 'Already confirmed', { code: 'OCR_PATIENT_ALREADY_CONFIRMED' }))
     api.findOcrJob.mockResolvedValue({ job: confirmed })
-    await press(within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' }))
+    await press(confirmButton())
     await waitFor(() => expect(statusRegion().textContent).toBe('The source patient of this job was already confirmed, so the job was reloaded.'))
     await waitFor(() => expect(focused()).toBe(heading('Review and publication history')))
     expect(screen.queryByRole('alert')).toBeNull()
@@ -1868,5 +1892,188 @@ describe('Migrate: Read again', () => {
     await press(readAgain())
     expect((await screen.findByRole('alert')).textContent).toBe(STAFF_PAPER_NEEDS_ACCESS)
     expect(heading('Progress')).toBeTruthy()
+  })
+})
+
+/** Owner's no-typing rule for Migrate: the patient is picked as a person, never typed as an ID. Fictional data only. */
+describe('Migrate: Confirm the patient is picked, never typed', () => {
+  const confirmForm = () => screen.getByRole('form', { name: 'Confirm source patient' })
+  const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+  it('offers the patient this reading is for, from the visit, as a person to pick, with no box for an ID and no UUID shown', async () => {
+    session.activePatient = PATIENT_ONE
+    await findJob(validated)
+    const person = within(confirmForm()).getByRole('listitem')
+    expect(within(person).getByText('Patient One')).toBeTruthy()
+    expect(within(person).getByText('Born 12 Mar 1980 · Health ID ending AAA2')).toBeTruthy()
+    expect(within(person).getByText('The patient this reading is for')).toBeTruthy()
+    const pick = within(person).getByRole('radio', { name: 'This is the patient' }) as HTMLInputElement
+    expect(pick.checked).toBe(false)
+    expect(descriptions(pick)).toEqual([within(person).getByText('Patient One').parentElement!.textContent])
+    // Nothing to type: no text box for a patient at all, and no Health ID search while the patient is known.
+    expect(within(confirmForm()).queryAllByRole('textbox')).toEqual([])
+    expect(screen.queryByLabelText(/patient ID/i)).toBeNull()
+    expect(screen.queryByLabelText('Health ID')).toBeNull()
+    expect(confirmForm().textContent).not.toMatch(UUID)
+    expect(document.body.textContent).not.toMatch(UUID)
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('does not offer a patient opened here who is not the one this reading is for', async () => {
+    session.activePatient = { ...PATIENT_ONE, hid: 'HID-ZDEMBBB3', lookup: { ...PATIENT_ONE.lookup, patient: { ...PATIENT_ONE.lookup.patient, patientId: OTHER_PATIENT, fullName: 'Patient Two' } } }
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    expect(screen.queryByText('Patient Two')).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'This is the patient' })).toBeNull()
+    expect(screen.getByText('The patient this reading is for isn’t open on this page. Find them by their Health ID.')).toBeTruthy()
+  })
+
+  it('finds the patient by Health ID, shows them to pick, and sends the picked patient', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    const box = screen.getByLabelText('Health ID')
+    expect(box.closest('.hid-ehr-dept-migrate-hid')?.textContent).toBe('HID-')
+    expect(within(confirmForm()).getAllByRole('textbox')).toEqual([box])
+    // Nothing found yet: confirming asks for the search first.
+    await press(confirmButton())
+    await waitFor(() => expect(focused()).toBe(box))
+    expect(descriptions(box)[0]).toBe('Find the patient by their Health ID first.')
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'allow' }, patient: PATIENT_ONE.lookup.patient })
+    fireEvent.change(box, { target: { value: 'zdemaaa2' } })
+    await press(button('Find patient'))
+    expect(api.lookupPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, 'HID-ZDEMAAA2')
+    const pick = await screen.findByRole('radio', { name: 'This is the patient' })
+    await waitFor(() => expect(focused()).toBe(pick))
+    const person = within(confirmForm()).getByRole('listitem')
+    expect(within(person).getByText('Patient One')).toBeTruthy()
+    expect(within(person).getByText('Born 12 Mar 1980 · Health ID ending AAA2')).toBeTruthy()
+    expect(within(person).getByText('Found by Health ID')).toBeTruthy()
+    expect((pick as HTMLInputElement).checked).toBe(false)
+    expect(document.body.textContent).not.toMatch(UUID)
+    await pickPatientAndReason()
+    api.confirmOcrPatient.mockResolvedValue({ id: 'confirmation-1' })
+    api.findOcrJob.mockResolvedValue({ job: confirmed })
+    await press(confirmButton())
+    await waitFor(() => expect(api.confirmOcrPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, validated, PATIENT, 'Name and date of birth match', expect.any(String)))
+  })
+
+  it('says a Health ID nobody has, or one this facility cannot open, in plain words', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    const box = screen.getByLabelText('Health ID')
+    fireEvent.change(box, { target: { value: 'ZZ' } })
+    await press(button('Find patient'))
+    expect(descriptions(box)[0]).toBe('Type the letters and numbers after HID- on their Health ID card.')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient not found', { code: 'PATIENT_NOT_FOUND' }))
+    fireEvent.change(box, { target: { value: 'ZDEMAAA2' } })
+    await press(button('Find patient'))
+    await waitFor(() => expect(descriptions(box)[0]).toBe('No patient has this Health ID. Check the card and try again.'))
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'deny' } })
+    await press(button('Find patient'))
+    await waitFor(() => expect(descriptions(box)[0]).toBe('This patient’s record can’t be opened here. Open them through approved access first.'))
+    expect(screen.queryByRole('radio', { name: 'This is the patient' })).toBeNull()
+    expect(document.body.textContent).not.toContain('Patient not found')
+  })
+
+  it('a picked patient who is not the one on the document is refused in plain words, with no UUID shown', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'allow' },
+      patient: { patientId: OTHER_PATIENT, hid: 'HID-ZDEMBBB3', fullName: 'Patient Two', dateOfBirth: '1975-06-01' } })
+    fireEvent.change(screen.getByLabelText('Health ID'), { target: { value: 'ZDEMBBB3' } })
+    await press(button('Find patient'))
+    expect(await screen.findByText('Born 1 Jun 1975 · Health ID ending BBB3')).toBeTruthy()
+    await pickPatientAndReason()
+    api.confirmOcrPatient.mockRejectedValue(new HidApiError(409, `Patient ${OTHER_PATIENT} does not match`, { code: 'OCR_PATIENT_MISMATCH' }))
+    await press(confirmButton())
+    expect((await screen.findByRole('alert')).textContent).toBe('The patient you chose doesn’t match the patient on the document. Check the patient and try again.')
+    expect(api.confirmOcrPatient).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, validated, OTHER_PATIENT, 'Name and date of birth match', expect.any(String))
+    await waitFor(() => expect(focused()).toBe(confirmButton()))
+    expect(document.body.textContent).not.toMatch(UUID)
+  })
+
+  it('a search that fails after a pick drops the patient picked before, and Confirm sends nobody', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    const box = screen.getByLabelText('Health ID')
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'allow' }, patient: PATIENT_ONE.lookup.patient })
+    fireEvent.change(box, { target: { value: 'ZDEMAAA2' } })
+    await press(button('Find patient'))
+    await screen.findByRole('radio', { name: 'This is the patient' })
+    await pickPatientAndReason()
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient not found', { code: 'PATIENT_NOT_FOUND' }))
+    fireEvent.change(box, { target: { value: 'ZDEMBBB3' } })
+    await press(button('Find patient'))
+    await waitFor(() => expect(descriptions(box)[0]).toBe('No patient has this Health ID. Check the card and try again.'))
+    expect(screen.queryByRole('radio', { name: 'This is the patient' })).toBeNull()
+    expect(screen.queryByText('Patient One')).toBeNull()
+    await press(confirmButton())
+    await waitFor(() => expect(descriptions(box)[0]).toBe('Find the patient by their Health ID first.'))
+    expect(api.confirmOcrPatient).not.toHaveBeenCalled()
+  })
+
+  it('editing the Health ID after a pick drops the found patient and the pick until the search is run again', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    const box = screen.getByLabelText('Health ID')
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'allow' }, patient: PATIENT_ONE.lookup.patient })
+    fireEvent.change(box, { target: { value: 'ZDEMAAA2' } })
+    await press(button('Find patient'))
+    await screen.findByRole('radio', { name: 'This is the patient' })
+    await pickPatientAndReason()
+    fireEvent.change(box, { target: { value: 'ZDEMBBB3' } })
+    expect(screen.queryByRole('radio', { name: 'This is the patient' })).toBeNull()
+    await press(confirmButton())
+    await waitFor(() => expect(descriptions(box)[0]).toBe('Find the patient by their Health ID first.'))
+    expect(api.confirmOcrPatient).not.toHaveBeenCalled()
+  })
+
+  it('drops a search answer that comes back after the Health ID was changed', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    const box = screen.getByLabelText('Health ID')
+    let answer: (value: unknown) => void = () => undefined
+    api.lookupPatient.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    fireEvent.change(box, { target: { value: 'ZDEMAAA2' } })
+    await press(button('Find patient'))
+    fireEvent.change(box, { target: { value: 'ZDEMBBB3' } })
+    await act(async () => { answer({ authorization: { decision: 'allow' }, patient: PATIENT_ONE.lookup.patient }) })
+    await waitFor(() => expect(button('Find patient')).toBeTruthy())
+    expect(screen.queryByRole('radio', { name: 'This is the patient' })).toBeNull()
+    expect(screen.queryByText('Patient One')).toBeNull()
+    expect(focused()).not.toBe(document.getElementById('ocr-confirm-pick-search'))
+  })
+
+  it('a Health ID pasted with its HID- is looked up once, and letters HID inside the ID are kept', async () => {
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob(validated)
+    const box = screen.getByLabelText('Health ID')
+    api.lookupPatient.mockResolvedValue({ authorization: { decision: 'allow' }, patient: PATIENT_ONE.lookup.patient })
+    fireEvent.change(box, { target: { value: 'hid-zdem aaa2' } })
+    await press(button('Find patient'))
+    expect(api.lookupPatient).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, 'HID-ZDEMAAA2')
+    fireEvent.change(box, { target: { value: 'HIDZAAA2' } })
+    await press(button('Find patient'))
+    expect(api.lookupPatient).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, 'HID-HIDZAAA2')
+  })
+
+  it('a job that names no patient does not offer the patient open here', async () => {
+    session.activePatient = PATIENT_ONE
+    session.permissions = [...ALL, 'identity.patient.read']
+    await findJob({ ...validated, patientId: null })
+    expect(screen.queryByText('The patient this reading is for')).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'This is the patient' })).toBeNull()
+    expect(screen.getByLabelText('Health ID')).toBeTruthy()
+  })
+
+  it('without the patient open and without finding by Health ID, says how to get the patient here, and sends nothing', async () => {
+    await findJob(validated)
+    expect(screen.getByText('Open the patient this reading is for through approved access, then come back to confirm them.')).toBeTruthy()
+    expect(screen.queryByLabelText('Health ID')).toBeNull()
+    expect(within(confirmForm()).queryAllByRole('textbox')).toEqual([])
+    await press(confirmButton())
+    await waitFor(() => expect(focused()).toBe(document.getElementById('ocr-confirm-patient')))
+    expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 })
