@@ -78,6 +78,28 @@ describe('resolveEnvironment', () => {
     }
   })
 
+  it('reads the build and the error-reporting DSN, both optional', () => {
+    const unset = resolveEnvironment(env(), PREFIX)
+    expect(unset.build).toBeNull()
+    expect(unset.sentryDsn).toBeNull()
+    expect(resolveEnvironment(env({ VITE_HID_BUILD: '  ', VITE_HID_SENTRY_DSN: '' }), PREFIX).build).toBeNull()
+
+    const dsn = 'https://0123456789abcdef0123456789abcdef@o1.ingest.us.sentry.io/42'
+    const configured = resolveEnvironment(env({ VITE_HID_BUILD: ' abc123def456 ', VITE_HID_SENTRY_DSN: dsn }), PREFIX)
+    expect(configured.build).toBe('abc123def456')
+    expect(configured.sentryDsn).toBe(dsn)
+
+    // The public site's prefix reads its own variable, not the portal's.
+    const site = resolveEnvironment({
+      NEXT_PUBLIC_HID_ENVIRONMENT: 'production',
+      NEXT_PUBLIC_HID_API_BASE_URL: 'https://healthidentitydirectory.com',
+      NEXT_PUBLIC_HID_APP_ORIGIN: 'https://healthidentitydirectory.com',
+      NEXT_PUBLIC_HID_BUILD: '0123456789ab',
+      VITE_HID_BUILD: 'portal',
+    }, 'NEXT_PUBLIC_HID_')
+    expect(site.build).toBe('0123456789ab')
+  })
+
   it('returns a frozen object so configuration cannot drift at runtime', () => {
     const resolved = resolveEnvironment(env(), PREFIX)
     expect(Object.isFrozen(resolved)).toBe(true)

@@ -157,11 +157,14 @@ notes.push(`scanned ${scanTargets.length} source and build files for credential 
 // ---------------------------------------------------------------------------
 
 const TRANSPORT_FILE = join('packages', 'http', 'src', 'client.ts')
+// The one other file allowed fetch: the error reporter posts to the Sentry ingest host its DSN names, never to the
+// gateway, and must not carry what the gateway client adds (the session cookie, CSRF, the client header).
+const ERROR_REPORTER_FILE = join('packages', 'observability', 'src', 'errorReporting.ts')
 const fetchCallers = []
 
 for (const path of scanTargets) {
   if (!/\.(ts|tsx)$/.test(path)) continue
-  if (path.endsWith(TRANSPORT_FILE)) continue
+  if (path.endsWith(TRANSPORT_FILE) || path.endsWith(ERROR_REPORTER_FILE)) continue
   if (path.includes(`${sep}__tests__${sep}`)) continue
 
   const source = await readFile(path, 'utf8')

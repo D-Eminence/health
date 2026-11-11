@@ -49,14 +49,24 @@ def tree_digest(folder):
     return hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
 
 
+# A public Sentry DSN and nothing else: https://<32 hex key>@<host>[/<prefix>]/<project id>, the shape
+# @hid/observability's parseDsn accepts. A DSN with a secret part, a port, a query or an IP address is refused.
+SENTRY_DSN = re.compile(r'https://[0-9a-f]{32}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}'
+                        r'(?:/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)*/[0-9]{1,20}')
+
+
 def validate_config(config, environment='staging'):
     hosts, api_origin, portal_origin = release_profile(environment)
     if config.get('environment') != environment or config.get('hosts') != hosts:
         raise ValueError('Exact ' + environment + ' frontend hosts required')
     if config.get('api_origin') != api_origin or config.get('portal_origin') != portal_origin:
         raise ValueError('Exact ' + environment + ' API/portal required')
-    if set(config) - {'backend_contract'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
+    if set(config) - {'backend_contract', 'sentry_dsn'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
         raise ValueError('Unexpected configuration fields')
+    # Error reports (owner's approval, 2026-11-03): null keeps them off; a public DSN turns them on in every app.
+    dsn = config.get('sentry_dsn')
+    if dsn is not None and not (isinstance(dsn, str) and SENTRY_DSN.fullmatch(dsn)):
+        raise ValueError('Error reporting needs null or a public Sentry DSN')
     if config.get('backend_contract', 'main-v1') not in ('main-v1', 'novu-v1'):
         raise ValueError('Unsupported backend contract')
     chat = config.get('chat')
