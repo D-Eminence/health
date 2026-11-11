@@ -25,7 +25,7 @@ import { Labels, usePrint } from './labPrint'
 import { CheckStep, CollectStep, ResultForm, ResultHistory, ResultValue, TestingStep, type LabSubject } from './labSteps'
 import { LAB_RESULTS_HIDDEN, stampText } from './labText'
 import {
-  ageSex, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
+  ageSex, clinicalIndicationOf, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
 } from './stage'
 
 /** The Lab permissions that write on a request: taken away on work from another facility's order that has closed. */
@@ -209,6 +209,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />
       <DescriptionList items={[
         ['Test', test],
+        // Why the doctor asked for it, as written on the request (once Lab sends it).
+        clinicalIndicationOf(item) ? ['Clinical information', <span className="whitespace-pre-line break-words">{clinicalIndicationOf(item)}</span>] : null,
         // Stat, as soon as possible and urgent requests are all marked Urgent, as the work list sorts them first.
         ['Priority', isUrgent(item.priority) ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
         requestOf(item) ? ['Request', requestOf(item)!.number] : null,

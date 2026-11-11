@@ -9,6 +9,7 @@ import {
   type LabWorkItem,
 } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { clinicalIndicationOf } from './stage'
 import { sampleCheckText } from '../../../staff/orderRoutes'
 import { refusalText } from '../../../staff/fieldProblem'
 import { sameScientistCheck } from '../../../staff/labRevisions'
@@ -98,12 +99,19 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
   </div>
 }
 
+/** The longest reason Lab takes when a sample is registered (lab-api CreateAccessionDto). */
+const ACCESSION_REASON_MAX = 500
+
 function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item, defaultType, defaultReason, onRegistered, onListChanged }: StepBase & {
   readonly item: LabWorkItem; readonly defaultType?: string | null; readonly defaultReason?: string | null
   readonly onRegistered: (accession: LabAccession) => void; readonly onListChanged: () => void
 }) {
   const [type, setType] = useState(defaultType ?? '')
   const [reason, setReason] = useState(defaultReason ?? '')
+  // The request's clinical information, when Lab sends it and it fits the sample's reason (500 characters, as Lab takes
+  // it): it is why the test is done, so it is shown and sent as it is, and the scientist does not type it again.
+  const written = clinicalIndicationOf(item)
+  const fromRequest = written !== null && written.length <= ACCESSION_REASON_MAX ? written : null
   const [errors, setErrors] = useState<{ type?: string; reason?: string }>({})
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState('')
@@ -114,14 +122,14 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
     if (busy) return
     const found: typeof errors = {}
     if (!type.trim()) found.type = 'Choose or type the sample, like Blood.'
-    if (!reason.trim()) found.reason = 'Say why the test is done, as on the request.'
+    if (!fromRequest && !reason.trim()) found.reason = 'Say why the test is done, as on the request.'
     setErrors(found); setProblem('')
     const first = found.type ? 'lab-collect-type' : found.reason ? 'lab-collect-reason' : null
     if (first) { document.getElementById(first)?.focus(); return }
     // Registering takes nothing from the person: the patient is checked when each sample is collected.
     setBusy(true)
     try {
-      onRegistered(await staffApi.createLabAccession(facilityId, item.id, type.trim(), reason.trim()))
+      onRegistered(await staffApi.createLabAccession(facilityId, item.id, type.trim(), fromRequest ?? reason.trim()))
       onDone('Sample registered. Print the label, then collect the sample.')
     } catch (caught) {
       setProblem(sampleProblem(caught, 'The sample could not be registered. Refresh the list and try again.', routed))
@@ -144,11 +152,15 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
         className={cx('inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 px-4 text-[14px] font-medium ring-1 ring-inset',
           type === option ? 'bg-brand-soft text-brand-ink ring-brand-line' : 'bg-surface text-ink ring-line-strong hover:bg-subtle')}>{option}</button>)}
     </div>
-    <Field label="Why the test" htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
-      <Textarea id="lab-collect-reason" rows={2} maxLength={500} value={reason}
+    {fromRequest ? <div className="flex flex-col gap-1.5">
+      <p className="m-0 text-[13px] font-medium text-ink-2">Why the test</p>
+      <p className="m-0 whitespace-pre-line break-words text-[15px] text-ink">{fromRequest}</p>
+      <p className="m-0 text-xs text-ink-3">From the request, as the doctor wrote it.</p>
+    </div> : <Field label="Why the test" htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
+      <Textarea id="lab-collect-reason" rows={2} maxLength={ACCESSION_REASON_MAX} value={reason}
         aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}
         onChange={event => { setReason(event.target.value); setErrors({}) }} />
-    </Field>
+    </Field>}
     <Problem text={problem} />
     {/* Marked busy, not disabled, as on today's page: focus stays on it while it runs, a second press does nothing, and a
         refusal is read beside it. */}

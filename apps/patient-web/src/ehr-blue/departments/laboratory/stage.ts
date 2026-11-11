@@ -34,6 +34,11 @@ export interface WalkInBasics {
  * (several tests asked for together), and the statuses of its tests and results so the work list can say the stage.
  */
 interface LabRequestFields {
+  /**
+   * Why the test was asked for: the clinical information the doctor wrote on the EHR request, which Lab keeps on the work
+   * item (lab.work_items.clinical_indication). Proposed for the work list (hid-system#162); today's Lab does not send it.
+   */
+  readonly clinicalIndication?: string | null
   readonly walkIn?: WalkInBasics | null
   readonly request?: { readonly id: string; readonly number: string } | null
   readonly executionStatuses?: readonly LabExecution['status'][]
@@ -45,6 +50,11 @@ const fields = (item: object) => item as LabRequestFields
 export const walkInOf = (item: LabWorkItem): WalkInBasics | null => fields(item).walkIn ?? null
 export const requestOf = (item: LabWorkItem) => fields(item).request ?? null
 export const releasedAtOf = (item: LabWorkItem) => fields(item).releasedAt ?? null
+/** The request's clinical information, or null when Lab sent none. */
+export const clinicalIndicationOf = (item: LabWorkItem): string | null => {
+  const written = fields(item).clinicalIndication
+  return typeof written === 'string' && written.trim() ? written.trim() : null
+}
 
 /** The facts a stage is decided from. */
 export interface StageFacts {

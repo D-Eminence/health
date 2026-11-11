@@ -1784,3 +1784,47 @@ describe('payment settings', () => {
     await waitFor(() => expect(cardButton('Haemoglobin').textContent).toMatch(/Take payment/))
   })
 })
+
+describe('Visit rehearsal (11 Nov): the doctor’s clinical information reaches the lab', () => {
+  // As the rehearsal's doctor wrote it on the request; Lab keeps it on the work item (clinical_indication).
+  const WHY = 'Fever 3 days, 38.6 °C. No antimalarial taken yet.'
+  const withIndication = (clinicalIndication: unknown) => ({ ...workItem(), clinicalIndication }) as LabWorkItem
+
+  async function openWith(item: LabWorkItem, permissions = ACCESSION) {
+    as(permissions)
+    api.labWorkItems.mockResolvedValue({ items: [item] })
+    renderPage()
+    await openRecord()
+    return stageCard()
+  }
+
+  it('shows it under the request, and registers the sample with it, without asking the scientist to type it again', async () => {
+    const created = { ...accession([specimen('required')]) }
+    api.createLabAccession.mockResolvedValue(created)
+    api.labAccession.mockResolvedValue(created)
+    const card = await openWith(withIndication(`  ${WHY} `))
+    expect(requestFacts()['Clinical information']).toBe(WHY)
+    // Shown in the step as the request's, with no box to type it in.
+    expect(within(card).queryByRole('textbox', { name: 'Why the test' })).toBeNull()
+    expect(within(card).getByText(WHY)).toBeTruthy()
+    expect(within(card).getByText('From the request, as the doctor wrote it.')).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sample' }), { target: { value: 'Venous blood (EDTA)' } })
+    press(within(card).getByRole('button', { name: 'Register sample' }))
+    await waitFor(() => expect(api.createLabAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'work-item-1', 'Venous blood (EDTA)', WHY))
+  })
+
+  it.each([['sends none (today’s Lab)', undefined], ['sends null', null], ['sends it blank', '   ']])(
+    'asks as before when Lab %s', async (_case, clinicalIndication) => {
+      const card = await openWith(clinicalIndication === undefined ? workItem() : withIndication(clinicalIndication))
+      expect(Object.keys(requestFacts())).not.toContain('Clinical information')
+      expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
+    })
+
+  it('still asks for a short reason when the clinical information is longer than Lab takes for a sample (500 characters)', async () => {
+    const long = `${'Fever and rigors for three days. '.repeat(16)}`.trim()
+    expect(long.length).toBeGreaterThan(500)
+    const card = await openWith(withIndication(long))
+    expect(requestFacts()['Clinical information']).toBe(long)
+    expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
+  })
+})
