@@ -101,7 +101,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const afterCreate = created !== null
   const [success, setSuccess] = useState(() => created?.success ?? '')
   // What this facility's Lab or Pharmacy took, from the answer to a send (or to the create before this page): no send is
-  // offered again for that version, only for a later one, and a send that failed leaves none.
+  // offered again, at that version or a later one, since Lab and Pharmacy each hold one work item per order, ever, and
+  // refuse any other version. A send that failed leaves none.
   const [sent, setSent] = useState<Sent | null>(() => created?.sent ?? null)
   const [pageError, showPageError] = useState<PageError>(NO_ERROR)
   const setPageError = (text: string) => showPageError(text ? { text, again: false } : NO_ERROR)
@@ -247,7 +248,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       : PRESCRIPTION_TRANSITIONS[status] ?? []
   const warning = routed ? routedChangeWarning(route, patient, wrongPatientServed, lateCorrectionServed)
     : !lab && (status === 'active' || status === 'on_hold') ? PHARMACY_NOT_TOLD : undefined
-  const taken = sent !== null && sent.to === (lab ? 'lab' : 'pharmacy') && sent.version === rowVersion(record.rowVersion) ? sent : null
+  const taken = sent !== null && sent.to === (lab ? 'lab' : 'pharmacy') ? sent : null
   const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken
   const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed && !taken
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed
@@ -538,7 +539,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
               </ActionList>
             </div>
           ) : <NoActions />}
-          {taken ? <p className="hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-positive">{sentText(taken)}</p> : null}
+          {taken ? <p className="hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-positive">{sentText(taken, rowVersion(record.rowVersion))}</p> : null}
           {form}
           {labNotes.map(note => <p key={note} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-gap">{note}</p>)}
         </EhrCard>
@@ -571,11 +572,16 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   )
 }
 
-/** The sent state, from what Lab or Pharmacy answered: "Sent to Pharmacy. Accepted by the pharmacy on 11 Nov 2026, 02:40." */
-function sentText(sent: Sent): string {
+/**
+ * The sent state, from what Lab or Pharmacy answered: "Sent to Pharmacy. Accepted by the pharmacy on 11 Nov 2026, 02:40."
+ * Once the order has a later version, the version held is named, and that the change did not reach it.
+ */
+function sentText(sent: Sent, current: number | null): string {
   const [where, who] = sent.to === 'lab' ? ['Lab', 'the lab'] : ['Pharmacy', 'the pharmacy']
   const when = formatWhen(sent.acceptedAt)
-  return when ? `Sent to ${where}. Accepted by ${who} on ${when}.` : `Sent to ${where}. Accepted by ${who}.`
+  const held = current !== null && sent.version !== current
+  const accepted = when ? `Accepted by ${who} on ${when}.` : `Accepted by ${who}.`
+  return held ? `Sent to ${where} at version ${sent.version}. ${accepted} Later changes are not passed on.` : `Sent to ${where}. ${accepted}`
 }
 
 function RecordHeadingOnly({ title, back }: { title: string; back: string }) {

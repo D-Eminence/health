@@ -2478,10 +2478,11 @@ describe('Visit rehearsal (11 Nov): a dose is shown as it was entered', () => {
   })
 })
 
-describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent and offers no second send for that version', () => {
+describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent and offers no second send', () => {
   const ACCEPTED_AT = '2026-11-11T12:40:00.000Z'
   const SENT_TO_PHARMACY = /^Sent to Pharmacy\. Accepted by the pharmacy on 11 Nov 2026, \d{2}:\d{2}\.$/
   const SENT_TO_LAB = /^Sent to Lab\. Accepted by the lab on 11 Nov 2026, \d{2}:\d{2}\.$/
+  const HELD_BY_PHARMACY = /^Sent to Pharmacy at version 3\. Accepted by the pharmacy on 11 Nov 2026, \d{2}:\d{2}\. Later changes are not passed on\.$/
 
   function sendButtons(name: string) {
     return screen.queryAllByRole('button', { name })
@@ -2494,7 +2495,7 @@ describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent an
     expect(await screen.findByText(done)).toBeTruthy()
   }
 
-  it('Send to Pharmacy: says when the pharmacy accepted it, offers no second send, and offers it again for a new version', async () => {
+  it('Send to Pharmacy: says when the pharmacy accepted it, and offers no second send, at that version or a later one', async () => {
     staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
     setLists([prescription({ status: 'active', rowVersion: 3 })], [])
     // Pharmacy's work item, as the EHR passes it on (pharmacy-api projectWorkItem).
@@ -2508,13 +2509,17 @@ describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent an
     expect(screen.getByText(SENT_TO_PHARMACY)).toBeTruthy()
     expect(sendButtons('Send to Pharmacy')).toHaveLength(0)
 
-    // Held, then resumed: a new version, which the pharmacy does not hold, so it may be sent again.
+    // Held, then resumed: a new version. Pharmacy holds one work item per prescription, ever, and refuses any other
+    // version (pharmacy-api acceptPrescription: IDEMPOTENCY_CONFLICT), so the send is not offered again, and the line
+    // names the version it holds.
     setLists([prescription({ status: 'on_hold', rowVersion: 4 })], [])
     await changeStatus('Put on hold', 'Waiting for results', 'Prescription status updated.')
+    expect(await screen.findByText(HELD_BY_PHARMACY)).toBeTruthy()
     setLists([prescription({ status: 'active', rowVersion: 5 })], [])
     await changeStatus('Resume', 'Results back', 'Prescription status updated.')
-    await waitFor(() => expect(sendButtons('Send to Pharmacy')).toHaveLength(1))
-    expect(screen.queryByText(SENT_TO_PHARMACY)).toBeNull()
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Put on hold' })).toHaveLength(1))
+    expect(screen.getByText(HELD_BY_PHARMACY)).toBeTruthy()
+    expect(sendButtons('Send to Pharmacy')).toHaveLength(0)
   })
 
   it('Send to Pharmacy: a send that failed shows nothing sent and keeps the send', async () => {

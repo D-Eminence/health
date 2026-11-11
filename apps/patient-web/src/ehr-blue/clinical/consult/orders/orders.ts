@@ -146,7 +146,7 @@ export interface Flash {
   readonly orderId: string
   readonly success?: string
   readonly warning?: CreateWarning
-  /** The created request Lab accepted, so its page offers no Send to Lab for that version. */
+  /** The created request Lab accepted, so its page offers no Send to Lab. */
   readonly sent?: Sent | null
 }
 
