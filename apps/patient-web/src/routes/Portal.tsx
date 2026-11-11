@@ -835,7 +835,7 @@ export function AccessPage() {
       {usesNovuBackend() && <SentOrdersCard />}
       <Card aria-busy={(history.loading && history.data !== null) || undefined}>
         <AccessHeading headingRef={historyHeading} icon={Building2} title={whoHasAccessTitle(historyItems)}
-          hint={activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed, with when it ended.'} />
+          hint={activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed.'} />
         <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
           onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
         {history.data && !history.error && (history.data.items.length === 0

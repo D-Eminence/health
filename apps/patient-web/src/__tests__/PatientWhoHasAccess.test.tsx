@@ -118,7 +118,7 @@ describe('who has access, counted and grouped by facility', () => {
   it('says no one has access when every row has ended, and still lists them under their facility', async () => {
     await whoHasAccess(() => ({ items: [grant('1', { status: 'revoked', patientRevocable: false })] }))
     expect(await screen.findByRole('heading', { level: 2, name: 'No one has access now' })).toBeTruthy()
-    expect(screen.getByText('Past access stays listed, with when it ended.')).toBeTruthy()
+    expect(screen.getByText('Past access stays listed.')).toBeTruthy()
     expect(facility('Demo Hospital').counts).toBe('1 past')
   })
 })
