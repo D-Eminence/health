@@ -130,6 +130,22 @@ describe('each access says what, until when and why', () => {
     expect(ended!.textContent).toContain(`From ${at('2026-11-11T13:45:00Z')} · ended before ${at('2026-11-11T14:45:00Z')}`)
     expect(ended!.textContent).not.toContain(' until ')
   })
+
+  it('says an access came with the patient\'s Access PIN, and never shows Identity\'s own words as a reason', async () => {
+    // Identity writes "Patient access PIN verification" on every Access PIN grant (hid-system 0033, 0075, 0098, 0121):
+    // the patient gave their PIN, and no staff member gave a reason.
+    await whoHasAccess(() => ({ items: [grant('1', { scope: 'read_records', reason: 'Patient access PIN verification' })] }))
+    await screen.findByRole('heading', { level: 2, name: 'Demo Hospital has access now' })
+    const [row] = facility('Demo Hospital').rows
+    expect(row!.textContent).toContain('Can view records · With your Access PIN')
+    expect(row!.textContent).not.toContain('Reason given')
+    // Not in the row, not in its End access button's name, and not in the End access panel.
+    expect(screen.queryByText(/PIN verification/)).toBeNull()
+    await press(within(row!).getByRole('button', { name: /^End access for/ }))
+    const drawer = within(screen.getByRole('dialog', { name: 'End access' }))
+    expect(drawer.queryByText('Reason given')).toBeNull()
+    expect(screen.queryByText(/PIN verification/)).toBeNull()
+  })
 })
 
 describe('ending one access among several at a facility', () => {
@@ -203,5 +219,18 @@ describe('the requests, told apart the same way', () => {
     expect(text[3]).toContain('A staff member asked to view and add records · 2 min ago')
     expect(text[3]).toContain('Reason given: “Consultation for fever”')
     expect(new Set(text).size).toBe(4)
+  })
+
+  it('says a staff member used the Access PIN, with no reason line, for the request Identity records with a PIN', async () => {
+    renderPortal(<ToastProvider><AccessPage /></ToastProvider>, (path, method) => {
+      if (path === '/identity/me' && method === 'GET') return json({})
+      if (path === '/identity/me/access-history') return json({ items: [] })
+      return json([request('1', { scope: 'read_records', reason: 'Patient access PIN verification', status: 'approved', approvedAt: new Date().toISOString() })])
+    })
+    const [row] = await screen.findAllByRole('button', { name: /^Demo Hospital/ })
+    expect(row!.textContent).toContain('A staff member used your Access PIN to view your records · 2 min ago')
+    expect(row!.textContent).not.toContain('Reason given')
+    await press(row!)
+    expect(screen.queryByText(/PIN verification/)).toBeNull()
   })
 })

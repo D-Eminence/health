@@ -75,12 +75,18 @@ export function dayAndTime(value: string | null | undefined): string {
 export const endedEarly = (item: AccessItem) => ['revoked', 'ended'].includes(item.status)
 
 /**
- * The reason the staff member gave when they asked (an access from a request, an Access PIN or an emergency): with the
- * name missing, it is what tells two accesses at one facility apart. None for the patient's own share (its reason is
- * Identity's "Shared by the patient", and the row already says "Shared by you").
+ * Identity's own words on every Access PIN request and grant (hid-system 0033, 0075, 0098, 0121): the patient gave their
+ * PIN and no staff member gave a reason, so these words are never shown as one. The row says "With your Access PIN".
+ */
+export const byAccessPin = (reason: string | null | undefined) => (reason ?? '').trim().toLowerCase() === 'patient access pin verification'
+
+/**
+ * The reason the staff member gave when they asked (an access from a request or an emergency): with the name missing,
+ * it is what tells two accesses at one facility apart. None for the patient's own share (its reason is Identity's
+ * "Shared by the patient", and the row already says "Shared by you"), and none for an Access PIN (see byAccessPin).
  */
 export function theirReason(item: AccessItem): string | null {
-  if (item.shareLevel || item.shareDuration) return null
+  if (item.shareLevel || item.shareDuration || byAccessPin(item.reason)) return null
   return typeof item.reason === 'string' && item.reason.trim() ? item.reason.trim() : null
 }
 

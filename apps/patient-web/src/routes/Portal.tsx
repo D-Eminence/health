@@ -53,7 +53,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
-import { askedTo, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -808,7 +808,7 @@ export function AccessPage() {
       {requestList && (requestList.length === 0
         ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">When a facility asks to see your records, you decide here.</p>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending'
+        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason)
           return <li key={item.accessRequestId}>
             <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
               className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
@@ -816,10 +816,11 @@ export function AccessPage() {
               <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
                 {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
-                    as Who has access says it: the list names no staff member, so several from one facility differ by these. */}
-                <span className="block text-[13px] text-ink-2">{pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                    as Who has access says it: the list names no staff member, so several from one facility differ by these.
+                    An Access PIN request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
+                <span className="block text-[13px] text-ink-2">{pin ? `A staff member used your Access PIN to ${askedTo(item.scope)}` : pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
                   : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
-                {item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
+                {!pin && item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
                 : <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>}{' '}
@@ -853,7 +854,7 @@ export function AccessPage() {
               {/* Under its facility's heading: the staff member, by name only where the list gives one (a share). */}
               <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{holder(item)}</p>
               {/* What they can do, when it runs (with the time), and the reason they gave: what tells rows apart. */}
-              <p className="m-0 mt-0.5 text-[13px] text-ink-2">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-2">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? (byAccessPin(item.reason) ? `${accessLevelLabel(item.scope)} · With your Access PIN` : accessLevelLabel(item.scope))}</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">From <Nowrap>{dayAndTime(item.startsAt)}</Nowrap>{endedEarly(item) ? ' · ended before ' : ' until '}<Nowrap>{dayAndTime(item.expiresAt)}</Nowrap></p>
               {theirReason(item) && <p className="m-0 mt-0.5 line-clamp-3 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{theirReason(item)}”</p>}
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
@@ -884,7 +885,7 @@ export function AccessPage() {
             <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
         : <Button onClick={closeReview}>Close</Button>}>
       {open && <div className="flex flex-col gap-5">
-        {open.reason && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
+        {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
