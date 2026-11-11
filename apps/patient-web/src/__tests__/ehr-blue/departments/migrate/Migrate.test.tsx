@@ -1305,7 +1305,7 @@ describe('Migrate: a reading blanked after 7 days (hid-system 0110)', () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, contentDeleted: true }] })
     await findJob(awaiting)
     const check = await screen.findByRole('form', { name: 'Check and save' })
-    expect(within(check).getByText('Reading deleted after 24 hours. You can keep the document only, or reject this reading.')).toBeTruthy()
+    expect(within(check).getByText('Reading deleted after 7 days. You can keep the document only, or reject this reading.')).toBeTruthy()
     expect(check.textContent).not.toContain('No items were picked out')
   })
 

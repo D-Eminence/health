@@ -306,7 +306,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
         </ul>
       </>
       : deleted
-        // A reading blanked after 24 hours has nothing to check: say so, not that nothing was picked out.
+        // A reading blanked after 7 days has nothing to check: say so, not that nothing was picked out.
         ? <p className="hid-ehr-dept-muted">{`${READING_DELETED}. You can keep the document only, or reject this reading.`}</p>
         : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
     <UnreadableLines items={items} />
