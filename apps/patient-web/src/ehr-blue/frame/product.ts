@@ -3,6 +3,7 @@ import { FlaskConical, Hospital, Pill, ScanText, Users } from 'lucide-react'
 import { resolveStaffProductHostname } from '../../productHostname'
 import { PUBLIC_ENVIRONMENT } from '../../publicEnvironment'
 import type { StaffSession } from '../../staff/api'
+import type { EhrBluePage } from './types'
 import { basePath } from './pageHref'
 
 /**
@@ -119,4 +120,17 @@ const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 export function opensInProduct(product: Product, path: string): boolean {
   const base = basePath(path)
   return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base) || (TILLS.has(product) && COUNTER_PAGES.has(base))
+}
+
+/**
+ * Whether this product's workspace lists a page: productLists for its address, or any page but Home that says it is on
+ * every product's site (EhrBluePage.everyProduct). Its own permission and `visible` are the caller's, as before.
+ */
+export function pageListedInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>): boolean {
+  return (page.everyProduct === true && basePath(page.path) !== '') || productLists(product, page.path)
+}
+
+/** Whether this product's workspace opens a page: opensInProduct for its address, or a page on every product's site. */
+export function pageOpensInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>): boolean {
+  return page.everyProduct === true || opensInProduct(product, page.path)
 }

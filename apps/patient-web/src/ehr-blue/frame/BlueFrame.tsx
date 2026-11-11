@@ -14,7 +14,7 @@ import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, ownProductPage, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, opensInProduct, productHere, productLists, type Product } from './product'
+import { PRODUCTS, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { productUsable } from './pageAccess'
 import { AttentionProvider } from './attention'
@@ -22,6 +22,7 @@ import { BluePageBoundary } from './BluePageBoundary'
 import { facilityRefusal } from './ChooseWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
+import { useListedChanges } from './listedChanges'
 import { NotFoundPage } from './NotFoundPage'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
@@ -232,15 +233,17 @@ export function BlueFrame() {
   // refuse. So Home is always listed in the EHR, and in a single product only then, where /provider lands.
   const ownPage = product === 'ehr' ? undefined : BLUE_PAGES.find(page => basePath(page.path) === info.home)
   const ownPageOpen = ownPage !== undefined && pageAllowed(ownPage, session, viewing)
+  // What each page that can say so says now (EhrBluePage.listedChanges): the list below is worked out again when it changes.
+  const listedNow = useListedChanges(BLUE_PAGES, session)
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
-    && (page.path === '' ? product === 'ehr' || !ownPageOpen : productLists(product, page.path))
-    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, ownPageOpen])
+    && (page.path === '' ? product === 'ehr' || !ownPageOpen : pageListedInProduct(product, page))
+    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, ownPageOpen, listedNow])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
   const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
   // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
   // opens, so none of them leads to a page the frame sends to the product's Home (below).
-  const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
+  const openHere = useMemo(() => allowed.filter(page => pageOpensInProduct(product, page)), [allowed, product])
   // With single sign-on on, a staff site whose product this session may not use at its facility says so on the
   // product's own pages and Home, in place of each page's refusal (siteSwitch.ts, pageAccess.ts productUsable).
   const hostname = window.location.hostname
@@ -263,7 +266,7 @@ export function BlueFrame() {
   // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
   // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
   // (product.ts) still opens; an address no page takes is left to the frame below.
-  if (product !== 'ehr' && match && !opensInProduct(product, match.page.path)) return <Navigate replace to="/provider" />
+  if (product !== 'ehr' && match && !pageOpensInProduct(product, match.page)) return <Navigate replace to="/provider" />
 
   function leave() {
     if (signingOut) return
