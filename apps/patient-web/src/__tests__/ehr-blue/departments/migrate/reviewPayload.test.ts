@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
-  CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
+  CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, REPORT_DATE_FIELD, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
   keptItemsGo, keptMedicines, keptText, labFlag, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
@@ -655,3 +655,46 @@ describe('where kept items go, by the save chosen', () => {
   })
 })
 
+
+describe('the report date typed from the paper (past lab results)', () => {
+  it('is sent at the top level, trimmed, only as typed, and never in place of an item\'s own date', () => {
+    const input = built(buildValidation(choices('LAB', { reportedAtAsWritten: '  14/02/2024 ' })))
+    expect(() => assertAccepted(input)).not.toThrow()
+    expect(input.acceptedFields.reportedAtAsWritten).toBe('14/02/2024')
+    expect(input.acceptedFields).not.toHaveProperty('reportedAt')
+    expect(input.acceptedFields).not.toHaveProperty('collectedAtAsWritten')
+    // Each result keeps the date read beside it, unchanged.
+    expect(input.acceptedFields.observations).toEqual([expect.objectContaining(HB_SOURCE)])
+  })
+
+  it('is not sent when left blank or only spaces, and is never filled in from the items read', () => {
+    for (const typed of [undefined, '', '   ']) {
+      const input = built(buildValidation(choices('LAB', typed === undefined ? {} : { reportedAtAsWritten: typed })))
+      expect(input.acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+    }
+    // The reading has a result dated 01/03/2025: that date stays with its result, never the paper's.
+    const input = built(buildValidation(choices('LAB')))
+    expect(input.acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+  })
+
+  it('is sent as written, whatever its form: ocr-api keeps text it cannot read as a date', () => {
+    for (const typed of ['Mar 2025', '12th March 2025', '3/4/25', 'see page 2']) {
+      const input = built(buildValidation(choices('LAB', { reportedAtAsWritten: typed })))
+      expect(() => assertAccepted(input)).not.toThrow()
+      expect(input.acceptedFields.reportedAtAsWritten).toBe(typed)
+    }
+  })
+
+  it('is refused at its field only when longer than ocr-api keeps (120 characters)', () => {
+    expect(built(buildValidation(choices('LAB', { reportedAtAsWritten: 'x'.repeat(120) }))).acceptedFields.reportedAtAsWritten).toBe('x'.repeat(120))
+    expect(buildValidation(choices('LAB', { reportedAtAsWritten: 'x'.repeat(121) })))
+      .toEqual({ problem: { field: REPORT_DATE_FIELD, message: 'Write the date in 120 characters or fewer.' } })
+  })
+
+  it('is only for past lab results: no other save sends it', () => {
+    for (const saveAs of ['DOCUMENT_ONLY', 'PHARMACY'] as const) {
+      const input = built(buildValidation(choices(saveAs, { reportedAtAsWritten: '14/02/2024' })))
+      expect(input.acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+    }
+  })
+})

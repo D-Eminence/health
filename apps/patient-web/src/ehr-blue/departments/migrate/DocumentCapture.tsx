@@ -18,6 +18,7 @@ import { DeptLinkButton } from '../parts/DeptRecord'
 import { fileSizeLabel, fileTypeLabel, scanStatusLabel, visitClassLabel, visitStatusLabel } from '../../../plainLabels'
 import { dateText } from '../parts/format'
 import { FormRefusal } from './ocrSteps'
+import { PaperRecords } from './PaperRecords'
 
 /*
  * Document capture: a file uploaded into a patient's documents, on the encounter it belongs to, as today's clinical
@@ -220,6 +221,8 @@ function PatientDocuments({ facilityId, permissions, onExtract, paused, onAccess
     </div>}
     {selected && <EncounterDocuments key={selected.id} facilityId={facilityId} patientId={patientId} encounterId={selected.id}
       canWrite={canWrite} canOcr={permissions.includes('ocr.job.read')} verify={verify} onExtract={onExtract} paused={paused} />}
+    {/* What was added to the record from paper: shown once Lab or Pharmacy serves its list, and hidden until then. */}
+    <PaperRecords facilityId={facilityId} patientId={patientId} permissions={permissions} />
   </>
 }
 

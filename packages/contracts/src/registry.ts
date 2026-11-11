@@ -97,6 +97,8 @@ const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not 
 /** Allergies (EHR clinical safety): served from hid-system 0124; a backend before it answers 404, which the chart takes as not offered. */
 const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
   + 'Direct care only (X-Purpose-Of-Use: direct-care) at the selected facility.'
+/** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
+const PAPER_RECORD_LISTS = 'Not served by hid-system yet (404 until it is). Direct care at the working facility.'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -923,6 +925,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${POINT_OF_CARE} Body { email }; answers { shareId, sentTo, expiresAt }.`)),
   r('lab.imports','lab','/api/v1/lab/imports',P,false,one('POST','lab.import.write')),
   r('lab.import','lab','/api/v1/lab/imports/:importId',G,false,one('GET','lab.import.read')),
+  // A patient's imported Lab evidence (hid-system Session B, branch claude/ecstatic-ramanujan-q4i1eo-lab-patient-imports;
+  // not on staging-novu-ci-20261005 yet). Migrate's "From paper records" hides it while it answers 404.
+  { ...proposed(r('lab.patientImports','lab','/api/v1/lab/imports',G,false,one('GET','lab.import.read'),PAPER_RECORD_LISTS
+    + ' Query patientId (Identity UUID), cursor (the last import id), limit 1-50 (20 by default). 200 { records, nextCursor }, '
+    + 'newest received first, each as GET /api/v1/lab/imports/:importId with its observations; 403 LAB_IMPORT_ACCESS_DENIED.')),
+  requiredQuery: { GET: ['patientId'] } },
   r('lab.createAccession','lab','/api/v1/lab/work-items/:workItemId/accession',P,false,one('POST','lab.accession.create')),
   r('lab.accession','lab','/api/v1/lab/accessions/:accessionId',G,false,one('GET','lab.accession.read')),
   r('lab.specimens','lab','/api/v1/lab/accessions/:accessionId/specimens',G,false,one('GET','lab.accession.read')),
@@ -978,6 +986,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${POINT_OF_CARE} Reason required.`)),
   proposed(r('pharmacy.stockMovements','pharmacy','/api/v1/pharmacy/stock/:catalogueItemId/movements',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
+  // A patient's imported medicines (hid-system Session B, branch claude/ecstatic-ramanujan-q4i1eo-pharmacy-patient-imports;
+  // not on staging-novu-ci-20261005 yet). Migrate's "From paper records" hides it while it answers 404.
+  { ...proposed(r('pharmacy.patientImports','pharmacy','/api/v1/pharmacy/imports',G,false,one('GET','pharmacy.import.read'),
+    PAPER_RECORD_LISTS + ' Query patientId (Identity UUID), limit 1-100 (50 by default), cursor (the last record id). 200 '
+    + '{ items, nextCursor }, newest first, each as GET /api/v1/pharmacy/imports/:importId; any other query is refused 400.')),
+  requiredQuery: { GET: ['patientId'] } },
   // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
   { ...proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),
     RECEIVE_ROUTE)), forbiddenQuery: { GET: ['healthId'] } },

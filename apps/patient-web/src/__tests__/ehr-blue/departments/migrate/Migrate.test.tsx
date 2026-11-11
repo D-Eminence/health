@@ -2202,3 +2202,46 @@ describe('Migrate: rehearsal fixes on the record', () => {
     await waitFor(() => expect(focused()).toBe(heading('Find document job')))
   })
 })
+
+describe('Migrate: the report date of past lab results, typed from the paper', () => {
+  async function chooseLab() {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
+    await findJob(awaiting)
+    for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
+    expect(screen.queryByLabelText('Report date, as written on the paper')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'LAB' } })
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    return screen.getByLabelText('Report date, as written on the paper') as HTMLInputElement
+  }
+  const save = () => press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
+
+  it('is asked only for Past lab results, starts empty though a result read has a date, and is sent at the top level as typed', async () => {
+    const field = await chooseLab()
+    expect(field.value).toBe('')
+    expect(descriptions(field)).toContain('Copy it exactly as written, for example 14/02/2024. Leave it blank if the paper has none.')
+    fireEvent.change(field, { target: { value: '14/02/2024' } })
+    await save()
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect(input.acceptedFields.reportedAtAsWritten).toBe('14/02/2024')
+    expect(input.acceptedFields.observations[0]).not.toHaveProperty('reportedAt')
+  })
+
+  it('left blank, sends no report date', async () => {
+    await chooseLab()
+    await save()
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    expect(api.validateOcrJob.mock.calls[0]![2].acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+  })
+
+  it('too long for the service: said at the field, with focus on it, and nothing sent', async () => {
+    const field = await chooseLab()
+    fireEvent.change(field, { target: { value: '1'.repeat(121) } })
+    await save()
+    await waitFor(() => expect(focused()).toBe(field))
+    expect(descriptions(field)[0]).toBe('Write the date in 120 characters or fewer.')
+    expect(api.validateOcrJob).not.toHaveBeenCalled()
+  })
+})

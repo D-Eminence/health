@@ -22,7 +22,11 @@ import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, i
  *     (lab-api dto/create-lab-import.dto.ts:12), so a flag written another way is not sent. A date on the paper is sent
  *     only as the text written, reportedAtAsWritten (1-120 characters, labDate 150-200); ocr-api turns it into a date
  *     only when it is unambiguous and keeps the text either way (docs/INTERFACE_CONTRACT.md:1318-1346). No date is
- *     guessed here. The reading has no collection or report date of the whole paper, so the top-level ones are not sent.
+ *     guessed here. The report date of the whole paper is sent only as the reviewer typed it from the paper, as the
+ *     top-level reportedAtAsWritten (1-120 characters once trimmed; blank sends none): it is never taken from an item's
+ *     date. ocr-api refuses only text over 120 characters there (OCR_INVALID_LAB_EVIDENCE); anything it cannot read as a
+ *     date is kept as text and sends Lab no date, which is not an error. No collection date is sent, so the order of the
+ *     two (OCR_LAB_DATE_ORDER) never applies.
  *   - PHARMACY, importedMedicationCandidates (ocr-publication-policy.ts:102-137): `medications`, 1 to 50 entries
  *     (MAX_IMPORTED_MEDICATIONS, line 43) in reading order, each its own record: page (1-10,000), the reading itemId
  *     (unique), medicationText (1-500), strengthText, doseText and frequencyText (up to 240) and historicalContext
@@ -229,7 +233,14 @@ export interface ReviewChoices {
   /** The visit a clinical note is attached to; only for EHR. */
   readonly encounterId: string
   readonly reason: string
+  /** The paper's report date, as the reviewer typed it from the paper; only for LAB, and sent only when not blank. */
+  readonly reportedAtAsWritten?: string
 }
+
+/** The report date's field, under Save as when it is Past lab results. */
+export const REPORT_DATE_FIELD = 'ocr-review-report-date'
+/** The most ocr-api keeps of a date as written (ocr-publication-policy.ts labDate). */
+export const MAX_DATE_AS_WRITTEN = 120
 
 interface AcceptedItem {
   readonly itemId: string; readonly kind: PaperItemKind; readonly page: number; readonly asWritten: string; readonly reading: string
@@ -370,7 +381,9 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
       if ((value?.length ?? 0) > 240 || (valueText?.length ?? 0) > 2_000) return { problem: { field: changed ? itemResultId(entry.index) : itemCardId(entry.index),
         message: 'This result is too long to add to past lab results. Use Change to shorten it.' } }
     }
-    domainFields = { observations }
+    const reportDate = (choices.reportedAtAsWritten ?? '').trim()
+    if (reportDate.length > MAX_DATE_AS_WRITTEN) return { problem: { field: REPORT_DATE_FIELD, message: `Write the date in ${MAX_DATE_AS_WRITTEN} characters or fewer.` } }
+    domainFields = { ...(reportDate ? { reportedAtAsWritten: reportDate } : {}), observations }
   } else if (saveAs === 'PHARMACY') {
     // In the order they are on the paper, each its own record; past the most one review takes, they stay with the document.
     const read = reading?.items ?? []

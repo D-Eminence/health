@@ -1026,6 +1026,46 @@
   margin: 0 0 18px;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-paper {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper h3,
+.hid-ehr .hid-ehr-dept-migrate-paper h4 {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-part {
+  display: grid;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-record {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-record p {
+  margin: 0;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-upload {
   margin-top: 20px;
   padding-top: 20px;

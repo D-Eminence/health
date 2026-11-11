@@ -16,9 +16,10 @@ import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
-  keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
+  keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, REPORT_DATE_FIELD, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
+import { usePaperListsServed } from './paperRecordsApi'
 
 /*
  * The steps of an OCR job as today's Document OCR page takes them (staff/routes/Operations.tsx Ocr): review an
@@ -237,6 +238,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [chosen, setSaveAs] = useState<SaveAs>('DOCUMENT_ONLY')
   const saveAs = offered.includes(chosen) ? chosen : 'DOCUMENT_ONLY'
   const [encounterId, setEncounterId] = useState('')
+  // The paper's report date, typed from the paper by the reviewer: never filled in from what was read.
+  const [reportDate, setReportDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
@@ -259,7 +262,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '')
     if (!selected) { setProblem(refusal({ field: 'ocr-review-reason', message: 'There is no reading to check yet.' })); return }
     const built = validating
-      ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason })
+      ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason,
+        ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}) })
       : buildRejection(selected.id, reason)
     if ('problem' in built) {
       // With no visit to choose from, the choice to change is Save as.
@@ -326,6 +330,10 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
         {problemText(problem, 'ocr-review-domain') && <p className="hid-ehr-error">{problemText(problem, 'ocr-review-domain')}</p>}
       </div>}
     {keptGo && <p className="hid-ehr-dept-muted" role="note" id="ocr-review-where">{keptGo}</p>}
+    {saveAs === 'LAB' && <EhrField label="Report date, as written on the paper" controlId={REPORT_DATE_FIELD}
+      hint="Copy it exactly as written, for example 14/02/2024. Leave it blank if the paper has none." error={problemText(problem, REPORT_DATE_FIELD)}>
+      <EhrInput value={reportDate} autoComplete="off" onChange={event => { setReportDate(event.target.value); setProblem(null) }} />
+    </EhrField>}
     {saveAs === 'PHARMACY' && keptMedicines(items, decisions) > MAX_MEDICINES && <p className="hid-ehr-dept-muted" role="note">{TOO_MANY_MEDICINES}</p>}
     {saveAs === 'EHR' && (visits === null
       ? <p className="hid-ehr-dept-muted" role="status">Loading the patient’s visits…</p>
@@ -620,6 +628,11 @@ const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
 export const DRAFT_NOTE_WHERE = 'It’s on the visit chosen when the paper was checked: open that visit’s notes to read and sign it.'
 /** Imported medicines and lab results are not in the patient's chart yet: said where they can be seen until they are. */
 export const IMPORTED_WHERE = 'They aren’t shown in the patient’s chart yet. See them here, on this document’s publication.'
+/**
+ * Once Lab or Pharmacy lists a patient's imported records (paperRecordsApi.ts), where they are found instead: under From
+ * paper records on Patient documents, for the patient open there.
+ */
+export const IMPORTED_LISTED = 'They’re listed under From paper records, in Patient documents.'
 /** The same, for a member whose role can't read the imported records: nothing is shown here to see. */
 export const IMPORTED_NOT_IN_CHART = 'They aren’t shown in the patient’s chart yet.'
 /** Where a draft note is found, when the visit it was saved on is known: "Outpatient visit · 12 Oct 2026". */
@@ -743,6 +756,19 @@ function madeIds(publication: OcrPublication): string[] {
 }
 
 /**
+ * Whether a Lab or Pharmacy publication's records are listed under From paper records on Patient documents: that list is
+ * served (its own answer said so this page's life), this role reads it and Patient documents, and the patient open there,
+ * for direct care, is this publication's.
+ */
+function useListedOnDocuments(domain: OcrTargetDomain, patientId: string | null | undefined, permissions: readonly string[]): boolean {
+  const served = usePaperListsServed()
+  const { activePatient } = useStaff()
+  const list = domain === 'LAB' ? { served: served.lab, read: 'lab.import.read' } : domain === 'PHARMACY' ? { served: served.pharmacy, read: 'pharmacy.import.read' } : null
+  return !!list && list.served === true && permissions.includes(list.read) && permissions.includes('ehr.document.read')
+    && !!patientId && activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === patientId
+}
+
+/**
  * What a publication made: named, and readable where its owning domain lets this role read it. Never its raw ID.
  * Imported medicines and lab results are said as imported records from this paper, never as in the chart, which does
  * not show them yet; several medicines are counted from what was sent, and each one OCR names is listed.
@@ -752,6 +778,7 @@ function PublishedEvidence({ facilityId, patientId, publication, validation, per
   readonly permissions: readonly string[]
 }) {
   const ids = madeIds(publication)
+  const listed = useListedOnDocuments(publication.targetDomain, patientId, permissions)
   const visit = useNoteVisit(facilityId, patientId, publication.targetDomain === 'EHR' ? validation : undefined, permissions)
   const domain = publication.targetResourceType === 'lab-imported-evidence' && permissions.includes('lab.import.read') ? 'lab'
     : publication.targetResourceType === 'pharmacy-imported-medication-evidence' && permissions.includes('pharmacy.import.read') ? 'medication' : null
@@ -762,7 +789,7 @@ function PublishedEvidence({ facilityId, patientId, publication, validation, per
     const firstOnly = domain !== null && count !== null && count > 1 && ids.length === 1
     return <>
       <p>{importedWords(count ?? (ids.length > 1 ? ids.length : null), 'medicine', 'medicines')}</p>
-      <p className="hid-ehr-dept-muted">{domain ? IMPORTED_WHERE : IMPORTED_NOT_IN_CHART}</p>
+      <p className="hid-ehr-dept-muted">{domain ? listed ? IMPORTED_LISTED : IMPORTED_WHERE : IMPORTED_NOT_IN_CHART}</p>
       {firstOnly && <p className="hid-ehr-dept-muted">{`The first is shown here. All ${count} were added.`}</p>}
       {domain && ids.map((id, at) => <ImportedEvidence key={id} facilityId={facilityId} domain={domain} importId={id}
         label={ids.length > 1 ? `Imported medicine ${at + 1} of ${ids.length}` : undefined} />)}
@@ -770,7 +797,7 @@ function PublishedEvidence({ facilityId, patientId, publication, validation, per
   }
   if (publication.targetDomain === 'LAB') return <>
     <p>{importedWords(sentCount(validation, 'observations'), 'lab result', 'lab results')}</p>
-    <p className="hid-ehr-dept-muted">{domain && ids[0] ? IMPORTED_WHERE : IMPORTED_NOT_IN_CHART}</p>
+    <p className="hid-ehr-dept-muted">{domain && ids[0] ? listed ? IMPORTED_LISTED : IMPORTED_WHERE : IMPORTED_NOT_IN_CHART}</p>
     {domain && ids[0] && <ImportedEvidence facilityId={facilityId} domain={domain} importId={ids[0]} />}
   </>
   return <>
