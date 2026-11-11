@@ -22,6 +22,7 @@ import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
+  type PaperReading,
 } from './paperReading'
 import {
   ConfirmForm, FormRefusal, ReviewForm, ReviewPublication, UUID_V4, jobInProgress, jobStatusWords, statusTone, statusWords, type PublicationAttempt,
@@ -159,6 +160,14 @@ function newestExtraction(items: readonly OcrExtraction[]) {
 /** Whether OCR read any text at all: text that is only spaces or line breaks is none. */
 function hasText(text: string | null | undefined): text is string {
   return !!text && text.trim().length > 0
+}
+
+/**
+ * True when a paper reading's items were picked out: the items are shown and checked, never the scanned text beside them.
+ * A reading with no items shows its scanned text, so staff still have the words to check.
+ */
+function showsItems(reading: PaperReading | null): boolean {
+  return reading?.status === 'read' && reading.items.length > 0
 }
 
 /** The text OCR read, as it is. It scrolls, so it takes focus: a keyboard can then scroll it. */
@@ -676,15 +685,10 @@ export function Migrate() {
       {reading && <PaperReadingView reading={reading} />}
       {notWhole && <p role="note" className="hid-ehr-dept-muted">{NOT_WHOLE_WORDS}</p>}
       {fields.length > 0 && <DeptFacts facts={fields} />}
-      {/* A paper reading's items are what staff check, so the scanned text waits closed at the end; without one it shows as it is. */}
-      {reading
-        ? hasText(extraction.rawText) && <details className="hid-ehr-dept-migrate-details hid-ehr-dept-migrate-raw">
-          <summary>Scanned text (raw)</summary>
-          {scannedText(extraction.rawText)}
-        </details>
-        : hasText(extraction.rawText)
-          ? scannedText(extraction.rawText)
-          : <p className="hid-ehr-dept-muted">No text was read from this document.</p>}
+      {/* A paper reading's items are what staff check, so its scanned text is not shown; without items the text shows as it is. */}
+      {!showsItems(reading) && (hasText(extraction.rawText)
+        ? scannedText(extraction.rawText)
+        : <p className="hid-ehr-dept-muted">No text was read from this document.</p>)}
     </DeptSection>
   }
 
@@ -779,7 +783,8 @@ export function Migrate() {
             key: extraction.id,
             summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
             // An extraction with no text shows its summary line alone, never an empty block.
-            detail: hasText(extraction.rawText)
+            // An extraction with no text, or a paper reading whose items were picked out, shows its summary line alone.
+            detail: hasText(extraction.rawText) && !showsItems(parsePaperReading(extraction.structuredPayload))
               // It scrolls, so it takes focus: a keyboard can then scroll it.
               ? <pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
               : undefined,

@@ -114,3 +114,33 @@ export function unreadablePage() {
   ]
   return { ...payload, items, reading: { ...payload.reading, itemCount: items.length } }
 }
+
+/**
+ * A hard handwritten page as the reader writes it, with its marks for what it is unsure of: "word?" unsure, "(or X?)"
+ * another possible reading, "[dose?]" and "[?]" parts with no readable letters, "(crossed out: …)", "Am… (Ampiclox?)" a
+ * cut-off word and the medicine it most likely is, and "(? on paper)" a question mark written on the paper.
+ */
+export function hardHandwrittenPage() {
+  const payload = handwrittenPage()
+  const medicine = (id: string, line: number, asWritten: string, plain: string, fields: Record<string, unknown>) => ({
+    ...base(id, 1, line), ...careful('The handwriting was hard to read.'), kind: 'medicine', asWritten, plain,
+    fields: { name: null, strength: null, form: null, route: null, frequency: null, duration: null, status: 'current', ...fields },
+  })
+  const note = (id: string, line: number, asWritten: string) => ({
+    ...base(id, 1, line), ...careful('The handwriting was hard to read.'), kind: 'note', asWritten, plain: '', fields: { text: asWritten },
+  })
+  return {
+    ...payload,
+    items: [
+      medicine('it-0000000000000901', 1, 'IV? Am… (Ampiclox?) 500mg? (or [dose?]) 8hrly?', '', {}),
+      medicine('it-0000000000000902', 2, 'IV? Gentamicin? 80mg? (crossed out: Ceftriaxone? 1g? (or Ceftriaxone?)) 12hrly?', 'Gentamicin?',
+        { name: 'Gentamicin?', strength: '80mg?', frequency: '12hrly?' }),
+      medicine('it-0000000000000903', 3, 'IV? (or po?) Omeprazole? (or Quinine?) 40mg? daily? (or 8hrly?)', '', {}),
+      medicine('it-0000000000000904', 4, '- Dc Gentamicin?', '', { status: 'stopped' }),
+      medicine('it-0000000000000905', 5, 'Paracetamol 1g [freq?] (? on paper)', '', {}),
+      note('it-0000000000000906', 6, 'Admit?'),
+      note('it-0000000000000907', 7, '21/8? [?] - Transfer to the ward'),
+    ],
+    reading: { ...payload.reading, itemCount: 7 },
+  }
+}
