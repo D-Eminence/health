@@ -15,7 +15,7 @@ import { focusIsLost, useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
-import { DeptActions, DeptContextLine, DeptFacts, DeptHistory, DeptLinkButton, DeptRecordLayout, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
+import { DeptContextLine, DeptFacts, DeptHistory, DeptLinkButton, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
 import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
@@ -86,7 +86,8 @@ function PatientAccessLinks({ permissions }: { readonly permissions: readonly st
 interface OpenedJob { readonly job: OcrJob; readonly readAt: string }
 
 type View = 'list' | 'new' | 'detail'
-type ActionId = 'retry' | 'validate' | 'reject' | 'confirm'
+/** The steps opened with a button of their own; Check and save and Confirm the patient are on the page as they come due. */
+type ActionId = 'retry' | 'reject'
 
 /**
  * While OCR is still reading the shown document, the page reads its job again, one read at a time, for at most
@@ -109,8 +110,12 @@ interface PollStop { readonly jobId: string; readonly reason: 'slow' | 'failed' 
 /** What a step that finds or makes a document's job says, by its outcome. */
 interface OpenWords { readonly created: string; readonly existing: string; readonly uncheckable: string; readonly refused: string }
 
-const ACTION_LABELS: Record<ActionId, string> = {
-  retry: 'Retry job', validate: 'Check and save', reject: 'Reject reading', confirm: 'Confirm source patient',
+/** All the page says while a document is checked and sent for reading: nothing else is shown until the answer. */
+export const READING_THE_PAGE = 'Reading the page…'
+
+/** Who the job is for, in words: never any part of the patient's record id (owner rule, IDs on screen). */
+function patientWords(job: OcrJob) {
+  return job.patientId ? 'Patient (name not shown)' : 'Patient not given'
 }
 
 function jobName(job: OcrJob) {
@@ -153,6 +158,16 @@ function newestExtraction(items: readonly OcrExtraction[]) {
 }
 
 /** Whether OCR read any text at all: text that is only spaces or line breaks is none. */
+/** Read again's answer when the reading it was asked for no longer exists for this member. */
+const READING_GONE = 'This reading is no longer available to you. Press Read again to start a new one.'
+
+/** A 4xx refusal that carries no job id: nothing was made for the request's key. */
+function refusedWithoutJob(caught: unknown): boolean {
+  if (!isHidApiError(caught) || caught.status < 400 || caught.status >= 500) return false
+  const details = caught.details as { job?: { id?: unknown }; jobId?: unknown } | null
+  return !(typeof details?.job?.id === 'string' || typeof details?.jobId === 'string')
+}
+
 function hasText(text: string | null | undefined): text is string {
   return !!text && text.trim().length > 0
 }
@@ -176,7 +191,8 @@ function jobFacts(job: OcrJob): DeptFact[] {
     { label: 'Version', value: String(job.version ?? 'unknown') },
     { label: 'Provider', value: job.provider },
     { label: 'Document', value: shortId(job.documentId) },
-    { label: 'Patient', value: job.patientId ? shortId(job.patientId) : 'Not given' },
+    // Said in words, never any part of the patient's record id (owner rule, IDs on screen).
+    { label: 'Patient', value: job.patientId ? 'Name not shown' : 'Not given' },
     { label: 'Source patient', value: job.patientConfirmation ? `Confirmed ${dateText(job.patientConfirmation.confirmedAt)}` : 'Not confirmed' },
     ...(job.attemptCount != null && job.maxAttempts != null ? [{ label: 'Attempts', value: `${job.attemptCount} of ${job.maxAttempts}` }] : []),
   ]
@@ -203,6 +219,8 @@ export function Migrate() {
     const given = location.state as { ocrDocumentId?: unknown; ocrPatientId?: unknown; actorId?: unknown; facilityId?: unknown } | null
     return given && actorId !== undefined && given.actorId === actorId && given.facilityId === facilityId ? given : null
   })
+  const handedDocument = typeof handoff?.ocrDocumentId === 'string' ? handoff.ocrDocumentId : ''
+  const handedPatient = typeof handoff?.ocrPatientId === 'string' ? handoff.ocrPatientId : ''
   const cleared = useRef(false)
   useEffect(() => {
     if (cleared.current) return
@@ -210,11 +228,11 @@ export function Migrate() {
     if (location.state != null) navigate(location.pathname + location.search, { replace: true, state: null })
   }, [location.state, location.pathname, location.search, navigate])
   // The Find card's field, and the document whose job is shown (or was last asked for).
-  const [findDocument, setFindDocument] = useState(() => typeof handoff?.ocrDocumentId === 'string' ? handoff.ocrDocumentId : '')
+  const [findDocument, setFindDocument] = useState(handedDocument)
   const [currentDocument, setCurrentDocument] = useState('')
   // The New view's fields.
   const [newDocument, setNewDocument] = useState('')
-  const [patientId, setPatientId] = useState(() => typeof handoff?.ocrPatientId === 'string' ? handoff.ocrPatientId : '')
+  const [patientId, setPatientId] = useState(handedPatient)
   const [view, setView] = useState<View>('list')
   const [action, setAction] = useState<ActionId | null>(null)
   const [quick, setQuick] = useState<OpenedJob | null>(null)
@@ -231,6 +249,9 @@ export function Migrate() {
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const [notice, setNotice] = useState('')
   const [stepFocus, setStepFocus] = useState<StepFocus | null>(null)
+  // While a document is checked and sent for reading (Extract with OCR, or the clinical record's hand-off), the page says
+  // only READING_THE_PAGE. A hand-off that will be sent says so from the first render, so the list never flashes first.
+  const [reading, setReading] = useState(() => canWrite && UUID_V4.test(handedDocument) && UUID_V4.test(handedPatient))
   const focus = useFocusById()
   const [lookupRevision, setLookupRevision] = useState(0)
   // Reading the shown job again by itself while OCR reads the document: since when, for which job, and why it stopped.
@@ -258,11 +279,27 @@ export function Migrate() {
   const visibleJob = jobFacilityId === facilityId ? job : null
   const canRetryJob = visibleJob?.status === 'failed' &&
     (visibleJob.attemptCount === undefined || visibleJob.maxAttempts === undefined || visibleJob.attemptCount < visibleJob.maxAttempts)
+  const resetFor = useRef(facilityId)
   useEffect(() => {
     setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError(''); setCreateError(''); setRetryError('')
     setProblem(null); setNotice(''); setStepFocus(null); setView('list'); setAction(null); setQuick(null); setPollStop(null)
     setPollLong(null); pollSince.current = null
+    // On a change of facility (not on mount, nor StrictMode's second run of it), a document still being sent for the
+    // facility left no longer opens, nor holds the page on READING_THE_PAGE.
+    if (resetFor.current === facilityId) return
+    resetFor.current = facilityId
+    openRequest.current += 1; setReading(false)
   }, [facilityId])
+  // The clinical record's hand-off, with OCR job write: sent for reading at once, exactly once. Declared after the reset
+  // above, which also runs on mount, so the reset cannot wipe it. The router state it came in is spent above (replaced
+  // with none), so Back, Forward and a reload bring nothing back to send; this ref stops a second run in the same mount.
+  // Without OCR job write, Find document job holds the document, to look it up, as before.
+  const handedOver = useRef(false)
+  useEffect(() => {
+    if (handedOver.current) return
+    handedOver.current = true
+    if (canWrite && handedDocument) extract(handedDocument, handedPatient)
+  }, [])
   useEffect(() => {
     if (!facilityId || !visibleJob?.id || !canRead) return
     let active = true
@@ -473,8 +510,15 @@ export function Migrate() {
         : created.status === 'awaiting_validation' ? 'The document has been read and is ready to check.' : `${jobStatusWords(created.status)}.` })
     }
     catch (caught) {
+      // A refusal that names no job means no reading was made for this key: the next press sends a fresh key, never the
+      // same one again (the server would answer it as the old job, now not found).
+      const gone = isHidApiError(caught) && caught.status === 404 && caught.code === 'OCR_JOB_NOT_FOUND'
+      if (gone || refusedWithoutJob(caught)) readAgainAttempt.current = null
       if (!current()) return
-      setError(needsPatientAccess(caught) ? STAFF_PAPER_NEEDS_ACCESS : errorText(caught, 'The document wasn’t sent for reading again.'))
+      // OCR answers a replayed key whose job is no longer open to this member with 404 OCR_JOB_NOT_FOUND
+      // (ocr.service.ts createJob); a new key for a patient whose OK is missing is answered as needsPatientAccess says.
+      setError(gone ? READING_GONE : needsPatientAccess(caught) ? STAFF_PAPER_NEEDS_ACCESS
+        : errorText(caught, 'The document wasn’t sent for reading again.'))
       focus('ocr-read-again', true)
     }
     finally { setBusy(false) }
@@ -508,18 +552,19 @@ export function Migrate() {
     if (busy) return
     setFindDocument(documentId); setPatientId(documentPatientId); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null)
     setError(''); setCreateError('')
-    if (!canWrite) { focus('ocr-document'); return }
+    if (!canWrite) { setReading(false); focus('ocr-document'); return }
     // IDs EHR gave that OCR would refuse go to the form, which says what is wrong with them.
-    if (!UUID_V4.test(documentId) || !UUID_V4.test(documentPatientId)) { startNew(documentId); return }
-    setNewDocument(documentId); setNotice('Checking the document…')
+    if (!UUID_V4.test(documentId) || !UUID_V4.test(documentPatientId)) { setReading(false); startNew(documentId); return }
+    // Straight to the reading: the page says only READING_THE_PAGE until the record opens or the list says why not.
+    setNewDocument(documentId); setReading(true)
     void openOrCreate(documentId, documentPatientId, {
       created: 'Reading the document. This page updates by itself when it’s ready.',
       existing: 'This document was sent for reading before, so that reading is shown.',
       uncheckable: 'The document couldn’t be checked, so it wasn’t sent for reading. Try again.',
       refused: 'The document wasn’t sent for reading.',
-    }, message => { setNotice(''); setError(message); focus('ocr-find-submit', true) })
+    }, message => { setReading(false); setNotice(''); setError(message); focus('ocr-find-submit', true) })
       // The documents list is hidden once the record opens, so focus goes to the page's heading, as on opening a record.
-      .then(opened => { if (opened) focus('migrate-view-title') })
+      .then(opened => { setReading(false); if (opened) focus('migrate-view-title') })
   }
 
   // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
@@ -532,24 +577,34 @@ export function Migrate() {
   const title = detail ? jobName(detail) : creating ? 'New document job' : 'Document OCR'
   // Mounted throughout, in the same place in every view, so a message put in it is announced.
   const status = <div key="status" id="ocr-status" role="status" className="hid-ehr-dept-migrate-status">{notice && <DeptNotice tone="positive">{notice}</DeptNotice>}</div>
-  return <DeptPage title={<ViewTitle>{title}</ViewTitle>} onBack={detail || creating ? backToList : undefined}
-    primaryAction={!detail && !creating && canWrite ? <EhrButton onClick={() => startNew()}>Create record</EhrButton> : undefined}>
-    {status}
-    {detail ? <Fragment key="detail">{jobRecord(detail)}</Fragment> : creating ? <Fragment key="new">{newJob()}</Fragment> : <Fragment key="list">{jobList()}</Fragment>}
-    {/* Mounted in every view and hidden outside the list, so going back to the list does not read the patient, the
-        consent, the encounters and the documents again (each read is audited), and keeps the encounter and page chosen. */}
-    <div key="capture" hidden={Boolean(detail || creating)}>
-      <DocumentCapture facilityId={facilityId} permissions={permissions} onExtract={extract} />
+  return <>
+    {/* While a document is checked and sent for reading, this line is all the page shows. Mounted throughout (empty
+        otherwise), so the line is announced when it appears. */}
+    <div key="reading" id="ocr-reading" role="status" className="hid-ehr-dept hid-ehr-dept-migrate-starting">
+      {reading && <p>{READING_THE_PAGE}</p>}
     </div>
-    <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
-      {quick && <div className="hid-ehr-dept-migrate-quick">
-        <h3>{jobName(quick.job)}</h3>
-        <p className="hid-ehr-dept-muted">{`Last read ${dateText(quick.readAt)}`}</p>
-        <DeptFacts facts={jobFacts(quick.job)} />
-        <div className="hid-ehr-dept-form-actions"><EhrButton onClick={() => openRecord(quick.job)}>Open full record</EhrButton></div>
-      </div>}
-    </EhrDrawer>
-  </DeptPage>
+    {!reading && <DeptPage key="page" title={<ViewTitle>{title}</ViewTitle>} onBack={detail || creating ? backToList : undefined}
+      primaryAction={!detail && !creating && canWrite ? <EhrButton onClick={() => startNew()}>Create record</EhrButton> : undefined}>
+      {status}
+      {detail ? <Fragment key="detail">{jobRecord(detail)}</Fragment> : creating ? <Fragment key="new">{newJob()}</Fragment> : <Fragment key="list">{jobList()}</Fragment>}
+      <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
+        {quick && <div className="hid-ehr-dept-migrate-quick">
+          <h3>{jobName(quick.job)}</h3>
+          <p className="hid-ehr-dept-muted">{`Last read ${dateText(quick.readAt)}`}</p>
+          <DeptFacts facts={jobFacts(quick.job)} />
+          <div className="hid-ehr-dept-form-actions"><EhrButton onClick={() => openRecord(quick.job)}>Open full record</EhrButton></div>
+        </div>}
+      </EhrDrawer>
+    </DeptPage>}
+    {/* Mounted in every view and hidden outside the list (and while a document is sent for reading), so going back to
+        the list does not read the patient, the consent, the encounters and the documents again (each read is audited),
+        and keeps the encounter and page chosen. */}
+    <div key="capture" hidden={Boolean(detail || creating || reading)}>
+      <div className="hid-ehr-dept">
+        <DocumentCapture facilityId={facilityId} permissions={permissions} onExtract={extract} />
+      </div>
+    </div>
+  </>
 
   // Render functions, not components: a component declared here would be a new type on each render, and remount.
   function jobList() {
@@ -568,9 +623,9 @@ export function Migrate() {
           emptyMessage={rows.length ? 'Change your search.' : 'Find a job by its document ID, or create one when you have the appropriate permission.'}
           columns={[
             { id: 'record', header: 'Record', cell: row => <DeptRecordName id={`ocr-row-${row.job.id}`} name={jobName(row.job)}
-              reference={`Job ${shortId(row.job.id)}`} onOpen={() => openRecord(row.job)} /> },
+              onOpen={() => openRecord(row.job)} /> },
             { id: 'patient', header: 'Patient / context', cell: row => <div className="hid-ehr-dept-record-name">
-              <span>{row.job.patientId ? `Patient ${shortId(row.job.patientId)}` : 'Patient not given'}</span>
+              <span>{patientWords(row.job)}</span>
               <span className="hid-ehr-dept-reference">{`${row.job.provider} · version ${row.job.version ?? 'unknown'}`}</span></div> },
             { id: 'status', header: 'Status', cell: row => <EhrBadge tone={statusTone(row.job.status)}>{jobStatusWords(row.job.status)}</EhrBadge> },
             { id: 'read', header: 'Last read', cell: row => dateText(row.readAt) },
@@ -625,7 +680,7 @@ export function Migrate() {
     </DeptSection>
   }
 
-  /** What OCR read from the document, its newest extraction, shown as it is: checking it is a step of its own. */
+  /** What OCR read from the document, its newest extraction, shown as it is: Check and save follows it on the page. */
   function readOut(extraction: OcrExtraction, shown: OcrJob) {
     // A paper reading shows its items; a payload that says it is one but is not whole shows only the text and says the
     // items must be entered by hand, never its parts as loose fields; any other payload shows its named fields.
@@ -654,23 +709,64 @@ export function Migrate() {
     </DeptSection>
   }
 
+  /**
+   * A job's record, as one page in the order the work goes: its progress (and Retry job when the reading failed); what
+   * was read; Check and save, on the page once the reading is ready to check; Confirm the patient, on the page once it
+   * is checked; then the review and publication history. The record's facts, Refresh status, Reject reading and the
+   * extractions wait under Details, closed.
+   */
   function jobRecord(shown: OcrJob) {
-    const available: ActionId[] = [
-      ...(canRetryJob && permissions.includes('ocr.job.write') ? ['retry' as const] : []),
-      ...(shown.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions ? ['validate' as const, 'reject' as const] : []),
-      ...(shown.status === 'validated' && !shown.patientConfirmation && permissions.includes('ocr.patient.confirm') ? ['confirm' as const] : []),
-    ]
-    const selected = action && available.includes(action) ? action : null
-    const formFor = (id: ActionId) => id === 'retry'
-      ? <form key={`retry-${shown.id}-${shown.version}`} className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Retry job" onSubmit={event => void retry(event)}>
-        <EhrField label={<>Retry reason<span aria-hidden="true"> *</span></>} controlId="ocr-retry-reason" error={problemText(problem, 'ocr-retry-reason')}>
-          <EhrTextarea name="reason" minLength={8} maxLength={500} required />
-        </EhrField>
-        <FormRefusal error={retryError} />
-        <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-retry-submit" type="submit" busy={busy} disabled={!shown.version}>{busy ? 'Saving…' : 'Retry job'}</EhrButton></div>
-      </form>
-      : id === 'confirm'
-        ? <ConfirmForm key={`confirm-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} onChanged={async message => {
+    const canRetry = canRetryJob && permissions.includes('ocr.job.write')
+    const canReview = shown.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions !== null
+    const canConfirm = shown.status === 'validated' && !shown.patientConfirmation && permissions.includes('ocr.patient.confirm')
+    const retrying = action === 'retry' && canRetry
+    // Reject reading is a review of its own, and shares the check's fields: while it is open, the check waits.
+    const rejecting = action === 'reject' && canReview
+    const toggle = (id: ActionId) => { setProblem(null); setAction(action === id ? null : id) }
+    const stopped = pollStop?.jobId === shown.id ? pollStop.reason : null
+    const progress = !jobInProgress(shown.status) ? ''
+      : stopped === 'slow' ? STILL_READING
+      : stopped === 'failed' ? 'The document’s progress couldn’t be checked just now. Choose Check now to try again.'
+      : pollLong === shown.id ? READING_LONG
+      : 'The document is being read. This page updates by itself every few seconds.'
+    const read = extractions ? newestExtraction(extractions) : undefined
+    return <>
+      {/* The status is said once, in Progress, so the record doesn't open with the same badge twice. */}
+      <DeptContextLine items={[patientWords(shown), `Version ${shown.version ?? 'unknown'} · ${shown.provider}`]} />
+      {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+      {error === STAFF_PAPER_NEEDS_ACCESS && <PatientAccessLinks permissions={permissions} />}
+      <DeptSection title="Progress" headingId="ocr-job-title">
+        <p className="hid-ehr-dept-migrate-state"><EhrBadge tone={statusTone(shown.status)}>{jobStatusWords(shown.status)}</EhrBadge></p>
+        {progress && <p id="ocr-progress" className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">{progress}</p>}
+        {/* One read of the job, then reading it by itself again; focus then goes to the record, as Check now is gone. */}
+        {progress && stopped && <div className="hid-ehr-dept-form-actions">
+          <EhrButton id="ocr-check-now" variant="secondary" busy={busy} aria-describedby="ocr-progress"
+            onClick={() => { if (!busy) void lookup(currentDocument).then(result => focus(result?.job ? ['ocr-job-title', 'ocr-find-submit'] : 'ocr-find-submit', true)) }}>
+            Check now</EhrButton>
+        </div>}
+        {shown.status === 'failed' && !canRetryJob && <p className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">The extraction attempt limit has been reached. This job cannot be retried.</p>}
+        {canRetry && <div className="hid-ehr-dept-form-actions">
+          <EhrButton id="ocr-action-retry" variant="secondary" aria-expanded={retrying} onClick={() => toggle('retry')}>Retry job</EhrButton>
+        </div>}
+        {retrying && <form key={`retry-${shown.id}-${shown.version}`} className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Retry job" onSubmit={event => void retry(event)}>
+          <EhrField label={<>Retry reason<span aria-hidden="true"> *</span></>} controlId="ocr-retry-reason" error={problemText(problem, 'ocr-retry-reason')}>
+            <EhrTextarea name="reason" minLength={8} maxLength={500} required />
+          </EhrField>
+          <FormRefusal error={retryError} />
+          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-retry-submit" type="submit" busy={busy} disabled={!shown.version}>{busy ? 'Saving…' : 'Retry job'}</EhrButton></div>
+        </form>}
+      </DeptSection>
+      {read && readOut(read, shown)}
+      {canReview && <DeptSection title="Check and save" headingId="ocr-check-title">
+        {rejecting
+          ? <p className="hid-ehr-dept-muted">You’re rejecting this reading. Open Details and close Reject reading to check and save it instead.</p>
+          : <ReviewForm key={`validate-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} extractions={extractions ?? []}
+            permissions={permissions} disposition="validated" onChanged={() =>
+              // The next step, confirming the source patient, is then on the page where the work continues.
+              afterStep(['ocr-confirm-title', 'ocr-job-title'], 'Review recorded.', true)} />}
+      </DeptSection>}
+      {canConfirm && <DeptSection title="Confirm the patient" headingId="ocr-confirm-title">
+        <ConfirmForm key={`confirm-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} onChanged={async message => {
           // An answer that the job was confirmed already is said only once the job has been read again.
           if (message) {
             const reloaded = await lookup(currentDocument)
@@ -679,65 +775,38 @@ export function Migrate() {
           }
           await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
         }} />
-        : <ReviewForm key={`${id}-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} extractions={extractions ?? []}
-          permissions={permissions} disposition={id === 'validate' ? 'validated' : 'rejected'} onChanged={disposition => {
-            if (disposition !== 'validated') return afterStep(['ocr-job-title'], 'Rejection recorded.')
-            // The next step, confirming the source patient, opens where the work continues.
-            setAction('confirm')
-            return afterStep(['ocr-confirm-title', 'ocr-job-title'], 'Review recorded.', true)
-          }} />
-    const stopped = pollStop?.jobId === shown.id ? pollStop.reason : null
-    const progress = !jobInProgress(shown.status) ? ''
-      : stopped === 'slow' ? STILL_READING
-      : stopped === 'failed' ? 'The document’s progress couldn’t be checked just now. Use Refresh status to try again.'
-      : pollLong === shown.id ? READING_LONG
-      : 'The document is being read. This page updates by itself every few seconds.'
-    const read = extractions ? newestExtraction(extractions) : undefined
-    return <>
-      <DeptContextLine status={jobStatusWords(shown.status)} tone={statusTone(shown.status)}
-        items={[shown.patientId ? `Patient ${shortId(shown.patientId)}` : 'Patient not given', `Version ${shown.version ?? 'unknown'} · ${shown.provider}`]} />
-      {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
-      {error === STAFF_PAPER_NEEDS_ACCESS && <PatientAccessLinks permissions={permissions} />}
-      <DeptRecordLayout
-        main={<>
-          <DeptSection title="Saved record" headingId="ocr-job-title">
-            <DeptFacts facts={jobFacts(shown)} />
-            {progress && <p id="ocr-progress" className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">{progress}</p>}
-            {/* One read of the job, then reading it by itself again; focus then goes to the record, as Check now is gone. */}
-            {progress && stopped === 'slow' && <div className="hid-ehr-dept-form-actions">
-              <EhrButton id="ocr-check-now" variant="secondary" busy={busy} aria-describedby="ocr-progress"
-                onClick={() => { if (!busy) void lookup(currentDocument).then(result => focus(result?.job ? ['ocr-job-title', 'ocr-find-submit'] : 'ocr-find-submit', true)) }}>
-                Check now</EhrButton>
-            </div>}
-            {shown.status === 'failed' && !canRetryJob && <p className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">The extraction attempt limit has been reached. This job cannot be retried.</p>}
-          </DeptSection>
-          {read && readOut(read, shown)}
-        </>}
-        aside={<DeptActions empty="No further actions for your permission and this record state.">
-          {[
-            <EhrButton key="refresh" id="ocr-refresh-submit" variant="secondary" busy={busy}
-              onClick={() => void lookup(currentDocument).then(result => focus(result ? ['ocr-refresh-submit', 'ocr-find-submit'] : 'ocr-find-submit', true))}>
-              Refresh status</EhrButton>,
-            ...available.map(id => <EhrButton key={id} id={id === 'confirm' ? 'ocr-confirm-title' : `ocr-action-${id}`} variant="secondary"
-              aria-expanded={selected === id} onClick={() => { setProblem(null); setAction(selected === id ? null : id) }}>{ACTION_LABELS[id]}</EhrButton>),
-            selected ? <div key={`form-${selected}`} className="hid-ehr-dept-migrate-action">{formFor(selected)}</div> : null,
-          ]}
-        </DeptActions>} />
-      <DeptHistory title="Extractions" empty={extractions === null ? 'Loading extractions…' : 'No extraction is available yet.'}
-        entries={(extractions ?? []).map(extraction => ({
-          key: extraction.id,
-          summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
-          // An extraction with no text, or a paper reading whose items were picked out, shows its summary line alone.
-          detail: hasText(extraction.rawText) && !showsItems(parsePaperReading(extraction.structuredPayload))
-            // It scrolls, so it takes focus: a keyboard can then scroll it.
-            ? <pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
-            : undefined,
-        }))} />
+      </DeptSection>}
       {validations && validations.length > 0 && <DeptSection title="Review and publication history" headingId="ocr-history-title">
         <ul className="hid-ehr-dept-rows">{validations.map(validation => <ReviewPublication key={validation.id} actorId={actorId} facilityId={facilityId!}
           validation={validation} confirmationId={shown.patientConfirmation?.id} permissions={permissions}
           publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</ul>
       </DeptSection>}
+      {/* Closed until opened, and closed again for another job: what the record holds beyond the work. */}
+      <details key={`details-${shown.id}`} id="ocr-details" className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-migrate-more">
+        <summary>Details</summary>
+        <DeptFacts facts={jobFacts(shown)} />
+        <div className="hid-ehr-dept-form-actions">
+          <EhrButton id="ocr-refresh-submit" variant="secondary" busy={busy}
+            onClick={() => void lookup(currentDocument).then(result => focus(result ? ['ocr-refresh-submit', 'ocr-find-submit'] : 'ocr-find-submit', true))}>
+            Refresh status</EhrButton>
+          {canReview && <EhrButton id="ocr-action-reject" variant="secondary" aria-expanded={rejecting} onClick={() => toggle('reject')}>Reject reading</EhrButton>}
+        </div>
+        {rejecting && <div className="hid-ehr-dept-migrate-action">
+          <ReviewForm key={`reject-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} extractions={extractions ?? []}
+            permissions={permissions} disposition="rejected" onChanged={() => afterStep(['ocr-job-title'], 'Rejection recorded.')} />
+        </div>}
+        <DeptHistory title="Extractions" empty={extractions === null ? 'Loading extractions…' : 'No extraction is available yet.'}
+          entries={(extractions ?? []).map(extraction => ({
+            key: extraction.id,
+            summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
+            // An extraction with no text shows its summary line alone, never an empty block.
+            // An extraction with no text, or a paper reading whose items were picked out, shows its summary line alone.
+            detail: hasText(extraction.rawText) && !showsItems(parsePaperReading(extraction.structuredPayload))
+              // It scrolls, so it takes focus: a keyboard can then scroll it.
+              ? <pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
+              : undefined,
+          }))} />
+      </details>
     </>
   }
 }
