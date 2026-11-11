@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { EhrBadge, EhrCard, EhrDataTable, EhrPageHeading, EhrStatCard, type EhrBadgeTone } from '@hid/ui/ehr'
+import { servedHere } from '../../productSites'
 import { useStaff } from '../../staff/App'
 import { useBluePages } from './pageContext'
 import { pageHrefOf } from './pageHref'
@@ -55,7 +56,7 @@ export function framePartsOf(product: Product): typeof FRAME_PARTS {
 export function WhatsLeft() {
   const { state } = useStaff()
   const product = productHere(state.status === 'ready' ? state.session : null)
-  const pages = useBluePages().filter(page => pageListedInProduct(product, page))
+  const pages = useBluePages().filter(page => pageListedInProduct(product, page, servedHere))
   const counts = (['live', 'partial', 'sample'] as const).map(status => ({ status, count: pages.filter(page => page.status === status).length }))
   return <>
     <EhrPageHeading title="What’s left" description={product === 'ehr'

@@ -8,7 +8,8 @@ import type { EhrBluePage } from '../../../ehr-blue/frame/types'
  * Two things a page entry can now say to the frame, run with test pages on the frame's own registry:
  *  - `everyProduct`: the page is listed and opens on every staff product's site (EHR, Lab, Pharmacy, Outreach, Migrate),
  *    and on a host that is no product's, wherever the frame guesses the product from the permissions. Its own `visible`
- *    still decides who sees it. A page without it stays where its product puts it.
+ *    still decides who sees it. A page without it stays where its product puts it. A product site that sends the page's
+ *    address to another site (productSites.ts servedHere) does not list it, so no link leaves the site.
  *  - `listedChanges`: a page whose `listed` reads something besides the session says when that changed, and the sidebar
  *    leaves it out, or lists it again, at once, with no new session.
  * Every account and facility here is fictional, and the hosts are only set as the page's address: nothing is sent there.
@@ -48,7 +49,7 @@ function TestPage({ title }: { title: string }) {
 }
 
 function everyProductPage(extra: Partial<EhrBluePage> = {}): EhrBluePage {
-  return { path: 'ocr/quality', group: 'Network & Services', label: 'Reading figures', status: 'partial',
+  return { path: 'figures', group: 'Network & Services', label: 'Reading figures', status: 'partial',
     element: <TestPage title="Reading figures" />, everyProduct: true,
     visible: session => manages(session.actor.facility?.permissions), ...extra }
 }
@@ -94,9 +95,22 @@ const HOSTS = [
   [null, 'Outreach'],
 ] as const
 
+/** The hosts that serve an address under Migrate's own /provider/ocr: the rest send it to Migrate's site. */
+const SERVE_OCR = HOSTS.filter(([host]) => host === null || /^(ehr|migrate)\./.test(host))
+const SEND_OCR_ON = HOSTS.filter(([host]) => host !== null && /^(lab|pharmacy|outreach)\./.test(host))
+
 describe('a page on every product\'s site', () => {
   it.each(HOSTS)('on %s (%s), is listed and opens at its address', async (host, product) => {
     withFramePages(() => [everyProductPage(), EHR_ONLY])
+    await openAt(host, '/provider/figures', MANAGER)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reading figures' })).toBeDefined()
+    expect(where()).toBe('/provider/figures')
+    await waitFor(() => expect(document.title).toBe(`Reading figures · Health ID ${product}`))
+    expect(menuLink('Reading figures')?.getAttribute('href')).toBe('/provider/figures')
+  })
+
+  it.each(SERVE_OCR)('under Migrate\'s /provider/ocr, on %s (%s), is listed and opens at its address', async (host, product) => {
+    withFramePages(() => [everyProductPage({ path: 'ocr/quality' }), EHR_ONLY])
     await openAt(host, '/provider/ocr/quality', MANAGER)
     expect(await screen.findByRole('heading', { level: 1, name: 'Reading figures' })).toBeDefined()
     expect(where()).toBe('/provider/ocr/quality')
@@ -104,9 +118,18 @@ describe('a page on every product\'s site', () => {
     expect(menuLink('Reading figures')?.getAttribute('href')).toBe('/provider/ocr/quality')
   })
 
+  it.each(SEND_OCR_ON)('under Migrate\'s /provider/ocr, on %s (%s), is not listed, as that site sends the address to Migrate', async host => {
+    withFramePages(() => [everyProductPage({ path: 'ocr/quality' }), EHR_ONLY])
+    await openAt(host, '/provider/ocr/quality', MANAGER)
+    // No sidebar link that would leave the site; the frame itself opens the product's Home in its place.
+    await waitFor(() => expect(where()).not.toBe('/provider/ocr/quality'))
+    expect(screen.queryByRole('heading', { level: 1, name: 'Reading figures' })).toBeNull()
+    expect(menuLink('Reading figures')).toBeNull()
+  })
+
   it.each(HOSTS)('on %s (%s), is still left out where its own visible() turns it down', async host => {
     withFramePages(() => [everyProductPage()])
-    await openAt(host, '/provider/ocr/quality', ['outreach.registration.read'])
+    await openAt(host, '/provider/figures', ['outreach.registration.read'])
     // The frame's own words where `visible` turns a page down, never the page.
     expect(await screen.findByText(/^Reading figures is part of the Health ID demo only/)).toBeDefined()
     expect(screen.queryByRole('textbox', { name: 'Note' })).toBeNull()
@@ -141,7 +164,7 @@ describe('a page whose listed() says when it changes', () => {
   it('leaves the sidebar when listed() turns false, and comes back when it turns true, with no new session', async () => {
     const store = servedStore(true)
     withFramePages(() => [everyProductPage({ listed: () => store.get(), listedChanges: store.subscribe })])
-    const sent = await openAt('ehr.healthidentitydirectory.com', '/provider/ocr/quality', MANAGER)
+    const sent = await openAt('ehr.healthidentitydirectory.com', '/provider/figures', MANAGER)
     await screen.findByRole('heading', { level: 1, name: 'Reading figures' })
     expect(menuLink('Reading figures')).not.toBeNull()
     fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'kept' } })
@@ -163,28 +186,41 @@ describe('a page whose listed() says when it changes', () => {
 
   it('leaves the rest of the sidebar as it was, and draws nothing again for a call that changes nothing', async () => {
     const store = servedStore(true)
-    const listed = vi.fn(() => store.get())
-    withFramePages(() => [everyProductPage({ listed, listedChanges: store.subscribe })])
-    await openAt('ehr.healthidentitydirectory.com', '/provider/ocr/quality', MANAGER)
+    // The frame reads a page's label each time it draws the page's sidebar entry and tab title: a count of draws.
+    let labelReads = 0
+    const page = everyProductPage({ listed: () => store.get(), listedChanges: store.subscribe })
+    Object.defineProperty(page, 'label', { get: () => { labelReads += 1; return 'Reading figures' } })
+    withFramePages(() => [page])
+    await openAt('ehr.healthidentitydirectory.com', '/provider/figures', MANAGER)
     await screen.findByRole('heading', { level: 1, name: 'Reading figures' })
     const before = menuNames()
     const staffLink = menuLink('Staff & access')
     expect(staffLink).not.toBeNull()
+    const drawn = labelReads
 
     act(() => store.ping())
+    // Nothing changed, so the frame drew nothing again.
+    expect(labelReads).toBe(drawn)
     expect(menuNames()).toEqual(before)
+    expect(menuLink('Staff & access')).toBe(staffLink)
 
     act(() => store.set(false))
     await waitFor(() => expect(menuLink('Reading figures')).toBeNull())
     expect(menuNames()).toEqual(before.filter(name => name !== 'Reading figures'))
     // The other entries are the same links, not drawn afresh.
     expect(menuLink('Staff & access')).toBe(staffLink)
+
+    // The count does see a draw: listing the page again reads its label.
+    const hidden = labelReads
+    act(() => store.set(true))
+    await waitFor(() => expect(menuLink('Reading figures')).not.toBeNull())
+    expect(labelReads).toBeGreaterThan(hidden)
   })
 
   it('stops listening when the frame closes', async () => {
     const store = servedStore(true)
     withFramePages(() => [everyProductPage({ listed: () => store.get(), listedChanges: store.subscribe })])
-    const sent = await openAt('ehr.healthidentitydirectory.com', '/provider/ocr/quality', MANAGER)
+    const sent = await openAt('ehr.healthidentitydirectory.com', '/provider/figures', MANAGER)
     await screen.findByRole('heading', { level: 1, name: 'Reading figures' })
     expect(store.listening()).toBeGreaterThan(0)
     expect(sent.length).toBeGreaterThan(0)
@@ -196,7 +232,7 @@ describe('a page whose listed() says when it changes', () => {
   it('without listedChanges, keeps today\'s behaviour: listed() is asked again only with the session', async () => {
     const store = servedStore(true)
     withFramePages(() => [everyProductPage({ listed: () => store.get() })])
-    await openAt('ehr.healthidentitydirectory.com', '/provider/ocr/quality', MANAGER)
+    await openAt('ehr.healthidentitydirectory.com', '/provider/figures', MANAGER)
     await screen.findByRole('heading', { level: 1, name: 'Reading figures' })
     act(() => store.set(false))
     expect(menuLink('Reading figures')).not.toBeNull()
