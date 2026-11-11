@@ -264,7 +264,7 @@ describe('Consultation record', () => {
     for (const left of ['Cancelled medicine', 'Draft medicine', 'Finished medicine']) expect(papers.discharge).not.toContain(left)
     // A held medicine is listed apart, never as one to continue.
     expect(papers.discharge).toMatch(/Medicines on hold.*not to be taken unless a clinician says so.*Held medicine/)
-    expect(papers.discharge.indexOf('Held medicine')).toBeGreaterThan(papers.discharge.indexOf('Medicines on hold'))
+    expect(papers.discharge?.indexOf('Held medicine')).toBeGreaterThan(papers.discharge?.indexOf('Medicines on hold') ?? -1)
   })
 
   it('leaves the clinician’s name blank when the person printing did not write the consultation note', async () => {
