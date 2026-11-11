@@ -5,9 +5,11 @@ import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
 import { labPaperLines, type LabPaperLine } from '../../parts/clinicalPrint'
 import { ErrorBox } from '../../parts/Notices'
 import { releasedResultsRefusal } from './words'
+import { Flag, type FlagLevel } from '../../../../kasuwa/parts'
+import { formatWhen } from '../../parts/format'
 
 function dateText(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : 'Not available'
+  return formatWhen(value) || 'Not available'
 }
 
 /** Today's RevisionList (staff/labRevisions.tsx) in the design's list style, with its words. */
@@ -21,7 +23,7 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
             <EhrBadge tone={revision.releaseStatus === 'released' ? 'positive' : 'caution'}>{revision.releaseStatus.replaceAll('_', ' ')}</EhrBadge>
             {revision.verificationStatus === 'entered_in_error' ? <EhrBadge tone="critical">Entered in error</EhrBadge> : null}
           </div>
-          <p>{revisionValue(revision)} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
+          <p>{revisionValue(revision)}<FlagAfter flag={revision.abnormalFlag} /></p>
           <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
           {revision.releasedAt ? <p>Released {dateText(revision.releasedAt)}</p> : null}
           {revision.referenceRange ? <p>Reference range: {revision.referenceRange}</p> : null}
@@ -72,7 +74,7 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, on
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       {released ? released.results.length === 0 ? <p>No result released yet.</p> : (
         <>
-          <p>{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
+          <p>{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by Lab {dateText(released.acceptedAt)}</p>
           {released.results.map((result, index) => (
             <div key={result.id} className="hid-ehr-clinical-orders-result">
               <div className="hid-ehr-clinical-orders-row">
@@ -88,4 +90,17 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, on
       ) : null}
     </EhrCard>
   )
+}
+
+/*
+ * Dates are in the app's own format ("11 Nov 2026, 02:31": formatWhen), never the browser's ("11/11/2026, 2:31:20 AM").
+ * A flag worth calling out is drawn as the emergency view draws it: its word, an icon and its tone, never colour alone.
+ */
+const FLAGS: Partial<Record<LabResultRevision['abnormalFlag'], FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal', critical_candidate: 'critical' }
+
+/** After the value: the flag called out, "Normal" in words, and nothing for a flag the lab did not set. */
+function FlagAfter({ flag }: { flag: LabResultRevision['abnormalFlag'] }) {
+  const level = FLAGS[flag]
+  if (level) return <> <Flag level={level} /></>
+  return flag === 'normal' ? <> · Normal</> : null
 }

@@ -1137,7 +1137,7 @@ describe('A lab request’s page', () => {
     const view = screen.getByRole('button', { name: 'View released results' })
     fireEvent.click(view)
     expect(view.getAttribute('aria-expanded')).toBe('true')
-    expect(await screen.findByText('9.8 g/dL · low')).toBeTruthy()
+    expect(await screen.findByText('9.8 g/dL')).toBeTruthy()
     expect(screen.getByText('Reference range: 12.0-15.5')).toBeTruthy()
     expect(screen.getByText('Result 1')).toBeTruthy()
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
@@ -2576,5 +2576,53 @@ describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent an
     await changeStatus('Activate and send to Lab', 'Results needed today', 'Lab request activated and accepted by Lab.')
     expect(await screen.findByText(SENT_TO_LAB)).toBeTruthy()
     expect(sendButtons('Send to Lab')).toHaveLength(0)
+  })
+})
+
+describe('Visit rehearsal (11 Nov): a released result in the app’s date format, its flag called out', () => {
+  const revision = (abnormalFlag: string, overrides: Record<string, unknown> = {}) => ({
+    version: 1, resultType: 'text', numericValue: null, textValue: 'Plasmodium falciparum seen (++)', unit: null, referenceRange: null, abnormalFlag,
+    entrySource: 'manual', verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-11-11T12:31:20.000Z',
+    releasedAt: '2026-11-11T12:45:05.000Z', correctionReason: null, ...overrides,
+  })
+  const released = (...revisions: ReturnType<typeof revision>[]) => ({
+    workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-11-11T12:20:00.000Z',
+    test: { codeSystem: 'LOINC', code: '32700-7', name: 'Malaria parasites, blood film' },
+    results: revisions.map((item, index) => ({ id: `r${index}`, executionId: `x${index}`, status: 'released', verificationStatus: 'verified',
+      currentVersion: 1, currentReleasedVersion: 1, revisions: [item] })),
+  })
+
+  async function view(answer: ReturnType<typeof released>) {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3, testDisplay: 'Malaria parasites, blood film' })])
+    api.labReleasedResultsForOrder.mockResolvedValue(answer)
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    return screen.findByRole('heading', { name: 'Released results' }).then(() => waitFor(() => expect(screen.getAllByText(/^Result \d$/).length).toBeGreaterThan(0)))
+  }
+
+  it('says when it was entered, released and accepted in the app’s own format: day, month in words, 24-hour, no seconds', async () => {
+    await view(released(revision('abnormal')))
+    const text = document.body.textContent ?? ''
+    expect(text).toMatch(/Entered 11 Nov 2026, \d{2}:31/)
+    expect(text).toMatch(/Released 11 Nov 2026, \d{2}:45/)
+    expect(text).toMatch(/accepted by Lab 11 Nov 2026, \d{2}:20/)
+    expect(text).not.toMatch(/11\/11\/2026|\d:\d{2}:\d{2}|\b(AM|PM)\b/)
+  })
+
+  it.each([['abnormal', 'Abnormal'], ['high', 'High'], ['low', 'Low'], ['critical_candidate', 'Critical']])(
+    'calls out the %s flag in a word with its icon, not in lower-case text', async (flag, word) => {
+      await view(released(revision(flag)))
+      const value = screen.getByText('Plasmodium falciparum seen (++)')
+      const called = within(value).getByText(word)
+      expect(called.querySelector('svg')).toBeTruthy()
+      expect(value.textContent).not.toMatch(/·\s*(abnormal|high|low|critical candidate)\b/)
+    })
+
+  it('says a normal result is normal in words, and says nothing of a flag the lab did not set', async () => {
+    await view(released(revision('normal', { textValue: 'No parasites seen' }), revision('unknown', { textValue: 'Film unreadable' })))
+    expect(screen.getByText('No parasites seen · Normal')).toBeTruthy()
+    expect(screen.getByText('Film unreadable').textContent).toBe('Film unreadable')
+    expect(document.body.textContent).not.toMatch(/\bunknown\b/)
   })
 })
