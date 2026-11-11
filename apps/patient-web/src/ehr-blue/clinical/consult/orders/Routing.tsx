@@ -277,7 +277,7 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnA
       <DestinationFields context={context} kind={kind} priority={priority} value={choice} onChange={setChoice}
         reloadAttestation={reload} errors={errors} queryRef={queryRef} attestedRef={attestedRef} />
       {warnAboutAllergies && ack.warning ? <AllergyWarningPanel idPrefix="rx-send" headingLevel={3} warning={ack.warning} ticked={ack.ticked}
-        reason={ack.reason} errors={ack.errors} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+        reason={ack.reason} errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       <div className="hid-ehr-clinical-form-footer">
         <EhrButton variant="secondary" onClick={onCancel}>Cancel</EhrButton>

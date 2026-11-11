@@ -1,9 +1,9 @@
 import { EhrField, EhrTextarea } from '@hid/ui/ehr'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { ACK_REASON_LIMIT } from '../../../staff/allergies'
 import {
   ACK_REASON_HINT, ACK_REASON_LABEL, ALLERGY_WARNING_CHANGED, allergyWarningTitle, askThePatient, isSevereLine, tickLabel,
-  type AcknowledgementErrors, type ShownAllergyWarning,
+  type AcknowledgementErrors, type AcknowledgementFocus, type ShownAllergyWarning,
 } from './allergyWarning'
 import { ClinicalIcon } from './icons'
 
@@ -14,23 +14,27 @@ import { ClinicalIcon } from './icons'
  * ticks the box and says why it is safe to go ahead; each has its own error.
  *
  * Controlled: the page holds the warning, the tick and the reason (useAllergyAcknowledgement), and checks them before
- * it sends. Not a live region (the page's error box is the one alert): focus moves to the title when the panel appears
- * or its warning changes, and a short status line says what to do.
+ * it sends. Not a live region, and it has none (Ola, W8): the page's error box is the one announcement. Focus moves to
+ * the title when the panel appears or its warning changes, and to the tick or the reason when the page refused it
+ * (`focus`), so its own error is read out.
  */
-export function AllergyWarningPanel({ idPrefix, warning, ticked, reason, errors, onTickedChange, onReasonChange, headingLevel = 3 }: {
+export function AllergyWarningPanel({ idPrefix, warning, ticked, reason, errors, focus = null, onTickedChange, onReasonChange, headingLevel = 3 }: {
   /** Makes the panel's ids unique on the page (two panels never share one). */
   idPrefix: string
   warning: ShownAllergyWarning
   ticked: boolean
   reason: string
   errors: AcknowledgementErrors
+  /** The answer refused last (useAllergyAcknowledgement's `focus`): it takes focus each time it is asked. */
+  focus?: AcknowledgementFocus | null
   onTickedChange: (ticked: boolean) => void
   onReasonChange: (reason: string) => void
   /** The title's level under the page's headings. */
   headingLevel?: 2 | 3 | 4
 }) {
   const titleRef = useRef<HTMLHeadingElement>(null)
-  const [announcement, setAnnouncement] = useState('')
+  const tickRef = useRef<HTMLInputElement>(null)
+  const reasonRef = useRef<HTMLTextAreaElement>(null)
   const lines = warning.lines.length
   const medicine = warning.medicine.display.trim()
   const severe = warning.lines.some(isSevereLine)
@@ -38,17 +42,18 @@ export function AllergyWarningPanel({ idPrefix, warning, ticked, reason, errors,
     title: `${idPrefix}-allergy-warning-title`, changed: `${idPrefix}-allergy-warning-changed`, tick: `${idPrefix}-allergy-tick`,
     tickError: `${idPrefix}-allergy-tick-error`, reason: `${idPrefix}-allergy-reason`,
   }
-  // What the status line says (the panel itself is not a live region): how many lines, and what to do.
-  const said = `${warning.changedSinceShown ? 'The allergy warning changed. ' : ''}${lines === 1 ? 'One allergy' : `${lines} allergies`} `
-    + `may match ${medicine}. Tick the box${warning.changedSinceShown ? ' again' : ''} and give your reason to go ahead.`
 
-  // A new warning (another token) is a new thing to read: the title takes focus and the status line says what to do.
-  // The same warning shown again (a check that answers the same token) leaves focus where the prescriber is typing, so
-  // only the token and "changed" are watched, not the sentence.
+  // A new warning (another token) is a new thing to read: the title takes focus. The same warning shown again (a check
+  // that answers the same token) leaves focus where the prescriber is typing, so only the token and "changed" are
+  // watched, not the sentence.
   useLayoutEffect(() => {
     titleRef.current?.focus()
-    setAnnouncement(said)
   }, [warning.warningToken, warning.changedSinceShown])
+
+  // An answer refused takes focus, so its own error (aria-describedby) is read, not only the page's general one.
+  useLayoutEffect(() => {
+    if (focus) (focus.target === 'tick' ? tickRef : reasonRef).current?.focus()
+  }, [focus])
 
   const Title = headingLevel === 2 ? 'h2' : headingLevel === 4 ? 'h4' : 'h3'
   return (
@@ -64,16 +69,15 @@ export function AllergyWarningPanel({ idPrefix, warning, ticked, reason, errors,
       </ul>
       <p>{askThePatient(lines)}</p>
       <label className="hid-ehr-clinical-orders-attest">
-        <input id={ids.tick} type="checkbox" checked={ticked}
+        <input ref={tickRef} id={ids.tick} type="checkbox" checked={ticked}
           aria-invalid={errors.tick ? true : undefined} aria-describedby={errors.tick ? ids.tickError : undefined}
           onChange={event => onTickedChange(event.target.checked)} />
         <span>{tickLabel(medicine, lines)}</span>
       </label>
       {errors.tick ? <p id={ids.tickError} className="hid-ehr-clinical-field-error">{errors.tick}</p> : null}
       <EhrField label={ACK_REASON_LABEL} hint={ACK_REASON_HINT} error={errors.reason} controlId={ids.reason}>
-        <EhrTextarea rows={2} value={reason} maxLength={ACK_REASON_LIMIT} onChange={event => onReasonChange(event.target.value)} />
+        <EhrTextarea ref={reasonRef} rows={2} value={reason} maxLength={ACK_REASON_LIMIT} onChange={event => onReasonChange(event.target.value)} />
       </EhrField>
-      <p role="status" className="hid-ehr-sr-only">{announcement}</p>
     </section>
   )
 }

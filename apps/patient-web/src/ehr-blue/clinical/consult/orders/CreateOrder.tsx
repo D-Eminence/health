@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { orderRoutesApi, staffApi, type SavedRecord } from '../../../../staff/api'
 import type { AllergyAcknowledgement } from '../../../../staff/allergies'
-import { AllergyLines, useAllergies } from '../../patients/AllergiesCard'
+import { AllergyLines, useAllergies, type AllergiesState } from '../../patients/AllergiesCard'
 import { refusalSentences, refusalText, refusedFields } from '../../../../staff/fieldProblem'
 import { sendRefusal } from '../../../../staff/orderRoutes'
 import { choiceProblem, NO_DESTINATION, savedNotSent, type DestinationChoice, type RouteContext } from '../../../../staff/routes/OrderRoutes'
@@ -134,15 +134,15 @@ function usePatientCheck(chart: Chart) {
 }
 
 /**
- * The patient's allergies on a new prescription (the patient is named in the banner above), in the same lines as triage
- * and a new consultation (AllergyLines, Ola's W4): the allergies clinicians recorded, in the EHR's order (the most
- * serious first), and what the patient reported in their Health ID portal, each labelled (hid-system 0124); on a backend
- * before 0124, what the patient reported only. Nothing while it loads; a read that failed, was refused or is not served
- * says so, never "none". Where the EHR checks the medicine (0124), it says too that no warning does not mean the
- * medicine is safe (Ola, wording #10): on this form only, warning or not.
+ * The patient's allergies where a prescription may go ahead (a new prescription, and a draft or held one's page; the
+ * patient is named in the banner above), in the same lines as triage and a new consultation (AllergyLines, Ola's W4):
+ * the allergies clinicians recorded, in the EHR's order (the most serious first), and what the patient reported in their
+ * Health ID portal, each labelled (hid-system 0124); on a backend before 0124, what the patient reported only. Nothing
+ * while it loads; a read that failed, was refused or is not served says so, never "none". Where the EHR checks the
+ * medicine (0124), it says too that no warning does not mean the medicine is safe (Ola, wording #10), warning or not.
+ * `allergies` is useAllergies(chart).state, read again by the page whenever it shows an allergy warning.
  */
-function RecordedAllergies({ chart }: { chart: Chart }) {
-  const { state: allergies } = useAllergies(chart)
+export function RecordedAllergies({ allergies }: { allergies: AllergiesState }) {
   return (
     <>
       <AllergyLines allergies={allergies} lineClassName="hid-ehr-clinical-note" />
@@ -181,6 +181,9 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   // The allergy warning (hid-system 0124): shown for one medicine, with its token; the prescriber ticks and gives a
   // reason to go ahead. Any edit of the medicine drops it at once (the warning, the tick, the reason and the token).
   const ack = useAllergyAcknowledgement()
+  // The patient's allergies above the form, read again whenever a warning is shown (from the check or the EHR's 409):
+  // an allergy recorded since the form opened is then in the lines too, never only in the warning.
+  const allergies = useAllergies(chart)
   // The medicine in the field now: an answer (the check, or the save's 409) for one since changed is never shown.
   const medicineNow = useRef<WarnedMedicine>({ display: '' })
   const stillIn = (medicine: WarnedMedicine) => () => sameMedicine(medicineNow.current, medicine)
@@ -249,6 +252,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
         const warning = check ? warningFromCheck(check, medicine) : null
         if (warning) {
           ack.show(warning)
+          allergies.reload()
           return { formError: ALLERGY_GO_AHEAD_ERROR }
         }
       }
@@ -268,7 +272,11 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       // The EHR's own check refused the save (a draft is checked too): the warning it gives, "changed" when this save
       // carried a reason for an older one.
       const refusal = readAllergyRefusal(caught, acknowledgement !== null)
-      if (refusal) return { formError: await warnAfterRefusal({ ack, refusal, medicine, chart, current }) }
+      if (refusal) {
+        const formError = await warnAfterRefusal({ ack, refusal, medicine, chart, current })
+        allergies.reload()
+        return { formError }
+      }
       if (acknowledgement && acknowledgementRefused(caught)) {
         ack.refuseReason()
         return { formError: ACK_REFUSED_ERROR }
@@ -280,13 +288,13 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   return (
     <EhrCard>
       <OrderContext />
-      <RecordedAllergies chart={chart} />
+      <RecordedAllergies allergies={allergies.state} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
         confirm={confirmSave} onFieldChange={medicineEdited}>
         <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
         {ack.warning ? <AllergyWarningPanel idPrefix="rx" headingLevel={2} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
-          errors={ack.errors} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+          errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       </RecordForm>
       {sheet}
     </EhrCard>

@@ -199,22 +199,39 @@ describe('warning lines and the title', () => {
     expect(new Set(lines.map(line => line.key)).size).toBe(lines.length)
   })
 
-  it('calls a recorded severe line, or a serious reaction, severe; never a patient-reported line', () => {
-    const [severe, moderate, unknown, patient] = warningLines(check([SEVERE_HERE, MODERATE_ELSEWHERE, GROUPED_UNKNOWN, PATIENT_TERM]).matches)
+  it('calls severe, or not known, or a serious reaction severe (Ola, wording #0), from the check and from a 409 alone alike', () => {
+    const [severe, unknown, moderate, patient] = warningLines(check([SEVERE_HERE, MODERATE_ELSEWHERE, GROUPED_UNKNOWN, PATIENT_TERM]).matches)
     expect(isSevereLine(severe!)).toBe(true)
+    // Not known: a reaction nobody graded may have been severe.
+    expect(isSevereLine(unknown!)).toBe(true)
     expect(isSevereLine(moderate!)).toBe(false)
-    expect(isSevereLine(unknown!)).toBe(false)
     expect(isSevereLine(patient!)).toBe(false)
     const [swelling] = warningLines(check([{ ...MODERATE_ELSEWHERE, reaction: 'Swelling of the lips' }]).matches)
     expect(isSevereLine(swelling!)).toBe(true)
-    // From a 409 alone, the EHR's own head says so.
-    const [fromMessage, fromPatient] = messageLines([SEVERE_HERE.message, 'Patient-reported allergy: “Penicillin allergy: SEVERE (rash)”. …'])
-    expect(isSevereLine(fromMessage!)).toBe(true)
+    // The patient's own words name a serious reaction.
+    const PATIENT_ANAPHYLAXIS = { ...PATIENT_TERM, substance: 'Penicillin (anaphylaxis)',
+      message: 'Patient-reported allergy: “Penicillin (anaphylaxis)”. This medicine is one of the penicillins, the same group. Entered by the patient in their Health ID portal, not checked by a clinician.' }
+    const MILD_ANAPHYLAXIS = { ...MILD_NSAID, reaction: 'Anaphylaxis',
+      message: 'Aspirin allergy: mild (Anaphylaxis). This medicine is one of the NSAIDs, the anti-inflammatory painkillers, the same group. Recorded by a clinician at another facility on 5 Jan 2026.' }
+    const MODERATE_NONE = { ...MODERATE_ELSEWHERE, reaction: null,
+      message: 'Cefalexin allergy: moderate. This medicine is a penicillin. Recorded by a clinician at another facility on 11 Feb 2026.' }
+    // Every line gets the same answer from the check's fields as from its sentence alone (a 409 whose check failed).
+    const cases: Array<[{ message: string }, boolean]> = [
+      [SEVERE_HERE, true], [GROUPED_UNKNOWN, true], [MILD_ANAPHYLAXIS, true], [PATIENT_ANAPHYLAXIS, true],
+      [MODERATE_ELSEWHERE, false], [MILD_NSAID, false], [MODERATE_NONE, false], [PATIENT_TERM, false], [SULFA_TERM, false],
+    ]
+    for (const [match, severeLine] of cases) {
+      expect([isSevereLine(warningLines(check([match]).matches)[0]!), isSevereLine(messageLines([match.message])[0]!)], match.message)
+        .toEqual([severeLine, severeLine])
+    }
+    // The patient's words are read inside their quotes only: "SEVERE" written by the patient is not the EHR's severity.
+    const [fromPatient] = messageLines(['Patient-reported allergy: “Penicillin allergy: SEVERE (rash)”. …'])
     expect(isSevereLine(fromPatient!)).toBe(false)
   })
 
   it('titles the warning for its medicine', () => {
     expect(allergyWarningTitle(warningFromCheck(check([SEVERE_HERE]), MEDICINE)!)).toBe('Severe allergy warning for Amoxicillin 500 mg capsules')
+    expect(allergyWarningTitle(warningFromCheck(check([GROUPED_UNKNOWN]), MEDICINE)!)).toBe('Severe allergy warning for Amoxicillin 500 mg capsules')
     expect(allergyWarningTitle(warningFromCheck(check([MILD_NSAID, PATIENT_TERM]), { display: ' Ibuprofen 400 mg ' })!)).toBe('Allergy warning for Ibuprofen 400 mg')
   })
 })
@@ -294,8 +311,10 @@ describe('the allergy warning panel', () => {
     expect(within(panel).queryByText('Severe')).toBeNull()
     expect(within(panel).queryByText(/Reaction:/)).toBeNull()
     expect(within(panel).getByText('Ask the patient about these allergies before you go ahead.')).toBeTruthy()
+    // No announcement of its own (Ola, W8): the page's error box is the one, and focus is on the title.
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('3 allergies may match Amoxicillin 500 mg capsules. Tick the box and give your reason to go ahead.')
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(document.querySelector('[aria-live]')).toBeNull()
     expect(panel.className).toContain('hid-ehr-clinical-allergy-warning-severe')
   })
 
@@ -335,8 +354,7 @@ describe('the allergy warning panel', () => {
     rerender(<AllergyWarningPanel {...props} warning={shown([MILD_NSAID, SEVERE_HERE], TOKEN_B, true)} />)
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Severe allergy warning for Amoxicillin 500 mg capsules' }))
     expect(screen.getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
-    expect(screen.getByRole('status').textContent)
-      .toBe('The allergy warning changed. 2 allergies may match Amoxicillin 500 mg capsules. Tick the box again and give your reason to go ahead.')
+    expect(screen.queryByRole('status')).toBeNull()
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
   })
 })
@@ -351,11 +369,12 @@ describe('useAllergyAcknowledgement with the panel', () => {
       <div>
         <label>Medication<input value={medicine} onChange={event => { setMedicine(event.target.value); ack.medicineChanged({ display: event.target.value }) }} /></label>
         <button type="button" onClick={() => ack.show(shown([SEVERE_HERE]))}>Warn A</button>
+        <button type="button" onClick={() => ack.show(shown([SEVERE_HERE], 'c'.repeat(64)))}>Warn A again</button>
         <button type="button" onClick={() => ack.show(shown([SEVERE_HERE, PATIENT_TERM], TOKEN_B, true))}>Warn B</button>
         <button type="button" onClick={() => ack.refuseReason()}>Refuse reason</button>
         <button type="button" onClick={() => { sent.push(ack.acknowledgement()) }}>Save</button>
         {ack.warning ? <AllergyWarningPanel idPrefix="rx" warning={ack.warning} ticked={ack.ticked} reason={ack.reason} errors={ack.errors}
-          onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+          focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       </div>
     )
   }
@@ -384,7 +403,7 @@ describe('useAllergyAcknowledgement with the panel', () => {
     expect(sent[2]).toEqual({ reason: 'Tolerated amoxicillin last year; will monitor', warningToken: TOKEN_A })
   })
 
-  it('unticks the box for a new warning (another token), keeps it for the same one, and keeps the reason', () => {
+  it('unticks the box for a new warning (another token), keeps it for the same one, and empties the reason when the warning changed', () => {
     sent = []
     render(<Form />)
     fireEvent.click(screen.getByRole('button', { name: 'Warn A' }))
@@ -392,15 +411,47 @@ describe('useAllergyAcknowledgement with the panel', () => {
     fireEvent.change(reason(), { target: { value: 'Tolerated amoxicillin last year; will monitor' } })
     fireEvent.click(screen.getByRole('button', { name: 'Warn A' }))
     expect(tick().checked).toBe(true)
+    // Another token for the same warning: unticked, the reason kept.
+    fireEvent.click(screen.getByRole('button', { name: 'Warn A again' }))
+    expect(tick().checked).toBe(false)
+    expect((reason() as HTMLTextAreaElement).value).toBe('Tolerated amoxicillin last year; will monitor')
+    fireEvent.click(tick())
+    // The EHR says the warning changed since it was shown: unticked, and the reason, written for the old one, emptied.
     fireEvent.click(screen.getByRole('button', { name: 'Warn B' }))
     expect(tick().checked).toBe(false)
     expect(screen.getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
-    expect((reason() as HTMLTextAreaElement).value).toBe('Tolerated amoxicillin last year; will monitor')
+    expect((reason() as HTMLTextAreaElement).value).toBe('')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(sent).toEqual([null])
     fireEvent.click(tick())
+    fireEvent.change(reason(), { target: { value: 'Checked the new allergy with the patient; will monitor' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(sent[1]).toEqual({ reason: 'Tolerated amoxicillin last year; will monitor', warningToken: TOKEN_B })
+    expect(sent[1]).toEqual({ reason: 'Checked the new allergy with the patient; will monitor', warningToken: TOKEN_B })
+  })
+
+  it('moves focus to the first answer refused, the tick before the reason, each time, and to the reason the EHR refused', () => {
+    sent = []
+    render(<Form />)
+    fireEvent.click(screen.getByRole('button', { name: 'Warn A' }))
+    const save = screen.getByRole('button', { name: 'Save' })
+    save.focus()
+    fireEvent.click(save)
+    expect(document.activeElement).toBe(tick())
+    expect(tick().getAttribute('aria-describedby')).toBeTruthy()
+    fireEvent.click(tick())
+    fireEvent.change(reason(), { target: { value: '1234567890' } })
+    save.focus()
+    fireEvent.click(save)
+    expect(document.activeElement).toBe(reason())
+    expect(reason().getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)!.textContent)).toContain(ACK_REASON_NO_WORD)
+    // Refused again in the same way: focus is moved again.
+    save.focus()
+    fireEvent.click(save)
+    expect(document.activeElement).toBe(reason())
+    expect(sent).toEqual([null, null, null])
+    save.focus()
+    fireEvent.click(screen.getByRole('button', { name: 'Refuse reason' }))
+    expect(document.activeElement).toBe(reason())
   })
 
   it('drops the warning, the tick, the reason and the token as soon as the medicine is edited', () => {

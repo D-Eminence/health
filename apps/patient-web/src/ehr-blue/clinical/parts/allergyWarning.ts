@@ -64,7 +64,7 @@ export interface AcknowledgementErrors {
 // Words
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** The panel's title for a warning with a severe line (see isSevereLine), else today's title. */
+/** The panel's title for a warning with a severe line (see isSevereLine: severe, not known, or a serious reaction), else today's title. */
 export const SEVERE_ALLERGY_WARNING = 'Severe allergy warning'
 export const ALLERGY_WARNING = 'Allergy warning'
 /** The form's error while a warning waits for the tick and the reason (the panel says which is missing). */
@@ -169,16 +169,27 @@ export function messageLines(messages: readonly string[]): AllergyWarningLine[] 
   return messages.map((message, index) => ({ key: `message:${index}`, message, match: null }))
 }
 
+/** The EHR's head of a recorded line: "Penicillin allergy: SEVERE (Anaphylaxis)." (the severity's word, then the reaction). */
+const RECORDED_HEAD = / allergy: (SEVERE|moderate|mild|severity not recorded)(?: \((.*?)\))?\.(?: |$)/
+/** The EHR's head of a patient-reported line: "Patient-reported allergy: “Penicillin (anaphylaxis)”." */
+const PATIENT_HEAD = /^Patient-reported allergy: “(.*?)”\.(?: |$)/
+
 /**
- * A line the title calls severe: a recorded allergy with severity severe, or a serious reaction (SERIOUS_REACTION).
- * A patient-reported line never is (it has no severity). A 409 line alone has only the sentence: it is severe when the
- * EHR's own head says "… allergy: SEVERE".
+ * A line the title calls severe (Ola, wording #0): a recorded allergy whose severity is severe or not known (a reaction
+ * nobody graded may have been severe), or whose reaction is serious (SERIOUS_REACTION); a patient-reported term that
+ * names a serious reaction ("Penicillin (anaphylaxis)"). A 409 line alone has only the EHR's sentence: its head says the
+ * same things ("… allergy: SEVERE (Anaphylaxis).", "… allergy: severity not recorded.", "Patient-reported allergy: “…”."),
+ * so a line gets the same title from the check or from the 409.
  */
 export function isSevereLine(line: AllergyWarningLine): boolean {
   if (line.match) {
-    return line.match.source === 'recorded' && (line.match.severity === 'severe' || SERIOUS_REACTION.test(line.match.reaction ?? ''))
+    if (line.match.source === 'patient_reported') return SERIOUS_REACTION.test(line.match.substance)
+    return line.match.severity === 'severe' || line.match.severity === 'unknown' || SERIOUS_REACTION.test(line.match.reaction ?? '')
   }
-  return !line.message.startsWith('Patient-reported allergy:') && / allergy: SEVERE(?: \(|\.)/.test(line.message)
+  if (line.message.startsWith('Patient-reported allergy:')) return SERIOUS_REACTION.test(PATIENT_HEAD.exec(line.message)?.[1] ?? '')
+  const head = RECORDED_HEAD.exec(line.message)
+  if (!head) return false
+  return head[1] === 'SEVERE' || head[1] === 'severity not recorded' || SERIOUS_REACTION.test(head[2] ?? '')
 }
 
 /** "Severe allergy warning for Amoxicillin 500 mg capsules" or "Allergy warning for …". */
@@ -284,23 +295,33 @@ export function checkAcknowledgement({ ticked, reason: raw, lines }: { ticked: b
 // State
 // ---------------------------------------------------------------------------------------------------------------------
 
+/** Which of the prescriber's answers takes focus next (the first one refused), and how many times it was asked. */
+export interface AcknowledgementFocus {
+  readonly target: 'tick' | 'reason'
+  readonly seq: number
+}
+
 /**
  * The warning a form shows and what the prescriber answered. The tick belongs to the token it was given for: a new
- * warning (another token) is unticked however it arrives. The reason is kept when a warning is replaced (a "changed"
- * 409), and dropped with the warning when the medicine changes.
+ * warning (another token) is unticked however it arrives. The reason is dropped with the warning when the medicine
+ * changes, and when the EHR says the warning changed since it was shown (a "changed" 409): it was written for another
+ * warning (Ola, bypass #3). An answer refused, at the form or by the EHR, takes focus (`focus`), so its own error is read.
  */
 export function useAllergyAcknowledgement() {
   const [warning, setWarning] = useState<ShownAllergyWarning | null>(null)
   const [tickedFor, setTickedFor] = useState<string | null>(null)
   const [reason, setReasonText] = useState('')
   const [errors, setErrors] = useState<AcknowledgementErrors>({})
+  const [focus, setFocus] = useState<AcknowledgementFocus | null>(null)
   const ticked = warning !== null && tickedFor === warning.warningToken
+  const focusOn = (target: AcknowledgementFocus['target']) => setFocus(current => ({ target, seq: (current?.seq ?? 0) + 1 }))
 
   const clear = () => {
     setWarning(null)
     setTickedFor(null)
     setReasonText('')
     setErrors({})
+    setFocus(null)
   }
 
   return {
@@ -308,10 +329,13 @@ export function useAllergyAcknowledgement() {
     ticked,
     reason,
     errors,
-    /** Show a warning (from the check or a 409); a new token leaves the box unticked. */
+    /** The answer to move focus to, for the panel (AllergyWarningPanel's `focus`). */
+    focus,
+    /** Show a warning (from the check or a 409); a new token leaves the box unticked, and a changed warning empties the reason. */
     show(next: ShownAllergyWarning) {
       setWarning(next)
       setErrors({})
+      if (next.changedSinceShown) setReasonText('')
     },
     /** Drop the warning, the tick, the reason and the token (the medicine changed, or the save went through). */
     clear,
@@ -327,19 +351,24 @@ export function useAllergyAcknowledgement() {
       setReasonText(value)
       setErrors(({ reason: _reason, ...rest }) => rest)
     },
-    /** Marks the reason as refused by the EHR (400 on allergyAcknowledgement). */
+    /** Marks the reason as refused by the EHR (400 on allergyAcknowledgement), and moves focus to it. */
     refuseReason(message: string = ACK_NOT_ACCEPTED) {
       setErrors(current => ({ ...current, reason: message }))
+      focusOn('reason')
     },
     /**
-     * The acknowledgement to send for the warning shown, or null (nothing to send: the errors now say why). Call it only
-     * when a warning is shown; with none, there is nothing to acknowledge and it answers null.
+     * The acknowledgement to send for the warning shown, or null (nothing to send: the errors now say why, and focus
+     * moves to the first answer refused, the tick before the reason). Call it only when a warning is shown; with none,
+     * there is nothing to acknowledge and it answers null.
      */
     acknowledgement(): AllergyAcknowledgement | null {
       if (!warning) return null
       const checked = checkAcknowledgement({ ticked, reason, lines: warning.lines.length })
       setErrors(checked.errors)
-      if (checked.errors.tick || checked.errors.reason) return null
+      if (checked.errors.tick || checked.errors.reason) {
+        focusOn(checked.errors.tick ? 'tick' : 'reason')
+        return null
+      }
       return { reason: checked.reason, warningToken: warning.warningToken }
     },
   }

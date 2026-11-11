@@ -41,8 +41,8 @@ export function storedMedicine(record: ClinicalRecord): WarnedMedicine {
 /**
  * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED: the check is run again for the same medicine for each line's
  * severity, reaction and how it matched (the 409 has the sentences only), the warning is shown with the newest token,
- * and the box is unticked (the reason is kept). Answers the form's error: "changed" when the refused request carried an
- * acknowledgement, so the prescriber knows to read the warning again.
+ * and the box is unticked. Answers the form's error: "changed" when the refused request carried an acknowledgement, so
+ * the prescriber knows to read the warning again; the reason, written for the older warning, is then emptied too.
  *
  * `current` says whether the medicine is still the one that was sent (the prescriber may edit it on a new
  * prescription meanwhile): if not, nothing is shown.

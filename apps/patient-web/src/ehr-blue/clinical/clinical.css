@@ -1034,6 +1034,11 @@
   margin-top: 12px;
 }
 
+/* The patient's allergies above a draft or held prescription's actions (OrderPage.tsx OrderAllergies). */
+.hid-ehr .hid-ehr-clinical-orders-allergies > :first-child {
+  margin-top: 0;
+}
+
 .hid-ehr .hid-ehr-clinical-orders-lead {
   margin: 16px 0 0;
 }
