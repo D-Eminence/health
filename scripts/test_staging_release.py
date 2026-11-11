@@ -170,7 +170,8 @@ class ErrorReportingConfigTests(unittest.TestCase):
             'VITE_HID_API_BASE_URL': 'https://ehr.healthidentitydirectory.com',
             'VITE_HID_APP_ORIGIN': 'https://ehr.healthidentitydirectory.com',
             'VITE_HID_TURNSTILE_SITE_KEY': config['turnstile_site_key'],
-            'VITE_HID_SUPPORT_CHAT_ENABLED': 'false',
+            # The EHR is in SUPPORT_CHAT_APPS (staff support chat, #61/#200).
+            'VITE_HID_SUPPORT_CHAT_ENABLED': 'true',
             'VITE_HID_PATIENT_CHAT_ENABLED': 'false',
             'VITE_HID_SUPPORT_CONTACT': 'mailto:support@healthidentitydirectory.com',
             'VITE_HID_BUILD': '0123456789ab',
