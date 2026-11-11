@@ -30,6 +30,8 @@ describe('deployed chat contracts', () => {
       expect(() => assertEndpointAllowed(app, 'ehr.patientChat')).toThrow()
     }
     for (const app of ['public-web', 'patient-web'] as const) assertEndpointAllowed(app, 'support.chat')
-    for (const app of ['staff-web', 'admin-web'] as const) expect(() => assertEndpointAllowed(app, 'support.chat')).toThrow()
+    // On purpose: the blue EHR's Help asks the support assistant, behind its privacy guard. The admin console does not.
+    assertEndpointAllowed('staff-web', 'support.chat')
+    expect(() => assertEndpointAllowed('admin-web', 'support.chat')).toThrow()
   })
 })

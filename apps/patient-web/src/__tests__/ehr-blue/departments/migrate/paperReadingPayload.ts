@@ -45,8 +45,102 @@ export function paperReading(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** A paper of `count` fictional medicines, all clear, over pages 1 and 2 in reading order. */
+export function medicinesPaper(count: number) {
+  const payload = paperReading()
+  const template = payload.items[0]!
+  payload.items = Array.from({ length: count }, (_, at) => ({
+    ...template, id: `it-${(0xb00 + at).toString(16).padStart(16, '0')}`, page: at < count / 2 ? 1 : 2, prescription: null,
+    lineIds: [`p${at < count / 2 ? 1 : 2}-l1`], asWritten: `Testamol ${at + 1} 10mg od`, plain: `Testamol ${at + 1}`,
+    fields: { ...template.fields, name: `Testamol ${at + 1}`, strength: '10 mg', frequency: 'once a day', duration: null },
+  })) as typeof payload.items
+  return payload
+}
+
 /** A reading whose items were not picked out, for each reason. */
 export function unreadPaper(status: string) {
   const payload = paperReading()
   return { ...payload, items: [], reading: { ...payload.reading, status, itemCount: 0 } }
+}
+
+/** The flagReasons codes the worker writes (FLAG_REASONS in its contract), in the order it writes them. */
+export const FLAG_REASONS = ['low_confidence', 'handwriting', 'many_dropped', 'ai_unsure', 'possible_missed_item', 'ai_declined'] as const
+
+/**
+ * A handwritten page of six medicine lines of which one item was picked out, as the worker writes it: the page is
+ * flagged for its handwriting, a dropped suggestion and lines no item cites.
+ */
+export function handwrittenPage() {
+  const lines = [1, 2, 3, 4, 5, 6].map(n => ({ id: `p1-l${n}`, text: `line ${n}`, box, confidence: n === 2 ? 0.81 : 0.42, handwritten: true }))
+  const item = { ...base('it-00000000000000a3', 1, 2), ...careful('The dose and how often were hard to read.', 'handwritten'), kind: 'medicine',
+    asWritten: 'Ceftriaxone ? IV', plain: 'Possibly ceftriaxone IV; dose and frequency unreadable',
+    fields: { name: 'Ceftriaxone', strength: null, form: null, route: 'into a vein', frequency: null, duration: null, status: 'unknown' } }
+  const payload = paperReading()
+  return {
+    ...payload,
+    pages: [{ page: 1, flagged: true, flagReasons: ['handwriting', 'many_dropped', 'possible_missed_item'], lines }],
+    identity: { nameAsWritten: null, dateOfBirthAsWritten: null, folderNumberAsWritten: null, sexAsWritten: null, lineIds: [], box: null },
+    items: [item],
+    reading: { ...payload.reading, rereadModel: 'second', rereadPages: [1], droppedUngrounded: 1, itemCount: 1 },
+  }
+}
+
+/** The fixture's pages with the given pages flagged for the given reasons. */
+export function flagged(flags: Record<number, readonly string[]>, overrides: Record<string, unknown> = {}) {
+  const payload = paperReading(overrides)
+  return { ...payload, pages: payload.pages.map(page => {
+    const reasons = flags[page.page] ?? []
+    return { ...page, flagged: reasons.length > 0, flagReasons: [...reasons] }
+  }) }
+}
+
+/**
+ * The live case the owner sent: a handwritten page with one medicine read, five medicine lines and four note lines the
+ * reader marked as unreadable ('[unreadable]', some as clear and some to check, as the reader may write them), no name,
+ * date of birth or folder number, and the page flagged for its handwriting.
+ */
+export function unreadablePage() {
+  const payload = handwrittenPage()
+  const unreadable = (kind: 'medicine' | 'note', at: number, clear: boolean) => ({
+    ...base(`it-${((kind === 'medicine' ? 0xc00 : 0xd00) + at).toString(16).padStart(16, '0')}`, 1, at + 1),
+    ...(clear ? {} : careful('This line could not be read.')), kind, asWritten: at === 2 ? ' [Unreadable]. ' : '[unreadable]',
+    plain: kind === 'medicine' ? 'A medicine that could not be read' : 'A note that could not be read',
+    fields: kind === 'medicine' ? { name: null, strength: null, form: null, route: null, frequency: null, duration: null, status: 'unknown' } : { text: null },
+  })
+  const items = [
+    ...payload.items,
+    ...[0, 1, 2, 3, 4].map(at => unreadable('medicine', at, at % 2 === 0)),
+    ...[0, 1, 2, 3].map(at => unreadable('note', at, at % 2 === 1)),
+  ]
+  return { ...payload, items, reading: { ...payload.reading, itemCount: items.length } }
+}
+
+/**
+ * A hard handwritten page as the reader writes it, with its marks for what it is unsure of: "word?" unsure, "(or X?)"
+ * another possible reading, "[dose?]" and "[?]" parts with no readable letters, "(crossed out: …)", "Am… (Ampiclox?)" a
+ * cut-off word and the medicine it most likely is, and "(? on paper)" a question mark written on the paper.
+ */
+export function hardHandwrittenPage() {
+  const payload = handwrittenPage()
+  const medicine = (id: string, line: number, asWritten: string, plain: string, fields: Record<string, unknown>) => ({
+    ...base(id, 1, line), ...careful('The handwriting was hard to read.'), kind: 'medicine', asWritten, plain,
+    fields: { name: null, strength: null, form: null, route: null, frequency: null, duration: null, status: 'current', ...fields },
+  })
+  const note = (id: string, line: number, asWritten: string) => ({
+    ...base(id, 1, line), ...careful('The handwriting was hard to read.'), kind: 'note', asWritten, plain: '', fields: { text: asWritten },
+  })
+  return {
+    ...payload,
+    items: [
+      medicine('it-0000000000000901', 1, 'IV? Am… (Ampiclox?) 500mg? (or [dose?]) 8hrly?', '', {}),
+      medicine('it-0000000000000902', 2, 'IV? Gentamicin? 80mg? (crossed out: Ceftriaxone? 1g? (or Ceftriaxone?)) 12hrly?', 'Gentamicin?',
+        { name: 'Gentamicin?', strength: '80mg?', frequency: '12hrly?' }),
+      medicine('it-0000000000000903', 3, 'IV? (or po?) Omeprazole? (or Quinine?) 40mg? daily? (or 8hrly?)', '', {}),
+      medicine('it-0000000000000904', 4, '- Dc Gentamicin?', '', { status: 'stopped' }),
+      medicine('it-0000000000000905', 5, 'Paracetamol 1g [freq?] (? on paper)', '', {}),
+      note('it-0000000000000906', 6, 'Admit?'),
+      note('it-0000000000000907', 7, '21/8? [?] - Transfer to the ward'),
+    ],
+    reading: { ...payload.reading, itemCount: 7 },
+  }
 }

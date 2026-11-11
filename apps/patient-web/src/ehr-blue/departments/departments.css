@@ -331,6 +331,12 @@
   cursor: pointer;
 }
 
+.hid-ehr .hid-ehr-dept-history-line {
+  margin: 0;
+  color: var(--ehr-text);
+  font-weight: 500;
+}
+
 .hid-ehr .hid-ehr-dept-history summary:focus-visible {
   outline: 3px solid var(--ehr-brand);
   outline-offset: 3px;
@@ -799,16 +805,107 @@
   font-weight: 600;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-confidence {
-  display: grid;
-  justify-items: end;
-  gap: 4px;
-  max-width: 260px;
-  text-align: right;
+.hid-ehr .hid-ehr-dept-migrate-read-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+/* One line per item read: the words as written, then a small Check mark and Why? when it needs a check. */
+.hid-ehr .hid-ehr-dept-rows > li.hid-ehr-dept-migrate-line {
+  justify-content: flex-start;
+  gap: 8px 12px;
+  padding: 8px 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-mark {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why > summary,
+.hid-ehr .hid-ehr-dept-migrate-details > summary {
+  cursor: pointer;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why[open] > span {
+  display: block;
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-details > p {
+  margin: 4px 0 0;
+}
+
+/* A word the reader is unsure of: dotted underline and a little muted, never a "?". */
+.hid-ehr .hid-ehr-dept-migrate-unsure {
+  color: var(--ehr-muted);
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* A part that couldn't be read ("dose"), or a "?" written on the paper: a small grey pill. */
+.hid-ehr .hid-ehr-dept-migrate-gap {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ehr-line);
+  color: var(--ehr-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  vertical-align: baseline;
+}
+
+/* Words crossed out on the paper. */
+.hid-ehr .hid-ehr-dept-migrate-crossed {
+  color: var(--ehr-muted);
+  font-weight: 400;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-review {
   align-items: flex-start;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-item > [role="group"] {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head > strong {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-publication,
@@ -837,6 +934,39 @@
 
 .hid-ehr .hid-ehr-dept-migrate-upload h3 {
   margin: 0;
+}
+
+/* All the page says while a document is sent for reading; the region stays mounted, empty, the rest of the time. */
+.hid-ehr .hid-ehr-dept-migrate-starting > p {
+  margin: 24px 0;
+  color: var(--ehr-text);
+  font-size: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-state {
+  margin: 0;
+}
+
+/* Details, at the end of a record: closed until opened, its extractions without a card of their own. */
+.hid-ehr .hid-ehr-dept-migrate-more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin: -12px 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more[open] > summary {
+  margin-bottom: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more > .hid-ehr-dept-history-card {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-quick {

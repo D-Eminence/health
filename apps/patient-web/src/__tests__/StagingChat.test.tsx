@@ -172,6 +172,9 @@ it.each([
   [409, 'CHAT_SOURCES_CHANGED', 'Your records changed. Please ask your question again.'],
   [429, 'PATIENT_CHAT_RATE_LIMITED', 'Please wait before asking another question.'],
   [503, 'PATIENT_CHAT_DISABLED', 'Record chat is not available.'],
+  [503, 'PATIENT_CHAT_UNAVAILABLE', 'Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.'],
+  [503, 'UPSTREAM_UNAVAILABLE', 'Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.'],
+  [500, 'SOMETHING_ELSE', 'Record chat is unavailable. Please try later.'],
   [0, 'REQUEST_TIMEOUT', 'The reply took too long. Please try later.'],
 ])('shows safe patient error %s without retrying', async (status, code, message) => {
   const chat = vi.fn().mockRejectedValue(new HidApiError(status, 'Private provider detail', { code }))
