@@ -7,7 +7,7 @@ import { ENCOUNTER_STATUS_UPDATED, RELOAD_FAILED, REVISION_RECORDED } from '../.
 import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
-import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -223,6 +223,45 @@ describe('Consultation record', () => {
     expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes')
     expect(api.noteRevisions).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-1')
+  })
+
+  it('prints a discharge summary and the visit’s prescription from what the page read', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read', 'ehr.lab-request.read']
+    records.prescriptions = [
+      { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', createdBy: 'staff-1', status: 'active',
+        medicationDisplay: 'Artemether-lumefantrine', doseQuantity: '4', doseUnit: 'tablets', routeCode: 'oral', frequency: 'Twice a day', instructions: 'With food',
+        startsOn: '2026-10-30', endsOn: '2026-11-01' },
+      { id: 'rx-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:41:00.000Z', createdBy: 'staff-1', status: 'cancelled',
+        medicationDisplay: 'Cancelled medicine', frequency: 'Daily', instructions: '' },
+    ]
+    records['lab-requests'] = [{ id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }]
+    const papers: Record<string, string> = {}
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {
+      const paper = document.querySelector('[data-clinical-print]')
+      if (paper) papers[paper.getAttribute('data-clinical-print')!] = paper.textContent ?? ''
+    })
+    await openEncounter()
+    const printing = within(card('Print'))
+    fireEvent.click(await printing.findByRole('button', { name: 'Print prescription' }))
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    fireEvent.click(printing.getByRole('button', { name: 'Print discharge summary' }))
+    expect(printSpy).toHaveBeenCalledTimes(2)
+    for (const words of [FACILITY_NAME, PATIENT_HID, 'Artemether-lumefantrine 4 tablets', 'By mouth · Twice a day · for 3 days', 'With food', 'Demo Clinician']) {
+      expect(papers.prescription).toContain(words)
+    }
+    expect(papers.prescription).not.toContain('Cancelled medicine')
+    for (const words of ['Discharge summary', PATIENT_HID, 'Fever for two days', 'Malaria (fictional)', 'This note is a draft and has not been signed.',
+      'Cough for three days.', 'Malaria smear', 'Medicines on discharge', 'Artemether-lumefantrine', 'Follow-up', 'Demo Clinician']) {
+      expect(papers.discharge).toContain(words)
+    }
+    expect(papers.discharge).not.toContain('Cancelled medicine')
+  })
+
+  it('offers only the discharge summary when the visit has no prescription to print', async () => {
+    await openEncounter()
+    const printing = within(card('Print'))
+    expect(printing.getByRole('button', { name: 'Print discharge summary' })).toBeTruthy()
+    expect(printing.queryByRole('button', { name: 'Print prescription' })).toBeNull()
   })
 
   it('lists the connected hospital history, each with its status, linking records that have their own page by ids only', async () => {

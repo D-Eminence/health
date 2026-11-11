@@ -14,7 +14,8 @@ import type { KeyValue } from '../parts/KeyValueList'
 import { MoreActions } from '../parts/MoreActions'
 import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
-import { useWorkspaceHref } from '../parts/Workspace'
+import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { DischargeSummaryPaper, PrescriptionPaper, isPrintable, paperPatient, prescriberName, printableDrugs, usePaperPrint } from '../parts/clinicalPrint'
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
 import { vitalStatus } from '../triage/vitals'
@@ -230,6 +231,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const seen = !!note && !revisions.loading && !revisions.error && (revisions.items?.length ?? 0) > 0
   const lists: PageLists = { notes, diagnoses, vitals, prescriptions, labs, documents, revisions }
   const latestLists = useLatest(lists)
+  const { print, area: printArea } = usePaperPrint()
+  const { state: staffState } = useClinical()
+  const actor = staffState.status === 'ready' ? staffState.session.actor : null
 
   // After a change removes the control that had focus, focus goes to "Actions", or back to the More actions button when
   // its form was closed (never from a deferred effect).
@@ -483,6 +487,31 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     saved.push({ label: 'Note', value: onLaterPage ? NOTE_ON_LATER_PAGE : noteValue(notes, note, revisions, latest) })
   }
 
+  // Paper from what this page has read: the visit's prescriptions (first page, none cancelled or entered in error), and
+  // a discharge summary of the visit. Nothing is read again to print.
+  const toPrint = (prescriptions.first ?? []).filter(isPrintable)
+  const printedAt = () => formatWhen(new Date().toISOString())
+  const printPrescriptions = () => print('prescription', (
+    <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={printableDrugs(toPrint)}
+      prescriber={prescriberName(toPrint, actor)} printedAt={printedAt()} />
+  ))
+  const printDischarge = () => print('discharge', (
+    <DischargeSummaryPaper summary={{
+      facility: chart.facilityName,
+      patient: paperPatient(chart.facts),
+      visitType: encounterTypeLabel(encounter.encounterType),
+      startedAt: encounter.startedAt,
+      status: statusWords(encounter.status),
+      complaint: encounter.chiefComplaint ?? '',
+      diagnoses: reads.diagnoses ? currentDiagnoses : [],
+      note: reads.notes && note && latest?.content && recordStatus(note, 'unknown') !== 'entered_in_error' ? { content: latest.content, signed: recordStatus(note, 'unknown') === 'signed' || recordStatus(note, 'unknown') === 'amended' } : null,
+      tests: reads.labs ? (labs.first ?? []).filter(isPrintable).map(record => field(record, 'testDisplay') || 'Lab request') : [],
+      drugs: reads.prescriptions ? printableDrugs(prescriptions.first) : [],
+      clinician: actor?.displayName?.trim() || null,
+      printedAt: printedAt(),
+    }} />
+  ))
+
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit
   // quietly behind More actions.
   const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : 'secondary'
@@ -556,6 +585,14 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           ) : null}
         </EhrCard>
       </DetailGrid>
+      {!readsNone ? (
+        <EhrCard title="Print">
+          <ActionList>
+            {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
+            <EhrButton variant="secondary" onClick={printDischarge}>Print discharge summary</EhrButton>
+          </ActionList>
+        </EhrCard>
+      ) : null}
       {reads.notes ? (
         <NotesCard
           chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}
@@ -593,6 +630,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         onConfirm={() => { asking?.answer(true); setAsking(null) }}
         onCancel={() => { asking?.answer(false); setAsking(null) }}
       />
+      {printArea}
     </>
   )
 }
