@@ -1566,3 +1566,20 @@
 .hid-ehr .hid-ehr-dept-section > .hid-ehr-dept-form:first-child {
   margin-top: 16px;
 }
+
+/* A reading's way back to Patient documents, above its progress. */
+.hid-ehr .hid-ehr-dept-migrate-back {
+  margin: 0 0 8px;
+}
+
+/* Refresh list under Patient documents, with what it says while a document is being checked. */
+.hid-ehr .hid-ehr-dept-migrate-refresh {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-refresh > p {
+  flex: 1 1 200px;
+  margin: 0;
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
   CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
-  keptMedicines, keptText, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
+  keptItemsGo, keptMedicines, keptText, labFlag, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
 import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
@@ -267,7 +267,7 @@ describe('the review built from the choices', () => {
 
   it('past lab results: a changed result carries only the words typed; a flag written another way is not sent', () => {
     const payload = paperReading()
-    payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: 'L' } } : item) as typeof payload.items
+    payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: 'see note' } } : item) as typeof payload.items
     const flagged = parsePaperReading(payload) as PaperReading
     const kept = built(buildValidation({ ...choices('LAB'), reading: flagged }))
     expect(kept.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', value: '11.2', unit: 'g/dL', referenceRange: '12-16', ...HB_SOURCE }])
@@ -277,6 +277,17 @@ describe('the review built from the choices', () => {
     expect(changed.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', valueText: '11.4 g/dL', ...HB_SOURCE }])
     expect(changed.corrections).toEqual([{ itemId: HAEMOGLOBIN, kind: 'lab_result', page: 2, field: 'result', oldValue: '11.2 g/dL', newValue: '11.4 g/dL' }])
   })
+
+  // Rehearsal finding 5: the paper's L was dropped. Papers write L, LOW, H, HIGH, * and !; Lab takes its own words.
+  it.each([['L', 'low'], ['low', 'low'], ['LOW', 'low'], ['H', 'high'], ['High', 'high'], ['*', 'abnormal'], ['!', 'abnormal'], ['critical', 'critical']])(
+    'past lab results: the paper\'s flag %s is sent as Lab\'s %s', (written, sent) => {
+      const payload = paperReading()
+      payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: written } } : item) as typeof payload.items
+      const input = built(buildValidation({ ...choices('LAB'), reading: parsePaperReading(payload) as PaperReading }))
+      expect(() => assertAccepted(input)).not.toThrow()
+      expect((input.acceptedFields.observations as Array<{ abnormalFlag?: string }>)[0]!.abnormalFlag).toBe(sent)
+      expect(labFlag(written)).toBe(sent)
+    })
 
   it('past lab results: a changed test name is the test the result is filed under, and is listed as a correction', () => {
     const input = built(buildValidation(choices('LAB', { decisions: decided({
@@ -619,3 +630,28 @@ describe('a hard handwritten page: Keep saves the clean reading, with no reader\
     expect(input.rejectedFields.map(item => (item as { itemId: string }).itemId)).toContain('it-0000000000000908')
   })
 })
+
+/** Rehearsal finding 2: where the kept items of each kind go, said beside the save chosen. Fictional data only. */
+describe('where kept items go, by the save chosen', () => {
+  const items = reviewItems(parsePaperReading(paperReading()) as PaperReading)
+  const keepAll: Decisions = Object.fromEntries(items.map(item => [item.id, { choice: 'keep', text: '' }]))
+  const keepOnly = (...kinds: string[]): Decisions => Object.fromEntries(items.map(item => [item.id, { choice: kinds.includes(item.kind) ? 'keep' : 'remove', text: '' }]))
+
+  it('a clinical note says allergies, diagnoses and vitals are written into the note only, and where to record them', () => {
+    expect(keptItemsGo('EHR', items, keepAll)).toBe('Allergies, diagnoses and vitals are written into the note only. Record them in Allergies, Diagnoses or Vitals too.')
+    expect(keptItemsGo('EHR', items, keepOnly('allergy', 'diagnosis', 'medicine'))).toBe('Allergies and diagnoses are written into the note only. Record them in Allergies or Diagnoses too.')
+    expect(keptItemsGo('EHR', items, keepOnly('medicine', 'note'))).toBe('')
+  })
+
+  it('past medicines and past lab results say which kinds are saved nowhere but the document', () => {
+    expect(keptItemsGo('PHARMACY', items, keepAll)).toBe('Diagnoses, allergies, lab results, vitals and notes you keep are not saved anywhere but this document.')
+    expect(keptItemsGo('LAB', items, keepOnly('lab_result', 'allergy'))).toBe('Allergies you keep are not saved anywhere but this document.')
+    expect(keptItemsGo('PHARMACY', items, keepOnly('medicine'))).toBe('')
+  })
+
+  it('says nothing for the document only, nor for removed items', () => {
+    expect(keptItemsGo('DOCUMENT_ONLY', items, keepAll)).toBe('')
+    expect(keptItemsGo('EHR', items, keepOnly())).toBe('')
+  })
+})
+

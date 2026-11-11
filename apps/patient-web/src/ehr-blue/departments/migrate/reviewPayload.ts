@@ -65,6 +65,15 @@ export const MAX_MEDICINES = 50
 
 /** Lab's own flag words (lab-api dto/create-lab-import.dto.ts:12); a flag written any other way is not sent. */
 const LAB_FLAGS: ReadonlySet<string> = new Set(['normal', 'low', 'high', 'critical', 'abnormal', 'unknown'])
+/** A flag as papers write it, in Lab's words: L or LOW is low, H or HIGH is high, and * or ! marks a result abnormal. */
+const PAPER_FLAGS: Readonly<Record<string, string>> = { l: 'low', lo: 'low', low: 'low', h: 'high', hi: 'high', high: 'high', '*': 'abnormal', '!': 'abnormal' }
+
+/** The paper's flag in Lab's own words, or nothing when it is written some other way. */
+export function labFlag(value: unknown): string | undefined {
+  const flag = text(value).toLowerCase()
+  if (LAB_FLAGS.has(flag)) return flag
+  return Object.hasOwn(PAPER_FLAGS, flag) ? PAPER_FLAGS[flag] : undefined
+}
 
 const KIND_TITLES: ReadonlyArray<readonly [PaperItemKind, string]> = [
   ['medicine', 'Medicines'], ['diagnosis', 'Diagnoses'], ['allergy', 'Allergies'], ['lab_result', 'Lab results'],
@@ -152,6 +161,35 @@ export function offeredDomains(reading: PaperReading | null, canAttachNote: bool
   return SAVE_AS_ORDER.filter(domain => offered.has(domain))
 }
 
+const KIND_PLACES: Readonly<Partial<Record<PaperItemKind, string>>> = { allergy: 'Allergies', diagnosis: 'Diagnoses', vital: 'Vitals' }
+
+/** "Allergies, diagnoses and vitals": kinds as a list in words, the first with a capital. */
+function kindList(kinds: readonly PaperItemKind[]): string {
+  const titles = kinds.map(kind => KIND_TITLES.find(([each]) => each === kind)?.[1] ?? '').filter(Boolean).map((title, at) => at ? title.toLowerCase() : title)
+  return titles.length > 1 ? `${titles.slice(0, -1).join(', ')} and ${titles.at(-1)}` : titles[0] ?? ''
+}
+
+/**
+ * Where the kept items of each kind go for the save chosen, said beside the choice, only where it matters: a clinical
+ * note holds allergies, diagnoses and vitals as note text only; past medicines and past lab results save nothing of the
+ * other kinds but the document. Empty when every kept item goes where its kind belongs.
+ */
+export function keptItemsGo(saveAs: SaveAs, items: readonly PaperItem[], decisions: Decisions): string {
+  const kept = new Set(items.filter(item => !isUnreadable(item) && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').map(item => item.kind))
+  if (saveAs === 'EHR') {
+    const noteOnly = (['allergy', 'diagnosis', 'vital'] as const).filter(kind => kept.has(kind))
+    if (!noteOnly.length) return ''
+    const places = noteOnly.map(kind => KIND_PLACES[kind]!)
+    const where = places.length > 1 ? `${places.slice(0, -1).join(', ')} or ${places.at(-1)}` : places[0]
+    return `${kindList(noteOnly)} are written into the note only. Record them in ${where} too.`
+  }
+  const own = saveAs === 'PHARMACY' ? 'medicine' : saveAs === 'LAB' ? 'lab_result' : null
+  if (!own) return ''
+  const others = KIND_TITLES.map(([kind]) => kind).filter(kind => kind !== own && kept.has(kind))
+  if (!others.length) return ''
+  return `${kindList(others)} you keep are not saved anywhere but this document.`
+}
+
 /** How many medicines are kept or changed so far. */
 export function keptMedicines(items: readonly PaperItem[], decisions: Decisions): number {
   return items.filter(item => item.kind === 'medicine' && !isUnreadable(item) && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').length
@@ -235,10 +273,9 @@ function observation(entry: CheckedItem): Observation {
   // A changed result carries the test and result staff typed, so the reading's own value and unit can't contradict them.
   if (entry.lab?.changed) return optional<Observation>({ testName, valueText: entry.lab.result, ...source })
   const value = clean(f.value)
-  const flag = text(f.flag).toLowerCase()
   return optional<Observation>({
     testName, value: value || undefined, valueText: value ? undefined : itemHeadlineText(item),
-    unit: upTo(clean(f.unit), 80), referenceRange: upTo(clean(f.referenceRange), 240), abnormalFlag: LAB_FLAGS.has(flag) ? flag : undefined,
+    unit: upTo(clean(f.unit), 80), referenceRange: upTo(clean(f.referenceRange), 240), abnormalFlag: labFlag(f.flag),
     ...source,
   })
 }

@@ -74,6 +74,9 @@ export function beingChecked(item: DocumentRecord): boolean {
   return item.status !== 'initiated' && !sourceDeleted(item) && scanStatusLabel(item.scanStatus) === 'Being checked for viruses'
 }
 
+/** How often a list with a document still being checked for viruses is read again by itself. */
+export const SCAN_POLL_MS = 5_000
+
 const ACCESS_ENDED = 'Access to this patient has ended. Open the patient again through approved access.'
 
 /** What the file field says under it: today's words until a type is asked; then that the file is kept as chosen. */
@@ -92,11 +95,13 @@ function uploadedNotice(type: DocumentType | undefined): string {
 }
 
 /** "Patient documents": shown to a membership that reads documents, as the clinical record's Documents tab is. */
-export function DocumentCapture({ facilityId, permissions, onExtract }: {
+export function DocumentCapture({ facilityId, permissions, onExtract, paused = false }: {
   readonly facilityId: string
   readonly permissions: readonly string[]
-  /** A clean document handed to OCR: its ID and its patient's, kept in this page's memory only. */
-  readonly onExtract: (documentId: string, patientId: string) => void
+  /** A clean document handed to OCR: its ID and its patient's, kept in this page's memory only, and its file name. */
+  readonly onExtract: (documentId: string, patientId: string, fileName?: string) => void
+  /** True while the documents are hidden (a reading open): a list still being checked for viruses is not read again then. */
+  readonly paused?: boolean
 }) {
   const { state, activePatient } = useStaff()
   // Whether this page closed the patient because access had ended: said until another patient is opened.
@@ -113,13 +118,13 @@ export function DocumentCapture({ facilityId, permissions, onExtract }: {
       : activePatient.purpose === 'emergency'
         ? <DeptNotice tone="caution">Emergency access is read-only, so documents cannot be captured for this patient.</DeptNotice>
         : <PatientDocuments key={JSON.stringify([actorId, facilityId, activePatient.lookup.patient.patientId, activePatient.purpose, permissions])}
-          facilityId={facilityId} permissions={permissions} onExtract={onExtract} onAccessEnded={accessEnded} />}
+          facilityId={facilityId} permissions={permissions} onExtract={onExtract} paused={paused} onAccessEnded={accessEnded} />}
   </DeptSection>
 }
 
-function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }: {
-  readonly facilityId: string; readonly permissions: readonly string[]; readonly onExtract: (documentId: string, patientId: string) => void
-  readonly onAccessEnded: () => void
+function PatientDocuments({ facilityId, permissions, onExtract, paused, onAccessEnded }: {
+  readonly facilityId: string; readonly permissions: readonly string[]; readonly onExtract: (documentId: string, patientId: string, fileName?: string) => void
+  readonly paused: boolean; readonly onAccessEnded: () => void
 }) {
   const { activePatient, setActivePatient } = useStaff()
   const patientId = activePatient?.lookup.patient.patientId
@@ -214,7 +219,7 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
       </nav>}
     </div>}
     {selected && <EncounterDocuments key={selected.id} facilityId={facilityId} patientId={patientId} encounterId={selected.id}
-      canWrite={canWrite} canOcr={permissions.includes('ocr.job.read')} verify={verify} onExtract={onExtract} />}
+      canWrite={canWrite} canOcr={permissions.includes('ocr.job.read')} verify={verify} onExtract={onExtract} paused={paused} />}
   </>
 }
 
@@ -222,9 +227,10 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
  * One encounter's documents, and the upload into them. Since hid-system #59 only the account that created an upload
  * intent completes it, and the list shows every intent: one left `initiated` is never scanned.
  */
-function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canOcr, verify, onExtract }: {
+function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canOcr, verify, onExtract, paused }: {
   readonly facilityId: string; readonly patientId: string; readonly encounterId: string; readonly canWrite: boolean; readonly canOcr: boolean
-  readonly verify: () => Promise<void>; readonly onExtract: (documentId: string, patientId: string) => void
+  readonly verify: () => Promise<void>; readonly onExtract: (documentId: string, patientId: string, fileName?: string) => void
+  readonly paused: boolean
 }) {
   const [items, setItems] = useState<DocumentRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -243,15 +249,35 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
   // Once served, the type chosen (the host's one type, were it to offer only one) is sent; before that none, as today.
   const sentType: DocumentType | undefined = !served ? undefined : offered.includes(documentType) ? documentType : offered[0]
   const offersChoice = served && offered.length > 1
-  const load = useCallback(async () => {
-    setLoading(true); setError('')
+  // `quiet`: a read made by itself while a document is being checked for viruses, which shows no loading in between.
+  // Each read is counted, and only the newest one's answer is kept: a poll read answering after the read an upload made
+  // would otherwise put back a list without the document just uploaded.
+  const reads = useRef(0)
+  const load = useCallback(async (quiet = false) => {
+    const read = ++reads.current
+    if (!quiet) { setLoading(true); setError('') }
     try {
-      setItems(await readDocuments(facilityId, patientId, encounterId))
+      const found = await readDocuments(facilityId, patientId, encounterId)
+      if (read !== reads.current) return
+      setItems(found)
+      if (quiet) setError('')
     }
-    catch (caught) { setError(plainErrorText(caught, 'Documents could not be loaded.', { audience: 'facility' })) }
-    finally { setLoading(false) }
+    catch (caught) { if (read === reads.current) setError(plainErrorText(caught, 'Documents could not be loaded.', { audience: 'facility' })) }
+    finally { if (!quiet && read === reads.current) setLoading(false) }
   }, [facilityId, patientId, encounterId])
   useEffect(() => { void load() }, [load])
+  // While a document is being checked for viruses, the list is read again every SCAN_POLL_MS, one read at a time, so
+  // its row says Checked by itself. It stops once none is being checked, while an upload runs, while the documents are
+  // hidden or the workspace is locked, and when the page is left; Refresh list reads it at any time.
+  const { lock } = useStaff()
+  const [polls, setPolls] = useState(0)
+  const checking = !loading && !busy && !paused && !lock && items.some(beingChecked)
+  useEffect(() => {
+    if (!checking) return
+    let active = true
+    const timer = setTimeout(() => { void load(true).finally(() => { if (active) setPolls(value => value + 1) }) }, SCAN_POLL_MS)
+    return () => { active = false; clearTimeout(timer) }
+  }, [checking, load, polls])
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     // The button stays focusable while the upload runs; a second press does nothing.
@@ -317,9 +343,13 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
           <EhrButton variant="secondary" size="sm" disabled={item.scanStatus !== 'clean'} aria-describedby={`migrate-document-${item.id}`}
             onClick={() => download(item.id)}>Open file</EhrButton>
           {canOcr && item.scanStatus === 'clean' && <DeptLinkButton describedBy={`migrate-document-${item.id}`}
-            onClick={() => onExtract(item.id, patientId)}>Extract with OCR</DeptLinkButton>}
+            onClick={() => onExtract(item.id, patientId, item.fileName)}>Extract with OCR</DeptLinkButton>}
         </div> },
       ]} />
+    <div className="hid-ehr-dept-form-actions hid-ehr-dept-migrate-refresh">
+      {items.some(beingChecked) && <p className="hid-ehr-dept-muted">A document is being checked for viruses. This list updates by itself every few seconds.</p>}
+      <EhrButton id="migrate-documents-refresh" variant="secondary" size="sm" busy={loading} onClick={() => { if (!loading) void load() }}>Refresh list</EhrButton>
+    </div>
     {canWrite && !uploadsHere && <DeptNotice role="status">Documents can be uploaded only in the EHR, Lab, Pharmacy or Migrate.</DeptNotice>}
     {canWrite && uploadsHere && <form className="hid-ehr-dept-form hid-ehr-dept-migrate-upload" noValidate aria-labelledby="migrate-upload-title" onSubmit={event => void upload(event)}>
       <h3 id="migrate-upload-title">Upload a document</h3>

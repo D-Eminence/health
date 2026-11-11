@@ -2141,3 +2141,64 @@ describe('Migrate: Confirm the patient is picked, never typed', () => {
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 })
+
+/** Rehearsal findings 2, 6, 10 and 12, on the record. Fictional data only. */
+describe('Migrate: rehearsal fixes on the record', () => {
+  it('a reading that becomes ready while the page is open starts with clear items kept, as a fresh open does', async () => withFakeTimers(async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [] })
+    await findJob(queued)
+    // The job turns ready first; its reading arrives with the read that follows, as on the rehearsal's page.
+    api.findOcrJob.mockResolvedValue({ job: { ...awaiting, version: 5 } })
+    let reading: (value: unknown) => void = () => {}
+    api.ocrExtractions.mockReturnValue(new Promise(resolve => { reading = resolve }))
+    await wait(5_000)
+    await act(async () => { reading({ items: [{ ...extraction, structuredPayload: paperReading() }] }) })
+    const form = await screen.findByRole('form', { name: 'Check and save' })
+    expect(within(form).getByText('2 items need your choice before you can save.')).toBeTruthy()
+  }))
+
+  it('Check and save says where kept allergies and diagnoses go for a clinical note, beside the choice', async () => {
+    session.permissions = [...ALL, 'ehr.encounter.read']
+    api.encounters.mockResolvedValue({ items: [], nextCursor: null })
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
+    await findJob(awaiting)
+    const form = screen.getByRole('form', { name: 'Check and save' })
+    for (const card of within(form).getAllByRole('group')) {
+      const keep = within(card).queryByRole('button', { name: 'Keep' })
+      if (keep && keep.getAttribute('aria-pressed') !== 'true') await press(keep)
+    }
+    fireEvent.change(within(form).getByLabelText('Save as'), { target: { value: 'EHR' } })
+    expect(document.getElementById('ocr-review-where')?.textContent)
+      .toBe('Allergies, diagnoses and vitals are written into the note only. Record them in Allergies, Diagnoses or Vitals too.')
+    fireEvent.change(within(form).getByLabelText('Save as'), { target: { value: 'PHARMACY' } })
+    expect(document.getElementById('ocr-review-where')?.textContent)
+      .toBe('Diagnoses, allergies, lab results, vitals and notes you keep are not saved anywhere but this document.')
+    fireEvent.change(within(form).getByLabelText('Save as'), { target: { value: 'DOCUMENT_ONLY' } })
+    expect(document.getElementById('ocr-review-where')).toBeNull()
+  })
+
+  it('names no version or reader above Progress, and Progress says Patient confirmed once the patient is confirmed', async () => {
+    await findJob(confirmed)
+    const progress = heading('Progress').closest('section') as HTMLElement
+    expect(within(progress).getByText('Patient confirmed')).toBeTruthy()
+    expect(document.querySelector('.hid-ehr-dept-context')?.textContent).not.toMatch(/Version|textract/)
+  })
+
+  it('the menu’s Document OCR link, opening this page’s address again, goes back to the documents from a reading', async () => {
+    function Menu() {
+      const navigate = useNavigate()
+      return <button type="button" onClick={() => navigate('/ehr/migrate', { replace: true })}>Document OCR menu</button>
+    }
+    api.findOcrJob.mockResolvedValue({ job: awaiting })
+    render(<MemoryRouter initialEntries={['/ehr/migrate']}><div className="hid-ehr">
+      <Routes><Route path="/ehr/migrate" element={<><Menu /><Migrate /></>} /></Routes>
+    </div></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    await press(button('Find job'))
+    await screen.findByRole('heading', { name: 'Progress' })
+    await press(button('Document OCR menu'))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull())
+    expect(screen.getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    await waitFor(() => expect(focused()).toBe(heading('Find document job')))
+  })
+})
