@@ -53,7 +53,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
-import { askedTo, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { askedTo, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -921,7 +921,7 @@ export function AccessPage() {
       {ending && <div className="flex flex-col gap-5">
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
-          <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{ending.purpose}</dd></div>
+          {purposeLabel(ending.purpose) && <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{purposeLabel(ending.purpose)}</dd></div>}
           {/* The same times and reason as its row, so the patient ends the access they chose. */}
           <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.startsAt)}</dd></div>
           <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.expiresAt)}</dd></div>

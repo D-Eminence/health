@@ -141,6 +141,9 @@ describe('ending one access among several at a facility', () => {
     expect(term('From')).toBe(at(FOUR[2]!.startsAt))
     expect(term('Until')).toBe(at(FOUR[2]!.expiresAt))
     expect(term('Reason given')).toBe('Second check of the malaria result')
+    // The purpose in the patient's words, never Identity's code.
+    expect(term('Purpose')).toBe('Your care')
+    expect(drawer.queryByText('direct-care')).toBeNull()
 
     fireEvent.change(drawer.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'Test is done' } })
     await press(drawer.getByRole('button', { name: 'End access' }))

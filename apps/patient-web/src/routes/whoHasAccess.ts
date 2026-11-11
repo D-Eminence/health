@@ -104,3 +104,12 @@ export function askedTo(scope: string | null | undefined): string {
     default: return 'see your records'
   }
 }
+
+const PURPOSES: Readonly<Record<string, string>> = {
+  'direct-care': 'Your care', 'healthcare-operations': 'Records processing', emergency: 'Emergency care',
+}
+/** Why the access was given, in the patient's words ("Your care"); nothing for a purpose without one, never the code. */
+export function purposeLabel(purpose: string | null | undefined): string | null {
+  const key = (purpose ?? '').trim().toLowerCase()
+  return Object.hasOwn(PURPOSES, key) ? PURPOSES[key]! : null
+}
