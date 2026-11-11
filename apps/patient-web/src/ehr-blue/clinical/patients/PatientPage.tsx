@@ -22,6 +22,7 @@ import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administra
 import { CLOSE_REFUSALS } from '../emergency/access'
 import type { ActivePatient } from '../../../staff/App'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import { AllergiesCard } from './AllergiesCard'
 
 export const CLOSED_NOTICE = 'closed'
 /** Said where a lab's or a pharmacy's site hides every next step: those pages are the hospital EHR's alone. */
@@ -290,6 +291,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
             ? `${READ_ONLY} ${READ_ONLY_HOW}` : chart.writeNotice}</Alert> : null}
         {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
+        {/* Allergies, recorded by clinicians and reported by the patient, each labelled (hid-system 0124; patient-reported only before it). */}
+        {!emergency ? <AllergiesCard chart={chart} /> : null}
 
         {!emergency ? <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
