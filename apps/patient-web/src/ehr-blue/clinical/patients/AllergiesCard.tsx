@@ -54,6 +54,8 @@ export function useAllergies(chart: Chart): { state: AllergiesState; reload: () 
     void Promise.resolve().then(() => staffApi.allergies(facilityId, patientId, controller.signal)).then(
       list => {
         if (controller.signal.aborted) return
+        // A missing or malformed answer is treated like any unexpected failure, never as "no allergies".
+        if (!list || !Array.isArray(list.recorded) || !list.patientReported) return failed(true)(new Error('malformed allergies answer'))
         setState({ status: 'shown', recordedOffered: true, recorded: list.recorded,
           patientReported: list.patientReported.allergies, reportedAt: list.patientReported.updatedAt })
       },
