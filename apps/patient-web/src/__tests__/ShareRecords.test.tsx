@@ -462,9 +462,10 @@ describe('Access and consent with sharing', () => {
       grant('g-1', { clinicianName: 'Dr Ada Obi', shareLevel: 'view_only', shareDuration: 'until_revoked' }),
       grant('g-2', { shareLevel: null, shareDuration: null, clinicianName: null }),
     ] })
-    const history = (await screen.findByRole('heading', { name: '2 facilities have access now' })).closest('section') as HTMLElement
+    const history = (await screen.findByRole('heading', { name: 'Lagos General has access now' })).closest('section') as HTMLElement
     const rows = await within(history).findAllByRole('listitem')
-    expect(rows[0]!.textContent).toContain('Dr Ada Obi at Lagos General')
+    expect(within(history).getByRole('heading', { level: 3, name: 'Lagos General' })).toBeTruthy()
+    expect(rows[0]!.textContent).toContain('Dr Ada Obi')
     expect(rows[0]!.textContent).toContain('Shared by you · View Only · Until you end it')
     expect(within(rows[0]!).getByRole('button', { name: /^End access for Dr Ada Obi at Lagos General/ })).toBeTruthy()
     expect(rows[1]!.textContent).not.toContain('Shared by you')

@@ -53,6 +53,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
+import { groupByFacility, groupCounts, holder, isOpen, staffName, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -683,7 +684,8 @@ type HistoryItem = AccessHistory['items'][number]
 
 /** Who holds a grant: the clinician at their facility for the patient's own share (hid-system 0095), else the facility. */
 function grantee(item: HistoryItem) {
-  return typeof item.clinicianName === 'string' && item.clinicianName.trim() ? `${item.clinicianName.trim()} at ${item.facilityName}` : item.facilityName
+  const name = staffName(item)
+  return name ? `${name} at ${item.facilityName}` : item.facilityName
 }
 
 /** "Shared by you · View Only · 7 days" for the patient's own share; nothing for any other grant, or from an older backend. */
@@ -776,7 +778,9 @@ export function AccessPage() {
   const openRevocation = (id: string) => { if (revoking !== id) setRevokeReason(''); setRevoking(id) }
 
   const pendingCount = (requests.data && !requests.error ? requests.data : []).filter(item => item.status.toLowerCase() === 'pending').length
-  const activeCount = (history.data && !history.error ? history.data.items : []).filter(item => item.status === 'active').length
+  const historyItems = history.data && !history.error ? history.data.items : []
+  // Rows open now, for the tab; the heading counts facilities, as one facility can hold several (one per staff member).
+  const activeCount = historyItems.filter(isOpen).length
   const requestList = requests.data && !requests.error
     ? [...requests.data].sort((x, y) => Number(y.status.toLowerCase() === 'pending') - Number(x.status.toLowerCase() === 'pending')) : null
   const open = requestList?.find(item => item.accessRequestId === reviewing) ?? null
@@ -822,18 +826,24 @@ export function AccessPage() {
       {/* Novu (P4c): orders a clinician sent to another facility, with Stop until it is accepted. Main has no such list. */}
       {usesNovuBackend() && <SentOrdersCard />}
       <Card aria-busy={(history.loading && history.data !== null) || undefined}>
-        <AccessHeading headingRef={historyHeading} icon={Building2}
-          title={activeCount ? `${activeCount === 1 ? '1 facility has' : `${activeCount} facilities have`} access now` : 'No one has access now'}
-          hint={activeCount ? undefined : 'Past access stays listed, with when it ended.'} />
+        <AccessHeading headingRef={historyHeading} icon={Building2} title={whoHasAccessTitle(historyItems)}
+          hint={activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed, with when it ended.'} />
         <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
           onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
         {history.data && !history.error && (history.data.items.length === 0
           ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">Facilities you approve or share with appear here, with when their access ends.</p>
-          : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-          {history.data.items.map(item => <li key={item.consentGrantId} className="flex items-start gap-3 px-5 py-4">
+          // One heading per facility, so the same facility is named once over its rows (hid-system lists each access).
+          : groupByFacility(history.data.items).map(group => <div key={group.facility} className="border-t border-line">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 bg-subtle px-5 py-2">
+            <h3 className="m-0 text-[13px] font-semibold [overflow-wrap:anywhere] text-ink">{group.facility}</h3>
+            <p className="m-0 text-[12px] text-ink-3">{groupCounts(group)}</p>
+          </div>
+          <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
+          {group.items.map(item => <li key={item.consentGrantId} className="flex items-start gap-3 px-5 py-4">
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
             <div className="min-w-0 flex-1">
-              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
+              {/* Under its facility's heading: the staff member, by name only where the list gives one (a share). */}
+              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{holder(item)}</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
@@ -842,7 +852,8 @@ export function AccessPage() {
               {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
             </div>
           </li>)}
-        </ul>)}
+          </ul>
+        </div>))}
       </Card>
       {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
       <ShareInvitationsCard onShared={history.reload} />
