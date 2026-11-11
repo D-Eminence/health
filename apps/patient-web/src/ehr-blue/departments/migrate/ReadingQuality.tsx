@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
-import { REJECTION_REASONS, REMOVAL_REASONS, type ReasonChoice } from '../../../readingLearningContract'
+import { READING_QUALITY_TOO_FEW_REVIEWERS, REJECTION_REASONS, REMOVAL_REASONS, type ReasonChoice } from '../../../readingLearningContract'
 import { readingQualityApi } from './readingQualityApi'
 
 /*
@@ -13,11 +13,21 @@ import { readingQualityApi } from './readingQualityApi'
  * reason code, prompt version or ID is ever shown. A group the server held back as too small (`suppressed`) is left out
  * and said in words, as are reason counts it left out (`smallCellsHidden`). A backend without the read answers 404: the
  * view says it isn't available yet, calmly, and Migrate stops offering it.
+ *
+ * A facility's manager reads it too (hid-system #236). Their answer counts finished weeks only (its from and to say
+ * which), holds back a group fewer than 3 people checked as it holds back a small one, and, when fewer than 3 people
+ * checked at all, is { available: false, reason: "too_few_reviewers" }: the view then says so in one calm sentence,
+ * with no figures. Any other answer that is not available is said in a calm general sentence.
  */
 
 type Counts = Readonly<Record<string, number>>
 
 export interface ReadingQuality {
+  /**
+   * Null when the answer has figures; otherwise why not: 'tooFewReviewers' (fewer than 3 people's checks were counted,
+   * for a manager), or 'other' for any other reason the answer gives.
+   */
+  readonly unavailable: 'tooFewReviewers' | 'other' | null
   /** The first and last day counted (whole ISO weeks), as the answer gives them; null when it doesn't. */
   readonly from: string | null
   readonly to: string | null
@@ -79,6 +89,7 @@ export function parseReadingQuality(answer: unknown): ReadingQuality {
   }
   for (const group of groups(value.itemGroups)) if (group.suppressed !== true) addCounts(decisions, group.decisions)
   return {
+    unavailable: value.available !== false ? null : value.reason === READING_QUALITY_TOO_FEW_REVIEWERS ? 'tooFewReviewers' : 'other',
     from: typeof value.from === 'string' && DAY.test(value.from) ? value.from : null,
     to: typeof value.to === 'string' && DAY.test(value.to) ? value.to : null,
     truncated: value.truncated === true,
@@ -144,8 +155,8 @@ function Figures({ data }: { data: ReadingQuality }) {
       <p className="hid-ehr-dept-muted">Reasons are optional, so they don’t add up to every item changed, removed or rejected.</p>
     </DeptSection>
     {(data.heldBack > 0 || data.smallCellsHidden > 0 || data.truncated) && <DeptSection title="What these figures leave out" headingId="reading-quality-left-out">
-      {data.heldBack > 0 && <p className="hid-ehr-dept-muted">Some weeks had too few checks to show without pointing at the people who did them.
-        Their figures are left out.</p>}
+      {data.heldBack > 0 && <p className="hid-ehr-dept-muted">Some weeks had too few checks, or too few people checking, to show without
+        pointing at the people who did them. Their figures are left out.</p>}
       {data.smallCellsHidden > 0 && <p className="hid-ehr-dept-muted">A reason given fewer than 5 times in a week is left out of that week’s
         figures.</p>}
       {data.truncated && <p className="hid-ehr-dept-muted">There were too many checks to count them all. These figures count only some of them.</p>}
@@ -189,14 +200,20 @@ export function ReadingQualityView({ facilityId }: { readonly facilityId: string
       <p className="hid-ehr-dept-muted">Reading quality appears here once the reading service records what staff do when they check paper
         records. Nothing needs doing.</p>
     </DeptSection>}
-    {loaded.state === 'refused' && <DeptNotice tone="info">Reading quality is for Health ID platform administrators. You can’t see it here.</DeptNotice>}
+    {loaded.state === 'refused' && <DeptNotice tone="info">Reading quality isn’t open to you at this facility.</DeptNotice>}
     {loaded.state === 'failed' && <div role="alert"><DeptNotice tone="critical">Reading quality could not be loaded. Try again.</DeptNotice>{refresh}</div>}
     {loaded.state === 'shown' && <>
       {refresh}
-      {loaded.data.anyShown ? <Figures data={loaded.data} />
+      {loaded.data.unavailable === 'tooFewReviewers' ? <DeptSection title="No figures yet" headingId="reading-quality-too-few-reviewers">
+        <p className="hid-ehr-dept-muted">Not enough reviews yet to show figures for this facility.</p>
+      </DeptSection>
+        : loaded.data.unavailable ? <DeptSection title="No figures yet" headingId="reading-quality-unavailable">
+          <p className="hid-ehr-dept-muted">Figures can’t be shown for this facility at the moment. Nothing needs doing.</p>
+        </DeptSection>
+        : loaded.data.anyShown ? <Figures data={loaded.data} />
         : loaded.data.heldBack > 0 ? <DeptSection title="Too few checks to show" headingId="reading-quality-too-few">
-          <p className="hid-ehr-dept-muted">There were too few checks at this facility in these weeks to show figures without pointing at the
-            people who did them. Nothing needs doing.</p>
+          <p className="hid-ehr-dept-muted">There were too few checks, or too few people checking, at this facility in these weeks to show
+            figures without pointing at the people who did them. Nothing needs doing.</p>
           {loaded.data.truncated && <p className="hid-ehr-dept-muted">Only some of the checks in these weeks could be counted.</p>}
         </DeptSection>
         : <DeptSection title="No checks yet" headingId="reading-quality-none">

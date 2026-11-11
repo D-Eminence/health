@@ -213,9 +213,9 @@ function ViewTitle({ children }: { readonly children: ReactNode }) {
 export function Migrate() {
   const { facilityId, permissions, actorId } = useDeptAccess()
   const { lock, state: staffState } = useStaff()
-  // Migrate learning's "Reading quality": only for an actor with Session B's two platform permissions, and offered
-  // until its read answers 404 (readingQualityApi.ts).
-  const readsQuality = readsReadingQuality(staffState.status === 'ready' ? staffState.session.actor : undefined)
+  // Migrate learning's "Reading quality": for a platform administrator, or for this facility's own manager (the facility
+  // its read sends as X-Facility-ID), as Session B decides it, and offered until its read answers 404 (readingQualityApi.ts).
+  const readsQuality = readsReadingQuality(staffState.status === 'ready' ? staffState.session.actor : undefined, facilityId)
   const qualityServed = useReadingQualityServed()
   const qualityOffered = readsQuality && qualityServed !== false
   // OCR's parts need OCR job read (so does the page); Patient documents needs document read, as the clinical record's

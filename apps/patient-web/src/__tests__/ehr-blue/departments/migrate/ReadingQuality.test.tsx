@@ -6,12 +6,13 @@ import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { parseReadingQuality } from '../../../../ehr-blue/departments/migrate/ReadingQuality'
 import { readsReadingQuality } from '../../../../ehr-blue/departments/migrate/readingQualityApi'
 import { forgetReadingQualityServed } from '../../../../readingLearningServed'
-import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
+import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 
 /**
  * "Reading quality" (Migrate learning, phase 1), on the staff side in Migrate: plain-word tiles from Session B's
  * review-outcome summary for the working facility (GET /api/v1/ocr/quality/summary with X-Facility-ID), added up over
- * its groups, for an actor with Session B's two platform permissions only, offered until a 404 says it isn't served.
+ * its groups, for an actor with Session B's two platform permissions or for the facility's own manager (workforce.manage at
+ * the working facility, not awaiting support's review; hid-system #236), offered until a 404 says it isn't served.
  * Requests go through the real contract registry and app boundary, to a fake transport. Fictional data only.
  */
 const api = vi.hoisted(() => ({
@@ -20,7 +21,13 @@ const api = vi.hoisted(() => ({
   labImport: vi.fn(), pharmacyImport: vi.fn(), encounters: vi.fn(), lookupPatient: vi.fn(), documents: vi.fn(), consentStatus: vi.fn(),
 }))
 const transport = vi.hoisted(() => ({ request: vi.fn() }))
-const session = vi.hoisted(() => ({ platformPermissions: [] as string[] | undefined }))
+const session = vi.hoisted(() => ({
+  platformPermissions: [] as string[] | undefined,
+  /** The membership at the working facility (Demo Hospital): its permissions, and its self-service review. */
+  permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined,
+  /** Another membership's permissions, at Demo Laboratory; none when undefined. */
+  elsewhere: undefined as string[] | undefined,
+}))
 
 vi.mock('../../../../staff/api', () => ({ staffApi: api,
   isAllowedPatientLookup: (lookup: { authorization: { decision: string }; patient?: object }) => lookup.authorization.decision === 'allow' && !!lookup.patient }))
@@ -28,8 +35,10 @@ vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../harness')
   return {
     useStaff: () => {
-      const context = staffContext(fakeFacility(['ocr.job.read', 'ocr.job.write'], { id: hospital, name: 'Demo Hospital' }))
-      const actor = { ...context.state.session.actor, ...(session.platformPermissions ? { platformPermissions: session.platformPermissions } : {}) }
+      const current = fakeFacility(session.permissions, { id: hospital, name: 'Demo Hospital', ...(session.selfService ? { selfService: session.selfService } : {}) })
+      const context = staffContext(current)
+      const actor = { ...context.state.session.actor, ...(session.platformPermissions ? { platformPermissions: session.platformPermissions } : {}),
+        facilities: [current, ...(session.elsewhere ? [fakeFacility(session.elsewhere)] : [])] }
       return { ...context, lock: null, activePatient: null, setActivePatient: () => {}, state: { ...context.state, session: { actor } } }
     },
   }
@@ -85,6 +94,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   forgetReadingQualityServed()
   session.platformPermissions = [...ADMIN]
+  session.permissions = ['ocr.job.read', 'ocr.job.write']
+  session.selfService = undefined
+  session.elsewhere = undefined
   api.documents.mockResolvedValue({ items: [], nextCursor: null })
   answer = async () => ANSWER
   transport.request.mockImplementation((spec: { path: string }) => spec.path === READING_QUALITY ? answer()
@@ -146,7 +158,7 @@ describe('Reading quality, in Migrate', () => {
       'Same document twice5'])
     // What was held back is said in words.
     const leftOut = within(screen.getByRole('region', { name: 'What these figures leave out' }))
-    expect(leftOut.getByText(/too few checks to show/)).toBeTruthy()
+    expect(leftOut.getByText(/too few checks, or too few people checking, to show/)).toBeTruthy()
     expect(leftOut.getByText(/fewer than 5 times in a week/)).toBeTruthy()
     const page = document.body.textContent ?? ''
     expect(page).not.toMatch(/misread\b(?! the)|clinical_update|not_on_paper|lab_result|wrong_patient|some_later_code|kept_unchanged|W4\d|demo-prompt|98d00002|suppressed|quality\/summary/)
@@ -207,5 +219,102 @@ describe('Reading quality, in Migrate', () => {
     answer = async () => ANSWER
     await press(within(alert).getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByRole('heading', { name: 'Items read from paper' })).toBeTruthy()
+  })
+})
+
+describe('Reading quality, for a facility’s own manager (hid-system #236)', () => {
+  const MANAGER = ['ocr.job.read', 'workforce.manage']
+  const hospital = (permissions: string[], selfService?: { review: string; organizationType: string }) => ({
+    id: DEMO_HOSPITAL_ID, permissions, ...(selfService ? { selfService } : {}) })
+  const actorAt = (current: { id: string }, ...facilities: object[]) => ({ kind: 'staff', facility: current, facilities })
+
+  beforeEach(() => {
+    session.platformPermissions = undefined
+    session.permissions = [...MANAGER]
+  })
+
+  it('decides as Session B does: workforce.manage on the membership at the working facility, its current one, not awaiting review', () => {
+    const managed = hospital(['workforce.manage'])
+    expect(readsReadingQuality(actorAt(managed, managed), DEMO_HOSPITAL_ID)).toBe(true)
+    // Reviewed, or never self-service: either counts. Awaiting support's review does not.
+    expect(readsReadingQuality(actorAt(managed, hospital(['workforce.manage'], { review: 'reviewed', organizationType: 'hospital' })), DEMO_HOSPITAL_ID)).toBe(true)
+    const pending = hospital(['workforce.manage'], { review: 'pending', organizationType: 'hospital' })
+    expect(readsReadingQuality(actorAt(pending, pending), DEMO_HOSPITAL_ID)).toBe(false)
+    // workforce.manage at another facility never counts, nor on the facility's own copy outside the membership list.
+    const other = { id: DEMO_LABORATORY_ID, permissions: ['workforce.manage'] }
+    const plain = hospital(['ocr.job.read'])
+    expect(readsReadingQuality(actorAt(plain, plain, other), DEMO_HOSPITAL_ID)).toBe(false)
+    expect(readsReadingQuality(actorAt(managed, plain), DEMO_HOSPITAL_ID)).toBe(false)
+    // The facility sent must be the actor's current one.
+    expect(readsReadingQuality(actorAt(plain, plain, other), DEMO_LABORATORY_ID)).toBe(false)
+    expect(readsReadingQuality(actorAt(managed, managed))).toBe(false)
+    expect(readsReadingQuality({ ...actorAt(managed, managed), kind: 'patient' }, DEMO_HOSPITAL_ID)).toBe(false)
+    // A platform administrator as before, wherever they work.
+    expect(readsReadingQuality({ ...actorAt(plain, plain), platformPermissions: ADMIN }, DEMO_HOSPITAL_ID)).toBe(true)
+  })
+
+  it('offers it to the manager at the working facility, and reads that facility’s figures when opened', async () => {
+    await openQuality()
+    await screen.findByRole('heading', { name: 'Items read from paper' })
+    expect(qualityCalls()).toEqual([expect.objectContaining({ method: 'GET', path: READING_QUALITY,
+      headers: expect.objectContaining({ 'X-Facility-ID': DEMO_HOSPITAL_ID }) })])
+    expect(within(tile('Documents checked and saved')).getByText('198')).toBeTruthy()
+  })
+
+  it.each([
+    ['holds workforce.manage only at another facility', () => { session.permissions = ['ocr.job.read']; session.elsewhere = ['workforce.manage'] }],
+    ['manages a facility still awaiting support’s review', () => { session.selfService = { review: 'pending', organizationType: 'hospital' } }],
+    ['is staff without workforce.manage or the platform permissions', () => { session.permissions = ['ocr.job.read', 'ocr.job.write'] }],
+  ])('does not offer it to someone who %s, and reads nothing', async (_name, arrange) => {
+    arrange()
+    renderDept(<Migrate />)
+    await screen.findByRole('heading', { name: 'Find document job' })
+    expect(screen.queryByRole('button', { name: 'Reading quality' })).toBeNull()
+    expect(qualityCalls()).toHaveLength(0)
+  })
+
+  it('a manager without OCR job read still gets Migrate’s own refusal: the page that offers it is not open to them', async () => {
+    session.permissions = ['workforce.manage']
+    renderDept(<Migrate />)
+    expect(screen.getByRole('alert').textContent).toBe('Reading scanned documents isn’t available at your facility yet.')
+    expect(screen.queryByRole('button', { name: 'Reading quality' })).toBeNull()
+    expect(qualityCalls()).toHaveLength(0)
+  })
+
+  it('when fewer than 3 people’s checks were counted, says so in one calm sentence, with no figures and no code', async () => {
+    answer = async () => ({ schema: 'hid.ocr.quality-summary/v1', from: '2026-10-12', to: '2026-11-08', scope: 'bound_facility',
+      available: false, reason: 'too_few_reviewers' })
+    await openQuality()
+    expect(await screen.findByText('Not enough reviews yet to show figures for this facility.')).toBeTruthy()
+    expect(screen.queryByRole('article')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Items read from paper' })).toBeNull()
+    expect(screen.queryByText(/Weeks from/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/too_few_reviewers|available|bound_facility|\b0 of 0\b/)
+  })
+
+  it('says any other answer without figures in a calm general sentence', async () => {
+    answer = async () => ({ schema: 'hid.ocr.quality-summary/v1', available: false, reason: 'some_later_reason' })
+    await openQuality()
+    expect(await screen.findByText('Figures can’t be shown for this facility at the moment. Nothing needs doing.')).toBeTruthy()
+    expect(screen.queryByRole('article')).toBeNull()
+    expect(screen.queryByText('Not enough reviews yet to show figures for this facility.')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/some_later_reason/)
+  })
+
+  it('says a weeks-and-people hold-back in words true for a manager', async () => {
+    answer = async () => ({ ...ANSWER,
+      reviewGroups: [{ week: '2026-W44', facilityId: DEMO_HOSPITAL_ID, promptVersion: 'demo-prompt-1', suppressed: true }],
+      itemGroups: [] })
+    await openQuality()
+    await screen.findByRole('heading', { name: 'Too few checks to show' })
+    expect(screen.getByText(/too few checks, or too few people checking, at this facility in these weeks/)).toBeTruthy()
+  })
+
+  it('a refusal (403) is plain, true for a manager too, and names no permission or role', async () => {
+    answer = () => Promise.reject(new HidApiError(403, 'Platform administration or facility management is required', { code: 'PERMISSION_DENIED' }))
+    await openQuality()
+    expect(await screen.findByText('Reading quality isn’t open to you at this facility.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/PERMISSION_DENIED|403|administrat|workforce|manage/i)
   })
 })

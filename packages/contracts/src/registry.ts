@@ -1024,11 +1024,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ocr.validations','ocr','/api/v1/ocr/jobs/:jobId/validations',GP,false,{GET:['ocr.job.read'],POST:['ocr.validation.write']}),
   r('ocr.patientConfirmation','ocr','/api/v1/ocr/jobs/:jobId/patient-confirmation',P,false,one('POST','ocr.patient.confirm')),
   r('ocr.publications','ocr','/api/v1/ocr/validations/:validationId/publications',GP,false,{GET:['ocr.job.read'],POST:['ocr.publication.write']}),
-  // Session B's review-outcome summary (hid-system claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, d9c02668), not on
-  // main yet. Platform administrators only (platform permissions), for the one facility named by X-Facility-ID. Migrate's
-  // "Reading quality" view reads it (ehr-blue/departments/migrate/readingQualityApi.ts); 404 until served.
-  proposed(r('ocr.qualitySummary','ocr','/api/v1/ocr/quality/summary',G,false,one('GET','platform.admin.access','platform.operations.read'),
-    'On a hid-system branch, not main. from/to optional YYYY-MM-DD (default the last 28 days, at most 92); widened to ISO weeks.')),
+  // Session B's review-outcome summary (hid-system claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, #236), not on
+  // main yet, for the one facility named by X-Facility-ID. Either a platform administrator (platform.admin.access and
+  // platform.operations.read) or that facility's manager (workforce.manage there), so no permission list is recorded
+  // (permissions here are all-required); the note names both. Migrate's "Reading quality" view reads it
+  // (ehr-blue/departments/migrate/readingQualityApi.ts); 404 until served.
+  proposed(r('ocr.qualitySummary','ocr','/api/v1/ocr/quality/summary',G,false,undefined,
+    'On a hid-system branch, not main. Requires platform.admin.access and platform.operations.read (platform '
+    + 'administrators), or workforce.manage at the X-Facility-ID facility, which must be the current one and not awaiting '
+    + 'support review (its manager); otherwise 403. from/to optional YYYY-MM-DD (default the last 28 days, at most 92); '
+    + 'widened to ISO weeks. A manager gets finished weeks only, groups fewer than 3 reviewers checked suppressed, and '
+    + '{ available: false, reason: "too_few_reviewers" } when fewer than 3 reviewers contributed.')),
 
   r('outreach.campaigns','outreach','/api/v1/outreach/registration-cases/campaigns',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   r('outreach.campaignStatus','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/status',P,false,one('POST','outreach.campaign.write')),

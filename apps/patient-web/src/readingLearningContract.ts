@@ -32,13 +32,21 @@ export interface ReviewSignals {
 
 /**
  * The staff "Reading quality" read, in Migrate: Session B's review-outcome summary (schema hid.ocr.quality-summary/v1)
- * for the one facility named by X-Facility-ID (row-level security), for the last 28 days by default. Platform
- * administrators only: a staff actor whose platform permissions include both of READING_QUALITY_PERMISSIONS, else 403.
- * The platform-wide admin read comes with phase 2 (hid-system #237).
+ * for the one facility named by X-Facility-ID (row-level security), for the last 28 days by default. Read by a platform
+ * administrator (a staff actor whose platform permissions include both of READING_QUALITY_PERMISSIONS), or by that
+ * facility's own manager (READING_QUALITY_MANAGER_PERMISSION on the membership at that very facility, which must be the
+ * actor's current one and not awaiting Health ID support's review); anyone else 403 (hid-system #236,
+ * quality-summary.service.ts assertQualityReader). A manager's answer counts finished weeks only, holds back a group
+ * fewer than 3 people checked, and says { available: false, reason: "too_few_reviewers" } when fewer than 3 people
+ * checked at all. The platform-wide admin read comes with phase 2 (hid-system #237).
  */
 export const READING_QUALITY_PATH = '/api/v1/ocr/quality/summary'
 /** Session B's platform permissions for the summary (quality-summary.service.ts QUALITY_PERMISSIONS): both are needed. */
 export const READING_QUALITY_PERMISSIONS = ['platform.admin.access', 'platform.operations.read'] as const
+/** The facility permission a manager reads their own facility's summary with (FACILITY_QUALITY_PERMISSION). */
+export const READING_QUALITY_MANAGER_PERMISSION = 'workforce.manage'
+/** The answer's reason when fewer than 3 people's checks were counted for a manager (MIN_REVIEWERS_FOR_MANAGER). */
+export const READING_QUALITY_TOO_FEW_REVIEWERS = 'too_few_reviewers'
 
 export interface ReasonChoice<Code extends string> { readonly code: Code; readonly words: string }
 
