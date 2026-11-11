@@ -94,6 +94,9 @@ const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 
 const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not served by hid-system main, and a backend before 0095 '
   + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
 /** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
+/** Allergies (EHR clinical safety): served from hid-system 0124; a backend before it answers 404, which the chart takes as not offered. */
+const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
+  + 'Direct care only (X-Purpose-Of-Use: direct-care) at the selected facility.'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -752,6 +755,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${PARITY_B3} Staff sessions with X-Facility-ID and X-Purpose-Of-Use: direct-care, while access to the patient is granted, `
     + 'authorised and audited as the chart reads are (a view in the patient\'s access log). 200 { bloodGroup, genotype, '
     + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
+  proposed(r('ehr.allergies','ehr','/api/v1/ehr/patients/:patientId/allergies',GP,false,
+    {GET:['ehr.note.read'],POST:['ehr.note.write']},
+    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[], patientReported: { allergies, updatedAt } }; POST { substance, reaction?, `
+    + 'severity } with Idempotency-Key, 201 the recorded allergy.')),
+  proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
+    one('POST','ehr.note.write'),
+    `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
+    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 412 VERSION_CONFLICT.')),
+  proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
+    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired }. A prescription that `
+    + 'matches is refused (409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED) until it carries allergyAcknowledgement { reason }.')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),
