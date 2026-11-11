@@ -227,7 +227,8 @@ which no one can match to a sample tube or a person at the counter.
 2. Pharmacy work items: also send the prescription's `priority` (as lab work items do), so urgent and stat prescriptions
    can be sorted first and badged. The lab queue already does this.
 
-Until then the queue shows the masked reference, and the confirm sheet says "Health ID not sent".
+Until then the queue shows the masked reference, and the confirm sheet says "Health ID not shown" ("Health ID not sent"
+only on work another facility sent without it).
 
 ## Pharmacy items need an optional drug image/cover URL, and the fields a fast pick needs
 

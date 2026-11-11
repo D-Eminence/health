@@ -13,7 +13,7 @@ import { DEMO_HOSPITAL_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type Fake
 import { SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 import {
   accepted, ALL, AMOXICILLIN, CREATE, deferred, dispensed, expectNoFullPatientIds, facts, IBUPROFEN, METFORMIN, otherActions,
-  otherFacilityItem, pickCard, PRESCRIPTIONS, READ, recordStatus, reversed, row, SALBUTAMOL, showTab, Where,
+  otherFacilityItem, PATIENT, pickCard, PRESCRIPTIONS, READ, recordStatus, reversed, routed, row, SALBUTAMOL, showTab, Where,
 } from './fixtures'
 
 /**
@@ -372,8 +372,11 @@ describe('the picking view', () => {
     // The list is hidden while the record is open: one view at a time.
     expect(screen.queryByRole('searchbox')).toBeNull()
     expect(screen.queryByRole('list', { name: 'Prescriptions' })).toBeNull()
-    // Who it is for, in the same place on every record.
-    expect(screen.getByRole('region', { name: 'Patient: Patient ••••6f8a10' }).textContent).toContain('Health ID not sent')
+    // Who it is for, in the same place on every record. This pharmacy's own work, sent without its patient: nothing was
+    // left unsent by another facility.
+    const banner = screen.getByRole('region', { name: 'Patient: Patient ••••6f8a10' })
+    expect(banner.textContent).toContain('Health ID not shown')
+    expect(banner.textContent).not.toContain('Health ID not sent')
     expect(recordStatus()).toBe('To dispense')
     expect(facts()).toEqual({ Medicine: AMOXICILLIN, Dose: '1capsule', 'How often': 'Three times daily', Route: 'By mouthMore details: RouteRoute code: oral',
       Instructions: 'Take with food.\nFinish the course.', Dispensed: 'No', Accepted: dateText(accepted.acceptedAt) })
@@ -392,6 +395,16 @@ describe('the picking view', () => {
     expect(screen.getByTestId('where').textContent).toBe(PRESCRIPTIONS)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: AMOXICILLIN })))
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { sent: 'the patient without a Health ID', patient: { ...PATIENT, healthIdLast4: null }, region: 'Patient: Patient One' },
+    { sent: 'no patient', patient: undefined, region: 'Patient: Patient ••••6f8a10' },
+  ])('says the Health ID was not sent on a prescription another facility sent with $sent', ({ patient, region }) => {
+    renderRecord(routed({ patient }), [READ])
+    const banner = screen.getByRole('region', { name: region })
+    expect(banner.textContent).toContain('Health ID not sent')
+    expect(banner.textContent).not.toContain('Health ID not shown')
   })
 
   it('opens straight from its address, as a shared link or a refresh would', async () => {

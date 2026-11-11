@@ -153,7 +153,9 @@ export function personOf(item: LabWorkItem): LabPerson {
   return {
     name: patient?.fullName ?? patientLabel(item), age: years === null ? null : `${years} y`, sex: sexWord(patient?.sex), phone: null,
     dateOfBirth: patient?.dateOfBirth ?? null, healthId: null,
-    hidText: patient?.healthIdLast4 ? `Health ID ending ${patient.healthIdLast4}` : 'Health ID not sent',
+    // Routed work's Health ID comes from the sending facility; own work carries no patient details until the backend sends them.
+    hidText: patient?.healthIdLast4 ? `Health ID ending ${patient.healthIdLast4}`
+      : item.orderRoute ? 'Health ID not sent' : 'Health ID not shown',
   }
 }
 

@@ -199,7 +199,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const checklistId = `pharmacy-checklist-${item.id}`
   // Who the medicine is for, confirmed before a dispensing is recorded (wrong-patient prevention).
   const name = item.patient?.fullName ?? patientLabel(item)
-  const banner = <PatientBanner compact name={name} hid={item.patient?.healthIdLast4 ? `Health ID ending ${item.patient.healthIdLast4}` : 'Health ID not sent'}
+  // Routed work's Health ID comes from the sending facility; own work carries no patient details until the backend sends them.
+  const hid = item.patient?.healthIdLast4 ? `Health ID ending ${item.patient.healthIdLast4}`
+    : item.orderRoute ? 'Health ID not sent' : 'Health ID not shown'
+  const banner = <PatientBanner compact name={name} hid={hid}
     dateOfBirth={item.patient?.dateOfBirth} sex={item.patient?.sex} />
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
