@@ -8,7 +8,7 @@ import { useFocusById } from '../../../staff/focus'
 import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
-import { CannotCompleteEndings, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
+import { CannotCompleteEnded, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
 import { useLateCorrectionServed } from '../../../lateCorrectionServed'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
@@ -24,7 +24,7 @@ import { isUrgent, urgencyRank } from '../parts/WorkQueue'
 import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
-  useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
+  readsKept, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
 } from '../parts/routedWork'
 import { usePaymentSettings } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, paysFirst } from '../pharmacy/pocFields'
@@ -88,6 +88,8 @@ export function Laboratory() {
   const cannotServed = useCannotCompleteServed()
   const [ended, setEnded] = useState<Said | null>(null)
   const notCompleted = useNotCompletedEndings(facilityId)
+  // The orders this page has ended as can't complete: a request kept open is read only at once, before the list says so.
+  const [endedByThisPage, setEndedByThisPage] = useState<ReadonlySet<string>>(() => new Set())
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
@@ -155,15 +157,35 @@ export function Laboratory() {
   }
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
+    setEndedByThisPage(current => new Set(current).add(ending.result.route.id))
     said.clear()
-    if (chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
+    // As today (Operations.tsx notCompletedHere): where its reads ended at once, nothing of it is shown again; where
+    // they are kept, the request stays open, read only, with the ending said above it.
+    if (!readsKept(ending.result) && chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
     void list.refresh()
   }
   const pick = (value: LabStage) => setParams(previous => { const next = new URLSearchParams(previous); next.set(STAGE_PARAM, value); return next }, { replace: true })
+  const endingsShown = notCompleted.endings.filter(ending => !chosen || ending.result.route.id === chosen.orderRoute?.id)
+  // Closing an ending takes its button away: focus goes to the next ending shown, else the heading of what is shown.
+  function closeEnding(key: string) {
+    notCompleted.close(key)
+    focus([...endingsShown.filter(ending => ending.key !== key).map(ending => `lab-not-completed-${ending.key}-title`),
+      chosen ? 'lab-record-title' : 'lab-work-title'], true)
+  }
   const siblings = chosen ? items.filter(item => item.id !== chosen.id && requestOf(item) && requestOf(item)?.id === requestOf(chosen)?.id) : []
 
   return <div className="hid-ehr-dept-laboratory">
+    {/* Mounted once, outside the hidden list, so an ending is said on the request it kept open as on the list (each
+        ending takes focus as it mounts: a second copy would move it to the oldest). On a request, only that request's
+        own ending shows: another order's stays mounted but hidden, and shows again on the list. */}
+    {notCompleted.endings.length > 0 ? <div hidden={endingsShown.length === 0}
+      className={chosen ? 'hid-ehr-dept-laboratory-said-on-request' : undefined}>
+      <DeptEmbedded><div className="staff-stack">{notCompleted.endings.map(ending => <div key={ending.key} hidden={!endingsShown.includes(ending)}>
+        <CannotCompleteEnded id={`lab-not-completed-${ending.key}`} ending={ending} onClose={() => closeEnding(ending.key)} />
+      </div>)}</div></DeptEmbedded>
+    </div> : null}
     {chosen ? <LabRequest key={chosen.id} facilityId={workFacility} item={chosen} siblings={siblings} permissions={permissions} settings={settings}
+      ended={Boolean(chosen.orderRoute && endedByThisPage.has(chosen.orderRoute.id))}
       said={said.rowSaid(chosen.orderRoute?.id)} backTo={listHref} onListChanged={() => void list.refresh()}
       onEnded={ending => endedHere(chosen, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} /> : null}
     {/* The list stays mounted under a record, so orders waiting here and a lookup in progress keep their place. */}
@@ -181,9 +203,6 @@ export function Laboratory() {
         onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId}
         cannotCompleteBeside="opened" /></DeptEmbedded> : null}
       <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
-      {notCompleted.endings.length > 0 ? <DeptEmbedded>
-        <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
-      </DeptEmbedded> : null}
       {lateCorrection ? <DeptEmbedded><LateWrongPatient service="lab" facilityId={workFacility} onEnded={endedLate} onNotCompleted={notCompletedHere}
         onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: workFacility, correction }) }} /></DeptEmbedded> : null}
       <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
