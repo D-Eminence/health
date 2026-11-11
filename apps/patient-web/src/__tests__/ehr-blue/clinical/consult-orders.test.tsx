@@ -179,6 +179,17 @@ const SAVE_RX = (medicine = 'Amoxicillin') => `Save this prescription of ${medic
 const SAVE_LAB = (test = 'Haemoglobin') => `Save this lab request (${test}) for ${PATIENT_NAME} as a draft?`
 const SEND_LAB = (test = 'Haemoglobin') => `Send this lab request (${test}) for ${PATIENT_NAME}?`
 
+/** A saved record's value by its label, and the closed "More details" under it (owner decision 33.4), if any. */
+function savedValue(label: string) {
+  const value = screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement
+  const details = value.querySelector('details')
+  if (details) {
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary')?.textContent).toMatch(/^More details/)
+  }
+  return { lead: details ? value.querySelector(':scope > span > span')?.textContent : value.textContent, more: details?.querySelector(':scope > div')?.textContent }
+}
+
 async function openOrder(kind: 'pharmacy' | 'laboratory', id: string) {
   open(orderPath(ENCOUNTER_ID, kind, id))
   return screen.findByRole('heading', { level: 1 })
@@ -899,6 +910,24 @@ describe('A prescription’s page', () => {
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
   })
 
+  it('says the route in plain words, with the route code under More details', async () => {
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Route')).toEqual({ lead: 'By mouth', more: 'Route code: oral' })
+    expect(screen.queryByText('oral')).toBeNull()
+  })
+
+  it('shows a route with no plain words as written', async () => {
+    setLists([prescription({ routeCode: 'intrathecal' })], [])
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Route')).toEqual({ lead: 'intrathecal', more: undefined })
+  })
+
+  it('says a missing route is not recorded', async () => {
+    setLists([prescription({ routeCode: null })], [])
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Route')).toEqual({ lead: 'Not recorded', more: undefined })
+  })
+
   it('shows the loading state, then a missing order', async () => {
     setLists([], [])
     open(orderPath(ENCOUNTER_ID, 'pharmacy', RX))
@@ -1071,6 +1100,19 @@ describe('A prescription’s page', () => {
 })
 
 describe('A lab request’s page', () => {
+  it('names the test, with its code under More details rather than a code line', async () => {
+    await openOrder('laboratory', LAB)
+    expect(savedValue('Test')).toEqual({ lead: 'Haemoglobin', more: 'Code: LOINC 718-7' })
+    expect(screen.queryByText('Code', { selector: 'dt' })).toBeNull()
+    expect(screen.queryByText('LOINC 718-7')).toBeNull()
+  })
+
+  it('names a test with no name by its code, with no More details', async () => {
+    setLists([], [labRequest({ testDisplay: '  ' })])
+    await openOrder('laboratory', LAB)
+    expect(savedValue('Test')).toEqual({ lead: 'LOINC 718-7', more: undefined })
+  })
+
   it('offers today’s draft changes to a role that can’t send to Lab, and says who can', async () => {
     expect((await openOrder('laboratory', LAB)).textContent).toBe('Haemoglobin')
     expect(screen.getByRole('button', { name: 'Cancel order' })).toBeTruthy()
@@ -1141,9 +1183,40 @@ describe('A lab request’s page', () => {
     expect(await screen.findByText('9.8 g/dL')).toBeTruthy()
     expect(screen.getByText('Reference range: 12.0-15.5')).toBeTruthy()
     expect(screen.getByText('Result 1')).toBeTruthy()
+    // The test leads with its name; its code waits under a closed "More details" (owner decision 33.4).
+    const named = screen.getByText(/^Haemoglobin · accepted by Lab /)
+    expect(named.textContent).toBe(`Haemoglobin · accepted by Lab ${formatWhen('2026-10-30T10:00:00.000Z')}`)
+    expect(named.textContent).not.toContain('718-7')
+    const details = named.parentElement!.querySelector(':scope > details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary')?.textContent).toBe('More details: Haemoglobin')
+    expect(details.querySelector(':scope > div')?.textContent).toBe('Code: LOINC 718-7')
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+  })
+
+  it('names released results for a test with no name by its code, with no More details, and prints it by its code', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValueOnce({ workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID,
+      acceptedAt: '2026-10-30T10:00:00.000Z', test: { codeSystem: 'LOINC', code: '718-7', name: '' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 1, currentReleasedVersion: 1, revisions: [
+        { version: 1, resultType: 'numeric', numericValue: 9.8, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low', entrySource: 'manual',
+          verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null },
+      ] }] })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    const named = await screen.findByText(/^LOINC 718-7 · accepted by Lab /)
+    // In the app's own date format (formatWhen), as every released-results date is.
+    expect(named.textContent).toBe(`LOINC 718-7 · accepted by Lab ${formatWhen('2026-10-30T10:00:00.000Z')}`)
+    expect(named.parentElement!.querySelector(':scope > details')).toBeNull()
+    // The printed result names the test the same way.
+    let printed = ''
+    vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="lab-result"]')?.textContent ?? '' })
+    fireEvent.click(screen.getByRole('button', { name: 'Print result' }))
+    expect(printed).toContain('LOINC 718-7')
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
   })
 
   it('prints the released result as a lab result paper', async () => {
