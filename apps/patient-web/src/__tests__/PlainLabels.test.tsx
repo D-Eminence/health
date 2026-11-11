@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import type { AccessRequest } from '../api'
 import { AccessPage } from '../routes/Portal'
 import {
@@ -95,9 +95,12 @@ describe('the patient’s Access page', () => {
     expect(screen.getAllByRole('button', { name: /^Approve the request from Ikeja Clinic, Can view and add records, / })).toHaveLength(1)
 
     await press(screen.getByRole('button', { name: /^Who has access/ }))
-    expect(screen.getByText(/^Can view and add records · until /)).toBeTruthy()
-    expect(screen.getByText(/^Can view records · until /)).toBeTruthy()
-    expect(screen.getByText(/^Access to records · until /)).toBeTruthy()
+    // Each access sits under its facility's heading; what it allows is a line of its own, above when it runs.
+    const access = (facility: string) => within(screen.getByRole('heading', { level: 3, name: facility }).parentElement!
+      .nextElementSibling as HTMLElement).getByRole('listitem')
+    expect(within(access('Lagos General')).getByText('Can view and add records')).toBeTruthy()
+    expect(within(access('Ikeja Clinic')).getByText('Can view records')).toBeTruthy()
+    expect(within(access('Kano Hospital')).getByText('Access to records')).toBeTruthy()
     expect(screen.queryByText(/^Write\b/)).toBeNull()
     expect(screen.queryByText(/^Read\b/)).toBeNull()
     expect(screen.queryByText(/admin.override/i)).toBeNull()

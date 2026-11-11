@@ -58,3 +58,28 @@ export function staffName(item: AccessItem): string | null {
 export function holder(item: AccessItem): string {
   return staffName(item) ?? 'A staff member'
 }
+
+const AT = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' })
+/** "11 Nov 2026, 15:45": a day and a time, so two accesses given the same day are told apart. */
+export function dayAndTime(value: string | null | undefined): string {
+  if (!value) return 'an unknown time'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : AT.format(parsed)
+}
+
+/** When an access runs: "From 11 Nov 2026, 14:45 until 11 Nov 2026, 15:45"; one ended early says so, not "until". */
+export function accessTimes(item: AccessItem): string {
+  const from = `From ${dayAndTime(item.startsAt)}`
+  return ['revoked', 'ended'].includes(item.status) ? `${from} · ended before ${dayAndTime(item.expiresAt)}`
+    : `${from} until ${dayAndTime(item.expiresAt)}`
+}
+
+/**
+ * The reason the staff member gave when they asked (an access from a request, an Access PIN or an emergency): with the
+ * name missing, it is what tells two accesses at one facility apart. None for the patient's own share (its reason is
+ * Identity's "Shared by the patient", and the row already says "Shared by you").
+ */
+export function theirReason(item: AccessItem): string | null {
+  if (item.shareLevel || item.shareDuration) return null
+  return typeof item.reason === 'string' && item.reason.trim() ? item.reason.trim() : null
+}

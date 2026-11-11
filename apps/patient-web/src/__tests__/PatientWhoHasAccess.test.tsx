@@ -41,6 +41,8 @@ const facility = (name: string) => {
   const heading = screen.getByRole('heading', { level: 3, name })
   return { counts: heading.nextElementSibling?.textContent, rows: within(heading.parentElement!.nextElementSibling as HTMLElement).getAllByRole('listitem') }
 }
+/** A time as the page shows it (en-NG, this browser's time zone): "11 Nov 2026, 14:45". */
+const at = (value: string) => new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 const facilityHeadings = () => screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)
 
 describe('who has access, counted and grouped by facility', () => {
@@ -85,5 +87,39 @@ describe('who has access, counted and grouped by facility', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'No one has access now' })).toBeTruthy()
     expect(screen.getByText('Past access stays listed, with when it ended.')).toBeTruthy()
     expect(facility('Demo Hospital').counts).toBe('1 past')
+  })
+})
+
+describe('each access says what, until when and why', () => {
+  it('gives each row what the staff member can do, when it starts and ends with the time, and the reason they gave', async () => {
+    await whoHasAccess(() => ({ items: FOUR }))
+    await screen.findByRole('heading', { level: 2, name: 'Demo Hospital has access now' })
+    const rows = facility('Demo Hospital').rows
+    FOUR.forEach((item, index) => {
+      const text = rows[index]!.textContent
+      expect(text).toContain('Can view and add records')
+      expect(text).toContain(`From ${at(item.startsAt)} until ${at(item.expiresAt)}`)
+      expect(text).toContain(`Reason given: “${item.reason}”`)
+    })
+    // The time is said, not only the day: "until 11 Nov 2026, 14:41".
+    expect(rows[1]!.textContent).toMatch(/until \d{1,2} Nov 2026, \d{2}:\d{2}/)
+    // No two rows read the same, and no two End access buttons are named the same.
+    expect(new Set(rows.map(row => row.textContent)).size).toBe(4)
+    const ends = screen.getAllByRole('button', { name: /^End access for/ }).map(button => button.textContent)
+    expect(new Set(ends).size).toBe(4)
+    expect(ends[2]).toContain('reason given: Second check of the malaria result')
+  })
+
+  it('says an access ended early, and gives no reason line for the patient\'s own share', async () => {
+    await whoHasAccess(() => ({ items: [
+      grant('1', { reason: 'Shared by the patient', clinicianName: 'Dr Tunde Example', shareLevel: 'view_only', shareDuration: '7d' }),
+      grant('2', { status: 'revoked', patientRevocable: false }),
+    ] }))
+    await screen.findByRole('heading', { level: 2, name: 'Demo Hospital has access now' })
+    const [share, ended] = facility('Demo Hospital').rows
+    expect(share!.textContent).toContain('Shared by you · View Only')
+    expect(share!.textContent).not.toContain('Reason given')
+    expect(ended!.textContent).toContain(`From ${at('2026-11-11T13:45:00Z')} · ended before ${at('2026-11-11T14:45:00Z')}`)
+    expect(ended!.textContent).not.toContain(' until ')
   })
 })

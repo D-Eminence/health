@@ -53,7 +53,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
-import { groupByFacility, groupCounts, holder, isOpen, staffName, whoHasAccessTitle } from './whoHasAccess'
+import { accessTimes, dayAndTime, groupByFacility, groupCounts, holder, isOpen, staffName, theirReason, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -844,12 +844,15 @@ export function AccessPage() {
             <div className="min-w-0 flex-1">
               {/* Under its facility's heading: the staff member, by name only where the list gives one (a share). */}
               <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{holder(item)}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
+              {/* What they can do, when it runs (with the time), and the reason they gave: what tells rows apart. */}
+              <p className="m-0 mt-0.5 text-[13px] text-ink-2">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{accessTimes(item)}</p>
+              {theirReason(item) && <p className="m-0 mt-0.5 line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{theirReason(item)}”</p>}
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
-              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dayAndTime(item.startsAt)} until {dayAndTime(item.expiresAt)}{theirReason(item) ? `, reason given: ${theirReason(item)}` : ''}</ItemName></Button>}
             </div>
           </li>)}
           </ul>
