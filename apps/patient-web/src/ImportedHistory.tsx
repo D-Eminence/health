@@ -4,6 +4,7 @@ import { Alert, Button } from './kasuwa/ui'
 import type { ImportedAttachmentDownload, ImportedMedicalRecord, ImportedRecordVersion } from './importedRecords'
 import { dayWords, groupByDay as byDay, matchesQuery, textOf } from './routes/recordSearch'
 import './imported-history.css'
+import { useActionFocus } from './routes/actionFocus'
 import { PlainError, plainErrorText } from '@hid/http'
 
 function date(value: string) {
@@ -38,6 +39,9 @@ function InformationValue({ value }: { value: unknown }) {
     ? new Date(text).toLocaleDateString('en-NG', { dateStyle: 'medium', timeZone: 'UTC' }) : text
   return <span className="imported-history-value">{display}</span>
 }
+/** Each Download button's id, for focus to come back to it once the file has opened or failed to. */
+const downloadId = (fileId: string) => `imported-file-${fileId.replace(/[^A-Za-z0-9_-]/g, '_')}`
+
 const originLabel = (record: ImportedMedicalRecord) => record.origin === 'patient-provided' ? 'Added by patient' : 'From a doctor or hospital'
 
 /**
@@ -72,7 +76,7 @@ function VersionContent({ version, level }: { version: ImportedRecordVersion; le
   })}</div>
 }
 
-export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false, query = '', groupedByDay = false }: {
+export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false, query = '', groupedByDay = false, quietNoMatch = false }: {
   records: ImportedMedicalRecord[]; limit: number
   /** Read a page at a time (hid-system main): the footer counts what is shown rather than naming a limit. */
   paged?: boolean
@@ -82,15 +86,19 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
   query?: string
   /** Under day headings, newest day first, as the patient's records page lists them. */
   groupedByDay?: boolean
+  /** The page already says nothing matches the search (RN-19), so no second "no match" line is added here. */
+  quietNoMatch?: boolean
 }) {
   const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  // A failure is said beside the file it is about (RN-05), not at the top of the section, out of view.
+  const [error, setError] = useState<{ fileId: string; text: string } | null>(null)
   const controller = useRef<AbortController | null>(null)
+  const focusAfter = useActionFocus()
   useEffect(() => () => { controller.current?.abort() }, [])
   async function openFile(fileId: string) {
     if (!download || controller.current) return
     const request = new AbortController()
-    controller.current = request; setBusy(fileId); setError('')
+    controller.current = request; setBusy(fileId); setError(null)
     try {
       const result = await download(fileId, request.signal)
       if (request.signal.aborted) return
@@ -102,9 +110,15 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
       link.href = url.toString(); link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'
       link.click()
     } catch (caught) {
-      if (!request.signal.aborted) setError(plainErrorText(caught, 'Couldn’t open the file. Try again.'))
+      if (!request.signal.aborted) {
+        const text = plainErrorText(caught, 'Couldn’t open the file.')
+        setError({ fileId, text: /try again/i.test(text) ? text : `${text} Try again.` })
+      }
     } finally {
-      if (!request.signal.aborted) { controller.current = null; setBusy(null) }
+      if (!request.signal.aborted) {
+        controller.current = null; setBusy(null)
+        focusAfter(() => document.getElementById(downloadId(fileId)))
+      }
     }
   }
   // Under day headings each record's title is a level lower, and so is everything inside it.
@@ -119,11 +133,14 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
       <VersionContent version={current} level={innerLevel} />
       {record.versions.length > 1 && <details><summary>Previous versions</summary>{record.versions.filter(version => version.id !== record.currentVersionId)
         .map(version => <div key={version.id}><Inner>Version {version.versionNo} · {date(version.createdAt)}</Inner><VersionContent version={version} level={innerLevel} /></div>)}</details>}
-      {record.files.length > 0 && <div><Inner>Files</Inner><ul>{record.files.map(file => <li key={file.id}>
+      {record.files.length > 0 && <div><Inner>Files</Inner><ul>{record.files.map(file => <li key={file.id} className="imported-history-file">
         <span>{file.fileName || 'File'}</span>{file.accessStatus === 'available'
-          ? download ? <Button size="sm" icon={Download} loading={busy === file.id} disabled={busy !== null} onClick={() => void openFile(file.id)}>
-            {busy === file.id ? 'Opening…' : <>Download{' '}<span className="sr-only">{file.fileName || 'file'}</span></>}</Button> : <span>You can’t open this file here.</span>
+          // Busy but never disabled, so the keyboard stays on it while the file opens; openFile sends one at a time.
+          ? download ? <Button id={downloadId(file.id)} size="sm" icon={Download} aria-busy={busy === file.id || undefined}
+            aria-disabled={busy !== null || undefined} onClick={() => void openFile(file.id)}>
+            {busy === file.id ? <>Opening…<span className="sr-only"> {file.fileName || 'file'}</span></> : <>Download{' '}<span className="sr-only">{file.fileName || 'file'}</span></>}</Button> : <span>You can’t open this file here.</span>
           : <span>{file.accessStatus === 'rejected' ? 'This file can’t be opened. It failed our safety check.' : 'This file is still being checked for safety.'}</span>}
+        {error?.fileId === file.id && <Alert intent="error" size="sm">{error.text}</Alert>}
       </li>)}</ul></div>}
     </article>
   }
@@ -132,9 +149,8 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
   return <section className="imported-history" aria-label="Older health records">
     <h2>Older health records</h2>
     <p>From the old Health ID system.</p>
-    {error && <Alert intent="error" size="sm">{error}</Alert>}
     {records.length === 0 ? <p>No older records.</p>
-      : shown.length === 0 ? <p>No older records match your search.</p>
+      : shown.length === 0 ? (quietNoMatch ? null : <p>No older records match your search.</p>)
       : groupedByDay ? byDay(shown, record => record.createdAt).map(group => <div className="imported-history-day" key={group.day ?? 'undated'}>
         <h3 className="m-0 rounded-md bg-subtle px-3 py-2 text-overline text-ink-3">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
       : <div className="imported-history-list">{shown.map(card)}</div>}

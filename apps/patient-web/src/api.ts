@@ -638,6 +638,9 @@ export function parseImportedNotifications(value: unknown): ImportedNotification
   })
 }
 
+/** The most inbox notifications one read lists (GET identity/me/notifications takes a limit of 1 to 100). */
+export const NOTIFICATIONS_LIMIT = 100
+
 /** The most imported notifications one read lists (Identity takes 1 to 100). */
 export const IMPORTED_NOTIFICATIONS_PAGE = 100
 
@@ -960,7 +963,8 @@ export function createPatientApi(sender: ApiClient) {
     accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined, { signal }),
     approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`),
     denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason }),
-    notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal }),
+    // The newest NOTIFICATIONS_LIMIT, the most Identity lists (RN-11); the page says when the list is full.
+    notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal, query: { limit: String(NOTIFICATIONS_LIMIT) } }),
     // Orders a clinician sent to another facility (Novu, P4c): hid-system main, and a Novu before it, answer 404.
     orderRoutes: (signal?: AbortSignal) => call<{ items: PatientOrderRoute[] }>('GET', 'ehr/me/order-routes', undefined, { signal }),
     // Stop, before the receiving facility accepts it: the patient's only action on an order sent elsewhere.

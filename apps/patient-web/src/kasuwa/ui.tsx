@@ -274,7 +274,7 @@ export function Field({ label, hint, error, children, className, htmlFor, option
   </div>
 }
 
-export function Input({ className, icon: I, prefix, ...rest }: React.InputHTMLAttributes<HTMLInputElement> & { icon?: Icon; prefix?: string }) {
+export function Input({ className, icon: I, prefix, ...rest }: React.ComponentProps<'input'> & { icon?: Icon; prefix?: string }) {
   if (I || prefix) return <div className={cx('relative', className)}>
     {I && <I className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-ink-3" aria-hidden />}
     {prefix && <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-sm text-ink-3">{prefix}</span>}

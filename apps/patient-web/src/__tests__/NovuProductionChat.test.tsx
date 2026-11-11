@@ -125,3 +125,14 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
     noDeletion(sent)
   })
 });
+
+it('RN-20: names the browser tab for the chat page', async () => {
+  vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+  document.title = 'Notifications · Health ID'
+  const api = { novuChat: vi.fn(), novuChatHistory: vi.fn().mockResolvedValue(empty), clearNovuChatHistory: vi.fn(), chatSource: vi.fn() }
+  const view = render(<SessionContext.Provider value={createTestSessionValue(patient, api as never)}><SelectedPatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(api.novuChatHistory).toHaveBeenCalledTimes(1))
+  expect(document.title).toBe('Ask about your records · Health ID')
+  view.unmount()
+  expect(document.title).toBe('Notifications · Health ID')
+})
