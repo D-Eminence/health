@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { Activity, Blocks, Building2, CircleDollarSign, ClipboardCheck, FileCheck2, LayoutDashboard, Lock, Megaphone, PhoneOff, Route as RouteIcon, ScanFace, ScrollText, ShieldCheck, ShieldX, SlidersHorizontal, Stethoscope, TriangleAlert, UserPlus, Users, Compass } from 'lucide-react'
+import { Activity, Blocks, Building2, BookOpenCheck, CircleDollarSign, ClipboardCheck, FileCheck2, LayoutDashboard, Lock, Megaphone, PhoneOff, Route as RouteIcon, ScanFace, ScrollText, ShieldCheck, ShieldX, SlidersHorizontal, Stethoscope, TriangleAlert, UserPlus, Users, Compass } from 'lucide-react'
 import { AppShell, type NavItem } from '../kasuwa/AppShell'
 import { Alert, Badge, Button, EmptyState, type Icon } from '../kasuwa/ui'
 import { ToastProvider } from '../kasuwa/toast'
@@ -22,6 +22,8 @@ import { PrincipalsPage } from './Principals'
 import { SelfServiceFacilitiesPage } from './SelfServiceFacilities'
 import { OrderRoutesPage } from './OrderRoutes'
 import { WrongPatientReportsPage } from './WrongPatientReports'
+import { ReadingQualityPage } from './ReadingQuality'
+import { useReadingQualityServed } from '../readingLearningServed'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
@@ -103,6 +105,8 @@ function useAreaTitle() {
 export function App() {
   // The sidebar lists support's wrong-patient reports only while no answer has said the backend lacks them (item 3).
   useWrongPatientServed()
+  // The same for Reading quality (Migrate learning): listed until its read answers 404.
+  useReadingQualityServed()
   const [session, setSession] = useState<AdminSession | null>(null)
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState<string | null>(null)
@@ -322,6 +326,7 @@ export function App() {
               <Route path="audit" element={<Area path="/admin/audit" actor={actor}><AuditPage /></Area>} />
               <Route path="security" element={<Area path="/admin/security" actor={actor}><SecurityPage onSignOut={() => void signOut()} /></Area>} />
               <Route path="operations" element={<Area path="/admin/operations" actor={actor}><OperationsPage /></Area>} />
+              <Route path="reading-quality" element={<Area path="/admin/reading-quality" actor={actor}><ReadingQualityPage /></Area>} />
               <Route path="integrations" element={<Area path="/admin/integrations" actor={actor}><IntegrationsPage actor={actor} /></Area>} />
               <Route path="controls" element={<Area path="/admin/controls" actor={actor}><ControlsPage actor={actor} /></Area>} />
               <Route path="pricing" element={<Area path="/admin/pricing" actor={actor}><PricingPage actor={actor} /></Area>} />
@@ -340,7 +345,7 @@ const ADMIN_ICONS: Readonly<Record<string, Icon>> = {
   '/admin/facilities': Building2, '/admin/order-routes': RouteIcon, '/admin/wrong-patient-reports': TriangleAlert,
   '/admin/principals': Users, '/admin/emergency-contacts': PhoneOff, '/admin/approvals': ClipboardCheck,
   '/admin/reviews': ScanFace, '/admin/clinicians': Stethoscope, '/admin/audit': ScrollText, '/admin/security': Lock,
-  '/admin/operations': Activity, '/admin/integrations': Blocks, '/admin/controls': SlidersHorizontal,
+  '/admin/operations': Activity, '/admin/reading-quality': BookOpenCheck, '/admin/integrations': Blocks, '/admin/controls': SlidersHorizontal,
   '/admin/pricing': CircleDollarSign, '/admin/demos': Megaphone,
 }
 

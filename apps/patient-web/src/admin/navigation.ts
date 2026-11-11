@@ -1,5 +1,6 @@
 import { usesNovuBackend } from '../backendContract'
 import { wrongPatientServed } from '../wrongPatientServed'
+import { readingQualityServed } from '../readingLearningServed'
 import type { AdminActor } from './api'
 
 /**
@@ -93,6 +94,11 @@ export const NAVIGATION: readonly NavigationSection[] = [
   { title: 'Operations', items: [
     { path: '/admin/operations', title: 'Service health', visible: can('platform.operations.read'),
       description: 'Service checks and event delivery.' },
+    // Migrate learning (proposed): the overview's activity permission, so only super admins see it. A backend without the
+    // read answers 404, which the page says; once it has, the sidebar stops listing it.
+    { path: '/admin/reading-quality', title: 'Reading quality', visible: can('platform.dashboard.read'),
+      listed: () => readingQualityServed() !== false,
+      description: 'How well paper records are read, from what staff keep, change, remove and add when they check them.' },
     { path: '/admin/integrations', title: 'Integrations', visible: can('platform.integration.read'),
       description: 'Provider status, routing, configuration and history.' },
     { path: '/admin/controls', title: 'Platform controls', visible: can('platform.control.read'),

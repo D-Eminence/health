@@ -4,6 +4,7 @@ import { environment } from './env'
 import { backendContract, usesNovuBackend } from '../backendContract'
 import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
 import { announceAdminSessionChange } from './tabs'
+import { READING_QUALITY_DAYS, READING_QUALITY_PATH } from '../readingLearningContract'
 
 export interface AdminActor {
   accountId: string
@@ -795,6 +796,23 @@ export const adminApi = {
   overview(signal?: AbortSignal) { return request<PlatformOverview>('/api/v1/admin/overview', { signal }) },
   activity(days: ActivityDays, signal?: AbortSignal) {
     return request<PlatformActivity>('/api/v1/admin/overview/activity', { signal, query: { days } })
+  },
+  /**
+   * Migrate learning's counts, "Reading quality" (proposed; readingLearningContract.ts names its route and fields): what
+   * staff kept, changed, removed and found missing when they checked paper readings, for the last READING_QUALITY_DAYS
+   * days. Counts only, never an item, a patient or a facility. A backend without the route answers 404, said as
+   * READING_QUALITY_UNAVAILABLE.
+   */
+  async readingQuality(signal?: AbortSignal): Promise<unknown> {
+    try {
+      return await request<unknown>(READING_QUALITY_PATH, { signal, query: { days: READING_QUALITY_DAYS } })
+    } catch (error) {
+      if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
+        throw new HidApiError(404, 'Reading quality is not available from this Identity yet.',
+          { code: 'READING_QUALITY_UNAVAILABLE', requestId: error.requestId, retryable: false })
+      }
+      throw error
+    }
   },
   operationsHealth(signal?: AbortSignal) { return request<OperationsHealth>('/api/v1/admin/operations/health', { signal }) },
   operationsErrors(signal?: AbortSignal) { return request<OperationsErrors>('/api/v1/admin/operations/errors', { signal }) },

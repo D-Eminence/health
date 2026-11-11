@@ -34,7 +34,8 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
  * the push keys as well: callers treat a 404 as "not available yet" and show
- * nothing.
+ * nothing; and Migrate learning's admin "Reading quality" counts, which no
+ * hid-system branch serves yet (Session B is building them).
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -1083,6 +1084,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Service availability and response times; 503 not_configured until monitoring is set up.')),
   proposed(r('admin.operationsErrors','admin','/api/v1/admin/operations/errors',G,false,one('GET','platform.dashboard.read'),
     'Open problems from error reporting; 503 not_configured until it is connected.')),
+  // Migrate learning, phase 1 (proposed; Session B will share the field names): counts of what staff kept, changed,
+  // removed and found missing when they checked paper readings. Super admin only. 404 until served, when the admin
+  // "Reading quality" page says it isn't available yet and the sidebar stops listing it.
+  { ...proposed(r('admin.readingQuality','admin','/api/v1/admin/ocr/reading-quality',G,false,one('GET','platform.dashboard.read'),
+    'Proposed, not served by hid-system yet (404). days is the period read; counts only, never an item, patient or facility.')),
+  requiredQuery: { GET: ['days'] } },
   r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
     'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
