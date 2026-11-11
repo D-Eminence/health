@@ -4,7 +4,7 @@ import { EhrButton, EhrCard, EhrSampleBanner } from '@hid/ui/ehr'
 import type { Facility } from '../../staff/api'
 import { selfServiceReview } from '../../staff/staffAccess'
 import { Detail } from './parts'
-import { ALREADY_OPEN, NOT_GIVEN, NO_LAUNCH_STEP, PROFILE_FAILED, PROFILE_KEPT, PROFILE_LOADING, facilityCheckPending, staffOnceChecked } from './setupText'
+import { ALREADY_OPEN, NOT_GIVEN, NO_LAUNCH_STEP, PROFILE_DENIED, PROFILE_FAILED, PROFILE_KEPT, PROFILE_LOADING, facilityCheckPending, staffOnceChecked } from './setupText'
 import { profileForm, profileRows } from '../collected/facilityProfile'
 import type { ProfileState } from './facilityProfileState'
 import { paymentMethods, type SampleSetup } from './setupState'
@@ -24,6 +24,7 @@ const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
 function ProfileDetails({ profile }: { readonly profile: ProfileState }) {
   if (profile.status === 'loading') return <Detail term="Facility details">{PROFILE_LOADING}</Detail>
   if (profile.status === 'kept') return <Detail term="Facility details">{PROFILE_KEPT}</Detail>
+  if (profile.status === 'denied') return <Detail term="Facility details">{PROFILE_DENIED}</Detail>
   if (profile.status === 'failed') return <Detail term="Facility details">{PROFILE_FAILED}</Detail>
   const saved = profile.read.profile
   if (!saved) return <Detail term="Facility details">{NOT_GIVEN}</Detail>

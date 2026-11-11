@@ -27,6 +27,9 @@ const STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 
 const REAL_STEPS = ['Facility', 'Staff', 'Roles', 'Review']
 const DEMO = 'Demo Hospital'
 const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
+/** Someone else saved the details first: what was typed is kept. */
+const CONFLICT = 'Someone else saved these details first. Your changes are still below and are not saved yet. '
+  + 'Check them against theirs, then save again.'
 /** Where Identity keeps the facility's details itself (a demo facility here). */
 const KEPT = 'Health ID support keeps this facility’s details. Contact them to change any of them.'
 const OPTIONAL_AT_DEMO = 'Optional after launch: staff invitations, service pricing, wards and beds, inventory and professional credential records.'
@@ -293,19 +296,69 @@ describe('step 1, Facility', () => {
     expect(reviewFacts()['Facility phone']).toBe('+2348000000001')
   })
 
-  it('opens with the saved details, and when someone else saved first, reads theirs again and says so', async () => {
+  it('opens with the saved details; when someone else saved first, keeps what was typed, lists theirs, and saves at their version', async () => {
     const sent = serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()),
       [PROFILE]: [profileAnswer(SAVED_PROFILE, 3), profileAnswer({ ...SAVED_PROFILE, bedCount: 150 }, 4)],
-      [SAVE_PROFILE]: [() => problem(412, 'VERSION_CONFLICT', 'Someone saved first.')] })
+      [SAVE_PROFILE]: [() => problem(412, 'VERSION_CONFLICT', 'Someone saved first.'),
+        () => json({ facilityId: membership().id, version: 5, changedFields: ['bedCount'], replayed: false })] })
     await openStaffApp('/provider/onboarding')
     const beds = await screen.findByRole('textbox', { name: 'Bed count' }) as HTMLInputElement
     expect(beds.value).toBe('120')
     fireEvent.change(beds, { target: { value: '130' } })
     press('Save and continue')
-    expect(await screen.findByText('Someone else saved these details first. Here are theirs: check them, then save again.')).toBeDefined()
-    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Bed count' }) as HTMLInputElement).value).toBe('150'))
-    expect(sent.find(request => request.route === SAVE_PROFILE)?.headers.get('If-Match')).toBe('"3"')
+    const alert = (await screen.findByText(CONFLICT)).closest('[role="alert"]') as HTMLElement
+    // What was typed stays; theirs are listed beside it, only where they differ.
+    expect((screen.getByRole('textbox', { name: 'Bed count' }) as HTMLInputElement).value).toBe('130')
+    expect(within(alert).getByText('Their saved details that differ from yours')).toBeDefined()
+    const theirs = Object.fromEntries([...alert.querySelectorAll('dt')].map(term => [term.textContent, term.nextElementSibling?.textContent]))
+    expect(theirs).toEqual({ 'Bed count': '150' })
+    expect(sent.filter(request => request.route === SAVE_PROFILE)[0]?.headers.get('If-Match')).toBe('"3"')
     expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    press('Save and continue')
+    await waitFor(() => expect(eyebrow()).toBe('Step 2 of 4 · Staff'))
+    const second = sent.filter(request => request.route === SAVE_PROFILE)[1]!
+    expect(second.headers.get('If-Match')).toBe('"4"')
+    expect(second.body).toMatchObject({ bedCount: 130 })
+    expect(second.headers.get('Idempotency-Key')).not.toBe(sent.filter(request => request.route === SAVE_PROFILE)[0]?.headers.get('Idempotency-Key'))
+  })
+
+  it('stays on the step when a save is refused for permission, says so plainly, and goes on only when asked', async () => {
+    serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer(SAVED_PROFILE, 3)),
+      [SAVE_PROFILE]: [() => problem(403, 'PERMISSION_DENIED', 'Not allowed.')] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Bed count' })
+    press('Save and continue')
+    expect(await screen.findByText('Only the facility administrator can change these details.')).toBeDefined()
+    expect(screen.getByText('The details you entered were not saved.')).toBeDefined()
+    expect(screen.queryByText(KEPT)).toBeNull()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    // Review says the same, not that support keeps the details.
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()['Facility details']).toBe('Only the facility administrator can change these details.')
+    fireEvent.click(stepButton('Facility'))
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('stays on the step when a save is refused because the facility is a sealed demo, and says the details were not saved', async () => {
+    serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer(SAVED_PROFILE, 3)),
+      [SAVE_PROFILE]: [() => problem(409, 'FACILITY_PROFILE_SEALED', 'Sealed.')] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Bed count' })
+    press('Save and continue')
+    expect(await screen.findByText(KEPT)).toBeDefined()
+    expect(screen.getByText('The details you entered were not saved.')).toBeDefined()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('says only the administrator can change the details when the read is refused for permission', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), many(() => problem(403, 'PERMISSION_DENIED', 'Not allowed.')))
+    expect(await screen.findByText('Only the facility administrator can change these details.')).toBeDefined()
+    expect(screen.queryByText(KEPT)).toBeNull()
+    press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
   })
 
   it('says where Health ID support keeps the details, and goes on with Continue', async () => {

@@ -3,7 +3,7 @@ import { isStateCode, PHONE_REFUSED, phoneE164, REQUIRED, textProblem } from './
 
 /**
  * The patient's contact as a registration desk takes it, and the Health ID they say they already have (hid-system
- * 0114, collect-fields-contract.md §3), sent with the NIN check (`nin/resolve`) by every screen that makes one: the
+ * 0114, hid-system docs/INTERFACE_CONTRACT.md section 43.3), sent with the NIN check (`nin/resolve`) by every screen that makes one: the
  * blue Registration page, the classic one, and a pharmacy's or laboratory's new Health ID. All required (owner: "all
  * fields required"). The facility keeps them as unverified: they are never used for sign-in or recovery, and Identity
  * never returns them. Allergies are left to clinical records and "provisional local identity" is off, so neither is

@@ -107,7 +107,7 @@ const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is
 /**
  * Collected sign-up fields (hid-system 0114, owner: "allow trading name, all fields required"): facility sign-up's role,
  * phone and facility details, Facility setup's facility profile, and patient registration's desk fields. Novu only.
- * Released in three steps (contract 37.0): the 0114 backend, which takes the new sign-up and desk fields all or none (a
+ * Released in three steps (hid-system docs/INTERFACE_CONTRACT.md section 43.0): the 0114 backend, which takes the new sign-up and desk fields all or none (a
  * partial set is refused) so the live website keeps working; then this website, which always sends every one; then a
  * follow-up backend that makes them required in the API. Before 0114 Identity refuses them as unknown fields.
  */
@@ -576,7 +576,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
     + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
     + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
-  // The facility's details (hid-system 0114, collect-fields-contract.md §4): read and saved by Facility setup.
+  // The facility's details (hid-system 0114, hid-system docs/INTERFACE_CONTRACT.md section 43.4): read and saved by Facility setup.
   proposed(r('identity.facilityProfile','identity','/api/v1/identity/facility-profile',GP,false,
     { GET: ['workforce.manage'], POST: ['workforce.manage'] },
     `${COLLECTED_FIELDS} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, CSRF on POST; only `

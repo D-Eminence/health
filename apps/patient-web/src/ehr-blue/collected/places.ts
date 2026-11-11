@@ -4,7 +4,7 @@
  * phone rule, and the email rule.
  */
 
-/** ISO 3166-2:NG, as identity.nigeria_states holds them (contract §5). The FCT is shown with its short name too. */
+/** ISO 3166-2:NG, as identity.nigeria_states holds them (contract section 43.5). The FCT is shown with its short name too. */
 export const NIGERIA_STATES: ReadonlyArray<readonly [code: string, name: string]> = [
   ['AB', 'Abia'], ['AD', 'Adamawa'], ['AK', 'Akwa Ibom'], ['AN', 'Anambra'], ['BA', 'Bauchi'], ['BY', 'Bayelsa'],
   ['BE', 'Benue'], ['BO', 'Borno'], ['CR', 'Cross River'], ['DE', 'Delta'], ['EB', 'Ebonyi'], ['ED', 'Edo'],

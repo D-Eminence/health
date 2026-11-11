@@ -174,7 +174,7 @@ export function useEnrollment() {
     return { administratorRole, administratorPhone: administratorPhone.trim(), profile }
   }
 
-  /** The same, as Identity takes it in the start's body (collect-fields-contract.md §2). */
+  /** The same, as Identity takes it in the start's body (hid-system docs/INTERFACE_CONTRACT.md section 43.2). */
   function collectedBody() {
     return {
       administratorRole,

@@ -50,8 +50,18 @@ export const PROFILE_NOT_SAVED = 'Your facility’s details are not saved yet. T
 /** The button that goes on after a failed read. */
 export const CONTINUE_UNSAVED = 'Continue without saving'
 
-/** Someone else saved the details first (412): they were read again. */
-export const PROFILE_CONFLICT = 'Someone else saved these details first. Here are theirs: check them, then save again.'
+/** Someone else saved the details first (412): theirs were read again, and what was typed is kept. */
+export const PROFILE_CONFLICT = 'Someone else saved these details first. Your changes are still below and are not saved yet. '
+  + 'Check them against theirs, then save again.'
+
+/** The heading over the other person's saved details, where they differ from what was typed. */
+export const PROFILE_THEIRS = 'Their saved details that differ from yours'
+
+/** Where this person may not change the facility's details (403 PERMISSION_DENIED). */
+export const PROFILE_DENIED = 'Only the facility administrator can change these details.'
+
+/** After a save Identity refused (kept by support, a demo facility, or no permission): nothing typed was kept. */
+export const PROFILE_SAVE_REFUSED = 'The details you entered were not saved.'
 
 /** The Review step's value for a facility whose details are not given yet. */
 export const NOT_GIVEN = 'Not given yet'

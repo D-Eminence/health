@@ -84,7 +84,7 @@ export const eyebrow = () => document.querySelector('.hid-ehr-onboarding .hid-eh
 export const heading = () => screen.getByRole('heading', { level: 1, name: /Set up your facility$/ })
 
 
-/** A facility profile as Identity holds it (contract §1, §4): every field given, fictional. */
+/** A facility profile as Identity holds it (contract section 43.1, 43.4): every field given, fictional. */
 export const SAVED_PROFILE: FacilityProfileValues = {
   tradingName: 'Riverside Hospital', ownership: 'private', careLevel: 'tertiary', addressLine: '2 Fiction Close', city: 'Ikeja',
   stateCode: 'LA', lga: 'Ikeja', gpsLatitude: 6.6, gpsLongitude: 3.35, phone: '+2348000000001', email: 'desk@riverside.example.test',

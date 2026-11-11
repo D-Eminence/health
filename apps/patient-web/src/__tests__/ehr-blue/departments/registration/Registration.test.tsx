@@ -133,7 +133,7 @@ function fillDesk({ hid = '' } = {}) {
   fireEvent.change(screen.getByLabelText(/^Does the patient already have a Health ID/), { target: { value: hid ? 'yes' : 'no' } })
   if (hid) fireEvent.input(screen.getByLabelText(/^Existing Health ID/), { target: { value: hid } })
 }
-/** What fillDesk sends with the NIN check (collect-fields-contract.md §3). */
+/** What fillDesk sends with the NIN check (hid-system docs/INTERFACE_CONTRACT.md section 43.3). */
 const DESK = { phone: '+2348031234567', addressLine: '3 Example Street', city: 'Ikeja', stateCode: 'LA', lga: 'Ikeja',
   hasExistingHealthId: false, existingHealthId: null }
 async function findCase(caseId = CASE) {

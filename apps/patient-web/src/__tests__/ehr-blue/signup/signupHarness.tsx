@@ -96,7 +96,7 @@ export function fillPlatform() {
   choose('Do you need to exchange records with other systems?', 'yes')
 }
 
-/** What the fills above send with the start, as Identity takes it (collect-fields-contract.md §2). */
+/** What the fills above send with the start, as Identity takes it (hid-system docs/INTERFACE_CONTRACT.md section 43.2). */
 export const COLLECTED = {
   administratorRole: 'owner',
   administratorPhone: '+2348031234567',

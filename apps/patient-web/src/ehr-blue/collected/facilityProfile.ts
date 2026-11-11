@@ -10,7 +10,7 @@ export const OWNERSHIP: ReadonlyArray<readonly [Ownership, string]> = [
 export const CARE_LEVELS: ReadonlyArray<readonly [CareLevel, string]> = [
   ['primary', 'Primary'], ['secondary', 'Secondary'], ['tertiary', 'Tertiary'],
 ]
-/** The design's departments, in its order (src/model.ts:349-365), as Identity's codes (contract §6). */
+/** The design's departments, in its order (src/model.ts:349-365), as Identity's codes (contract section 43.6). */
 export const DEPARTMENTS: ReadonlyArray<readonly [DepartmentCode, string]> = [
   ['general_outpatient', 'General Outpatient'], ['emergency', 'Emergency'], ['inpatient', 'Inpatient'],
   ['laboratory', 'Laboratory'], ['pharmacy', 'Pharmacy'], ['maternity', 'Maternity'], ['pediatrics', 'Pediatrics'],

@@ -3,14 +3,15 @@ import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
 import type { Facility, FacilityProfileRead } from '../../staff/api'
 import { selfServiceReview } from '../../staff/staffAccess'
 import {
-  ALL_PROFILE_FIELDS, emptyProfileForm, profileForm, profileProblems, profileValues,
+  ALL_PROFILE_FIELDS, emptyProfileForm, profileForm, profileProblems, profileRows, profileValues,
   type FacilityProfileForm, type ProfileField,
 } from '../collected/facilityProfile'
 import { profileControlId, ProfileFields } from '../collected/ProfileFields'
 import type { FacilityProfileHandle } from './facilityProfileState'
+import { Detail } from './parts'
 import {
-  CONTINUE_UNSAVED, facilityCheckDone, facilityCheckPending, PROFILE_CONFLICT, PROFILE_FAILED, PROFILE_KEPT, PROFILE_LOADING,
-  PROFILE_NOT_SAVED,
+  CONTINUE_UNSAVED, facilityCheckDone, facilityCheckPending, PROFILE_CONFLICT, PROFILE_DENIED, PROFILE_FAILED, PROFILE_KEPT,
+  PROFILE_LOADING, PROFILE_NOT_SAVED, PROFILE_SAVE_REFUSED, PROFILE_THEIRS,
 } from './setupText'
 
 const PREFIX = 'hid-ehr-onboarding-profile'
@@ -30,24 +31,33 @@ export function FacilityStep({ facility, profile, onNext }: {
 }) {
   const review = selfServiceReview(facility)
   const { state } = profile
+  const refusedSave = (state.status === 'kept' || state.status === 'denied') && state.refusedSave === true
   return (
     <EhrCard>
       <div className="hid-ehr-onboarding-stack">
-        {state.status === 'ready' ? <ProfileForm key={state.read.version} facility={facility} read={state.read}
+        {state.status === 'ready' ? <ProfileForm facility={facility} read={state.read}
           profile={profile} onNext={onNext} /> : (
           <form noValidate aria-label="Facility" className="hid-ehr-onboarding-grid" onSubmit={event => { event.preventDefault(); onNext() }}>
             <RegisteredName facility={facility} />
             <div className="hid-ehr-onboarding-full">
               {state.status === 'loading' ? <p role="status" className="hid-ehr-onboarding-text">{PROFILE_LOADING}</p> : null}
-              {state.status === 'kept' ? <p className="hid-ehr-onboarding-text">{PROFILE_KEPT}</p> : null}
+              {refusedSave ? <div role="alert" className="hid-ehr-onboarding-blocker">
+                <p>{state.status === 'denied' ? PROFILE_DENIED : PROFILE_KEPT}</p>
+                <p>{PROFILE_SAVE_REFUSED}</p>
+              </div> : null}
+              {state.status === 'kept' && !refusedSave ? <p className="hid-ehr-onboarding-text">{PROFILE_KEPT}</p> : null}
+              {state.status === 'denied' && !refusedSave ? <p className="hid-ehr-onboarding-text">{PROFILE_DENIED}</p> : null}
               {state.status === 'failed' ? <div role="alert" className="hid-ehr-onboarding-blocker">
                 <p>{PROFILE_FAILED}</p>
                 <p>{PROFILE_NOT_SAVED}</p>
               </div> : null}
             </div>
-            {/* Continue only where there is nothing to give here (support keeps the details), or, after a failed read, once
-                the step has said plainly that the details are not saved. Nothing to press while they are still read. */}
-            {state.status === 'kept' ? <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Continue</EhrButton></div> : null}
+            {/* Continue only where there is nothing to give here (support keeps the details, or this person may not change
+                them), or, after a failed read or a refused save, once the step has said plainly that the details are not
+                saved. Nothing to press while they are still read. */}
+            {state.status === 'kept' || state.status === 'denied' ? <div className="hid-ehr-onboarding-full">
+              <EhrButton type="submit">{refusedSave ? CONTINUE_UNSAVED : 'Continue'}</EhrButton>
+            </div> : null}
             {state.status === 'failed' ? <div className="hid-ehr-onboarding-full hid-ehr-onboarding-actions">
               <EhrButton onClick={profile.reload}>Try again</EhrButton>
               <EhrButton type="submit" variant="secondary">{CONTINUE_UNSAVED}</EhrButton>
@@ -98,14 +108,33 @@ function ProfileForm({ facility, read, profile, onNext }: {
     setBusy(true)
     const outcome = await profile.save(values, key.current.key)
     setBusy(false)
-    if (outcome === 'saved' || outcome === 'kept') { key.current = null; onNext(); return }
+    if (outcome === 'saved') { key.current = null; onNext(); return }
+    // Refused (support keeps the details, a demo facility, or no permission): the step says the details were not
+    // saved, and goes on only when asked to.
+    if (outcome === 'kept' || outcome === 'denied') { key.current = null; return }
+    // Someone else saved first: what was typed stays, theirs are listed beside it, and the next save is made at their
+    // version (a new key, since the version is part of the body).
     if (outcome === 'conflict') { key.current = null; return }
     setMessage(outcome.error)
   }
 
+  // Theirs, where they differ from what is typed now (after someone else saved first).
+  const mine = new Map(profileRows(form))
+  const theirs = profile.conflict && read.profile
+    ? profileRows(profileForm(read.profile)).filter(([term, value]) => mine.get(term) !== value)
+    : []
+
   return (
     <>
-      {profile.conflict ? <p role="alert" className="hid-ehr-onboarding-blocker">{PROFILE_CONFLICT}</p> : null}
+      {profile.conflict ? <div role="alert" className="hid-ehr-onboarding-blocker">
+        <p>{PROFILE_CONFLICT}</p>
+        {theirs.length > 0 ? <>
+          <p>{PROFILE_THEIRS}</p>
+          <dl className="hid-ehr-onboarding-details">
+            {theirs.map(([term, value]) => <Detail key={term} term={term}>{value}</Detail>)}
+          </dl>
+        </> : null}
+      </div> : null}
       <form noValidate aria-label="Facility" className="hid-ehr-onboarding-grid" onSubmit={event => void submit(event)}>
         <RegisteredName facility={facility} />
         <ProfileFields form={form} fields={ALL_PROFILE_FIELDS} errors={errors} prefix={PREFIX}

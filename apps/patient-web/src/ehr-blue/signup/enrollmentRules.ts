@@ -247,7 +247,7 @@ export interface CodeCarries {
   administratorName: string
   /**
    * hid-system 0114: the role, phone and facility details the start sent, which are kept with the code it sent, as the
-   * type and name are (collect-fields-contract.md §2). Absent where the page did not send them.
+   * type and name are (hid-system docs/INTERFACE_CONTRACT.md section 43.2). Absent where the page did not send them.
    */
   collected?: CollectedDetails
 }

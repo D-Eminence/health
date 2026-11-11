@@ -26,7 +26,7 @@ function Choices({ list }: { readonly list: ReadonlyArray<readonly [string, stri
 }
 
 /**
- * The facility's details as named, required inputs (contract §1), in the order given: facility sign-up draws them over
+ * The facility's details as named, required inputs (contract section 43.1), in the order given: facility sign-up draws them over
  * three of its steps, and Facility setup draws them all. A registry ID or NHIA number appears once the facility says
  * it has one. Errors are by field; each control's id is profileControlId(prefix, field).
  */
