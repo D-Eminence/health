@@ -5,7 +5,7 @@ import {
   keptMedicines, keptText, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
-import { handwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
+import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
 
 /*
  * What staff choose on the check becomes the review ocr-api takes. The checks below are ocr-api's own, copied from
@@ -322,12 +322,12 @@ describe('the review built from the choices', () => {
     const kept = built(buildValidation({ ...choices('PHARMACY'), reading: one, decisions: { [id]: { choice: 'keep', text: '' } } }))
     expect(() => assertAccepted(kept, payload)).not.toThrow()
     expect(kept.acceptedFields.medications).toEqual([{ itemId: id, page: 1, medicationText: 'Possibly ceftriaxone IV; dose and frequency unreadable',
-      historicalContext: 'From a paper record, page 1. As written: Ceftriaxone ? IV' }])
+      historicalContext: 'From a paper record, page 1. Read as: Ceftriaxone ? IV' }])
     for (const key of LEGACY) expect(kept.acceptedFields).not.toHaveProperty(key)
     const changed = built(buildValidation({ ...choices('PHARMACY'), reading: one, decisions: { [id]: { choice: 'change', text: 'Ceftriaxone 1 g into a vein once a day' } } }))
     expect(() => assertAccepted(changed, payload)).not.toThrow()
     expect(changed.acceptedFields.medications).toEqual([{ itemId: id, page: 1, medicationText: 'Ceftriaxone 1 g into a vein once a day',
-      historicalContext: 'From a paper record, page 1. As written: Ceftriaxone ? IV' }])
+      historicalContext: 'From a paper record, page 1. Read as: Ceftriaxone ? IV' }])
     expect(changed.corrections).toHaveLength(1)
     const removed = buildValidation({ ...choices('PHARMACY'), reading: one, decisions: { [id]: { choice: 'remove', text: '' } } })
     expect(removed).toEqual({ problem: { field: 'ocr-review-domain', message: expect.stringMatching(/^No medicine is kept/) } })
@@ -338,8 +338,8 @@ describe('the review built from the choices', () => {
     expect(() => assertAccepted(input)).not.toThrow()
     expect(input.acceptedFields.medications).toEqual([
       { itemId: AMLODIPINE, page: 1, medicationText: 'Amlodipine', strengthText: '5 mg', frequencyText: 'once a day',
-        historicalContext: 'From a paper record, page 1. As written: Amlodipine 5mg od x 30/7. For 30 days. Prescribed by Dr Ade Fictional. Prescribed on 02/03/2025' },
-      { itemId: METFORMIN, page: 1, medicationText: 'Metformin 850 mg twice a day', historicalContext: 'From a paper record, page 1. As written: Metf?rmin 500 bd' },
+        historicalContext: 'From a paper record, page 1. Read as: Amlodipine 5mg od x 30/7. For 30 days. Prescribed by Dr Ade Fictional. Prescribed on 02/03/2025' },
+      { itemId: METFORMIN, page: 1, medicationText: 'Metformin 850 mg twice a day', historicalContext: 'From a paper record, page 1. Read as: Metf?rmin 500 bd' },
     ])
     for (const key of LEGACY) expect(input.acceptedFields).not.toHaveProperty(key)
     // The copied check refuses both shapes together, and the single-medicine shape on its own.
@@ -366,9 +366,9 @@ describe('the review built from the choices', () => {
     const medications = input.acceptedFields.medications as Array<Record<string, unknown>>
     expect(medications.map(entry => [entry.itemId, entry.page, entry.medicationText])).toEqual([
       [ids[0], 1, 'Testamol 1'], [ids[1], 1, 'Testamol 20 mg once a day'], [ids[2], 2, 'Testamol 3']])
-    expect(medications[0]).toMatchObject({ strengthText: '10 mg', frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. As written: Testamol 1 10mg od' })
+    expect(medications[0]).toMatchObject({ strengthText: '10 mg', frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. Read as: Testamol 1 10mg od' })
     expect(medications[1]).not.toHaveProperty('strengthText')
-    expect(medications[2]!.historicalContext).toBe('From a paper record, page 2. As written: Testamol 3 10mg od')
+    expect(medications[2]!.historicalContext).toBe('From a paper record, page 2. Read as: Testamol 3 10mg od')
     for (const key of LEGACY) expect(input.acceptedFields).not.toHaveProperty(key)
     // The copied check refuses a medicine that was not read on the page it names.
     const moved = { ...input, acceptedFields: { ...input.acceptedFields, medications: medications.map((entry, at) => at === 2 ? { ...entry, page: 1 } : entry) } }
@@ -387,9 +387,9 @@ describe('the review built from the choices', () => {
     expect(() => assertAccepted(input, payload)).not.toThrow()
     const medications = input.acceptedFields.medications as Array<Record<string, unknown>>
     expect(medications[0]).toMatchObject({ medicationText: 'Testamol 1',
-      historicalContext: 'From a paper record, page 1. As written: Testamol 1 10mg od. Status: Stopped' })
+      historicalContext: 'From a paper record, page 1. Read as: Testamol 1 10mg od. Status: Stopped' })
     expect(medications[1]).toMatchObject({ medicationText: 'Testamol 2 20 mg once a day',
-      historicalContext: 'From a paper record, page 2. As written: Testamol 2 10mg od. Status: Taken in the past' })
+      historicalContext: 'From a paper record, page 2. Read as: Testamol 2 10mg od. Status: Taken in the past' })
   })
 
   it('past medicines, 51 kept: the first 50 on the paper are sent, the last stays with the document, and the form says so', () => {
@@ -549,5 +549,73 @@ describe('what Keep saves', () => {
       const item = byId(accepted.itemId)
       if (item.kind !== 'lab_result') expect(accepted.reading).toBe(keptText(item))
     }
+  })
+})
+
+describe('a hard handwritten page: Keep saves the clean reading, with no reader\'s "?"', () => {
+  const payload = hardHandwrittenPage()
+  const hard = parsePaperReading(payload) as PaperReading
+  const hardItems = reviewItems(hard)
+  const hardChoices = (saveAs: SaveAs, decisions: Decisions = keepAll(hard)): ReviewChoices =>
+    ({ extractionId: EXTRACTION, reading: hard, decisions, saveAs, encounterId: VISIT, reason: 'Checked against the paper record' })
+  const noReaderMarks = (value: string) => {
+    expect(value).not.toMatch(/\w\?/)
+    expect(value).not.toMatch(/\(or |\[(dose|freq|route|drug)?\?\]|crossed out|…/)
+  }
+
+  it('keeps the main reading only: no "?", no other readings, no unreadable parts, nothing crossed out', () => {
+    expect(hardItems.map(keptText)).toEqual([
+      'IV Ampiclox 500mg 8hrly',
+      'Gentamicin 80mg 12hrly',
+      'IV Omeprazole 40mg daily',
+      'Dc Gentamicin (stopped)',
+      'Paracetamol 1g (? on paper)',
+      'Admit',
+      '21/8 - Transfer to the ward',
+    ])
+    for (const item of hardItems) noReaderMarks(keptText(item))
+    // What Keep saves starts as the words to change, so Change starts clean too.
+    expect(Object.values(initialDecisions(hardItems)).map(decision => decision.text)).toEqual(hardItems.map(readingLine))
+  })
+
+  it('saves the same clean words in a clinical note, the record of the check and past medicines', () => {
+    const note = built(buildValidation(hardChoices('EHR')))
+    expect(() => assertAccepted(note, payload)).not.toThrow()
+    const content = note.acceptedFields.content as string
+    expect(content).toContain('Medicines\n- IV Ampiclox 500mg 8hrly (page 1)\n- Gentamicin 80mg 12hrly (page 1)\n- IV Omeprazole 40mg daily (page 1)'
+      + '\n- Dc Gentamicin (stopped) (page 1)\n- Paracetamol 1g (? on paper) (page 1)')
+    expect(content).toContain('Notes\n- Admit (page 1)\n- 21/8 - Transfer to the ward (page 1)')
+    expect(content.match(/\?/g)).toHaveLength(1)
+    const accepted = note.acceptedFields.items as Array<{ reading: string }>
+    for (const item of accepted) noReaderMarks(item.reading)
+
+    const medicines = built(buildValidation(hardChoices('PHARMACY')))
+    expect(() => assertAccepted(medicines, payload)).not.toThrow()
+    const medications = medicines.acceptedFields.medications as Array<Record<string, string>>
+    expect(medications.map(entry => [entry.medicationText, entry.strengthText, entry.frequencyText])).toEqual([
+      ['IV Ampiclox 500mg 8hrly', undefined, undefined],
+      ['Gentamicin', '80mg', '12hrly'],
+      ['IV Omeprazole 40mg daily', undefined, undefined],
+      ['Dc Gentamicin', undefined, undefined],
+      ['Paracetamol 1g (? on paper)', undefined, undefined],
+    ])
+    expect(medications[1]!.historicalContext).toBe('From a paper record, page 1. Read as: IV Gentamicin 80mg 12hrly')
+    for (const entry of medications) for (const value of Object.values(entry)) if (typeof value === 'string') noReaderMarks(value)
+  })
+
+  it('changes nothing about Change: the words typed are saved as typed', () => {
+    const [first] = hardItems
+    const decisions = { ...keepAll(hard), [first!.id]: { choice: 'change' as const, text: 'Ampiclox 500 mg into a vein every 8 hours' } }
+    const input = built(buildValidation(hardChoices('EHR', decisions)))
+    expect(input.corrections).toEqual([{ itemId: first!.id, kind: 'medicine', page: 1, field: 'reading',
+      oldValue: 'IV Ampiclox 500mg 8hrly', newValue: 'Ampiclox 500 mg into a vein every 8 hours' }])
+  })
+
+  it('never saves a line of only parts that couldn\'t be read', () => {
+    const gaps = { ...payload, items: [...payload.items, { ...payload.items[5]!, id: 'it-0000000000000908', asWritten: '[drug?] [dose?]' }] }
+    const withGaps = parsePaperReading(gaps) as PaperReading
+    const input = built(buildValidation({ ...hardChoices('EHR', keepAll(withGaps)), reading: withGaps }))
+    expect((input.acceptedFields.items as Array<{ itemId: string }>).map(item => item.itemId)).not.toContain('it-0000000000000908')
+    expect(input.rejectedFields.map(item => (item as { itemId: string }).itemId)).toContain('it-0000000000000908')
   })
 })

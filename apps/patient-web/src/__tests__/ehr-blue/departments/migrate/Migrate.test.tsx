@@ -9,7 +9,7 @@ import { STAFF_PAPER_NEEDS_ACCESS } from '../../../../paperRecordsWording'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
-import { handwrittenPage, medicinesPaper, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
+import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
 import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocrSteps'
 
 /**
@@ -1084,27 +1084,44 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     // The reading's own parts never show as loose fields.
     expect(within(read).queryByText('Pages')).toBeNull()
     expect(within(read).queryByText('Contract')).toBeNull()
-    // The scanned text waits closed at the very end, under its own summary, and can still be read and scrolled.
-    const raw = within(read).getByText('Scanned text (raw)')
-    expect(raw.tagName).toBe('SUMMARY')
-    const disclosure = raw.closest('details')!
-    expect(disclosure.open).toBe(false)
-    expect(read.lastElementChild).toBe(disclosure)
-    const text = within(disclosure).getByRole('region', { name: 'Text read from the document', hidden: true })
-    expect(text.textContent).toBe('Amlodipine 5mg od')
-    expect(text.getAttribute('tabindex')).toBe('0')
-    // Only there: never as an open block among the items.
-    expect(within(read).getAllByRole('region', { name: 'Text read from the document', hidden: true })).toEqual([text])
+    // The items are what staff check: the scanned text is not shown beside them, open or closed (owner, 10 November).
+    expect(within(read).queryByText('Scanned text (raw)')).toBeNull()
+    expect(within(read).queryByRole('region', { name: 'Text read from the document', hidden: true })).toBeNull()
+    expect(read.textContent).not.toContain('No text was read')
+    // Nor in the Extractions history: its summary line alone.
+    const summary = await screen.findByText('Extraction 1 · textract · confidence 92%')
+    expect(summary.tagName).toBe('P')
+    expect(screen.queryByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeNull()
     expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
   })
 
-  it('shows no scanned text disclosure for a paper reading when no text was read', async () => {
+  it('says nothing about scanned text for a paper reading when no text was read', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: '  \n ', structuredPayload: paperReading() }] })
     await findJob(awaiting)
     const read = await readSection()
     expect(within(read).getByText('7 items read · 2 to check')).toBeTruthy()
     expect(within(read).queryByText('Scanned text (raw)')).toBeNull()
     expect(within(read).queryByRole('region', { name: 'Text read from the document', hidden: true })).toBeNull()
+    expect(read.textContent).not.toContain('No text was read')
+  })
+
+  it('still shows the scanned text, open, when a paper reading picked out no items', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: unreadPaper('ai_off') }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    const text = within(read).getByRole('region', { name: 'Text read from the document' })
+    expect(text.textContent).toBe('Haemoglobin 12.1')
+    expect(text.closest('details')).toBeNull()
+    expect(screen.getByRole('region', { name: 'Extracted text, version 1', hidden: true }).textContent).toBe('Haemoglobin 12.1')
+  })
+
+  it('still shows the scanned text when a paper reading was read but found no items, so staff have words to check', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading({ items: [],
+      reading: { ...paperReading().reading, itemCount: 0 } }) }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
+    expect(screen.getByRole('region', { name: 'Extracted text, version 1', hidden: true }).textContent).toBe('Haemoglobin 12.1')
   })
 
   it('warns first when the page may not be fully read, in one line above the count', async () => {
@@ -1196,6 +1213,56 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     expect(document.body.textContent).not.toMatch(/JSON|[{}[\]]/)
     expect(form().querySelectorAll('textarea')).toHaveLength(1)
     expect(screen.queryByLabelText('Reading')).toBeNull()
+  })
+
+  it('shows a hard handwritten page with no reader\'s "?", and Keep saves the clean reading it shows', async () => {
+    withReading(hardHandwrittenPage())
+    await findJob(awaiting)
+    await openAction('Check and save')
+    const shown = cards()
+    expect(shown).toHaveLength(7)
+    // Unsure words are dotted and said as "not sure"; parts that couldn't be read are grey words; crossed-out words struck through.
+    expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual([
+      'IV (not sure) Ampiclox (not sure) 500mg (not sure) 8hrly (not sure)',
+      'IV (not sure) Gentamicin (not sure) 80mg (not sure) crossed out: Ceftriaxone 1g 12hrly (not sure)',
+      'IV (not sure) Omeprazole (not sure) 40mg (not sure) daily (not sure)',
+      'Dc Gentamicin (not sure) — Stopped',
+      'Paracetamol 1g frequency couldn’t be read ? on paper',
+      'Admit (not sure)',
+      '21/8 (not sure) word couldn’t be read - Transfer to the ward',
+    ])
+    expect(shown[0]!.querySelector('.hid-ehr-dept-migrate-unsure')?.getAttribute('title')).toBe('not sure')
+    expect(shown[1]!.querySelector('s')?.textContent).toBe('crossed out: Ceftriaxone 1g')
+    // Each card keeps its Check mark; other readings and the cut-off word wait under its closed Why?.
+    for (const card of shown) expect(within(card).getByText('Check')).toBeTruthy()
+    const why = within(shown[2]!).getByText('Why?').closest('details')!
+    expect(why.open).toBe(false)
+    expect(within(why).getByText('Other possible reading: Quinine')).toBeTruthy()
+    expect(within(within(shown[0]!).getByText('Why?').closest('details')!).getByText('Written as: Am…')).toBeTruthy()
+    // What Keep saves is said in the same clean words, only where it differs from the line.
+    expect(within(shown[1]!).getByText('Keep saves: Gentamicin 80mg 12hrly')).toBeTruthy()
+    expect(within(shown[3]!).getByText('Keep saves: Dc Gentamicin (stopped)')).toBeTruthy()
+    expect(within(shown[0]!).queryByText(/^Keep saves/)).toBeNull()
+    expect(within(form()).queryAllByText(/^Keep saves/).map(line => line.textContent).join(' ')).not.toContain('?')
+    // Outside Why? and words said only to a screen reader, the one "?" left is the one written on the paper.
+    const seen = shown.map(card => {
+      const copy = card.querySelector('strong')!.cloneNode(true) as HTMLElement
+      copy.querySelectorAll('.hid-ehr-sr-only').forEach(hidden => hidden.remove())
+      return copy.textContent
+    }).join(' ')
+    expect(seen.match(/\?/g)).toHaveLength(1)
+    for (const card of shown) await press(within(card).getByRole('button', { name: 'Keep' }))
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(save())
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect((input.acceptedFields.items as Array<{ reading: string }>).map(item => item.reading)).toEqual([
+      'IV Ampiclox 500mg 8hrly', 'Gentamicin 80mg 12hrly', 'IV Omeprazole 40mg daily', 'Dc Gentamicin (stopped)', 'Paracetamol 1g (? on paper)',
+      'Admit', '21/8 - Transfer to the ward',
+    ])
+    expect(input.corrections).toEqual([])
   })
 
   it('Keep, Change and Remove become what OCR is sent: accepted, corrected and rejected', async () => {
@@ -1300,7 +1367,7 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     expect(input).toMatchObject({ targetDomain: 'PHARMACY', candidateType: 'historical_medication_evidence' })
     expect(input.acceptedFields.medications).toHaveLength(50)
     expect(input.acceptedFields.medications[0]).toEqual({ itemId: 'it-0000000000000b01', page: 1, medicationText: 'Testamol 2', strengthText: '10 mg',
-      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. As written: Testamol 2 10mg od' })
+      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. Read as: Testamol 2 10mg od' })
     expect(input.acceptedFields).not.toHaveProperty('medicationText')
   })
 

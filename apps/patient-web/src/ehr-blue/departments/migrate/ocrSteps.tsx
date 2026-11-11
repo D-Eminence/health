@@ -12,7 +12,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
-import { ItemCheck, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
+import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
@@ -135,7 +135,7 @@ function ReviewItemCard({ item, index, decision, problem, onChange }: {
     <div id={cardId} role="group" tabIndex={-1} aria-labelledby={nameId} aria-describedby={cardError ? `${cardId}-error` : undefined}
       aria-invalid={cardError ? true : undefined}>
       <div className="hid-ehr-dept-migrate-check-head">
-        <strong id={nameId}>{line}</strong>
+        <strong id={nameId}><ItemLineText item={item} /></strong>
         <ItemCheck item={item} />
         <div className="hid-ehr-dept-migrate-check-choices">
           {(['keep', 'change', 'remove'] as const).map(choice => <EhrButton key={choice} size="sm" variant={decision.choice === choice ? 'primary' : 'secondary'}
