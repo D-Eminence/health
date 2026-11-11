@@ -801,9 +801,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
   // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes
   // in it, then each photo or file goes up under it as staff uploads do (an upload link, a PUT of the exact bytes to it, a
-  // confirm). Until a backend serves them, and while patient uploads are off, each answers 404 NOT_FOUND (off looks the same
-  // as not built), and the portal sends no file at all. The entries are listed in ehr.myRecords' own answer, under
-  // `patientEntries`: there is no list route. The portal says each refusal in its own fixed words, by status and code
+  // confirm). Until a backend serves them, and while they are off, each answers 404 NOT_FOUND (off looks the same as not
+  // built), and the portal sends no file at all. The entries are listed in ehr.myRecords' own answer, under
+  // `patientEntries`: there is no list route. Uploads have a switch of their own: the portal offers them only once that
+  // answer carries `patientEntryFiles: true`. The portal says each refusal in its own fixed words, by status and code
   // alone, and never shows the server's.
   proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
     'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only, no facility. POST '
@@ -811,10 +812,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'in it, answers 201 { entry }; the same key with the same body replays it. A record the patient adds themselves, kept apart from '
     + 'clinicians\' and shown as "added by you". Not read back here: ehr.myRecords lists the entries under patientEntries [{ id, source: '
     + '\'patient\', kind, title, facilityName, occurredOn, notes, createdAt, documents[] }], newest first, removed entries left out; that '
-    + 'key, or a 201, says served. Until then the Save answers 404 NOT_FOUND and nothing is saved. While patient uploads are off (before '
-    + 'NDPA sign-off or migration 0110) the records answer leaves out patientEntries and every patient-entry route answers exactly as if '
-    + 'it were not built (404 NOT_FOUND): off must look the same as not built. The backend must not send patientEntries until uploads are '
-    + 'cleared under the NDPA: that one served signal turns on both the entries list and uploads.')),
+    + 'key, or a 201, says served and turns on text entries only. Until then the Save answers 404 NOT_FOUND and nothing is saved. While '
+    + 'patient entries are off (before migration 0110) the records answer leaves out patientEntries and every patient-entry route answers '
+    + 'exactly as if it were not built (404 NOT_FOUND): off must look the same as not built. Photos and files are a separate signal: the '
+    + 'portal offers uploads only once the records answer carries patientEntryFiles: true (exactly true; anything else says nothing, and '
+    + 'nothing turns it off for the page\'s life). Without it the drawer offers no picker and sends no upload request. While patient '
+    + 'uploads are off (before NDPA sign-off) the records answer leaves out patientEntryFiles (or sends false) and the upload-intent and complete routes '
+    + 'answer 404 NOT_FOUND. The backend must not send patientEntryFiles: true until uploads are cleared under the NDPA.')),
   proposed(r('ehr.myPatientEntryUploadIntent','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents',P,false,undefined,
     'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. Idempotency-Key, one per file. Body { fileName, '
     + 'mediaType: application/pdf | image/jpeg | image/png, sizeBytes (1 to 10485760 bytes; at most 5 files per entry), sha256Hex }; the server '
