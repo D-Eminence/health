@@ -20,6 +20,7 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
+import { NewJobPick, type NewJobPicked } from './NewJobPick'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
@@ -231,9 +232,8 @@ export function Migrate() {
   // The Find card's field, and the document whose job is shown (or was last asked for).
   const [findDocument, setFindDocument] = useState(handedDocument)
   const [currentDocument, setCurrentDocument] = useState('')
-  // The New view's fields.
+  // The New view's document to pick at once, when it is listed: never typed, never shown.
   const [newDocument, setNewDocument] = useState('')
-  const [patientId, setPatientId] = useState(handedPatient)
   const [view, setView] = useState<View>('list')
   const [action, setAction] = useState<ActionId | null>(null)
   const [quick, setQuick] = useState<OpenedJob | null>(null)
@@ -433,19 +433,10 @@ export function Migrate() {
     setStepFocus(reloaded ? { targets: [...targets, 'ocr-find-submit'], notice, confirmNext } : { targets: ['ocr-find-submit'], notice })
   }
 
-  /** The New view's form: its fields checked, then the document's job opened or made. */
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  /** The New view's pick: the picked document's job opened, or made once a lookup says it has none. */
+  async function create({ documentId, patientId: patient }: NewJobPicked) {
     if (!facilityId || busy) return
     setCreateError(''); setNotice('')
-    const documentId = newDocument.trim()
-    const patient = patientId.trim()
-    const refused = !documentId ? { field: 'ocr-new-document', message: 'Complete this field.' }
-      : !UUID_V4.test(documentId) ? { field: 'ocr-new-document', message: 'Enter a valid document ID (a UUID).' }
-      : !patient ? { field: 'ocr-patient', message: 'Complete this field.' }
-      : !UUID_V4.test(patient) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
-    setProblem(refused && refusal(refused))
-    if (refused) { focus(refused.field); return }
     await openOrCreate(documentId, patient, {
       created: 'Extraction job created.', existing: 'This document already has an OCR job, so no new job was created.',
       uncheckable: 'The document could not be checked for an OCR job, so no job was created.', refused: 'The OCR job was not created.',
@@ -551,7 +542,7 @@ export function Migrate() {
    */
   function extract(documentId: string, documentPatientId: string) {
     if (busy) return
-    setFindDocument(documentId); setPatientId(documentPatientId); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null)
+    setFindDocument(documentId); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null)
     setError(''); setCreateError('')
     if (!canWrite) { setReading(false); focus('ocr-document'); return }
     // IDs EHR gave that OCR would refuse go to the form, which says what is wrong with them.
@@ -662,22 +653,10 @@ export function Migrate() {
 
   function newJob() {
     return <DeptSection>
-      <form className="hid-ehr-dept-form" noValidate aria-label="New document job" onSubmit={event => void create(event)}>
-        <p className="hid-ehr-dept-muted">Create an extraction job for a verified patient document. The document must be virus scan clean. If it already has a job, that job opens instead.</p>
-        <div className="hid-ehr-dept-form-grid">
-          <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-new-document" error={problemText(problem, 'ocr-new-document')}>
-            <EhrInput value={newDocument} placeholder="Document UUID" required autoComplete="off"
-              onChange={event => { setNewDocument(event.target.value); setProblem(null) }} />
-          </EhrField>
-          <EhrField label={<>Patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-patient" error={problemText(problem, 'ocr-patient')}>
-            <EhrInput value={patientId} placeholder="Patient UUID" required autoComplete="off"
-              onChange={event => { setPatientId(event.target.value); setProblem(null) }} />
-          </EhrField>
-        </div>
+      <NewJobPick facilityId={facilityId!} permissions={permissions} preselect={newDocument} busy={busy} onPick={picked => void create(picked)}>
         <FormRefusal error={createError} />
         {createError === STAFF_PAPER_NEEDS_ACCESS && <PatientAccessLinks permissions={permissions} />}
-        <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-create-submit" type="submit" busy={busy}>{busy ? 'Saving…' : 'Save record'}</EhrButton></div>
-      </form>
+      </NewJobPick>
     </DeptSection>
   }
 

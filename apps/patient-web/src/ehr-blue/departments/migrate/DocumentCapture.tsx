@@ -53,10 +53,25 @@ function fileSize(value: number | string | null | undefined): string {
  * A listed document's file type and size in plain words ("PDF · 56 KB"); once the types are served, its document type
  * first. A type this page does not know is not named.
  */
-function documentReference(item: DocumentRecord, served: boolean): string {
+export function documentReference(item: DocumentRecord, served: boolean): string {
   const today = `${fileTypeLabel(item.mediaType)} · ${fileSize(item.sizeBytes)}`
   const type = served ? documentTypeOf(item) : null
   return type ? `${documentTypeLabel(type)} · ${today}` : today
+}
+
+/**
+ * One encounter's documents, as Patient documents reads them: EHR's list, from whose answer the page learns whether
+ * the document types are served. New document job picks from the same read.
+ */
+export async function readDocuments(facilityId: string, patientId: string, encounterId: string): Promise<DocumentRecord[]> {
+  const page = await staffApi.documents(facilityId, patientId, encounterId)
+  learnDocumentTypesFrom(page)
+  return page.items
+}
+
+/** A document whose upload was completed and whose virus check has not answered yet. */
+export function beingChecked(item: DocumentRecord): boolean {
+  return item.status !== 'initiated' && !sourceDeleted(item) && scanStatusLabel(item.scanStatus) === 'Being checked for viruses'
 }
 
 const ACCESS_ENDED = 'Access to this patient has ended. Open the patient again through approved access.'
@@ -231,9 +246,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const page = await staffApi.documents(facilityId, patientId, encounterId)
-      learnDocumentTypesFrom(page)
-      setItems(page.items)
+      setItems(await readDocuments(facilityId, patientId, encounterId))
     }
     catch (caught) { setError(plainErrorText(caught, 'Documents could not be loaded.', { audience: 'facility' })) }
     finally { setLoading(false) }

@@ -338,7 +338,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
 }
 
 /** A patient this step offers to pick: who they are, in words, and their record's ID, which is sent but never shown. */
-interface PatientChoice {
+export interface PatientChoice {
   readonly patientId: string
   readonly name: string
   readonly born: string
@@ -347,7 +347,7 @@ interface PatientChoice {
   readonly from: 'reading' | 'search'
 }
 
-function patientChoice(summary: PatientSummary, hid: string, from: PatientChoice['from']): PatientChoice {
+export function patientChoice(summary: PatientSummary, hid: string, from: PatientChoice['from']): PatientChoice {
   const joined = [summary.firstName, summary.lastName].filter(Boolean).join(' ')
   const health = (summary.hid || hid).trim()
   return {
@@ -359,7 +359,7 @@ function patientChoice(summary: PatientSummary, hid: string, from: PatientChoice
 }
 
 /** "Born 12 Mar 1980 · Health ID ending AAA2": enough to tell the person from the paper, and never their record ID. */
-function choiceFacts(choice: PatientChoice) {
+export function choiceFacts(choice: PatientChoice) {
   return [choice.born ? `Born ${choice.born}` : 'Date of birth not recorded', choice.hidEnding ? `Health ID ending ${choice.hidEnding}` : '']
     .filter(Boolean).join(' · ')
 }
@@ -375,7 +375,7 @@ const OTHER_REASON = 'Other'
  * A Health ID as Identity takes it, from what was typed after the box's HID- ("zdem aaa2", "HID-ZDEMAAA2"). A pasted
  * "HID-" is dropped only when a separator follows it, so a Health ID whose own letters begin with HID is kept whole.
  */
-function healthIdFrom(text: string) {
+export function healthIdFrom(text: string) {
   const upper = text.trim().toUpperCase()
   const rest = /^HID[\s_-]/.test(upper) ? upper.slice(4) : upper
   return `HID-${rest.replace(/[\s_-]+/g, '')}`
@@ -537,7 +537,7 @@ export function ConfirmForm({ facilityId, job, permissions, onChanged }: {
   </form>
 }
 
-const NOT_OPENED_HERE = 'This patient’s record can’t be opened here. Open them through approved access first.'
+export const NOT_OPENED_HERE = 'This patient’s record can’t be opened here. Open them through approved access first.'
 const NO_PATIENT_HERE = 'Open the patient this reading is for through approved access, then come back to confirm them.'
 
 /** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
