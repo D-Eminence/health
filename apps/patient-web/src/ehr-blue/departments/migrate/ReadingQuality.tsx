@@ -125,7 +125,7 @@ function Breakdown({ label, choices, values }: { label: string; choices: readonl
   </ul>
 }
 
-function Figures({ data }: { data: ReadingQuality }) {
+function Figures({ data, finishedWeeksOnly }: { data: ReadingQuality; readonly finishedWeeksOnly: boolean }) {
   const n = (value: number) => NUMBER.format(value)
   return <>
     {data.from && data.to && <p className="hid-ehr-dept-muted">{`Weeks from ${dayText(data.from)} to ${dayText(data.to)}, at this facility.`}</p>}
@@ -153,6 +153,8 @@ function Figures({ data }: { data: ReadingQuality }) {
         <Tile id="rq-missed" title="Items the reading missed" value={n(data.missedItems)} />
       </div>
       <p className="hid-ehr-dept-muted">Reasons are optional, so they don’t add up to every item changed, removed or rejected.</p>
+      {/* A manager's answer ends on the Sunday before this week (hid-system #236 finishedWeeks). */}
+      {finishedWeeksOnly && <p className="hid-ehr-dept-muted">Figures cover finished weeks only.</p>}
     </DeptSection>
     {(data.heldBack > 0 || data.smallCellsHidden > 0 || data.truncated) && <DeptSection title="What these figures leave out" headingId="reading-quality-left-out">
       {data.heldBack > 0 && <p className="hid-ehr-dept-muted">Some weeks had too few checks, or too few people checking, to show without
@@ -168,7 +170,7 @@ type Loaded = { readonly state: 'loading' } | { readonly state: 'shown'; readonl
   | { readonly state: 'refused' } | { readonly state: 'failed' }
 
 /** The view: read once when opened, and again on Refresh. */
-export function ReadingQualityView({ facilityId }: { readonly facilityId: string }) {
+export function ReadingQualityView({ facilityId, finishedWeeksOnly = false }: { readonly facilityId: string; readonly finishedWeeksOnly?: boolean }) {
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' })
   const [refreshing, setRefreshing] = useState(false)
   const current = useRef<AbortController | null>(null)
@@ -210,7 +212,7 @@ export function ReadingQualityView({ facilityId }: { readonly facilityId: string
         : loaded.data.unavailable ? <DeptSection title="No figures yet" headingId="reading-quality-unavailable">
           <p className="hid-ehr-dept-muted">Figures can’t be shown for this facility at the moment. Nothing needs doing.</p>
         </DeptSection>
-        : loaded.data.anyShown ? <Figures data={loaded.data} />
+        : loaded.data.anyShown ? <Figures data={loaded.data} finishedWeeksOnly={finishedWeeksOnly} />
         : loaded.data.heldBack > 0 ? <DeptSection title="Too few checks to show" headingId="reading-quality-too-few">
           <p className="hid-ehr-dept-muted">There were too few checks, or too few people checking, at this facility in these weeks to show
             figures without pointing at the people who did them. Nothing needs doing.</p>

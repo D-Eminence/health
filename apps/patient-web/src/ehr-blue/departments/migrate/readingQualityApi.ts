@@ -38,17 +38,27 @@ export type ReadingQualityResult =
  * server decides the read.
  */
 export function readsReadingQuality(actor: unknown, facilityId?: string): boolean {
-  if (!actor || typeof actor !== 'object') return false
+  return qualityReader(actor, facilityId) !== null
+}
+
+/**
+ * Which of Session B's two readers the actor is for `facilityId` (assertQualityReader's QualityReader), or null. A
+ * manager's answer counts finished weeks only (quality-summary.service.ts finishedWeeks); a platform administrator's
+ * covers the range asked, this week included.
+ */
+export function qualityReader(actor: unknown, facilityId?: string): 'platform_admin' | 'facility_manager' | null {
+  if (!actor || typeof actor !== 'object') return null
   const { kind, platformPermissions: platform, facilities, facility } = actor as {
     kind?: unknown; platformPermissions?: unknown; facilities?: unknown; facility?: { id?: unknown } | null
   }
-  if (kind === 'patient') return false
-  if (Array.isArray(platform) && READING_QUALITY_PERMISSIONS.every(permission => platform.includes(permission))) return true
-  if (!facilityId || !Array.isArray(facilities) || facility?.id !== facilityId) return false
+  if (kind === 'patient') return null
+  if (Array.isArray(platform) && READING_QUALITY_PERMISSIONS.every(permission => platform.includes(permission))) return 'platform_admin'
+  if (!facilityId || !Array.isArray(facilities) || facility?.id !== facilityId) return null
   const membership = facilities.find((candidate: unknown) => Boolean(candidate) && typeof candidate === 'object'
     && (candidate as { id?: unknown }).id === facilityId) as { permissions?: unknown; selfService?: { review?: unknown } | null } | undefined
   return membership !== undefined && Array.isArray(membership.permissions)
     && membership.permissions.includes(READING_QUALITY_MANAGER_PERMISSION) && membership.selfService?.review !== 'pending'
+    ? 'facility_manager' : null
 }
 
 /** Made on first use, so importing this module reads no configuration. */

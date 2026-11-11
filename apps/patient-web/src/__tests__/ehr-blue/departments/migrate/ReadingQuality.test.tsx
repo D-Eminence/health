@@ -138,6 +138,8 @@ describe('Reading quality, in Migrate', () => {
     expect(document.activeElement?.id).toBe('migrate-view-title')
     expect(qualityCalls()).toEqual([expect.objectContaining({ method: 'GET', path: READING_QUALITY,
       headers: expect.objectContaining({ 'X-Facility-ID': DEMO_HOSPITAL_ID, 'X-Purpose-Of-Use': 'healthcare-operations' }) })])
+    // A platform administrator's figures cover the range asked, this week included: no finished-weeks note.
+    expect(screen.queryByText('Figures cover finished weeks only.')).toBeNull()
     expect(qualityCalls()[0]!.query ?? {}).toEqual({})
     expect(screen.getByText('Weeks from 12 October 2026 to 8 November 2026, at this facility.')).toBeTruthy()
     expect(within(tile('Documents checked and saved')).getByText('198')).toBeTruthy()
@@ -259,6 +261,8 @@ describe('Reading quality, for a facility’s own manager (hid-system #236)', ()
     expect(qualityCalls()).toEqual([expect.objectContaining({ method: 'GET', path: READING_QUALITY,
       headers: expect.objectContaining({ 'X-Facility-ID': DEMO_HOSPITAL_ID }) })])
     expect(within(tile('Documents checked and saved')).getByText('198')).toBeTruthy()
+    // A manager's figures end on the Sunday before this week, and the page says so under them.
+    expect(screen.getByText('Figures cover finished weeks only.')).toBeTruthy()
   })
 
   it.each([

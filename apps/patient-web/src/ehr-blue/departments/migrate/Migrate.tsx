@@ -24,7 +24,7 @@ import { NewJobPick, type NewJobPicked } from './NewJobPick'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
 import { learnReviewLearningServed, useReadingQualityServed } from '../../../readingLearningServed'
 import { ReadingQualityView } from './ReadingQuality'
-import { readsReadingQuality } from './readingQualityApi'
+import { qualityReader } from './readingQualityApi'
 import { saysReviewLearning } from '../../../readingLearningContract'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
@@ -215,7 +215,8 @@ export function Migrate() {
   const { lock, state: staffState } = useStaff()
   // Migrate learning's "Reading quality": for a platform administrator, or for this facility's own manager (the facility
   // its read sends as X-Facility-ID), as Session B decides it, and offered until its read answers 404 (readingQualityApi.ts).
-  const readsQuality = readsReadingQuality(staffState.status === 'ready' ? staffState.session.actor : undefined, facilityId)
+  const reader = qualityReader(staffState.status === 'ready' ? staffState.session.actor : undefined, facilityId)
+  const readsQuality = reader !== null
   const qualityServed = useReadingQualityServed()
   const qualityOffered = readsQuality && qualityServed !== false
   // OCR's parts need OCR job read (so does the page); Patient documents needs document read, as the clinical record's
@@ -642,7 +643,7 @@ export function Migrate() {
         ? <EhrButton id="ocr-quality-open" variant="secondary" onClick={openQuality}>Reading quality</EhrButton> : undefined}>
       {status}
       {detail ? <Fragment key="detail">{jobRecord(detail)}</Fragment> : creating ? <Fragment key="new">{newJob()}</Fragment>
-        : quality ? <Fragment key="quality"><ReadingQualityView facilityId={facilityId} /></Fragment> : <Fragment key="list">{jobList()}</Fragment>}
+        : quality ? <Fragment key="quality"><ReadingQualityView facilityId={facilityId} finishedWeeksOnly={reader === 'facility_manager'} /></Fragment> : <Fragment key="list">{jobList()}</Fragment>}
       <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
         {quick && <div className="hid-ehr-dept-migrate-quick">
           <h3>{jobName(quick.job, fileNames)}</h3>
