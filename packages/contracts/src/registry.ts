@@ -1058,6 +1058,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
+  // Admin dashboard sections (contract of 11 Nov 2026): proposed, built alongside hid-system. Super admin only; every
+  // activity read is audited. Before they are served they answer 404, and the overview shows its totals alone; the two
+  // operations reads answer 503 not_configured until monitoring and error reporting are set up.
+  proposed({ ...r('admin.overviewActivity','admin','/api/v1/admin/overview/activity',G,false,one('GET','platform.dashboard.read'),
+    'days is 7, 30 or 90 (anything else is 400). Names, emails and Health IDs arrive shortened; full values never leave the database.'),
+    requiredQuery: { GET: ['days'] } }),
+  proposed(r('admin.operationsHealth','admin','/api/v1/admin/operations/health',G,false,one('GET','platform.dashboard.read'),
+    'Service availability and response times; 503 not_configured until monitoring is set up.')),
+  proposed(r('admin.operationsErrors','admin','/api/v1/admin/operations/errors',G,false,one('GET','platform.dashboard.read'),
+    'Open problems from error reporting; 503 not_configured until it is connected.')),
   r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
     'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
