@@ -282,7 +282,22 @@ it('formats answers with the shared renderer, cleans dashes and explains missing
     const log = screen.getByRole('log').querySelector('.record-chat-reply')?.textContent ?? ''
     expect(log).not.toMatch(/[\u2013\u2014]/)
     expect(log).toContain('recorded 2025 to 2026.')
-    expect(log).toContain('This answer may be incomplete. 1 document was not read because it is still being processed, could not be read or was not included. Lab results, not released.')
+    expect(log).toContain('This answer may be incomplete. 1 document was left out because it is still being processed, could not be opened, or was not included. Lab results, not released.')
     view.unmount()
   }
+})
+
+it('shows source titles and source details without long dashes', async () => {
+  const dashed = { status: 'ready' as const, answer: 'Here is what your records say [1].', sources: [typed(1, 'FBC \u2014 21 Sep', 'health_worker')] }
+  const chatSource = vi.fn().mockResolvedValue({ version: '1', fields: { result: 'Low \u2013 see note', range: '12\u201316' } })
+  const api = { ...apiFor(vi.fn().mockResolvedValue(dashed)), chatSource } as unknown as StagingChatConversationApi
+  render(<StagingChatConversation api={api} />)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Where is this from?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+  await screen.findByText(dashed.answer)
+  fireEvent.click(sourceRow('FBC, 21 Sep').querySelector('button') as HTMLButtonElement)
+  expect(await screen.findByText('Low, see note')).toBeTruthy()
+  expect(screen.getByText('12 to 16')).toBeTruthy()
+  expect(screen.getByRole('log').textContent).not.toMatch(/[\u2013\u2014]/)
 })

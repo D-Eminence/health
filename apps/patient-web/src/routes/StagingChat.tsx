@@ -49,7 +49,7 @@ function CoverageNote({ coverage }: { coverage: ChatCoverage }) {
   const pending = coverage.pendingDocuments
   return <p className="record-chat-preparing"><strong>This answer may be incomplete.</strong>{' '}
     {pending > 0
-      ? `${pending} ${pending === 1 ? 'document was' : 'documents were'} not read because ${pending === 1 ? 'it is' : 'they are'} still being processed, could not be read or ${pending === 1 ? 'was' : 'were'} not included.`
+      ? `${pending} ${pending === 1 ? 'document was' : 'documents were'} left out because ${pending === 1 ? 'it is' : 'they are'} still being processed, could not be opened, or ${pending === 1 ? 'was' : 'were'} not included.`
       : 'Not every matching record could be read for this answer.'}
     {coverage.unavailable.length > 0 && <> {cleanAssistantText(coverage.unavailable.join(' '))}</>}
   </p>

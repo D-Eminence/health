@@ -1,4 +1,4 @@
-import { RecordAnswer } from './RecordAnswer'
+import { RecordAnswer, cleanAssistantText } from './RecordAnswer'
 import type { PatientChatCoverage, PatientChatSource, PatientChatSourceKind, PatientChatStoredReply } from '@hid/contracts'
 
 const KIND_LABELS: Record<PatientChatSourceKind, string> = {
@@ -51,7 +51,7 @@ export function ChatAnswer({ answerId, reply, coverage }: { answerId: string; re
       <summary>{reply.sources.length} record {reply.sources.length === 1 ? 'reference' : 'references'}</summary>
       <ul>{reply.sources.map(source => <li key={source.number} id={sourceAnchor(answerId, source.number)}>
         <span className="record-chat-source-number">[{source.number}]</span>
-        <div><strong>{source.title}</strong><span>{KIND_LABELS[source.kind]} · {sourceDate(source)}</span></div>
+        <div><strong>{cleanAssistantText(source.title)}</strong><span>{KIND_LABELS[source.kind]} · {sourceDate(source)}</span></div>
       </li>)}</ul>
     </details>}
   </div>
