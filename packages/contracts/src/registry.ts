@@ -33,8 +33,9 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * and can't complete), which no hid-system release serves yet; and phone and
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
- * the push keys as well: callers treat a 404 as "not available yet" and show
- * nothing.
+ * the push keys as well; and Outreach campaign management's governance and
+ * campaign staff reads (hid-system#222, migration 0111): callers treat a 404 as
+ * "not available yet" and show nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -105,6 +106,12 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
+/**
+ * Outreach campaigns managed by their own admins (ADR-045 option B, hid-system#222, migration 0111): from then Identity
+ * accepts outreach.campaign.write, and only a campaign's admins open, close or add members to it (403
+ * OUTREACH_CAMPAIGN_ADMIN_REQUIRED otherwise). Not served before (404): the page then offers no campaign management.
+ */
+const OUTREACH_CAMPAIGN_ADMINS = 'Outreach campaign admins (hid-system#222, 0111); 404 before, and the page then offers no campaign management.'
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
@@ -1010,6 +1017,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ocr.publications','ocr','/api/v1/ocr/validations/:validationId/publications',GP,false,{GET:['ocr.job.read'],POST:['ocr.publication.write']}),
 
   r('outreach.campaigns','outreach','/api/v1/outreach/registration-cases/campaigns',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
+  proposed(r('outreach.campaignGovernance','outreach','/api/v1/outreach/registration-cases/campaigns/governance',G,false,one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGN_ADMINS} Answers { rule: 'campaign_admins' }.`)),
+  proposed(r('outreach.campaignStaff','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/staff',G,false,one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGN_ADMINS} Answers { yourRole, people: [{ membershipId, name, campaignRole }] }: a campaign's members by name, `
+    + 'and to its admins the facility\'s active staff who could be added (campaignRole null); a non-member is sent no one.')),
   r('outreach.campaignStatus','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/status',P,false,one('POST','outreach.campaign.write')),
   r('outreach.campaignMembers','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/members',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
