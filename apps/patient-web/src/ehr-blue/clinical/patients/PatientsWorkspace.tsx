@@ -13,12 +13,11 @@ import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
   ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, dropOfferedHealthId,
-  healthIdProblem, isRefusedLookup, offerHealthId, useOpenPatient, type AccessMethod,
+  healthIdProblem, isRefusedLookup, lookupRefusal, offerHealthId, useOpenPatient, type AccessMethod,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
-import { plainErrorText } from '@hid/http'
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
@@ -109,7 +108,8 @@ function PatientList() {
     try {
       if (await openPatient(candidate, 'direct-care')) navigate(href('open'))
     } catch (caught) {
-      const message = plainErrorText(caught, 'Patient access could not be verified.', { audience: 'facility' })
+      // No grant yet says how to get one; a lab or pharmacy role's 404 says the record isn't open to it here.
+      const message = lookupRefusal(caught, facility?.roles ?? [])
       // The refused Health ID goes in the field (a refused share's too), so "Obtain access" hands over the patient the
       // panel names.
       if (isRefusedLookup(caught)) {

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Compass } from 'lucide-react'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
 import { BrandLogo } from './BrandLogo'
@@ -9,7 +10,7 @@ import { PatientSupport } from './PatientSupport'
 import { patientChatEnabled } from './chatFeatures'
 import { SelectedPatientChat as PatientChat } from './routes/SelectedPatientChat'
 import { Overview } from './routes/Overview'
-import { SignIn } from './routes/SignIn'
+import { SignedInReturn, SignIn } from './routes/SignIn'
 import { Enrollment } from './routes/Enrollment'
 import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
@@ -28,6 +29,7 @@ import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
 import { SharedCardPage, SharedCardPreview } from './routes/SharedCard'
 import { BLUE_FOR_ALL } from './ehr-blue/clinicSwitch'
+import { Button, EmptyState } from './kasuwa/ui'
 import { portalHandsOff, staffHandOffSite } from './sso/singleSignOn'
 import { StaffSignInHandOff } from './sso/SignInHandOff'
 
@@ -52,13 +54,11 @@ const StaffInvitation = lazy(async () => ({ default: (await import('./staff/rout
 const BlueRecovery = /* @__PURE__ */ lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueRecovery')).BlueRecovery }))
 const BlueStaffInvitation = /* @__PURE__ */ lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueStaffInvitation')).BlueStaffInvitation }))
 
-function PatientNotFound() {
+/** An address the portal has no page for (an old or mistyped link): the designed state, with one way on, to Home. */
+export function PatientNotFound() {
   useDocumentTitle('Page not found · Health ID')
-  return <section className="patient-section"><p className="patient-eyebrow">Patient portal</p>
-    <h1 className="patient-page-title">Page not found</h1>
-    <p className="patient-page-copy">This patient page is unavailable.</p>
-    <Link className="patient-primary-button" to="/">Go to overview</Link>
-  </section>
+  return <EmptyState titleAs="h1" icon={Compass} title="Page not found" description="We couldn’t find that page. The link may be old or mistyped."
+    action={<Button to="/" variant="primary">Go to Home</Button>} />
 }
 
 function PatientRoutes() {
@@ -66,7 +66,7 @@ function PatientRoutes() {
     <Routes>
       {/* With single sign-on on (sso/singleSignOn.ts), app.'s sign-in entrance hands off to auth. once the session check
           finds none (RequireAccess), and a signed-in patient goes Home; unset, today's sign-in page. */}
-      <Route path="/sign-in" element={portalHandsOff() ? <RequireAccess requirement={PATIENT_ROUTE}><Navigate to="/" replace /></RequireAccess> : <SignIn />} />
+      <Route path="/sign-in" element={portalHandsOff() ? <RequireAccess requirement={PATIENT_ROUTE}><SignedInReturn /></RequireAccess> : <SignIn />} />
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />

@@ -32,8 +32,8 @@ export function HolderCodeStep(props: HolderCodeStepProps) {
     resendReady, resendWaitSeconds, onResend, onOtherWay, onDifferentNin } = props
   const minutes = expiresInSeconds !== null && expiresInSeconds > 0 ? Math.ceil(expiresInSeconds / 60) : null
   const incomplete = !codeComplete(code)
-  return <form onSubmit={onSubmit} className="flex flex-col gap-4 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none">
-    <h2 ref={codeError ? undefined : focusTarget} tabIndex={-1}>Enter the code we texted you</h2>
+  return <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <h2 ref={codeError ? undefined : focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Enter the code we texted you</h2>
     <p id="enroll-holder-code-hint" className="m-0 text-[13px] text-ink-3">
       We sent a 6-digit code to the phone number linked to your NIN.{minutes !== null && ` It expires in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`}
     </p>

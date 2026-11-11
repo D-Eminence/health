@@ -20,8 +20,8 @@ import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './Outreac
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
 import { useOutreachQueue } from './offlineQueue'
 import {
-  ageText, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, nextStepText, PENDING, servicesText, sexText, statusLabel, type MembersRead,
+  ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
+  NO_FACILITY, nextStepText, servicesText, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -42,7 +42,7 @@ type View =
 type FocusRequest = { id?: string; ifLost: boolean }
 
 /**
- * Whether Outreach serves campaign management (hid-system#222, 0122: a campaign's own admins open, close and staff it).
+ * Whether Outreach serves campaign management (hid-system#222, 0111: a campaign's own admins open, close and staff it).
  * An Outreach before it answers 404, and the page then keeps campaigns read only.
  */
 async function campaignsManaged(facilityId: string): Promise<Governance> {
@@ -113,9 +113,10 @@ export function Outreach() {
       return { facilityId: facilityId ?? '', ids }
     })
   }, [facilityId])
-  // Only active registration campaigns containing this facility membership can take a case.
+  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a case.
   const caseCampaigns = useMemo(() => (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
-    && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
+    && campaign.services.includes('registration') && campaignOpenNow(campaign)
+    && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
   [campaigns.value, eligibleCampaigns, facilityId])
 
   // The view belongs to the facility it was opened at; another facility opens on its lists.
@@ -249,14 +250,6 @@ export function Outreach() {
       </div>
     </div>
   )
-}
-
-/** What the create form's answer said: the case made, and where its identity stands. */
-function createdText(created: OutreachCase | undefined) {
-  if (!created?.status) return 'Registration case created.'
-  return created.status === PENDING
-    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
-    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** The design's view of a record the list no longer holds. */

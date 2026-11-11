@@ -229,10 +229,11 @@ function PrescriptionQueue() {
         <SaidAboveList id="pharmacy-said" text={said.listSaid} />
         <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
           <FilterTabs label="Show prescriptions" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
-            { value: 'todo', label: 'To dispense', count: counts.todo },
-            ...(billed || tab === 'payment' ? [{ value: 'payment' as const, label: 'Waiting for payment', count: counts.payment }] : []),
-            { value: 'dispensed', label: 'Dispensed', count: counts.dispensed },
-            { value: 'all', label: 'All', count: counts.all },
+            // A count only once the list is read: while it loads, or when it couldn't be read, "0" would say nothing is waiting.
+            { value: 'todo', label: 'To dispense', count: items ? counts.todo : undefined },
+            ...(billed || tab === 'payment' ? [{ value: 'payment' as const, label: 'Waiting for payment', count: items ? counts.payment : undefined }] : []),
+            { value: 'dispensed', label: 'Dispensed', count: items ? counts.dispensed : undefined },
+            { value: 'all', label: 'All', count: items ? counts.all : undefined },
           ]} />
           <div className="flex min-w-0 flex-wrap items-center gap-2 @3xl:w-80 @3xl:flex-nowrap">
             <label htmlFor="pharmacy-search" className="sr-only">Search Pharmacy</label>

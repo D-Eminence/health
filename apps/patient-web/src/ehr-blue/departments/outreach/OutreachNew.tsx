@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type MutableRefObject } from 'react'
+import { useRef, useState, type FormEvent, type MutableRefObject } from 'react'
+import { isHidApiError } from '@hid/http'
 import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { ArrowLeft } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
@@ -10,8 +11,32 @@ import { waitsForNetwork, type PendingRegistration } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
 import {
-  AGE_RANGE, AT_LEAST_THREE, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, RETRY_NOTE, type FieldErrors,
+  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, RETRY_NOTE,
+  type FieldErrors,
 } from './outreachParts'
+
+/**
+ * Outreach's refusals of the campaign a case names (outreach.service.ts assertCampaignAcceptsRegistration and the
+ * campaign routes), by status and code. A 500 is never one of them: since backend 0110 (hid-system#181), live in production,
+ * a 500 is a real fault (the case may have been saved and only its answer lost), so it is said as any other failure and
+ * retried as the same command; saving again without the campaign would send a new command and could register the
+ * same person twice.
+ */
+const CAMPAIGN_REFUSALS: ReadonlyArray<readonly [number, string]> = [
+  [403, 'OUTREACH_CAMPAIGN_ACCESS_DENIED'],
+  [409, 'OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS'],
+  [409, 'OUTREACH_CAMPAIGN_CLOSED'],
+  [409, 'OUTREACH_CAMPAIGN_NOT_STARTED'],
+  [404, 'OUTREACH_CAMPAIGN_NOT_FOUND'],
+]
+function campaignRefused(caught: unknown): boolean {
+  if (!isHidApiError(caught)) return false
+  return CAMPAIGN_REFUSALS.some(([status, code]) => caught.status === status && caught.code === code)
+}
+
+const CAMPAIGN_FIELD = 'outreach-case-campaign'
+const CAMPAIGN_REFUSED_ID = 'outreach-case-campaign-refused'
+const SAVE_ID = 'outreach-case-save'
 
 /**
  * The case last sent, with its command: its localCommandId (also its Idempotency-Key) and
@@ -73,6 +98,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  /** The campaign that refused the last case sent: the person can be saved without it. */
+  const [refusedBy, setRefusedBy] = useState<{ readonly name: string | undefined } | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
   const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
   const [method, setMethod] = useState<OutreachConsentMethod | ''>('')
@@ -82,10 +110,27 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   const focus = useFocusById()
   const notesLimit = group ? OUTREACH_NOTES_LIMIT : 2000
 
-  async function createCase(event: FormEvent<HTMLFormElement>) {
+  function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    void send(event.currentTarget)
+  }
+
+  /**
+   * "Save without the campaign": the same person, everything typed kept, with the campaign set to none. The case is
+   * then a different one (its body changes), so it is sent as a new command with its own key.
+   */
+  function saveWithoutCampaign() {
+    const element = formRef.current
+    if (busy || !element) return
+    const select = element.elements.namedItem('campaignId')
+    if (select instanceof HTMLSelectElement) select.value = ''
+    // The message and its button go as the case is sent: focus waits on Save, which says it is saving.
+    focus(SAVE_ID)
+    void send(element)
+  }
+
+  async function send(element: HTMLFormElement) {
     if (busy) return
-    const element = event.currentTarget
     const form = new FormData(element)
     const campaignId = String(form.get('campaignId') ?? '') || undefined
     const fullName = String(form.get('fullName') ?? '').trim()
@@ -97,6 +142,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     const guardianName = String(form.get('guardianName') ?? '').trim().replace(/\s+/g, ' ') || undefined
     // The last answer no longer applies.
     setError('')
+    setRefusedBy(null)
     // The form checks its own fields as Outreach does (CreateRegistrationCaseDto). A phone number and operational
     // notes are taken at 3 characters or more, or none, as sent: trimmed, which a native minLength does not check.
     const errors: Partial<Record<CaseField, string>> = {}
@@ -158,7 +204,14 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
       }
-      setError(group ? outreachProblemText(caught, CREATE_FAILED) : errorText(caught, CREATE_FAILED))
+      if (!group && campaignId && campaignRefused(caught)) {
+        // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
+        // outreach group, whose registrations always need their campaign.
+        setRefusedBy({ name: campaigns.find(campaign => campaign.id === campaignId)?.name })
+        focus(CAMPAIGN_REFUSED_ID)
+      } else {
+        setError(group ? outreachProblemText(caught, CREATE_FAILED) : errorText(caught, CREATE_FAILED))
+      }
     } finally {
       setBusy(false)
     }
@@ -181,7 +234,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       description={group ? 'Register someone you meet at your event, once they agree. They can link their own Health ID to it later.'
         : 'Register someone you meet in the field. They get a temporary record now, and you link it to their Health ID later.'}
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
-      <form className="flex flex-col gap-4" noValidate onSubmit={event => void createCase(event)}>
+      <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}>
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
         {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage} onMethod={setMethod}
           methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
@@ -223,9 +276,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
               </EhrSelect>
             </OutreachField>
           ) : showCampaign && (
-            <OutreachField id="outreach-case-campaign" label="Campaign (optional)"
+            <OutreachField id={CAMPAIGN_FIELD} label="Campaign (optional)"
               hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.' : 'You aren’t in an active registration campaign. You can save without one.'}>
-              <EhrSelect name="campaignId" {...controlProps('outreach-case-campaign', undefined, true)}>
+              <EhrSelect name="campaignId" {...controlProps(CAMPAIGN_FIELD, undefined, true)}>
                 <option value="">No campaign</option>
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
               </EhrSelect>
@@ -238,11 +291,18 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />
           </OutreachField>
         </Step>
+        {refusedBy ? (
+          <div id={CAMPAIGN_REFUSED_ID} tabIndex={-1} role="group" aria-labelledby={`${CAMPAIGN_REFUSED_ID}-text`} className="hid-ehr-dept-outreach-error hid-ehr-dept-outreach-refused">
+            <p id={`${CAMPAIGN_REFUSED_ID}-text`} className="hid-ehr-dept-outreach-refused-text">{campaignRefusedText(refusedBy.name)}</p>
+            <Button variant="primary" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}
+              onClick={saveWithoutCampaign}>{busy ? 'Saving…' : 'Save without the campaign'}</Button>
+          </div>
+        ) : null}
         <ErrorBox message={error} />
         {error ? <small className="hid-ehr-dept-outreach-note">{RETRY_NOTE}</small> : null}
         <FormActions>
           <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Cancel</Button>
-          <Button type="submit" variant="primary" size="lg" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save registration'}</Button>
+          <Button id={SAVE_ID} type="submit" variant="primary" size="lg" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save registration'}</Button>
         </FormActions>
       </form>
     </FormPage>

@@ -2817,3 +2817,293 @@ A walkthrough of the signed-in patient pages in headless Chromium against the mo
 - **Tests.** `PatientPhoneLayout.test.tsx` guards the classes (jsdom lays nothing out) and the country's name; the measurements above are from Chromium.
 - **Review.** An independent review found the two steps shrinking together under larger text, and the comment on codes left for users to assign wrong; both fixed, each test first.
 - **Not checked here:** production, and a real phone. Turnstile blocks automated sign-in there, by design; the manual pass on a phone signed in as patient1@ is the owner's.
+
+## 2026-11-03: error reports to Sentry from the portal and the public site
+
+The owner approved error reporting in the website before launch. It is built and off: it starts only in a build that carries a DSN, and both configuration files hold none. The backend's error reporting is separate work in hid-system.
+
+- **When it runs.** Only when the build carries a public Sentry DSN: `VITE_HID_SENTRY_DSN` for the portal (app., ehr., lab., pharmacy., migrate., outreach., admin.) and `NEXT_PUBLIC_HID_SENTRY_DSN` for the public site, which `scripts/build-staging.py` (and so `build-production.py`) sets from `sentry_dsn` in `config/<environment>.json`. Both files say `null`. Without a DSN there is no listener and no request. A value that is not exactly a public DSN (`https://<32 hex key>@<host>[/<prefix>]/<project id>`) is refused by the release check, and a site that somehow got one would ignore it.
+- **What a report holds.** The error's type (`TypeError`, `ChunkLoadError`; `NonErrorThrow` or `NonErrorRejection` when what was thrown is not an Error); its stack frames, each a script's address without query or hash, a function name and a line and column (a page address, `blob:`, `data:`, eval or a browser extension shows as `<anonymous>`); the route name, in which every part of the path that is not a plain lowercase word becomes `:id` (`/provider/patients/HID-…` is sent as `/provider/patients/:id`); the environment's name; and the build, the first 12 characters of the commit, as the release and as a tag.
+- **What is never sent.** The error's message, anything typed into a page, the page's address or query, a Health ID, an email, a phone number, a UUID or any other id, a user or account, cookies, the referrer or breadcrumbs. There is no session replay. The request sends no cookie and no referrer, and tells Sentry not to work out the sender's IP address. Like any request a browser makes to another site, it carries the browser's user agent and the site's origin (never the page's address); the report itself holds nothing about the browser.
+- **How much.** Each kind of error (its type and the place it was thrown) is sent once per page load, ten reports at most. A report that cannot be sent is dropped, never retried, logged or reported.
+- **Where.** `packages/observability/src/errorReporting.ts`, a small reporter that builds each report from an allow-list (no Sentry SDK, no new dependency). The portal starts it first thing in `main.tsx`; its React root then reports each error React meets, one an error boundary caught or one none did, and still does what React does by default. The public site starts it from `app/ErrorReporting.tsx`, rendered once by the root layout, and `app/error.tsx` reports the error it shows. `scripts/check-boundaries.mjs` lets this one file call fetch, as it does the gateway transport: it posts only to the Sentry ingest host and must not carry the gateway client's cookie and headers.
+- **To switch it on.** In the Sentry project, first turn on "Prevent Storing of IP Addresses" and data scrubbing (the Data Scrubber with the default scrubbers), under Security & Privacy. Then set `sentry_dsn` in `config/staging.json` or `config/production.json` to the project's DSN and build a release. When a Content-Security-Policy is added (hand-off D6, noted in `infra/cloudflare/src/frontend-worker.mjs`), its `connect-src` must allow the ingest host the DSN names, or reports are blocked. `docs/STAGING_DEPLOYMENT.md` has the same steps under Error reporting.
+- **Not verified live.** Unit, component and release tests and both builds; no report has been sent to a real Sentry project.
+
+## 2026-11-04: error reports on in production, to the owner's EU Sentry project
+
+The owner created the website's Sentry project in the EU region. `config/production.json` now holds its public DSN (`https://64b3…90e9@o4512373598519296.ingest.de.sentry.io/4512373615886416`; the key is public by design), so every production app (app., ehr., lab., pharmacy., migrate., outreach., admin. and the public site) is built with it and reports errors as the 2026-11-03 entry describes. `config/staging.json` stays `null`: staging sends nothing.
+
+- **Tests first.** The release tests now require production's DSN, require staging's `null`, and check that `build-staging.py` gives every production app `*_SENTRY_DSN` and no staging app one; the reporter's tests check that `parseDsn` reads the EU host (`o<digits>.ingest.de.sentry.io`) and its 32-hex key and builds `https://o4512373598519296.ingest.de.sentry.io/api/4512373615886416/envelope/`. The reader and the release check already accepted that shape; nothing in them changed.
+- **Before the first production release with it.** In the Sentry project, turn on "Prevent Storing of IP Addresses" and the Data Scrubber with the default scrubbers (Security & Privacy). When a Content-Security-Policy is added (hand-off D6), production's `connect-src` must allow `https://o4512373598519296.ingest.de.sentry.io`.
+- **Checked in Chromium.** The portal preview (Vite against the mock gateway) built with the production DSN, at 320, 360, 390 and 1366px: on `/card/HID-…?email=…#x`, thrown errors and a rejection whose messages held an email, a Health ID and a phone number were each posted once to `https://o4512373598519296.ingest.de.sentry.io/api/4512373615886416/envelope/` (the browser stopped them there; nothing reached Sentry) with the type, the frames, `/card/:id` and the build, and with no message, query, hash, cookie or referrer. The page looked as before. The public site's build with the DSN carries it in its bundle.
+- **Gates.** Typecheck, lint, boundaries, the full Vitest run (489 files, 9838 tests), the script tests (115), the portal build, the launch build audit, and the public site's build (given a local `NEXT_PUBLIC_HID_*` environment, which it needs).
+- **Not verified live.** No report has been sent to the real project from here.
+
+## 2026-11-05: a message line in a stack is never read as a frame
+
+An independent review found that a line in a Chrome stack that starts with "at" but is not a frame (a message line left in the stack after the message changed, or a line behind "Caused by:") was read as one, and a name such as "at Adaeze Okafor (Lagos)" could reach Sentry as a function name. The email-shaped text was already dropped; a name with a space was not.
+
+- **Fix.** `packages/observability/src/errorReporting.ts`: a Chrome line is a frame only when it ends in a real location (`url:line:col`, an eval location, `native`, `<anonymous>` or Promise.all's `index N`), as Firefox and Safari lines already were. A function name may hold a space only where an engine puts one (`new `, `async `, ` [as alias]`, Safari's `global code`); anything else is sent as `?`.
+- **Tests first.** `errorReporting.test.ts` checks that such lines give no frame, that names with stray spaces become `?`, and that neither stack sends the name or place in a report.
+
+## 2026-11-04: patient shell and shared parts, launch fixes
+
+The launch audit's findings about the shell every signed-in product shares (patient portal, provider EHR, platform admin) and the Kasuwa parts every page uses. Tests came first and were committed failing; each fix was then checked in Chromium at 320, 360, 390 and 1366px against the mock gateway, and the admin and EHR shells were checked the same way.
+
+- **Code boxes (SO-01, PPS-01).** The six boxes had no edge outside the older sign-in forms, so the sign-up, password reset, NIN, profile and emergency-contact code steps showed blank space, and the row (6 x 52px) pushed the card or page wider than a 320px phone. The boxes are now drawn wherever they appear, in the portal's and the sign-in pages' looks, and the row shrinks: the card stays 288px wide at 320px, with no sideways scroll.
+- **A refused code (HE-10, the shared part).** The code boxes take `errorId`: while the code is invalid, every box and the group are described by the error, so a screen reader user who comes back to any box hears what is wrong. `invalid` now takes a plain true or false.
+- **Dialogs and drawers keep focus (PPS-03, SA-01, RN-06, HCS-13).** The shared drawer, dialog and the ➕ sheet keep Tab and Shift+Tab inside until they close (from the title too), close on Escape and give focus back to what opened them. A drawer under the provider workspace's session check, which is hidden and inert, stands down.
+- **Menus (HCS-12).** The account (⋯) menu and the switcher open onto their first item, name what they control, and close on Escape (focus back on their button) or on a press elsewhere.
+- **The ➕ sheet (HCS-14).** Choosing an item leaves focus to the page it opens; Escape, Cancel and the backdrop still give it back to ➕. An item whose link changes while the sheet is open ("Share my records" once sharing is found to be served) is updated in place, so focus on it is not lost to the page (found in Chromium during this work).
+- **The Menu page (HCS-21, HCS-26).** It names the tab ("Menu · Health ID", or the product's own name), takes focus to its heading, and on an address opened at #menu, Close shows the page under it instead of leaving the app. When Close takes the Menu away, focus goes to the page's heading.
+- **Sign-out progress (HCS-22).** While a sign-out runs, the ⋯ button is busy, the row beside it reads "Signing out…" and it is announced once; a failed sign-out leaves focus on ⋯. The Menu page's Sign out keeps focus while busy.
+- **Skip link (HCS-11).** The shell gives every product with its own main region a "Skip to main content" link as the first Tab stop unless it names its own (the admin keeps "Skip to content").
+- **The session check (HCS-16, SO-20, HCS-26, HCS-06).** "We could not check your session" now says that nothing in the account has changed, has a full-size Try again (44px), and both it and "Checking your session…" name the tab. A redirect to sign-in keeps the page the patient asked for (router state, never the address), and the session records when a sign-in ended while it was in use (`sessionEnded`), for sign-in to explain it.
+- **Notifications (HCS-17).** The bell stays in the header when nothing is unread, named "Notifications", with the count only while something is unread.
+- **Page not found (HCS-25).** The designed empty state, "We couldn’t find that page. The link may be old or mistyped.", with Go to Home.
+- **Titles (HCS-26).** The card preview is "Card preview · Health ID".
+- **The one-of choice (SO-18).** The shared radio group is one Tab stop, and the arrow keys, Home and End move the choice and focus with it.
+- **Focus under the bottom menu (HE-13).** Below 1024px the page keeps 132px (and the phone's inset) clear at the bottom when it scrolls a focused control into view: above the bottom menu (64px) and, since main raised it there (#129), the Support chat launcher (76px up, 48px tall), which steps aside only for a field being typed in. 88px was enough before the launcher moved.
+- **Empty states (HCS-24, HE-11, SA-16, RN-07, the shared part).** The shared empty state can be one plain sentence with its drawing and next step, and an empty timeline (Home's Activity) is now that, not a grey line.
+- **Small controls (SO-13, SA-20, RN-21, the shared part).** Text buttons (the link look) are at least 24px tall, and so is every disclosure toggle; a whole-page state's action is 44px.
+- **Left for the page PRs** (#107 is now on main; these are page files, not the shell's): the sign-in page reading `sessionEnded` and returning to the page kept, and a Try again (or no message) for its session error (HCS-06, SO-20, `SignIn.tsx`); the emergency-contact code passing `invalid` and `errorId` (HE-10, `AccountSafety.tsx`); the empty emergency contacts, access activity, invitations and sent orders using the shared empty state (HE-11, SA-16: `AccountSafety.tsx`, `AccessLog.tsx`, `SentOrders.tsx`; `ShareInvitations.tsx` belongs to the sharing PR); leaving out "Older health records" for a patient with none (RN-07, `Portal.tsx`, `ImportedHistory.tsx`); the Access page's title "Access & sharing · Health ID" (HCS-26, `Portal.tsx`); the share page's Change and invite buttons (SA-20, `ShareRecords.tsx`) and "Forgot password?" (SO-13, `SignIn.tsx`), which do not use the shared text button. Home's "Latest from your providers" (HCS-24, `Overview.tsx`) belongs to the home PR, and the chat suggestions' dark hover colour (RN-21, `chat.css`) to the records PR.
+- **Merged with main 4ba569ea (batches 3 and 4).** Both sides kept: the single sign-on hand-off and the page kept for sign-in on a redirect (`RequireAccess.tsx`), the sign-out's end-session address and the note that the patient signed out here (`session.tsx`), and the shell's 144px bottom space from #129 with its page ref. The launcher covering the bottom menu's Menu button, seen earlier, is fixed on main (#129): checked again, a tap on Menu lands on Menu at 320, 360 and 390px.
+- **Checked again after the merge** in Chromium against the mock gateway at 320, 360, 390 and 1366px: Home, records, profile, access, notifications and an unknown address fit with no sideways scroll, each names the tab, the skip link is the first Tab stop and the bell stays; the ➕ sheet keeps Tab inside and Escape returns to ➕; the account menu opens onto Your profile and Escape returns to its button; the Menu page names the tab and takes focus to its heading; the sign-up code boxes are drawn and fit the card at every width (33px boxes at 320px).
+
+## 2026-11-03: Home and the Health ID card made ready for launch
+
+The launch audit's findings for Home, the Health ID and the shared-card pages (`Overview.tsx`, `HealthIdCode.tsx`,
+`SharedCard.tsx`). Tests first (`HomeLaunchReady.test.tsx`, `SharedCard.test.tsx`, `HealthIdCode.test.tsx`), then the
+fixes. Home still promises no lab results, medicines, diagnoses or vitals, and Add a record is not touched here.
+
+- **HCS-04.** When blood group, genotype and allergies can't be read, Home says so under the card with Try again, so
+  the card never reads as if no allergy is recorded. Once they load, focus goes to the card.
+- **HCS-07.** A failed check for access requests is said, with Try again, instead of showing none waiting. A failed
+  read of who viewed or changed the record is said inside Activity, with Try again; Activity shows what did load and
+  never says "nothing here" then.
+- **HCS-08.** The tiles say "Loading" to a screen reader while they load (no bare "…"), and after a failed read show a
+  dash with "Couldn't load" under it.
+- **HCS-09.** Activity and the providers card say they are loading and are marked busy while they read. The column
+  with the tiles is drawn once the requests waiting and what the profile lacks are known, so the tiles no longer move
+  down as late reads arrive (checked in Chromium: drawn once, at one place).
+- **HCS-10.** The patient's own actions read as theirs on Home: "You gave Lagos General Hospital access", "You ended
+  Ikeja Clinic's access".
+- **HCS-18.** The patient's card preview says when the card or the records can't be loaded, with Try again and Back to
+  Access & sharing, instead of "Loading…" for ever (behind the switch below).
+- **HCS-19.** The page a shared link opens says "This link can't be opened", with no "yet", and its one link is the
+  public site, healthidentitydirectory.com (www.staging. on staging), in the same tab. healthid.ng is gone.
+- **HCS-03.** The preview of a provider page that no provider can open is off (`CARD_LINK_OPENS`, false until Health ID
+  sends the one-time code): /card/preview opens Access & sharing. When it is turned on, the preview shows the share
+  just made, passed in the navigation state, and makes up no level or end date.
+- **HCS-20.** Each Try again on Home reads once however fast it is pressed again, and leaves focus on the heading of
+  what loaded, on the card, or on the new Try again when it failed again (`useRetryOnce`, `foundTarget` in
+  `actionFocus.ts`).
+- **HCS-23.** The card's Health ID tells a screen reader that pressing it copies; "Health ID copied." clears after three
+  seconds (the advice to copy by hand stays until the next try).
+- **HCS-24.** Home's empty sections use the shared empty state, with what will appear and the next step ("Show your
+  Health ID card at your next visit").
+- **HCS-28.** An empty profile answer says "We couldn't read your Health ID" with Try again and Email support. Before,
+  an answer with no body stopped the page (`profileSources.ts` now reads it as no profile).
+- **SO-14.** At the end of sign-up the new Health ID stays on one line at 320px, a little smaller, with Copy under it
+  when both do not fit (checked in Chromium at 320, 360, 390 and 1366).
+- **Left for later, in files #107 changes.** HCS-01 (no Documents or Medicines tile where the backend does not serve
+  them) and HCS-27 (the waiting-request notices as notes, not alerts, with "Review the request from …") are ready but
+  change what `OverviewDashboard.test.tsx` asserts; they follow once #107 is on main. In `ShareRecords.tsx`, the done
+  step's "Preview what they see…" link still shows (it now opens Access & sharing) and should go, or pass the share's
+  level and end date, with the card link. In `HealthIdCard.tsx`, the card could also print "Health details
+  unavailable" (HCS-04's optional part), and HCS-05 and HCS-15 wait. In `AccessLog.tsx`, the Access page's own log
+  still reads "You: Got access to your record" (SA-13).
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-04: Home and the Health ID card: the rest of the launch fixes
+
+Merged main (website batches 3 and 4) into the branch above, then finished what it had left. Tests first
+(`HomeLaunchReady.test.tsx`, `OverviewDashboard.test.tsx`, `ProfilePhoto.test.tsx`, `ShareRecords.test.tsx`).
+
+- **Merge.** Main's tiles for only the sections the backend sends (HCS-01) and the launch fixes' "Couldn't load" tile
+  values now go together. The page a shared link opens keeps "This link can't be opened" (no "yet"); its one link is
+  main's page for patients, on this deployment's own public site (`https://healthidentitydirectory.com/patients` in
+  production).
+- **HCS-01.** Where only Records and Facilities with access are shown (production), they fill the row as two columns;
+  the loading column draws as many tiles as will come.
+- **HCS-04.** When blood group, genotype and allergies can't be read, the card itself prints "Health details
+  unavailable" in their place, as well as the notice with Try again under it.
+- **HCS-05.** A long name prints whole on the card, over two lines and a step smaller, with the NIN mark beside it
+  (checked in Chromium at 320, 360, 390 and 1366 with a 41-letter name: two lines, nothing cut off, no sideways scroll).
+- **HCS-15.** After saving a card photo, a screen reader hears "Your photo was saved." and focus is on the photo
+  control; when saving fails, focus is back on Save photo (checked in Chromium).
+- **HCS-27.** The requests waiting on Home are notes, not alerts read out on every visit, and each Review is named for
+  its facility ("Review the request from Ikeja Medical Centre"); the visible word stays Review.
+- **HCS-03.** The share's done step no longer offers "Preview what they see…" while the card link is off; when it is
+  turned on, the link passes the share's level and end date.
+- **Still open.** `AccessLog.tsx`: the Access page's own log still reads "You: Got access to your record" (SA-13, the
+  sharing area). The share's done step still says "Your card is on its way… They can open your records", which is the
+  sharing area's to check against what a provider can open today.
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-05: Home and the Health ID card: review fixes
+
+An independent review of the branch found two problems with copying the Health ID on the card. Both reproduced in
+Chromium at 320 and 390 with a 41-letter name; tests first (`HomeLaunchReady.test.tsx`, `HealthIdCode.test.tsx`).
+
+- **HCS-05 (copy note).** "Health ID copied." was a line inside the holder block at the foot of the card, so showing it
+  lifted the two-line name under the Add photo pill: letters and the NIN mark were hidden. The note now sits under the
+  code, out of the holder's flow, in the card's bottom margin. Measured in Chromium: the name's top is the same with and
+  without the note (297.9px at 320, 328.1px at 390), and the NIN mark stays visible.
+- **HCS-23 (copy failed).** The advice to copy by hand was printed on the card face, cut off at its edge, and also pushed
+  the name. It is now printed under the card, whole and wrapped, still as an alert, and still stays until the next try
+  (it is advice the patient needs while they copy by hand, so it is not timed out). `HealthIdCode` takes `adviceIn`, the
+  place outside the card to print it.
+- **Not verified live.** Component tests and a local Chromium run against the mock gateway; no deployed backend.
+
+## 2026-11-04 sign-in, sign-up and recovery made launch-ready (launch audit, signed-out area)
+
+Fixes from the launch audit for `/sign-in`, `/enroll`, `/enroll/facilities` and `/recover`, started on main after website batch 3 (`c43ad5cd`) and merged with main after batch 4 and the backend pin (`304c86a3`), which changed none of these pages. Each was first seen again on that main, in Chromium where it shows, before its failing test was written. Batch 3 had fixed none of them: its sign-in and sign-up change only stopped pointing to a provider portal.
+
+- **The line under every form (SO-02, owner's words).** It said records are shared "only with the facilities you approve", which emergency access makes untrue. It now says: "You choose who can see your records. In an emergency, a hospital can open them, and we tell you."
+- **What the wide-screen card promises (SO-11, owner's list).** It listed lab results, prescriptions, emergency contacts and records "from every hospital". It now lists only what the portal shows today: visits and doctors' notes from Health ID hospitals, the health information you add, and who has opened your record. The heading line reads "One record · Health ID hospitals · Your choice". The card's foot reads "Works at · Health ID hospitals", not "Every Health ID facility". The sign-up's introduction reads "Your records from Health ID hospitals, in one place." instead of "from every hospital, in your control".
+- **A refused sign-in (SO-03).** A wrong email, phone, Health ID or password marks both fields as wrong, and both point to the refusal. Focus moves to the password, so a screen reader reads the refusal there once. It is an alert only when Enter was pressed in a field, where focus stays. Any other refusal is an alert, and focus lost with the busy button goes back to the first field.
+- **Back to the page the patient asked for (SO-04, HCS-06).** Sign-in, with a password or with Google, opens the page the route guard sent the patient from (`location.state.from`, a path or a router location), not always Home. Only a page of this site is taken, and only a patient page: never `//…`, `/\…`, another host, a way in (sign-in, sign-up, recovery, hid-1.0's old addresses for them), `/provider`, `/admin`, `/verify`, or the public card page and its token (`signInReturn.ts`). An address that is no patient page opens the portal's "Page not found" once signed in. A patient already signed in goes there too.
+- **A session that ended (HCS-06, sign-in part).** The session now notes when a patient's session ends while they use the portal (a read finds it gone and its refresh is refused), not when they sign out themselves. Sign-in then says "You were signed out because your session ended. Sign in again to continue." as an alert, and focus goes to its heading. Another tab's sign-out is still said in its own words instead. The next sign-in clears the note.
+- **The security check could not load (SO-06).** The check's "Security check unavailable" or "Security check failed" message now has Try again. It loads the check again in place, so nothing typed is lost (the sign-up's details are kept in memory only). Focus stays with the check while it loads, and goes to the new Try again if it fails again. A widget that recovers by itself drops the old message.
+- **The main button while the check runs (SO-16).** Sign in, Send code (recovery) and the NIN step's Continue say "Complete the security check to continue." while they wait for it, linked to the button, as the sign-up's password step already did.
+- **A failed session check on sign-in (SO-20, sign-in part).** "We could not check your session. Try again." had no Try again. It now reads "We couldn’t check whether you’re signed in. Try again, or sign in below." with Try again. Focus goes to the new Try again if the check fails again, or to the first field once it finds no session.
+- **The sign-up while it loads, and at its end (SO-07, SO-15).** While the page finds out which sign-up Identity serves, and when it could not find out (only the message and Try again then), it shows "Get your Health ID." with no steps and no description of the NIN sign-up, so nobody is told they need a NIN before the sign-up without one appears. The NIN sign-up's end screen shows the Health ID without a step list that marks nothing done.
+- **Closed registration (SO-10).** "Sign-ups aren’t open yet" and "not open yet" read as a service still to come. They now say "New sign-ups are paused" and "New sign-ups are paused right now. Please try again later. If you already have a Health ID, sign in.", in the website's own words, for both the closed page and a refused sign-up.
+- **Step headings (SO-12).** "Prove this NIN is yours", "Enter the code we texted you", "Register at a healthcare facility" and the three ending screens were 14px body text, smaller than their own sub-headings. `text-title-2` is a plain class, so the parent's `[&_h2]:` variant made no CSS. Each heading now carries the classes itself (18px/600, as the contact step's).
+- **A wrong contact code (SO-19).** 422 `OTP_INVALID` at the contact code said "Check what you entered and try again." It now says "That code is wrong or has expired. Check the latest message, or ask for a new code.", as the sign-up without a NIN does.
+- **Tap targets and the placeholder (SO-13 own parts, SO-17).** "Forgot password?" on sign-in and on the closed page, and "Back to sign in" on recovery, are 44px tall with their text where it was. The identifier placeholder on sign-in and recovery is "HID-…, 0803… or email". It keeps a phone example and fits a 320px phone (141px of the 212px there), where the old one was cut off (227px). The label still names all three.
+- **Tests.** `SignInLaunch`, `SessionEndedNotice`, `EnrollmentLaunch`, `TurnstileRetry` and `AuthPromises` were committed failing first. The closed-registration tests take the new words. The sign-in tests that read a wrong password, or a blank identifier, as an alert now read it as the fields' description, with focus on the field (FinishSignup, AccountSuspended, HealthIdPrefill, PasswordReveal). The placeholder test takes the shorter placeholder. The test where the patient's own session ended now expects the session-ended notice.
+- **Checked again in Chromium after merging main (4 Nov)** at 320, 360, 390 and 1366 px: the line under each form, no sideways scroll, Forgot password 44px, the shorter placeholder, the closed page's heading at 18px, and the failed availability read, which still listed the NIN steps; fixed, test first.
+- **Checked in Chromium** at 320, 360, 390 and 1366 px, against the mock gateway, with no sideways scroll. Checked: the refused sign-in by click and by Enter (focus, marks, alert or note); a 503 refusal; return to `/notifications`, and Home for `//evil.example/x` and `/provider/patients`; the session ending on Records, the notice, the heading focused, and sign-in returning to Records (with the route guard change below applied locally, not committed); a failed session check with Try again; the slow availability read; the end screen; the closed page; heading sizes; the wrong contact code; and the security check's Try again with Cloudflare's script blocked in the test browser only (Turnstile itself untouched).
+
+- **Review (5 Nov).** An independent review found two things, both fixed, each test first in `AuthPromises.test.tsx`: the card's foot still said "Every Health ID facility" (now "Health ID hospitals"), and at 320px the longer line under each form wraps to three lines with its lock beside the middle one. The lock now sits beside the first line (`align-items: flex-start`, 2px down); measured in Chromium at 320 and 1366px, with no sideways scroll.
+
+Left for the other PRs, and why:
+
+- **The route guard's `from` (shell PR, `RequireAccess.tsx`).** Sign-in returns to the page asked for only once the guard sends it. The shell branch (`claude/patient-shell-launch-ready`) sends `state={{ from: { pathname, search, hash } }}`, which `signInReturn.ts` takes. Until that PR is merged a sign-in still opens Home. Sign-in takes a router location or a path string. The guard's checking and failed screens' tab titles (SO-20, HCS-06 session-screen parts) are the shell PR's too.
+- **The link-style buttons' height (SO-13 shared part).** "Send a new code", "I can't get the code", "Use a different NIN", "Get a new desk code", "Get a code by text message instead", the sign-up's "Back", "Send code again" and "Change your details", and recovery's "Start again" links use the `link` variant of `buttonClass` in `kasuwa/ui.tsx`. Its height is the shell PR's (shared text-button heights).
+- **Code boxes (SO-01)** are the shell PR's.
+
+Needs owner approval:
+
+- SO-02: the line under every form, in the owner's words as given.
+- SO-11: the card's three lines as given. Two are dropped: "Emergency contacts" and "You approve who sees them". Three sets of words are the builder's own: the heading line "One record · Health ID hospitals · Your choice", the card's foot "Works at · Health ID hospitals", and the sign-up's introduction "Your records from Health ID hospitals, in one place."
+
+## 2026-11-04: the patient profile, ready for launch
+
+The profile's findings from the launch-readiness audit of 2 November (ids PPS-02 to PPS-16, HCS-05, HCS-15), checked again on main after website batch 3 (`c43ad5cd`). Batch 3 had fixed none of them: its patient changes (plain errors through `plainErrorText`, Home and Records, "Add a record", sign-in and sign-up, Access statuses) did not touch the profile, the Access PIN, the card photo or Delete account. Each fix has a failing test first; each visual or focus change was checked in Chromium at 320, 360, 390 and 1366 pixels against the mock gateway.
+
+- **A second tap on a busy button** (PPS-04). Chromium focuses the nearest focusable wrapper (the portal's outlet, or `#contact-details` after a link to it) when a tap lands on a button its first tap disabled, and focus stayed there after the outcome. Focus after an action (`useActionFocus`) and on a step's field (`useStepFocus`) now also moves when focus fell to a wrapper with tabindex -1 around its target (`wrapperFocus.ts`); a heading, or a control the patient moved to, keeps focus. `pageFocus.ts`'s `focusLost` is the shell's and is unchanged.
+- **The card photo** (PPS-05, HCS-15). A failed save or removal keeps the drawer open with focus back on Save photo or Remove, whose description says why ("Your photo wasn't saved. …"); the toast still says it as it happens and goes when the patient tries again. A save or removal that goes through is said in a polite line under the card ("Your photo was saved." / "Your photo was removed."), with focus on the card's photo control, on Profile and on Home.
+- **Loading** (PPS-06). While the reads the completion counts are out, a card of about its height with a polite "Loading your profile completion" holds its place (no jump of About you at 320 or 1366, where it was 161 px); Insurance & hospital is shown closed with "Loading…" while it is first read, where the profile says it is served, and removed if the read then answers 404; Try again shows a loading line instead of a blank card. A link to `#coverage` now lands on the section at once.
+- **Remove PIN** (PPS-07) asks first in a sheet ("Remove your Access PIN?", "Hospitals you gave this PIN to won't be able to use it to open your records.", Cancel and Remove PIN); only the button of what runs shows busy ("Saving…", "Removing…"). **The PIN field** (PPS-08) has a Show PIN toggle (the shared `PasswordInput`), and on a phone Save PIN sits under the field.
+- **Sign in again** (PPS-09). The Access PIN, a contact change and Delete account offer "Sign in again" beside a refusal that needs a sign-in within 10 minutes: it signs out and opens sign-in with `state.returnTo` naming the part of the page (`/profile#access-pin`, `#contact-details`, `#account-deletion`). Delete account's standing line now states the rule ("You must have signed in within the last 10 minutes to delete your account."), so the "sign out, sign in again" sentence appears only with a refusal.
+- **The phone** (PPS-11, the owner's call, below). No "Not verified" badge, and no "Health ID can't text it yet" or "It shows as not verified" while no phone is checked by text; a phone Identity says was checked still shows Verified.
+- **Delete account** (PPS-12). A refused confirmation says "Your account wasn't deleted." and why; a lost answer or a failure on Identity's side says "We couldn't confirm the deletion." and why, without claiming either way (the status read again shows a scheduled deletion if there is one). Continue and Delete my account show they are working ("Starting…", "Deleting…").
+- **Words** (PPS-13, PPS-14, PPS-16). About you names the gender ("Female"; "unknown" and none read "Not given"), the country ("Nigeria", not "NG", found while there) and an empty date of birth as "Not given"; the page's line is "Your details, how you sign in, and your Access PIN."; More is named "More: delete your account" for assistive technology.
+- **Notifications on this device** (PPS-15). A read that fails in a way that may pass (5xx, 408, 429, no connection) shows the card with "Couldn't load this setting" and Try again; a 404, a refusal or an answer that is not the contract's still hides it.
+- **A long name on the card** (HCS-05) wraps to two balanced lines, a step smaller past 26 characters, with the NIN mark beside it and the ID's line in place; checked with a 41-character name on Profile and Home.
+
+Left, and why:
+
+- **PPS-02 (editing bio-data) needs the backend.** Neither hid-system main nor the Novu branches serve a patient self-update for gender, state, country, name or date of birth (only `PUT me/profile-details` and `PUT/DELETE me/photo`); the gap map's "No general self-profile update" stands. Unchanged here.
+- **Returning after sign-in is another PR's.** "Sign in again" passes `returnTo` in the router state, but the portal's own redirect to sign-in (`RequireAccess.tsx`, the shell's) replaces it as the session ends, so the sign-in page sees none; that redirect should carry the location it leaves, and sign-in should honour it.
+- **The confirmation sheet** (the shell's `Modal`) first focuses its Close button; Cancel is the sheet's first footer button.
+
+Needs owner approval:
+
+- **PPS-11.** The "Not verified" badge on a phone and the "can't text it yet" line are hidden until phone verification exists (the recommendation given), and the phone notice no longer says "It shows as not verified".
+
+Brought up to main on 4 November (`12d488f6`: website batch 4, the backend pin and the privacy notice's NDPC registration). Two places met main's own changes and keep both: About you's country now comes from main's `countryName` (which also refuses user-assigned codes such as "XK"), through `countryLabel` for "Not given"; the phone keeps main's wrapping and shows no "Not verified" badge. The profile's tests (223) pass after the merge, and the page was checked again in Chromium at 320, 360, 390 and 1366 pixels: no sideways scroll, "Female" and "Nigeria" in About you, no "Not verified" on an unchecked phone and no "text it yet", Show PIN beside the PIN, the new opening line, and More named for Delete account. PPS-02 still waits on the backend: neither hid-system main nor `staging-novu-ci-20261005` serves a patient update for gender, state, country, name or date of birth (only `PUT identity/me/profile-details`, hospital and HMO).
+
+## 2026-11-05: the patient profile, after an independent review
+
+An independent review of the branch against main found four things; each was reproduced, and each fix below has a failing test first.
+
+- **The card belongs to the home-card branch** (R1). This branch had also changed the card's name line (HCS-05) and the photo's save and remove (HCS-15, with PPS-05) in `HealthIdCard.tsx`, which the home-card branch (`claude/patient-home-card-launch-ready`) changes differently; the two conflicted. `HealthIdCard.tsx` and the photo tests are back to main's here, and the home-card branch owns the card. Left for it, on top of its own photo changes, once it is merged: a failed save or removal keeps the drawer open with focus on Save photo or Remove and the reason tied to that button, and a removal is said in words as a save is (PPS-05). Focus that fell to a wrapper (`wrapperFocus.ts`, PPS-04) stays here: it merges with the home-card branch's `actionFocus.ts` without conflict.
+- **A deletion confirmation with no clear answer** (PPS-12, R2). After a 503 or a dropped connection the status is read again, and the message follows it: "Your account wasn't deleted." and the reason when nothing is scheduled; no alarm when a deletion is scheduled, whose date is shown; "We couldn't confirm the deletion." only when the status cannot be read either.
+- **Notifications on this device after Try again** (PPS-15, R3). A Try again answered 404 no longer removes the card with focus left on the page: the card says "Health ID can't send notifications to this device right now.", with focus on its heading. When this browser's side cannot be read (the module did not load, or the browser threw), the card says so, with Try again, rather than loading for good.
+- **Sign in again comes back to the step** (PPS-09, R4). "Sign in again" now passes the place to come back to as router state `{ from: "/profile#access-pin" }`, the key the sign-in branch's `signInReturn.ts` reads (it accepts only this site's patient pages), and still does when the route guard has already sent the signed-out patient to sign-in without it. Returning works once the sign-in branch is merged; until then sign-in opens Home, as before. The route guard's own redirect still passes no `from` on either branch: the sign-in branch's to add.
+
+## 2026-11-04: Health information and emergency contacts ready for launch
+
+From the patient launch audit (HE-01 to HE-12, HE-14), on `claude/patient-health-info-launch-ready` after merging main (`12d488f6`). Tests first in `HealthEmergencyLaunch.test.tsx`.
+
+- **Contact codes.** A wrong code (403 `EMERGENCY_CONTACT_CODE_INVALID`) said "You don't have access to do this." It now says "That code isn't right. Check it with <name> and try again." An expired one (`EMERGENCY_CONTACT_CODE_EXPIRED`) says "This code has expired. Send a new code.", and the code form offers Send a new code, which takes focus. While a refusal is shown, the code boxes are marked invalid and described by it.
+- **Add refusals.** A duplicate (409 `EMERGENCY_CONTACT_DUPLICATE`) and the limit of 5 (409 `EMERGENCY_CONTACT_LIMIT_REACHED`) said "Try again." Now: "This person is already one of your emergency contacts." under the field; "You already have 5 emergency contacts. Remove one to add another." with the form closed and the list read again.
+- **Where errors are said.** A refused phone number or email is said under the field (it was at the top of the block, out of view). Other refusals in the add, code, edit or remove step are said inside that step, above its buttons. Anything else is said under the heading, as before.
+- **Remove** moves focus to its question ("Remove <name>? …"), which names the confirmation group.
+- **Busy buttons** say Saving…, Sending…, Checking… or Removing…, with `aria-busy`.
+- **No contacts yet** is the shared empty state, saying what will appear.
+- **Phones.** The details take a real width (`flex-[1_1_12rem]`), so the status badge wraps under them. Measured in Chromium at 320, 360, 390 and 1366px: the details were 30 to 60px wide, and are now 216, 256, 286 and 376px, with no sideways scroll.
+- **Link to contacts that are not offered** (`/profile#emergency-contacts` while delivery is off and there are none, or where they are not served) now says "Emergency contacts aren't available for your account right now." instead of showing nothing. `NovuProductionChat.test.tsx` expected nothing on that link and now expects that line, still with no list, no alert and nothing to add.
+- **Health information.** A failed save keeps focus on Save, just under the error. Blood group is no longer described by it. A save conflict keeps what the patient changed and shows the latest for the rest. While the first read runs, the section shows "Loading…" (busy), with the emergency contacts in it, so the page does not jump; only a 404 removes it. Each text says "Up to 1,000 characters.", and a save too long to send marks and focuses the longest answer.
+- **Review (2026-11-05).** An independent review found three things; each was reproduced and fixed, test first.
+  - A refused phone number or email was said only as the field's description. After Enter in that box focus stays there, so a screen reader read nothing (it was a live alert on main). The message under the field is now an alert when focus was still on a control as the refusal came, so it is read out; after Save, where focus moves to the field and reads it as the description, it is not an alert, so it is not read twice. It stays under the field and describes it either way.
+  - The phone number example ("Like 0803 123 4567 …") disappeared when a number was refused. It now stays under the error, and the field is described by both.
+  - The six code boxes did not shrink: the code fieldset's grid track took their 352px minimum, wider than the contact row (216, 256 and 286px at 320, 360 and 390px), so the Health information section scrolled sideways once a later box or Send a new code took focus. `.patient-code-field` now has a `minmax(0, 1fr)` column and `.patient-code-boxes` `min-width: 0` (guarded in `NarrowLayout.test.ts`). Measured again in Chromium with all six digits typed and after an expired code: the boxes fit 216, 256 and 286px and the section's scrollLeft stays 0 at each width. The same rule serves every code form in the portal.
+  - Gates after the fixes: typecheck, lint, audit:boundaries, build:patient-web and audit:launch-build pass. The full vitest run: 9,866 passed; the 2 NovuEmergencyContacts expectations of no alert after Save failed against the first version of the fix (an alert always), which now holds back the alert there, and pass on their own with the suites above; the full run was not repeated.
+- **Left for the shell.** The + menu still offers "Add an emergency contact" where contacts are not offered (`Portal.tsx`). The link now explains itself. Hiding the item would mean the shell reading contacts on every page.
+- **Gates.** typecheck, lint, audit:boundaries, build:patient-web and audit:launch-build pass. The full vitest run: 9,801 passed and the 4 NovuProductionChat expectations above failed. Those were updated and pass on their own; the full run was not repeated.
+
+## 2026-11-04: Access & sharing ready for launch (audit SA-02 to SA-23)
+
+- Headings say only the section's name ("Requests", "Who has access") while a
+  list loads or after it failed; a count or "No one has access now" only once
+  the list is read. The hint is now "Past access stays listed." (the list has
+  no time access ended).
+- The tab is in the address (`/access?tab=granted|activity`). "See who has
+  access", "Back to Access & sharing", Home's "Facilities with access" and
+  activity rows, and the old `/logs` address open the right tab. The page's
+  title is "Access & sharing · Health ID". The edge redirect for `/logs`
+  (`infra/cloudflare`) still sends it to `/access`.
+- A refusal for an old sign-in (403 `PATIENT_RECENT_AUTH_REQUIRED`) on Approve,
+  Share my records or Confirm and share is said in place with a "Sign in again"
+  button: it signs out and opens `/sign-in?next=…`. Sign-in goes back to `next`
+  when it is a path on this site (`returnPath.ts`), else Home. Any signed-out
+  page now opens sign-in the same way (`RequireAccess`), so a session that ran
+  out also comes back to its page. With single sign-on on, `/sign-in?next=`
+  hands off with `return_to` set to `next` when it is one of app.'s exact
+  return pages (`/access` and `/access/share` are; `/access?tab=granted` is
+  not, so that one comes back Home), and the sign-out there may first leave for
+  the provider's end-session address. Single sign-on stays off at launch.
+- A request, access or invitation changed elsewhere (404, 409 or 412) reads the
+  lists again, closes the drawer and says so. Share refusals have plain words
+  and a next step, with "Choose someone else" for a person who can't receive
+  records. The Change buttons are disabled while sharing and are 44px targets.
+- Empty lists are designed empty states with the next step. The Activity tab
+  shows one where the log is not served (404), instead of nothing.
+- Emergency access says the reason given and when it ends, and access a
+  facility gave says it can't be ended here; both offer "Contact Health ID
+  support". The patient's own decisions read "You gave X access to your
+  records" and "You ended X's access". The purpose is said in words.
+- Invitations wrap on phones, the pressed button shows it is busy, and a
+  confirmed invitation says whether the share it made still runs.
+- Orders sent elsewhere: Try again on a failed read, plain priority and route,
+  "in progress" for a state the page doesn't know, and Stop asks first.
+- Needs the backend (SA-14): shares made with "Share my records" and confirmed
+  invitations are not in the access log (0093's classifier drops
+  `identity.consent-grant.patient-share` and `identity.share-invitation.confirm`).
+- Verified in Chromium at 320, 360, 390 and 1366 px against the mock gateway.
+- Review (2026-11-05): "Sign in again" lost its return in the browser: the
+  page guard's own redirect to a bare `/sign-in` landed after the button's
+  `/sign-in?next=…`, so sign-in went Home. The guard now carries the page in
+  `next` (`RequireAccess.tsx`); with single sign-on on, the hand-off from
+  `/sign-in?next=` returns to `next` (`sso/SignInHandOff.tsx`). Tests first
+  (`RequireAccess.test.tsx`, `sso/handOffPages.test.tsx`, a guarded flow in
+  `AccessSharingLaunch.test.tsx`); checked again in Chromium: Approve, then
+  Sign in again, now stays on `/sign-in?next=%2Faccess`.
+
+## 2026-11-04: Records, notifications and chat, launch fixes
+
+From the launch audit of the patient Records, Notifications and chat pages (RN-01 to RN-22, HCS-02). Each fix has a test written first (`RecordsLaunchFixes`, `NotificationsLaunchFixes`, `ImportedHistory`, `RecordsChatStyles`, `StagingChat`, `NovuProductionChat`).
+
+- **Add a record (RN-01, HCS-02).** Confirmed on main: the ➕ item, the Records buttons and `?add=record` appear only once the backend has said it keeps the records a patient adds (`patientEntriesServed.ts`). An older `?add=record` link still opens the drawer, as main intends: today's backend refuses its Save, so nothing leaves the device. There is still no build switch: the day a backend serves those routes, photo and file uploads go live with them (see Not done).
+- **Records.** Older health records shows only to a patient who has some (RN-07), in theme colours in both themes (RN-03), with the shared Download button, icon and label on one line (RN-13), and 44px tall Previous versions (RN-21). A failed download is said beside its file, with focus kept on its button, which stays focusable while it opens (RN-05). A section that comes back full says only the newest are shown ("Showing your 50 most recent visits; older ones are not shown."), even without the backend's truncated flags (RN-08). Each record button names its date, so two visits can be told apart (RN-17, website part). A search that finds nothing suggests only the kinds of record shown and offers Clear search, back to the field (RN-19).
+- **Notifications.** The page asks for the newest 100 and says so when the list is full (RN-11, website part). Mark as read works one at a time, says which is busy, then moves focus to the next unread one with a polite "Marked as read." (RN-09, RN-18). Access requests carry Review request, and other access notices Open Access & sharing (RN-10). From your old Health ID account: each problem is said beside the control that failed, focus goes to the first row Show older added (RN-12), and the card shows only to a patient whose old account has notices; a first read that fails says "If you had an old Health ID account, its notifications couldn't be loaded." with Try again, and no card (RN-22).
+- **Chat.** The tab is named "Ask about your records · Health ID" (RN-20). New conversation is off while nothing is saved, and asks before deleting a saved conversation; Cancel keeps it with focus back on the button (RN-16). The coverage toggle is 44px tall and suggestions use theme colours on hover (RN-21).
+- **Review (2026-11-05).** An independent review found four more; each fixed, test first. The 44px Previous versions and "Which records can I ask about?" had lost their open/close arrow (a flex summary draws none): they stay list items, with padding and a 44px minimum height (RN-21). On one record type, a search that found nothing said so twice: the page's "Nothing matches" with Clear search is now the only message, older records add no second "no match" line, and a search that matches only other types says how many and offers Show all record types (RN-19). New conversation on the hid-system main chat screen (`Chat.tsx`) deleted at once: it now asks first, as the staging screen does (RN-16). When Try again on old-account notifications finds none, focus no longer drops to the page: a quiet "No notifications from an old account." takes it (RN-22).
+- **Checked** in Chromium on the preview against the mock gateway at 320, 360, 390 and 1366px, light and dark: no sideways scroll, the older-records card readable in dark mode, a download failure in view beside its file, the empty Records page with one designed empty state, notification links and focus after Mark as read, and the chat tab title. Not checked on a real phone or on production.
+- **Not done here.** RN-02 and RN-15 are for the owner and the backend. Still needing the backend: paging (a cursor) for records and notifications and a Mark all as read route (RN-08, RN-11), and a facility name on visits and notes (RN-17). A build switch that keeps patient uploads off until the NDPA sign-off (RN-01, HCS-02) is the owner's call.

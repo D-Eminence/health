@@ -200,7 +200,7 @@ const pharmacyStock = {
 // Outreach: one active registration campaign this membership belongs to, and the cases registered in the field. Each
 // case carries `phone` and `operationalNotes` (null when none was given), as production's Outreach sends them.
 const outreachLinked = new Set(['oc-3'])
-// Campaign management (hid-system#222, 0122): the demo membership is camp-1's admin. What is created, opened, closed or
+// Campaign management (hid-system#222, 0111): the demo membership is camp-1's admin. What is created, opened, closed or
 // added lasts until the mock restarts.
 const outreachCampaignStore = [
   { id: 'camp-1', name: 'Ajegunle health week', status: 'active', services: ['registration', 'vitals'], startsAt: iso(-3 * DAY), endsAt: iso(4 * DAY), rowVersion: 2 },
@@ -214,7 +214,7 @@ const outreachMemberStore = new Map([
   ]],
   ['camp-2', [{ id: 'cm-3', campaignId: 'camp-2', membershipId: 'member-demo-7', role: 'admin', createdAt: iso(-1 * DAY) }]],
 ])
-// The facility's active staff, by name, as 0122's outreach.campaign_staff names them.
+// The facility's active staff, by name, as 0111's outreach.campaign_staff names them.
 const outreachFacilityStaff = [
   { membershipId: 'member-demo-1', name: 'Dr Tunde Bello' },
   { membershipId: 'member-demo-7', name: 'Nurse Bisi Adeyemi' },
@@ -499,7 +499,7 @@ const ADMIN_ACTOR = {
   accountId: 'admin-1', subject: 'staff:admin-1', displayName: 'Akorede Admin', email: 'admin@example.test',
   platformRoles: ['platform_super_admin'],
   platformPermissions: [
-    'platform.admin.access', 'platform.audit.read', 'platform.control.manage', 'platform.control.read',
+    'platform.admin.access', 'platform.audit.read', 'platform.control.manage', 'platform.control.read', 'platform.dashboard.read',
     'platform.demo.manage', 'platform.demo.read', 'platform.facility.manage', 'platform.facility.read', 'platform.facility.unlock',
     'platform.identity-review.read', 'platform.integration.manage', 'platform.integration.read', 'platform.integration.test',
     'platform.mfa.reset', 'platform.operations.read', 'platform.pricing.manage', 'platform.pricing.read', 'platform.principal.export',
@@ -513,7 +513,46 @@ const adminFacilities = [
   { id: '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d', organizationId: 'org-2', organizationName: 'Reddington Group', name: 'Reddington Lekki', code: 'RDL', status: 'pending', statusReason: null, statusChangedAt: null, createdAt: '2026-10-12T09:00:00.000Z', membershipCount: 1, version: 1 },
 ]
 
-function adminRoute(method, path) {
+/** `GET /admin/overview/activity?days=` sample: names, emails and Health IDs already shortened, and uploads named by kind only, as the backend sends them. */
+function adminActivity(days) {
+  const scale = days / 30
+  const n = value => Math.round(value * scale)
+  const daily = Array.from({ length: days }, (_, index) => {
+    const date = new Date(now().getTime() - (days - 1 - index) * DAY).toISOString().slice(0, 10)
+    return { date, signups: 1 + ((index * 7) % 5) + Math.floor(index / Math.max(1, days / 4)), activeAccounts: 70 + ((index * 13) % 40) + index }
+  })
+  return {
+    days, generatedAt: iso(),
+    people: { accounts: 341, verifiedPct: 96, profilesCompletePct: 78, activeInPeriod: Math.min(341, n(188)), sharedWithFacility: 214, accessPins: 146, newInPeriod: n(64), prevNewInPeriod: n(53) },
+    care: { healthRecords: n(1184), visits: n(486), labRequests: n(212), prescriptions: n(174), emergencyAccess: n(31), outreachSignups: n(58) },
+    migrateAsk: { pagesRead: n(1140), recordsMoved: n(642), questionsAnswered: null, answersWithSourcesPct: 97 },
+    daily,
+    recentSignups: [
+      { name: 'Amina Y.', email: 'am***@gmail.com', healthId: 'HID-7K…M9', profilePct: 100, status: 'verified', createdAt: iso(-12 * MIN) },
+      { name: 'Chukwudi E.', email: 'ch***@yahoo.com', healthId: 'HID-Q4…X2', profilePct: 86, status: 'verified', createdAt: iso(-48 * MIN) },
+      { name: 'Folake B.', email: 'fo***@gmail.com', healthId: 'HID-M9…A4', profilePct: 100, status: 'verified', createdAt: iso(-2 * 60 * MIN) },
+      { name: 'Ibrahim A.', email: 'ib***@outlook.com', healthId: 'HID-3T…K7', profilePct: 72, status: 'pending', createdAt: iso(-3 * 60 * MIN) },
+      { name: 'Ngozi O.', email: 'ng***@gmail.com', healthId: 'HID-W8…P1', profilePct: 58, status: 'pending', createdAt: iso(-5 * 60 * MIN) },
+    ],
+    recentUploads: [
+      { document: 'PDF', patient: 'Amina Y.', facility: 'Pilot hospital', sizeBytes: 1258291, scan: 'clean', createdAt: iso(-20 * MIN) },
+      { document: 'Word', patient: 'Chukwudi E.', facility: 'Pilot hospital', sizeBytes: 655360, scan: 'clean', createdAt: iso(-60 * MIN) },
+      { document: 'Image', patient: 'Folake B.', facility: 'Pilot clinic', sizeBytes: 3565158, scan: 'pending', createdAt: iso(-2 * 60 * MIN) },
+      { document: 'Image', patient: 'Ibrahim A.', facility: 'Pilot clinic', sizeBytes: 839680, scan: 'clean', createdAt: iso(-4 * 60 * MIN) },
+    ],
+  }
+}
+
+function adminRoute(method, path, request = {}) {
+  if (method === 'GET' && path === '/admin/overview/activity') {
+    const days = Number(request.query?.get?.('days') ?? 30)
+    return [7, 30, 90].includes(days) ? [200, adminActivity(days)] : [400, { code: 'VALIDATION_FAILED', status: 400, detail: 'days must be 7, 30 or 90' }]
+  }
+  if (method === 'GET' && path === '/admin/operations/health') return [200, { services: [
+    { name: 'identity-api', availabilityPct: 99.98, p50Ms: 182, p95Ms: 412 }, { name: 'ehr-api', availabilityPct: 99.97, p50Ms: 164, p95Ms: 390 },
+  ], messagesDelivered: 99.9, documentsScanned: 1140, source: 'cloudwatch' }]
+  // Error reporting is not connected in the sample, as on a fresh install: the overview shows "Not set up yet".
+  if (method === 'GET' && path === '/admin/operations/errors') return [503, { code: 'not_configured', status: 503, detail: 'Error reporting is not set up' }]
   if (method === 'POST' && path === '/auth/admin/refresh') return [200, adminGrant()]
   if (method === 'POST' && path === '/auth/admin/logout') return [204, null]
   if (method === 'POST' && path === '/admin/principals/search') return [200, { items: [], page: 1, pageSize: 25, total: 0 }]
@@ -1293,7 +1332,7 @@ export function respond(method, path, workspace, request = {}) {
   const hit = (workspace === 'admin' ? adminOutreachRoute(method, path, request) : null)
     ?? (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request)
     ?? outreachCampaignRoute(method, path, request) ?? outreachSignupRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null)
-    ?? handler(method, path)
+    ?? handler(method, path, request)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null
 }
 

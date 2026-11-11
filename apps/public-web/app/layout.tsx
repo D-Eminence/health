@@ -5,6 +5,7 @@ import { getEnvironment } from '@/lib/env'
 import { GlobalSearchProvider } from '@/components/layout/GlobalSearch'
 import { FeedbackProvider } from '@/components/shared/FeedbackProvider'
 import './globals.css'
+import { ErrorReporting } from './ErrorReporting'
 import { SupportWidget } from './SupportWidget'
 
 /**
@@ -73,6 +74,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" data-scroll-behavior="smooth" className={`${forum.variable} ${inter.variable}`}>
       <body className="bg-surface font-sans text-ink antialiased">
+        {/* Error reports, only when the build carries a DSN (docs/STAGING_DEPLOYMENT.md). */}
+        <ErrorReporting />
         <SupportWidget />
         <a
           href="#main"

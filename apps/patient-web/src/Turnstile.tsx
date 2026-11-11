@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getEnvironment } from './env'
 import { PlainError } from '@hid/http'
+import { buttonClass } from './kasuwa/ui'
 
 declare global {
   interface Window {
@@ -58,8 +59,14 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
   const localWithoutWidget = !siteKey && environment.name === 'local'
     && ['localhost', '127.0.0.1'].includes(window.location.hostname)
   const container = useRef<HTMLDivElement>(null)
+  const check = useRef<HTMLDivElement>(null)
+  const retryButton = useRef<HTMLButtonElement>(null)
   const widget = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Try again (SO-06): a script that failed to load, or a widget that failed, is tried again in place, keeping what
+  // the page holds. Before, only a submit tried again, and a submit needs the token the check could not give.
+  const [attempt, setAttempt] = useState(0)
+  const retried = useRef(false)
   // The page's callback is read when the widget answers, so a new function on each
   // render does not remove the widget and render another, dropping its token.
   const onToken = useRef(onTokenChange)
@@ -80,7 +87,8 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
         action,
         theme: 'light',
         size: turnstileSize(container.current, 'flexible'),
-        callback: (token: string) => onToken.current(token),
+        // A widget that failed and then recovered by itself (Cloudflare retries) is no longer failing.
+        callback: (token: string) => { setError(null); onToken.current(token) },
         'expired-callback': () => onToken.current(null),
         'error-callback': () => { onToken.current(null); setError('Security check failed. Please try again.') },
       })
@@ -91,9 +99,29 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
       widget.current = null
       onToken.current(null)
     }
-  }, [action, siteKey, localWithoutWidget, resetKey])
+  }, [action, siteKey, localWithoutWidget, resetKey, attempt])
+
+  // After Try again, focus waits with the check while it loads, and goes to the new Try again if it fails again.
+  useLayoutEffect(() => {
+    if (!error || !retried.current) return
+    retried.current = false
+    const active = document.activeElement
+    if (active === check.current || active === document.body || active === null) retryButton.current?.focus()
+  }, [error])
 
   if (localWithoutWidget) return null
   if (!siteKey) return <p role="alert" className="patient-inline-error">Security verification is not configured for this environment.</p>
-  return <div className="patient-turnstile"><div ref={container} />{error && <p role="alert" className="patient-inline-error">{error}</p>}</div>
+  const retry = () => {
+    retried.current = true
+    check.current?.focus()
+    setError(null)
+    setAttempt(value => value + 1)
+  }
+  return <div ref={check} role="group" aria-label="Security check" tabIndex={-1} className="patient-turnstile rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand">
+    <div ref={container} />
+    {error && <>
+      <p role="alert" className="patient-inline-error">{error}</p>
+      <button ref={retryButton} type="button" className={buttonClass({ size: 'sm', className: 'mt-2' })} onClick={retry}>Try again</button>
+    </>}
+  </div>
 }

@@ -111,12 +111,12 @@ describe('a session that ends in an open app. tab, with single sign-on on', () =
 })
 
 describe('a session that ends in an open app. tab, with single sign-on unset', () => {
-  it('goes to today’s sign-in page and hands nothing off', async () => {
+  it('goes to today’s sign-in page, coming back to the page once signed in, and hands nothing off', async () => {
     environment.ssoEnabled = false
     const sent = await signedInAt('/notifications')
     await anotherTabSignsOut()
     expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
-    expect(screen.getByTestId('address').textContent).toBe('/sign-in')
+    expect(screen.getByTestId('address').textContent).toBe('/sign-in?next=%2Fnotifications')
     expect(checks(sent)).toEqual([SESSION, SESSION, REFRESH])
     expect(left).not.toHaveBeenCalled()
     expect(sent.filter(request => request.route.includes('/auth/sso/'))).toEqual([])

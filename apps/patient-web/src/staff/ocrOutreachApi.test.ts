@@ -80,7 +80,7 @@ describe('imported evidence reads', () => {
 })
 
 /**
- * GAP-L93, OUTREACH-01: until hid-system#222 (0122, ADR-045 option B) Identity refused outreach.campaign.write. From it,
+ * GAP-L93, OUTREACH-01: until hid-system#222 (0111, ADR-045 option B) Identity refused outreach.campaign.write. From it,
  * a campaign's own admins open, close and staff it; the page asks first whether Outreach serves that (governance), and a
  * 404 keeps it read only.
  */

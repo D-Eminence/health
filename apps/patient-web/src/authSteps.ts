@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isHidApiError, plainErrorText } from '@hid/http'
+import { focusOnWrapper } from './wrapperFocus'
 
 /**
  * Keyboard focus for the auth forms that show one step at a time: enrollment
@@ -27,6 +28,8 @@ export function useStepFocus() {
     // page; other engines may not) is the step just sent, not a place the person chose.
     const lost = !(active instanceof HTMLElement) || active === document.body || !active.isConnected
       || active === element || inSameCode(active, element)
+      // A wrapper around the step that a second tap on its busy button focused (focusOnWrapper).
+      || focusOnWrapper(element)
       // The form's own submit button, inside it or (a form's footer) outside it and naming it with form="…".
       || (form !== null && active instanceof HTMLButtonElement && active.type === 'submit' && (form.contains(active) || active.form === form))
     if (lost) element.focus()

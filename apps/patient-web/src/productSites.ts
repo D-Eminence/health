@@ -46,6 +46,15 @@ const SITE_HOSTNAMES: Readonly<Record<Deployment, Readonly<Record<SiteKey, strin
   },
 }
 
+/**
+ * The public site of each deployment, where Health ID is explained (config/production.json and config/staging.json,
+ * hosts.public): what "About Health ID" opens. Any host that is not a staging site gets production's.
+ */
+const PUBLIC_SITE_HOSTNAMES: Readonly<Record<Deployment, string>> = {
+  production: 'healthidentitydirectory.com',
+  staging: 'www.staging.healthidentitydirectory.com',
+}
+
 /** The staff sites in the order a list of them shows. */
 export const STAFF_SITES: readonly StaffProductKey[] = ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach']
 
@@ -235,4 +244,9 @@ export function otherStaffSites(paths: readonly string[], hostname: string = win
 export function siteElsewhere(key: StaffProductKey, hostname: string = window.location.hostname): Site | null {
   const here = siteOf(hostname)
   return here && here.key !== 'web' && here.key !== key ? siteIn(here.deployment, key) : null
+}
+
+/** The public site's address for the deployment this host belongs to (PUBLIC_SITE_HOSTNAMES). */
+export function publicSiteHref(hostname: string = window.location.hostname): string {
+  return `https://${PUBLIC_SITE_HOSTNAMES[siteOf(hostname)?.deployment ?? 'production']}/`
 }

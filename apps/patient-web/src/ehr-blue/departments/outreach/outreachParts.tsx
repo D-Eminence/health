@@ -38,7 +38,7 @@ export const LINK_FAILED = 'The patient could not be linked. Check your access t
 export const PENDING = 'identity_resolution_pending'
 
 /*
- * Campaign management (hid-system#222, 0122): a campaign's own admins open, close and staff it. Every refusal Outreach
+ * Campaign management (hid-system#222, 0111): a campaign's own admins open, close and staff it. Every refusal Outreach
  * gives it is said in words that tell the person what to do next, never its code.
  */
 export const STAFF_NOT_LOADED = 'Who is in this campaign could not be checked. Try again.'
@@ -118,6 +118,48 @@ export function campaignStarted(campaign: OutreachCampaign, now = Date.now()) {
   return Number.isNaN(starts) || starts <= now
 }
 
+/*
+ * Linking by Health ID: the person is looked up first (Identity patient-lookup, which needs access to read their
+ * record), confirmed by name and date of birth, then linked (which needs access to write it). Each refusal is said at
+ * the Health ID field, in plain words.
+ */
+export const HEALTH_ID_HINT = 'The Health ID on their card or in their Health ID app. It starts with HID-.'
+export const HEALTH_ID_FORMAT = 'Enter the Health ID as it’s written on their card or app. It starts with HID-.'
+export const HEALTH_ID_NOT_FOUND = 'No one has this Health ID. Check it with them and try again.'
+export const HEALTH_ID_NO_ACCESS = 'You can’t open this person’s record yet. Ask them to share their record with you, or approve your access request.'
+export const HEALTH_ID_ROLE = 'Your role can’t look people up by Health ID. Ask your facility administrator to link this registration, or to change your role.'
+export const LINK_NEEDS_SHARE = 'To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'
+export const LOOKUP_FAILED = 'We couldn’t check this Health ID. Try again.'
+
+/** A Health ID as Identity takes it (patient-lookup.dto.ts): HID- and 6 to 32 letters and digits, no I, O, 0 or 1. */
+const HEALTH_ID = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
+
+/** The Health ID typed, spaces removed and upper-cased, with HID- added when only the rest was typed; '' when it isn't one. */
+export function healthIdFrom(typed: string): string {
+  const compact = typed.replace(/\s+/g, '').toUpperCase()
+  const hid = compact.startsWith('HID-') ? compact : compact.startsWith('HID') ? `HID-${compact.slice(3)}` : `HID-${compact}`
+  return HEALTH_ID.test(hid) ? hid : ''
+}
+
+/**
+ * A campaign takes registrations only inside its start and end times (outreach.service.ts
+ * assertCampaignAcceptsRegistration). The list may not carry them (staff/api.ts OutreachCampaign has no endsAt): a time
+ * not sent, or not readable, does not take a campaign off the list.
+ */
+export function campaignOpenNow(campaign: OutreachCampaign, now = Date.now()): boolean {
+  const time = (value: unknown) => (typeof value === 'string' ? new Date(value).getTime() : Number.NaN)
+  const startsAt = time((campaign as { startsAt?: unknown }).startsAt)
+  const endsAt = time((campaign as { endsAt?: unknown }).endsAt)
+  if (!Number.isNaN(startsAt) && now < startsAt) return false
+  if (!Number.isNaN(endsAt) && now >= endsAt) return false
+  return true
+}
+
+/** A campaign refused this registration: the person can be saved without it. */
+export function campaignRefusedText(name: string | undefined) {
+  return `${name ? `“${name}”` : 'This campaign'} isn’t taking this registration right now. You can save this person without the campaign. Everything you typed is kept.`
+}
+
 /**
  * A campaign's status in plain words. Outreach sends planned, active or closed (campaign.types.ts CampaignStatus); the
  * others are words a campaign could plausibly be given. A status with no word here is never printed as its code.
@@ -154,7 +196,7 @@ export function sexText(item: OutreachCase) {
 
 /** The words a list search looks in: what a row shows, and nothing that is not on screen. */
 export function caseSearchText(item: OutreachCase) {
-  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), item.temporaryPatientId, dateText(item.createdAt)]
+  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt)]
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {
@@ -184,7 +226,6 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
-    { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined
@@ -285,6 +326,14 @@ const LINKED_STATUSES: ReadonlySet<string> = new Set(['identity_resolved', 'reso
 
 export function statusLabel(status: string) {
   return (Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : undefined) ?? 'Status not known'
+}
+
+/** What the create form's answer said, on the blue page and today's: the case made, and where its identity stands. */
+export function createdText(created: OutreachCase | undefined) {
+  if (!created?.status) return 'Registration case created.'
+  return created.status === PENDING
+    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
+    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */

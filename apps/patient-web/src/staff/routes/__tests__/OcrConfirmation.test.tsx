@@ -136,12 +136,14 @@ describe('confirming the source patient of an OCR job', () => {
   // Focus cannot move to a field it is on already, so a refusal made from Enter there is an alert, new each time.
   it('says a patient ID refused from Enter in its field as an alert', async () => {
     await confirmationForm()
-    const patient = screen.getByLabelText(/^Canonical patient ID/)
+    const patient = screen.getByLabelText(/^Patient ID/)
     fireEvent.change(patient, { target: { value: 'HID-ABCDEF' } })
     patient.focus()
     await act(async () => { fireEvent.submit(patient.closest('form')!) })
     const first = await screen.findByRole('alert')
-    expect(first.textContent).toBe('Enter a valid canonical patient ID (a UUID).')
+    expect(first.textContent).toBe('This needs the patient ID, not their Health ID.')
+    // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     expect(patient.getAttribute('aria-describedby')).toBe('ocr-confirm-patient-error')
     await act(async () => { fireEvent.submit(patient.closest('form')!) })
     await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
