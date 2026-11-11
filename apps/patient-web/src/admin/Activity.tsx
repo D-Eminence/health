@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { CircleCheck, Clock3 } from 'lucide-react'
-import type { ActivityDays, OperationsErrors, OperationsHealth, PlatformActivity } from './api'
+import type { ActivityDays, OperationsErrors, OperationsHealth, PlatformActivity, UploadKind } from './api'
 import { label } from './ui'
 import { Avatar, Badge, Card, StatCard, StatGroup, TONE_DOT, cx, timeAgo, type Tone } from '../kasuwa/ui'
 
@@ -303,14 +303,13 @@ export function RecentSignupsSection({ activity }: { activity: PlatformActivity 
   </Section>
 }
 
-/** "lab-result.pdf" reads as "Lab result" and "PDF". */
-export function documentName(file: string): { name: string; kind: string | null } {
-  const dot = file.lastIndexOf('.')
-  const base = dot > 0 ? file.slice(0, dot) : file
-  const extension = dot > 0 ? file.slice(dot + 1).toLowerCase() : ''
-  const kinds: Record<string, string> = { pdf: 'PDF', jpg: 'Image', jpeg: 'Image', png: 'Image', heic: 'Image', webp: 'Image', tif: 'Image', tiff: 'Image' }
-  const words = base.replace(/[_-]+/g, ' ').trim()
-  return { name: words ? words.charAt(0).toUpperCase() + words.slice(1) : file, kind: kinds[extension] ?? (extension ? extension.toUpperCase() : null) }
+const DOCUMENT_KINDS: ReadonlyArray<UploadKind> = ['PDF', 'Image', 'Word', 'Document']
+/**
+ * The kind of file only: the backend sends one of four words and no part of the file name (hid-system#216). Anything
+ * else (an older build that still sent a name) reads as "Document", so a file name is never shown.
+ */
+export function documentKind(value: string): UploadKind {
+  return (DOCUMENT_KINDS as ReadonlyArray<string>).includes(value) ? value as UploadKind : 'Document'
 }
 
 export function fileSize(bytes: number) {
@@ -321,12 +320,11 @@ export function fileSize(bytes: number) {
 
 export function RecentUploadsSection({ activity }: { activity: PlatformActivity }) {
   return <Section id="admin-uploads-title" title="Recent uploads" description="Documents added to records. Every file is scanned before anyone can open it.">
-    <Table caption="Recent uploads, newest first" head={['Document', 'Patient', 'Facility', 'Size', 'Added', 'Check']} empty="No documents have been added yet.">
+    <Table caption="Recent uploads, newest first" head={['Type', 'Patient', 'Facility', 'Size', 'Added', 'Check']} empty="No documents have been added yet.">
       {activity.recentUploads.map((upload, index) => {
-        const doc = documentName(upload.document)
         const scan = known(SCAN, upload.scan)
         return <tr key={`${upload.createdAt}-${index}`}>
-          <th scope="row" className="px-4 py-3 text-left text-sm font-medium text-ink">{doc.name}{doc.kind && <span className="font-normal text-ink-3"> · {doc.kind}</span>}</th>
+          <th scope="row" className="px-4 py-3 text-left text-sm font-medium whitespace-nowrap text-ink">{documentKind(upload.document)}</th>
           <td className={cx(TD, 'whitespace-nowrap')}>{upload.patient}</td>
           <td className={TD}>{upload.facility}</td>
           <td className={cx(TD, 'whitespace-nowrap tabular')}>{fileSize(upload.sizeBytes)}</td>

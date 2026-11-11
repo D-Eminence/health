@@ -292,7 +292,7 @@ const adminFacilities = [
   { id: '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d', organizationId: 'org-2', organizationName: 'Reddington Group', name: 'Reddington Lekki', code: 'RDL', status: 'pending', statusReason: null, statusChangedAt: null, createdAt: '2026-10-12T09:00:00.000Z', membershipCount: 1, version: 1 },
 ]
 
-/** `GET /admin/overview/activity?days=` sample: names, emails and Health IDs already shortened, as the backend sends them. */
+/** `GET /admin/overview/activity?days=` sample: names, emails and Health IDs already shortened, and uploads named by kind only, as the backend sends them. */
 function adminActivity(days) {
   const scale = days / 30
   const n = value => Math.round(value * scale)
@@ -314,10 +314,10 @@ function adminActivity(days) {
       { name: 'Ngozi O.', email: 'ng***@gmail.com', healthId: 'HID-W8…P1', profilePct: 58, status: 'pending', createdAt: iso(-5 * 60 * MIN) },
     ],
     recentUploads: [
-      { document: 'lab-result.pdf', patient: 'Amina Y.', facility: 'Pilot hospital', sizeBytes: 1258291, scan: 'clean', createdAt: iso(-20 * MIN) },
-      { document: 'discharge-summary.pdf', patient: 'Chukwudi E.', facility: 'Pilot hospital', sizeBytes: 655360, scan: 'clean', createdAt: iso(-60 * MIN) },
-      { document: 'paper-record.jpg', patient: 'Folake B.', facility: 'Pilot clinic', sizeBytes: 3565158, scan: 'pending', createdAt: iso(-2 * 60 * MIN) },
-      { document: 'prescription.png', patient: 'Ibrahim A.', facility: 'Pilot clinic', sizeBytes: 839680, scan: 'clean', createdAt: iso(-4 * 60 * MIN) },
+      { document: 'PDF', patient: 'Amina Y.', facility: 'Pilot hospital', sizeBytes: 1258291, scan: 'clean', createdAt: iso(-20 * MIN) },
+      { document: 'Word', patient: 'Chukwudi E.', facility: 'Pilot hospital', sizeBytes: 655360, scan: 'clean', createdAt: iso(-60 * MIN) },
+      { document: 'Image', patient: 'Folake B.', facility: 'Pilot clinic', sizeBytes: 3565158, scan: 'pending', createdAt: iso(-2 * 60 * MIN) },
+      { document: 'Image', patient: 'Ibrahim A.', facility: 'Pilot clinic', sizeBytes: 839680, scan: 'clean', createdAt: iso(-4 * 60 * MIN) },
     ],
   }
 }

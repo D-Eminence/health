@@ -350,8 +350,11 @@ export interface PlatformActivity {
   migrateAsk: { pagesRead: number; recordsMoved: number; questionsAnswered: number | null; answersWithSourcesPct: number | null }
   daily: Array<{ date: string; signups: number; activeAccounts: number }>
   recentSignups: Array<{ name: string; email: string; healthId: string; profilePct: number; status: 'verified' | 'pending' | 'suspended'; createdAt: string }>
-  recentUploads: Array<{ document: string; patient: string; facility: string; sizeBytes: number; scan: 'clean' | 'pending' | 'refused'; createdAt: string }>
+  /** `document` is the kind of file only (hid-system#216): no part of its name leaves the database. */
+  recentUploads: Array<{ document: UploadKind; patient: string; facility: string; sizeBytes: number; scan: 'clean' | 'pending' | 'refused'; createdAt: string }>
 }
+/** What `recentUploads[].document` can be. */
+export type UploadKind = 'PDF' | 'Image' | 'Word' | 'Document'
 /** `GET /admin/operations/health`; 503 `not_configured` until the service checks are set up. */
 export interface OperationsHealth {
   services: Array<{ name: string; availabilityPct: number | null; p50Ms: number | null; p95Ms: number | null }>

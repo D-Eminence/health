@@ -185,7 +185,9 @@ const ACTIVITY = (days: number) => ({
   daily: [{ date: '2026-11-09', signups: 3, activeAccounts: 40 }, { date: '2026-11-10', signups: 9, activeAccounts: 52 }],
   recentSignups: [{ name: 'Ada O.', email: 'a***@gmail.com', healthId: 'HID-7K…M9', profilePct: 86, status: 'verified', createdAt: '2026-11-11T09:00:00Z' },
     { name: 'Chidi E.', email: 'c***@yahoo.com', healthId: 'HID-Q4…X2', profilePct: 58, status: 'pending', createdAt: '2026-11-11T08:00:00Z' }],
-  recentUploads: [{ document: 'lab-result.pdf', patient: 'Ada O.', facility: 'Demo Hospital', sizeBytes: 1258291, scan: 'clean', createdAt: '2026-11-11T09:30:00Z' }],
+  recentUploads: [{ document: 'PDF', patient: 'Ada O.', facility: 'Demo Hospital', sizeBytes: 1258291, scan: 'clean', createdAt: '2026-11-11T09:30:00Z' },
+    // An older build that still sent a file name: shown as "Document", never the name.
+    { document: 'hiv-test-ada.pdf', patient: 'Ada O.', facility: 'Demo Hospital', sizeBytes: 2048, scan: 'pending', createdAt: '2026-11-11T09:00:00Z' }],
 })
 
 describe('platform activity (super admin)', () => {
@@ -281,7 +283,10 @@ describe('platform activity (super admin)', () => {
 
     const uploads = screen.getByRole('table', { name: 'Recent uploads, newest first' })
     const upload = within(uploads).getAllByRole('row')[1]!
-    expect(within(upload).getByRole('rowheader').textContent).toBe('Lab result · PDF')
+    expect(within(uploads).getByRole('columnheader', { name: 'Type' })).toBeTruthy()
+    expect(within(upload).getByRole('rowheader').textContent).toBe('PDF')
+    expect(within(uploads).getAllByRole('row')[2]!.querySelector('th')!.textContent).toBe('Document')
+    expect(document.body.textContent).not.toMatch(/hiv-test|\.pdf/)
     expect(within(upload).getByText('Ada O.')).toBeTruthy()
     expect(within(upload).getByText('1.2 MB')).toBeTruthy()
     expect(within(upload).getByText('Scanned clean')).toBeTruthy()
