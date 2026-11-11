@@ -18,7 +18,7 @@ import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignVie
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
-  ageText, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
+  ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, nextStepText, servicesText, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
 
@@ -96,9 +96,10 @@ export function Outreach() {
       return { facilityId: facilityId ?? '', ids }
     })
   }, [facilityId])
-  // Only active registration campaigns containing this facility membership can take a case.
+  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a case.
   const caseCampaigns = useMemo(() => (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
-    && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
+    && campaign.services.includes('registration') && campaignOpenNow(campaign)
+    && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
   [campaigns.value, eligibleCampaigns, facilityId])
 
   // The view belongs to the facility it was opened at; another facility opens on its lists.
