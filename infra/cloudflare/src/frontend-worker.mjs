@@ -39,7 +39,9 @@ const DEPLOYMENT_PROFILES = Object.freeze({
 
 // No Content-Security-Policy yet (hand-off D6). Whenever one is added, the portal hosts need `worker-src 'self'` (the
 // push worker, /sw.js, B6) and `manifest-src 'self'` (/health-id.webmanifest). The Permissions-Policy below governs
-// no push or notification feature, so it stays as it is.
+// no push or notification feature, so it stays as it is. Once config/<environment>.json sets `sentry_dsn`, every
+// site's `connect-src` must also allow the Sentry ingest host that DSN names, or error reports are blocked. Production
+// sets it: https://o4512373598519296.ingest.de.sentry.io.
 /** The patient portal's card link pages (step 8): /card, /card/stop, /card/privacy, /card/preview and /card/<anything>. */
 const CARD_PAGES = /^\/card(?:\/|$)/
 

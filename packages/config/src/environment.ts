@@ -30,8 +30,10 @@ export interface HidEnvironment {
   readonly appOrigin: string
   /** Cloudflare Turnstile site key. Public by design; the secret half stays server-side. */
   readonly turnstileSiteKey: string | null
-  /** Error-reporting DSN. Public by design. Optional. */
+  /** Error-reporting DSN. Public by design. Optional: without it no error is reported (@hid/observability errorReporting). */
   readonly sentryDsn: string | null
+  /** The build this bundle was made from (the first 12 characters of its commit); error reports are tagged with it. */
+  readonly build: string | null
   /** True when this build may talk to real patient data. Drives extra guardrails. */
   readonly handlesRealData: boolean
   /**
@@ -165,6 +167,7 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
     appOrigin,
     turnstileSiteKey: readString(raw, key('TURNSTILE_SITE_KEY')),
     sentryDsn: readString(raw, key('SENTRY_DSN')),
+    build: readString(raw, key('BUILD')),
     handlesRealData: name !== 'local',
     supportChatEnabled, patientChatEnabled, supportContact, ssoEnabled, cardSharesEnabled,
   })

@@ -11,6 +11,13 @@ describe('the portal public environment', () => {
     vi.stubEnv('VITE_HID_PATIENT_CHAT_ENABLED', '')
     expect((await import('../publicEnvironment')).PUBLIC_ENVIRONMENT.VITE_HID_PATIENT_CHAT_ENABLED).toBe('')
   })
+  it('reads the build and the error-reporting DSN by name', async () => {
+    vi.stubEnv('VITE_HID_BUILD', 'abc123def456')
+    vi.stubEnv('VITE_HID_SENTRY_DSN', 'https://0123456789abcdef0123456789abcdef@o1.ingest.us.sentry.io/42')
+    const environment = (await import('../publicEnvironment')).PUBLIC_ENVIRONMENT
+    expect(environment.VITE_HID_BUILD).toBe('abc123def456')
+    expect(environment.VITE_HID_SENTRY_DSN).toBe('https://0123456789abcdef0123456789abcdef@o1.ingest.us.sentry.io/42')
+  })
   it('reads the approved support configuration by name without unrelated or staff variables', async () => {
     vi.stubEnv('VITE_HID_SUPPORT_CHAT_ENABLED', 'true')
     vi.stubEnv('VITE_HID_SUPPORT_CONTACT', 'mailto:support@healthidentitydirectory.com')

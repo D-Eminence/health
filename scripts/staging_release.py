@@ -49,14 +49,24 @@ def tree_digest(folder):
     return hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
 
 
+# A public Sentry DSN and nothing else: https://<32 hex key>@<host>[/<prefix>]/<project id>, the shape
+# @hid/observability's parseDsn accepts. A DSN with a secret part, a port, a query or an IP address is refused.
+SENTRY_DSN = re.compile(r'https://[0-9a-f]{32}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}'
+                        r'(?:/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)*/[0-9]{1,20}')
+
+
 def validate_config(config, environment='staging'):
     hosts, api_origin, portal_origin = release_profile(environment)
     if config.get('environment') != environment or config.get('hosts') != hosts:
         raise ValueError('Exact ' + environment + ' frontend hosts required')
     if config.get('api_origin') != api_origin or config.get('portal_origin') != portal_origin:
         raise ValueError('Exact ' + environment + ' API/portal required')
-    if set(config) - {'backend_contract'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat', 'card_shares'}:
+    if set(config) - {'backend_contract', 'sentry_dsn'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat', 'card_shares'}:
         raise ValueError('Unexpected configuration fields')
+    # Error reports (owner's approval, 2026-11-03): null keeps them off; a public DSN turns them on in every app.
+    dsn = config.get('sentry_dsn')
+    if dsn is not None and not (isinstance(dsn, str) and SENTRY_DSN.fullmatch(dsn)):
+        raise ValueError('Error reporting needs null or a public Sentry DSN')
     # Step 8 (hid-system 0118): sending the card by email, an exact boolean. Legal approved and the owner switched it on
     # (4 Nov 2026); false switches the pages off again.
     if type(config.get('card_shares')) is not bool:
@@ -94,8 +104,14 @@ def archive_files(archive):
         return files
 
 
+# The builds that offer Health ID's support assistant: the patient portal and the website (its pages also open on each
+# site's front page), and each staff product site's Help (the blue frame), behind its own privacy guard. Not the
+# admin console. The hospital's "Ask about this patient" stays on the ehr build only (staffPatientChatEnabled).
+SUPPORT_CHAT_APPS = ('web', 'public', 'ehr', 'lab', 'pharmacy', 'ocr', 'outreach')
+
+
 def chat_features(config, app):
-    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in ('web', 'public'),
+    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in SUPPORT_CHAT_APPS,
             'patientChatEnabled': config['chat']['patientChatEnabled'] and app == 'web',
             'supportContact': config['chat']['supportContact'],
             'backendContract': config.get('backend_contract', 'main-v1'),

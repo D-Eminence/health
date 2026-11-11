@@ -103,6 +103,9 @@ const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 
 const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not served by hid-system main, and a backend before 0095 '
   + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
 /** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
+/** Allergies (EHR clinical safety): served from hid-system 0124; a backend before it answers 404, which the chart takes as not offered. */
+const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
+  + 'Direct care only (X-Purpose-Of-Use: direct-care) at the selected facility.'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -761,6 +764,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${PARITY_B3} Staff sessions with X-Facility-ID and X-Purpose-Of-Use: direct-care, while access to the patient is granted, `
     + 'authorised and audited as the chart reads are (a view in the patient\'s access log). 200 { bloodGroup, genotype, '
     + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
+  proposed(r('ehr.allergies','ehr','/api/v1/ehr/patients/:patientId/allergies',GP,false,
+    {GET:['ehr.note.read'],POST:['ehr.note.write']},
+    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[], patientReported: { allergies, updatedAt } }; POST { substance, reaction?, `
+    + 'severity } with Idempotency-Key, 201 the recorded allergy.')),
+  proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
+    one('POST','ehr.note.write'),
+    `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
+    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 412 VERSION_CONFLICT.')),
+  proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
+    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired }. A prescription that `
+    + 'matches is refused (409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED) until it carries allergyAcknowledgement { reason }.')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),
@@ -944,10 +958,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
-  r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read')),
+  r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
+    'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
+    + 'after 24 hours (no download is offered). An earlier backend never sends source_deleted.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
-  r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read')),
+  r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),
+    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 24 hours") '
+    + 'for a document whose source page was deleted; staffApi.documentDownload answers it as its own outcome, not an error.'),
   // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
   // price-list pictures (imageFileId). Proposed; 404 until served.
   // Any one of pharmacy.walk-in.create, lab.walk-in.create or billing.catalogue.manage (permissions here are all-required).
@@ -1098,6 +1116,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
+  // Admin dashboard sections (contract of 11 Nov 2026): proposed, built alongside hid-system. Super admin only; every
+  // activity read is audited. Before they are served they answer 404, and the overview shows its totals alone; the two
+  // operations reads answer 503 not_configured until monitoring and error reporting are set up.
+  proposed({ ...r('admin.overviewActivity','admin','/api/v1/admin/overview/activity',G,false,one('GET','platform.dashboard.read'),
+    'days is 7, 30 or 90 (anything else is 400). Names, emails and Health IDs arrive shortened; full values never leave the database.'),
+    requiredQuery: { GET: ['days'] } }),
+  proposed(r('admin.operationsHealth','admin','/api/v1/admin/operations/health',G,false,one('GET','platform.dashboard.read'),
+    'Service availability and response times; 503 not_configured until monitoring is set up.')),
+  proposed(r('admin.operationsErrors','admin','/api/v1/admin/operations/errors',G,false,one('GET','platform.dashboard.read'),
+    'Open problems from error reporting; 503 not_configured until it is connected.')),
   r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
     'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),

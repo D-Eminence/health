@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. ocr-api (and ocr-worker, not a website dependency) were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at f878102c for hid-system#194 (keep picture readings on handwriting whose scanned text is nonsense; PROMPT_VERSION 4 so the next Extract reads fresh). Every other service stays at 6aae042e, as deployed by the all-services release. Browser-facing change since 6aae042e: one new optional check reason in the paper reading (not_matched_to_scanned_text); the website shows unknown reasons as a plain fallback. Approved by the repository owner, D-Eminence, in chat on 2026-11-05: \"deploy it once you done\" (about 17:05 UTC) for this fix, under \"i approved everything thta needs my approval\" (about 14:10 UTC).",
+  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #214 visit-note fix, #212 reader cleanup, #209 record chat, #213 support Health ID check (0109, signed by the owner) with #224, #165 backend error reporting, #181 Outreach campaign fix (0110, signed by the owner). Each service is pinned to the commit its last deploy built. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
   "backend_commits": {
-    "gateway": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "identity-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "ehr-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "lab-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "pharmacy-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "ocr-api": "f878102cbf3229118cb88e018b7d8b1c3e0e7715",
-    "outreach-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "support-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01",
-    "notification-api": "6aae042e86e86c4b5f3742572bf4a36e4c4f0d01"
+    "gateway": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "identity-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "ehr-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
+    "lab-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "pharmacy-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "ocr-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "outreach-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
+    "support-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "notification-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d"
   }
 }

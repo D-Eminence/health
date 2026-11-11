@@ -333,7 +333,7 @@ describe('Patient documents with types: once served', () => {
     api.ocrExtractions.mockResolvedValue({ items: [] })
     api.ocrValidations.mockResolvedValue({ items: [] })
     await press(within(row('full-blood-count.jpg')).getByRole('button', { name: 'Extract with OCR' }))
-    await screen.findByRole('heading', { name: 'Saved record' })
+    await screen.findByRole('heading', { name: 'Progress' })
     expect(screen.queryByRole('heading', { level: 1, name: 'New document job' })).toBeNull()
     expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, LAB_DOCUMENT)
     expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, LAB_DOCUMENT, PATIENT)
