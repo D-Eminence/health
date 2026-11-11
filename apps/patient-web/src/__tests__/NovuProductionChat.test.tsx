@@ -51,6 +51,13 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
     ? json(profile) : path.startsWith('/identity/me/emergency-contacts') ? contacts(path, method, body)
       : problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`), {}, { at: '/profile#emergency-contacts' })
   const paths = (sent: Sent[]) => sent.map(request => `${request.method} ${request.path}`)
+  // A link to the emergency contacts that are not offered says so, and offers nothing (launch audit HE-04).
+  const unavailable = () => {
+    expect(screen.getByRole('heading', { name: 'Emergency contacts' })).toBeTruthy()
+    expect(screen.getByText('Emergency contacts aren’t available for your account right now.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Add emergency contact' })).toBeNull()
+    expect(screen.queryByText('Loading your contacts…')).toBeNull()
+  }
   // The card renders nothing either way: let every answer settle before asserting what was not asked or shown.
   const settled = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
   // Before 0096: the card reads its status once, is answered 404, and shows nothing.
@@ -63,7 +70,7 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
   it.each([
     ['the routes are not served (404)', () => problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/identity/me/emergency-contacts/availability')],
     ['delivery is off for a patient without contacts', () => json({ delivery: false, channels: ['email'] })],
-  ])('shows nothing while availability is read, nor after it says %s', async (_label, answer) => {
+  ])('shows nothing while availability is read, and after it says %s only that contacts are not available', async (_label, answer) => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     let release!: (response: Response) => void
     const { sent } = settings(path => path.endsWith('/availability')
@@ -77,29 +84,29 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
     nothing()
     await act(async () => { release(answer()) })
     await settled()
-    nothing()
+    // Opened by a link to them (launch audit HE-04): said plainly, with nothing to add and no list.
+    unavailable()
   })
 
-  it('shows no card, no alert and reads no list while the routes are not served (404)', async () => {
+  it('shows no list, no alert and reads no list while the routes are not served (404)', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { sent } = settings(path => problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`))
     expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts/availability'))
     await settled()
     expect(paths(sent).filter(request => request.includes('emergency-contacts'))).toEqual(['GET /identity/me/emergency-contacts/availability'])
-    expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
+    unavailable()
     expect(screen.queryByRole('alert')).toBeNull()
     noDeletion(sent)
   })
 
-  it('shows no card and asks to add nothing while delivery is off for a patient without contacts', async () => {
+  it('shows no list and asks to add nothing while delivery is off for a patient without contacts', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { sent } = settings(path => path.endsWith('/availability') ? json({ delivery: false, channels: ['email'] }) : json([]))
     expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts'))
     await settled()
-    expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Add emergency contact' })).toBeNull()
+    unavailable()
     expect(sent.some(request => request.method === 'POST')).toBe(false)
     noDeletion(sent)
   })

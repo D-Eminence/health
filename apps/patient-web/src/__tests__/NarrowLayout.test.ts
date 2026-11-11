@@ -51,6 +51,12 @@ describe('narrow screens', () => {
     expect(valueAt(portalCss, '.patient-enroll-option .patient-desk-code', 'font-size', PHONE)).toBe('clamp(22px, 7vw, 28px)')
   })
 
+  it.each([PHONE, 390])('lets the six code boxes shrink inside a narrow card at %ipx', width => {
+    // Review R2: a plain grid track took the boxes' 352px min-content, wider than an emergency contact row at 320 to 390px.
+    expect(valueAt(portalCss, '.patient-code-field', 'grid-template-columns', width)).toBe('minmax(0, 1fr)')
+    expect(valueAt(portalCss, '.patient-code-boxes', 'min-width', width)).toBe('0')
+  })
+
   it('lets long document names in the provider lists wrap', () => {
     expect(valueAt(staffCss, '.staff-list-item strong', 'overflow-wrap', PHONE)).toBe('anywhere')
   })
