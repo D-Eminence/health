@@ -113,3 +113,48 @@ export function staffClearFailure(reason: unknown): string {
   if (isHidApiError(reason) && reason.status === 401) return 'Your session ended. Please sign in again.'
   return 'Your saved conversation could not be deleted. Please try again.'
 }
+
+/**
+ * What a failed question says to the patient on a Novu build (hid-system #167), in plain words, never the code.
+ * `askAgain` offers to send the same question again: the record, the conversation or access changed while it was
+ * being answered. The page keeps the typed question in the box on every failure.
+ */
+export function novuAskFailure(reason: unknown): { message: string; askAgain?: boolean } {
+  if (!isHidApiError(reason)) return { message: 'Something went wrong while answering. Your question is still in the box below, so you can try again.' }
+  switch (reason.code) {
+    case 'INVALID_QUESTION':
+    case 'VALIDATION_FAILED':
+      return { message: 'That question could not be sent. Please write it in 1 to 500 characters and try again.' }
+    case 'PATIENT_CHAT_RATE_LIMITED':
+      return { message: 'You have asked several questions in a short time. Please wait a few minutes, then ask again.' }
+    case 'CHAT_SOURCES_CHANGED':
+      return { message: 'Your records changed while we were answering. Please ask your question again.', askAgain: true }
+    case 'CHAT_CONVERSATION_CHANGED':
+      return { message: 'This conversation was cleared while we were answering. Please ask your question again.', askAgain: true }
+    case 'CHAT_ACCESS_CHANGED':
+      return { message: 'Access to your records changed while we were answering. Please ask your question again.', askAgain: true }
+    case 'PATIENT_CHAT_DISABLED':
+      return { message: 'Asking about your records is turned off at the moment. Please try again later.' }
+    case 'PATIENT_CHAT_UNAVAILABLE':
+      return { message: 'Asking about your records is not working right now. Please try again in a few minutes.' }
+    case 'REQUEST_TIMEOUT':
+      return { message: 'The answer took too long. Please try again.' }
+    default:
+  }
+  if (reason.status === 401) return { message: 'Your session ended. Please sign in again.' }
+  if (reason.status === 403) return { message: 'You cannot ask about these records from this account.' }
+  if (reason.status === 409) return { message: 'Your records changed while we were answering. Please ask your question again.', askAgain: true }
+  if (reason.status === 429) return { message: 'You have asked several questions in a short time. Please wait a few minutes, then ask again.' }
+  return { message: 'Asking about your records is not working right now. Please try again in a few minutes.' }
+}
+
+/** What a source that could not be opened says. `retry` offers to try opening it again. */
+export function novuSourceFailure(reason: unknown): { message: string; retry?: boolean } {
+  if (isHidApiError(reason)) {
+    if (reason.code === 'CHAT_SOURCE_UNAVAILABLE' || reason.status === 404) {
+      return { message: 'This source is no longer available. Ask your question again to see its sources.' }
+    }
+    if (reason.status === 401) return { message: 'Your session ended. Please sign in again.' }
+  }
+  return { message: 'This source could not be opened right now. Please try again.', retry: true }
+}

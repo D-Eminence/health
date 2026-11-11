@@ -184,9 +184,11 @@
 
 .auth-panel :is(.patient-form, .staff-form) input::placeholder { color: var(--color-faint); }
 
-/* A six-digit code (CodeBoxes.tsx): a box a digit, not the column's full-width field. */
+/* A six-digit code (CodeBoxes.tsx): a box a digit, not the column's full-width field. Drawn whatever the step's form
+   is called: the sign-up, password reset and NIN code steps have no .patient-form, and their boxes showed as blank space. */
 .auth-panel .patient-code-field legend { margin-bottom: 8px; padding: 0; color: var(--color-muted); font-size: 13px; font-weight: 500; }
-.auth-panel :is(.patient-form, .staff-form) .patient-code-boxes input:not([type='checkbox']):not([type='radio']) {
+.auth-panel .patient-code-boxes input:not([type='checkbox']):not([type='radio']) {
+  box-sizing: border-box;
   flex: 1 1 0;
   width: auto;
   min-width: 0;
@@ -194,10 +196,17 @@
   height: 52px;
   min-height: 52px;
   padding: 0;
+  border: 1px solid var(--color-line-control);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-ink);
   text-align: center;
+  font: inherit;
   font-size: 20px;
   font-weight: 500;
 }
+.auth-panel .patient-code-boxes input:not([type='checkbox']):not([type='radio'])[aria-invalid='true'] { border-color: var(--color-danger); }
+.auth-panel .patient-code-boxes input:not([type='checkbox']):not([type='radio']):focus { border-color: var(--color-ink); outline: none; box-shadow: none; }
 
 /* The one primary action fills the column. */
 .auth-panel :is(.patient-form, .patient-success) .patient-primary-button,
@@ -444,7 +453,11 @@
   height: 48px; border: 0; border-radius: 14px; background: var(--color-hero); box-shadow: inset 0 0 0 1px var(--color-line-strong);
 }
 .auth-skin .auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input, select):focus { box-shadow: inset 0 0 0 1px #175cd3, var(--shadow-focus); }
-.auth-skin .auth-panel :is(.patient-form, .staff-form) .patient-code-boxes input:not([type='checkbox']):not([type='radio']) { border-radius: 12px; }
+.auth-skin .auth-panel .patient-code-boxes input:not([type='checkbox']):not([type='radio']) {
+  border: 0; border-radius: 12px; background: var(--color-hero); box-shadow: inset 0 0 0 1px var(--color-line-strong);
+}
+.auth-skin .auth-panel .patient-code-boxes input:not([type='checkbox']):not([type='radio'])[aria-invalid='true'] { box-shadow: inset 0 0 0 1px var(--color-danger); }
+.auth-skin .auth-panel .patient-code-boxes input:not([type='checkbox']):not([type='radio']):focus { box-shadow: inset 0 0 0 1px #175cd3, var(--shadow-focus); }
 
 /* The one action: paytrail's blue pill with its glow. */
 .auth-skin .auth-panel :is(.patient-form, .patient-success) .patient-primary-button,
@@ -463,7 +476,9 @@
 .auth-skin .auth-panel .patient-inline-error { color: var(--color-intent-error); }
 .auth-skin .auth-panel .patient-inline-success { color: var(--color-intent-success); }
 
-.auth-trust { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; color: var(--color-hero-ink-2); font-size: 12.5px; }
+.auth-trust { display: flex; align-items: flex-start; justify-content: center; gap: 6px; margin: 0; color: var(--color-hero-ink-2); font-size: 12.5px; }
+/* The lock lines up with the first line when the line wraps (320px). */
+.auth-trust svg { flex: none; margin-top: 2px; }
 
 /* The Health ID card that prints out of its slot (paytrail's welcome receipt). */
 .auth-printer { width: 100%; max-width: 380px; margin: 40px auto 0; }

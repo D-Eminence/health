@@ -95,8 +95,8 @@ export function ImportedHistoryView({ load, audience }: { load: ImportedHistoryL
 }
 
 type HistoryHook = ReturnType<typeof useImportedHistory>
-function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, groupedByDay }: HistoryHook & {
-  audience: ImportedHistoryAudience; query?: string; groupedByDay?: boolean
+function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, groupedByDay, quietNoMatch }: HistoryHook & {
+  audience: ImportedHistoryAudience; query?: string; groupedByDay?: boolean; quietNoMatch?: boolean
 }) {
   if (state.status === 'unavailable') return null
   if (state.status === 'loading') return <LoadingRows rows={2} label="Loading older records" />
@@ -107,7 +107,7 @@ function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, gr
       <p role="status">This patient has not shared their imported medical history, or has none.</p></section>
   }
   return <>
-    <ImportedHistory records={state.records} limit={state.limit} paged query={query} groupedByDay={groupedByDay} />
+    <ImportedHistory records={state.records} limit={state.limit} paged query={query} groupedByDay={groupedByDay} quietNoMatch={quietNoMatch} />
     {state.nextCursor && <div className="imported-history">
       {more.error && <Alert intent="error" size="sm">{more.error}</Alert>}
       <Button size="sm" loading={more.busy} disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading more…' : 'Show more'}</Button>
@@ -182,12 +182,14 @@ const NONE: readonly ImportedMedicalRecord[] = []
  * The patient's imported history, then the choice to share it. hid-system refuses the sharing switch without the
  * patient's own read, so the choice is asked for only where the history is available.
  */
-export function PatientImportedHistory({ api, query = '', onRecords }: {
+export function PatientImportedHistory({ api, query = '', onRecords, quietNoMatch = false }: {
   api: SharingApi & { importedHistory(cursor?: string | null, signal?: AbortSignal): Promise<ImportedHistoryPage> }
   /** The records page's search, over the pages read so far. */
   query?: string
   /** The records read so far, none while there are none to show: the records page counts those its search matches. */
   onRecords?: (records: readonly ImportedMedicalRecord[]) => void
+  /** The records page already says nothing matches its search (RN-19). */
+  quietNoMatch?: boolean
 }) {
   const load = useCallback<ImportedHistoryLoad>((cursor, signal) => api.importedHistory(cursor, signal), [api])
   const history = useImportedHistory(load, 'patient')
@@ -195,7 +197,7 @@ export function PatientImportedHistory({ api, query = '', onRecords }: {
   // In the commit that shows them, so the count beside the search never trails the records on screen.
   useLayoutEffect(() => { onRecords?.(read) }, [read, onRecords])
   return <>
-    <ImportedHistoryBody {...history} audience="patient" query={query} groupedByDay />
+    <ImportedHistoryBody {...history} audience="patient" query={query} groupedByDay quietNoMatch={quietNoMatch} />
     {history.state.status !== 'unavailable' && history.state.status !== 'loading' && <ImportedHistorySharingCard api={api} />}
   </>
 }

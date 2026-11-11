@@ -46,7 +46,7 @@ beforeEach(() => {
 // that none is offered). The forms it keeps side by side are the new case form and each
 // pending case's link form, and each keeps its own refusals.
 describe('outreach', () => {
-  const LINK_REFUSED = 'Enter a canonical patient ID and a reason of at least 8 characters.'
+  const LINK_REFUSED = 'Enter the patient ID and a reason of at least 8 characters.'
   const pending = (id: string, fullName: string) => ({ id, status: 'identity_resolution_pending', fullName, rowVersion: 1,
     createdAt: '2026-10-01T08:00:00.000Z' })
 
@@ -54,13 +54,13 @@ describe('outreach', () => {
   async function refuseLink(fullName: string) {
     const card = (await screen.findByText(fullName)).closest<HTMLElement>('.staff-list-item')!
     fireEvent.click(within(card).getByText('Link verified existing patient'))
-    const patient = within(card).getByLabelText(/^Canonical patient ID/)
+    const patient = within(card).getByLabelText(/^Patient ID/)
     fireEvent.submit(patient.closest('form')!)
     await waitFor(() => expectRefused(patient, LINK_REFUSED))
     return patient
   }
 
-  it('a case refused at its own field leaves a link refusal at the canonical patient ID', async () => {
+  it('a case refused at its own field leaves a link refusal at the patient ID', async () => {
     api.outreachCases.mockResolvedValue([pending('case-1', 'Amina Example')])
     render(<Outreach />)
     const patient = await refuseLink('Amina Example')
@@ -71,7 +71,7 @@ describe('outreach', () => {
     expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 
-  it('a case created leaves a link refusal at the canonical patient ID', async () => {
+  it('a case created leaves a link refusal at the patient ID', async () => {
     api.outreachCases.mockResolvedValue([pending('case-1', 'Amina Example')])
     api.createOutreachCase.mockResolvedValue({ id: 'case-2' })
     render(<Outreach />)
@@ -79,7 +79,7 @@ describe('outreach', () => {
     fireEvent.change(screen.getByLabelText(/^Full name/), { target: { value: 'Bola Example' } })
     fireEvent.change(screen.getByLabelText(/^Age \(years\)/), { target: { value: '34' } })
     fireEvent.submit(screen.getByLabelText(/^Full name/).closest('form')!)
-    await waitFor(() => expect(document.getElementById('outreach-status')?.textContent).toBe('Registration case created for identity resolution.'))
+    await waitFor(() => expect(document.getElementById('outreach-status')?.textContent).toBe('Registration case created.'))
     expectRefused(patient, LINK_REFUSED)
   })
 
@@ -99,7 +99,7 @@ describe('outreach', () => {
     render(<Outreach />)
     const card = (await screen.findByText('Amina Example')).closest<HTMLElement>('.staff-list-item')!
     fireEvent.click(within(card).getByText('Link verified existing patient'))
-    const patient = within(card).getByLabelText(/^Canonical patient ID/)
+    const patient = within(card).getByLabelText(/^Patient ID/)
     patient.focus()
     fireEvent.submit(patient.closest('form')!)
     expect((await screen.findByRole('alert')).textContent).toBe(LINK_REFUSED)

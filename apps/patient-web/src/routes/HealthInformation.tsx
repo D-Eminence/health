@@ -12,6 +12,7 @@ import { ItemName } from '../ItemName'
 import { useShownOnceServed, type ProfileResource } from './ProfileCoverage'
 import { ProfileSection } from './ProfileSection'
 import { Button, Field, Select, Textarea } from '../kasuwa/ui'
+import { LoadingRows } from '../kasuwa/parts'
 import { Hint, LoadProblem, Problem, Saved } from './profileParts'
 
 const CHECK_DETAILS = 'Check the details you entered and try again.'
@@ -27,6 +28,22 @@ const TEXT_HINTS: Readonly<Record<HealthTextField, string>> = {
   currentMedications: 'Medicines you take now, with the dose if you know it.',
   chronicConditions: 'Like diabetes, high blood pressure, asthma or sickle cell.',
   medicalNotes: 'Anything else your doctors and nurses should know.',
+}
+
+/** Each text's limit, said under it (HE-14): the box stops taking more at 1,000 characters. */
+const LIMIT_HINT = `Up to ${HEALTH_TEXT_LIMIT.toLocaleString('en-NG')} characters.`
+
+/** The text that takes the most bytes once sent: the one to shorten when the save is too long to send. */
+function longestText(draft: Draft): HealthTextField {
+  const bytes = (field: HealthTextField) => new TextEncoder().encode(sentText(draft[field]) ?? '').byteLength
+  return HEALTH_TEXT_FIELDS.reduce((longest, field) => bytes(field) > bytes(longest) ? field : longest)
+}
+
+/** After a save refused as changed elsewhere: the latest saved, with each answer the patient changed kept as they typed it. */
+function keepChanges(draft: Draft, before: Draft, latest: Draft): Draft {
+  const merged = { ...latest } as Record<keyof Draft, string>
+  for (const field of Object.keys(draft) as Array<keyof Draft>) if (draft[field] !== before[field]) merged[field] = draft[field]
+  return merged as unknown as Draft
 }
 
 interface Draft {
@@ -75,7 +92,7 @@ const startOf = (saved: HealthProfile, fromHid1: ImportedHealthProfile | null): 
   neverSaved(saved) && fromHid1 ? draftFromImported(fromHid1) : draftOf(saved)
 
 const CONFLICT = 'Your health information was changed somewhere else, so this wasn’t saved. '
-  + 'The latest is shown now. Make your change again.'
+  + 'The latest is shown, and your changes are kept. Check them, then save again.'
 const TOO_LONG = 'This is too long to save. Shorten the longer answers, then save again.'
 
 function savedOn(value: string | null) {
@@ -103,13 +120,19 @@ export function HealthInformationCard({ resource, fromHid1, contacts }: {
   contacts?: (alone: boolean) => ReactNode
 }) {
   const shown = useShownOnceServed(resource)
-  if (shown) return <HealthInformationForm resource={resource} fromHid1={fromHid1}>{contacts?.(false)}</HealthInformationForm>
+  // While the first read runs the section is shown loading, with the emergency contacts in it (HE-08), so the page does
+  // not jump when it lands; only a 404 takes it away. Once not served, a later read again does not bring it back loading.
   const unserved = resource.data === null && resource.error === null && !resource.loading
-  return unserved ? contacts?.(true) ?? null : null
+  const [knownUnserved, setKnownUnserved] = useState(false)
+  if (unserved && !knownUnserved) setKnownUnserved(true)
+  if (shown || (!unserved && !knownUnserved)) {
+    return <HealthInformationForm resource={resource} fromHid1={fromHid1} pending={!shown}>{contacts?.(false)}</HealthInformationForm>
+  }
+  return contacts?.(true) ?? null
 }
 
-function HealthInformationForm({ resource, fromHid1, children }: {
-  resource: ProfileResource<HealthProfile | null>; fromHid1: ImportedHealthProfile | null; children?: ReactNode
+function HealthInformationForm({ resource, fromHid1, pending, children }: {
+  resource: ProfileResource<HealthProfile | null>; fromHid1: ImportedHealthProfile | null; pending: boolean; children?: ReactNode
 }) {
   const { api } = useSession()
   const saved = resource.data
@@ -117,6 +140,10 @@ function HealthInformationForm({ resource, fromHid1, children }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // The answer to shorten when the save was too long to send (HE-14).
+  const [tooLong, setTooLong] = useState<HealthTextField | null>(null)
+  // A save refused as changed elsewhere: the next reading keeps what the patient changed (HE-07).
+  const [keepDraft, setKeepDraft] = useState(false)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
   const retryFocus = useRetryFocus(heading)
@@ -125,9 +152,11 @@ function HealthInformationForm({ resource, fromHid1, children }: {
   // changed it meanwhile and it was not saved somewhere else.
   const [basis, setBasis] = useState({ saved, fromHid1 })
   if (saved !== basis.saved || fromHid1 !== basis.fromHid1) {
-    const untouched = draft === null || basis.saved === null || sameFields(fieldsOf(draft), fieldsOf(startOf(basis.saved, basis.fromHid1)))
+    const before = basis.saved === null ? null : startOf(basis.saved, basis.fromHid1)
+    const untouched = draft === null || before === null || sameFields(fieldsOf(draft), fieldsOf(before))
     setBasis({ saved, fromHid1 })
-    if (saved && (untouched || saved.rowVersion !== basis.saved?.rowVersion)) setDraft(startOf(saved, fromHid1))
+    if (saved && keepDraft && draft && before) { setKeepDraft(false); setDraft(keepChanges(draft, before, startOf(saved, fromHid1))) }
+    else if (saved && (untouched || saved.rowVersion !== basis.saved?.rowVersion)) setDraft(startOf(saved, fromHid1))
   }
 
   const seeded = saved !== null && neverSaved(saved) && fromHid1 !== null
@@ -136,6 +165,7 @@ function HealthInformationForm({ resource, fromHid1, children }: {
   const set = <K extends keyof Draft>(field: K, value: Draft[K]) => {
     setDraft(current => current ? { ...current, [field]: value } : current)
     setNotice(null)
+    if (field === tooLong) setTooLong(null)
   }
 
   const save = async (event: FormEvent) => {
@@ -144,37 +174,46 @@ function HealthInformationForm({ resource, fromHid1, children }: {
     const body = { ...fieldsOf(draft), expectedVersion: saved.rowVersion }
     // Production's edge refuses a body over 8 KB (EDGE_BODY_MAX_BYTES): long texts in a script of several bytes a
     // character can pass it, so such a save is not sent.
-    if (jsonBodyBytes(body) > EDGE_BODY_MAX_BYTES) { setError(TOO_LONG); setNotice(null); return }
-    setBusy(true); setError(null); setNotice(null)
+    if (jsonBodyBytes(body) > EDGE_BODY_MAX_BYTES) {
+      // The longest answer is marked and takes focus, so the patient knows which to shorten. Nothing was sent, so
+      // focus moves now, from the Save button it is on.
+      const longest = longestText(draft)
+      setError(TOO_LONG); setNotice(null); setTooLong(longest)
+      document.getElementById(`health-${longest}`)?.focus()
+      return
+    }
+    setBusy(true); setError(null); setNotice(null); setTooLong(null)
     try {
       resource.replace(await api.saveHealthProfile(body))
       setNotice('Health information saved.')
       focusAfter(() => heading.current)
     } catch (cause) {
       if (isHidApiError(cause) && cause.code === 'VERSION_CONFLICT') {
-        setError(CONFLICT)
+        setError(CONFLICT); setKeepDraft(true)
         await resource.reload()
         focusAfter(() => heading.current)
         return
       }
       setError(plainErrorText(cause, 'Couldn’t save. Try again.', { statuses: { 400: CHECK_DETAILS, 422: CHECK_DETAILS } }))
-      focusAfter(() => document.getElementById('health-bloodGroup'))
+      // The error is just above Save, which keeps focus (HE-06): the refusal does not say which answer it is about.
+      focusAfter(() => document.getElementById('health-save'))
     } finally { setBusy(false) }
   }
 
   const when = savedOn(saved?.updatedAt ?? null)
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
-  return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : when ? `Saved ${when}` : null}
-    busy={resource.loading} headingRef={heading}>
+  return <ProfileSection id="health-information" title="Health information"
+    state={resource.error ? 'Could not load' : pending ? 'Loading…' : when ? `Saved ${when}` : null} busy={resource.loading} headingRef={heading}>
     <Hint id="health-hint">{seeded ? 'Filled in from your old Health ID account. Check it, then save to keep it.' : 'Doctors and nurses you share with see that you wrote this.'}</Hint>
     {resource.error && <LoadProblem what="your health information" error={resource.error} buttonRef={retryFocus.button}
       onRetry={() => retryFocus.retry(resource.reload)} name={<ItemName>loading your health information</ItemName>} />}
     <Saved>{notice}</Saved>
+    {pending && <LoadingRows rows={2} label="Loading your health information" />}
     {saved && draft && <form className="flex flex-col gap-4" onSubmit={event => void save(event)}>
       <div className="grid grid-cols-2 gap-3">
         <Field label={HEALTH_LABELS.bloodGroup} htmlFor="health-bloodGroup">
           <Select id="health-bloodGroup" value={draft.bloodGroup}
-            onChange={event => set('bloodGroup', event.target.value as Draft['bloodGroup'])} aria-describedby={describedBy(error && 'health-error')}>
+            onChange={event => set('bloodGroup', event.target.value as Draft['bloodGroup'])}>
             <option value="">Not stated</option>
             {BLOOD_GROUPS.map(value => <option key={value} value={value}>{value}</option>)}
           </Select>
@@ -186,13 +225,15 @@ function HealthInformationForm({ resource, fromHid1, children }: {
           </Select>
         </Field>
       </div>
-      {HEALTH_TEXT_FIELDS.map(field => <Field key={field} label={HEALTH_LABELS[field]} htmlFor={`health-${field}`} hintId={`health-${field}-hint`} hint={TEXT_HINTS[field]}>
+      {HEALTH_TEXT_FIELDS.map(field => <Field key={field} label={HEALTH_LABELS[field]} htmlFor={`health-${field}`} hintId={`health-${field}-hint`}
+        hint={`${TEXT_HINTS[field]} ${LIMIT_HINT}`}>
         <Textarea id={`health-${field}`} rows={3} maxLength={HEALTH_TEXT_LIMIT} value={draft[field]}
           onChange={event => set(field, multiLine(event.target.value).slice(0, HEALTH_TEXT_LIMIT))}
-          aria-describedby={`health-${field}-hint`} />
+          aria-invalid={tooLong === field && error ? true : undefined}
+          aria-describedby={describedBy(`health-${field}-hint`, tooLong === field && error && 'health-error')} />
       </Field>)}
       {error && <Problem id="health-error">{error}</Problem>}
-      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</Button>
+      <Button id="health-save" type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</Button>
     </form>}
     {children}
   </ProfileSection>

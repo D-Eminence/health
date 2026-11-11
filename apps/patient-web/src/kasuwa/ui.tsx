@@ -64,7 +64,8 @@ const BUTTON_VARIANT = {
   ghost: 'text-ink-2 hover:bg-hover hover:text-ink',
   danger: 'text-danger-ink hover:bg-danger-soft',
   destructive: 'bg-danger-fill text-white shadow-[var(--shadow-xs)] hover:bg-danger-fill-hover',
-  link: 'text-brand-ink hover:underline underline-offset-4 !h-auto !px-0',
+  // A text button ("Send a new code", "Use a different NIN"): its words' size, but never under 24px tall (WCAG 2.5.8).
+  link: 'text-brand-ink hover:underline underline-offset-4 !h-auto min-h-6 !px-0',
 } as const
 // 44px on phones (Fitts, WCAG 2.5.5), a little tighter where a pointer is precise.
 const BUTTON_SIZE = { sm: 'h-9 sm:h-8 px-3 text-[13px] rounded-sm', md: 'h-11 sm:h-10 px-4 text-sm rounded-md', lg: 'h-12 px-5 text-[15px] rounded-lg' } as const
@@ -213,18 +214,20 @@ function illustrationFor(I: Icon | undefined): IllustrationName {
 /**
  * Nothing to show (owner, 2026-10-31): a grey line drawing, the title in ink, one line in ink-3, the action as a normal
  * button. No box, no dashed border, no circle: it sits in whatever holds it. `illustration` names the drawing; a screen
- * that passes only `icon` gets the drawing that stands for it.
+ * that passes only `icon` gets the drawing that stands for it. A list that is empty for now may say it in one plain
+ * sentence (`description` without a `title`): the drawing, that sentence in ink-2, and the next step when there is one.
+ * Every empty list says it this one way, never as a bare grey line.
  */
 export function EmptyState({ icon, illustration, title, description, action, compact, titleAs: Title = 'p' }: {
-  icon?: Icon; illustration?: IllustrationName; title: ReactNode; description?: ReactNode; action?: ReactNode; compact?: boolean
+  icon?: Icon; illustration?: IllustrationName; title?: ReactNode; description?: ReactNode; action?: ReactNode; compact?: boolean
   /** A whole-page state (no access, not set up) names the page: pass 'h1' so the page keeps its one heading. */
   titleAs?: 'p' | 'h1' | 'h2' | 'h3'
 }) {
   return <div className={cx('flex flex-col items-center justify-center text-center', compact ? 'gap-3 px-4 py-8' : 'gap-4 px-6 py-14')}>
     <Illustration name={illustration ?? illustrationFor(icon)} className={compact ? 'h-20 w-[100px]' : undefined} />
     <div className="min-w-0 max-w-full">
-      <Title className="m-0 text-title-3 break-words text-ink">{title}</Title>
-      {description && <p className="m-0 mx-auto mt-1 max-w-sm text-[13px] text-ink-3">{description}</p>}
+      {title ? <Title className="m-0 text-title-3 break-words text-ink">{title}</Title> : null}
+      {description && <p className={cx('m-0 mx-auto max-w-sm', title ? 'mt-1 text-[13px] text-ink-3' : 'text-sm text-ink-2')}>{description}</p>}
     </div>
     {action ? <div className="mt-1 flex flex-wrap justify-center gap-2">{action}</div> : null}
   </div>
@@ -271,7 +274,7 @@ export function Field({ label, hint, error, children, className, htmlFor, option
   </div>
 }
 
-export function Input({ className, icon: I, prefix, ...rest }: React.InputHTMLAttributes<HTMLInputElement> & { icon?: Icon; prefix?: string }) {
+export function Input({ className, icon: I, prefix, ...rest }: React.ComponentProps<'input'> & { icon?: Icon; prefix?: string }) {
   if (I || prefix) return <div className={cx('relative', className)}>
     {I && <I className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-ink-3" aria-hidden />}
     {prefix && <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-sm text-ink-3">{prefix}</span>}
@@ -367,9 +370,15 @@ export function FilterTabs<T extends string>({ value, onChange, options, label }
   </nav>
 }
 
-/** paytrail's dashboard activity timeline: a dot, who did what, and when. */
-export function Timeline({ items, empty }: { items: ReadonlyArray<{ id: string; who?: ReactNode; text: ReactNode; when: ReactNode; to?: string; tone?: Tone }>; empty: ReactNode }) {
-  if (items.length === 0) return <p className="m-0 px-5 py-6 text-[13px] text-ink-3">{empty}</p>
+/**
+ * paytrail's dashboard activity timeline: a dot, who did what, and when. Nothing yet is the shared empty state: the
+ * drawing (`emptyIcon`'s, an inbox by default), the `empty` sentence, and `emptyAction` when there is a next step.
+ */
+export function Timeline({ items, empty, emptyIcon, emptyAction }: {
+  items: ReadonlyArray<{ id: string; who?: ReactNode; text: ReactNode; when: ReactNode; to?: string; tone?: Tone }>; empty: ReactNode
+  emptyIcon?: Icon; emptyAction?: ReactNode
+}) {
+  if (items.length === 0) return <EmptyState compact icon={emptyIcon} illustration={emptyIcon ? undefined : 'inbox'} description={empty} action={emptyAction} />
   return <ol className="m-0 list-none space-y-4 px-5 py-4">
     {items.map(a => <li key={a.id} className="flex gap-3 text-[13px]">
       <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', a.tone ? TONE_DOT[a.tone] : 'bg-brand-fill/60')} />

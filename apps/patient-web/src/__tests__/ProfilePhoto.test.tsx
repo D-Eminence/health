@@ -436,6 +436,33 @@ describe('the photo control', () => {
   })
 })
 
+describe('HCS-15: focus and word after saving the photo', () => {
+  it('says the photo was saved, and leaves focus on the photo control', async () => {
+    profilePage(gateway(false))
+    await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
+    const save = await screen.findByRole('button', { name: 'Save photo' })
+    await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false))
+    save.focus()
+    await press(save)
+    await savedAndClosed()
+    expect(await screen.findByText('Your photo was saved.')).toBeTruthy()
+    expect(screen.getByText('Your photo was saved.').closest('[role="status"]')).not.toBeNull()
+    const input = await (await photoCard()).findByLabelText(CHANGE)
+    await waitFor(() => expect(document.activeElement).toBe(input))
+  })
+
+  it('leaves focus on Save photo when it could not be saved, so it can be pressed again', async () => {
+    profilePage(gateway(false, { put: () => problem(503, 'UPSTREAM_UNAVAILABLE', 'Unavailable') }))
+    await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
+    const save = await screen.findByRole('button', { name: 'Save photo' })
+    await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false))
+    save.focus()
+    await press(save)
+    await screen.findByText('Couldn’t save your photo')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save photo' })))
+  })
+})
+
 describe('the photo shown', () => {
   it('is read as bytes and shown from a blob: URL, which goes when the page does; nothing is stored', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')

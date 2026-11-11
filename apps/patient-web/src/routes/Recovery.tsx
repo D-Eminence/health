@@ -10,7 +10,7 @@ import { describedBy, isFieldProblem, recoveryRefusal, useDocumentTitle, useStep
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 import { Alert, Button, Field } from '../kasuwa/ui'
-import { InputR } from './profileParts'
+import { Hint, InputR } from './profileParts'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
@@ -117,12 +117,15 @@ export function Recovery() {
     {step === 'start' && <form onSubmit={start} className="flex flex-col gap-4">
       <Field label="Email, phone or Health ID" htmlFor="recovery-identifier" hintId="recovery-start-hint"
         hint="We’ll send a code to the verified email on your account." errorId={errorId} error={fieldError ? problem : undefined}>
-        <InputR id="recovery-identifier" ref={stepFocus.target} required autoComplete="username" value={identifier} placeholder="HID-…, you@example.com or 0803…"
+        <InputR id="recovery-identifier" ref={stepFocus.target} required autoComplete="username" value={identifier} placeholder="HID-…, 0803… or email"
           onChange={event => setIdentifier(signInPrincipalInput(event.target.value))}
           aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} />
       </Field>
       <Turnstile action="patient-reset-start" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send code'}</Button></form>}
+      {/* Why Send code waits (SO-16), as on sign-in and the sign-up. */}
+      {!turnstileToken && !busy && <Hint id="recovery-check-needed">Complete the security check to continue.</Hint>}
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}
+        aria-describedby={!turnstileToken && !busy ? 'recovery-check-needed' : undefined}>{busy ? 'Sending…' : 'Send code'}</Button></form>}
     {step === 'code' && <form onSubmit={verify} className="flex flex-col gap-4">
       <p id="recovery-code-hint" className="m-0 text-sm text-ink-2">Enter the 6-digit code we sent.</p>
       <CodeBoxes id="recovery-code" label="Code" value={code} onChange={setCode} inputRef={stepFocus.target} busy={busy}
@@ -152,7 +155,7 @@ export function Recovery() {
       {!resend.ready && <p id="recovery-other-identifier-hint" className="m-0 text-[13px] text-ink-3">Wait for a new code before using another email, phone or Health ID on the same account.</p>}
       <div role="status">{resend.ready && <><p className="m-0 text-[13px] text-ink-3">No code? Start again to get a new one.</p>
         <Button variant="link" onClick={restart} disabled={busy}>Start again for a new code</Button></>}</div></div>}
-    {step !== 'complete' && <p className="m-0 text-center text-sm"><Link to="/sign-in" className="font-medium text-brand-ink">Back to sign in</Link></p>}
+    {step !== 'complete' && <p className="m-0 text-center text-sm"><Link to="/sign-in" className="-my-3 inline-flex min-h-11 items-center font-medium text-brand-ink">Back to sign in</Link></p>}
     </div>
   </AuthLayout>
 }

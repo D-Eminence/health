@@ -43,8 +43,11 @@ type Stage = 'nin' | 'holder' | 'holder_code' | 'facility' | 'contact' | 'otp' |
   | 'already_registered' | 'registration_ended' | 'registration_completed'
 /** Where a registration waits for its holder proof (its cookie is live). */
 const HOLDER_STAGES: readonly Stage[] = ['holder', 'holder_code', 'facility']
-/** Where the steps are listed: not at an ending. */
-const STEP_STAGES: readonly Stage[] = ['nin', ...HOLDER_STAGES, 'contact', 'otp', 'password', 'complete']
+/**
+ * Where the steps are listed: not at an ending, the Health ID shown included (SO-15), where none would be marked done
+ * or current, as the sign-up without a NIN shows none once it is done.
+ */
+const STEP_STAGES: readonly Stage[] = ['nin', ...HOLDER_STAGES, 'contact', 'otp', 'password']
 /**
  * Where a Google sign-up is offered (build-flag gated): before a start, or once
  * the NIN holder is proved. While it is being proved a Google account would be
@@ -58,9 +61,13 @@ const NO_FACILITY: EnrollmentFacilityRoute = { available: false }
 
 /** 422 OTP_INVALID at the holder code: wrong, expired, used, or its five attempts spent. */
 const HOLDER_CODE_REFUSED = 'That code is wrong or has expired. Check the latest text message, or ask for a new code.'
+const CONTACT_CODE_REFUSED = 'That code is wrong or has expired. Check the latest message, or ask for a new code.'
 /** Plain words for the refusals enrollment knows: never Identity's own text (owner's rule, 1 Nov 2026). */
 const ENROLLMENT_REFUSALS: Readonly<Record<string, string>> = {
-  OTP_INVALID_OR_EXPIRED: 'That code is wrong or has expired. Check the latest message, or ask for a new code.',
+  OTP_INVALID_OR_EXPIRED: CONTACT_CODE_REFUSED,
+  // 422 OTP_INVALID at the contact code (/contact/verify): wrong, expired, or its failure budget spent (SO-19).
+  // The holder code's own OTP_INVALID is said before this (holderRefusal).
+  OTP_INVALID: CONTACT_CODE_REFUSED,
   NIN_NOT_VERIFIED: 'We couldn’t verify that NIN. Check the number and try again.',
   CONTACT_ALREADY_REGISTERED: 'This email address or phone number is already used by a Health ID. Use another one, or sign in.',
   NIN_HOLDER_ROUTE_UNAVAILABLE: 'We can’t send a code to the phone on your NIN record. Register at a participating facility instead.',
@@ -157,8 +164,8 @@ const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this
  * focus included. Since hid-system #84 (ADR-062) the answer also names the
  * routes that prove the NIN holder, `{ open, online, facility }`, and `open`
  * stays the only gate (Health-id alignment row 14); with no route on, every
- * start answers 503 PATIENT_REGISTRATION_NOT_OPEN. The notice is Identity's own
- * wording for that 503.
+ * start answers 503 PATIENT_REGISTRATION_NOT_OPEN. The notice says that 503 in the
+ * website's own words, as a pause (RegistrationClosed.tsx).
  */
 type Registration = 'open' | 'closed' | 'unknown'
 /**
@@ -871,9 +878,12 @@ export function Enrollment() {
       disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
     {stage === 'nin' && <Button variant="link" className="self-start" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</Button>}
   </section>
+  // The NIN sign-up's steps and description only once it is the sign-up shown (SO-07): while the page still finds out
+  // which one Identity serves, or cannot, a sign-up without a NIN may replace it. None at an ending (SO-15).
+  const stepsShown = ready && !closed && STEP_STAGES.includes(stage) && !(stage === 'nin' && registration === 'unknown')
   return <AuthLayout brandTo="/" title="Get your Health ID." titleId="enroll-title"
-    lede="Verify who you are, confirm a contact, and choose a password."
-    steps={!closed && STEP_STAGES.includes(stage) ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
+    lede={stepsShown ? 'Verify who you are, confirm a contact, and choose a password.' : undefined}
+    steps={stepsShown ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
     stepsLabel="Enrollment steps">
     <div className="flex flex-col gap-5">
       {checking || (signOutRequired && sessionUnread) ? <LoadingRows rows={1} label="Checking for an enrollment in progress" /> : null}
@@ -909,7 +919,7 @@ export function Enrollment() {
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && googleChosen && googleSection}
       {ready && stage === 'nin' && registration === 'open' && !googleChosen && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
         turnstile={<Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
-        blocked={!turnstileToken || (googleRequired && !googlePending)} routes={routes} />}
+        checkNeeded={!turnstileToken} blocked={!turnstileToken || (googleRequired && !googlePending)} routes={routes} />}
       {ready && stage === 'holder' && <RouteChoice focusTarget={stepFocus.target} busy={busy} online={onlineOpen} onlineNote={onlineNote}
         facility={facility.available} onSend={() => void sendHolderCode()} onFacility={() => { clearError(); setStage('facility'); stepFocus.focus() }}
         onDifferentNin={startAgain} />}

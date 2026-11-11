@@ -8,6 +8,7 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { ProfileSection } from './ProfileSection'
 import { Button, Field, Input } from '../kasuwa/ui'
+import { LoadingRows } from '../kasuwa/parts'
 import { WORDS } from '../copy'
 import { LoadProblem, Problem, Saved } from './profileParts'
 
@@ -28,10 +29,14 @@ const CONFLICT = 'These details were changed somewhere else, so yours weren’t 
 /**
  * "Insurance & hospital" (once "Coverage") on the profile (hid-1.0 parity B3): the hospital the patient uses now, with the sign-up's hospital
  * suggestions, and their HMO's name as free text, as hid-1.0 had them. Saved against the version read. Not shown where
- * Identity does not serve them (404).
+ * Identity does not serve them (404). Where the profile says they are served (`expected`: it sends the 0094 fields, as
+ * the completion's check reads them), the section holds its place while it is first read, saying it is loading
+ * (PPS-06), so the sections under it do not jump down when it comes; a 404 then removes it.
  */
-export function CoverageCard({ resource }: { resource: ProfileResource<ProfileDetails | null> }) {
-  return useShownOnceServed(resource) ? <CoverageForm resource={resource} /> : null
+export function CoverageCard({ resource, expected = false }: { resource: ProfileResource<ProfileDetails | null>; expected?: boolean }) {
+  const shown = useShownOnceServed(resource)
+  const firstRead = resource.loading && resource.data === null && resource.error === null
+  return shown || (expected && firstRead) ? <CoverageForm resource={resource} /> : null
 }
 
 /**
@@ -91,11 +96,14 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
     } finally { setBusy(false) }
   }
 
-  // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
-  return <ProfileSection id="coverage" title={WORDS.insurance} state={resource.error ? 'Could not load' : null} busy={resource.loading}
-    headingRef={heading} headingId="coverage-heading">
+  // A read that failed, or one still out, is said in the heading too: the card is not seen while it is closed. Only what
+  // is already on screen is busy as it is read again: a first read's status is not inside a busy region.
+  const reading = resource.loading && !saved && !resource.error
+  return <ProfileSection id="coverage" title={WORDS.insurance} state={resource.error ? 'Could not load' : reading ? 'Loading…' : null}
+    busy={resource.loading && saved !== null} headingRef={heading} headingId="coverage-heading">
     {resource.error && <LoadProblem what="these details" error={resource.error} buttonRef={retryFocus.button}
       onRetry={() => retryFocus.retry(resource.reload)} name={<ItemName>loading your insurance and hospital</ItemName>} />}
+    {reading && <div className="-mx-5"><LoadingRows rows={1} label="Loading your insurance and hospital" /></div>}
     <Saved>{notice}</Saved>
     {saved && <form className="flex flex-col gap-4" onSubmit={event => void save(event)}>
       <Field label="Hospital you use now" htmlFor="coverage-hospital" hintId="coverage-hospital-hint" hint="Start typing, then pick it from the list.">

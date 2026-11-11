@@ -59,9 +59,13 @@ describe('"Finish your sign-up" after a refused sign-in', () => {
     // The refusal, then the way to finish, in one line of the alert.
     expect(screen.getByText(/Didn't finish signing up\?/).textContent).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
     expect(finish()?.getAttribute('href')).toBe('/enroll')
-    // In the same alert as the refusal, so a screen reader reads the way to finish with it.
-    expect(shownText(screen.getByRole('alert'))).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
-    expect(screen.getByRole('alert').contains(finish())).toBe(true)
+    // In the same notice as the refusal, so a screen reader reads the way to finish with it: the notice describes both
+    // fields, and focus moves to the password (launch audit SO-03), so it is read there once, not again as an alert.
+    const refusal = document.getElementById('sign-in-error')!
+    expect(shownText(refusal)).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
+    expect(refusal.contains(finish())).toBe(true)
+    expect(document.activeElement).toBe(screen.getByLabelText('Password'))
+    expect(screen.getByLabelText('Password').getAttribute('aria-describedby')).toBe('sign-in-error')
 
     await act(async () => { fireEvent.click(finish()!) })
     const email = await screen.findByLabelText('Email address') as HTMLInputElement

@@ -4,7 +4,7 @@ import { Route, Routes } from 'react-router-dom'
 import type { AccessHistory, AccessRequest, PatientNotification, PatientProfile, PatientRecords } from '../api'
 import type { AccessLogPage } from '../accessLog'
 import {
-  Overview, RECENT_ROWS, activeAccesses, attentionItems, pendingRequests, providerContributions, recentActivity,
+  Overview, RECENT_ROWS, attentionItems, facilitiesWithAccessNow, pendingRequests, providerContributions, recentActivity,
 } from '../routes/Overview'
 import { ProfilePage } from '../routes/Portal'
 import { json, press, problem, profile, renderPortal, sectionCard, sectionToggle, shownText, type Handler } from './portalHarness'
@@ -74,8 +74,8 @@ const facts = () => Array.from(screen.getByRole('region', { name: CARD }).queryS
 /** Home's four tiles: what the record holds, each a link to where it is. */
 const tiles = () => within(screen.getByRole('group', { name: 'Your record at a glance' })).getAllByRole('link')
   .map(tile => [tile.textContent, tile.getAttribute('href')])
-/** The decisions waiting for the patient: one warning per pending request. */
-const requestAlerts = () => screen.queryAllByRole('alert').filter(alert => alert.textContent?.includes('wants to see your records'))
+/** The decisions waiting for the patient: one notice per pending request, a note, not an alert said on every visit (HCS-27). */
+const requestAlerts = () => screen.queryAllByRole('note').filter(alert => alert.textContent?.includes('wants to see your records'))
 
 describe('the overview with patient parity served', () => {
   it('shows the Health ID card: name, the Health ID as plain text, the NIN badge, the completion, and Share records and View profile', async () => {
@@ -104,7 +104,9 @@ describe('the overview with patient parity served', () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     await waitFor(() => expect(facts()).toEqual([['Blood', 'B+'], ['Genotype', 'AA'], ['Allergy', 'Shellfish']]))
     // Production (Novu) sends visits and notes only: no Documents or Medicines tile that could only ever say 0.
-    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['1Facility with access', '/access']]))
+    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['1Facility with access', '/access?tab=granted']]))
+    // Two tiles fill the row as two columns, not half of a row laid out for four (HCS-01).
+    expect(screen.getByRole('group', { name: 'Your record at a glance' }).className).not.toContain('hid-stat-grid-4')
   })
 
   it('shows the Documents and Medicines tiles where the backend sends documents and prescriptions', async () => {
@@ -112,7 +114,8 @@ describe('the overview with patient parity served', () => {
     try {
       renderPortal(<Overview />, gateway(), {}, parity)
       await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['0Documents', '/records?tab=documents'],
-        ['1Facility with access', '/access'], ['0Medicines', '/records?tab=prescriptions']]))
+        ['1Facility with access', '/access?tab=granted'], ['0Medicines', '/records?tab=prescriptions']]))
+      expect(screen.getByRole('group', { name: 'Your record at a glance' }).className).toContain('hid-stat-grid-4')
     } finally { novu.on = true }
   })
 
@@ -135,7 +138,7 @@ describe('the overview with patient parity served', () => {
     await waitFor(() => expect(requestAlerts()).toHaveLength(2))
     for (const alert of requestAlerts()) {
       expect(alert.textContent).toContain('Nothing is shared until you approve.')
-      expect(within(alert).getByRole('link', { name: 'Review' }).getAttribute('href')).toBe('/access')
+      expect(within(alert).getByRole('link', { name: 'Review the request from Lagos General' }).getAttribute('href')).toBe('/access')
     }
     const checklist = within((await screen.findByRole('heading', { name: 'Finish your Health ID' })).closest('section') as HTMLElement)
     await waitFor(() => expect(checklist.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])).toEqual([
@@ -208,7 +211,7 @@ describe('the overview on today\'s backend', () => {
   it('shows no completion, health facts, health-information link or NIN badge where none is served, and asks nothing more', async () => {
     const { sent } = renderPortal(<Overview />, gateway({ '/identity/me': () => json(profile) }))
     await screen.findByText('HID-ABC234')
-    await waitFor(() => expect(tiles().at(-1)).toEqual(['1Facility with access', '/access']))
+    await waitFor(() => expect(tiles().at(-1)).toEqual(['1Facility with access', '/access?tab=granted']))
     expect(facts()).toEqual([])
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.queryByText(/% done/)).toBeNull()
@@ -217,7 +220,7 @@ describe('the overview on today\'s backend', () => {
     expect(screen.queryByLabelText(/NIN (not )?verified/)).toBeNull()
     // Only the pending requests need attention here.
     await waitFor(() => expect(requestAlerts()).toHaveLength(2))
-    expect(screen.queryAllByRole('alert')).toHaveLength(2)
+    expect(screen.queryAllByRole('alert')).toHaveLength(0)
     expect(sent.some(item => item.path.startsWith('/identity/me/emergency-contacts'))).toBe(false)
     expect(sent.some(item => item.path === '/identity/me/photo')).toBe(false)
   })
@@ -234,10 +237,17 @@ describe('the overview on today\'s backend', () => {
 
 describe('what the overview counts', () => {
   it('counts only active grants that have not ended', () => {
-    expect(activeAccesses({ items: [grant('a', 'active', at(-1)), grant('b', 'active', at(1)), grant('c', 'expired', at(-1)),
+    expect(facilitiesWithAccessNow({ items: [grant('a', 'active', at(-1)), grant('b', 'active', at(1)), grant('c', 'expired', at(-1)),
       grant('d', 'revoked', at(-1))] }, NOW)).toBe(1)
-    expect(activeAccesses(null)).toBe(0)
-    expect(activeAccesses({ items: 'none' } as unknown as AccessHistory)).toBe(0)
+    expect(facilitiesWithAccessNow(null)).toBe(0)
+    expect(facilitiesWithAccessNow({ items: 'none' } as unknown as AccessHistory)).toBe(0)
+  })
+
+  // Full-visit rehearsal, 11 Nov 2026: a doctor, two lab scientists and a pharmacist at one hospital made "4 Facilities with access".
+  it('counts each facility once, however many of its staff have access', () => {
+    expect(facilitiesWithAccessNow({ items: [grant('a', 'active', at(-1), 'Demo Hospital'), grant('b', 'active', at(-1), 'Demo Hospital'),
+      grant('c', 'active', at(-1), 'Demo Hospital'), grant('d', 'active', at(-1), 'Demo Hospital'), grant('e', 'active', at(-1), 'Yaba Clinic'),
+      grant('f', 'revoked', at(-1), 'Ikeja Clinic')] }, NOW)).toBe(2)
   })
 
   it('counts pending requests whatever their case', () => {
@@ -250,7 +260,7 @@ describe('what the overview counts', () => {
     const rows = recentActivity(logPage, notices)
     expect(rows).toHaveLength(RECENT_ROWS)
     expect(rows.map(row => row.id)).toEqual(['log-e-1', 'notice-n-0', 'notice-n-1', 'notice-n-2', 'log-e-2'])
-    expect(rows[0]).toMatchObject({ to: '/access', text: 'Dr Bello at Lagos General: viewed your record' })
+    expect(rows[0]).toMatchObject({ to: '/access?tab=activity', text: 'Dr Bello at Lagos General: viewed your record' })
     expect(rows[1]).toMatchObject({ to: '/notifications' })
     expect(recentActivity(null, null)).toEqual([])
   })

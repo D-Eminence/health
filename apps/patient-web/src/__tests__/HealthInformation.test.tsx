@@ -163,7 +163,7 @@ describe('Health information', () => {
     expect(allergies.value).toHaveLength(1000)
   })
 
-  it('says it changed elsewhere on a stale version, and shows the latest', async () => {
+  it('says it changed elsewhere on a stale version, and shows the latest with the patient\'s change kept', async () => {
     let saved: HealthProfile = { ...nothing, rowVersion: 4, updatedAt: '2026-10-27T10:00:00.000Z' }
     renderPortal(<ProfilePage />, (path, method, body) => {
       if (path === HEALTH && method === 'PUT') { saved = { ...saved, genotype: 'AC', rowVersion: 5 }; return problem(409, 'VERSION_CONFLICT', 'Stale') }
@@ -175,7 +175,8 @@ describe('Health information', () => {
     await press(shown.getByRole('button', { name: 'Save health information' }))
     expect((await shown.findByRole('alert')).textContent).toMatch(/was changed somewhere else, so this wasn’t saved/)
     await waitFor(() => expect((shown.getByRole('combobox', { name: 'Genotype' }) as HTMLSelectElement).value).toBe('AC'))
-    expect((shown.getByRole('combobox', { name: 'Blood group' }) as HTMLSelectElement).value).toBe('')
+    // What the patient changed is kept (launch audit HE-07), so they need not enter it again.
+    expect((shown.getByRole('combobox', { name: 'Blood group' }) as HTMLSelectElement).value).toBe('B+')
   })
 
   it('is not shown where EHR does not serve it (404)', async () => {

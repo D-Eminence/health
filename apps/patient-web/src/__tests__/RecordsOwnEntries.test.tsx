@@ -78,7 +78,7 @@ describe('the records the patient added, where the backend does not serve them',
     expect(screen.queryByRole('region', { name: 'Added by you' })).toBeNull()
     expect(screen.queryByText(/Added by you|records you added|Removed from your records/)).toBeNull()
     expect(screen.queryAllByRole('alert')).toEqual([])
-    expect(screen.getByText('Your visits, doctor’s notes and older records, newest first.')).toBeTruthy()
+    expect(screen.getByText('Your visits and doctor’s notes, newest first.')).toBeTruthy()
     // A search, and a tab, read nothing more.
     search('outpatient')
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()
@@ -402,7 +402,8 @@ describe('after "Add a record" saves one', () => {
     let release: (response: Response) => void = () => {}
     vi.stubGlobal('fetch', vi.fn(async () => new Promise<Response>(resolve => { release = resolve })))
     const intents = `${ENTRIES}/${ADDED}/documents/upload-intents`
-    const { sent } = renderPortal(<RecordsPage />, gateway(() => isServed ? served(items) : RECORDS, (path, method, body) => {
+    // Photos are taken (patientEntryFiles: true), on their own switch: the entries are not served until the Save says so.
+    const { sent } = renderPortal(<RecordsPage />, gateway(() => isServed ? served(items) : { ...RECORDS, patientEntryFiles: true }, (path, method, body) => {
       if (path === intents && method === 'POST') return json({ document: { id: 'doc-new', status: 'initiated', scanStatus: 'pending' },
         upload: { method: 'PUT', url: 'https://storage.example.test/bucket/clinical/objects/doc-new?X-Amz-Signature=fictional',
           requiredHeaders: { 'content-type': 'image/jpeg' }, expiresInSeconds: 300 } }, 201)
