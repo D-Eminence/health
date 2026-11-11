@@ -13,7 +13,7 @@ import { Avatar, Badge, Card, StatCard, StatGroup, TONE_DOT, cx, timeAgo, type T
 const number = (value: number) => new Intl.NumberFormat('en-NG').format(value)
 const percent = (value: number) => `${new Intl.NumberFormat('en-NG', { maximumFractionDigits: 1 }).format(value)}%`
 /** Availability keeps two decimals and never rounds up: 99.996% is not 100%. */
-const availability = (value: number) => `${new Intl.NumberFormat('en-NG', { maximumFractionDigits: 2, roundingMode: 'trunc' }).format(value)}%`
+const availability = (value: number) => `${new Intl.NumberFormat('en-NG', { maximumFractionDigits: 2 }).format(Math.trunc(value * 100 + 1e-6) / 100)}%`
 /** A share of all accounts, or nothing when there are none to divide by. */
 const shareOf = (part: number, whole: number) => whole > 0 ? `${percent(Math.round(part / whole * 1000) / 10)} of accounts` : undefined
 
