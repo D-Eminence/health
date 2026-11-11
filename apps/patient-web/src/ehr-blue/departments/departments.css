@@ -1623,3 +1623,28 @@
   flex: 1 1 200px;
   margin: 0;
 }
+
+/* Migrate learning (dormant until served): page ticks, missed counts and a medicine's Change, field by field. */
+.hid-ehr .hid-ehr-dept-migrate-pages {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-pages .hid-ehr-dept-check {
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-missed,
+.hid-ehr .hid-ehr-dept-migrate-medicine {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-medicine {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+}

@@ -22,6 +22,8 @@ import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
 import { NewJobPick, type NewJobPicked } from './NewJobPick'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
+import { learnReviewLearningServed } from '../../../readingLearningServed'
+import { saysReviewLearning } from '../../../readingLearningContract'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
   type PaperReading,
@@ -331,7 +333,11 @@ export function Migrate() {
     if (!facilityId || !visibleJob?.id || !canRead) return
     let active = true
     void Promise.all([staffApi.ocrExtractions(facilityId, visibleJob.id), staffApi.ocrValidations(facilityId, visibleJob.id)])
-      .then(([extractionResult, validationResult]) => { if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) } })
+      .then(([extractionResult, validationResult]) => {
+        // Migrate learning stays dormant until an extractions answer says the backend takes it.
+        if (saysReviewLearning(extractionResult)) learnReviewLearningServed(true)
+        if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) }
+      })
       .catch(caught => { if (active) setError(errorText(caught, 'The OCR review evidence could not be loaded.')) })
     return () => { active = false }
   }, [facilityId, visibleJob?.id, canRead, lookupRevision])
