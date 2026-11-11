@@ -526,6 +526,8 @@ export interface AccessRequest {
   approvedAt: string | null
   deniedAt: string | null
   deniedReason: string | null
+  /** The purpose of use (hid-system 0104 D5), when Identity sends it: 'healthcare-operations' is records processing. */
+  purpose?: string
 }
 
 export interface PatientNotification {
