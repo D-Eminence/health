@@ -93,3 +93,15 @@ export function stillOpenThere(items: readonly AccessItem[], ended: AccessItem):
 export function holderAt(item: AccessItem): string {
   return `${holder(item)} at ${item.facilityName}`
 }
+
+/**
+ * What a request asks to do, after "wants to" or "asked to": "view your records", "view and add records", as Who has
+ * access says it ("Can view records", "Can view and add records"). The request list names no staff member either.
+ */
+export function askedTo(scope: string | null | undefined): string {
+  switch ((scope ?? '').trim().toLowerCase()) {
+    case 'read': case 'read_records': case 'view': case 'view_only': return 'view your records'
+    case 'write': case 'write_records': case 'read_write': case 'read_write_records': return 'view and add records'
+    default: return 'see your records'
+  }
+}

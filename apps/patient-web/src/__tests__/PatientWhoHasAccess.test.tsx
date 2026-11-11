@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
-import type { AccessHistory } from '../api'
+import type { AccessHistory, AccessRequest } from '../api'
 import { AccessPage } from '../routes/Portal'
 import { ToastProvider } from '../kasuwa/toast'
 import { json, press, renderPortal, type Handler } from './portalHarness'
@@ -161,5 +161,36 @@ describe('ending one access among several at a facility', () => {
     fireEvent.change(drawer.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'No longer needed' } })
     await press(drawer.getByRole('button', { name: 'End access' }))
     expect(await screen.findByText('Demo Hospital can no longer see your records.')).toBeTruthy()
+  })
+})
+
+describe('the requests, told apart the same way', () => {
+  const request = (id: string, extra: Partial<AccessRequest>): AccessRequest => ({
+    accessRequestId: `7000000${id}-0000-4000-8000-000000000001`, facilityId: 'facility-1', facilityName: 'Demo Hospital',
+    scope: 'write_records', reason: 'Follow-up', status: 'pending', requestedDurationMinutes: 60,
+    requestedAt: new Date(Date.now() - 2 * 60_000).toISOString(), approvedAt: null, deniedAt: null, deniedReason: null, ...extra,
+  })
+
+  it('says on each request from one facility who asks, what for, for how long and the reason they gave', async () => {
+    renderPortal(<ToastProvider><AccessPage /></ToastProvider>, (path, method) => {
+      if (path === '/identity/me' && method === 'GET') return json({})
+      if (path === '/identity/me/access-history') return json({ items: [] })
+      return json([
+        request('1', { reason: 'Malaria film for the doctor' }),
+        request('2', { reason: 'Second check of the malaria result', scope: 'read_records' }),
+        request('3', { reason: 'Dispense the prescribed medicines', requestedDurationMinutes: 120 }),
+        request('4', { reason: 'Consultation for fever', status: 'approved', approvedAt: new Date().toISOString() }),
+      ])
+    })
+    const rows = await screen.findAllByRole('button', { name: /^Demo Hospital/ })
+    const text = rows.map(row => row.textContent)
+    expect(text[0]).toContain('A staff member wants to view and add records for 60 minutes · 2 min ago')
+    expect(text[0]).toContain('Reason given: “Malaria film for the doctor”')
+    expect(text[1]).toContain('A staff member wants to view your records for 60 minutes')
+    expect(text[1]).toContain('Reason given: “Second check of the malaria result”')
+    expect(text[2]).toContain('A staff member wants to view and add records for 2 hours')
+    expect(text[3]).toContain('A staff member asked to view and add records · 2 min ago')
+    expect(text[3]).toContain('Reason given: “Consultation for fever”')
+    expect(new Set(text).size).toBe(4)
   })
 })

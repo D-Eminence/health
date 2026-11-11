@@ -53,7 +53,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
-import { accessTimes, dayAndTime, groupByFacility, groupCounts, holder, holderAt, isOpen, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { accessTimes, askedTo, dayAndTime, groupByFacility, groupCounts, holder, holderAt, isOpen, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -815,8 +815,11 @@ export function AccessPage() {
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
               <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
-                {/* The status is said once: the Review button while it waits, the badge after. */}
-                <span className="block text-[13px] text-ink-3">{pending ? `Wants to see your records${forHowLong(item.requestedDurationMinutes)} · ` : ''}{timeAgo(item.requestedAt)}</span>
+                {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
+                    as Who has access says it: the list names no staff member, so several from one facility differ by these. */}
+                <span className="block text-[13px] text-ink-2">{pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                  : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
+                {item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
                 : <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>}{' '}
