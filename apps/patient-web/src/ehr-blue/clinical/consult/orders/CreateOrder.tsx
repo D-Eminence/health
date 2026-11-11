@@ -18,7 +18,7 @@ import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValue, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
-import { KINDS, learnFrom, orderRights, patientWord, useFlash, type CreateWarning, type OrderKind } from './orders'
+import { KINDS, learnFrom, orderRights, patientWord, sentFrom, useFlash, type CreateWarning, type OrderKind, type Sent } from './orders'
 import { ACK_REFUSED_ERROR, checkAllergies, MEDICINE_CHANGED_ERROR, warnAfterRefusal } from './prescribingAllergies'
 import { DestinationFields, type RouteErrors } from './Routing'
 import {
@@ -381,7 +381,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
    * open, this page reads it (or has read it, `read`). Either way the list is read once after the create and the
    * warning says once what the read came to, as today's (Clinical.tsx labWarning :1447-1448, createAndSend :1659-1667).
    */
-  const open = async (requestId: string | undefined, said: { success: string } | { warning: CreateWarning }, read?: Reload) => {
+  const open = async (requestId: string | undefined, said: { success: string; sent?: Sent | null } | { warning: CreateWarning }, read?: Reload) => {
     if (requestId) {
       setFlash({ orderId: requestId, ...said })
       navigate(href(encounterId, 'orders', 'laboratory', requestId))
@@ -430,7 +430,9 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
       ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
       : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
     const savedId = typeof saved?.id === 'string' ? saved.id : undefined
-    if (!outcome || outcome.accepted) return open(savedId, { success: outcome?.text ?? SAVED })
+    // Lab took the request: its page shows it sent, and offers no Send to Lab for this version.
+    const sent = activeLab && saved.labHandoff?.state === 'accepted' ? sentFrom('lab', saved.labWorkItem, rowVersion(saved.rowVersion)) : null
+    if (!outcome || outcome.accepted) return open(savedId, { success: outcome?.text ?? SAVED, sent })
     return open(savedId, { warning: { text: outcome.text, what: 'request', listChanged: outcome.listChanged === true } })
   }
 

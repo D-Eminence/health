@@ -716,7 +716,9 @@ function timeOf(value: string): number {
 /**
  * "Preserved versions & amendments", oldest first: every revision of the consultation note once it has more than one
  * ("{time} · Version n · {status} · {reason}", the status it was saved under), and, for a signed note, the version it
- * was signed as, so a signed note shows the card even with one revision.
+ * was signed as, so a signed note shows the card even with one revision ("{time} · Version n · Signed": the status the
+ * note has after signing). The signer's reason is kept in the EHR's record versions, which no read sends, so it is not
+ * shown; the action's label ("Sign note") is not a reason and is not shown in its place.
  */
 function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevision[] | null): VersionItem[] {
   if (!note || !revisions || revisions.length === 0) return []
@@ -741,7 +743,7 @@ function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevis
       at: signedAt,
       item: {
         key: `signed-${note.id}`,
-        summary: `${formatWhen(signedAt)} · Version ${current.revisionNo} · ${statusWords('draft')} · ${SIGN_LABEL}`,
+        summary: `${formatWhen(signedAt)} · Version ${current.revisionNo} · ${statusWords('signed')}`,
         items: [{ label: 'Content', value: current.content }, { label: 'Recorded', value: formatWhen(current.createdAt) }],
       },
     })

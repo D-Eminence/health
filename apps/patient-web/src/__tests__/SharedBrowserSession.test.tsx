@@ -582,7 +582,8 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     await act(async () => { becomeVisible() })
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
-    expect(screen.queryByRole('alert')).toBeNull()
+    // Said as the patient's own session ending (launch audit HCS-06), never as another tab's doing.
+    expect(screen.getByRole('alert').textContent).toMatch('You were signed out because your session ended. Sign in again to continue.')
     expect(screen.queryByText(/changed in another tab/)).toBeNull()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })

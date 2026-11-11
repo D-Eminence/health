@@ -58,7 +58,7 @@ async function denyWithOwnWords() {
 /** Opens Who has access, then End access on the grant, as the patient does. */
 async function endAccess() {
   await press(await screen.findByRole('button', { name: /^Who has access/ }))
-  await press(await screen.findByRole('button', { name: /^End access for Ikeja Clinic/ }))
+  await press(await screen.findByRole('button', { name: /^End access for A staff member at Ikeja Clinic/ }))
 }
 
 describe('reasons and contacts', () => {

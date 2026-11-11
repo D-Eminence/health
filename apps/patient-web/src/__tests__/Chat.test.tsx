@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createApiClient, HidApiError } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import type { PatientChatAvailability, PatientChatHistory, PatientChatReply } from '@hid/contracts'
@@ -42,6 +42,11 @@ async function ready(accept = true) {
   if (accept) fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
 }
 const ask = (text: string) => { fireEvent.change(asked(), { target: { value: text } }); fireEvent.click(send()) }
+/** New conversation, then Delete when asked (RN-16). */
+const startNew = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete this conversation?' })).getByRole('button', { name: 'Delete' }))
+}
 beforeEach(() => { vi.restoreAllMocks() })
 
 it('sends a question with the notice version and an Idempotency-Key through the registered cookie client', async () => {
@@ -117,7 +122,7 @@ it('says record chat is not available, keeps the saved conversation readable and
   expect(await screen.findByText('Old question')).toBeTruthy()
   expect(screen.queryByLabelText('Your question')).toBeNull()
   expect(screen.queryByRole('checkbox')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   await waitFor(() => expect(api.clearChatHistory).toHaveBeenCalledTimes(1))
   await waitFor(() => expect(screen.queryByText('Old question')).toBeNull())
 })
@@ -296,10 +301,10 @@ it('deletes the saved conversation, and keeps it visible with a clear message if
   const clear = vi.fn().mockRejectedValueOnce(new HidApiError(409, 'Private', { code: 'CHAT_HISTORY_ON_HOLD' })).mockResolvedValue({ cleared: true, deletedCount: 1 })
   render(<ChatConversation api={apiFor({ chatHistory: vi.fn().mockResolvedValue(saved), clearChatHistory: clear })} />)
   expect(await screen.findByText('Saved question')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   expect((await screen.findByRole('alert')).textContent).toContain('legal hold')
   expect(screen.getByText('Saved question')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   await waitFor(() => expect(screen.queryByText('Saved question')).toBeNull())
 })
 
@@ -309,7 +314,7 @@ it('new conversation cancels old work and ignores a late reply', async () => {
   render(<ChatConversation api={apiFor({ chat })} />)
   await ready()
   ask('Old question')
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   expect(chat.mock.calls[0]?.[2].signal.aborted).toBe(true)
   await waitFor(() => expect(screen.queryByText('Old question')).toBeNull())
   pending[0]?.(answer({ answer: 'Late old reply', blocks: [{ kind: 'explanation', text: 'Late old reply', references: [] }], sources: [] }))
@@ -351,4 +356,24 @@ it('Enter sends, Shift+Enter does not, and a question over the service limit doe
   await screen.findAllByText('A released note says example.')
   expect(api.chat).toHaveBeenCalledTimes(1)
   expect(asked().maxLength).toBe(1000)
+})
+
+it('RN-16: asks before deleting the saved conversation, and Cancel keeps it with focus back on New conversation', async () => {
+  const api = apiFor({ chatHistory: vi.fn().mockResolvedValue({ conversationId: id(2), limit: 50, exchanges: [exchange(3, 'Saved question', 'Saved answer')] }) })
+  render(<ChatConversation api={api} />)
+  expect(await screen.findByText('Saved question')).toBeTruthy()
+  const start = screen.getByRole('button', { name: 'New conversation' })
+  start.focus()
+  fireEvent.click(start)
+  const sheet = screen.getByRole('dialog', { name: 'Delete this conversation?' })
+  expect(sheet.textContent).toContain('can’t be undone')
+  expect(api.clearChatHistory).not.toHaveBeenCalled()
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(start)
+  expect(screen.getByText('Saved question')).toBeTruthy()
+  expect(api.clearChatHistory).not.toHaveBeenCalled()
+  startNew()
+  await waitFor(() => expect(screen.queryByText('Saved question')).toBeNull())
+  expect(api.clearChatHistory).toHaveBeenCalledTimes(1)
 })

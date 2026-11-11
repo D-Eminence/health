@@ -153,18 +153,22 @@ export function useOnNotificationChange(onChange: () => void) {
   }, [changes])
 }
 
-/** The bell in the portal's header: only while something is unread. */
+/**
+ * The bell in the portal's header, the one way to the notifications from every page: always there once the count is
+ * read (nothing unread included), with the count only while something is unread. Not shown where Identity does not
+ * serve the count.
+ */
 export function NotificationBell() {
   const { unread } = useUnreadNotifications()
-  if (unread === null || unread <= 0) return null
+  if (unread === null) return null
   // The shell's icon-button look (kasuwa): 44px on a phone, the count as a small brand pill on its corner.
-  return <NavLink to="/notifications" aria-label={`Notifications, ${unread} unread`}
+  return <NavLink to="/notifications" aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
     className="relative ml-auto inline-flex size-11 items-center justify-center rounded-md text-ink-2 no-underline ring-1 ring-line-strong ring-inset hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)] sm:size-10">
     <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
     </svg>
-    <span aria-hidden="true" className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-fill px-1.5 text-[11px] leading-none font-semibold text-white ring-2 ring-canvas">{unread > 99 ? '99+' : unread}</span>
+    {unread > 0 && <span aria-hidden="true" className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-fill px-1.5 text-[11px] leading-none font-semibold text-white ring-2 ring-canvas">{unread > 99 ? '99+' : unread}</span>}
   </NavLink>
 }

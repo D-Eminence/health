@@ -1,3 +1,4 @@
+import { countryName } from './profileParity'
 /**
  * Plain words for values the services send as codes, shared by the patient app and the Hospital EHR (owner rule: patient
  * and facility screens say things in plain friendly English, never an id, a code, a raw permission word or a media
@@ -140,4 +141,32 @@ const PATIENT_ACCESS_STATUSES: Readonly<Record<string, string>> = {
 export function patientAccessStatusLabel(value: string | null | undefined): string {
   const key = (value ?? '').trim().toLowerCase()
   return Object.hasOwn(PATIENT_ACCESS_STATUSES, key) ? PATIENT_ACCESS_STATUSES[key]! : 'Closed'
+}
+
+const GENDERS: Readonly<Record<string, string>> = { female: 'Female', male: 'Male', intersex: 'Intersex', other: 'Other' }
+
+/**
+ * The gender on the profile in words: "Female", "Male", "Intersex", "Other". "unknown" (one of the sign-up's choices)
+ * and none both read "Not given", as every detail not there does; any other value in plain words, never as stored.
+ */
+export function genderLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase()
+  if (!key || key === 'unknown') return 'Not given'
+  return Object.hasOwn(GENDERS, key) ? GENDERS[key]! : plainCode(key)
+}
+
+/** The country on the profile by its name ("Nigeria"), never its two-letter code; "Not given" for none. */
+export function countryLabel(value: string | null | undefined): string {
+  return value?.trim() ? countryName(value) : 'Not given'
+}
+
+const PRIORITIES: Readonly<Record<string, string>> = {
+  routine: 'Routine', urgent: 'Urgent', asap: 'As soon as possible', stat: 'Immediately',
+}
+
+/** How soon a test is wanted, in words: "Routine", "Urgent", "As soon as possible", "Immediately". */
+export function priorityLabel(value: string | null | undefined): string | null {
+  const key = (value ?? '').trim().toLowerCase()
+  if (!key) return null
+  return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : plainCode(key)
 }

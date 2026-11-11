@@ -124,7 +124,12 @@ function StockCard({ line, onOpen }: { readonly line: StockLine; readonly onOpen
   </li>
 }
 
-const MOVEMENT_WORD: Readonly<Record<string, string>> = { receipt: 'Received', adjustment: 'Adjusted', dispensing: 'Dispensed' }
+/** Each kind of stock movement in a word, as the spec names it and in its past tense; any other kind is a stock change. */
+const MOVEMENT_WORD: Readonly<Record<string, string>> = {
+  receipt: 'Received', received: 'Received', adjustment: 'Adjusted', adjusted: 'Adjusted', dispensing: 'Dispensed', dispensed: 'Dispensed',
+  // A reversal corrects the record only: the medicine may never have come back, so it is not "returned".
+  sale: 'Sold', sold: 'Sold', reversal: 'Dispensing reversed', reversed: 'Dispensing reversed',
+}
 const REASON_WORD: Readonly<Record<StockAdjustment['reason'], string>> = {
   damaged: 'Damaged', expired: 'Expired', count: 'Count correction', returned: 'Returned to supplier',
 }
@@ -172,7 +177,7 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
             <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
               {movements.data?.items.map(entry => <li key={entry.id} className="flex items-start justify-between gap-3 py-2.5">
                 <span className="min-w-0">
-                  <span className="block text-[14px] font-medium text-ink">{MOVEMENT_WORD[entry.kind] ?? entry.kind}{entry.reason ? ` · ${REASON_WORD[entry.reason as StockAdjustment['reason']] ?? entry.reason}` : ''}</span>
+                  <span className="block text-[14px] font-medium text-ink">{Object.hasOwn(MOVEMENT_WORD, entry.kind) ? MOVEMENT_WORD[entry.kind] : 'Stock change'}{entry.reason && Object.hasOwn(REASON_WORD, entry.reason) ? ` · ${REASON_WORD[entry.reason as StockAdjustment['reason']]}` : ''}</span>
                   <span className="block text-[13px] text-ink-3">{dayText(entry.at)}{entry.by ? ` · ${entry.by}` : ''}</span>
                 </span>
                 <span className={cx('shrink-0 text-[15px] font-semibold tabular', entry.change < 0 ? 'text-ink' : 'text-success-ink')}>{entry.change > 0 ? `+${entry.change}` : entry.change}</span>
