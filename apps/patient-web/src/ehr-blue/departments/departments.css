@@ -1033,6 +1033,46 @@
   margin: 0 0 18px;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-paper {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper h3,
+.hid-ehr .hid-ehr-dept-migrate-paper h4 {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-part {
+  display: grid;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-record {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-record p {
+  margin: 0;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-upload {
   margin-top: 20px;
   padding-top: 20px;
@@ -1589,4 +1629,21 @@
 /* A create form starts 16px into its card, as the design's new-record screens. */
 .hid-ehr .hid-ehr-dept-section > .hid-ehr-dept-form:first-child {
   margin-top: 16px;
+}
+
+/* A reading's way back to Patient documents, above its progress. */
+.hid-ehr .hid-ehr-dept-migrate-back {
+  margin: 0 0 8px;
+}
+
+/* Refresh list under Patient documents, with what it says while a document is being checked. */
+.hid-ehr .hid-ehr-dept-migrate-refresh {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-refresh > p {
+  flex: 1 1 200px;
+  margin: 0;
 }
