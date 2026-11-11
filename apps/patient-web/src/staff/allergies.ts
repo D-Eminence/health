@@ -4,7 +4,9 @@
  * - reported by the patient: the text the patient typed in their Health ID portal (0094).
  * A backend before 0124 answers 404 to the allergy routes: screens then show the patient-reported text only and offer
  * no way to add an allergy, and the prescribing form sends no allergy acknowledgement.
- * Shapes as hid-system#218 serves them at 76283f57 (docs/INTERFACE_CONTRACT.md, "Allergies and the allergy check").
+ * Shapes as hid-system#218 serves them at 7fbb04aa (docs/INTERFACE_CONTRACT.md, "Allergies and the allergy check at
+ * prescribing"); what a backend at 76283f57 lacks (the rejected parts of a 409) is read as not
+ * said, never as "none".
  */
 
 export const ALLERGY_SEVERITIES = ['severe', 'moderate', 'mild', 'unknown'] as const
@@ -202,14 +204,45 @@ export function warningMessages(details: unknown): string[] {
 }
 
 /**
- * The token of the warning a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED names: the only message of its last errors entry,
- * field allergyAcknowledgement.warningToken. Null when there is none, or it is not 64 lower-case hex.
+ * The token of the warning a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED names: the only message of its errors entry with the
+ * field allergyAcknowledgement.warningToken (after the warnings; at 7fbb04aa the rejected entries follow it). Null when
+ * there is none, or it is not 64 lower-case hex.
  */
 export function refusalWarningToken(details: unknown): string | null {
   if (!Array.isArray(details)) return null
   const entry = details.find(item => record(item) && item.field === 'allergyAcknowledgement.warningToken')
   const token = record(entry) && Array.isArray(entry.messages) ? entry.messages[0] : null
   return typeof token === 'string' && WARNING_TOKEN.test(token) ? token : null
+}
+
+/**
+ * Which part of the acknowledgement the EHR refused, one code per errors entry with the field
+ * allergyAcknowledgement.rejected (hid-system#218 at 7fbb04aa; read by `code`, never by the sentence or the detail):
+ * - MISSING: none was sent (the first warning; then the only one);
+ * - REASON_MISSING, REASON_INVALID: the reason (blank; or not 10-500 characters, no word, a hidden character);
+ * - TOKEN_INVALID: the token named no warning (absent, or not 64 lower-case hex);
+ * - TOKEN_STALE: the token names another warning: the warning changed since it was shown.
+ * The reason and the token are checked apart: one of each can come together, the reason's first.
+ */
+export const ALLERGY_ACKNOWLEDGEMENT_MISSING = 'ALLERGY_ACKNOWLEDGEMENT_MISSING'
+export const ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING = 'ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING'
+export const ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID = 'ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID'
+export const ALLERGY_WARNING_TOKEN_INVALID = 'ALLERGY_WARNING_TOKEN_INVALID'
+export const ALLERGY_WARNING_TOKEN_STALE = 'ALLERGY_WARNING_TOKEN_STALE'
+export const ALLERGY_REJECTION_CODES = [ALLERGY_ACKNOWLEDGEMENT_MISSING, ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING,
+  ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID, ALLERGY_WARNING_TOKEN_INVALID, ALLERGY_WARNING_TOKEN_STALE] as const
+export type AllergyRejectionCode = typeof ALLERGY_REJECTION_CODES[number]
+
+/**
+ * The codes of a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED's allergyAcknowledgement.rejected entries, in the EHR's order;
+ * a code this page does not know is left out. Null when there is none it knows: an EHR before 7fbb04aa, which names no
+ * rejected part (there, a refused request that carried an acknowledgement means the warning changed).
+ */
+export function refusalRejections(details: unknown): AllergyRejectionCode[] | null {
+  if (!Array.isArray(details)) return null
+  const codes = details.flatMap(entry => record(entry) && entry.field === 'allergyAcknowledgement.rejected'
+    && (ALLERGY_REJECTION_CODES as readonly unknown[]).includes(entry.code) ? [entry.code as AllergyRejectionCode] : [])
+  return codes.length > 0 ? codes : null
 }
 
 export const ALLERGY_ACKNOWLEDGEMENT_REQUIRED = 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED'

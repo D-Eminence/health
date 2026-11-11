@@ -8,7 +8,7 @@ afterEach(() => {
 })
 
 /**
- * What the blue EHR sends and reads for the allergy check at prescribing (hid-system#218 at 76283f57), through the real
+ * What the blue EHR sends and reads for the allergy check at prescribing (hid-system#218 at 7fbb04aa), through the real
  * staff client with only the network stubbed (on example.test): the acknowledgement goes on a prescription's create,
  * Activate or Resume (PATCH) and send only when one is given, never as an empty member and never on a lab request; the
  * check's token is kept; the 409 and the 400 "not a substance" are read from the problem as the EHR writes it. Every
@@ -111,6 +111,28 @@ describe('the allergy check and its refusals on the wire', () => {
     const caught = await staffApi.updateRecord(FACILITY, PATIENT, ENCOUNTER, 'prescriptions', ORDER, { ...STATUS, allergyAcknowledgement: ACK })
       .then(() => null, (error: unknown) => error)
     expect(allergy.readAllergyRefusal(caught, true)).toEqual({ messages: [MESSAGE], warningToken: 'c'.repeat(64), changedSinceShown: true })
+  })
+
+  it('keeps the code of each refused part of the 409 (7fbb04aa), after the token’s entry, and reads it by code', async () => {
+    const problem = {
+      type: 'https://problems.example.test/allergy-acknowledgement-required', title: 'CONFLICT', status: 409,
+      detail: 'The reason to go ahead after the allergy warning was not accepted. Check the allergies and give a reason to go ahead.',
+      correlationId: 'req-2', code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED',
+      errors: [
+        { field: 'allergyAcknowledgement', messages: [MESSAGE] },
+        { field: 'allergyAcknowledgement.warningToken', messages: [TOKEN] },
+        { field: 'allergyAcknowledgement.rejected', code: 'ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID',
+          messages: ['The reason must be 10 to 500 characters, with at least one word, and no control characters other than new lines.'] },
+        { field: 'allergyAcknowledgement.rejected', code: 'ALLERGY_WARNING_TOKEN_INVALID', messages: ['The allergy warning was not identified. Check the allergies again.'] },
+      ],
+    }
+    const { staffApi, allergy } = await staffClient(problem, 409)
+    const caught = await staffApi.updateRecord(FACILITY, PATIENT, ENCOUNTER, 'prescriptions', ORDER, { ...STATUS, allergyAcknowledgement: ACK })
+      .then(() => null, (error: unknown) => error)
+    expect((caught as { details: unknown }).details).toEqual(problem.errors)
+    // The refused parts are not warning lines; the token is found after them; neither part is "changed".
+    expect(allergy.readAllergyRefusal(caught, true)).toEqual({ messages: [MESSAGE], warningToken: TOKEN, changedSinceShown: false,
+      reasonRefused: 'invalid', tokenRefused: true })
   })
 
   it('reads 400 ALLERGY_NOT_A_SUBSTANCE when "NKDA" is recorded as an allergy', async () => {

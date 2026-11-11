@@ -1,16 +1,18 @@
 import { isHidApiError } from '@hid/http'
 import { useState } from 'react'
 import {
-  ACK_REASON, ACK_REASON_LIMIT, ACK_REASON_MIN, ALLERGY_ACKNOWLEDGEMENT_REQUIRED, ALLERGY_NOT_A_SUBSTANCE, refusalWarningToken,
-  warningMessages, type AllergyAcknowledgement, type AllergyCheck, type AllergyMatch, type AllergyMatchKind, type AllergySeverity,
+  ACK_REASON, ACK_REASON_LIMIT, ACK_REASON_MIN, ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID, ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING,
+  ALLERGY_ACKNOWLEDGEMENT_REQUIRED, ALLERGY_NOT_A_SUBSTANCE, ALLERGY_WARNING_TOKEN_INVALID, ALLERGY_WARNING_TOKEN_STALE,
+  refusalRejections, refusalWarningToken, warningMessages, type AllergyAcknowledgement, type AllergyCheck, type AllergyMatch, type AllergyMatchKind, type AllergySeverity,
 } from '../../../staff/allergies'
 
 /**
- * The allergy warning at prescribing (hid-system 0124, #218 at 76283f57), as the blue EHR shows it and the prescriber
+ * The allergy warning at prescribing (hid-system 0124, #218 at 7fbb04aa), as the blue EHR shows it and the prescriber
  * acknowledges it: on a new prescription, on Activate and Resume, and on sending a draft to another pharmacy.
  *
  * - A warning comes from the allergy check (with every line's severity, reaction and how it matched) or from the save's
  *   409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (the EHR's sentences and the token only). Its token names exactly that warning.
+ *   The 409 also names, by code, which part of a sent acknowledgement was refused (an EHR at 76283f57 does not).
  * - The acknowledgement ({ reason, warningToken }) is sent only after a warning was shown and ticked: an EHR before 0124
  *   refuses the property.
  * - Any edit to the medicine drops the warning, the tick and the token; the medicine is then checked afresh.
@@ -50,8 +52,15 @@ export interface AllergyRefusal {
   readonly messages: readonly string[]
   /** The current warning's token; null when the refusal carried none that is 64 lower-case hex. */
   readonly warningToken: string | null
-  /** True when the refused request carried an acknowledgement: its token was not the current warning's. */
+  /**
+   * The warning changed since it was shown: the EHR names its token stale (7fbb04aa). From an EHR that names no refused
+   * part (76283f57), true when the refused request carried an acknowledgement.
+   */
   readonly changedSinceShown: boolean
+  /** The reason alone was refused, blank ('missing') or against the rule ('invalid'); its token was not (7fbb04aa). */
+  readonly reasonRefused?: 'missing' | 'invalid'
+  /** The token sent named no warning (7fbb04aa): the tick, given for it, goes; the reason stays. */
+  readonly tokenRefused?: true
 }
 
 /** The prescriber's two answers, each with its own error. */
@@ -83,7 +92,10 @@ export const ACK_REASON_LONG = `Keep your reason to ${ACK_REASON_LIMIT} characte
 export const ACK_REASON_NO_WORD = 'Write your reason in words: at least one word of three letters or more.'
 /** A control character the text box let through (only possible when the reason was not normalised first). */
 export const ACK_REASON_HIDDEN = 'Remove tabs and other hidden characters from your reason.'
-/** The EHR refused the acknowledgement (400 on allergyAcknowledgement): it does not say which part, so the page says this. */
+/**
+ * The EHR did not accept the reason: 409 ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID (7fbb04aa), or a 400 on
+ * allergyAcknowledgement from an older EHR, which does not say which part, so the page says this.
+ */
 export const ACK_NOT_ACCEPTED = `Your reason was not accepted. Write it in words, ${ACK_REASON_MIN} to ${ACK_REASON_LIMIT} characters, and try again.`
 /**
  * On the prescribing form only, under the patient's allergies, warning or not (Ola, wording #10). Not on triage or a new
@@ -211,14 +223,27 @@ export function warningFromCheck(check: AllergyCheck, medicine: WarnedMedicine, 
 }
 
 /**
- * A refused save, Activate, Resume or send read as the allergy 409; null for any other refusal.
- * `sentAcknowledgement`: whether the refused request carried allergyAcknowledgement. The EHR answers "changed since it
- * was shown" exactly when it did (its token was not the current warning's), and "required" when it did not; the code and
- * status are the same, and the detail is never shown.
+ * A refused save, Activate, Resume or send read as the allergy 409; null for any other refusal. The detail is never
+ * read or shown.
+ *
+ * At 7fbb04aa the 409 names each refused part by its code (allergyAcknowledgement.rejected): TOKEN_STALE is "changed
+ * since it was shown"; REASON_MISSING or REASON_INVALID, the reason alone; TOKEN_INVALID, the token alone; MISSING, the
+ * first warning. A reason and a token can be refused together: each is said. An EHR at 76283f57 names none, and refused
+ * a sent acknowledgement with this 409 only when its token was not the current warning's (a reason it refused was a
+ * 400): there `sentAcknowledgement`, whether the refused request carried allergyAcknowledgement, says "changed".
  */
 export function readAllergyRefusal(caught: unknown, sentAcknowledgement: boolean): AllergyRefusal | null {
   if (!isHidApiError(caught) || caught.status !== 409 || caught.code !== ALLERGY_ACKNOWLEDGEMENT_REQUIRED) return null
-  return { messages: warningMessages(caught.details), warningToken: refusalWarningToken(caught.details), changedSinceShown: sentAcknowledgement }
+  const said = { messages: warningMessages(caught.details), warningToken: refusalWarningToken(caught.details) }
+  const rejected = refusalRejections(caught.details)
+  if (!rejected) return { ...said, changedSinceShown: sentAcknowledgement }
+  const reasonRefused = rejected.includes(ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING) ? 'missing'
+    : rejected.includes(ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID) ? 'invalid' : null
+  return {
+    ...said, changedSinceShown: rejected.includes(ALLERGY_WARNING_TOKEN_STALE),
+    ...(reasonRefused ? { reasonRefused } : {}),
+    ...(rejected.includes(ALLERGY_WARNING_TOKEN_INVALID) ? { tokenRefused: true as const } : {}),
+  }
 }
 
 const FALLBACK_LINE = 'This medicine may match one of the patient’s allergies.'
@@ -239,7 +264,11 @@ export function warningFromRefusal(refusal: AllergyRefusal, medicine: WarnedMedi
   }
 }
 
-/** 400 VALIDATION_FAILED on allergyAcknowledgement: the EHR did not accept the reason or the token (it does not say which). */
+/**
+ * 400 VALIDATION_FAILED on allergyAcknowledgement: the EHR did not accept the reason or the token (it does not say
+ * which). An EHR at 76283f57 checked both rules so; at 7fbb04aa their rules answer the 409 with a code, and a 400 is left
+ * for a body this page never sends (a reason that is not text or over 2000 characters, an extra member).
+ */
 export function acknowledgementRefused(caught: unknown): boolean {
   return isHidApiError(caught) && caught.status === 400 && caught.code === 'VALIDATION_FAILED' && Array.isArray(caught.details)
     && caught.details.some(entry => typeof entry === 'object' && entry !== null && (entry as { field?: unknown }).field === 'allergyAcknowledgement')
@@ -351,7 +380,10 @@ export function useAllergyAcknowledgement() {
       setReasonText(value)
       setErrors(({ reason: _reason, ...rest }) => rest)
     },
-    /** Marks the reason as refused by the EHR (400 on allergyAcknowledgement), and moves focus to it. */
+    /**
+     * Marks the reason as refused by the EHR (409 REASON_MISSING or REASON_INVALID; a 400 on allergyAcknowledgement from
+     * an older EHR), and moves focus to it. The warning, the tick and the reason as written stay.
+     */
     refuseReason(message: string = ACK_NOT_ACCEPTED) {
       setErrors(current => ({ ...current, reason: message }))
       focusOn('reason')
