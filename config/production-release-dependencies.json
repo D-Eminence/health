@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #214 visit-note fix, #212 reader cleanup, #209 record chat, #213 support Health ID check (0109, signed by the owner) with #224, #165 backend error reporting, #181 Outreach campaign fix (0110, signed by the owner). Each service is pinned to the commit its last deploy built. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
+  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #221 OCR publication 403 (ocr-api), #228 gateway libxslt pin (every service rebuilt at cd58285c), then #222 Outreach campaign admins (0111, signed by the owner; identity-api, ehr-api and outreach-api rebuilt at 54ef1d59). Each service is pinned to the commit its last deploy built. Production database migrations 0001 to 0111. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
   "backend_commits": {
-    "gateway": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "identity-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "ehr-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
-    "lab-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "pharmacy-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "ocr-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "outreach-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
-    "support-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "notification-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d"
+    "gateway": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
+    "identity-api": "54ef1d59b344753f552485779c7a9125f4ef1eb2",
+    "ehr-api": "54ef1d59b344753f552485779c7a9125f4ef1eb2",
+    "lab-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
+    "pharmacy-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
+    "ocr-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
+    "outreach-api": "54ef1d59b344753f552485779c7a9125f4ef1eb2",
+    "support-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
+    "notification-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df"
   }
 }
