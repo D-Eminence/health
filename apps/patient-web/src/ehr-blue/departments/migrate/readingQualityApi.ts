@@ -61,6 +61,20 @@ export function qualityReader(actor: unknown, facilityId?: string): 'platform_ad
     ? 'facility_manager' : null
 }
 
+/**
+ * Whether the actor manages `facilityId` (workforce.manage on the membership there, its current facility) while that
+ * facility awaits Health ID support's review: the one manager the reading is refused to until then. Words only.
+ */
+export function managesAwaitingReview(actor: unknown, facilityId?: string): boolean {
+  if (!actor || typeof actor !== 'object' || !facilityId) return false
+  const { facilities, facility } = actor as { facilities?: unknown; facility?: { id?: unknown } | null }
+  if (facility?.id !== facilityId || !Array.isArray(facilities)) return false
+  const membership = facilities.find((candidate: unknown) => Boolean(candidate) && typeof candidate === 'object'
+    && (candidate as { id?: unknown }).id === facilityId) as { permissions?: unknown; selfService?: { review?: unknown } | null } | undefined
+  return membership !== undefined && Array.isArray(membership.permissions)
+    && membership.permissions.includes(READING_QUALITY_MANAGER_PERMISSION) && membership.selfService?.review === 'pending'
+}
+
 /** Made on first use, so importing this module reads no configuration. */
 let registered: ReturnType<typeof createRegisteredBrowserClient> | null = null
 function client(): ReturnType<typeof createRegisteredBrowserClient> {

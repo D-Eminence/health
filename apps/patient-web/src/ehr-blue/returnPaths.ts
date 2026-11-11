@@ -21,5 +21,5 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/supply', '/provider/procurement', '/provider/institutions',
   '/provider/laboratory/new', '/provider/laboratory/work', '/provider/laboratory/results',
   '/provider/laboratory/tests', '/provider/laboratory/till', '/provider/laboratory/settings',
-  '/provider/laboratory/new-walk-in',
+  '/provider/laboratory/new-walk-in', '/provider/ocr/quality',
 ]
