@@ -8,7 +8,10 @@ import { PERSONAL_DETAILS_REFUSAL, refusalFor, refusalMessage, SUPPORT_PRIVACY_N
 type SupportSend = (text: string, sessionId: string | undefined, options: { signal: AbortSignal }) =>
   Promise<{ sessionId: string; messages: string[] }>
 
-/** Whether this build offers the support assistant (the ehr build, with the approved support contact). */
+/**
+ * Whether this build offers the support assistant: the ehr, lab, pharmacy, migrate (ocr) and outreach builds, with the
+ * approved support contact (scripts/staging_release.py, SUPPORT_CHAT_APPS).
+ */
 export function supportChatOffered(): boolean {
   const environment = getEnvironment()
   return environment.supportChatEnabled && environment.supportContact !== null

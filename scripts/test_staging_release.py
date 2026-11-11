@@ -36,6 +36,17 @@ class ReleaseContractTests(unittest.TestCase):
                 with zipfile.ZipFile(path, 'w') as z: z.writestr(name, 'bad')
                 with self.assertRaises(ValueError): archive_files(path)
 
+    def test_support_chat_on_every_product_site_and_patient_chat_on_ehr_only(self):
+        config = json.loads((pathlib.Path(__file__).parents[1] / 'config/staging.json').read_text())
+        offered = {app for app in HOSTS if chat_features(config, app)['supportChatEnabled']}
+        self.assertEqual(offered, {'web', 'public', 'ehr', 'lab', 'pharmacy', 'ocr', 'outreach'})
+        # "Ask about this patient" (and imported records) stay on the ehr build: not on migrate (ocr) or any other.
+        self.assertEqual({app for app in HOSTS if chat_features(config, app)['staffPatientChatEnabled']}, {'ehr'})
+        self.assertEqual({app for app in HOSTS if chat_features(config, app)['importedRecordsEnabled']}, {'ehr'})
+        self.assertEqual({app for app in HOSTS if chat_features(config, app)['patientChatEnabled']}, {'web'})
+        off = copy.deepcopy(config); off['chat']['supportChatEnabled'] = False
+        self.assertFalse(any(chat_features(off, app)['supportChatEnabled'] for app in HOSTS))
+
     def test_chat_flags_reject_truthy_strings_and_unapproved_contact(self):
         config = json.loads((pathlib.Path(__file__).parents[1] / 'config/staging.json').read_text())
         for key, value in [('patientChatEnabled', 'false'), ('supportChatEnabled', 1), ('supportContact', 'javascript:alert(1)')]:
