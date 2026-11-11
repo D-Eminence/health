@@ -5,16 +5,18 @@ const NOW = Date.parse('2026-11-11T12:00:00.000Z')
 const blank = { id: 'extraction-1', version: 1, provider: 'textract', rawText: null, structuredPayload: {} }
 
 describe('readingDeleted (hid-system 0110)', () => {
-  it('says its sentence', () => expect(READING_DELETED).toBe('Reading deleted after 24 hours'))
+  it('says its sentence', () => expect(READING_DELETED).toBe('Reading deleted after 7 days'))
 
-  it('takes null text and an empty payload, 24 hours old or more, for a deleted reading', () => {
-    expect(readingDeleted({ ...blank, createdAt: '2026-11-10T12:00:00.000Z' }, NOW)).toBe(true)
+  it('takes null text and an empty payload, 7 days old or more, for a deleted reading', () => {
+    expect(readingDeleted({ ...blank, createdAt: '2026-11-04T12:00:00.000Z' }, NOW)).toBe(true)
     expect(readingDeleted({ ...blank, createdAt: '2026-10-01T09:00:00.000Z' }, NOW)).toBe(true)
     expect(readingDeleted(blank, NOW)).toBe(true)
   })
 
-  it('never takes a reading of the last 24 hours for a deleted one', () => {
-    expect(readingDeleted({ ...blank, createdAt: '2026-11-10T12:00:01.000Z' }, NOW)).toBe(false)
+  it('never takes a reading of the last 7 days for a deleted one', () => {
+    expect(readingDeleted({ ...blank, createdAt: '2026-11-04T12:00:01.000Z' }, NOW)).toBe(false)
+    // Under the old 24-hour rule this reading, 2 days old, would have been taken for a deleted one.
+    expect(readingDeleted({ ...blank, createdAt: '2026-11-09T12:00:00.000Z' }, NOW)).toBe(false)
   })
 
   it.each([

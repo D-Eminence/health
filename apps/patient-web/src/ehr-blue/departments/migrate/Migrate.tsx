@@ -683,7 +683,7 @@ export function Migrate() {
 
   /** What OCR read from the document, its newest extraction, shown as it is: Check and save follows it on the page. */
   function readOut(extraction: OcrExtraction, shown: OcrJob) {
-    // A reading blanked after 24 hours (hid-system 0110) says so, never an empty review.
+    // A reading blanked after 7 days (hid-system 0110, 0112) says so, never an empty review.
     if (readingDeleted(extraction)) return <DeptSection title="What was read" headingId="ocr-read-title"><p role="note" className="hid-ehr-dept-muted">{READING_DELETED}</p></DeptSection>
     // A paper reading shows its items; a payload that says it is one but is not whole shows only the text and says the
     // items must be entered by hand, never its parts as loose fields; any other payload shows its named fields.
@@ -803,7 +803,7 @@ export function Migrate() {
             key: extraction.id,
             summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
             // An extraction with no text, or a paper reading whose items were picked out, shows its summary line alone.
-            // A reading deleted after 24 hours says so and never shows text, even if the server still sent some.
+            // A reading deleted after 7 days says so and never shows text, even if the server still sent some.
             detail: readingDeleted(extraction)
               ? <p className="hid-ehr-dept-muted">{READING_DELETED}</p>
               : hasText(extraction.rawText) && !showsItems(parsePaperReading(extraction.structuredPayload))

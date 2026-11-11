@@ -368,14 +368,14 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
-  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+  it('says a source page deleted after 7 days in its own sentence, and opens nothing (hid-system 0110)', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
     renderPage()
     await openRecord()
     await within(card()).findByText('full-blood-count.jpg')
     fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
-    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 7 days')
     expect(open).not.toHaveBeenCalled()
   })
 
@@ -384,7 +384,7 @@ describe('served, for a member who reads and attaches lab documents', () => {
     renderPage()
     await openRecord()
     const row = (await within(card()).findByText('full-blood-count.jpg')).closest('li') as HTMLElement
-    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
     expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
@@ -394,7 +394,7 @@ describe('served, for a member who reads and attaches lab documents', () => {
     renderPage()
     await openRecord()
     const row = (await within(card()).findByText('full-blood-count.jpg')).closest('li') as HTMLElement
-    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
     expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
     expect(row.textContent).not.toMatch(/source[ _]deleting/i)
     expect(api.documentDownload).not.toHaveBeenCalled()
