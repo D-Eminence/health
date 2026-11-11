@@ -22,4 +22,6 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/laboratory/new', '/provider/laboratory/work', '/provider/laboratory/results',
   '/provider/laboratory/tests', '/provider/laboratory/till', '/provider/laboratory/settings',
   '/provider/laboratory/new-walk-in',
+  // Open sign-up on outreach. (owner decision 5): "Start an outreach group" for a signed-in login.
+  '/provider/start-outreach-group',
 ]

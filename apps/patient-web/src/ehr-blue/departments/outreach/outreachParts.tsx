@@ -61,6 +61,9 @@ const CAMPAIGN_REFUSALS: Readonly<Record<string, string>> = {
   OUTREACH_STAFF_NOT_AVAILABLE: 'That person isn’t active staff at this facility now. Choose someone else.',
   OUTREACH_CAMPAIGN_MEMBER_EXISTS: 'That person is already in this campaign.',
   OUTREACH_CAMPAIGN_DATES_INVALID: END_AFTER_START,
+  // An outreach group (open sign-up on outreach.): before Health ID's one-time check, and while paused.
+  OUTREACH_ORGANISER_AWAITING_REVIEW: 'Health ID checks every new outreach group once before its first campaign can start. You can keep setting up and practising. We aim to check groups the same day.',
+  OUTREACH_ORGANISATION_SUSPENDED: 'This outreach group has been paused by Health ID. Contact Health ID support.',
 }
 /** The refusals after which the campaign is read again, since what the page shows is out of date. */
 export const CAMPAIGN_STALE: ReadonlySet<string> = new Set(['VERSION_CONFLICT', 'OUTREACH_CAMPAIGN_STATE_CONFLICT', 'OUTREACH_CAMPAIGN_CLOSED',
@@ -290,8 +293,10 @@ export function caseTone(status: string): Tone {
 }
 
 /** What happens next on a case, said on its card: the one next step, or that it is done. */
-export function nextStepText(item: OutreachCase, canLink: boolean): string {
+export function nextStepText(item: OutreachCase, canLink: boolean, group = false): string {
   if (item.status !== PENDING) return Object.hasOwn(STATUS_LABEL, item.status) ? 'Done: nothing more to do' : 'Nothing else to do here.'
+  // At an outreach group nobody here links it: the person links their own Health ID later.
+  if (group) return 'They link their own Health ID later'
   return canLink ? 'Next: link their Health ID' : 'Waiting for someone to link their Health ID'
 }
 

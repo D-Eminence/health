@@ -1,0 +1,201 @@
+import { useCallback, useState, type FormEvent } from 'react'
+import { FilterTabs } from '../kasuwa/ui'
+import { adminApi, type AdminActor, type OutreachOrganiser } from './api'
+import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useResource, useUrlFilters } from './ui'
+
+/**
+ * Support's "Outreach organisers to check" (open sign-up on outreach., owner decisions of 11 November 2026). Anyone can
+ * sign up to run outreach; before a group's first campaign can start registering people, Health ID checks it once
+ * (decision 1). The check is one click. Support can also pause a group, close a campaign whose only admin has gone, or
+ * make another member its admin. There are no limits to raise (decision 2) and nothing to bill (decision 6).
+ */
+
+type View = 'pending' | 'reviewed' | 'suspended'
+
+/** Plain words for every refusal these tools can meet. */
+const PROBLEMS: Readonly<Record<string, string>> = {
+  OUTREACH_ORGANISATION_NOT_FOUND: 'That outreach group was not found. The list has been refreshed.',
+  OUTREACH_ORGANISATION_SUSPENDED: 'That outreach group is paused, so it can’t be marked checked.',
+  OUTREACH_CAMPAIGN_NOT_FOUND: 'No campaign has that reference. Check it with the organiser.',
+  OUTREACH_CAMPAIGN_CLOSED: 'That campaign is already closed.',
+  OUTREACH_STAFF_NOT_AVAILABLE: 'That person is not an active member of this outreach group.',
+  OUTREACH_ORGANISERS_UNAVAILABLE: 'Outreach groups are not available from this Identity yet.',
+  ADMIN_OUTREACH_UNAVAILABLE: 'Outreach groups could not be loaded or changed right now. Please try again.',
+  VALIDATION_FAILED: 'Check the details: a reason needs 8 to 500 characters, and references must be complete.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
+}
+
+const KIND_WORDS: Readonly<Record<string, string>> = { individual: 'A volunteer on their own', group: 'A group, NGO or community organisation' }
+const STATE_WORDS: Readonly<Record<string, string>> = { pending: 'Unverified organiser', reviewed: 'Checked by Health ID', suspended: 'Paused' }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function OutreachOrganisersPage({ actor }: { actor: AdminActor }) {
+  const [filters, setFilters] = useUrlFilters(['view'] as const)
+  const view: View = filters.view === 'reviewed' || filters.view === 'suspended' ? filters.view : 'pending'
+  const load = useCallback((signal?: AbortSignal) => adminApi.outreachOrganisers(view, signal), [view])
+  const resource = useResource(load, 'Outreach groups could not be loaded.')
+  const [notice, setNotice] = useState<string | null>(null)
+  const canReview = has(actor, 'platform.facility.unlock')
+  const canManage = has(actor, 'platform.facility.manage')
+  const done = (text: string) => { setNotice(text); resource.reload() }
+
+  return <Page eyebrow="Organizations" title="Outreach organisers to check"
+    description="Volunteers, NGOs and community groups that signed up to run outreach. Check each new group once, the same working day."
+    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
+    <section className="admin-panel" aria-labelledby="outreach-organisers-what-title">
+      <div className="admin-panel-head"><div><h2 id="outreach-organisers-what-title">What to check</h2>
+        <p>Until a group is checked, it can set up campaigns, invite its team and practise, but no campaign can start registering
+          people. Aim to check every group the same working day, Saturday mornings included.</p></div></div>
+      <ul className="admin-notes">
+        <li>Call the organiser on the phone number they gave. Ask what events they run, where, and who helps them.</li>
+        <li>Check the group name is not pretending to be a hospital, a ministry or another official body. Change the name it is
+          shown by when you check it, if needed.</li>
+        <li>If something is wrong, don’t mark it checked: pause the group and write down why.</li>
+        <li>A group whose campaign has lost its only admin: close the campaign, or make another member its admin.</li>
+      </ul>
+    </section>
+    <FilterTabs label="Outreach groups" value={view as string} onChange={value => { setNotice(null); setFilters({ view: value === 'pending' ? '' : value }) }}
+      options={[{ value: 'pending', label: 'To check' }, { value: 'reviewed', label: 'Checked' }, { value: 'suspended', label: 'Paused' }]} />
+    <div role="status">{notice && <p className="admin-success">{notice}</p>}</div>
+    <ResourceView resource={resource}>{({ organisers }) => organisers.length === 0
+      ? <p className="admin-state">{view === 'pending' ? 'No outreach group is waiting to be checked.' : view === 'reviewed'
+        ? 'No outreach group has been checked yet.' : 'No outreach group is paused.'}</p>
+      : <Table headings={['Group', 'Organiser', 'Signed up', 'So far', 'Status', 'Actions']}>
+        {organisers.map(organiser => <OrganiserRow key={`${organiser.organizationId}-${organiser.reviewState}`} organiser={organiser}
+          canReview={canReview} canManage={canManage} onDone={done} />)}
+      </Table>}</ResourceView>
+    {canManage ? <CampaignRescue onDone={text => setNotice(text)} /> : null}
+  </Page>
+}
+
+function OrganiserRow({ organiser, canReview, canManage, onDone }: {
+  organiser: OutreachOrganiser; canReview: boolean; canManage: boolean; onDone: (text: string) => void
+}) {
+  const name = organiser.displayName?.trim() || organiser.groupName
+  return <tr data-flagged={organiser.reviewState === 'pending' || undefined}>
+    <td><strong>{name}</strong>
+      {organiser.displayName && organiser.displayName !== organiser.groupName ? <small>Signed up as {organiser.groupName}</small> : null}
+      <small>{KIND_WORDS[organiser.kind] ?? 'Kind not given'}</small>
+      <small>{organiser.registrationNumber ? `CAC or IT number ${organiser.registrationNumber} (not checked)` : 'No CAC or IT number given'}</small></td>
+    <td>{organiser.organiserName ?? 'Name not given'}<small>{organiser.organiserEmail ?? 'No email'}</small>
+      <small>{organiser.phone ?? 'Phone not available'}</small></td>
+    <td>{date(organiser.createdAt)}<small>Terms {organiser.termsVersion ?? 'not recorded'}</small></td>
+    <td>{organiser.campaigns} campaigns<small>{organiser.members} team members</small><small>{organiser.registrations} people registered</small></td>
+    <td>{STATE_WORDS[organiser.reviewState] ?? organiser.label ?? 'Status not known'}
+      {organiser.reviewedAt ? <small>Checked {date(organiser.reviewedAt)}</small> : null}
+      {organiser.suspendedAt ? <small>Paused {date(organiser.suspendedAt)}</small> : null}</td>
+    <td>
+      {organiser.reviewState === 'pending' && canReview ? <ReviewAction organiser={organiser} name={name} onDone={onDone} /> : null}
+      {organiser.reviewState !== 'suspended' && canManage ? <SuspendAction organiser={organiser} name={name} onDone={onDone} /> : null}
+      {!canReview && !canManage ? 'Checking needs platform.facility.unlock' : null}
+    </td>
+  </tr>
+}
+
+/** One click marks the group checked; the name it is shown by can be changed first. */
+function ReviewAction({ organiser, name, onDone }: { organiser: OutreachOrganiser; name: string; onDone: (text: string) => void }) {
+  const governed = useGovernedSubmit()
+  const [displayName, setDisplayName] = useState('')
+  const id = `outreach-review-${organiser.organizationId}`
+
+  async function review(rename: boolean) {
+    const shown = displayName.trim()
+    if (rename && (shown.length < 2 || shown.length > 120)) { governed.setError('Enter a name of 2 to 120 characters.'); return }
+    const reviewed = await governed.submit(() => adminApi.reviewOutreachOrganiser(organiser.organizationId, rename ? { displayName: shown } : {}),
+      'The group could not be marked checked. Try again.', PROBLEMS, `mark ${name} checked`)
+    if (reviewed) onDone(`${reviewed.displayName || name} is checked. Its campaigns can now start registering people.`)
+  }
+
+  return <div className="admin-action-form">
+    <button type="button" className="admin-primary" disabled={governed.busy} onClick={() => void review(false)}>
+      {governed.busy ? 'Saving…' : 'Mark checked'}</button>
+    <details className="admin-action">
+      <summary>Change the name shown, then mark checked</summary>
+      <form className="admin-action-form" onSubmit={(event: FormEvent) => { event.preventDefault(); void review(true) }}>
+        <label htmlFor={`${id}-name`}>Name shown to people</label>
+        <input id={`${id}-name`} maxLength={120} value={displayName} onChange={event => setDisplayName(event.target.value)} />
+        <button type="submit" className="admin-primary" disabled={governed.busy}>Save name and mark checked</button>
+      </form>
+    </details>
+    {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+  </div>
+}
+
+/** Pauses the group, with a reason kept in the audit log: its roles are taken away until support restores them. */
+function SuspendAction({ organiser, name, onDone }: { organiser: OutreachOrganiser; name: string; onDone: (text: string) => void }) {
+  const governed = useGovernedSubmit()
+  const [reason, setReason] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const id = `outreach-suspend-${organiser.organizationId}`
+  const length = reason.trim().length
+  const ready = length >= 8 && length <= 500 && confirmed
+
+  async function suspend(event: FormEvent) {
+    event.preventDefault()
+    if (!ready) return
+    const paused = await governed.submit(() => adminApi.suspendOutreachOrganiser(organiser.organizationId, reason.trim()),
+      'The group could not be paused. Try again.', PROBLEMS, `pause ${name}`)
+    if (paused) onDone(`${name} is paused. Nobody in it can register people or change campaigns.`)
+  }
+
+  return <details className="admin-action">
+    <summary>Pause group</summary>
+    <form className="admin-action-form" onSubmit={event => void suspend(event)}>
+      <label htmlFor={`${id}-reason`}>Why</label>
+      <textarea id={`${id}-reason`} rows={3} maxLength={500} value={reason} aria-describedby={`${id}-hint`} onChange={event => setReason(event.target.value)} />
+      <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log. Everyone in the group loses access to it at once.</small>
+      <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> Pause {name}</label>
+      <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>{governed.busy ? 'Saving…' : 'Pause group'}</button>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+    </form>
+  </details>
+}
+
+/**
+ * A campaign whose only admin has gone (field critique 5): close it, or make another active member of the group its
+ * admin. Both need the campaign's reference, which the organiser or a member reads from the campaign's page.
+ */
+function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
+  const governed = useGovernedSubmit()
+  const [campaignId, setCampaignId] = useState('')
+  const [membershipId, setMembershipId] = useState('')
+  const [reason, setReason] = useState('')
+  const campaign = campaignId.trim()
+  const member = membershipId.trim()
+  const reasonOk = reason.trim().length >= 8 && reason.trim().length <= 500
+
+  async function close() {
+    if (!UUID.test(campaign) || !reasonOk) { governed.setError('Enter the campaign’s full reference and a reason of 8 to 500 characters.'); return }
+    const closed = await governed.submit(() => adminApi.closeOutreachCampaign(campaign, reason.trim()),
+      'The campaign could not be closed. Try again.', PROBLEMS, 'close an outreach campaign')
+    if (closed) { onDone('The campaign is closed. Nobody can register people in it any more.'); setReason('') }
+  }
+
+  async function appoint() {
+    if (!UUID.test(campaign) || !UUID.test(member) || !reasonOk) {
+      governed.setError('Enter the campaign’s full reference, the member’s full reference and a reason of 8 to 500 characters.')
+      return
+    }
+    const appointed = await governed.submit(() => adminApi.appointOutreachCampaignAdmin(campaign, member, reason.trim()),
+      'The admin could not be added. Try again.', PROBLEMS, 'make a member a campaign admin')
+    if (appointed) { onDone('That member is now one of the campaign’s admins.'); setReason('') }
+  }
+
+  return <section className="admin-panel" aria-labelledby="outreach-rescue-title">
+    <div className="admin-panel-head"><div><h2 id="outreach-rescue-title">A campaign has lost its admin</h2>
+      <p>Close the campaign, or make another active member of the group its admin. Each change is kept in the audit log.</p></div></div>
+    <form className="admin-action-form" onSubmit={event => event.preventDefault()}>
+      <label htmlFor="outreach-rescue-campaign">Campaign reference</label>
+      <input id="outreach-rescue-campaign" autoComplete="off" spellCheck={false} value={campaignId} onChange={event => setCampaignId(event.target.value)} />
+      <label htmlFor="outreach-rescue-member">Member reference (to make them admin)</label>
+      <input id="outreach-rescue-member" autoComplete="off" spellCheck={false} value={membershipId} onChange={event => setMembershipId(event.target.value)} />
+      <label htmlFor="outreach-rescue-reason">Why</label>
+      <textarea id="outreach-rescue-reason" rows={3} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} />
+      <div className="admin-stack">
+        <button type="button" className="admin-primary" disabled={governed.busy} onClick={() => void appoint()}>Make admin</button>
+        <button type="button" className="admin-primary" disabled={governed.busy} onClick={() => void close()}>Close campaign</button>
+      </div>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+    </form>
+  </section>
+}

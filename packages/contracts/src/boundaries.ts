@@ -176,7 +176,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.clinicianAuthenticatorStart', 'enrollment.clinicianAuthenticatorActivate',
       'enrollment.clinicianAuthenticatorVerify', 'enrollment.clinicianAuthenticatorChallenge',
       'enrollment.clinicianStatusEmailCode', 'enrollment.clinicianStatusEmailVerify', 'enrollment.clinicianCurrent',
-      'enrollment.clinicianWithdraw', 'enrollment.clinicianApply', 'enrollment.clinicianSessionEnd'],
+      'enrollment.clinicianWithdraw', 'enrollment.clinicianApply', 'enrollment.clinicianSessionEnd',
+      // Open sign-up to run outreach on outreach., and a helper accepting an outreach invitation (proposed; 404 until served).
+      'enrollment.outreachOrganiserAvailability', 'enrollment.outreachOrganiserStart', 'enrollment.outreachOrganiserVerify',
+      'enrollment.outreachOrganiserActivate', 'enrollment.outreachInvitationAccept'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
@@ -194,7 +197,11 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.orderDestinations',
       // Patients who shared their record with the clinician, and invitations to share by email, with Accept (hid-system
       // 0095, Novu only; a backend before it answers 404).
-      'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept'],
+      'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
+      // "Start an outreach group" with the same login, an outreach group's team invitations, and accepting one signed in
+      // (open sign-up on outreach.; proposed, 404 until served).
+      'identity.outreachGroupAvailability', 'identity.outreachGroupStart', 'identity.outreachInvitations',
+      'identity.outreachInvitationSignedInAccept'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',

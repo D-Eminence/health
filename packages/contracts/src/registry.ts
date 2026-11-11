@@ -109,6 +109,14 @@ const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on
  * OUTREACH_CAMPAIGN_ADMIN_REQUIRED otherwise). Not served before (404): the page then offers no campaign management.
  */
 const OUTREACH_CAMPAIGN_ADMINS = 'Outreach campaign admins (hid-system#222, 0122); 404 before, and the page then offers no campaign management.'
+/**
+ * Open sign-up to run outreach on outreach. (owner decisions of 11 November 2026; hid-system identity-api
+ * OutreachOrganiserController, OutreachInvitationsController and OutreachOrganisersAdminController, with the database's
+ * "outreach organisers" migration): proposed, not served by any hid-system release yet. Callers treat a 404 as "not
+ * open" and show nothing else; every sign-up route also answers 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE while the
+ * control outreach_organiser_signup_enabled (seeded off) is off.
+ */
+const OUTREACH_SIGNUP = 'Open sign-up on outreach. (proposed: identity-api outreach organisers); not served by hid-system main (404).'
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
@@ -1009,6 +1017,45 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
+  // Open sign-up on outreach. (owner decisions of 11 November 2026): the public sign-up, a signed-in account's "Start an
+  // outreach group", the organiser's team invitations and accepting one.
+  proposed(r('enrollment.outreachOrganiserAvailability','enrollment','/api/v1/identity/outreach-organisers/availability',G,true,undefined,
+    `${OUTREACH_SIGNUP} Public, never an error: 200 { open, termsVersion }; anything but open: true means not open.`)),
+  proposed(r('enrollment.outreachOrganiserStart','enrollment','/api/v1/identity/outreach-organisers',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_ORGANISER_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
+    + 'outreach-organiser-signup (outreach. hosts only). Body { organiserName, email, phone, groupName, kind (individual|group), '
+    + 'registrationNumber?, turnstileAction, turnstileToken }. 200 { accepted, challengeId, expiresInSeconds, resendAfterSeconds } '
+    + 'and the hid_outreach_signup cookie. 409 OUTREACH_ORGANISER_EMAIL_REGISTERED (sign in and use "Start an outreach group"), '
+    + '422 OUTREACH_ORGANISER_NAME_RESERVED, 400 OUTREACH_PHONE_INVALID, 429 OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED or '
+    + 'OTP_RESEND_COOLDOWN, 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE.')),
+  proposed(r('enrollment.outreachOrganiserVerify','enrollment','/api/v1/identity/outreach-organisers/verify-email',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { challengeId, code (6 digits) }. 200 { verified: true }; 400 `
+    + 'OTP_INVALID, 410 OTP_EXPIRED, 429 OTP_ATTEMPTS_EXHAUSTED, 401 OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID.')),
+  proposed(r('enrollment.outreachOrganiserActivate','enrollment','/api/v1/identity/outreach-organisers/activate',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { termsVersion: '2026-11-01', acceptTerms: true, password (12 `
+    + 'to 256) }. Signs the organiser in as a staff sign-in does: 200 { activated, organizationId, facilityId, accountId, '
+    + 'reviewState: \'pending\', actor, expiresAt }. 409 OUTREACH_TERMS_VERSION_INVALID.')),
+  proposed(r('identity.outreachGroupAvailability','identity','/api/v1/identity/outreach-organisers/for-my-account/availability',G,false,undefined,
+    `${OUTREACH_SIGNUP} A staff session, no X-Facility-ID: 200 { open, termsVersion }.`)),
+  proposed(r('identity.outreachGroupStart','identity','/api/v1/identity/outreach-organisers/for-my-account',P,false,undefined,
+    `${OUTREACH_SIGNUP} "Start an outreach group" (owner decision 5): a staff session with CSRF, no X-Facility-ID. Body { `
+    + 'groupName, kind, registrationNumber?, phone, termsVersion, acceptTerms: true }. 201 { started, organizationId, '
+    + 'facilityId, membershipId, reviewState: \'pending\' }: the account becomes the new group\'s organiser beside its hospital '
+    + 'roles. 403 OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED, 409 OUTREACH_ORGANISER_ALREADY_RUNNING.')),
+  proposed(r('identity.outreachInvitations','identity','/api/v1/identity/outreach-invitations',GP,false,
+    { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
+    `${OUTREACH_SIGNUP} The organiser at the X-Facility-ID outreach group only (403 OUTREACH_ORGANISER_REQUIRED). GET: { `
+    + 'invitations: [{ invitationId, name, email, status, expiresAt, createdAt, acceptedAt }] }. POST: Idempotency-Key; body { '
+    + 'name, email }; 201 { invitationId, expiresAt, deliveryOutcome, replayed: false } or 200 replayed: true. 429 '
+    + 'OUTREACH_INVITATION_PENDING_LIMIT or _DAILY_LIMIT, 409 OUTREACH_INVITEE_ALREADY_MEMBER, 423 OUTREACH_ORGANISATION_SUSPENDED.')),
+  proposed(r('enrollment.outreachInvitationAccept','enrollment','/api/v1/identity/outreach-invitations/accept',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_INVITATION_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
+    + 'outreach-invitation. Body { invitationId, token } (the link) or { email, code }, with password, turnstileAction and '
+    + 'turnstileToken. Signs the helper in: 200 { accepted, facilityId, facilityName, roleCode, actor, expiresAt }. 409 '
+    + 'OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login.')),
+  proposed(r('identity.outreachInvitationSignedInAccept','identity','/api/v1/identity/outreach-invitations/signed-in/accept',P,false,undefined,
+    `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } or { code }. 200 { accepted, `
+    + 'facilityId, facilityName, roleCode }. 403 OUTREACH_INVITATION_WRONG_ACCOUNT.')),
 
   r('commercial.pricing','commercial','/api/v1/commercial/pricing',G,true),
   r('commercial.demo','commercial','/api/v1/commercial/demo-requests',P,true),
@@ -1247,6 +1294,28 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'no Idempotency-Key or step-up. Answers { applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, '
     + '409 VERSION_CONFLICT. Unless allowRetry, its email and network then can\'t start a sign-up for the CAC number and '
     + 'product for 7 days.')),
+  // Open sign-up on outreach.: support's "Outreach organisers to check" queue, the one-click check, pausing a group, and
+  // rescuing a campaign whose only admin has gone.
+  proposed(r('admin.outreachOrganisers','admin','/api/v1/admin/outreach-organisers',G,false,one('GET','platform.facility.read'),
+    `${OUTREACH_SIGNUP} Query reviewState (pending|reviewed|suspended), optional. 200 { organisers: [{ organizationId, `
+    + 'facilityId, displayName, groupName, kind, registrationNumber, organiserName, organiserEmail, phone, reviewState, label, '
+    + 'reviewedAt, suspendedAt, createdAt, termsVersion, campaigns, members, registrations }] }.')),
+  proposed(r('admin.outreachOrganiserReview','admin','/api/v1/admin/outreach-organisers/:organizationId/review',P,false,
+    one('POST','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} One click: an empty body is enough; optional { displayName, reason }. 200 { organizationId, `
+    + 'reviewState: \'reviewed\', displayName, reviewedAt }. 409 OUTREACH_ORGANISATION_SUSPENDED, 404 OUTREACH_ORGANISATION_NOT_FOUND.')),
+  proposed(r('admin.outreachOrganiserSuspend','admin','/api/v1/admin/outreach-organisers/:organizationId/suspend',P,false,
+    one('POST','platform.facility.manage'),
+    `${OUTREACH_SIGNUP} Body { reason (8 to 500) }. 200 { organizationId, reviewState: 'suspended', suspendedAt }; the group's `
+    + 'roles are revoked.')),
+  proposed(r('admin.outreachCampaignClose','admin','/api/v1/admin/outreach-campaigns/:campaignId/close',P,false,
+    one('POST','platform.facility.manage'),
+    `${OUTREACH_SIGNUP} Body { reason (8 to 500) }. 200 { campaignId, status: 'closed', version }. 404 `
+    + 'OUTREACH_CAMPAIGN_NOT_FOUND, 409 OUTREACH_CAMPAIGN_CLOSED.')),
+  proposed(r('admin.outreachCampaignAdmins','admin','/api/v1/admin/outreach-campaigns/:campaignId/admins',P,false,
+    one('POST','platform.facility.manage'),
+    `${OUTREACH_SIGNUP} Body { membershipId, reason (8 to 500) }. 200 { campaignId, membershipId, role: 'admin' }. 422 `
+    + 'OUTREACH_STAFF_NOT_AVAILABLE when the person is not an active member of the group.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),

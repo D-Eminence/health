@@ -26,7 +26,7 @@ import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from 
 const PORT = Number(process.env.MOCK_PORT ?? 3000)
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NEEDS_LOG = join(HERE, 'backend-needs.log')
-configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : 'blue' })
+configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : process.env.MOCK_FACILITY === 'outreach' ? 'outreach' : 'blue' })
 
 const seen = new Set()
 function logNeed(method, path, workspace) {

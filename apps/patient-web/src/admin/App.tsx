@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { Activity, Blocks, Building2, CircleDollarSign, ClipboardCheck, FileCheck2, LayoutDashboard, Lock, Megaphone, PhoneOff, Route as RouteIcon, ScanFace, ScrollText, ShieldCheck, ShieldX, SlidersHorizontal, Stethoscope, TriangleAlert, UserPlus, Users, Compass } from 'lucide-react'
+import { Activity, Blocks, Building2, HeartHandshake, CircleDollarSign, ClipboardCheck, FileCheck2, LayoutDashboard, Lock, Megaphone, PhoneOff, Route as RouteIcon, ScanFace, ScrollText, ShieldCheck, ShieldX, SlidersHorizontal, Stethoscope, TriangleAlert, UserPlus, Users, Compass } from 'lucide-react'
 import { AppShell, type NavItem } from '../kasuwa/AppShell'
 import { Alert, Badge, Button, EmptyState, type Icon } from '../kasuwa/ui'
 import { ToastProvider } from '../kasuwa/toast'
@@ -22,6 +22,7 @@ import { PrincipalsPage } from './Principals'
 import { SelfServiceFacilitiesPage } from './SelfServiceFacilities'
 import { OrderRoutesPage } from './OrderRoutes'
 import { WrongPatientReportsPage } from './WrongPatientReports'
+import { OutreachOrganisersPage } from './OutreachOrganisers'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
@@ -309,6 +310,7 @@ export function App() {
               <Route path="overview" element={<Area path="/admin/overview" actor={actor}><OverviewPage actor={actor} /></Area>} />
               <Route path="applications" element={<Area path="/admin/applications" actor={actor}><ApplicationsPage actor={actor} /></Area>} />
               <Route path="self-service-facilities" element={<Area path="/admin/self-service-facilities" actor={actor}><SelfServiceFacilitiesPage actor={actor} /></Area>} />
+              <Route path="outreach-organisers" element={<Area path="/admin/outreach-organisers" actor={actor}><OutreachOrganisersPage actor={actor} /></Area>} />
               <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities/:facilityId" element={<Area path="/admin/facilities" actor={actor}><FacilityDetailPage actor={actor} /></Area>} />
               <Route path="order-routes" element={<Area path="/admin/order-routes" actor={actor}><OrderRoutesPage actor={actor} /></Area>} />
@@ -337,7 +339,7 @@ export function App() {
 /** Each platform area's icon, by path. */
 const ADMIN_ICONS: Readonly<Record<string, Icon>> = {
   '/admin/overview': LayoutDashboard, '/admin/applications': FileCheck2, '/admin/self-service-facilities': UserPlus,
-  '/admin/facilities': Building2, '/admin/order-routes': RouteIcon, '/admin/wrong-patient-reports': TriangleAlert,
+  '/admin/outreach-organisers': HeartHandshake, '/admin/facilities': Building2, '/admin/order-routes': RouteIcon, '/admin/wrong-patient-reports': TriangleAlert,
   '/admin/principals': Users, '/admin/emergency-contacts': PhoneOff, '/admin/approvals': ClipboardCheck,
   '/admin/reviews': ScanFace, '/admin/clinicians': Stethoscope, '/admin/audit': ScrollText, '/admin/security': Lock,
   '/admin/operations': Activity, '/admin/integrations': Blocks, '/admin/controls': SlidersHorizontal,

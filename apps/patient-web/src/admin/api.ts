@@ -73,6 +73,31 @@ export interface AuditFilters {
   /** The audited target, for example `facility`; `resourceId` needs it. */
   resourceType?: string; resourceId?: string
 }
+/**
+ * An outreach group in support's queue (open sign-up on outreach., owner decisions of 11 November 2026): the group, its
+ * organiser with the phone they gave, where it stands, and what it has done. "Unverified organiser" until checked once.
+ */
+export interface OutreachOrganiser {
+  organizationId: string
+  facilityId: string
+  displayName: string | null
+  groupName: string
+  kind: 'individual' | 'group' | string
+  registrationNumber: string | null
+  organiserName: string | null
+  organiserEmail: string | null
+  phone: string | null
+  reviewState: 'pending' | 'reviewed' | 'suspended' | string
+  label?: string
+  reviewedAt: string | null
+  suspendedAt: string | null
+  createdAt: string | null
+  termsVersion: string | null
+  campaigns: number
+  members: number
+  registrations: number
+}
+
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
 export interface CommercialProduct extends Versioned { slug: string; name: string; status: 'active' | 'coming_soon' | 'draft' | 'retired' }
 export interface CommercialPrice extends Versioned { product_slug: string; context: string; visibility: 'fixed' | 'starting_from' | 'contact_sales' | 'custom_quote' | 'hidden'; amount_minor: number | null; currency: string; billing_period: string | null; unit: string | null; active: boolean }
@@ -628,6 +653,19 @@ async function wrongPatientRead<T>(read: Promise<T>, message: string): Promise<T
   }
 }
 
+/** An Identity without open sign-up on outreach. has no such route: its 404 is said as that, never as a missing group. */
+async function outreachRead<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
+      throw new HidApiError(404, 'Outreach groups are not available from this Identity yet.',
+        { code: 'OUTREACH_ORGANISERS_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 /**
  * An Identity without orders between facilities (hid-system main, or Novu before P4c) has no such route: its 404 names
  * no code of its own. It is said as that, never as a missing facility or order.
@@ -1026,6 +1064,33 @@ export const adminApi = {
    * If-Match; it is at least 1, or 0 for a command that `creates` its resource
    * (the facility designation, hid-system #85), whose If-Match: 0 is sent too.
    */
+  /**
+   * Support's "Outreach organisers to check" (open sign-up on outreach.): the groups in one state, pending (waiting for
+   * their one-time check) by default. An Identity without the route answers 404, said as OUTREACH_ORGANISERS_UNAVAILABLE.
+   */
+  outreachOrganisers(reviewState: 'pending' | 'reviewed' | 'suspended', signal?: AbortSignal) {
+    return outreachRead(request<{ organisers: OutreachOrganiser[] }>('/api/v1/admin/outreach-organisers', { signal, query: { reviewState } }))
+  },
+  /** One click: marks the group checked, so its campaigns can start; optionally the name it is shown by. */
+  reviewOutreachOrganiser(organizationId: string, body: { displayName?: string } = {}) {
+    return outreachRead(adminApi.command<{ organizationId: string; reviewState: string; displayName: string; reviewedAt: string }>(
+      at('/api/v1/admin/outreach-organisers', organizationId, 'review'), body))
+  },
+  /** Pauses the group: nobody in it can register people or change campaigns. */
+  suspendOutreachOrganiser(organizationId: string, reason: string) {
+    return outreachRead(adminApi.command<{ organizationId: string; reviewState: string; suspendedAt: string }>(
+      at('/api/v1/admin/outreach-organisers', organizationId, 'suspend'), { reason }))
+  },
+  /** Closes a campaign whose only admin has gone, for good. */
+  closeOutreachCampaign(campaignId: string, reason: string) {
+    return outreachRead(adminApi.command<{ campaignId: string; status: string; version: number }>(
+      at('/api/v1/admin/outreach-campaigns', campaignId, 'close'), { reason }))
+  },
+  /** Makes an active member of the group a campaign's admin, when its only admin has gone. */
+  appointOutreachCampaignAdmin(campaignId: string, membershipId: string, reason: string) {
+    return outreachRead(adminApi.command<{ campaignId: string; membershipId: string; role: string }>(
+      at('/api/v1/admin/outreach-campaigns', campaignId, 'admins'), { membershipId, reason }))
+  },
   command<T>(path: string, body: unknown, options: { version?: number; idempotencyKey?: string; creates?: boolean } = {}) {
     if (!path.startsWith('/api/v1/admin/')) throw new Error('Admin command route required.')
     if (options.version !== undefined

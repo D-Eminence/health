@@ -1,0 +1,266 @@
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
+import { renderDept } from '../harness'
+import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
+
+/*
+ * An outreach group's own Outreach (open sign-up on outreach., owner decisions of 11 November 2026): "Waiting for a
+ * Health ID check" until the one-time check, "Create your first campaign", "Your team", the person's agreement before
+ * they are registered, notes kept short, a campaign required, the duplicate hint, no Health ID linking, and the offline
+ * queue. Fictional data only.
+ */
+
+const GROUP_ID = '0e7c0000-0000-4000-8000-000000000001'
+const session = vi.hoisted(() => ({ roles: ['outreach_organiser'] as string[] }))
+vi.mock('../../../../staff/App', async () => {
+  const { fakeFacility, staffContext } = await import('../harness')
+  return {
+    useStaff: () => staffContext(fakeFacility(['outreach.campaign.read', 'outreach.campaign.write', 'outreach.registration.read',
+      'outreach.registration.write'], { id: '0e7c0000-0000-4000-8000-000000000001', name: 'Ajegunle Health Volunteers', roles: session.roles })),
+  }
+})
+
+const api = vi.hoisted(() => ({
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
+  outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(),
+}))
+vi.mock('../../../../staff/api', () => ({ staffApi: api }))
+
+const MEMBERSHIP = 'membership-demo-1'
+const CAMPAIGN = { id: 'campaign-1', name: 'Ajegunle health week', status: 'active', services: ['registration'], startsAt: '2026-11-01T00:00:00.000Z', rowVersion: 2 }
+const pending = (id: string, fullName: string) => ({ id, campaignId: 'campaign-1', status: 'identity_resolution_pending', fullName, ageYears: 30, sex: 'female',
+  temporaryPatientId: `tmp_${id}`, createdAt: '2026-11-11T09:00:00.000Z', rowVersion: 1 })
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  session.roles = ['outreach_organiser']
+  setOutreachQueueStore(memoryQueueStore())
+  api.outreachCampaigns.mockResolvedValue([CAMPAIGN])
+  api.outreachCases.mockResolvedValue([])
+  api.outreachCampaignGovernance.mockResolvedValue({ rule: 'campaign_admins', organiserStatus: 'unverified' })
+  api.outreachCampaignMembers.mockResolvedValue([{ id: 'm-1', campaignId: 'campaign-1', membershipId: MEMBERSHIP, role: 'admin', createdAt: '2026-11-01T00:00:00.000Z' }])
+  api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [] })
+  api.outreachInvitations.mockResolvedValue({ invitations: [
+    { invitationId: 'b1000000-0000-4000-8000-000000000001', name: 'Bisi Adeyemi', email: 'bisi@example.test', status: 'accepted', expiresAt: null, createdAt: null, acceptedAt: null },
+  ] })
+})
+afterEach(() => { setOutreachQueueStore(null) })
+
+async function press(button: HTMLElement) {
+  await act(async () => { fireEvent.click(button) })
+}
+const textbox = (name: RegExp | string) => screen.getByRole('textbox', { name }) as HTMLInputElement
+
+async function openNewRegistration() {
+  renderDept(<Outreach />)
+  await press(await screen.findByRole('button', { name: 'New registration' }))
+  await screen.findByRole('heading', { level: 1, name: 'New registration' })
+  // The campaign is listed once the membership read says this member is in it.
+  await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
+}
+
+function fillPerson(age = '30') {
+  fireEvent.change(textbox(/Full name/), { target: { value: 'Kemi Balogun' } })
+  fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: age } })
+}
+
+describe('an outreach group’s Outreach', () => {
+  it('says the group waits for Health ID’s check, and asks Health ID nothing it does not need', async () => {
+    renderDept(<Outreach />)
+    expect(await screen.findByText('Waiting for a Health ID check')).toBeTruthy()
+    expect(document.body.textContent).toContain('no campaign can be opened')
+    expect(api.outreachCampaignGovernance).toHaveBeenCalledWith(GROUP_ID)
+  })
+
+  it('says nothing about a check once the group is checked, and says a paused group is paused', async () => {
+    api.outreachCampaignGovernance.mockResolvedValue({ rule: 'campaign_admins', organiserStatus: 'reviewed' })
+    const view = renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Campaigns' })
+    expect(screen.queryByText('Waiting for a Health ID check')).toBeNull()
+    view.unmount()
+    api.outreachCampaignGovernance.mockResolvedValue({ rule: 'campaign_admins', organiserStatus: 'suspended' })
+    renderDept(<Outreach />)
+    expect(await screen.findByText('This outreach group is paused')).toBeTruthy()
+  })
+
+  it('offers “Create your first campaign” when the group has none', async () => {
+    api.outreachCampaigns.mockResolvedValue([])
+    renderDept(<Outreach />)
+    expect((await screen.findAllByText('Create your first campaign')).length).toBeGreaterThan(0)
+    expect(document.body.textContent).toContain('A campaign is one outreach event or drive')
+    await press(screen.getByRole('button', { name: 'Create your first campaign' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'New campaign' })).toBeTruthy()
+  })
+
+  it('shows no limits and no prices anywhere', async () => {
+    renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Campaigns' })
+    expect(document.body.textContent).not.toMatch(/\d+ of \d+|limit|₦|price|subscription/i)
+  })
+})
+
+describe('Your team', () => {
+  it('lists the organiser’s invitations and invites a helper, the same key for the same helper sent again', async () => {
+    api.createOutreachInvitation.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockResolvedValueOnce({ invitationId: 'b1000000-0000-4000-8000-000000000009', expiresAt: null, deliveryOutcome: 'accepted', replayed: false })
+    renderDept(<Outreach />)
+    const team = await screen.findByRole('region', { name: 'Your team' })
+    expect(await within(team).findByText('Bisi Adeyemi')).toBeTruthy()
+    expect(within(team).getByText('Joined')).toBeTruthy()
+    fireEvent.change(within(team).getByRole('textbox', { name: /Their name/ }), { target: { value: 'Chinedu Eze' } })
+    fireEvent.change(within(team).getByRole('textbox', { name: /Their email/ }), { target: { value: 'chinedu@example.test' } })
+    await press(within(team).getByRole('button', { name: 'Send invitation' }))
+    expect(await within(team).findByRole('alert')).toBeTruthy()
+    await press(within(team).getByRole('button', { name: 'Send invitation' }))
+    expect(await within(team).findByText('Invitation sent to Chinedu Eze. They join when they open the link in the email.')).toBeTruthy()
+    const [first, second] = api.createOutreachInvitation.mock.calls
+    expect(first![1]).toEqual({ name: 'Chinedu Eze', email: 'chinedu@example.test' })
+    expect(second![2]).toBe(first![2])
+  })
+
+  it('checks the helper’s name and email before sending anything', async () => {
+    renderDept(<Outreach />)
+    const team = await screen.findByRole('region', { name: 'Your team' })
+    await press(within(team).getByRole('button', { name: 'Send invitation' }))
+    expect(within(team).getByText(/Enter their name/)).toBeTruthy()
+    expect(within(team).getByText(/Enter their email address/)).toBeTruthy()
+    expect(api.createOutreachInvitation).not.toHaveBeenCalled()
+  })
+
+  it('is the organiser’s only: a helper sees no team and asks for none', async () => {
+    session.roles = ['outreach_volunteer']
+    renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Campaigns' })
+    expect(screen.queryByRole('region', { name: 'Your team' })).toBeNull()
+    expect(api.outreachInvitations).not.toHaveBeenCalled()
+  })
+})
+
+describe('registering someone at an outreach group', () => {
+  it('asks for their agreement first, with the notice in plain English, and sends it with the registration', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-1', 'Kemi Balogun'), possibleDuplicate: false })
+    await openNewRegistration()
+    const notice = screen.getByRole('note', { name: 'Registration notice' })
+    expect(notice.textContent).toContain('Ajegunle Health Volunteers is registering people at this event on Health ID Outreach.')
+    expect(notice.textContent).toContain('deleted 1 year after the campaign closes')
+    expect(notice.textContent).toContain('You can say no.')
+    fillPerson()
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(screen.getByText('Choose how the person agreed.')).toBeTruthy()
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole('combobox', { name: /Language the notice was given in/ }), { target: { value: 'yo' } })
+    expect(screen.getByText('You read the notice aloud in this language.')).toBeTruthy()
+    await press(screen.getByRole('radio', { name: /I read it to them and they said yes/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    const [facility, input, command] = api.createOutreachCase.mock.calls[0]!
+    expect(facility).toBe(GROUP_ID)
+    expect(input).toMatchObject({ campaignId: 'campaign-1', fullName: 'Kemi Balogun', ageYears: 30,
+      consent: { textVersion: 'outreach-notice-2026-11-01', language: 'yo', method: 'verbal_read_aloud' } })
+    expect(input.consent.guardianName).toBeUndefined()
+    expect(command.localCommandId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('needs a parent or guardian’s name for anyone under 18', async () => {
+    api.createOutreachCase.mockResolvedValue(pending('case-2', 'Ada Child'))
+    await openNewRegistration()
+    fillPerson('9')
+    await press(screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(screen.getByText('This person is under 18. Enter the name of the parent or guardian who agreed.')).toBeTruthy()
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+    fireEvent.change(textbox(/Parent or guardian’s name/), { target: { value: 'Ngozi Obi' } })
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-01', language: 'en',
+      method: 'guardian', guardianName: 'Ngozi Obi' })
+  })
+
+  it('keeps notes to 280 characters, with no diagnoses', async () => {
+    await openNewRegistration()
+    expect(document.body.textContent).toContain('No diagnoses, test results or other health details.')
+    const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
+    expect(notes.maxLength).toBe(280)
+    fireEvent.change(notes, { target: { value: 'x'.repeat(300) } })
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(screen.getByText('Keep notes to 280 characters, and do not write diagnoses.')).toBeTruthy()
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+
+  it('says when the person may already be registered in this campaign, and never offers a Health ID link', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-3', 'Kemi Balogun'), possibleDuplicate: true })
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(await screen.findByText('This may be someone already registered')).toBeTruthy()
+    expect(screen.getByText('Their Health ID comes later')).toBeTruthy()
+    expect(document.body.textContent).toContain('The person links their own Health ID to this registration later')
+    expect(screen.queryByRole('button', { name: 'Link existing patient' })).toBeNull()
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
+  })
+
+  it('says Outreach’s refusal in plain words', async () => {
+    api.createOutreachCase.mockRejectedValue(new HidApiError(422, 'x', { code: 'OUTREACH_GUARDIAN_REQUIRED' }))
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(await screen.findByText('This person is under 18. Enter the name of the parent or guardian who agreed.')).toBeTruthy()
+  })
+})
+
+describe('the offline queue', () => {
+  it('keeps a registration that could not be sent, with its command, and sends the same command when asked', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    expect(within(queue).getByText('Kemi Balogun')).toBeTruthy()
+    expect(within(queue).getByText('Waiting to send')).toBeTruthy()
+    expect(document.body.textContent).toContain('No connection: Kemi Balogun’s registration is saved on this device.')
+    const sent = api.createOutreachCase.mock.calls[0]!
+
+    api.createOutreachCase.mockResolvedValueOnce(pending('case-4', 'Kemi Balogun'))
+    await press(within(queue).getByRole('button', { name: 'Send now' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull())
+    const resent = api.createOutreachCase.mock.calls[1]!
+    expect(resent[2]).toEqual(sent[2])
+    expect(resent[1]).toEqual(sent[1])
+  })
+
+  it('shows a registration Health ID refused once sent, with what it said, until it is removed', async () => {
+    const store = memoryQueueStore()
+    await store.put({ localCommandId: 'c0000000-0000-4000-8000-000000000001', temporaryPatientId: 'tmp_c0000000-0000-4000-8000-000000000001',
+      accountId: 'staff-demo-1', facilityId: GROUP_ID, savedAt: new Date().toISOString(), state: 'waiting',
+      input: { campaignId: 'campaign-1', fullName: 'Ibrahim Musa', sex: 'male', ageYears: 61 } })
+    setOutreachQueueStore(store)
+    api.createOutreachCase.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_AWAITING_REVIEW' }))
+    renderDept(<Outreach />)
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    expect(await within(queue).findByText('Not accepted')).toBeTruthy()
+    expect(within(queue).getByText(/Health ID checks every new outreach group once/)).toBeTruthy()
+    await press(within(queue).getByRole('button', { name: 'Remove from this device' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull())
+    expect(await store.list()).toEqual([])
+  })
+
+  it('never shows another account’s or another facility’s saved registrations', async () => {
+    const store = memoryQueueStore()
+    await store.put({ localCommandId: 'c0000000-0000-4000-8000-000000000002', temporaryPatientId: 'tmp_x', accountId: 'someone-else',
+      facilityId: GROUP_ID, savedAt: new Date().toISOString(), state: 'waiting', input: { fullName: 'Not Mine', sex: 'male', ageYears: 40 } })
+    setOutreachQueueStore(store)
+    renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Campaigns' })
+    expect(screen.queryByText('Not Mine')).toBeNull()
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+})

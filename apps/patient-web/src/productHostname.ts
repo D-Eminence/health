@@ -259,6 +259,39 @@ export function providerEnrollmentHref(hostname: string): string {
   return staffPageHref(hostname, PROVIDER_ENROLLMENT_PATH)
 }
 
+/**
+ * Open sign-up to run outreach (owner decisions of 11 November 2026): on outreach. the main way in, "Start running
+ * outreach", is the organiser sign-up, at the address facility sign-up has on the other sites; this address serves the
+ * same page on any site that is not a product site (staging's portal, a local or preview build).
+ */
+export const OUTREACH_SIGNUP_PATH = '/provider/start-outreach'
+/** The organiser terms an outreach organiser accepts, public and readable before signing up. */
+export const OUTREACH_TERMS_PATH = '/provider/outreach-terms'
+/** Where an outreach invitation's link opens (notification-api: `https://outreach.<deployment>/provider/outreach-invitation#…`). */
+export const OUTREACH_INVITATION_PATH = '/provider/outreach-invitation'
+
+/** Whether this site's facility sign-up address serves the outreach organiser sign-up: outreach.'s, in each deployment. */
+export function outreachSignUpHere(hostname: string): boolean {
+  return resolveStaffProductHostname(hostname)?.key === 'outreach'
+}
+
+/**
+ * Where the outreach organiser sign-up is, from this site: outreach.'s own on outreach. and from another product site
+ * (Turnstile accepts the sign-up there only); this build's own page anywhere else. One of a few fixed values.
+ */
+export function outreachSignUpHref(hostname: string): string {
+  if (outreachSignUpHere(hostname)) return PROVIDER_ENROLLMENT_PATH
+  const deployment = deploymentOf(hostname)
+  return deployment && resolveStaffProductHostname(hostname)
+    ? `https://${PRODUCT_SITE_HOSTNAMES[deployment].outreach}${PROVIDER_ENROLLMENT_PATH}` : OUTREACH_SIGNUP_PATH
+}
+
+/** "Registering a hospital? Use Health ID EHR": the EHR site's facility sign-up in this deployment, else this build's own. */
+export function hospitalSignUpHref(hostname: string): string {
+  const deployment = deploymentOf(hostname)
+  return deployment ? `https://${PRODUCT_SITE_HOSTNAMES[deployment].ehr}${PROVIDER_ENROLLMENT_PATH}` : PROVIDER_ENROLLMENT_PATH
+}
+
 /** The kinds of facility and the products facility sign-up knows (staff/routes/ProviderEnrollment.tsx). */
 export type FacilityTypeCode = 'hospital' | 'clinic' | 'laboratory' | 'pharmacy' | 'other'
 export type FacilityProductCode = 'ehr' | 'laboratory' | 'pharmacy' | 'migrate'
@@ -276,9 +309,10 @@ const HOSPITAL_TYPES: readonly FacilityTypeCode[] = ['hospital', 'clinic', 'othe
  * Each product site signs up its own kind of facility only (owner, 2026-11-02: sign-up, sign-in and password reset on
  * each product site, individually). lab. a laboratory for Health ID Laboratory; pharmacy. a pharmacy for Health ID
  * Pharmacy; ehr. a hospital, clinic or other provider for Health ID EHR; migrate. the same facilities for Health ID
- * Migrate (a hospital moving its records: the public site's Migrate page). Outreach has no product of its own to sign
- * up for (the public site offers a demo, not sign-up); outreach teams work for a hospital or another provider, so
- * outreach. signs up the facilities Health ID EHR is for. A laboratory or a pharmacy signs up on its own site.
+ * Migrate (a hospital moving its records: the public site's Migrate page). On outreach. the sign-up address serves the
+ * outreach organiser sign-up instead (outreachSignUpHere, owner decisions of 11 November 2026), which links to Health ID
+ * EHR's for a hospital; its entry here is kept for the facility sign-up page's own checks. A laboratory or a pharmacy
+ * signs up on its own site.
  */
 const FACILITY_SIGN_UP_SCOPES: Readonly<Record<StaffProductKey, FacilitySignUpScope>> = {
   ehr: { organizationTypes: HOSPITAL_TYPES, products: ['ehr'] },

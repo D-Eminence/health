@@ -17,7 +17,9 @@ import { combobox, next, open, step, TabChannel, textbox } from './signupHarness
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
   withdraw: vi.fn() }))
-vi.mock('../../../staff/api', () => ({ providerEnrollmentApi: api, staffApi: {} }))
+// Open sign-up on outreach.: outreach.'s sign-up address is the organiser sign-up (owner decisions of 11 November 2026).
+const outreachApi = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), activate: vi.fn(), acceptInvitation: vi.fn() }))
+vi.mock('../../../staff/api', () => ({ providerEnrollmentApi: api, outreachOrganiserApi: outreachApi, staffApi: {} }))
 const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 vi.mock('../../../staff/env', async () => {
@@ -104,6 +106,46 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
   })
 })
 
+/**
+ * outreach. signs up outreach organisers, not facilities (owner decisions of 11 November 2026): its sign-up address is
+ * "Start running outreach", with a link to Health ID EHR's for a hospital. It fails safe: closed unless Identity says open.
+ */
+describe('on outreach., the sign-up address is the outreach organiser sign-up', () => {
+  it.each(['outreach.healthidentitydirectory.com', 'outreach.staging.healthidentitydirectory.com'])('on %s, opens Start running outreach', async hostname => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    clinic.switchedOn = true
+    outreachApi.availability.mockResolvedValue({ open: true, termsVersion: '2026-11-01' })
+    await openPortal()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Start running outreach' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Your details' })).toBeTruthy()
+    const ehr = hostname.includes('staging') ? 'https://ehr.staging.healthidentitydirectory.com' : 'https://ehr.healthidentitydirectory.com'
+    expect(screen.getByRole('link', { name: 'Use Health ID EHR' }).getAttribute('href')).toBe(`${ehr}/provider/enroll`)
+    // Facility sign-up asks nothing here.
+    expect(api.availability).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Register your facility' })).toBeNull()
+  })
+
+  it.each([[{ open: false }], [null]])('says sign-up is not open, and offers nothing to send, when Identity answers %o', async answer => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    vi.stubGlobal('location', { ...window.location, hostname: 'outreach.healthidentitydirectory.com', replace: vi.fn() })
+    outreachApi.availability.mockResolvedValue(answer)
+    await openPortal()
+    expect(await screen.findByText('Signing up to run outreach isn’t open at the moment. Please try again later.')).toBeTruthy()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send me a code' })).toBeNull()
+  })
+
+  it('stays closed when Identity cannot be asked (an Identity without open sign-up answers 404)', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    vi.stubGlobal('location', { ...window.location, hostname: 'outreach.healthidentitydirectory.com', replace: vi.fn() })
+    outreachApi.availability.mockRejectedValue(Object.assign(new Error('Not found'), { status: 404 }))
+    await openPortal()
+    expect(await screen.findByText('Signing up to run outreach isn’t open at the moment. Please try again later.')).toBeTruthy()
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+})
+
 /** Each product site has its own facility sign-up, which hid-system accepts there (productHostname.ts providerEnrollmentHref). */
 describe('the blue registration on a product site, and where it is not', () => {
   const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
@@ -143,7 +185,6 @@ describe('the blue registration on a product site, and where it is not', () => {
     ['lab.staging.healthidentitydirectory.com', '/provider/enroll', { type: 'laboratory', product: 'laboratory' }],
     ['migrate.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'migrate' }],
     ['ehr.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'ehr' }],
-    ['outreach.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'ehr' }],
     // What the address names is kept where this site signs it up, and never makes a site sign up another kind of facility.
     ['ehr.healthidentitydirectory.com', '/provider/enroll?type=clinic&product=ehr', { type: 'clinic', product: 'ehr' }],
     ['migrate.healthidentitydirectory.com', '/provider/enroll?type=other', { type: 'other', product: 'migrate' }],
@@ -180,10 +221,6 @@ describe('the blue registration on a product site, and where it is not', () => {
       'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.',
       [['Health ID Laboratory', 'https://lab.staging.healthidentitydirectory.com/provider/enroll'],
         ['Health ID Pharmacy', 'https://pharmacy.staging.healthidentitydirectory.com/provider/enroll']]],
-    ['outreach.healthidentitydirectory.com', ['hospital', 'clinic', 'other'], ['ehr'],
-      'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.',
-      [['Health ID Laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll'],
-        ['Health ID Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll']]],
     ['staging.healthidentitydirectory.com', ['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'],
       ['ehr', 'laboratory', 'pharmacy', 'migrate'], '', []],
   ])('on %s, offers the facility types %o and the products %o only', async (hostname, types, products, hint, links) => {
