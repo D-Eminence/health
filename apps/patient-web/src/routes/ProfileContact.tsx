@@ -13,6 +13,7 @@ import { ItemName } from '../ItemName'
 import { Badge, Button, Field as KField, Select } from '../kasuwa/ui'
 import { Actions, Hint, InputR, Problem, Saved } from './profileParts'
 import { SAY } from '../copy'
+import { needsRecentSignIn, SignInAgain } from './SignInAgain'
 
 /** Which part of a step a refusal is about: focus goes there and its description names the error. */
 type Field = 'value' | 'password' | 'code' | null
@@ -79,7 +80,8 @@ const codeLive = ({ change, sentAt }: PendingEmail, now: number) => now - sentAt
  * The account's email and phone, in Bio-data under its other rows with no heading of its own (hid-1.0 parity B3, the
  * lead's decisions; the owner's of 2026-10-28), shown masked, each with Change. A link to /profile#contact-details
  * opens Bio-data with focus on this block (PROFILE_SECTION_PARTS in Portal.tsx). A new email needs the current password and the 6-digit code sent to it; a new phone needs
- * the current password only (production sends no SMS) and is then shown as not verified. Either way the verified
+ * the current password only (production sends no SMS, so no phone is shown as "Not verified": the owner's decision of
+ * 3 Nov 2026, until texts check phone numbers; one Identity says was checked still shows Verified). Either way the verified
  * email is told, and sign-in and recovery use the new contact from then on. An email not verified yet (one kept from
  * hid-1.0) has Verify too: the same steps with that address, whose code verifies it. Shown only where Identity sends them.
  * A change that goes through ends with focus on the button that started it.
@@ -94,7 +96,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<{ message: string; field: Field; alert: boolean } | null>(null)
+  const [error, setError] = useState<{ message: string; field: Field; alert: boolean; signIn?: boolean } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   /** Said by Send a new code while Identity would not send one yet; focus stays on the button. */
   const [resendNote, setResendNote] = useState<string | null>(null)
@@ -126,7 +128,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
   const refused = (cause: unknown, kind: Step['kind'], fromField: boolean, after = '') => {
     const problem = refusal(cause, kind)
     // Sent with Enter in a field, focus stays where it is: the refusal is then said as an alert.
-    setError({ ...problem, message: problem.message + after, alert: problem.field === null || fromField })
+    setError({ ...problem, message: problem.message + after, alert: problem.field === null || fromField, signIn: needsRecentSignIn(cause) })
     if (problem.field === 'password') setPassword('')
     if (problem.field === 'code') setCode('')
   }
@@ -228,7 +230,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     try {
       const answer = await api.changePhone(number, password)
       setStep({ kind: 'idle' }); setPassword(''); setPhone('')
-      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified.`
+      setNotice(`Your phone number is now ${maskPhone(answer.phone)}.`
         + (phoneNoticeByEmail ? ' We emailed you about the change.' : ''))
       await onChanged()
       announce()
@@ -239,7 +241,10 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
   // A problem about a field is said under it; any other above the step's buttons.
   const fieldProblem = (field: Exclude<Field, null>) => error?.field === field
     ? <span role={error.alert ? 'alert' : undefined}>{error.message}</span> : undefined
-  const otherProblem = error && error.field === null && <Problem id="contact-error" alert={error.alert}>{error.message}</Problem>
+  const otherProblem = error && error.field === null && <>
+    <Problem id="contact-error" alert={error.alert}>{error.message}</Problem>
+    {error.signIn && <SignInAgain at="contact-details" />}
+  </>
   const passwordField = <KField label="Current password" htmlFor="contact-password" hintId="contact-password-hint" hint="The password you sign in with."
     errorId={errorFor('password')} error={fieldProblem('password')}>
     <PasswordInput id="contact-password" ref={fieldRef('password')} autoComplete="current-password" value={password}
@@ -266,7 +271,8 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
         <Button id="contact-change-email" size="sm" disabled={busy}
           onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></Button></>)}
       {row('Phone', <><span className="min-w-0 [overflow-wrap:anywhere]">{profile.phone ? maskPhone(profile.phone) : 'None'}</span>
-        {profile.phone && <Badge size="sm" tone={profile.phoneVerified ? 'success' : 'warn'}>{profile.phoneVerified ? 'Verified' : 'Not verified'}</Badge>}</>,
+        {/* No warning for a phone not checked by text: Health ID sends no texts to check one (the owner's decision, 3 Nov 2026). */}
+        {profile.phone && profile.phoneVerified && <Badge size="sm" tone="success">Verified</Badge>}</>,
         <Button id="contact-change-phone" size="sm" disabled={busy}
           onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></Button>)}
     </dl>
@@ -314,7 +320,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
             {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
           </Select>
         </KField>
-        <KField label="Phone number" htmlFor="contact-phone" hintId="contact-phone-hint" hint={`Like 0801 234 5678. Health ID can’t text it yet, so it will show as not verified${phoneNoticeByEmail ? '; we’ll email your verified address to say it changed' : ''}.`}
+        <KField label="Phone number" htmlFor="contact-phone" hintId="contact-phone-hint" hint={`Like 0801 234 5678.${phoneNoticeByEmail ? ' We’ll email your verified address to say it changed.' : ''}`}
           errorId={errorFor('value')} error={fieldProblem('value')}>
           <InputR id="contact-phone" ref={fieldRef('value')} type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={phone}
             onChange={event => { setPhone(event.target.value.replace(/[^\d+\s().-]/g, '')); if (error?.field === 'value') setError(null) }}

@@ -65,11 +65,15 @@ describe('the notification bell', () => {
     expect(within(screen.getByRole('navigation', { name: 'Main navigation' })).queryByRole('link', { name: /Notifications/ })).toBeNull()
   })
 
-  it('shows no bell while nothing is unread, and 99+ past 99', async () => {
+  it('keeps the bell while nothing is unread, without a count, so the notifications are always one press away', async () => {
     let unread = 0
     const { sent } = portal(() => json({ unread }))
     await waitFor(() => expect(reads(sent)).toBe(1))
     expect(bell()).toBeNull()
+    const quiet = await screen.findByRole('link', { name: 'Notifications' })
+    expect(quiet.getAttribute('href')).toBe('/notifications')
+    expect(quiet.textContent).toBe('')
+    expect(screen.getByRole('banner').contains(quiet)).toBe(true)
     unread = 120
     await minute()
     const link = await screen.findByRole('link', { name: 'Notifications, 120 unread' })

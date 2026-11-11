@@ -337,7 +337,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
 
   it('says registration is not open, as before, when availability is closed even with signup: true', async () => {
     renderPortal(<Enrollment />, gateway(happy, { open: false, signup: true }), anonymous)
-    expect(await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'New sign-ups are paused' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your details' })).toBeNull()
   })
 })

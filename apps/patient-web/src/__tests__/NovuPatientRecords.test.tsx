@@ -46,9 +46,10 @@ describe('Novu patient records contract', () => {
     show(empty)
     // The redesign leaves an empty section out of All and says so once; the absent main-v1 sections are never called empty.
     expect(await screen.findByText('No records yet')).toBeTruthy()
-    expect(screen.getByText('No older records.')).toBeTruthy()
-    // The page still has its older-records part, so the opening line names it.
-    expect(screen.getByText('Your visits, doctor’s notes and older records, newest first.')).toBeTruthy()
+    // A patient with no older records is not told of them (RN-07): one empty state, and the opening line leaves them out.
+    expect(screen.queryByText('No older records.')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Older health records' })).toBeNull()
+    expect(screen.getByText('Your visits and doctor’s notes, newest first.')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Records', level: 1 })).toBeTruthy()
     expect(screen.queryByText('No medicines prescribed.')).toBeNull()
     expect(screen.queryByRole('tab', { name: /Medicines/ })).toBeNull()

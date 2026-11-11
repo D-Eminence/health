@@ -509,7 +509,7 @@ describe("hid-1.0's old patient addresses", () => {
 
   it.each(Object.entries(LEGACY_PATIENT_PATHS))('%s opens %s', async (from, to) => {
     open(from)
-    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe(to))
+    await waitFor(() => expect(`${screen.getByTestId('portal-path').textContent}${screen.getByTestId('portal-search').textContent}`).toBe(to))
   })
 
   it('takes them in any case and with a trailing slash, and keeps nothing of the old address', async () => {

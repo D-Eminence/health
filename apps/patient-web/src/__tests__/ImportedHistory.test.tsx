@@ -1,6 +1,6 @@
 import { historyFixture } from './importedHistoryFixture'
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ImportedHistory } from '../ImportedHistory'
 import { parseImportedRecords } from '../importedRecords'
 
@@ -84,5 +84,24 @@ describe('imported medical history', () => {
     expect(() => parseImportedRecords([{ ...historyFixture[0], currentVersionId: 'missing' }])).toThrow()
     expect(() => parseImportedRecords([{ ...historyFixture[0], files: [{ id: 'f', accessStatus: 'unknown' }] }])).toThrow()
     expect(parseImportedRecords(historyFixture)).toEqual(historyFixture)
+  })
+  it('RN-05: keeps the Download button focusable while it opens, and says a failure next to that file with focus back on it', async () => {
+    let fail!: (reason: unknown) => void
+    const download = vi.fn((_id: string, _signal: AbortSignal) => new Promise<{ url: string; expiresInSeconds: number }>((_resolve, reject) => { fail = reject }))
+    render(<ImportedHistory records={historyFixture} limit={50} download={download} />)
+    const button = screen.getByRole('button', { name: 'Download cleared.pdf' }) as HTMLButtonElement
+    button.focus()
+    fireEvent.click(button)
+    // Busy, but still where the keyboard is, and pressing it again sends nothing more.
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    fireEvent.click(button)
+    expect(download).toHaveBeenCalledTimes(1)
+    await act(async () => { fail(new Error('offline')) })
+    const alert = await screen.findByRole('alert')
+    expect(alert.closest('li')).toBe(button.closest('li'))
+    expect(alert.textContent).toMatch(/Try again/)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Download cleared.pdf' }))
   })
 })

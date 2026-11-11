@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #214 visit-note fix, #212 reader cleanup, #209 record chat, #213 support Health ID check (0109, signed by the owner) with #224, #165 backend error reporting, #181 Outreach campaign fix (0110, signed by the owner). Each service is pinned to the commit its last deploy built. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
+  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005: run 43059126466 (hid-system #231 per-patient pharmacy imports with #230 lab imports and #238 CI fix) rebuilt and deployed all services at a1125ad3. Website release approved by the owner in chat on 2026-11-11 (\"Q46 release #226 and #225\").",
   "backend_commits": {
-    "gateway": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "identity-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "ehr-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
-    "lab-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "pharmacy-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "ocr-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "outreach-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
-    "support-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "notification-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d"
+    "gateway": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "identity-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "ehr-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "lab-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "pharmacy-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "ocr-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "outreach-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "support-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c",
+    "notification-api": "a1125ad327ab84179c13261cdee4eac4b99aff0c"
   }
 }

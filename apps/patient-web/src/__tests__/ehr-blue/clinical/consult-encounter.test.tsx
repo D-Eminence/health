@@ -1359,7 +1359,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
   it('shows a signed note’s versions with one revision: the version it was signed as', async () => {
     records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-10-30T08:40:00.000Z' }]
     await openEncounter()
-    expect(versionSummaries()).toEqual([`${formatWhen('2026-10-30T08:40:00.000Z')} · Version 1 · Draft · Sign note`])
+    expect(versionSummaries()).toEqual([`${formatWhen('2026-10-30T08:40:00.000Z')} · Version 1 · Signed`])
     expect(within(card('Earlier versions')).getByText('History\nCough for three days.', { normalizer: value => value })).toBeTruthy()
   })
 
@@ -1374,7 +1374,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     // Each revision is named by the status it was saved under: a draft before signing, an amendment after.
     expect(versionSummaries()).toEqual([
       `${formatWhen('2026-10-30T08:10:00.000Z')} · Version 1 · Draft · Initial draft`,
-      `${formatWhen('2026-10-30T08:40:00.000Z')} · Version 1 · Draft · Sign note`,
+      `${formatWhen('2026-10-30T08:40:00.000Z')} · Version 1 · Signed`,
       `${formatWhen('2026-10-30T09:00:00.000Z')} · Version 2 · Amended · Duration corrected`,
     ])
     const signed = Array.from(card('Earlier versions').querySelectorAll('details'))[1]!
@@ -1392,7 +1392,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     expect(versionSummaries()).toEqual([
       `${formatWhen('2026-10-30T09:31:00.000Z')} · Version 1 · Draft · Initial note`,
       `${formatWhen('2026-10-30T09:35:00.000Z')} · Version 2 · Draft · Added plan`,
-      `${formatWhen('2026-10-30T09:40:00.000Z')} · Version 2 · Draft · Sign note`,
+      `${formatWhen('2026-10-30T09:40:00.000Z')} · Version 2 · Signed`,
     ])
   })
 
@@ -1637,5 +1637,21 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     expect(documents().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
     expect(document.body.textContent).not.toContain('Uploads are paused')
     expect(sentence()).toBeNull()
+  })
+})
+
+describe('Visit rehearsal (11 Nov): the note’s signing row in Earlier versions', () => {
+  it('says the note was signed, and never gives the action’s label "Sign note" as its reason', async () => {
+    // As in the rehearsal: a draft, an edit adding the assessment and plan, then signed.
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-11-11T02:15:18.929Z' }]
+    api.noteRevisions.mockResolvedValue([
+      { ...REVISION, createdAt: '2026-11-11T02:05:00.000Z', changeReason: 'Initial draft' },
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'Assessment: malaria (fictional).', changeReason: 'Added assessment and plan', createdAt: '2026-11-11T02:10:00.000Z' },
+    ])
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    await screen.findByRole('heading', { level: 2, name: 'Earlier versions' })
+    const summaries = versionSummaries()
+    expect(summaries.at(-1)).toBe(`${formatWhen('2026-11-11T02:15:18.929Z')} · Version 2 · Signed`)
+    expect(summaries.join('\n')).not.toMatch(/Sign note|Draft · Sign/)
   })
 })
