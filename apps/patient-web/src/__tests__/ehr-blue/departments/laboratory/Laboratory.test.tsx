@@ -1807,7 +1807,7 @@ describe('Visit rehearsal (11 Nov): the doctor’s clinical information reaches 
     // Shown in the step as the request's, with no box to type it in.
     expect(within(card).queryByRole('textbox', { name: 'Why the test' })).toBeNull()
     expect(within(card).getByText(WHY)).toBeTruthy()
-    expect(within(card).getByText('From the request, as the doctor wrote it.')).toBeTruthy()
+    expect(within(card).getByText('From the request, as it was written.')).toBeTruthy()
     fireEvent.change(screen.getByRole('textbox', { name: 'Sample' }), { target: { value: 'Venous blood (EDTA)' } })
     press(within(card).getByRole('button', { name: 'Register sample' }))
     await waitFor(() => expect(api.createLabAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'work-item-1', 'Venous blood (EDTA)', WHY))

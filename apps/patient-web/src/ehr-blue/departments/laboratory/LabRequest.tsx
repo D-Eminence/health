@@ -210,7 +210,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />
       <DescriptionList items={[
         ['Test', test],
-        // Why the doctor asked for it, as written on the request (once Lab sends it).
+        // Why the test was asked for, as written on the request (once Lab sends it).
         clinicalIndicationOf(item) ? ['Clinical information', <span className="whitespace-pre-line break-words">{clinicalIndicationOf(item)}</span>] : null,
         // Stat, as soon as possible and urgent requests are all marked Urgent, as the work list sorts them first.
         ['Priority', isUrgent(item.priority) ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],

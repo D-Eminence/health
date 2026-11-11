@@ -155,7 +155,7 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
     {fromRequest ? <div className="flex flex-col gap-1.5">
       <p className="m-0 text-[13px] font-medium text-ink-2">Why the test</p>
       <p className="m-0 whitespace-pre-line break-words text-[15px] text-ink">{fromRequest}</p>
-      <p className="m-0 text-xs text-ink-3">From the request, as the doctor wrote it.</p>
+      <p className="m-0 text-xs text-ink-3">From the request, as it was written.</p>
     </div> : <Field label="Why the test" htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
       <Textarea id="lab-collect-reason" rows={2} maxLength={ACCESSION_REASON_MAX} value={reason}
         aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}

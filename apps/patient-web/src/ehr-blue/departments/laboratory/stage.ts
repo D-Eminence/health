@@ -35,8 +35,9 @@ export interface WalkInBasics {
  */
 interface LabRequestFields {
   /**
-   * Why the test was asked for: the clinical information the doctor wrote on the EHR request, which Lab keeps on the work
-   * item (lab.work_items.clinical_indication). Proposed for the work list (hid-system#162); today's Lab does not send it.
+   * Why the test was asked for: the clinical information written on the EHR request (by a doctor, a clinician or the lab:
+   * each may write a lab request), which Lab keeps on the work item (lab.work_items.clinical_indication). Proposed for the
+   * work list (hid-system#162); today's Lab does not send it.
    */
   readonly clinicalIndication?: string | null
   readonly walkIn?: WalkInBasics | null
