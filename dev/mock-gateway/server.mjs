@@ -57,7 +57,8 @@ createServer((req, res) => {
     let pagePath = ''
     try { pagePath = new URL(req.headers.referer ?? '').pathname } catch { /* no referer */ }
     const workspace = workspaceFor(path, pagePath, process.env.MOCK_ROLE)
-    const hit = respond(method, path, workspace)
+    // Bodies are ignored; headers are read (If-Match on support's outreach commands).
+    const hit = respond(method, path, workspace, { headers: { get: name => req.headers[String(name).toLowerCase()] ?? null } })
     if (hit) {
       console.log(`  ${workspace.padEnd(8)} ${method} ${path} → ${hit.status}`)
       return send(res, hit.status, hit.body, hit.headers)

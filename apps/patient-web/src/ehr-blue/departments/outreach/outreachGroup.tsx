@@ -2,8 +2,8 @@ import { useCallback, useRef, useState, type FormEvent } from 'react'
 import { EhrButton, EhrInput } from '@hid/ui/ehr'
 import { CloudOff, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
-import { staffApi, type Facility, type OutreachInvitation, type OutreachOrganiserStatus } from '../../../staff/api'
-import { outreachProblemText } from '../../../outreachProblems'
+import { staffApi, type Facility, type OutreachInvitation, type OutreachOrganiserStatus, type OutreachTeamMember } from '../../../staff/api'
+import { isOutreachProblem, outreachProblemText } from '../../../outreachProblems'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
@@ -65,6 +65,11 @@ const INVITATION_STATUS: Readonly<Record<string, { label: string; tone: 'success
   superseded: { label: 'Replaced by a newer invitation', tone: 'neutral' },
 }
 
+/** The team as Identity answers it: who has joined, then the invitations still waiting. */
+interface Team { readonly members: readonly OutreachTeamMember[]; readonly invitations: readonly OutreachInvitation[] }
+
+const ROLE_WORDS: Readonly<Record<string, string>> = { outreach_organiser: 'Organiser', outreach_volunteer: 'Helper' }
+
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const NAME = /^[\p{L}\p{M}0-9][\p{L}\p{M}0-9 .,'&()/-]*$/u
 
@@ -74,15 +79,16 @@ const NAME = /^[\p{L}\p{M}0-9][\p{L}\p{M}0-9 .,'&()/-]*$/u
  * check, so a team can set up and practise.
  */
 export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
-  const load = useCallback((id: string) => staffApi.outreachInvitations(id).then(answer => answer?.invitations ?? []), [])
-  const invitations = useFacilityRead<OutreachInvitation[]>(facilityId, true, load, 'Your team could not be loaded. Try again.')
+  const load = useCallback((id: string) => staffApi.outreachInvitations(id)
+    .then((answer): Team => ({ members: answer?.members ?? [], invitations: answer?.invitations ?? [] })), [])
+  const team = useFacilityRead<Team>(facilityId, true, load, 'Your team could not be loaded. Try again.')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [errors, setErrors] = useState<{ name?: string; email?: string }>({})
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  // The same helper sent again (a lost answer, a retry) keeps its key, so Identity makes one invitation.
+  // The same helper sent again keeps its key. Identity itself refuses a second invitation to someone who has one waiting.
   const attempt = useRef<{ signature: string; key: string } | null>(null)
 
   async function invite(event: FormEvent) {
@@ -107,8 +113,10 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
       setNotice(sent.deliveryOutcome === 'definitive_failure'
         ? `The invitation to ${trimmed} was made, but the email could not be delivered. Check the address.`
         : `Invitation sent to ${trimmed}. They join when they open the link in the email.`)
-      void invitations.refresh()
+      void team.refresh()
     } catch (caught) {
+      // Already waiting (say, the first answer was lost): the list read again shows it.
+      if (isOutreachProblem(caught, 'OUTREACH_INVITATION_ALREADY_SENT')) { attempt.current = null; void team.refresh() }
       setError(outreachProblemText(caught, 'The invitation could not be sent. Please try again.'))
     } finally {
       setBusy(false)
@@ -134,12 +142,28 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
           </form>
           <ErrorBox message={error} />
           <div role="status">{notice ? <p className="m-0 text-body text-ink-2">{notice}</p> : null}</div>
-          {invitations.error ? <ErrorBox message={invitations.error} /> : null}
-          {invitations.value && invitations.value.length === 0
+          {team.error ? <ErrorBox message={team.error} /> : null}
+          {team.value && team.value.members.length === 0 && team.value.invitations.length === 0
             ? <p className="m-0 text-caption text-ink-3">No one invited yet.</p> : null}
-          {invitations.value && invitations.value.length > 0 ? (
+          {team.value && team.value.members.length > 0 ? (
+            <ul aria-label="Team members" className="m-0 list-none divide-y divide-line p-0">
+              {team.value.members.map(member => (
+                <li key={member.membershipId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-semibold break-words">{member.name || member.email || 'Team member'}</span>
+                    <span className="text-[13px] text-ink-3 break-all">{ROLE_WORDS[member.roleCode] ?? 'Team member'}{member.email && member.name ? ` · ${member.email}` : ''}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-[13px] text-ink-3">
+                    {member.joinedAt ? <span>Joined {dateText(member.joinedAt)}</span> : null}
+                    {member.status === 'active' ? <Badge size="sm" tone="success">Joined</Badge> : <Badge size="sm" tone="neutral">Not active</Badge>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {team.value && team.value.invitations.length > 0 ? (
             <ul aria-label="Team invitations" className="m-0 list-none divide-y divide-line p-0">
-              {invitations.value.map(invitation => {
+              {team.value.invitations.map(invitation => {
                 const status = INVITATION_STATUS[invitation.status] ?? { label: 'Status not known', tone: 'neutral' as const }
                 return (
                   <li key={invitation.invitationId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
@@ -180,7 +204,7 @@ export function OutreachQueuePanel({ entries, durable, syncing, onSync, onDiscar
       <Card>
         <CardHeader as="h2" icon={CloudOff} iconTone="warn" title="Saved on this device" titleId="outreach-queue-heading"
           description={durable
-            ? 'These registrations haven’t reached Health ID yet. They are sent when you are back online, even after a reload. Send them within 14 days: after that they are deleted from this device.'
+            ? 'These registrations haven’t reached Health ID yet. They are sent when you are back online, even after a reload. Send them within 14 days: after that they are deleted from this device. Signing out deletes them too, so send them before you sign out.'
             : 'These registrations haven’t reached Health ID yet. This browser can’t keep them after a reload: stay on this page until they are sent.'} />
         <div className="flex flex-col gap-3 p-5">
           <ul aria-label="Registrations saved on this device" className="m-0 list-none divide-y divide-line p-0">

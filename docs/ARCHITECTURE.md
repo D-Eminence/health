@@ -916,9 +916,13 @@ for exactly one file, `apps/patient-web/src/ehr-blue/departments/outreach/offlin
 that could not be sent (no network, a timeout, or Health ID briefly unavailable)
 is kept in IndexedDB with its command, keyed by its `localCommandId` (also its
 Idempotency-Key, so sending it again registers the person once), for the account
-and facility that saved it, and sent again when the network is back. It is
-deleted as soon as Health ID takes it, when the person removes a refused one,
-and after 14 days in any case. Hospitals' outreach teams keep today's behaviour:
+and facility that saved it, and sent again when the network is back (or, after a
+session ended, once the person signs in again). It is deleted as soon as Health
+ID takes it, when the person removes a refused one, when the account that saved
+it signs out on that browser, and after 14 days in any case: the staff app
+sweeps entries older than 14 days as it starts and on every session change,
+whatever page is open, and only opens the database where one already exists.
+Hospitals' outreach teams keep today's behaviour:
 nothing is kept. This is a reviewed exception for field work with patchy
 networks; it needs the owner's sign-off before release. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),

@@ -281,16 +281,20 @@ const OUTREACH_TERMS = '2026-11-01'
 const outreachGroupState = { reviewState: 'pending' }
 const outreachSignups = new Map()
 const outreachInvitationStore = [
-  { invitationId: 'b1000000-0000-4000-8000-000000000001', name: 'Bisi Adeyemi', email: 'bisi@example.test', status: 'accepted', expiresAt: iso(5 * DAY), createdAt: iso(-2 * DAY), acceptedAt: iso(-1 * DAY) },
   { invitationId: 'b1000000-0000-4000-8000-000000000002', name: 'Chinedu Eze', email: 'chinedu@example.test', status: 'pending', expiresAt: iso(6 * DAY), createdAt: iso(-3 * 60 * MIN), acceptedAt: null },
 ]
+// Who has joined (identity.list_outreach_team's members); invitations are listed while pending only.
+const outreachTeamMembers = [
+  { membershipId: 'member-demo-1', name: 'Funke Ade', email: 'funke@example.test', roleCode: 'outreach_organiser', status: 'active', joinedAt: iso(-5 * 60 * MIN) },
+  { membershipId: 'b2000000-0000-4000-8000-000000000001', name: 'Bisi Adeyemi', email: 'bisi@example.test', roleCode: 'outreach_volunteer', status: 'active', joinedAt: iso(-1 * DAY) },
+]
 const outreachOrganiserStore = [
-  { organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, displayName: null, groupName: 'Ajegunle Health Volunteers', kind: 'group',
+  { organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, version: 1, displayName: null, groupName: 'Ajegunle Health Volunteers', kind: 'group',
     registrationNumber: 'IT123456', organiserName: 'Funke Ade', organiserEmail: 'funke@example.test', phone: '+2348012345678', termsVersion: OUTREACH_TERMS,
-    createdAt: iso(-5 * 60 * MIN), reviewedAt: null, suspendedAt: null, campaigns: 1, members: 2, registrations: 0 },
-  { organizationId: 'org-outreach-demo-2', facilityId: '0e7c0000-0000-4000-8000-000000000002', displayName: 'Makoko Youth Health Club', groupName: 'Makoko Youth Health Club', kind: 'group',
+    createdAt: iso(-5 * 60 * MIN), reviewedAt: null, suspendedAt: null, campaigns: 1, activeCampaigns: 0, members: 2, pendingInvitations: 1 },
+  { organizationId: 'org-outreach-demo-2', facilityId: '0e7c0000-0000-4000-8000-000000000002', version: 2, displayName: 'Makoko Youth Health Club', groupName: 'Makoko Youth Health Club', kind: 'group',
     registrationNumber: null, organiserName: 'Tobi Bello', organiserEmail: 'tobi@example.test', phone: '+2348098765432', termsVersion: OUTREACH_TERMS,
-    createdAt: iso(-9 * DAY), reviewedAt: iso(-8 * DAY), suspendedAt: null, campaigns: 3, members: 6, registrations: 142 },
+    createdAt: iso(-9 * DAY), reviewedAt: iso(-8 * DAY), suspendedAt: null, campaigns: 3, activeCampaigns: 1, members: 6, pendingInvitations: 0 },
 ]
 const outreachOrganiserRows = () => outreachOrganiserStore.map(row => {
   const reviewState = row.organizationId === 'org-outreach-demo' ? outreachGroupState.reviewState : row.suspendedAt ? 'suspended' : row.reviewedAt ? 'reviewed' : 'pending'
@@ -305,7 +309,7 @@ function outreachSignupRoute(method, path, { body } = {}) {
   if (method === 'POST' && path === signup) {
     if (!body?.email || !body?.groupName) return outreachProblem(400, 'VALIDATION_FAILED', 'Complete every field.')
     if (/@demo-hospital\.example$/i.test(body.email)) return outreachProblem(409, 'OUTREACH_ORGANISER_EMAIL_REGISTERED', 'This email already has a Health ID login.')
-    if (/hospital|ministry/i.test(body.groupName)) return outreachProblem(422, 'OUTREACH_ORGANISER_NAME_RESERVED', 'Choose another group name.')
+    if (/hospital|ministry/i.test(body.groupName)) return outreachProblem(422, 'OUTREACH_ORGANISER_NAME_NOT_ALLOWED', 'Choose another group name.')
     const challengeId = 'c0de0000-0000-4000-8000-000000000001'
     outreachSignups.set(challengeId, { ...body, verified: false })
     return [200, { accepted: true, challengeId, expiresInSeconds: 600, resendAfterSeconds: 60 }]
@@ -326,11 +330,16 @@ function outreachSignupRoute(method, path, { body } = {}) {
     return [201, { started: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, membershipId: 'member-outreach-1', reviewState: 'pending' }]
   }
   const invitations = '/identity/outreach-invitations'
-  if (method === 'GET' && path === invitations) return [200, { invitations: outreachInvitationStore }]
+  if (method === 'GET' && path === invitations) {
+    return [200, { members: outreachTeamMembers, invitations: outreachInvitationStore.filter(entry => entry.status === 'pending') }]
+  }
   if (method === 'POST' && path === invitations) {
     if (!body?.email || !body?.name) return outreachProblem(400, 'VALIDATION_FAILED', 'Enter their name and email.')
-    if (outreachInvitationStore.some(entry => entry.email === String(body.email).toLowerCase() && entry.status === 'accepted')) {
-      return outreachProblem(409, 'OUTREACH_INVITEE_ALREADY_MEMBER', 'This person is already in your team.')
+    const email = String(body.email).toLowerCase()
+    if (outreachTeamMembers.some(entry => entry.email === email)) return outreachProblem(409, 'OUTREACH_INVITEE_ALREADY_MEMBER', 'This person is already in your team.')
+    // Identity does not replay an invitation: the same person again while one waits is refused, and no second email goes.
+    if (outreachInvitationStore.some(entry => entry.email === email && entry.status === 'pending')) {
+      return outreachProblem(409, 'OUTREACH_INVITATION_ALREADY_SENT', 'This person already has an invitation waiting.')
     }
     const created = { invitationId: `b1000000-0000-4000-8000-${String(outreachInvitationStore.length + 1).padStart(12, '0')}`, name: body.name,
       email: String(body.email).toLowerCase(), status: 'pending', expiresAt: iso(7 * DAY), createdAt: iso(), acceptedAt: null }
@@ -338,30 +347,45 @@ function outreachSignupRoute(method, path, { body } = {}) {
     return [201, { invitationId: created.invitationId, expiresAt: created.expiresAt, deliveryOutcome: 'accepted', replayed: false }]
   }
   if (method === 'POST' && (path === `${invitations}/accept` || path === `${invitations}/signed-in/accept`)) {
+    // By link only: the email carries no code.
+    if (!body?.invitationId || !body?.token || 'code' in body || 'email' in body) return outreachProblem(400, 'VALIDATION_FAILED', 'Open the link from the email again.')
     return [200, { accepted: true, facilityId: OUTREACH_GROUP_ID, facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' }]
   }
   return null
 }
 
-function adminOutreachRoute(method, path) {
+/** The version a support command names, from If-Match (W/"3", "3" or 3) or body.version, as identity-api reads it. */
+function adminOutreachVersion(headers, body) {
+  const header = String(headers?.get?.('if-match') ?? '').trim().replace(/^W\//, '').replace(/^"|"$/g, '')
+  const version = header ? Number(header) : body?.version ?? Number.NaN
+  return Number.isSafeInteger(version) && version >= 1 ? version : null
+}
+
+function adminOutreachRoute(method, path, { body, headers } = {}) {
   if (method === 'GET' && path === '/admin/outreach-organisers') return [200, { organisers: outreachOrganiserRows() }]
   const organiser = method === 'POST' && /^\/admin\/outreach-organisers\/([^/]+)\/(review|suspend)$/.exec(path)
   if (organiser) {
     const row = outreachOrganiserStore.find(entry => entry.organizationId === decodeURIComponent(organiser[1]))
-    if (!row) return outreachProblem(404, 'OUTREACH_ORGANISATION_NOT_FOUND', 'That outreach group was not found.')
+    if (!row) return outreachProblem(404, 'OUTREACH_ORGANISER_NOT_FOUND', 'That outreach group was not found.')
+    const version = adminOutreachVersion(headers, body)
+    if (version === null) return outreachProblem(428, 'OUTREACH_ADMIN_VERSION_REQUIRED', 'Reload the list, then try again.')
+    if (version !== row.version) return outreachProblem(409, 'OUTREACH_ORGANISER_VERSION_CONFLICT', 'Someone else changed this outreach group just now. Reload the list and try again.')
+    row.version += 1
     if (organiser[2] === 'review') {
       row.reviewedAt = iso()
+      if (body?.displayName) row.displayName = body.displayName
       if (row.organizationId === 'org-outreach-demo') outreachGroupState.reviewState = 'reviewed'
-      return [200, { organizationId: row.organizationId, reviewState: 'reviewed', displayName: row.displayName ?? row.groupName, reviewedAt: row.reviewedAt }]
+      return [200, { organizationId: row.organizationId, version: row.version, reviewState: 'reviewed', label: 'Checked by Health ID' }]
     }
     row.suspendedAt = iso()
     if (row.organizationId === 'org-outreach-demo') outreachGroupState.reviewState = 'suspended'
-    return [200, { organizationId: row.organizationId, reviewState: 'suspended', suspendedAt: row.suspendedAt }]
+    return [200, { organizationId: row.organizationId, version: row.version, reviewState: 'suspended', label: 'Paused', revokedRoles: row.members }]
   }
   const campaign = method === 'POST' && /^\/admin\/outreach-campaigns\/([^/]+)\/(close|admins)$/.exec(path)
   if (campaign) {
-    return campaign[2] === 'close' ? [200, { campaignId: campaign[1], status: 'closed', version: 2 }]
-      : [200, { campaignId: campaign[1], membershipId: 'member-demo-1', role: 'admin' }]
+    if (campaign[2] === 'admins') return [200, { campaignId: campaign[1], membershipId: body?.membershipId ?? 'member-demo-1', role: 'admin', alreadyAdmin: false }]
+    if (adminOutreachVersion(headers, body) === null) return outreachProblem(428, 'OUTREACH_ADMIN_VERSION_REQUIRED', 'Reload the list, then try again.')
+    return [200, { campaignId: campaign[1], status: 'closed', alreadyClosed: false }]
   }
   return null
 }
@@ -459,8 +483,6 @@ const adminFacilities = [
 ]
 
 function adminRoute(method, path) {
-  const outreach = adminOutreachRoute(method, path)
-  if (outreach) return outreach
   if (method === 'POST' && path === '/auth/admin/refresh') return [200, adminGrant()]
   if (method === 'POST' && path === '/auth/admin/logout') return [204, null]
   if (method === 'POST' && path === '/admin/principals/search') return [200, { items: [], page: 1, pageSize: 25, total: 0 }]
@@ -1237,7 +1259,8 @@ export function respond(method, path, workspace, request = {}) {
   }
   const handler = workspace === 'admin' ? adminRoute : workspace === 'provider' ? staffRoute : patientRoute
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
-  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request)
+  const hit = (workspace === 'admin' ? adminOutreachRoute(method, path, request) : null)
+    ?? (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request)
     ?? outreachCampaignRoute(method, path, request) ?? outreachSignupRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null)
     ?? handler(method, path)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null

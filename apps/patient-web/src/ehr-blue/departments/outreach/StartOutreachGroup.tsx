@@ -7,7 +7,7 @@ import { staffApi, type OutreachGroupDetails } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
 import { OUTREACH_TERMS_PATH } from '../../../productHostname'
 import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION } from '../../../outreachTerms'
-import { outreachProblemText, SIGNUP_CLOSED, signupClosed } from '../../../outreachProblems'
+import { isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../../outreachProblems'
 import { groupDetailsProblems } from '../../../outreachGroupDetails'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
 
@@ -24,7 +24,8 @@ export function StartOutreachGroup() {
   const { state, selectFacility, refresh } = useStaff()
   const navigate = useNavigate()
   const [open, setOpen] = useState<boolean | null>(null)
-  const [termsVersion, setTermsVersion] = useState(ORGANISER_TERMS_VERSION)
+  // Identity accepts newer terms than the ones this page shows: nothing is sent until the page is reloaded.
+  const [termsChanged, setTermsChanged] = useState(false)
   const [details, setDetails] = useState<OutreachGroupDetails>({ groupName: '', kind: 'group', registrationNumber: '', phone: '' })
   const [accepted, setAccepted] = useState(false)
   const [problems, setProblems] = useState<Partial<Record<Field, string>>>({})
@@ -37,7 +38,8 @@ export function StartOutreachGroup() {
     let active = true
     staffApi.outreachGroupAvailability().then(answer => {
       if (!active) return
-      if (answer?.open === true && typeof answer.termsVersion === 'string' && answer.termsVersion) setTermsVersion(answer.termsVersion)
+      if (answer?.open === true && typeof answer.termsVersion === 'string' && answer.termsVersion
+        && answer.termsVersion !== ORGANISER_TERMS_VERSION) setTermsChanged(true)
       setOpen(answer?.open === true)
     }, () => { if (active) setOpen(false) })
     return () => { active = false }
@@ -57,7 +59,7 @@ export function StartOutreachGroup() {
     try {
       const registration = details.registrationNumber?.replace(/\s+/g, '').toUpperCase()
       const answer = await staffApi.startOutreachGroup({ groupName: details.groupName.trim(), kind: details.kind, phone: details.phone.trim(),
-        ...(registration ? { registrationNumber: registration } : {}), termsVersion, acceptTerms: true })
+        ...(registration ? { registrationNumber: registration } : {}), termsVersion: ORGANISER_TERMS_VERSION, acceptTerms: true })
       // Open the new group: its membership is new, so the session is read again first.
       let switched = false
       try {
@@ -68,6 +70,7 @@ export function StartOutreachGroup() {
       else setStarted(details.groupName.trim())
     } catch (caught) {
       if (signupClosed(caught)) setOpen(false)
+      else if (isOutreachProblem(caught, 'OUTREACH_TERMS_VERSION_INVALID')) { setAccepted(false); setTermsChanged(true) }
       else setError(outreachProblemText(caught, FAILED))
     } finally {
       setBusy(false)
@@ -80,6 +83,12 @@ export function StartOutreachGroup() {
   if (!open) {
     return <FormPage title="Start an outreach group" description={description}>
       <Alert intent="info" title="Not open yet">{SIGNUP_CLOSED}</Alert>
+    </FormPage>
+  }
+  if (termsChanged) {
+    return <FormPage title="Start an outreach group" description={description}>
+      <Alert intent="info" title="The terms have changed">{TERMS_CHANGED}</Alert>
+      <FormActions sticky={false} align="start"><Button variant="primary" onClick={() => window.location.reload()}>Reload the page</Button></FormActions>
     </FormPage>
   }
   if (started) {

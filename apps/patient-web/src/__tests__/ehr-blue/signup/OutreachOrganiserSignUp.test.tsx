@@ -110,13 +110,36 @@ describe('Start running outreach', () => {
     expect(alert.querySelector('a')?.getAttribute('href')).toBe('/provider/sign-in')
   })
 
-  it('says a reserved group name in plain words', async () => {
-    api.start.mockRejectedValue(new HidApiError(422, 'x', { code: 'OUTREACH_ORGANISER_NAME_RESERVED' }))
+  it('says a reserved group name in plain words (Identity’s 422 OUTREACH_ORGANISER_NAME_NOT_ALLOWED)', async () => {
+    api.start.mockRejectedValue(new HidApiError(422, 'x', { code: 'OUTREACH_ORGANISER_NAME_NOT_ALLOWED' }))
     open()
     await screen.findByRole('heading', { level: 2, name: 'Your details' })
     details()
     await press('Send me a code')
     expect((await screen.findByRole('alert')).textContent).toMatch(/sounds like a hospital, a ministry/)
+  })
+
+  it('sends the person back to the start when the sign-up has expired (410)', async () => {
+    api.verify.mockRejectedValue(new HidApiError(410, 'x', { code: 'OUTREACH_ORGANISER_SIGNUP_EXPIRED' }))
+    open()
+    await screen.findByRole('heading', { level: 2, name: 'Your details' })
+    details()
+    await press('Send me a code')
+    type(/Code from the email/, '123456')
+    await press('Confirm email')
+    expect(await screen.findByRole('heading', { level: 2, name: 'Your details' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe('This sign-up has expired. Start again from the beginning.')
+  })
+
+  it('shows no form and sends nothing when Identity accepts newer terms than this page shows', async () => {
+    api.availability.mockResolvedValue({ open: true, termsVersion: '2026-12-01' })
+    open()
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe('The organiser terms have changed. Reload the page to read the new terms.')
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reload the page' })).toBeTruthy()
+    expect(api.start).not.toHaveBeenCalled()
+    expect(api.activate).not.toHaveBeenCalled()
   })
 
   it('closes, with nothing to send, when the switch goes off mid-way (423)', async () => {
@@ -163,23 +186,47 @@ describe('an outreach invitation', () => {
     expect(readOutreachInvitationLink('#nonsense')).toBeNull()
   })
 
-  it('lets a new helper join with a password, using the email and code without the link', async () => {
-    api.acceptInvitation.mockResolvedValue({ accepted: true, facilityId: 'f-1', facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' })
+  const INVITATION = 'b1000000-0000-4000-8000-000000000001'
+  const TOKEN = 'A'.repeat(43)
+  afterEach(() => { window.history.replaceState(null, '', '/') })
+  /** The page as the invitation email's link opens it: the invitation in the fragment. */
+  function openLink() {
+    window.history.replaceState(null, '', `/provider/outreach-invitation#${INVITATION}.${TOKEN}`)
+    return open('/provider/outreach-invitation')
+  }
+
+  it('without the whole link, says to open the link again and offers nothing to send (the email has no code)', () => {
+    window.history.replaceState(null, '', '/provider/outreach-invitation')
     open('/provider/outreach-invitation')
-    type(/Email the invitation was sent to/, 'bisi@example.test')
-    type(/Code from the email/, '482913')
+    expect(document.body.textContent).toContain('This page needs the full link from your invitation email. Open the link again, or copy all of it into your browser.')
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Join the group' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Join with my login' })).toBeNull()
+    expect(api.acceptInvitation).not.toHaveBeenCalled()
+    expect(staff.acceptOutreachInvitationSignedIn).not.toHaveBeenCalled()
+  })
+
+  it('lets a new helper join with a password, with the link, and takes the link out of the address', async () => {
+    api.acceptInvitation.mockResolvedValue({ accepted: true, facilityId: 'f-1', facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' })
+    openLink()
+    expect(window.location.hash).toBe('')
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'another long passphrase' } })
     fireEvent.change(screen.getByLabelText(/Type the password again/), { target: { value: 'another long passphrase' } })
     await press('Join the group')
-    expect(api.acceptInvitation).toHaveBeenCalledWith({ email: 'bisi@example.test', code: '482913' }, 'another long passphrase', expect.any(String))
+    expect(api.acceptInvitation).toHaveBeenCalledWith({ invitationId: INVITATION, token: TOKEN }, 'another long passphrase', expect.any(String))
     expect(await screen.findByRole('heading', { level: 1, name: 'You have joined Ajegunle Health Volunteers' })).toBeTruthy()
+  })
+
+  it('lets a signed-in login join with the link alone', async () => {
+    staff.acceptOutreachInvitationSignedIn.mockResolvedValue({ accepted: true, facilityId: 'f-1', facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' })
+    openLink()
+    await press('Join with my login')
+    expect(staff.acceptOutreachInvitationSignedIn).toHaveBeenCalledWith({ invitationId: INVITATION, token: TOKEN })
   })
 
   it('tells someone with a login to accept with it', async () => {
     api.acceptInvitation.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_INVITATION_SIGN_IN_REQUIRED' }))
-    open('/provider/outreach-invitation')
-    type(/Email the invitation was sent to/, 'bisi@example.test')
-    type(/Code from the email/, '482913')
+    openLink()
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'another long passphrase' } })
     fireEvent.change(screen.getByLabelText(/Type the password again/), { target: { value: 'another long passphrase' } })
     await press('Join the group')

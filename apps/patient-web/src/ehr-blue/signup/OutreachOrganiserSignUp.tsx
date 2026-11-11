@@ -11,7 +11,7 @@ import {
 import { outreachOrganiserApi } from '../../staff/api'
 import { Turnstile } from '../../Turnstile'
 import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION } from '../../outreachTerms'
-import { EMAIL_HAS_LOGIN, isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed } from '../../outreachProblems'
+import { EMAIL_HAS_LOGIN, isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../outreachProblems'
 import { EMAIL, groupDetailsProblems, NAME } from '../../outreachGroupDetails'
 import { PasswordField } from './PasswordField'
 import { Required, ScreenHeading } from './parts'
@@ -19,7 +19,7 @@ import { SignupShell } from './SignupShell'
 
 /** The steps, as the progress line names them. */
 const STEPS = ['Your details', 'Check your email', 'Organiser terms', 'Set a password'] as const
-type Stage = 'checking' | 'closed' | 0 | 1 | 2 | 3 | 'done'
+type Stage = 'checking' | 'closed' | 'terms-changed' | 0 | 1 | 2 | 3 | 'done'
 
 const FALLBACK = 'Something went wrong. Please try again.'
 /**
@@ -75,7 +75,6 @@ function SignUpSteps() {
   const [resetKey, setResetKey] = useState(0)
   const [challengeId, setChallengeId] = useState('')
   const [code, setCode] = useState('')
-  const [termsVersion, setTermsVersion] = useState(ORGANISER_TERMS_VERSION)
   const [accepted, setAccepted] = useState(false)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -86,10 +85,10 @@ function SignUpSteps() {
     const controller = new AbortController()
     outreachOrganiserApi.availability(controller.signal).then(answer => {
       if (controller.signal.aborted) return
-      if (answer?.open === true) {
-        if (typeof answer.termsVersion === 'string' && answer.termsVersion) setTermsVersion(answer.termsVersion)
-        setStage(0)
-      } else setStage('closed')
+      if (answer?.open !== true) setStage('closed')
+      // The page accepts only the terms whose text it shows: newer terms at Identity need this page reloaded first.
+      else if (typeof answer.termsVersion === 'string' && answer.termsVersion && answer.termsVersion !== ORGANISER_TERMS_VERSION) setStage('terms-changed')
+      else setStage(0)
     }, () => { if (!controller.signal.aborted) setStage('closed') })
     return () => controller.abort()
   }, [])
@@ -103,7 +102,7 @@ function SignUpSteps() {
       setError(<>{EMAIL_HAS_LOGIN} <SignInLink>Sign in</SignInLink></>)
       return
     }
-    if (isOutreachProblem(caught, 'OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID')) {
+    if (isOutreachProblem(caught, 'OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID') || isOutreachProblem(caught, 'OUTREACH_ORGANISER_SIGNUP_EXPIRED')) {
       setStage(0)
       setCode('')
     }
@@ -172,19 +171,20 @@ function SignUpSteps() {
     if (Object.keys(found).length > 0) return
     setBusy(true)
     try {
-      await outreachOrganiserApi.activate({ termsVersion, password })
+      await outreachOrganiserApi.activate({ termsVersion: ORGANISER_TERMS_VERSION, password })
       setPassword('')
       setConfirm('')
       setStage('done')
     } catch (caught) {
-      // Terms changed since the page read them: read them again before the person accepts.
-      if (isOutreachProblem(caught, 'OUTREACH_TERMS_VERSION_INVALID')) { setAccepted(false); setStage(2) }
+      // Terms changed since this page was loaded: the new text needs a reload, so nothing more is sent from here.
+      if (isOutreachProblem(caught, 'OUTREACH_TERMS_VERSION_INVALID')) { setAccepted(false); setPassword(''); setConfirm(''); setStage('terms-changed'); return }
       refused(caught)
     } finally { setBusy(false) }
   }
 
   if (stage === 'checking') return <p role="status" className="hid-ehr-signup-status">Checking that sign-up is open…</p>
   if (stage === 'closed') return <Closed />
+  if (stage === 'terms-changed') return <TermsChanged />
   if (stage === 'done') return <Ready />
 
   const field = (key: string) => problems[key]
@@ -300,6 +300,15 @@ function Closed() {
     <p className="hid-ehr-signup-intro">{SIGNUP_CLOSED}</p>
     <p className="hid-ehr-signup-muted">Already have a Health ID login? <SignInLink>Sign in</SignInLink>. Registering a
       hospital? <a className="hid-ehr-signup-link" href={hospitalSignUpHref(window.location.hostname)}>Use Health ID EHR</a>.</p>
+  </>
+}
+
+/** Identity accepts newer organiser terms than this page shows: nothing is sent until the page is reloaded. */
+function TermsChanged() {
+  return <>
+    <ScreenHeading id="outreach-signup-terms-changed">Start running outreach</ScreenHeading>
+    <p role="alert" className="hid-ehr-signup-intro">{TERMS_CHANGED}</p>
+    <EhrButton className="hid-ehr-signup-wide" onClick={() => window.location.reload()}>Reload the page</EhrButton>
   </>
 }
 

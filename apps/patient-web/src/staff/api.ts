@@ -1338,7 +1338,20 @@ export interface OutreachInvitation {
   acceptedAt: string | null
 }
 
-/** The answer to an invitation sent (201), or to the same one sent again (200, replayed). */
+/** Someone who has joined an organiser's team (GET identity/outreach-invitations `members`). */
+export interface OutreachTeamMember {
+  membershipId: string
+  name: string | null
+  email: string | null
+  roleCode: string
+  status: string
+  joinedAt: string | null
+}
+
+/**
+ * The answer to an invitation sent (201). Identity does not replay: the same person invited again while one waits is
+ * refused with 409 OUTREACH_INVITATION_ALREADY_SENT, so no second email goes.
+ */
 export interface OutreachInvitationCreated {
   invitationId: string
   expiresAt: string | null
@@ -1832,8 +1845,8 @@ export const outreachOrganiserApi = {
   activate: (input: { termsVersion: string; password: string }) => inRefreshTurn(() =>
     client.post<OutreachOrganiserActivation>('/api/v1/identity/outreach-organisers/activate',
       { termsVersion: input.termsVersion, acceptTerms: true, password: input.password }, { auth: 'none', retry: NO_RETRY })),
-  /** A helper without a Health ID login accepts an outreach invitation, sets a password and is signed in. */
-  acceptInvitation: (proof: { invitationId: string; token: string } | { email: string; code: string }, password: string,
+  /** A helper without a Health ID login accepts an outreach invitation with its link, sets a password and is signed in. */
+  acceptInvitation: (proof: { invitationId: string; token: string }, password: string,
     turnstileToken?: string) => inRefreshTurn(() => client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/accept',
     { ...proof, password, turnstileAction: 'outreach-invitation', ...(turnstileToken ? { turnstileToken } : {}) },
     { auth: 'none', retry: NO_RETRY })),
@@ -2453,8 +2466,12 @@ export const staffApi = {
    * OUTREACH_ORGANISER_REQUIRED otherwise); an Identity without the routes answers 404.
    */
   outreachInvitations: (facilityId: string) =>
-    client.get<{ invitations: OutreachInvitation[] }>('/api/v1/identity/outreach-invitations', { headers: facilityHeaders(facilityId) }),
-  /** Sent with an Idempotency-Key the caller keeps for the same helper, so a lost answer sent again makes one invitation. */
+    client.get<{ members?: OutreachTeamMember[]; invitations: OutreachInvitation[] }>('/api/v1/identity/outreach-invitations', { headers: facilityHeaders(facilityId) }),
+  /**
+   * Never sent again by itself (NO_RETRY). Identity does not replay an invitation: the same person sent again while one
+   * waits (say, after a lost answer) is refused with 409 OUTREACH_INVITATION_ALREADY_SENT and no second email goes.
+   * Identity ignores the Idempotency-Key header this sends on this route.
+   */
   createOutreachInvitation: (facilityId: string, input: { name: string; email: string }, idempotencyKey: string) =>
     client.post<OutreachInvitationCreated>('/api/v1/identity/outreach-invitations', input,
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
@@ -2468,8 +2485,8 @@ export const staffApi = {
     client.get<OutreachOrganiserAvailability>('/api/v1/identity/outreach-organisers/for-my-account/availability', { retry: NO_RETRY, timeoutMs: 10_000 }),
   startOutreachGroup: (input: OutreachGroupDetails & { termsVersion: string; acceptTerms: true }) =>
     client.post<OutreachGroupStarted>('/api/v1/identity/outreach-organisers/for-my-account', input, { retry: NO_RETRY }),
-  /** A signed-in account accepts an outreach invitation with the link (or the code sent to its own email). */
-  acceptOutreachInvitationSignedIn: (proof: { invitationId: string; token: string } | { code: string }) =>
+  /** A signed-in account accepts an outreach invitation with its link (the email carries no code). */
+  acceptOutreachInvitationSignedIn: (proof: { invitationId: string; token: string }) =>
     client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/signed-in/accept', proof, { retry: NO_RETRY }),
 }
 

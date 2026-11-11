@@ -14,11 +14,15 @@ type View = 'pending' | 'reviewed' | 'suspended'
 
 /** Plain words for every refusal these tools can meet. */
 const PROBLEMS: Readonly<Record<string, string>> = {
-  OUTREACH_ORGANISATION_NOT_FOUND: 'That outreach group was not found. The list has been refreshed.',
-  OUTREACH_ORGANISATION_SUSPENDED: 'That outreach group is paused, so it can’t be marked checked.',
-  OUTREACH_CAMPAIGN_NOT_FOUND: 'No campaign has that reference. Check it with the organiser.',
+  OUTREACH_ORGANISER_NOT_FOUND: 'That outreach group was not found. Refresh the list.',
+  OUTREACH_ORGANISER_VERSION_CONFLICT: 'Someone else changed this outreach group just now. Refresh the list and try again.',
+  OUTREACH_ORGANISER_NOT_PENDING: 'This outreach group has already been checked or is paused. Refresh the list.',
+  OUTREACH_ORGANISER_ALREADY_SUSPENDED: 'This outreach group is already paused.',
+  OUTREACH_ADMIN_VERSION_REQUIRED: 'Refresh the list, then try again.',
+  OUTREACH_CAMPAIGN_NOT_FOUND: 'No campaign at an outreach group has that reference. Check it with the organiser.',
+  OUTREACH_CAMPAIGN_VERSION_CONFLICT: 'That campaign has changed since its version was read. Ask the organiser for the version shown now, then try again.',
   OUTREACH_CAMPAIGN_CLOSED: 'That campaign is already closed.',
-  OUTREACH_STAFF_NOT_AVAILABLE: 'That person is not an active member of this outreach group.',
+  OUTREACH_CAMPAIGN_ADMIN_NOT_ELIGIBLE: 'That person is not an active member of this outreach group.',
   OUTREACH_ORGANISERS_UNAVAILABLE: 'Outreach groups are not available from this Identity yet.',
   ADMIN_OUTREACH_UNAVAILABLE: 'Outreach groups could not be loaded or changed right now. Please try again.',
   VALIDATION_FAILED: 'Check the details: a reason needs 8 to 500 characters, and references must be complete.',
@@ -27,6 +31,8 @@ const PROBLEMS: Readonly<Record<string, string>> = {
 
 const KIND_WORDS: Readonly<Record<string, string>> = { individual: 'A volunteer on their own', group: 'A group, NGO or community organisation' }
 const STATE_WORDS: Readonly<Record<string, string>> = { pending: 'Unverified organiser', reviewed: 'Checked by Health ID', suspended: 'Paused' }
+/** "1 campaign", "3 campaigns"; a number Identity left out reads as 0. */
+const count = (value: number | undefined, word: string) => { const n = Number.isFinite(value) ? Number(value) : 0; return `${n} ${word}${n === 1 ? '' : 's'}` }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function OutreachOrganisersPage({ actor }: { actor: AdminActor }) {
@@ -35,8 +41,9 @@ export function OutreachOrganisersPage({ actor }: { actor: AdminActor }) {
   const load = useCallback((signal?: AbortSignal) => adminApi.outreachOrganisers(view, signal), [view])
   const resource = useResource(load, 'Outreach groups could not be loaded.')
   const [notice, setNotice] = useState<string | null>(null)
-  const canReview = has(actor, 'platform.facility.unlock')
-  const canManage = has(actor, 'platform.facility.manage')
+  // Identity asks for both on every one of these commands (review, pause, close, make admin).
+  const canReview = has(actor, 'platform.facility.unlock') && has(actor, 'platform.facility.manage')
+  const canManage = canReview
   const done = (text: string) => { setNotice(text); resource.reload() }
 
   return <Page eyebrow="Organizations" title="Outreach organisers to check"
@@ -80,14 +87,15 @@ function OrganiserRow({ organiser, canReview, canManage, onDone }: {
     <td>{organiser.organiserName ?? 'Name not given'}<small>{organiser.organiserEmail ?? 'No email'}</small>
       <small>{organiser.phone ?? 'Phone not available'}</small></td>
     <td>{date(organiser.createdAt)}<small>Terms {organiser.termsVersion ?? 'not recorded'}</small></td>
-    <td>{organiser.campaigns} campaigns<small>{organiser.members} team members</small><small>{organiser.registrations} people registered</small></td>
+    <td>{count(organiser.campaigns, 'campaign')}<small>{organiser.activeCampaigns} open now</small>
+      <small>{count(organiser.members, 'team member')}</small><small>{count(organiser.pendingInvitations, 'invitation')} waiting</small></td>
     <td>{STATE_WORDS[organiser.reviewState] ?? organiser.label ?? 'Status not known'}
       {organiser.reviewedAt ? <small>Checked {date(organiser.reviewedAt)}</small> : null}
       {organiser.suspendedAt ? <small>Paused {date(organiser.suspendedAt)}</small> : null}</td>
     <td>
       {organiser.reviewState === 'pending' && canReview ? <ReviewAction organiser={organiser} name={name} onDone={onDone} /> : null}
       {organiser.reviewState !== 'suspended' && canManage ? <SuspendAction organiser={organiser} name={name} onDone={onDone} /> : null}
-      {!canReview && !canManage ? 'Checking needs platform.facility.unlock' : null}
+      {!canReview ? 'Checking or pausing a group needs platform.facility.manage and platform.facility.unlock.' : null}
     </td>
   </tr>
 }
@@ -101,9 +109,9 @@ function ReviewAction({ organiser, name, onDone }: { organiser: OutreachOrganise
   async function review(rename: boolean) {
     const shown = displayName.trim()
     if (rename && (shown.length < 2 || shown.length > 120)) { governed.setError('Enter a name of 2 to 120 characters.'); return }
-    const reviewed = await governed.submit(() => adminApi.reviewOutreachOrganiser(organiser.organizationId, rename ? { displayName: shown } : {}),
+    const reviewed = await governed.submit(() => adminApi.reviewOutreachOrganiser(organiser, rename ? { displayName: shown } : {}),
       'The group could not be marked checked. Try again.', PROBLEMS, `mark ${name} checked`)
-    if (reviewed) onDone(`${reviewed.displayName || name} is checked. Its campaigns can now start registering people.`)
+    if (reviewed) onDone(`${rename ? shown : name} is checked. Its campaigns can now start registering people.`)
   }
 
   return <div className="admin-action-form">
@@ -133,7 +141,7 @@ function SuspendAction({ organiser, name, onDone }: { organiser: OutreachOrganis
   async function suspend(event: FormEvent) {
     event.preventDefault()
     if (!ready) return
-    const paused = await governed.submit(() => adminApi.suspendOutreachOrganiser(organiser.organizationId, reason.trim()),
+    const paused = await governed.submit(() => adminApi.suspendOutreachOrganiser(organiser, reason.trim()),
       'The group could not be paused. Try again.', PROBLEMS, `pause ${name}`)
     if (paused) onDone(`${name} is paused. Nobody in it can register people or change campaigns.`)
   }
@@ -153,20 +161,26 @@ function SuspendAction({ organiser, name, onDone }: { organiser: OutreachOrganis
 
 /**
  * A campaign whose only admin has gone (field critique 5): close it, or make another active member of the group its
- * admin. Both need the campaign's reference, which the organiser or a member reads from the campaign's page.
+ * admin. Both need the campaign's reference, and closing needs its version too: the organiser or a member reads both from
+ * the campaign's page ("For Health ID support"). Identity refuses a close whose version is not the campaign's current one.
  */
 function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
   const governed = useGovernedSubmit()
   const [campaignId, setCampaignId] = useState('')
   const [membershipId, setMembershipId] = useState('')
+  const [version, setVersion] = useState('')
   const [reason, setReason] = useState('')
   const campaign = campaignId.trim()
+  const campaignVersion = /^[0-9]{1,9}$/.test(version.trim()) ? Number(version.trim()) : 0
   const member = membershipId.trim()
   const reasonOk = reason.trim().length >= 8 && reason.trim().length <= 500
 
   async function close() {
-    if (!UUID.test(campaign) || !reasonOk) { governed.setError('Enter the campaign’s full reference and a reason of 8 to 500 characters.'); return }
-    const closed = await governed.submit(() => adminApi.closeOutreachCampaign(campaign, reason.trim()),
+    if (!UUID.test(campaign) || campaignVersion < 1 || !reasonOk) {
+      governed.setError('Enter the campaign’s full reference, its version and a reason of 8 to 500 characters.')
+      return
+    }
+    const closed = await governed.submit(() => adminApi.closeOutreachCampaign({ campaignId: campaign, version: campaignVersion }, reason.trim()),
       'The campaign could not be closed. Try again.', PROBLEMS, 'close an outreach campaign')
     if (closed) { onDone('The campaign is closed. Nobody can register people in it any more.'); setReason('') }
   }
@@ -187,6 +201,10 @@ function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
     <form className="admin-action-form" onSubmit={event => event.preventDefault()}>
       <label htmlFor="outreach-rescue-campaign">Campaign reference</label>
       <input id="outreach-rescue-campaign" autoComplete="off" spellCheck={false} value={campaignId} onChange={event => setCampaignId(event.target.value)} />
+      <label htmlFor="outreach-rescue-version">Campaign version (to close it)</label>
+      <input id="outreach-rescue-version" inputMode="numeric" autoComplete="off" maxLength={9} value={version}
+        aria-describedby="outreach-rescue-version-hint" onChange={event => setVersion(event.target.value.replace(/\D/g, ''))} />
+      <small id="outreach-rescue-version-hint" className="admin-note">The number shown with the reference on the campaign’s page, under “For Health ID support”.</small>
       <label htmlFor="outreach-rescue-member">Member reference (to make them admin)</label>
       <input id="outreach-rescue-member" autoComplete="off" spellCheck={false} value={membershipId} onChange={event => setMembershipId(event.target.value)} />
       <label htmlFor="outreach-rescue-reason">Why</label>

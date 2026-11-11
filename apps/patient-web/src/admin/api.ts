@@ -80,6 +80,8 @@ export interface AuditFilters {
 export interface OutreachOrganiser {
   organizationId: string
   facilityId: string
+  /** The group's row version: the review and the pause send it back as If-Match. */
+  version: number
   displayName: string | null
   groupName: string
   kind: 'individual' | 'group' | string
@@ -93,9 +95,20 @@ export interface OutreachOrganiser {
   suspendedAt: string | null
   createdAt: string | null
   termsVersion: string | null
+  reviewNote?: string | null
+  suspensionReason?: string | null
   campaigns: number
+  activeCampaigns: number
   members: number
-  registrations: number
+  pendingInvitations: number
+}
+
+/** The answer to a review or a pause: the group's new version and state. */
+export interface OutreachOrganiserChanged {
+  organizationId: string
+  version: number
+  reviewState: string
+  label?: string
 }
 
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
@@ -1059,38 +1072,44 @@ export const adminApi = {
       { decisionCode, reason }, { version: application.version, idempotencyKey })
   },
   /**
-   * A governed admin command. Pass the submission's idempotency key so a retry
-   * after step-up is the same command, never a second one. `version` goes as
-   * If-Match; it is at least 1, or 0 for a command that `creates` its resource
-   * (the facility designation, hid-system #85), whose If-Match: 0 is sent too.
-   */
-  /**
    * Support's "Outreach organisers to check" (open sign-up on outreach.): the groups in one state, pending (waiting for
    * their one-time check) by default. An Identity without the route answers 404, said as OUTREACH_ORGANISERS_UNAVAILABLE.
    */
   outreachOrganisers(reviewState: 'pending' | 'reviewed' | 'suspended', signal?: AbortSignal) {
     return outreachRead(request<{ organisers: OutreachOrganiser[] }>('/api/v1/admin/outreach-organisers', { signal, query: { reviewState } }))
   },
-  /** One click: marks the group checked, so its campaigns can start; optionally the name it is shown by. */
-  reviewOutreachOrganiser(organizationId: string, body: { displayName?: string } = {}) {
-    return outreachRead(adminApi.command<{ organizationId: string; reviewState: string; displayName: string; reviewedAt: string }>(
-      at('/api/v1/admin/outreach-organisers', organizationId, 'review'), body))
+  /**
+   * One click: marks the group checked, so its campaigns can start; optionally the name it is shown by. Identity needs
+   * the version the list gave (If-Match), else it answers 428 OUTREACH_ADMIN_VERSION_REQUIRED.
+   */
+  reviewOutreachOrganiser(organiser: Pick<OutreachOrganiser, 'organizationId' | 'version'>, body: { displayName?: string } = {}) {
+    return outreachRead(adminApi.command<OutreachOrganiserChanged>(
+      at('/api/v1/admin/outreach-organisers', organiser.organizationId, 'review'), body, { version: organiser.version }))
   },
-  /** Pauses the group: nobody in it can register people or change campaigns. */
-  suspendOutreachOrganiser(organizationId: string, reason: string) {
-    return outreachRead(adminApi.command<{ organizationId: string; reviewState: string; suspendedAt: string }>(
-      at('/api/v1/admin/outreach-organisers', organizationId, 'suspend'), { reason }))
+  /** Pauses the group: nobody in it can register people or change campaigns. With the list's version, as the review. */
+  suspendOutreachOrganiser(organiser: Pick<OutreachOrganiser, 'organizationId' | 'version'>, reason: string) {
+    return outreachRead(adminApi.command<OutreachOrganiserChanged>(
+      at('/api/v1/admin/outreach-organisers', organiser.organizationId, 'suspend'), { reason }, { version: organiser.version }))
   },
-  /** Closes a campaign whose only admin has gone, for good. */
-  closeOutreachCampaign(campaignId: string, reason: string) {
-    return outreachRead(adminApi.command<{ campaignId: string; status: string; version: number }>(
-      at('/api/v1/admin/outreach-campaigns', campaignId, 'close'), { reason }))
+  /**
+   * Closes a campaign whose only admin has gone, for good. Identity needs the campaign's version (If-Match), which the
+   * campaign's page shows its members with its reference.
+   */
+  closeOutreachCampaign(campaign: { campaignId: string; version: number }, reason: string) {
+    return outreachRead(adminApi.command<{ campaignId: string; status: string; alreadyClosed?: boolean }>(
+      at('/api/v1/admin/outreach-campaigns', campaign.campaignId, 'close'), { reason }, { version: campaign.version }))
   },
   /** Makes an active member of the group a campaign's admin, when its only admin has gone. */
   appointOutreachCampaignAdmin(campaignId: string, membershipId: string, reason: string) {
     return outreachRead(adminApi.command<{ campaignId: string; membershipId: string; role: string }>(
       at('/api/v1/admin/outreach-campaigns', campaignId, 'admins'), { membershipId, reason }))
   },
+  /**
+   * A governed admin command. Pass the submission's idempotency key so a retry
+   * after step-up is the same command, never a second one. `version` goes as
+   * If-Match; it is at least 1, or 0 for a command that `creates` its resource
+   * (the facility designation, hid-system #85), whose If-Match: 0 is sent too.
+   */
   command<T>(path: string, body: unknown, options: { version?: number; idempotencyKey?: string; creates?: boolean } = {}) {
     if (!path.startsWith('/api/v1/admin/')) throw new Error('Admin command route required.')
     if (options.version !== undefined

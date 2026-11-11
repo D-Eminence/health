@@ -1,7 +1,7 @@
 import '@hid/ui/ehr.css'
 import './signup.css'
 import { useState, type FormEvent } from 'react'
-import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
+import { EhrButton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { useDocumentTitle } from '../../authSteps'
 import { STAFF_SIGN_IN_PATH, staffSignInHref } from '../../productHostname'
@@ -13,6 +13,8 @@ import { Required, ScreenHeading } from './parts'
 import { SignupShell } from './SignupShell'
 
 const FALLBACK = 'The invitation could not be accepted. Please try again.'
+/** Without the whole link there is nothing to accept with: the email carries no code. */
+export const NEEDS_LINK = 'This page needs the full link from your invitation email. Open the link again, or copy all of it into your browser.'
 /** The link's fragment: `#<invitationId>.<token>` (notification-api outreachInvitationContent). */
 const LINK = /^#?([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43})$/i
 
@@ -28,7 +30,8 @@ type Done = { facilityName?: string; signedIn: boolean }
  * An outreach invitation (open sign-up on outreach.): a helper the organiser invited joins the group as an outreach
  * volunteer. Someone new sets a password and is signed in; someone with a Health ID login accepts with it, signed in
  * (owner decision 5: the same login can work at a hospital and help an outreach group). The link's token is read from
- * the address once and kept in memory only; without the link, the email address and the 6-digit code from the email.
+ * the address once and kept in memory only. The email has no code (notification-api accepts outreach invitations by link
+ * only), so without a whole link the page says to open the link again and offers nothing to send.
  */
 export function OutreachInvitation() {
   useDocumentTitle('Accept an invitation · Health ID Outreach')
@@ -37,8 +40,6 @@ export function OutreachInvitation() {
     if (read) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
     return read
   })
-  const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [problems, setProblems] = useState<Partial<Record<string, string>>>({})
@@ -49,20 +50,11 @@ export function OutreachInvitation() {
   const [done, setDone] = useState<Done | null>(null)
   const signIn = staffSignInHref(window.location.hostname) ?? STAFF_SIGN_IN_PATH
 
-  function proofProblems(): Record<string, string> {
-    const found: Record<string, string> = {}
-    if (!link) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) found.email = 'Enter the email address the invitation was sent to.'
-      if (!/^[0-9]{6}$/.test(code.trim())) found.code = 'Enter the 6-digit code from the email.'
-    }
-    return found
-  }
-
   async function acceptNew(event: FormEvent) {
     event.preventDefault()
-    if (busy) return
+    if (busy || !link) return
     setError('')
-    const found = proofProblems()
+    const found: Record<string, string> = {}
     if (password.length < 12) found.password = 'Use at least 12 characters.'
     if (confirm !== password) found.confirm = 'The two passwords are not the same.'
     setProblems(found)
@@ -70,7 +62,7 @@ export function OutreachInvitation() {
     if (!turnstileToken) { setError('Complete the security check, then try again.'); return }
     setBusy(true)
     try {
-      const accepted = await outreachOrganiserApi.acceptInvitation(link ?? { email: email.trim(), code: code.trim() }, password, turnstileToken)
+      const accepted = await outreachOrganiserApi.acceptInvitation(link, password, turnstileToken)
       setPassword('')
       setConfirm('')
       setDone({ facilityName: accepted.facilityName, signedIn: true })
@@ -84,13 +76,12 @@ export function OutreachInvitation() {
   }
 
   async function acceptSignedIn() {
-    if (busy) return
+    if (busy || !link) return
     setError('')
-    if (!link && !/^[0-9]{6}$/.test(code.trim())) { setProblems({ code: 'Enter the 6-digit code from the email.' }); return }
     setProblems({})
     setBusy(true)
     try {
-      const accepted = await staffApi.acceptOutreachInvitationSignedIn(link ?? { code: code.trim() })
+      const accepted = await staffApi.acceptOutreachInvitationSignedIn(link)
       setDone({ facilityName: accepted.facilityName, signedIn: true })
     } catch (caught) {
       setError(isHidApiError(caught) && caught.status === 401
@@ -110,19 +101,16 @@ export function OutreachInvitation() {
       <a className="hid-ehr-button hid-ehr-signup-wide" href="/provider/outreach">Open Outreach</a>
     </SignupShell>
   }
+  if (!link) {
+    return <SignupShell centered footer={footer} story={story}>
+      <ScreenHeading id="outreach-invitation-title">Join an outreach group</ScreenHeading>
+      <p className="hid-ehr-signup-intro">{NEEDS_LINK}</p>
+    </SignupShell>
+  }
   return (
     <SignupShell footer={footer} story={story}>
       <ScreenHeading id="outreach-invitation-title">Join an outreach group</ScreenHeading>
       <p className="hid-ehr-signup-intro">An outreach group’s organiser invited you to help register people at their events.</p>
-      {!link ? <div className="hid-ehr-signup-grid">
-        <EhrField label={<Required>Email the invitation was sent to</Required>} controlId="outreach-invitation-email" error={problems.email}>
-          <EhrInput type="email" autoComplete="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
-        </EhrField>
-        <EhrField label={<Required>Code from the email</Required>} controlId="outreach-invitation-code" error={problems.code}>
-          <EhrInput inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
-            onChange={event => setCode(event.target.value.replace(/\D/g, ''))} />
-        </EhrField>
-      </div> : null}
 
       <form className="hid-ehr-signup-form" noValidate onSubmit={event => void acceptNew(event)} aria-labelledby="outreach-invitation-new">
         <h2 id="outreach-invitation-new" className="hid-ehr-signup-step-title">New to Health ID? Choose a password</h2>

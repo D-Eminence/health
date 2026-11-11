@@ -63,7 +63,7 @@ const CAMPAIGN_REFUSALS: Readonly<Record<string, string>> = {
   OUTREACH_CAMPAIGN_DATES_INVALID: END_AFTER_START,
   // An outreach group (open sign-up on outreach.): before Health ID's one-time check, and while paused.
   OUTREACH_ORGANISER_AWAITING_REVIEW: 'Health ID checks every new outreach group once before its first campaign can start. You can keep setting up and practising. We aim to check groups the same day.',
-  OUTREACH_ORGANISATION_SUSPENDED: 'This outreach group has been paused by Health ID. Contact Health ID support.',
+  OUTREACH_ORGANISER_SUSPENDED: 'This outreach group has been paused by Health ID. Contact Health ID support.',
 }
 /** The refusals after which the campaign is read again, since what the page shows is out of date. */
 export const CAMPAIGN_STALE: ReadonlySet<string> = new Set(['VERSION_CONFLICT', 'OUTREACH_CAMPAIGN_STATE_CONFLICT', 'OUTREACH_CAMPAIGN_CLOSED',
@@ -202,6 +202,8 @@ export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
     { label: 'Starts', value: dateText(campaign.startsAt) },
     // Outreach sends its end on every campaign (null: none set); an older answer leaves it out, and so does this.
     ...(campaign.endsAt !== undefined ? [{ label: 'Ends', value: campaign.endsAt ? dateText(campaign.endsAt) : 'No end date' }] : []),
+    // What Health ID support asks for when a campaign has lost its only admin: its reference and, to close it, its version.
+    { label: 'For Health ID support', value: <span className="break-all">Reference {campaign.id}, version {campaign.rowVersion}</span> },
   ]
 }
 

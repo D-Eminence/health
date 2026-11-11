@@ -1026,7 +1026,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'outreach-organiser-signup (outreach. hosts only). Body { organiserName, email, phone, groupName, kind (individual|group), '
     + 'registrationNumber?, turnstileAction, turnstileToken }. 200 { accepted, challengeId, expiresInSeconds, resendAfterSeconds } '
     + 'and the hid_outreach_signup cookie. 409 OUTREACH_ORGANISER_EMAIL_REGISTERED (sign in and use "Start an outreach group"), '
-    + '422 OUTREACH_ORGANISER_NAME_RESERVED, 400 OUTREACH_PHONE_INVALID, 429 OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED or '
+    + '422 OUTREACH_ORGANISER_NAME_NOT_ALLOWED, 400 OUTREACH_PHONE_INVALID, 429 OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED or '
     + 'OTP_RESEND_COOLDOWN, 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE.')),
   proposed(r('enrollment.outreachOrganiserVerify','enrollment','/api/v1/identity/outreach-organisers/verify-email',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { challengeId, code (6 digits) }. 200 { verified: true }; 400 `
@@ -1045,16 +1045,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('identity.outreachInvitations','identity','/api/v1/identity/outreach-invitations',GP,false,
     { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
     `${OUTREACH_SIGNUP} The organiser at the X-Facility-ID outreach group only (403 OUTREACH_ORGANISER_REQUIRED). GET: { `
-    + 'invitations: [{ invitationId, name, email, status, expiresAt, createdAt, acceptedAt }] }. POST: Idempotency-Key; body { '
-    + 'name, email }; 201 { invitationId, expiresAt, deliveryOutcome, replayed: false } or 200 replayed: true. 429 '
-    + 'OUTREACH_INVITATION_PENDING_LIMIT or _DAILY_LIMIT, 409 OUTREACH_INVITEE_ALREADY_MEMBER, 423 OUTREACH_ORGANISATION_SUSPENDED.')),
+    + 'members: [{ membershipId, name, email, roleCode, status, joinedAt }], invitations: [{ invitationId, name, email, status, '
+    + 'expiresAt, createdAt, acceptedAt }] } (pending invitations only). POST: body { name, email }; 201 { invitationId, '
+    + 'expiresAt, deliveryOutcome, replayed: false }. Not replayed: the same person again answers 409 '
+    + 'OUTREACH_INVITATION_ALREADY_SENT. 429 OUTREACH_INVITATION_PENDING_LIMIT, 409 OUTREACH_INVITEE_ALREADY_MEMBER, 423 '
+    + 'OUTREACH_ORGANISER_SUSPENDED.')),
   proposed(r('enrollment.outreachInvitationAccept','enrollment','/api/v1/identity/outreach-invitations/accept',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_INVITATION_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
-    + 'outreach-invitation. Body { invitationId, token } (the link) or { email, code }, with password, turnstileAction and '
+    + 'outreach-invitation. Body { invitationId, token } (the link only: the email has no code), with password, turnstileAction and '
     + 'turnstileToken. Signs the helper in: 200 { accepted, facilityId, facilityName, roleCode, actor, expiresAt }. 409 '
     + 'OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login.')),
   proposed(r('identity.outreachInvitationSignedInAccept','identity','/api/v1/identity/outreach-invitations/signed-in/accept',P,false,undefined,
-    `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } or { code }. 200 { accepted, `
+    `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } (the link only). 200 { accepted, `
     + 'facilityId, facilityName, roleCode }. 403 OUTREACH_INVITATION_WRONG_ACCOUNT.')),
 
   r('commercial.pricing','commercial','/api/v1/commercial/pricing',G,true),
@@ -1298,24 +1300,29 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // rescuing a campaign whose only admin has gone.
   proposed(r('admin.outreachOrganisers','admin','/api/v1/admin/outreach-organisers',G,false,one('GET','platform.facility.read'),
     `${OUTREACH_SIGNUP} Query reviewState (pending|reviewed|suspended), optional. 200 { organisers: [{ organizationId, `
-    + 'facilityId, displayName, groupName, kind, registrationNumber, organiserName, organiserEmail, phone, reviewState, label, '
-    + 'reviewedAt, suspendedAt, createdAt, termsVersion, campaigns, members, registrations }] }.')),
+    + 'facilityId, version, displayName, groupName, kind, registrationNumber, origin, organiserAccountId, organiserName, '
+    + 'organiserEmail, phone, reviewState, label, reviewedAt, reviewNote, suspendedAt, suspensionReason, createdAt, termsVersion, '
+    + 'members, pendingInvitations, campaigns, activeCampaigns }] }.')),
   proposed(r('admin.outreachOrganiserReview','admin','/api/v1/admin/outreach-organisers/:organizationId/review',P,false,
-    one('POST','platform.facility.unlock'),
-    `${OUTREACH_SIGNUP} One click: an empty body is enough; optional { displayName, reason }. 200 { organizationId, `
-    + 'reviewState: \'reviewed\', displayName, reviewedAt }. 409 OUTREACH_ORGANISATION_SUSPENDED, 404 OUTREACH_ORGANISATION_NOT_FOUND.')),
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} One click: If-Match with the list's version (or body.version), else 428 `
+    + 'OUTREACH_ADMIN_VERSION_REQUIRED; optional { displayName, note }. 200 { organizationId, version, reviewState: '
+    + '\'reviewed\', label }. 409 OUTREACH_ORGANISER_VERSION_CONFLICT or OUTREACH_ORGANISER_NOT_PENDING, 404 '
+    + 'OUTREACH_ORGANISER_NOT_FOUND. Needs platform.facility.manage and platform.facility.unlock.')),
   proposed(r('admin.outreachOrganiserSuspend','admin','/api/v1/admin/outreach-organisers/:organizationId/suspend',P,false,
-    one('POST','platform.facility.manage'),
-    `${OUTREACH_SIGNUP} Body { reason (8 to 500) }. 200 { organizationId, reviewState: 'suspended', suspendedAt }; the group's `
-    + 'roles are revoked.')),
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} If-Match with the list's version, else 428 OUTREACH_ADMIN_VERSION_REQUIRED. Body { reason (8 to 500) `
+    + '}. 200 { organizationId, version, reviewState: \'suspended\', label, revokedRoles }; the group\'s roles are revoked. 409 '
+    + 'OUTREACH_ORGANISER_ALREADY_SUSPENDED or OUTREACH_ORGANISER_VERSION_CONFLICT.')),
   proposed(r('admin.outreachCampaignClose','admin','/api/v1/admin/outreach-campaigns/:campaignId/close',P,false,
-    one('POST','platform.facility.manage'),
-    `${OUTREACH_SIGNUP} Body { reason (8 to 500) }. 200 { campaignId, status: 'closed', version }. 404 `
-    + 'OUTREACH_CAMPAIGN_NOT_FOUND, 409 OUTREACH_CAMPAIGN_CLOSED.')),
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} If-Match with the campaign's version (its rowVersion), else 428 OUTREACH_ADMIN_VERSION_REQUIRED. Body `
+    + '{ reason (8 to 500) }. 200 { campaignId, status: \'closed\', alreadyClosed }. 404 OUTREACH_CAMPAIGN_NOT_FOUND, 409 '
+    + 'OUTREACH_CAMPAIGN_VERSION_CONFLICT.')),
   proposed(r('admin.outreachCampaignAdmins','admin','/api/v1/admin/outreach-campaigns/:campaignId/admins',P,false,
-    one('POST','platform.facility.manage'),
+    one('POST','platform.facility.manage','platform.facility.unlock'),
     `${OUTREACH_SIGNUP} Body { membershipId, reason (8 to 500) }. 200 { campaignId, membershipId, role: 'admin' }. 422 `
-    + 'OUTREACH_STAFF_NOT_AVAILABLE when the person is not an active member of the group.')),
+    + 'OUTREACH_CAMPAIGN_ADMIN_NOT_ELIGIBLE when the person is not an active member of the group.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),

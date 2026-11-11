@@ -64,6 +64,15 @@ describe('Start an outreach group', () => {
     expect(await screen.findByText('Your login already runs an outreach group. Switch to it from Switch facility.')).toBeTruthy()
   })
 
+  it('shows no form and sends nothing when Identity accepts newer terms than this page shows', async () => {
+    api.outreachGroupAvailability.mockResolvedValue({ open: true, termsVersion: '2026-12-01' })
+    open()
+    expect(await screen.findByText('The organiser terms have changed. Reload the page to read the new terms.')).toBeTruthy()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start my outreach group' })).toBeNull()
+    expect(api.startOutreachGroup).not.toHaveBeenCalled()
+  })
+
   it('offers nothing to send while it is not open', async () => {
     api.outreachGroupAvailability.mockResolvedValue({ open: false })
     open()

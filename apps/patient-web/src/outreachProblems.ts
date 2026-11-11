@@ -7,6 +7,8 @@ import { isHidApiError, plainErrorText } from '@hid/http'
 
 /** Sign-up is switched off, or not served by this Health ID yet. */
 export const SIGNUP_CLOSED = 'Signing up to run outreach isn’t open at the moment. Please try again later.'
+/** Identity accepts organiser terms newer than the ones this page shows: nothing is sent until the page is reloaded. */
+export const TERMS_CHANGED = 'The organiser terms have changed. Reload the page to read the new terms.'
 /** The email already has a Health ID login: that login starts an outreach group itself (owner decision 5). */
 export const EMAIL_HAS_LOGIN = 'This email already has a Health ID login. Sign in with it, then choose “Start an outreach group”.'
 
@@ -14,10 +16,13 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE: SIGNUP_CLOSED,
   OUTREACH_ORGANISER_EMAIL_REGISTERED: EMAIL_HAS_LOGIN,
   OUTREACH_ORGANISER_REQUIRES_SIGN_OUT: 'You are signed in to Health ID. Use “Start an outreach group” from your account, or sign out to sign up with a different email.',
-  OUTREACH_ORGANISER_NAME_RESERVED: 'That group name sounds like a hospital, a ministry or another official body. Choose another name. If it is right, contact Health ID support.',
+  OUTREACH_ORGANISER_NAME_NOT_ALLOWED: 'That group name sounds like a hospital, a ministry or another official body. Choose another name. If it is right, contact Health ID support.',
   OUTREACH_PHONE_INVALID: 'Enter a phone number we can call, like 08012345678 or +234 801 234 5678.',
   OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED: 'Too many sign-ups have come from this network. Please wait an hour and try again.',
   OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID: 'This sign-up has expired. Start again from the beginning.',
+  OUTREACH_ORGANISER_SIGNUP_EXPIRED: 'This sign-up has expired. Start again from the beginning.',
+  OUTREACH_ORGANISER_SIGNUP_NOT_READY: 'Confirm your email with the code first, then try again.',
+  OUTREACH_ORGANISER_TERMS_REQUIRED: 'Tick the box to accept the organiser terms, then try again.',
   OUTREACH_ORGANISER_NOT_VERIFIED: 'Confirm your email with the code first.',
   OUTREACH_TERMS_VERSION_INVALID: 'The organiser terms have changed. Reload the page to read the current terms.',
   OUTREACH_ORGANISER_ALREADY_RUNNING: 'Your login already runs an outreach group. Switch to it from Switch facility.',
@@ -38,9 +43,10 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_INVITATION_PENDING_LIMIT: 'You have many invitations waiting to be accepted. Wait for some to be accepted before inviting more.',
   OUTREACH_INVITATION_DAILY_LIMIT: 'You have sent as many invitations as you can today. Try again tomorrow.',
   OUTREACH_INVITEE_ALREADY_MEMBER: 'This person is already in your team.',
-  OUTREACH_ORGANISATION_SUSPENDED: 'This outreach group has been paused by Health ID. Contact Health ID support.',
+  OUTREACH_ORGANISER_SUSPENDED: 'This outreach group has been paused by Health ID. Contact Health ID support.',
+  OUTREACH_INVITATION_ALREADY_SENT: 'This person already has an invitation waiting.',
   // Accepting an invitation.
-  OUTREACH_INVITATION_INVALID: 'This invitation link or code is not right. Open the link from the email again, or check the code.',
+  OUTREACH_INVITATION_INVALID: 'This invitation link is not right. Open the link from the email again, or copy all of it into your browser.',
   OUTREACH_INVITATION_EXPIRED: 'This invitation has expired. Ask the organiser to invite you again.',
   OUTREACH_INVITATION_SUPERSEDED: 'A newer invitation was sent to you. Use the link in the newest email.',
   OUTREACH_INVITATION_REVOKED: 'This invitation was withdrawn. Ask the organiser if you should still join.',
@@ -54,7 +60,7 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   // Registering at an outreach group (outreach-api).
   OUTREACH_ORGANISER_AWAITING_REVIEW: 'Health ID checks every new outreach group once before its first campaign can start. You can keep setting up and practising. We aim to check groups the same day.',
   OUTREACH_TENANT_NO_HEALTH_ID_LINK: 'Outreach groups can’t link people to a Health ID. The person can link their own Health ID later, from their own account.',
-  OUTREACH_GUARDIAN_REQUIRED: 'This person is under 18. Enter the name of the parent or guardian who agreed.',
+  OUTREACH_CONSENT_GUARDIAN_REQUIRED: 'This person is under 18. Enter the name of the parent or guardian who agreed.',
   OUTREACH_CONSENT_REQUIRED: 'Read the notice to the person and record how they agreed before registering them.',
   OUTREACH_CAMPAIGN_REQUIRED: 'Choose the campaign this person is being registered in.',
   OUTREACH_NOTES_TOO_LONG: 'Keep notes to 280 characters, and do not write diagnoses.',
