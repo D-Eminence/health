@@ -21,8 +21,12 @@ const FIELDS = ['hid', 'reason', 'ack'] as const
 type FieldKey = (typeof FIELDS)[number]
 type Problems = Partial<Record<FieldKey, string>>
 
-/** The acknowledgement, naming the expiry today's break-glass request asks for. */
-export const ACKNOWLEDGE = `I understand the patient is told, every opening is recorded, and access ends after ${EMERGENCY_MINUTES} minutes.`
+/**
+ * The acknowledgement, naming the expiry today's break-glass request asks for. It claims only what is true for every
+ * grant: it is recorded, the patient can see it in Who has access, and it ends by itself. (A message to the patient is
+ * sent only where those alerts are switched on, so it is not promised here.)
+ */
+export const ACKNOWLEDGE = `I understand this is recorded with my name and my reason, the patient can see it, and access ends by itself after ${EMERGENCY_MINUTES} minutes.`
 
 /** The open emergency patient, with the way back to their emergency summary. */
 export function CurrentEmergency() {

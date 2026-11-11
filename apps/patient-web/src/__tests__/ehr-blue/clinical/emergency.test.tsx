@@ -42,12 +42,12 @@ vi.mock('../../../ehr-blue/clinical/sample/SampleWorkspace', () => ({
 }))
 
 const EMERGENCY_PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
-const ACKNOWLEDGE = 'I understand the patient is told, every opening is recorded, and access ends after 30 minutes.'
+const ACKNOWLEDGE = 'I understand this is recorded with my name and my reason, the patient can see it, and access ends by itself after 30 minutes.'
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 const REASON = 'Unconscious after a road traffic collision; needs allergy and medication history before treatment'
 const REASON_TOO_SHORT = 'Say why in at least 8 characters.'
 const WHEN = 'Only when the patient can’t consent and care can’t wait'
-const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
+const BEFORE = 'Emergency access opens this patient’s record without their approval. It is recorded with your name, this facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.'
 const CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
 const AFTER = 'You see this facility’s finished visits and signed notes, and the diagnoses, prescriptions, lab tests and documents your role may read. It shows no vital signs and opens no files. You can’t change anything.'
 const FAILED_TITLE = 'Couldn’t open emergency access'
@@ -135,6 +135,7 @@ describe('the Emergency page', () => {
     // No opening is reviewed: the form promises only what is true, that the reason is kept with the record of it.
     expect(card().textContent).toContain('What is happening, and why care can’t wait. It’s kept with the record of this opening.')
     expect(card().textContent).not.toMatch(/review/i)
+    expect(card().textContent).not.toMatch(/emergency summary/i)
     // The sample board sits below the live form.
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')

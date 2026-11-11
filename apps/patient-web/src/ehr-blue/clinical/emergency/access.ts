@@ -25,7 +25,14 @@ export const REASON_MAX = 500
 
 /** Patients.tsx:243, the emergency notice, before and after the Novu sentence (Patients.tsx:46). */
 export const NOTICE_WHEN = 'Only when the patient can’t consent and care can’t wait'
-export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
+/**
+ * What is true of a break-glass grant, and nothing more (no one reviews it). Identity keeps the staff member, facility,
+ * time, reason and expiry with the grant and its audit row (identity.activate_break_glass); the patient's Who has access
+ * list shows each emergency access with its facility, its times and the reason (identity.patient_self_access_history);
+ * and the grant stops being honoured at its expiry (Identity's lookup reads only grants not yet expired).
+ */
+export const NOTICE_BEFORE = 'Emergency access opens this patient’s record without their approval. It is recorded with your name, this '
+  + 'facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.'
 /** Patients.tsx:47: only verified contacts the patient chose to notify are told, and only while the alerts are on. */
 export const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
 /**
