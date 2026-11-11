@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
-import { ArrowRight, ChevronRight, CircleCheck, Megaphone, Search, UserPlus, Users } from 'lucide-react'
+import { isHidApiError } from '@hid/http'
+import { ArrowRight, ChevronRight, CircleCheck, Megaphone, Plus, Search, UserPlus, Users } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../staff/api'
@@ -12,12 +13,13 @@ import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { dateText, matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
-  ageText, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, nextStepText, PENDING, sexText, statusLabel, type MembersRead,
+  ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
+  NO_FACILITY, nextStepText, servicesText, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -32,16 +34,32 @@ type View =
   | { kind: 'list'; focus?: string }
   | { kind: 'new' }
   | { kind: 'case'; id: string; snapshot: OutreachCase; created: boolean }
-  | { kind: 'campaign'; id: string; snapshot: OutreachCampaign }
+  | { kind: 'campaign'; id: string; snapshot: OutreachCampaign; created?: boolean }
+  | { kind: 'newCampaign' }
 
 type FocusRequest = { id?: string; ifLost: boolean }
+
+/**
+ * Whether Outreach serves campaign management (hid-system#222, 0111: a campaign's own admins open, close and staff it).
+ * An Outreach before it answers 404, and the page then keeps campaigns read only.
+ */
+async function campaignsManaged(facilityId: string): Promise<boolean> {
+  try {
+    return (await staffApi.outreachCampaignGovernance(facilityId))?.rule === 'campaign_admins'
+  } catch (caught) {
+    if (isHidApiError(caught) && caught.status === 404) return false
+    throw caught
+  }
+}
 
 /**
  * Outreach in the blue Hospital EHR: registration cases and campaigns as the design's
  * workspace (a list with search, Quick view and Open; a record view with "Saved record" and
  * "Available actions"; "Create record" for a new case), on today's staff API and its rules
- * (staff/routes/Operations.tsx Outreach, CampaignCard, OutreachCaseCard): campaigns and their
- * members read only, registration cases created and linked to a verified existing patient.
+ * (staff/routes/Operations.tsx Outreach, CampaignCard, OutreachCaseCard): registration cases
+ * created and linked to a verified existing patient; campaigns read, and, where Outreach serves
+ * campaign management to a membership that may write campaigns, created, and opened, closed and
+ * staffed by their own admins.
  */
 export function Outreach() {
   const { facilityId, membershipId, permissions } = useDeptAccess()
@@ -49,6 +67,10 @@ export function Outreach() {
   const canReadCases = permissions.includes('outreach.registration.read')
   const canReadCampaigns = permissions.includes('outreach.campaign.read')
   const canWrite = permissions.includes('outreach.registration.write')
+  // Campaign management is offered only where Outreach says it serves it, and is never asked of anyone who may not use it.
+  const askGovernance = canReadCampaigns && permissions.includes('outreach.campaign.write')
+  const governance = useFacilityRead(facilityId, askGovernance, campaignsManaged, '')
+  const canManage = askGovernance && governance.value === true
   const campaigns = useFacilityRead(facilityId, canReadCampaigns, useCallback((id: string) => staffApi.outreachCampaigns(id), []), CAMPAIGNS_NOT_LOADED)
   const cases = useFacilityRead(facilityId, canReadCases, useCallback((id: string) => staffApi.outreachCases(id), []), CASES_NOT_LOADED)
   const caseAttempt = useRef<CaseAttempt>(null)
@@ -74,9 +96,10 @@ export function Outreach() {
       return { facilityId: facilityId ?? '', ids }
     })
   }, [facilityId])
-  // Only active registration campaigns containing this facility membership can take a case.
+  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a case.
   const caseCampaigns = useMemo(() => (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
-    && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
+    && campaign.services.includes('registration') && campaignOpenNow(campaign)
+    && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
   [campaigns.value, eligibleCampaigns, facilityId])
 
   // The view belongs to the facility it was opened at; another facility opens on its lists.
@@ -151,18 +174,28 @@ export function Outreach() {
         onNew={canWrite ? () => show({ kind: 'new' }) : undefined}
         onChanged={cases.refresh} onFocusHeading={focusHeadingIfLost} />
       : <RecordNotFound onBack={() => backToList()} />
+  } else if (view.kind === 'newCampaign' && canManage) {
+    content = <OutreachCampaignNew facilityId={facilityId} onBack={() => backToList('outreach-new-campaign')}
+      onUnsure={() => void campaigns.refresh()}
+      onCreated={created => {
+        void campaigns.refresh()
+        show({ kind: 'campaign', id: created.id, snapshot: created, created: true })
+      }} />
   } else if (view.kind === 'campaign' && canReadCampaigns) {
     const listed = campaigns.value?.find(campaign => campaign.id === view.id)
     const settled = campaigns.value !== null && !campaigns.loading && !campaigns.error
-    const campaign = listed ?? (!settled ? view.snapshot : null)
+    // A campaign just made shows from its answer until the list, read again, holds it.
+    const campaign = listed ?? (!settled || view.created ? view.snapshot : null)
     content = campaign
-      ? <OutreachCampaignView key={campaign.id} campaign={campaign} members={membersOf(campaign.id)}
+      ? <OutreachCampaignView key={campaign.id} facilityId={facilityId} campaign={campaign} members={membersOf(campaign.id)}
+        manage={canManage} created={view.created} onChanged={campaigns.refresh}
         onBack={() => backToList(`outreach-campaign-${campaign.id}-open`)} />
       : <RecordNotFound onBack={() => backToList()} />
   } else {
     content = (
       <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
         campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
+        onNewCampaign={canManage ? () => show({ kind: 'newCampaign' }) : undefined}
         onOpenCase={item => show({ kind: 'case', id: item.id, snapshot: item, created: false })}
         onOpenCampaign={campaign => show({ kind: 'campaign', id: campaign.id, snapshot: campaign })} />
     )
@@ -178,14 +211,6 @@ export function Outreach() {
       </div>
     </div>
   )
-}
-
-/** What the create form's answer said: the case made, and where its identity stands. */
-function createdText(created: OutreachCase | undefined) {
-  if (!created?.status) return 'Registration case created.'
-  return created.status === PENDING
-    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
-    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** The design's view of a record the list no longer holds. */
@@ -210,7 +235,7 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
-function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, campaignOf, onNew, onOpenCase, onOpenCampaign }: {
+function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, campaignOf, onNew, onNewCampaign, onOpenCase, onOpenCampaign }: {
   readonly canReadCases: boolean
   readonly canReadCampaigns: boolean
   readonly canWrite: boolean
@@ -218,6 +243,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   readonly campaigns: ListRead<OutreachCampaign>
   readonly campaignOf: (campaignId: string | undefined) => OutreachCampaign | undefined
   readonly onNew: () => void
+  /** Opens "New campaign", where Outreach serves campaign management to this membership. */
+  readonly onNewCampaign?: () => void
   readonly onOpenCase: (item: OutreachCase) => void
   readonly onOpenCampaign: (campaign: OutreachCampaign) => void
 }) {
@@ -289,11 +316,15 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
         ) : null}
         {canReadCampaigns ? (
           <section aria-labelledby="outreach-campaigns-heading" className="flex flex-col gap-3">
-            <h2 id="outreach-campaigns-heading" className="m-0 text-title-2 text-ink">Campaigns</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="outreach-campaigns-heading" className="m-0 text-title-2 text-ink">Campaigns</h2>
+              {onNewCampaign ? <Button id="outreach-new-campaign" icon={Plus} onClick={onNewCampaign}>New campaign</Button> : null}
+            </div>
             {campaigns.error && campaigns.value ? <Alert intent="error" title="Couldn’t refresh campaigns">{campaigns.error}</Alert> : null}
             <PageState loading={campaigns.loading} error={campaigns.value ? null : campaigns.error || null} hasData={campaigns.value !== null}
               onRetry={() => void campaigns.refresh()} what="campaigns" rows={2}
-              empty={campaigns.value?.length === 0 ? { icon: Megaphone, title: 'No campaigns yet', description: 'Campaigns this facility runs show here.' } : null}>
+              empty={campaigns.value?.length === 0 ? { icon: Megaphone, title: 'No campaigns yet', description: onNewCampaign
+                ? 'Create a campaign to plan outreach work. You become its first admin.' : 'Campaigns this facility runs show here.' } : null}>
               <Card as="div">
                 <ul aria-label="Campaigns" className="m-0 list-none divide-y divide-line p-0">
                   {(campaigns.value ?? []).map(campaign => (
@@ -302,7 +333,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
                         className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1.5 border-0 bg-transparent px-5 py-3.5 text-left text-ink hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
                         <span className="flex min-w-0 flex-[1_1_12rem] flex-col">
                           <span className="font-semibold break-words">{campaign.name}</span>
-                          <span className="text-[13px] text-ink-3">{campaign.services.length ? campaign.services.join(', ') : 'No services listed'} · starts {dateText(campaign.startsAt)}</span>
+                          <span className="text-[13px] text-ink-3">{servicesText(campaign.services)} · starts {dateText(campaign.startsAt)}</span>
                         </span>
                         <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaignStatusLabel(campaign.status)}</Badge>
                         <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />

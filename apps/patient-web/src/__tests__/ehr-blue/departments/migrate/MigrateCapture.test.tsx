@@ -57,6 +57,8 @@ beforeEach(() => {
   api.consentStatus.mockResolvedValue({ writeAllowed: true })
   api.encounters.mockResolvedValue({ items: [encounter, secondEncounter], nextCursor: null })
   api.documents.mockResolvedValue({ items: [clean, pending, initiated], nextCursor: null })
+  api.ocrExtractions.mockResolvedValue({ items: [] })
+  api.ocrValidations.mockResolvedValue({ items: [] })
 })
 
 async function press(button: HTMLElement) {
@@ -70,9 +72,18 @@ const focused = () => document.activeElement
 const descriptions = (control: HTMLElement) =>
   (control.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
 
+const queuedJob = { id: 'j0000000-0000-4000-8000-000000000001', documentId: DOCUMENT, patientId: PATIENT, provider: 'textract', version: 1,
+  status: 'queued', attemptCount: 0, maxAttempts: 3, patientConfirmation: null }
+
+/** Presses Extract with OCR on the clean discharge summary. */
+async function extract() {
+  await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Extract with OCR' }))
+}
+
 async function openDocuments() {
-  renderDept(<Migrate />)
+  const view = renderDept(<Migrate />)
   await screen.findByText('discharge-summary.pdf')
+  return view
 }
 
 function pdf(name = 'scan.pdf', type = 'application/pdf', body = '%PDF-1.7') {
@@ -293,21 +304,165 @@ describe('Patient documents: opening and extracting', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
-  it('Extract with OCR opens a new document job with the document and patient filled in', async () => {
+  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
     await openDocuments()
-    await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Extract with OCR' }))
-    expect(screen.getByRole('heading', { level: 1, name: 'New document job' })).toBeTruthy()
-    await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
-    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
-    expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
+    await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Open file' }))
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page was deleted with that sentence, and offers no download or OCR', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...clean, status: 'source_deleted' }], nextCursor: null })
+    await openDocuments()
+    const row = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(within(row).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
+  it('Extract with OCR sends the document for reading at once and opens it, with no form of IDs to fill in', async () => {
+    await openDocuments()
     api.findOcrJob.mockResolvedValue({ job: null })
-    api.createOcrJob.mockResolvedValue({ id: 'j0000000-0000-4000-8000-000000000001', documentId: DOCUMENT, patientId: PATIENT,
-      provider: 'textract', version: 1, status: 'queued' })
-    api.ocrExtractions.mockResolvedValue({ items: [] })
-    api.ocrValidations.mockResolvedValue({ items: [] })
-    await press(screen.getByRole('button', { name: 'Save record' }))
-    await screen.findByRole('heading', { name: 'Saved record' })
+    api.createOcrJob.mockResolvedValue(queuedJob)
+    await extract()
+    await screen.findByRole('heading', { name: 'Progress' })
+    await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
+    await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000001'])
+    expect(screen.queryByRole('heading', { name: 'New document job' })).toBeNull()
+    expect(screen.queryByLabelText(/^Patient ID/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.')
+    expect(screen.getAllByText('Waiting to be read').length).toBeGreaterThan(0)
+    expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy()
+    expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+    expect(api.createOcrJob).toHaveBeenCalledTimes(1)
     expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT, PATIENT)
+    expect(api.findOcrJob.mock.invocationCallOrder[0]!).toBeLessThan(api.createOcrJob.mock.invocationCallOrder[0]!)
+    expect(document.body.textContent).not.toMatch(/UUID/)
+  })
+
+  it('Extract with OCR on a document already sent for reading opens that reading and makes no other', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: { ...queuedJob, status: 'awaiting_validation', version: 3 } })
+    await extract()
+    await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('This document was sent for reading before, so that reading is shown.'))
+    expect(screen.getByRole('heading', { name: 'Progress' })).toBeTruthy()
+    expect(screen.getAllByText('Ready to check').length).toBeGreaterThan(0)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('Extract with OCR sends nothing when the document cannot be checked first, and says so', async () => {
+    await openDocuments()
+    api.findOcrJob.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
+    await extract()
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Patient documents' })).toBeTruthy()
+    expect(document.getElementById('ocr-status')?.textContent).toBe('')
+  })
+
+  it('Extract with OCR stays on the list and says why when OCR refuses the document', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockRejectedValue(new HidApiError(409, 'The document is not virus scan clean', { code: 'OCR_DOCUMENT_NOT_READY' }))
+    await extract()
+    expect((await screen.findByRole('alert')).textContent).toBe('This document hasn’t finished its virus check yet. Try again once it has.')
+    expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
+  })
+
+  it('Extract with OCR refused for want of the patient’s OK (403, or today’s 404) says what to do, plainly, on the list', async () => {
+    const SENTENCE = 'To bring in this patient’s paper records, ask the patient to approve access, share their records with you, or enter their Access PIN.'
+    for (const refusal of [new HidApiError(403, 'Records processing consent is required', { code: 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED' }),
+      new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })]) {
+      const view = await openDocuments()
+      api.findOcrJob.mockResolvedValue({ job: null })
+      api.createOcrJob.mockRejectedValue(refusal)
+      await extract()
+      expect((await screen.findByRole('alert')).textContent).toBe(SENTENCE)
+      expect(document.body.textContent).not.toContain('Records processing consent is required')
+      expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
+      view.unmount()
+    }
+  })
+
+  it('Extract with OCR shows only “Reading the page…” while it checks and sends, with nothing to press, then opens the reading', async () => {
+    await openDocuments()
+    let found!: (value: unknown) => void
+    api.findOcrJob.mockReturnValue(new Promise(resolve => { found = resolve }))
+    let answer!: (job: typeof queuedJob) => void
+    api.createOcrJob.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    await extract()
+    const only = () => {
+      expect(screen.getByText('Reading the page…').closest('[role="status"]')).toBeTruthy()
+      expect(screen.queryAllByRole('heading')).toEqual([])
+      expect(screen.queryAllByRole('button')).toEqual([])
+      expect(screen.queryAllByRole('textbox')).toEqual([])
+      expect(screen.queryAllByRole('alert')).toEqual([])
+      // Patient documents stays mounted, hidden, so nothing is read again when the list comes back.
+      expect(screen.getByRole('heading', { name: 'Patient documents', hidden: true }).closest('[hidden]')).toBeTruthy()
+    }
+    only()
+    await act(async () => { found({ job: null }) })
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    only()
+    await act(async () => { answer(queuedJob) })
+    await screen.findByRole('heading', { name: 'Progress' })
+    expect(screen.queryByText('Reading the page…')).toBeNull()
+    await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByRole('button', { name: 'Document ••••000001' })).toBeTruthy()
+  })
+
+  it('Extract with OCR refused comes back to the list as it was: the encounter kept, nothing read again', async () => {
+    await openDocuments()
+    fireEvent.change(within(card()).getByLabelText('Encounter'), { target: { value: secondEncounter.id } })
+    await screen.findByText('discharge-summary.pdf')
+    const reads = () => [api.lookupPatient, api.consentStatus, api.encounters, api.documents].map(fn => fn.mock.calls.length)
+    const before = reads()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockRejectedValue(new HidApiError(409, 'The document is not virus scan clean', { code: 'OCR_DOCUMENT_NOT_READY' }))
+    await extract()
+    expect((await screen.findByRole('alert')).textContent).toBe('This document hasn’t finished its virus check yet. Try again once it has.')
+    expect(screen.queryByText('Reading the page…')).toBeNull()
+    expect((within(card()).getByLabelText('Encounter') as HTMLSelectElement).value).toBe(secondEncounter.id)
+    expect(reads()).toEqual(before)
+  })
+
+  it('once the page stops checking a reading by itself, the notice no longer says it updates by itself', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue(queuedJob)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await extract()
+      await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
+      api.findOcrJob.mockResolvedValue({ job: queuedJob })
+      for (let left = 20 * 60_000 + 30_000; left > 0; left -= 5_000) await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      expect(screen.getByText('Still reading. Check again in a few minutes.')).toBeTruthy()
+      expect(document.getElementById('ocr-status')?.textContent).toBe('')
+    }
+    finally { vi.useRealTimers() }
+  })
+
+  it('once a check of a reading fails, the notice no longer says the page updates by itself', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue(queuedJob)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await extract()
+      await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
+      api.findOcrJob.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      await waitFor(() => expect(screen.getByText('The document’s progress couldn’t be checked just now. Choose Check now to try again.')).toBeTruthy())
+      expect(document.getElementById('ocr-status')?.textContent).toBe('')
+    }
+    finally { vi.useRealTimers() }
   })
 
   it('going to a job and back keeps the encounter and page chosen, and reads nothing again', async () => {
@@ -320,8 +475,9 @@ describe('Patient documents: opening and extracting', () => {
     await screen.findByText('discharge-summary.pdf')
     const reads = () => [api.lookupPatient, api.consentStatus, api.encounters, api.documents].map(fn => fn.mock.calls.length)
     const before = reads()
-    await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Extract with OCR' }))
-    expect(screen.getByRole('heading', { level: 1, name: 'New document job' })).toBeTruthy()
+    api.findOcrJob.mockResolvedValue({ job: { ...queuedJob, status: 'awaiting_validation', version: 3 } })
+    await extract()
+    await screen.findByRole('heading', { name: 'Progress' })
     expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
     await press(screen.getByRole('button', { name: 'Back to list' }))
     expect(screen.getByRole('heading', { name: 'Patient documents' })).toBeTruthy()
@@ -338,5 +494,18 @@ describe('Patient documents: opening and extracting', () => {
     await waitFor(() => expect(focused()).toBe(field))
     expect(field.value).toBe(DOCUMENT)
     expect(api.findOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('without OCR job write, Extract with OCR reads nothing by itself, however long the page stays open', async () => {
+    session.permissions = ['ocr.job.read', ...DOCUMENTS]
+    await openDocuments()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await extract()
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(api.findOcrJob).not.toHaveBeenCalled()
+      expect(api.createOcrJob).not.toHaveBeenCalled()
+    }
+    finally { vi.useRealTimers() }
   })
 })

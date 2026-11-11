@@ -61,7 +61,8 @@ window.fetch = async (input, init = {}) => {
       body = text ? JSON.parse(text) : undefined
     } catch { body = undefined }
   }
-  const hit = respond(method, path, workspace, { body, query: url.searchParams })
+  const requestHeaders = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined))
+  const hit = respond(method, path, workspace, { body, query: url.searchParams, headers: requestHeaders })
   if (hit && workspace === 'patient' && method === 'GET' && path === '/identity/me' && hit.body) hit.body = { ...hit.body, hasPhoto: previewPhoto !== null }
   if (!hit) {
     const key = `${method} ${path}`

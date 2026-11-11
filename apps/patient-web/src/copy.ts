@@ -39,4 +39,5 @@ export const PATIENT_REFUSALS: Readonly<Record<string, string>> = {
   PATIENT_RECENT_AUTH_REQUIRED: SAY.signInAgain,
   PATIENT_RECENT_RECOVERY_HOLD: 'For your safety, this isn’t available for 24 hours after you recover your account.',
   ACCESS_REQUEST_NOT_PENDING: 'This request was already decided. The list is up to date.',
+  CONSENT_COMMAND_CONFLICT: 'This was already decided or has ended. The list is up to date.',
 }

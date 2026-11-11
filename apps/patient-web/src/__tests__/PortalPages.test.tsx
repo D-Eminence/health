@@ -49,7 +49,7 @@ describe('patient portal pages', () => {
     const { unmount } = open('/records')
     await screen.findByRole('heading', { level: 1, name: 'Records' })
     expect(document.title).toBe('Health records · Health ID')
-    for (const [link, title] of [['Access & sharing', 'Access and consent · Health ID'],
+    for (const [link, title] of [['Access & sharing', 'Access & sharing · Health ID'],
       ['Profile', 'Your profile · Health ID'], ['Overview', 'Overview · Health ID']] as const) {
       fireEvent.click(nav().getByRole('link', { name: link }))
       await waitFor(() => expect(document.title).toBe(title))
@@ -82,7 +82,7 @@ describe('patient portal pages', () => {
 
   it('moves focus to the overview\'s heading from a page that does not exist', async () => {
     open('/no-such-page')
-    await press(await screen.findByRole('link', { name: 'Go to overview' }))
+    await press(await screen.findByRole('link', { name: 'Go to Home' }))
     // Home greets the patient by name.
     await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Ada$/ })
     expect(document.activeElement).toBe(pageHeading())

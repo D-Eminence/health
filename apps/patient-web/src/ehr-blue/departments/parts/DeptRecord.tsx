@@ -72,7 +72,10 @@ export interface DeptHistoryEntry {
   readonly detail?: ReactNode
 }
 
-/** "Preserved versions & amendments": each entry a native disclosure, so Enter and Space open it. */
+/**
+ * "Preserved versions & amendments": each entry a native disclosure, so Enter and Space open it.
+ * An entry with nothing to show is its summary line alone, not a control that opens to nothing.
+ */
 export function DeptHistory({ title = 'Preserved versions & amendments', entries, empty }: {
   readonly title?: string
   readonly entries: ReadonlyArray<DeptHistoryEntry>
@@ -82,10 +85,14 @@ export function DeptHistory({ title = 'Preserved versions & amendments', entries
   return (
     <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-history-card">
       <h2 className="hid-ehr-card-title">{title}</h2>
-      {entries.length === 0 ? <p className="hid-ehr-dept-muted">{empty}</p> : entries.map(entry => (
+      {entries.length === 0 ? <p className="hid-ehr-dept-muted">{empty}</p> : entries.map(entry => entry.detail === undefined ? (
+        <div key={entry.key} className="hid-ehr-dept-history">
+          <p className="hid-ehr-dept-history-line">{entry.summary}</p>
+        </div>
+      ) : (
         <details key={entry.key} className="hid-ehr-dept-history">
           <summary>{entry.summary}</summary>
-          {entry.detail !== undefined ? <div className="hid-ehr-dept-history-detail">{entry.detail}</div> : null}
+          <div className="hid-ehr-dept-history-detail">{entry.detail}</div>
         </details>
       ))}
     </section>

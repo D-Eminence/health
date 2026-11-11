@@ -23,8 +23,8 @@ interface RouteChoiceProps {
  * 2026-10-14, steps 2 to 4). Nothing is sent until they choose.
  */
 export function RouteChoice({ focusTarget, busy, online, onlineNote, facility, onSend, onFacility, onDifferentNin }: RouteChoiceProps) {
-  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-choose-title">
-    <h2 id="enroll-choose-title" ref={focusTarget} tabIndex={-1}>Prove this NIN is yours</h2>
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_p]:m-0" aria-labelledby="enroll-choose-title">
+    <h2 id="enroll-choose-title" ref={focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Prove this NIN is yours</h2>
     <p>We checked your NIN. Before we create a Health ID, prove that it is yours. Nothing is verified until you do.</p>
     <section className="flex flex-col gap-2 rounded-xl bg-subtle p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-online-title">
       <h3 id="enroll-online-title">Get a code by text message</h3>

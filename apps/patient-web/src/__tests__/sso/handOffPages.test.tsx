@@ -80,7 +80,7 @@ describe('with single sign-on unset (dark)', () => {
     [EHR, '/provider/patients', '/provider/sign-in?returnTo=%2Fprovider%2Fpatients'],
     [EHR, '/provider/sign-in?returnTo=%2Fprovider%2Fclinical', '/provider/sign-in?returnTo=%2Fprovider%2Fclinical'],
     [LAB, '/provider', '/provider/sign-in?returnTo=%2Fprovider'],
-    [APP, '/records', '/sign-in'],
+    [APP, '/records', '/sign-in?next=%2Frecords'],
     [APP, '/sign-in', '/sign-in'],
   ])('shows today’s sign-in on %s for %s, at today’s address', async (host, path, signInAddress) => {
     const sent = await openSignedOut(host, path)
@@ -211,6 +211,17 @@ describe('with single sign-on on, on app.', () => {
     await expectHandedOff(`${START}?return_to=%2F`)
   })
 
+  it.each([['/sign-in?next=%2Faccess', '%2Faccess'], ['/sign-in?next=%2Faccess%2Fshare', '%2Faccess%2Fshare']])(
+    'hands %s off coming back to the page it names, as "Sign in again" asks (SA-04)', async (path, returnTo) => {
+      await openSignedOut(APP, path)
+      await expectHandedOff(`${START}?return_to=${returnTo}`)
+    })
+
+  it('hands its sign-in entrance off coming back Home when the page it names may not be come back to', async () => {
+    await openSignedOut(APP, '/sign-in?next=%2Faccess%3Ftab%3Dgranted')
+    await expectHandedOff(`${START}?return_to=%2F`)
+  })
+
   it('checks the session before handing off, and hands nothing off for a patient already signed in', async () => {
     const patient = () => new Response(JSON.stringify({ actor: { kind: 'patient', subject: 'subject-a', patientId: 'patient-a', accountId: 'account-a' },
       expiresAt: '2026-11-30T12:00:00.000Z' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -233,7 +244,7 @@ describe('with single sign-on on, on app.', () => {
 describe('with single sign-on on, on a host that is not a product site', () => {
   beforeEach(() => { environment.ssoEnabled = true })
 
-  it.each([['localhost', '/provider/patients', '/provider/sign-in'], ['localhost', '/records', '/sign-in']])(
+  it.each([['localhost', '/provider/patients', '/provider/sign-in'], ['localhost', '/records', '/sign-in?next=%2Frecords']])(
     'shows today’s sign-in on %s for %s', async (host, path, signInAddress) => {
       const sent = await openSignedOut(host, path)
       await expectTodaysSignIn(sent)

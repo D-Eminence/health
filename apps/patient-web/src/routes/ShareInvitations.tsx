@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { Mail } from 'lucide-react'
-import { Badge, Button, Card, statusTone } from '../kasuwa/ui'
+import { Badge, Button, Card, EmptyState, statusTone } from '../kasuwa/ui'
 import { Actions, LoadProblem, Problem, Saved } from './profileParts'
 import { isHidApiError } from '@hid/http'
 import { useSession } from '../session'
@@ -14,6 +14,8 @@ import {
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { shareProblem } from './ShareRecords'
+import { needsRecentSignIn, SignInAgainButton } from './RecentSignIn'
+import { isAdult, shareCoversPaper, shareCoversPaperText } from '../paperRecordsWording'
 
 /**
  * "Invitations to share" on Access and consent (hid-1.0 parity B4, hid-system 0095; contract b45-contract.md §2.7): the
@@ -25,7 +27,7 @@ import { shareProblem } from './ShareRecords'
 const STATUS_WORDS: Readonly<Record<ShareInvitationStatus, string>> = {
   pending: 'Waiting for them to accept',
   accepted: 'Accepted · waiting for you to confirm',
-  confirmed: 'Confirmed · your records are shared',
+  confirmed: 'Confirmed',
   cancelled: 'Cancelled',
   expired: 'Expired',
 }
@@ -38,7 +40,23 @@ function sentAt(value: string) {
 
 const invitee = (item: ShareInvitation) => item.inviteeName ? `${item.inviteeName} (${item.inviteeEmail})` : item.inviteeEmail
 
-export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<unknown> | void }) {
+/**
+ * A confirmed invitation is final and stays listed for 30 days, while the share it made can end sooner (it ran out, or
+ * the patient ended it): said from who has access, once that is known (`activeGrants`), else only "Confirmed".
+ */
+function statusWords(item: ShareInvitation, activeGrants: ReadonlySet<string> | null | undefined): string {
+  if (item.status !== 'confirmed' || !activeGrants || !item.consentGrantId) return STATUS_WORDS[item.status]
+  return activeGrants.has(item.consentGrantId) ? 'Confirmed · your records are shared' : 'Confirmed · sharing has ended'
+}
+
+type Action = 'cancel' | 'confirm' | 'decline'
+const BUSY_WORDS: Readonly<Record<Action, string>> = { cancel: 'Cancelling…', decline: 'Declining…', confirm: 'Sharing…' }
+
+export function ShareInvitationsCard({ onShared, activeGrants }: {
+  onShared?: () => Promise<unknown> | void
+  /** The grants that give access now, from who has access; null while it is not known. */
+  activeGrants?: ReadonlySet<string> | null
+}) {
   const { api } = useSession()
   const load = useCallback((signal?: AbortSignal) => api.shareInvitations(signal).then(list => {
     learnShareServed(true)
@@ -49,8 +67,15 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
   }), [api])
   // Kept for the account under its own name: `load` is made again each time the card is.
   const invitations = usePatientResource<ShareInvitationList | null>(load, 'share-invitations')
-  const [working, setWorking] = useState<string | null>(null)
+  // Paper records are said only to an adult whose age is known (paperRecordsWording.ts), and only for an invitation
+  // whose level lets them add to the record.
+  const profile = usePatientResource(api.profile)
+  const adult = !profile.error && isAdult(profile.data?.dateOfBirth)
+  // The invitation being sent, and which of its buttons was pressed (that one shows it is busy).
+  const [working, setWorking] = useState<{ id: string; action: Action } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // A confirm refused for an old sign-in: the way through is offered with the words.
+  const [signInAgain, setSignInAgain] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
@@ -61,9 +86,9 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
   // Not served (404), or not known yet: nothing is shown, so today's backend shows the page as before.
   if (invitations.data === null && !invitations.error) return null
 
-  const act = async (item: ShareInvitation, action: 'cancel' | 'confirm' | 'decline') => {
+  const act = async (item: ShareInvitation, action: Action) => {
     if (working) return
-    setWorking(item.invitationId); setError(null); setNotice(null)
+    setWorking({ id: item.invitationId, action }); setError(null); setNotice(null); setSignInAgain(false)
     try {
       if (action === 'confirm') {
         const shared = await api.confirmShareInvitation(item.invitationId)
@@ -78,12 +103,16 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
     } catch (cause) {
       setError(shareProblem(cause, action === 'confirm' ? 'Couldn’t share your records. Try again.'
         : 'Couldn’t update the invitation. Try again.'))
-      focusAfter(() => document.getElementById(`${action}-invitation-${item.invitationId}`))
+      setSignInAgain(needsRecentSignIn(cause))
+      // Changed elsewhere (accepted, cancelled or ended meanwhile): the list is read again, so it shows where it stands.
+      if (isHidApiError(cause) && (cause.status === 404 || cause.status === 409)) await invitations.reload()
+      focusAfter(() => document.getElementById(`${action}-invitation-${item.invitationId}`) ?? heading.current)
     } finally { setWorking(null) }
   }
 
   const list = invitations.data
   const busy = !!working || invitations.loading
+  const pressed = (item: ShareInvitation, action: Action) => working?.id === item.invitationId && working.action === action
   return <Card aria-busy={(invitations.loading && list !== null) || undefined} aria-labelledby="share-invitations-heading">
     <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
       <div className="min-w-0">
@@ -95,12 +124,16 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
     {(invitations.error || error || notice) && <div className="flex flex-col gap-3 px-5 pt-4">
       {invitations.error && <LoadProblem what="invitations" error={invitations.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(invitations.reload)} />}
       {error && <Problem>{error}</Problem>}
+      {error && signInAgain && <SignInAgainButton back="/access?tab=granted" />}
     </div>}
     <div className="px-5 empty:hidden"><Saved>{notice}</Saved></div>
-    {list && !invitations.error && (list.items.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">No invitations yet.</p>
+    {list && !invitations.error && (list.items.length === 0 ? <EmptyState compact icon={Mail} title="No invitations yet"
+      description="Invite a doctor, nurse or clinician who isn’t on Health ID yet. Nothing is shared until you confirm."
+      action={<Button to="/access/share?by=email" size="sm" icon={Mail}>Invite by email</Button>} />
       : <ul className="m-0 list-none divide-y divide-line p-0">{list.items.map(item => <li key={item.invitationId} className="flex flex-col gap-3 px-5 py-4">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
+        {/* On a phone the status wraps below the name, so the name, address and offer keep the row's width. */}
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div className="min-w-0 flex-[1_1_12rem]">
             <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{invitee(item)}</p>
             <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[shareLevelLabel(item.level), shareDurationLabel(item.duration)].filter(Boolean).join(' · ')}</p>
             <p className="m-0 text-[13px] text-ink-3">Sent {sentAt(item.createdAt)}{item.status === 'pending' || item.status === 'accepted' ? ` · Ends ${shareDay(item.expiresAt)}` : ''}
@@ -109,16 +142,19 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
               {item.offer.clinicianName ?? 'A health worker'}, {SHARE_ROLE_LABELS[item.offer.role]} at {[item.offer.facilityName, item.offer.organizationName].filter(Boolean).join(', ')}.
               {item.offer.newOnHealthId && <> <Badge size="sm" tone="warn">New on Health ID</Badge></>}</p>}
           </div>
-          <Badge size="sm" tone={item.status === 'accepted' ? 'brand' : statusTone(item.status)}>{STATUS_WORDS[item.status]}</Badge>
+          <Badge size="sm" tone={item.status === 'accepted' ? 'brand' : statusTone(item.status)} className="h-auto! min-h-6 py-0.5 whitespace-normal!">{statusWords(item, activeGrants)}</Badge>
         </div>
         {item.status === 'pending' && <Actions>
-          <Button id={`cancel-invitation-${item.invitationId}`} size="sm" variant="danger" disabled={busy}
-            onClick={() => void act(item, 'cancel')}>Cancel invitation <ItemName>to {item.inviteeEmail}</ItemName></Button></Actions>}
+          <Button id={`cancel-invitation-${item.invitationId}`} size="sm" variant="danger" disabled={busy} loading={pressed(item, 'cancel')}
+            onClick={() => void act(item, 'cancel')}>{pressed(item, 'cancel') ? BUSY_WORDS.cancel : 'Cancel invitation'} <ItemName>to {item.inviteeEmail}</ItemName></Button></Actions>}
+        {item.status === 'accepted' && adult && shareCoversPaper(item.level)
+          && <p id={`invitation-paper-${item.invitationId}`} className="m-0 text-[13px] text-ink-3">{shareCoversPaperText(item.level)}</p>}
         {item.status === 'accepted' && <div className="grid grid-cols-2 gap-2">
-          <Button id={`decline-invitation-${item.invitationId}`} block disabled={busy}
-            onClick={() => void act(item, 'decline')}>Decline <ItemName>the invitation to {item.inviteeEmail}</ItemName></Button>
-          <Button id={`confirm-invitation-${item.invitationId}`} block variant="primary" disabled={busy}
-            onClick={() => void act(item, 'confirm')}>Confirm and share <ItemName>with {item.offer?.clinicianName ?? item.inviteeEmail}</ItemName></Button></div>}
+          <Button id={`decline-invitation-${item.invitationId}`} block disabled={busy} loading={pressed(item, 'decline')}
+            onClick={() => void act(item, 'decline')}>{pressed(item, 'decline') ? BUSY_WORDS.decline : 'Decline'} <ItemName>the invitation to {item.inviteeEmail}</ItemName></Button>
+          <Button id={`confirm-invitation-${item.invitationId}`} block variant="primary" disabled={busy} loading={pressed(item, 'confirm')}
+            aria-describedby={adult && shareCoversPaper(item.level) ? `invitation-paper-${item.invitationId}` : undefined}
+            onClick={() => void act(item, 'confirm')}>{pressed(item, 'confirm') ? BUSY_WORDS.confirm : 'Confirm and share'} <ItemName>with {item.offer?.clinicianName ?? item.inviteeEmail}</ItemName></Button></div>}
       </li>)}</ul>)}
     {list?.limits && <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-3">You can send {list.limits.remainingToday} more {list.limits.remainingToday === 1 ? 'invitation' : 'invitations'} today.</p>}
   </Card>

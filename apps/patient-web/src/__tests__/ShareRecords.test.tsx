@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import type { AccessHistory, PatientNotification } from '../api'
 import type { ShareInvitation, ShareProvider } from '../shareRecords'
@@ -7,6 +7,7 @@ import { ShareRecords } from '../routes/ShareRecords'
 import { AccessPage } from '../routes/Portal'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from '../routes/notificationTitles'
 import { forgetShareServed, shareServed } from '../shareServed'
+import { SHARE_COVERS_PAPER, SHARE_READS_PAPER } from '../paperRecordsWording'
 import { json, press, problem, renderPortal, shownText, type Handler } from './portalHarness'
 
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => true }))
@@ -103,7 +104,9 @@ describe('the share flow', () => {
     const post = sent.find(item => item.path === '/identity/me/shares')
     expect(post?.body).toEqual({ membershipId: providers[0]!.membershipId, level: 'clinical_collaboration', duration: 'until_revoked' })
     expect(headers.find(item => item.path === '/identity/me/shares')?.headers.get('Idempotency-Key')).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
-    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access')
+    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access?tab=granted')
+    // No preview of a provider page that no link opens yet (HCS-03: the card link is off, CARD_LINK_OPENS).
+    expect(screen.queryByRole('link', { name: /Preview what they see/ })).toBeNull()
   })
 
   it('asks for a recent sign-in in its own words, moves focus to the error, and sends the same key again', async () => {
@@ -194,6 +197,95 @@ describe('the share flow', () => {
   })
 })
 
+describe('paper records on the share screen (owner, 5 Nov 2026: shares count)', () => {
+  /** The share flow up to Check and share, the profile answering with `dateOfBirth` (or failing, with null and `fails`). */
+  async function toConfirm(dateOfBirth: string | null, fails = false, level: RegExp = /^Clinical Collaboration/) {
+    const { sent } = sharePage(path => {
+      if (path === '/identity/me') return fails ? problem(503, 'SERVICE_UNAVAILABLE', 'Down') : json({ hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth })
+      if (path === '/identity/me/share-providers/search') return json({ items: providers })
+      return problem(404, 'NOT_FOUND', path)
+    })
+    await screen.findByLabelText('Name of the clinician or facility')
+    type('Name of the clinician or facility', 'ada')
+    await press(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByLabelText(/Dr Ada Obi/))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('radio', { name: level }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Check and share' })
+    // The profile has answered before the line is looked for.
+    await waitFor(() => expect(sent.some(item => item.path === '/identity/me')).toBe(true))
+    await act(async () => { await Promise.resolve() })
+  }
+
+  it('is the decided sentence, word for word', () => {
+    expect(SHARE_COVERS_PAPER).toBe('Sharing also lets them add your old paper records to your Health ID while the share lasts.')
+    expect(SHARE_READS_PAPER).toBe('Sharing also lets them use Health ID to read your old paper records while the share lasts. Only someone you let make changes can add them to your record.')
+  })
+
+  it('is said to an adult on Check and share, in the same form as Share my records', async () => {
+    await toConfirm('1991-03-04')
+    const line = await screen.findByText(SHARE_COVERS_PAPER)
+    expect(line.closest('form')?.id).toBe('share-confirm')
+    expect(screen.getByRole('button', { name: 'Share my records' }).getAttribute('form')).toBe('share-confirm')
+  })
+
+  it('says View Only and Clinical Review let them read paper records but not add them', async () => {
+    await toConfirm('1991-03-04', false, /^View Only/)
+    expect(document.getElementById('share-confirm')?.textContent).toContain('View Only')
+    expect((await screen.findByText(SHARE_READS_PAPER)).closest('form')?.id).toBe('share-confirm')
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
+    cleanup()
+    forgetShareServed()
+    await toConfirm('1991-03-04', false, /^Clinical Review/)
+    expect(document.getElementById('share-confirm')?.textContent).toContain('Clinical Review')
+    expect(await screen.findByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
+  })
+
+  it('follows the level when it is changed from Check and share', async () => {
+    await toConfirm('1991-03-04', false, /^View Only/)
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
+    await press(screen.getByRole('button', { name: /^Change\s*what they can do$/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /^Clinical Collaboration/ }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Check and share' })
+    expect(screen.getByText(SHARE_COVERS_PAPER)).toBeTruthy()
+    await press(screen.getByRole('button', { name: /^Change\s*what they can do$/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /^View Only/ }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Check and share' })
+    expect(screen.getByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(screen.queryByText(SHARE_COVERS_PAPER)).toBeNull()
+  })
+
+  it('is said on the invite form for each level, to an adult', async () => {
+    const { sent } = sharePage(path => path === '/identity/me'
+      ? json({ hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth: '1991-03-04' }) : problem(404, 'NOT_FOUND', path))
+    await press(await screen.findByRole('button', { name: 'Can’t find them? Invite them by email' }))
+    await waitFor(() => expect(sent.some(item => item.path === '/identity/me')).toBe(true))
+    await act(async () => { await Promise.resolve() })
+    fireEvent.click(screen.getByRole('radio', { name: /^Clinical Review/ }))
+    expect(screen.getByText(SHARE_READS_PAPER).closest('form')?.id).toBe('share-invite')
+    fireEvent.click(screen.getByRole('radio', { name: /^Clinical Collaboration/ }))
+    expect(screen.getByText(SHARE_COVERS_PAPER).closest('form')?.id).toBe('share-invite')
+  })
+
+  it('is not said to someone under 18', async () => {
+    await toConfirm(`${new Date().getUTCFullYear() - 10}-01-01`)
+    expect(screen.queryByText(/paper records/)).toBeNull()
+  })
+
+  it('is not said while the age is unknown, nor when the profile could not be read', async () => {
+    await toConfirm(null)
+    expect(screen.queryByText(/paper records/)).toBeNull()
+    cleanup()
+    forgetShareServed()
+    await toConfirm('1991-03-04', true)
+    expect(screen.queryByText(/paper records/)).toBeNull()
+  })
+})
+
 describe('inviting a provider by email', () => {
   it('checks the address, sends the invitation with a key, and says delivery was not confirmed when it was not', async () => {
     const { sent, headers } = sharePage((path, method) => path === INVITATIONS && method === 'POST'
@@ -277,7 +369,8 @@ describe('Access and consent with sharing', () => {
       return json({ items: list, limits: LIMITS })
     })
     const section = await card()
-    expect(screen.getByRole('link', { name: 'Share records' }).getAttribute('href')).toBe('/access/share')
+    // The page's action, and the next step in the empty list of who has access.
+    for (const link of screen.getAllByRole('link', { name: 'Share records' })) expect(link.getAttribute('href')).toBe('/access/share')
     const rows = within(section).getAllByRole('listitem')
     expect(rows[0]!.textContent).toContain('Dr New (dr.new@example.com)')
     expect(rows[0]!.textContent).toContain('View Only · 7 days')
@@ -318,6 +411,43 @@ describe('Access and consent with sharing', () => {
     expect(sent.filter(item => item.method === 'POST').map(item => item.path)).toEqual([`${INVITATIONS}/inv-1/confirm`, `${INVITATIONS}/inv-1/confirm`])
   })
 
+  it('tells an adult about paper records next to Confirm and share, for Clinical Collaboration only', async () => {
+    const offer = { clinicianName: 'Dr Chidi Eze', role: 'doctor' as const, facilityName: 'Ikeja Hospital', organizationName: 'Ikeja Health',
+      newOnHealthId: false }
+    const accepted = (invitationId: string, level: ShareInvitation['level'], inviteeEmail: string) =>
+      invitation({ invitationId, level, inviteeEmail, status: 'accepted', acceptedAt: '2026-10-28T08:00:00Z', offer: { ...offer, clinicianName: inviteeEmail } })
+    const answer = (dateOfBirth: string | null) => async () => {
+      cleanup()
+      forgetShareServed()
+      renderPortal(<AccessPage />, path => {
+        if (path.startsWith(INVITATIONS)) return json({ items: [accepted('inv-1', 'view_only', 'a@example.com'),
+          accepted('inv-2', 'clinical_review', 'b@example.com'), accepted('inv-3', 'clinical_collaboration', 'c@example.com')], limits: LIMITS })
+        if (path === '/identity/me') return json({ hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth })
+        if (path === '/identity/me/access-history') return json({ items: [] })
+        return json([])
+      }, {}, { parityB4: true })
+      await press(within(screen.getByRole('navigation', { name: 'Access' })).getByRole('button', { name: /^Who has access/ }))
+      const section = await card()
+      await within(section).findByRole('button', { name: 'Confirm and share with c@example.com' })
+      await act(async () => { await Promise.resolve() })
+      return section
+    }
+    const section = await answer('1991-03-04')()
+    const line = await within(section).findByText(SHARE_COVERS_PAPER)
+    const rows = within(section).getAllByRole('listitem')
+    expect(within(rows[0]!).getByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(within(rows[1]!).getByText(SHARE_READS_PAPER)).toBeTruthy()
+    expect(within(rows[2]!).queryByText(SHARE_READS_PAPER)).toBeNull()
+    expect(rows[2]!.contains(line)).toBe(true)
+    expect(within(rows[2]!).getByRole('button', { name: 'Confirm and share with c@example.com' }).getAttribute('aria-describedby')).toBe(line.id)
+    expect(within(rows[0]!).getByRole('button', { name: 'Confirm and share with a@example.com' }).getAttribute('aria-describedby')).toBe(within(rows[0]!).getByText(SHARE_READS_PAPER).id)
+
+    const young = await answer(`${new Date().getUTCFullYear() - 10}-01-01`)()
+    expect(within(young).queryByText(/paper records/)).toBeNull()
+    const unknown = await answer(null)()
+    expect(within(unknown).queryByText(/paper records/)).toBeNull()
+  })
+
   it('shows neither the card nor the button where sharing is not served (404), and says nothing', async () => {
     await accessPage(() => problem(404, 'NOT_FOUND', 'Cannot GET'), { items: [] }, false)
     expect(await screen.findByText('Facilities you approve or share with appear here, with when their access ends.')).toBeTruthy()
@@ -335,9 +465,10 @@ describe('Access and consent with sharing', () => {
       grant('g-1', { clinicianName: 'Dr Ada Obi', shareLevel: 'view_only', shareDuration: 'until_revoked' }),
       grant('g-2', { shareLevel: null, shareDuration: null, clinicianName: null }),
     ] })
-    const history = (await screen.findByRole('heading', { name: '2 facilities have access now' })).closest('section') as HTMLElement
+    const history = (await screen.findByRole('heading', { name: 'Lagos General has access now' })).closest('section') as HTMLElement
     const rows = await within(history).findAllByRole('listitem')
-    expect(rows[0]!.textContent).toContain('Dr Ada Obi at Lagos General')
+    expect(within(history).getByRole('heading', { level: 3, name: 'Lagos General' })).toBeTruthy()
+    expect(rows[0]!.textContent).toContain('Dr Ada Obi')
     expect(rows[0]!.textContent).toContain('Shared by you · View Only · Until you end it')
     expect(within(rows[0]!).getByRole('button', { name: /^End access for Dr Ada Obi at Lagos General/ })).toBeTruthy()
     expect(rows[1]!.textContent).not.toContain('Shared by you')

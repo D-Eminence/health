@@ -33,8 +33,9 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * and can't complete), which no hid-system release serves yet; and phone and
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
- * the push keys as well: callers treat a 404 as "not available yet" and show
- * nothing.
+ * the push keys as well; and Outreach campaign management's governance and
+ * campaign staff reads (hid-system#222, migration 0111): callers treat a 404 as
+ * "not available yet" and show nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -94,6 +95,9 @@ const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 
 const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not served by hid-system main, and a backend before 0095 '
   + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
 /** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
+/** Allergies (EHR clinical safety): served from hid-system 0124; a backend before it answers 404, which the chart takes as not offered. */
+const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
+  + 'Direct care only (X-Purpose-Of-Use: direct-care) at the selected facility.'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -102,6 +106,21 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
+/**
+ * Outreach campaigns managed by their own admins (ADR-045 option B, hid-system#222, migration 0111): from then Identity
+ * accepts outreach.campaign.write, and only a campaign's admins open, close or add members to it (403
+ * OUTREACH_CAMPAIGN_ADMIN_REQUIRED otherwise). Not served before (404): the page then offers no campaign management.
+ */
+const OUTREACH_CAMPAIGN_ADMINS = 'Outreach campaign admins (hid-system#222, 0111); 404 before, and the page then offers no campaign management.'
+/**
+ * The same POST on a Novu build (hid-system staging-novu-ci-20261005, "Patient chat safety PR 1", #167): the staging
+ * contract, no notice or idempotency key.
+ */
+const NOVU_PATIENT_CHAT_NOTE = 'Novu (staging-novu-ci-20261005, hid-system #167): { question (1 to 500) } answers '
+  + "{ status: 'ready' | 'preparing', answer, sources, coverage? }; the answer ends with the server's \"Talk to your doctor\" "
+  + 'lines and sources lists only the cited ones, each with originLabel. 400 INVALID_QUESTION; 429 PATIENT_CHAT_RATE_LIMITED; '
+  + '409 CHAT_SOURCES_CHANGED, CHAT_CONVERSATION_CHANGED or CHAT_ACCESS_CHANGED (ask again); 503 PATIENT_CHAT_UNAVAILABLE or '
+  + 'PATIENT_CHAT_DISABLED.'
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
@@ -362,8 +381,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${RECORD_CHAT_NOTE} 200 { available: false } while off; no model call.`),
   r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P,false,undefined,
     `${RECORD_CHAT_NOTE} Needs Idempotency-Key (16 to 128 URL-safe characters) and { question (1 to 1000), noticeVersion } `
-    + 'taken from availability (428 CHAT_NOTICE_REQUIRED otherwise).'),
-  proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,CHAT_NOTE)),
+    + 'taken from availability (428 CHAT_NOTICE_REQUIRED otherwise). ' + NOVU_PATIENT_CHAT_NOTE),
+  proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,
+    `${CHAT_NOTE} From hid-system #167 (staging-novu-ci-20261005): only a source the current saved answer cites, as `
+    + '{ kind, id, kindLabel, title, recordedAt, effectiveAt, originLabel, provenance, items: [{ label, value }], notices }; '
+    + 'anything else 404 CHAT_SOURCE_UNAVAILABLE, and 503 CHAT_HISTORY_SOURCE_UNAVAILABLE while a service it needs is down.')),
   r('ehr.staffPatientChatAvailability','ehr','/api/v1/ehr/patients/:patientId/chat/availability',G,false,one('GET','ehr.record-chat.use'),
     `${STAFF_CHAT_NOTE} 200 { available: false } while off; otherwise names the categories this member's permissions let chat read (released) and the rest (withheld, Lab always among them). No model call.`),
   r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.record-chat.use'),
@@ -752,6 +774,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${PARITY_B3} Staff sessions with X-Facility-ID and X-Purpose-Of-Use: direct-care, while access to the patient is granted, `
     + 'authorised and audited as the chart reads are (a view in the patient\'s access log). 200 { bloodGroup, genotype, '
     + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
+  proposed(r('ehr.allergies','ehr','/api/v1/ehr/patients/:patientId/allergies',GP,false,
+    {GET:['ehr.note.read'],POST:['ehr.note.write']},
+    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[], patientReported: { allergies, updatedAt } }; POST { substance, reaction?, `
+    + 'severity } with Idempotency-Key, 201 the recorded allergy.')),
+  proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
+    one('POST','ehr.note.write'),
+    `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
+    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 412 VERSION_CONFLICT.')),
+  proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
+    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired }. A prescription that `
+    + 'matches is refused (409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED) until it carries allergyAcknowledgement { reason }.')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),
@@ -768,9 +801,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
   // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes
   // in it, then each photo or file goes up under it as staff uploads do (an upload link, a PUT of the exact bytes to it, a
-  // confirm). Until a backend serves them, and while patient uploads are off, each answers 404 NOT_FOUND (off looks the same
-  // as not built), and the portal sends no file at all. The entries are listed in ehr.myRecords' own answer, under
-  // `patientEntries`: there is no list route. The portal says each refusal in its own fixed words, by status and code
+  // confirm). Until a backend serves them, and while they are off, each answers 404 NOT_FOUND (off looks the same as not
+  // built), and the portal sends no file at all. The entries are listed in ehr.myRecords' own answer, under
+  // `patientEntries`: there is no list route. Uploads have a switch of their own: the portal offers them only once that
+  // answer carries `patientEntryFiles: true`. The portal says each refusal in its own fixed words, by status and code
   // alone, and never shows the server's.
   proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
     'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only, no facility. POST '
@@ -778,10 +812,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'in it, answers 201 { entry }; the same key with the same body replays it. A record the patient adds themselves, kept apart from '
     + 'clinicians\' and shown as "added by you". Not read back here: ehr.myRecords lists the entries under patientEntries [{ id, source: '
     + '\'patient\', kind, title, facilityName, occurredOn, notes, createdAt, documents[] }], newest first, removed entries left out; that '
-    + 'key, or a 201, says served. Until then the Save answers 404 NOT_FOUND and nothing is saved. While patient uploads are off (before '
-    + 'NDPA sign-off or migration 0110) the records answer leaves out patientEntries and every patient-entry route answers exactly as if '
-    + 'it were not built (404 NOT_FOUND): off must look the same as not built. The backend must not send patientEntries until uploads are '
-    + 'cleared under the NDPA: that one served signal turns on both the entries list and uploads.')),
+    + 'key, or a 201, says served and turns on text entries only. Until then the Save answers 404 NOT_FOUND and nothing is saved. While '
+    + 'patient entries are off (before migration 0110) the records answer leaves out patientEntries and every patient-entry route answers '
+    + 'exactly as if it were not built (404 NOT_FOUND): off must look the same as not built. Photos and files are a separate signal: the '
+    + 'portal offers uploads only once the records answer carries patientEntryFiles: true (exactly true; anything else says nothing, and '
+    + 'nothing turns it off for the page\'s life). Without it the drawer offers no picker and sends no upload request. While patient '
+    + 'uploads are off (before NDPA sign-off) the records answer leaves out patientEntryFiles (or sends false) and the upload-intent and complete routes '
+    + 'answer 404 NOT_FOUND. The backend must not send patientEntryFiles: true until uploads are cleared under the NDPA.')),
   proposed(r('ehr.myPatientEntryUploadIntent','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents',P,false,undefined,
     'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. Idempotency-Key, one per file. Body { fileName, '
     + 'mediaType: application/pdf | image/jpeg | image/png, sizeBytes (1 to 10485760 bytes; at most 5 files per entry), sha256Hex }; the server '
@@ -886,10 +923,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
-  r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read')),
+  r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
+    'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
+    + 'after 24 hours (no download is offered). An earlier backend never sends source_deleted.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
-  r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read')),
+  r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),
+    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 24 hours") '
+    + 'for a document whose source page was deleted; staffApi.documentDownload answers it as its own outcome, not an error.'),
   // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
   // price-list pictures (imageFileId). Proposed; 404 until served.
   // Any one of pharmacy.walk-in.create, lab.walk-in.create or billing.catalogue.manage (permissions here are all-required).
@@ -992,6 +1033,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ocr.publications','ocr','/api/v1/ocr/validations/:validationId/publications',GP,false,{GET:['ocr.job.read'],POST:['ocr.publication.write']}),
 
   r('outreach.campaigns','outreach','/api/v1/outreach/registration-cases/campaigns',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
+  proposed(r('outreach.campaignGovernance','outreach','/api/v1/outreach/registration-cases/campaigns/governance',G,false,one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGN_ADMINS} Answers { rule: 'campaign_admins' }.`)),
+  proposed(r('outreach.campaignStaff','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/staff',G,false,one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGN_ADMINS} Answers { yourRole, people: [{ membershipId, name, campaignRole }] }: a campaign's members by name, `
+    + 'and to its admins the facility\'s active staff who could be added (campaignRole null); a non-member is sent no one.')),
   r('outreach.campaignStatus','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/status',P,false,one('POST','outreach.campaign.write')),
   r('outreach.campaignMembers','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/members',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
@@ -1040,6 +1086,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
+  // Admin dashboard sections (contract of 11 Nov 2026): proposed, built alongside hid-system. Super admin only; every
+  // activity read is audited. Before they are served they answer 404, and the overview shows its totals alone; the two
+  // operations reads answer 503 not_configured until monitoring and error reporting are set up.
+  proposed({ ...r('admin.overviewActivity','admin','/api/v1/admin/overview/activity',G,false,one('GET','platform.dashboard.read'),
+    'days is 7, 30 or 90 (anything else is 400). Names, emails and Health IDs arrive shortened; full values never leave the database.'),
+    requiredQuery: { GET: ['days'] } }),
+  proposed(r('admin.operationsHealth','admin','/api/v1/admin/operations/health',G,false,one('GET','platform.dashboard.read'),
+    'Service availability and response times; 503 not_configured until monitoring is set up.')),
+  proposed(r('admin.operationsErrors','admin','/api/v1/admin/operations/errors',G,false,one('GET','platform.dashboard.read'),
+    'Open problems from error reporting; 503 not_configured until it is connected.')),
   r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
     'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),

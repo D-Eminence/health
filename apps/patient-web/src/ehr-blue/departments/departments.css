@@ -331,6 +331,12 @@
   cursor: pointer;
 }
 
+.hid-ehr .hid-ehr-dept-history-line {
+  margin: 0;
+  color: var(--ehr-text);
+  font-weight: 500;
+}
+
 .hid-ehr .hid-ehr-dept-history summary:focus-visible {
   outline: 3px solid var(--ehr-brand);
   outline-offset: 3px;
@@ -665,6 +671,13 @@
   margin: 0;
 }
 
+/* The page's can't-complete endings: over an open request, in that request's centred column (FormPage's 48rem). */
+.hid-ehr .hid-ehr-dept-laboratory-said-on-request {
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
 /* One execution's facts under its sample. */
 .hid-ehr .hid-ehr-dept-laboratory-execution {
   padding: 12px 0;
@@ -786,8 +799,220 @@
   font-size: 12px;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-reading {
+  display: grid;
+  gap: 20px;
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reading h3 {
+  margin: 0 0 6px;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-read-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+/* One line per item read: the words as written, then a small Check mark and Why? when it needs a check. */
+.hid-ehr .hid-ehr-dept-rows > li.hid-ehr-dept-migrate-line {
+  justify-content: flex-start;
+  gap: 8px 12px;
+  padding: 8px 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-mark {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why > summary,
+.hid-ehr .hid-ehr-dept-migrate-details > summary {
+  cursor: pointer;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-why[open] > span {
+  display: block;
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-details > p {
+  margin: 4px 0 0;
+}
+
+/* A word the reader is unsure of: dotted underline and a little muted, never a "?". */
+.hid-ehr .hid-ehr-dept-migrate-unsure {
+  color: var(--ehr-muted);
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* A part that couldn't be read ("dose"), or a "?" written on the paper: a small grey pill. */
+.hid-ehr .hid-ehr-dept-migrate-gap {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ehr-line);
+  color: var(--ehr-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  vertical-align: baseline;
+}
+
+/* Words crossed out on the paper. */
+.hid-ehr .hid-ehr-dept-migrate-crossed {
+  color: var(--ehr-muted);
+  font-weight: 400;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-review {
   align-items: flex-start;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-item > [role="group"] {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-head > strong {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-check-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Confirm the patient: a group of choices under a legend, with no fieldset frame and no min-content width. */
+.hid-ehr .hid-ehr-dept-migrate-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-group > legend {
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-people {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A patient to pick: who they are, then "This is the patient". Picked, the card takes the brand's line. */
+.hid-ehr .hid-ehr-dept-migrate-person {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--ehr-line-strong);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-person-picked {
+  border-color: var(--ehr-brand);
+  background: var(--ehr-surface-tint);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-person-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A choice: the round box before its words, at least 40px tall so a finger finds it. */
+.hid-ehr .hid-ehr-dept-migrate-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-choice input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-choice input:focus-visible {
+  outline: var(--ehr-focus-ring-width, 3px) solid var(--ehr-brand);
+  outline-offset: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-group > .hid-ehr-error {
+  margin: 4px 0 0;
+}
+
+/* Find by Health ID: the box after a fixed HID-, then its button. */
+.hid-ehr .hid-ehr-dept-migrate-find-patient {
+  display: grid;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-hid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-hid > span {
+  color: var(--ehr-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-hid > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-publication,
@@ -816,6 +1041,39 @@
 
 .hid-ehr .hid-ehr-dept-migrate-upload h3 {
   margin: 0;
+}
+
+/* All the page says while a document is sent for reading; the region stays mounted, empty, the rest of the time. */
+.hid-ehr .hid-ehr-dept-migrate-starting > p {
+  margin: 24px 0;
+  color: var(--ehr-text);
+  font-size: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-state {
+  margin: 0;
+}
+
+/* Details, at the end of a record: closed until opened, its extractions without a card of their own. */
+.hid-ehr .hid-ehr-dept-migrate-more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin: -12px 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more[open] > summary {
+  margin-bottom: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more > .hid-ehr-dept-history-card {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-quick {
@@ -864,6 +1122,23 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* A campaign refused the case: what happened, and the one way on (save without the campaign). */
+.hid-ehr .hid-ehr-dept-outreach-refused {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-refused:focus-visible {
+  outline: 2px solid var(--ehr-danger-300);
+  outline-offset: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-refused-text {
+  margin: 0;
 }
 
 /* A button that keeps its focus while it cannot be used (aria-disabled), dimmed as a disabled one. */

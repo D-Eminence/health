@@ -3,7 +3,7 @@
  * theme toggle. The theme follows the device (prefers-color-scheme); a change made with the toggle holds for the visit
  * only, since this repository persists nothing in browser storage.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Moon, Sun, X } from 'lucide-react'
 import { cx } from './ui'
 
@@ -20,6 +20,58 @@ function useLayer(open: boolean) {
     return () => { const i = openLayers.lastIndexOf(me); if (i >= 0) openLayers.splice(i, 1) }
   }, [open])
   return () => openLayers[openLayers.length - 1] === id.current
+}
+
+const CONTROLS = 'a[href], area[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable="true"]'
+
+/**
+ * The places Tab stops at inside `box`, in page order: enabled controls, links and anything given a tab index, that are
+ * shown. Of a group of radios only the one Tab stops at counts (the chosen one, or the first while none is), and inside
+ * a closed <details> only its summary.
+ */
+function tabStops(box: HTMLElement): HTMLElement[] {
+  const all = [...box.querySelectorAll<HTMLElement>(CONTROLS)]
+  const radioStop = new Map<string, HTMLInputElement>()
+  for (const element of all) {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) continue
+    const chosen = radioStop.get(element.name)
+    if (!chosen || (!chosen.checked && element.checked)) radioStop.set(element.name, element)
+  }
+  return all.filter(element => {
+    if (element.tabIndex < 0 || element.matches(':disabled') || element.closest('[inert], [hidden]')) return false
+    if (element instanceof HTMLInputElement && element.type === 'hidden') return false
+    if (element instanceof HTMLInputElement && element.type === 'radio' && element.name && radioStop.get(element.name) !== element) return false
+    const details = element.closest('details')
+    if (details && !details.open && !(element.tagName === 'SUMMARY' && element.parentElement === details)) return false
+    // A browser that can tell (Chromium, Safari, Firefox) leaves out what is not shown; jsdom shows everything.
+    const visible = (element as HTMLElement & { checkVisibility?: () => boolean }).checkVisibility
+    return typeof visible === 'function' ? visible.call(element) : true
+  })
+}
+
+/**
+ * A modal layer keeps keyboard focus inside it (WCAG 2.4.3; the page behind is under the backdrop): Tab from its last
+ * stop goes to its first, Shift+Tab from its first (or from its title, where focus lands as a drawer opens) goes to its
+ * last, and focus found outside it comes back in. Tab between its own stops is the browser's. For a keydown on the
+ * document while the layer is on top; a layer made inert or hidden under a lock screen stands down.
+ */
+export function keepTabInside(event: KeyboardEvent, box: HTMLElement | null) {
+  if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey || !box) return
+  // A layer under something that took the page over (the provider workspace's session check makes it hidden and inert)
+  // is not the one in use: the browser's Tab goes on to what is.
+  if (box.closest('[inert], [hidden]')) return
+  const stops = tabStops(box)
+  const active = document.activeElement
+  if (stops.length === 0) { event.preventDefault(); return }
+  const first = stops[0]!
+  const last = stops[stops.length - 1]!
+  if (!(active instanceof HTMLElement) || !box.contains(active)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return }
+  const onward = event.shiftKey
+    ? stops.some(stop => stop !== active && (stop.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)
+    : stops.some(stop => stop !== active && (active.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)
+  if (onward) return
+  event.preventDefault()
+  ;(event.shiftKey ? last : first).focus()
 }
 
 /**
@@ -39,7 +91,11 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   // Focus moves as the dialog is shown (a layout effect), so a key pressed at once lands inside it.
   useLayoutEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && topRef.current()) closeRef.current() }
+    const onKey = (e: KeyboardEvent) => {
+      if (!topRef.current()) return
+      if (e.key === 'Escape') closeRef.current()
+      else keepTabInside(e, ref.current)
+    }
     document.addEventListener('keydown', onKey)
     const previous = document.activeElement as HTMLElement | null
     const box = ref.current
@@ -64,8 +120,9 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
 /**
  * A drawer: the detail of one thing and what to do with it, without leaving the list (paytrail's Modal, side-docked).
- * From the right on a computer, a sheet from the bottom within thumb reach on a phone. Focus moves in as it opens and
- * back to what opened it as it closes; Escape and the backdrop close it.
+ * From the right on a computer, a sheet from the bottom within thumb reach on a phone. Focus moves in as it opens, stays
+ * inside while it is open (Tab and Shift+Tab go round its own controls), and goes back to what opened it as it closes;
+ * Escape and the backdrop close it.
  */
 export function Drawer({ open, onClose, title, description, icon, children, footer }: {
   open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; icon?: ReactNode; children?: ReactNode; footer?: ReactNode
@@ -77,7 +134,11 @@ export function Drawer({ open, onClose, title, description, icon, children, foot
   useEffect(() => { closeRef.current = onClose; topRef.current = onTop })
   useLayoutEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && topRef.current()) closeRef.current() }
+    const onKey = (e: KeyboardEvent) => {
+      if (!topRef.current()) return
+      if (e.key === 'Escape') closeRef.current()
+      else keepTabInside(e, ref.current)
+    }
     document.addEventListener('keydown', onKey)
     const previous = document.activeElement as HTMLElement | null
     const box = ref.current
@@ -114,11 +175,34 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
   </button>
 }
 
+/** The keys that move a one-of choice, and where each goes from `at` of `count`. */
+const SEGMENT_KEYS: Readonly<Record<string, (at: number, count: number) => number>> = {
+  ArrowRight: (at, count) => (at + 1) % count, ArrowDown: (at, count) => (at + 1) % count,
+  ArrowLeft: (at, count) => (at - 1 + count) % count, ArrowUp: (at, count) => (at - 1 + count) % count,
+  Home: () => 0, End: (_, count) => count - 1,
+}
+
+/**
+ * A choice of one, as a row of segments (role radiogroup). It is one Tab stop, the chosen option; the arrow keys, Home
+ * and End move the choice and focus with it, as the ARIA radio group pattern says.
+ */
 export function Segmented<T extends string>({ value, onChange, options, size = 'md', className, ariaLabel }: {
   value: T; onChange: (v: T) => void; options: ReadonlyArray<{ value: T; label: ReactNode }>; size?: 'sm' | 'md'; className?: string; ariaLabel: string
 }) {
+  const buttons = useRef<Array<HTMLButtonElement | null>>([])
+  const chosen = options.findIndex(o => o.value === value)
+  const stop = chosen >= 0 ? chosen : 0
+  const move = (at: number, event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const to = SEGMENT_KEYS[event.key]
+    if (!to || options.length === 0) return
+    event.preventDefault()
+    const next = to(at, options.length)
+    onChange(options[next]!.value)
+    buttons.current[next]?.focus()
+  }
   return <div role="radiogroup" aria-label={ariaLabel} className={cx('inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-lg bg-tray p-1', className)}>
-    {options.map(o => <button key={o.value} type="button" role="radio" aria-checked={value === o.value} onClick={() => onChange(o.value)}
+    {options.map((o, index) => <button key={o.value} ref={element => { buttons.current[index] = element }} type="button" role="radio"
+      aria-checked={value === o.value} tabIndex={index === stop ? 0 : -1} onClick={() => onChange(o.value)} onKeyDown={event => move(index, event)}
       className={cx('inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 px-3 font-medium whitespace-nowrap', size === 'sm' ? 'h-9 sm:h-7 text-[12px]' : 'h-10 sm:h-8 text-[13px]',
         value === o.value ? 'bg-surface text-ink shadow-[var(--shadow-xs)] ring-1 ring-line' : 'bg-transparent text-ink-3 hover:text-ink')}>{o.label}</button>)}
   </div>
