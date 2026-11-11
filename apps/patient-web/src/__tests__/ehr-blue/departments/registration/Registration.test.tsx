@@ -123,7 +123,7 @@ function fillNin({ nin = NIN, first = 'Patient', last = 'One', dob = '1990-01-02
   fireEvent.input(screen.getByLabelText(/^Date of birth/), { target: { value: dob } })
   if (desk) fillDesk()
 }
-/** The desk's contact for the patient and whether they have a Health ID (hid-system 0122): fictional. */
+/** The desk's contact for the patient and whether they have a Health ID (hid-system 0114): fictional. */
 function fillDesk({ hid = '' } = {}) {
   fireEvent.input(screen.getByLabelText(/^Phone/), { target: { value: '0803 123 4567' } })
   fireEvent.input(screen.getByLabelText(/^Address/), { target: { value: '3 Example Street' } })

@@ -3,13 +3,13 @@ import { isHidApiError } from '@hid/http'
 import { staffApi, type FacilityProfileRead, type FacilityProfileValues } from '../../staff/api'
 
 /**
- * The facility's details for Facility setup (hid-system 0122, collect-fields-contract.md §4): read once as the wizard
+ * The facility's details for Facility setup (hid-system 0114, collect-fields-contract.md §4): read once as the wizard
  * opens, shown and changed on its Facility step, listed on its Review step. Kept in the wizard's state only; Identity
  * holds the saved copy.
  *
  * - 'ready': the read answered (`read.profile` is null until the details are first given).
  * - 'kept': Identity keeps this facility's details itself (a governed or legacy facility, a sealed demo facility, or
- *   a backend before 0122, which answers 404): nothing can be changed here.
+ *   a backend before 0114, which answers 404): nothing can be changed here.
  * - 'failed': the read failed for a fault, and can be tried again.
  */
 export type ProfileState =

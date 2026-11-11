@@ -43,7 +43,7 @@ function ProfileDetails({ profile }: { readonly profile: ProfileState }) {
  */
 export function ReviewStep({ facility, profile, setup, onNext }: {
   readonly facility: Facility
-  /** The facility's details as Identity holds them (hid-system 0122): what the Facility step saved. */
+  /** The facility's details as Identity holds them (hid-system 0114): what the Facility step saved. */
   readonly profile: ProfileState
   readonly setup: SampleSetup | null
   readonly onNext: (() => void) | null

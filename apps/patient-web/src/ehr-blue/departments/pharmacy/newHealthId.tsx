@@ -19,7 +19,7 @@ import '../commerce/commerce.css'
  * this screen's memory.
  */
 
-/** The NIN check's fields, and the desk's contact and stated Health ID it now requires (hid-system 0122, DeskForm). */
+/** The NIN check's fields, and the desk's contact and stated Health ID it now requires (hid-system 0114, DeskForm). */
 interface Draft extends DeskForm {
   firstName: string; lastName: string; dateOfBirth: string; gender: '' | NonNullable<ResolveNinInput['gender']>
   nin: string; email: string; consent: boolean

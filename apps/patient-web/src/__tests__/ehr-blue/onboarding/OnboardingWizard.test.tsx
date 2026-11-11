@@ -9,7 +9,7 @@ import {
 /*
  * Facility setup, the design's nine-step wizard (screens 14-22), for the administrator of a fictional facility that
  * signed itself up, with the clinic switch on: its stepper, each step's heading and where focus goes, the live parts
- * (the facility's name and check from the session, its details read and saved through Identity (hid-system 0122),
+ * (the facility's name and check from the session, its details read and saved through Identity (hid-system 0114),
  * Staff & access through its own reads) and the sample steps, which send nothing. The sample steps (Type, Departments, Branches, Billing) are the demo facilities' alone (parity report
  * 3.2), and so is Launch, which sends nothing: a real facility has the four others, counted as four, and its last step,
  * Review, ends by going to Home.

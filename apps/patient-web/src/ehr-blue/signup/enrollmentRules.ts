@@ -168,7 +168,7 @@ export function refusalOf(reason: unknown, step: Step, activationUncertain: bool
     text: 'The security check didn’t go through. Please complete it again, then retry.' }
   if (code === 'PROVIDER_ENROLLMENT_DENIED') return { kind: 'message', text: STEP_UNAVAILABLE }
   if (code === 'VALIDATION_FAILED') return { kind: 'message', text: 'Some of the details weren’t accepted. Check them and try again.' }
-  // hid-system 0122: the facility details were refused by the database (the page's own checks should prevent it).
+  // hid-system 0114: the facility details were refused by the database (the page's own checks should prevent it).
   if (code === 'FACILITY_PROFILE_INVALID') return { kind: 'message', text: 'Check the facility details and try again.' }
   return { kind: 'message', text: plainErrorText(reason, 'We couldn’t complete facility sign-up. Please try again.',
     { statuses: { 401: 'This sign-up has timed out. Please start again.' }, audience: 'facility' }) }
@@ -246,13 +246,13 @@ export interface CodeCarries {
   organizationType: OrganizationType
   administratorName: string
   /**
-   * hid-system 0122: the role, phone and facility details the start sent, which are kept with the code it sent, as the
+   * hid-system 0114: the role, phone and facility details the start sent, which are kept with the code it sent, as the
    * type and name are (collect-fields-contract.md §2). Absent where the page did not send them.
    */
   collected?: CollectedDetails
 }
 
-/** What facility sign-up collects besides the details Identity keys a sign-up on (hid-system 0122). */
+/** What facility sign-up collects besides the details Identity keys a sign-up on (hid-system 0114). */
 export interface CollectedDetails {
   administratorRole: string
   administratorPhone: string

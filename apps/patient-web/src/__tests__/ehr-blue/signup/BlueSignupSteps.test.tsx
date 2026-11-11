@@ -11,7 +11,7 @@ import {
 
 /**
  * The blue facility registration (design screens 02-07) as today's live sign-up: the design's five steps, every field
- * collected and required (hid-system 0122), the confirm dialog, and today's start with today's payload and the collected
+ * collected and required (hid-system 0114), the confirm dialog, and today's start with today's payload and the collected
  * fields, and today's refusals. Every person, facility and address here is fictional.
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
@@ -48,7 +48,7 @@ const progress = () => screen.getByRole('group', { name: 'Registration progress'
 
 /**
  * Today's start body (staff/routes/ProviderEnrollment.tsx:615-623, api.ts:1486-1494), and the applicant's role and phone
- * and the facility's details that hid-system 0122 requires with it: nothing more.
+ * and the facility's details that hid-system 0114 requires with it: nothing more.
  */
 const PAYLOAD = { productCode: 'ehr', organizationType: 'hospital', cacRegistrationNumber: 'RC123456', administratorName: NAME,
   administratorEmail: EMAIL, turnstileToken: 'token-0', ...COLLECTED }
@@ -605,7 +605,7 @@ describe('a refusal of the start, in today’s words', () => {
 })
 
 /**
- * A changed facility type or administrator name, or changed collected details (hid-system 0122), go only with a new code
+ * A changed facility type or administrator name, or changed collected details (hid-system 0114), go only with a new code
  * (R6): when Identity sends none (codeSent false) and the code in force carries the earlier ones, today's page holds the change and offers that code
  * (ProviderEnrollment.tsx:726-735, 1058-1064). The blue registration shows it on Check and send.
  */
@@ -682,7 +682,7 @@ describe('another email for a sign-up that is open', () => {
   })
 })
 
-describe('changed facility details that Identity sent no code for (hid-system 0122)', () => {
+describe('changed facility details that Identity sent no code for (hid-system 0114)', () => {
   it('holds them as a changed type is held, and the code already sent brings back the details it carries', async () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', expiresInSeconds: 600,
       resendAfterSeconds: 0 })

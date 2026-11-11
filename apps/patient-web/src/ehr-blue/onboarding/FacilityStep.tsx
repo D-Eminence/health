@@ -17,7 +17,7 @@ const PREFIX = 'hid-ehr-onboarding-profile'
 
 /**
  * Step 1, Facility (screens 14): the facility's registered name as Health ID has it (from its CAC record, read-only)
- * and its details (hid-system 0122), read from Identity and saved there by "Save and continue", every field required.
+ * and its details (hid-system 0114), read from Identity and saved there by "Save and continue", every field required.
  * Where Identity keeps the details itself (a facility Health ID support manages, a demo facility) they are not shown,
  * and Continue goes on. While the details are read there is nothing to press; after a failed read the step says the
  * details are not saved, offers Try again first, and only then lets the administrator go on without them. The logo waits for the document store and its virus scanner and is not asked for. Where the

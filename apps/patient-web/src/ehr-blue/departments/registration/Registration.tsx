@@ -217,7 +217,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     if (!dateOfBirth) refused.push([FIELD.dob, NAME_DATE_REFUSED])
     if (!firstName) refused.push([FIELD.first, NAME_DATE_REFUSED])
     if (!lastName) refused.push([FIELD.last, NAME_DATE_REFUSED])
-    // hid-system 0122: the desk's contact and the stated Health ID, each refused at its field, after today's.
+    // hid-system 0114: the desk's contact and the stated Health ID, each refused at its field, after today's.
     const desk = deskFormFrom(data)
     for (const [field, problem] of deskProblems(desk)) refused.push([deskControlId(DESK_PREFIX, field), problem])
     if (refused.length) { ninProblems.refuse(refused); return }

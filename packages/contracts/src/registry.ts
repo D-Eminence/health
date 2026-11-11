@@ -105,13 +105,13 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
 /**
- * Collected sign-up fields (hid-system 0122, owner: "allow trading name, all fields required"): facility sign-up's role,
+ * Collected sign-up fields (hid-system 0114, owner: "allow trading name, all fields required"): facility sign-up's role,
  * phone and facility details, Facility setup's facility profile, and patient registration's desk fields. Novu only.
- * Released in three steps (contract 37.0): the 0122 backend, which takes the new sign-up and desk fields all or none (a
+ * Released in three steps (contract 37.0): the 0114 backend, which takes the new sign-up and desk fields all or none (a
  * partial set is refused) so the live website keeps working; then this website, which always sends every one; then a
- * follow-up backend that makes them required in the API. Before 0122 Identity refuses them as unknown fields.
+ * follow-up backend that makes them required in the API. Before 0114 Identity refuses them as unknown fields.
  */
-const COLLECTED_FIELDS = 'hid-system 0122 (claude/collect-signup-fields-be): Novu only; not served by hid-system main. '
+const COLLECTED_FIELDS = 'hid-system 0114 (claude/collect-signup-fields-be): Novu only; not served by hid-system main. '
   + 'The new sign-up and desk fields are all or none until the follow-up release makes them required.'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
@@ -553,7 +553,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'SHARE_INVITATION_NOT_PENDING.')),
   r('identity.registrationCapabilities','identity','/api/v1/identity/registration-capabilities',G,false,one('GET','identity.registration.write')),
   r('identity.resolveNin','identity','/api/v1/identity/nin/resolve',P,false,one('POST','identity.registration.write'),
-    `${COLLECTED_FIELDS} Body { nin, firstName, lastName, dateOfBirth, gender?, purpose } and, all or none from 0122 (required `
+    `${COLLECTED_FIELDS} Body { nin, firstName, lastName, dateOfBirth, gender?, purpose } and, all or none from 0114 (required `
     + 'after the follow-up release; the website always sends them), the desk fields { phone, addressLine, city, stateCode, lga, hasExistingHealthId, existingHealthId (exactly when '
     + 'hasExistingHealthId) }; the answer adds contactRecorded. Allergies are refused as an unknown field.'),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
@@ -576,7 +576,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
     + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
     + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
-  // The facility's details (hid-system 0122, collect-fields-contract.md §4): read and saved by Facility setup.
+  // The facility's details (hid-system 0114, collect-fields-contract.md §4): read and saved by Facility setup.
   proposed(r('identity.facilityProfile','identity','/api/v1/identity/facility-profile',GP,false,
     { GET: ['workforce.manage'], POST: ['workforce.manage'] },
     `${COLLECTED_FIELDS} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, CSRF on POST; only `

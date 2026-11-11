@@ -135,7 +135,7 @@ export function Registration() {
     if (!firstName || !lastName || !dateOfBirth) {
       ninProblems.refuse(!firstName ? 'registration-first' : !lastName ? 'registration-last' : 'registration-dob', 'Enter the patient’s name and date of birth.'); return
     }
-    // hid-system 0122: the desk's contact and the stated Health ID, required with the NIN check (DeskForm).
+    // hid-system 0114: the desk's contact and the stated Health ID, required with the NIN check (DeskForm).
     const desk = deskFormFrom(data)
     const deskProblem = deskProblems(desk)[0]
     if (deskProblem) { ninProblems.refuse(`registration-${deskProblem[0]}`, deskProblem[1]); return }

@@ -14,7 +14,7 @@ import { PHONE_REFUSED, phoneE164, REQUIRED as FIELD_REQUIRED } from '../collect
 import { profileControlId, ProfileFields } from '../collected/ProfileFields'
 
 /*
- * Every field of the design is collected (hid-system 0122; owner: "allow trading name, all fields required"), except
+ * Every field of the design is collected (hid-system 0114; owner: "allow trading name, all fields required"), except
  * the operating licence, CAC certificate and proof of address, which wait for the document store and its virus scanner
  * and are not shown at all until then.
  */
@@ -128,7 +128,7 @@ function Progress({ step }: { readonly step: number }) {
  * email and role, step 2 the facility's name and details and its type (today's five), step 3 its regulatory details and
  * the CAC number, step 4 the expected staff, the product (today's one per type) and two questions; step 5 reviews them
  * all, links the Terms of Service and Privacy Policy, and submits beside today's security check. Submitting asks first
- * (07), then runs the start, which sends every field (hid-system 0122). Every field is required.
+ * (07), then runs the start, which sends every field (hid-system 0114). Every field is required.
  */
 export function Registration({ e }: { readonly e: Enrollment }) {
   const stepHeading = useRef<HTMLHeadingElement>(null)

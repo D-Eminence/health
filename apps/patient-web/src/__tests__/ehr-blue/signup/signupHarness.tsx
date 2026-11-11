@@ -52,13 +52,13 @@ export async function toForm(entry?: string) {
 const type = (label: string, value: string) => fireEvent.change(textbox(label), { target: { value } })
 const choose = (label: string, value: string) => fireEvent.change(combobox(label), { target: { value } })
 
-/** Step 1's fields besides the name and email (hid-system 0122): the applicant's phone and role. */
+/** Step 1's fields besides the name and email (hid-system 0114): the applicant's phone and role. */
 export function fillAccountExtras() {
   type('Your phone', '0803 123 4567')
   choose('Role at the facility', 'owner')
 }
 
-/** Step 2's facility details (hid-system 0122), every one required. */
+/** Step 2's facility details (hid-system 0114), every one required. */
 export function fillFacilityDetails() {
   type('Facility name (the name people use)', '  Demo Hospital ')
   choose('Ownership', 'private')
@@ -79,7 +79,7 @@ export function fillFacilityDetails() {
   type('Services offered', 'Outpatient care and laboratory tests')
 }
 
-/** Step 3's regulatory details besides the CAC number (hid-system 0122). */
+/** Step 3's regulatory details besides the CAC number (hid-system 0114). */
 export function fillRegulatory() {
   type('State Ministry of Health licence number', 'LA/SMOH/1234')
   choose('Does the facility have a national facility registry ID?', 'no')
@@ -89,7 +89,7 @@ export function fillRegulatory() {
   type('NHIA accreditation number', 'NHIA-1234')
 }
 
-/** Step 4's questions besides the product (hid-system 0122). */
+/** Step 4's questions besides the product (hid-system 0114). */
 export function fillPlatform() {
   type('Expected number of staff', '25')
   choose('Will you bring records from an older system?', 'no')

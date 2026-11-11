@@ -35,7 +35,7 @@ export function stepEyebrow(index: number, steps: readonly StepName[] = STEPS): 
   return `Step ${index + 1} of ${steps.length} · ${steps[index] ?? STEPS[0]}`
 }
 
-/** The Facility step while the facility's details are read (hid-system 0122). */
+/** The Facility step while the facility's details are read (hid-system 0114). */
 export const PROFILE_LOADING = 'Getting your facility’s details…'
 
 /** Where Identity keeps the facility's details itself: a facility Health ID support manages, or a demo facility. */

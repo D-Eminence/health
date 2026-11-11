@@ -45,7 +45,7 @@ export function openingStep(rest: string, steps: readonly StepName[] = STEPS): n
  * again.
  *
  * Live where Health ID has an API: the facility's name and Health ID support's check (the session), its details on
- * the Facility step (hid-system 0122: read and saved there, listed on Review), and Staff & access on the Staff and Roles
+ * the Facility step (hid-system 0114: read and saved there, listed on Review), and Staff & access on the Staff and Roles
  * steps (today's staff API, through that page alone). The rest is a sample under the sample notice, and sends nothing:
  * Health ID does not keep the design's type, branches or billing policy, and has no launch step.
  *
@@ -69,7 +69,7 @@ export function FacilitySetup() {
   const step = Math.max(0, steps.indexOf(chosen))
   const name = steps[step] ?? STEPS[0]
   const [setup, setSetup] = useState<SampleSetup>(newSetup)
-  // The facility's details (hid-system 0122): read as the wizard opens, saved by its Facility step.
+  // The facility's details (hid-system 0114): read as the wizard opens, saved by its Facility step.
   const profile = useFacilityProfile(facility?.id)
   const root = useRef<HTMLDivElement>(null)
   const shown = useRef(name)

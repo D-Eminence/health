@@ -11,7 +11,7 @@ import { REAL_FACILITY, json, problem } from '../frame/blueHarness'
  */
 
 export const STAFF = 'GET /api/v1/identity/facility-staff'
-/** The facility's details (hid-system 0122), read as Facility setup opens and saved by its Facility step. */
+/** The facility's details (hid-system 0114), read as Facility setup opens and saved by its Facility step. */
 export const PROFILE = 'GET /api/v1/identity/facility-profile'
 export const SAVE_PROFILE = 'POST /api/v1/identity/facility-profile'
 export const RIVERSIDE = 'Riverside Teaching Hospital (fictional)'

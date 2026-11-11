@@ -171,7 +171,7 @@ export const NEXT_STEPS = 'Next steps'
 /** Goes to Patients with the patient's Health ID filled in, as classic registration's "Find … and open their chart". */
 export const OPEN_IN_PATIENTS = 'Open in Patients'
 /**
- * The desk's contact for the patient and the Health ID they say they have (hid-system 0122): named, required fields,
+ * The desk's contact for the patient and the Health ID they say they have (hid-system 0114): named, required fields,
  * whose labels are collected/deskFields.ts DESK_LABELS. The design's allergies are left to clinical records and its
  * "provisional local identity" is off (owner decisions D11, D12), so neither is shown.
  */

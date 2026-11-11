@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Registration } from './Registration'
 import { MemoryRouter } from 'react-router-dom'
 
-/** The desk's contact for the patient and whether they have a Health ID (hid-system 0122): fictional. */
+/** The desk's contact for the patient and whether they have a Health ID (hid-system 0114): fictional. */
 function fillDesk() {
   fireEvent.change(screen.getByLabelText(/^Phone/), { target: { value: '0803 123 4567' } })
   fireEvent.change(screen.getByLabelText(/^Address/), { target: { value: '3 Example Street' } })

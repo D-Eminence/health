@@ -5,7 +5,7 @@ import { NewHealthIdForm } from '../../../../ehr-blue/departments/pharmacy/newHe
 
 /*
  * A pharmacy's or laboratory's new Health ID sends the NIN check (`nin/resolve`), which needs the desk's contact for the
- * patient and whether they already have a Health ID (hid-system 0122, collect-fields-contract.md §3), as the
+ * patient and whether they already have a Health ID (hid-system 0114, collect-fields-contract.md §3), as the
  * Registration page does. Every person and number here is fictional.
  */
 

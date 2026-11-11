@@ -19,7 +19,7 @@ function required(label: string): ReactNode {
 /**
  * The design's create form ("New patients", 02-new and 03-new-patient-validation) as today's "Start with verified
  * identity" (Registration.tsx 229-239): today's fields, checks and words, and the design's phone, address and
- * existing Health ID as required fields (hid-system 0122, DeskFields). The design's allergies and "provisional local
+ * existing Health ID as required fields (hid-system 0114, DeskFields). The design's allergies and "provisional local
  * identity" are not asked (owner decisions D11, D12). Without NIN verification enabled, the form says so in today's
  * words and nothing can be sent.
  */

@@ -5,7 +5,7 @@ import {
 } from '../../../ehr-blue/collected/facilityProfile'
 import { deskProblems, deskValues, emptyDeskForm } from '../../../ehr-blue/collected/deskFields'
 
-/* The rules of the collected sign-up fields (hid-system 0122, collect-fields-contract.md §1, §3, §5). Fictional values. */
+/* The rules of the collected sign-up fields (hid-system 0114, collect-fields-contract.md §1, §3, §5). Fictional values. */
 
 const FILLED: FacilityProfileForm = {
   ...emptyProfileForm(), tradingName: ' Demo Clinic ', ownership: 'public', careLevel: 'primary', addressLine: '1 Example Road',

@@ -152,7 +152,7 @@ export type DepartmentCode = 'general_outpatient' | 'emergency' | 'inpatient' | 
 export type AdministratorRole = 'owner' | 'medical_director' | 'administrator' | 'other_authorised_representative'
 
 /**
- * A facility's details as Health ID collects them (hid-system 0122, collect-fields-contract.md §1): sent with
+ * A facility's details as Health ID collects them (hid-system 0114, collect-fields-contract.md §1): sent with
  * facility sign-up as `facilityProfile`, and read and saved by Facility setup after activation (facilityProfile). Every field is
  * required (owner: "allow trading name, all fields required"). The operating licence, CAC certificate, proof of address
  * and logo are not collected until the document store and its virus scanner exist, and are not shown at all.
@@ -186,7 +186,7 @@ export interface FacilityProfileValues {
   needsInteroperability: boolean
 }
 
-/** GET /api/v1/identity/facility-profile (hid-system 0122): the facility's details, null until first given. */
+/** GET /api/v1/identity/facility-profile (hid-system 0114): the facility's details, null until first given. */
 export interface FacilityProfileRead {
   facility: { id: string; name: string; reviewState: string }
   /** 0 while the facility has no profile; the If-Match of the next save. */
@@ -195,7 +195,8 @@ export interface FacilityProfileRead {
     source: 'self_service_signup' | 'facility_administrator'
     submitterRole: AdministratorRole | null
     submitterPhoneOnRecord: boolean
-    updatedAt: string
+    /** Null when Identity has no time for it (FacilityProfileView.updatedAt). */
+    updatedAt: string | null
     version: number
   }) | null
 }
@@ -215,8 +216,8 @@ export interface ResolveNinInput {
   dateOfBirth: string
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
   /**
-   * hid-system 0122 (Novu): the desk's contact for the patient, kept by the facility, unverified, never used for sign-in
-   * or recovery, and the Health ID the patient says they already have (collect-fields-contract.md §3). The 0122 backend
+   * hid-system 0114 (Novu): the desk's contact for the patient, kept by the facility, unverified, never used for sign-in
+   * or recovery, and the Health ID the patient says they already have (collect-fields-contract.md §3). The 0114 backend
    * takes them all or none (a partial set is refused) until a follow-up release makes them required; this website
    * always sends every one.
    */
@@ -1733,7 +1734,7 @@ export const providerEnrollmentApi = {
     administratorEmail: string
     turnstileToken: string
     /**
-     * hid-system 0122 (Novu): the applicant's role and phone and the facility's details (collect-fields-contract.md
+     * hid-system 0114 (Novu): the applicant's role and phone and the facility's details (collect-fields-contract.md
      * §2), taken all or none there until a follow-up release makes them required; the sign-up page always sends all
      * three. hid-system main refuses them as unknown fields.
      */
@@ -2005,7 +2006,7 @@ export const staffApi = {
   facilitySettings: (facilityId: string) =>
     client.get<FacilitySettings>('/api/v1/identity/facility-settings',
       { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
-  // The facility's details (hid-system 0122): its administrator (workforce.manage) at a self-signed-up facility only.
+  // The facility's details (hid-system 0114): its administrator (workforce.manage) at a self-signed-up facility only.
   facilityProfile: (facilityId: string) =>
     client.get<FacilityProfileRead>('/api/v1/identity/facility-profile',
       { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }),
