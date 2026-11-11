@@ -13,7 +13,7 @@ import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
-import { readingDeleted } from './readingDeleted'
+import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
@@ -224,6 +224,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [extractionId, setExtractionId] = useState(newestOf(extractions)?.id ?? '')
   const selected = extractions.find(item => item.id === extractionId) ?? newestOf(extractions)
   const reading = readingOf(selected)
+  const deleted = !!selected && readingDeleted(selected)
   const items = reviewItems(reading)
   const canAttachNote = !!job.patientId && permissions.includes('ehr.encounter.read')
   const offered = offeredDomains(reading, canAttachNote)
@@ -304,7 +305,10 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
             onChange={decision => { setDecisions(current => ({ ...current, [item.id]: decision })); setProblem(null) }} />)}
         </ul>
       </>
-      : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
+      : deleted
+        // A reading blanked after 24 hours has nothing to check: say so, not that nothing was picked out.
+        ? <p className="hid-ehr-dept-muted">{`${READING_DELETED}. You can keep the document only, or reject this reading.`}</p>
+        : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
     <UnreadableLines items={items} />
     {offered.length > 1
       ? <EhrField label="Save as" controlId="ocr-review-domain" hint={SAVE_AS_HINTS[saveAs]} error={problemText(problem, 'ocr-review-domain')}>
