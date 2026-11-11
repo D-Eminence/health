@@ -1265,7 +1265,7 @@ export interface OutreachCampaign {
 export type OutreachCampaignRole = 'enumerator' | 'health_worker' | 'admin'
 
 /**
- * A campaign's people as Outreach answers them from 0122 (hid-system#222): its members by name, and, to its admins,
+ * A campaign's people as Outreach answers them from 0111 (hid-system#222): its members by name, and, to its admins,
  * the facility's active staff who could be added (campaignRole null), with the caller's own role. A non-member is
  * sent no one.
  */
@@ -2307,7 +2307,7 @@ export const staffApi = {
     client.get<OutreachCampaignMember[]>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
       { headers: facilityHeaders(facilityId) }),
   /**
-   * How campaigns are managed: from 0122 (hid-system#222) `{ rule: 'campaign_admins' }`, a campaign's own admins open,
+   * How campaigns are managed: from 0111 (hid-system#222) `{ rule: 'campaign_admins' }`, a campaign's own admins open,
    * close and staff it. An older Outreach answers 404, and the page then offers no campaign management.
    */
   outreachCampaignGovernance: (facilityId: string) =>

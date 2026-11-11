@@ -38,7 +38,7 @@ export const LINK_FAILED = 'The patient could not be linked. Check your access t
 export const PENDING = 'identity_resolution_pending'
 
 /*
- * Campaign management (hid-system#222, 0122): a campaign's own admins open, close and staff it. Every refusal Outreach
+ * Campaign management (hid-system#222, 0111): a campaign's own admins open, close and staff it. Every refusal Outreach
  * gives it is said in words that tell the person what to do next, never its code.
  */
 export const STAFF_NOT_LOADED = 'Who is in this campaign could not be checked. Try again.'

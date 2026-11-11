@@ -20,7 +20,7 @@ const FIELD_ID: Record<CampaignField, string> = {
 const SERVICES_ID = 'outreach-campaign-services'
 
 /**
- * "New campaign" (hid-system#222, 0122): a name, the services the team will offer, and its dates, checked here as
+ * "New campaign" (hid-system#222, 0111): a name, the services the team will offer, and its dates, checked here as
  * Outreach checks them (CreateCampaignDto: a name of 2 to 200 characters, known services, an end after the start). The
  * person who creates it becomes its first admin. Dates are days in Nigerian time: it starts at the start of its first
  * day and ends at the end of its last. Outreach takes no Idempotency-Key here, so a create whose answer was lost is

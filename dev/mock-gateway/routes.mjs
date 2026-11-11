@@ -191,7 +191,7 @@ const pharmacyStock = {
 // Outreach: one active registration campaign this membership belongs to, and the cases registered in the field. Each
 // case carries `phone` and `operationalNotes` (null when none was given), as production's Outreach sends them.
 const outreachLinked = new Set(['oc-3'])
-// Campaign management (hid-system#222, 0122): the demo membership is camp-1's admin. What is created, opened, closed or
+// Campaign management (hid-system#222, 0111): the demo membership is camp-1's admin. What is created, opened, closed or
 // added lasts until the mock restarts.
 const outreachCampaignStore = [
   { id: 'camp-1', name: 'Ajegunle health week', status: 'active', services: ['registration', 'vitals'], startsAt: iso(-3 * DAY), endsAt: iso(4 * DAY), rowVersion: 2 },
@@ -205,7 +205,7 @@ const outreachMemberStore = new Map([
   ]],
   ['camp-2', [{ id: 'cm-3', campaignId: 'camp-2', membershipId: 'member-demo-7', role: 'admin', createdAt: iso(-1 * DAY) }]],
 ])
-// The facility's active staff, by name, as 0122's outreach.campaign_staff names them.
+// The facility's active staff, by name, as 0111's outreach.campaign_staff names them.
 const outreachFacilityStaff = [
   { membershipId: 'member-demo-1', name: 'Dr Tunde Bello' },
   { membershipId: 'member-demo-7', name: 'Nurse Bisi Adeyemi' },

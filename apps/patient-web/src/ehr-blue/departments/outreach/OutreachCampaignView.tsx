@@ -46,7 +46,7 @@ type ActionField = 'reason' | 'person'
 
 /**
  * A campaign as the design's record view, its members listed under it. Where Outreach serves campaign management
- * (`manage`: hid-system#222, 0122, and the membership may write campaigns), the campaign's own admins open it (once it
+ * (`manage`: hid-system#222, 0111, and the membership may write campaigns), the campaign's own admins open it (once it
  * has started), close it (for good, after a confirmation) and add people to it, each with what Outreach asks for; its
  * other members and staff are told that only its admins change it. Elsewhere it is read only, as before.
  */

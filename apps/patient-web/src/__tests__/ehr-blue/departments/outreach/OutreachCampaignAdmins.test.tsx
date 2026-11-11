@@ -6,7 +6,7 @@ import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { SAID_REFUSED } from '../../../said'
 
 /*
- * Outreach campaign management, where Outreach serves it (hid-system#222, migration 0122, ADR-045 option B): anyone
+ * Outreach campaign management, where Outreach serves it (hid-system#222, migration 0111, ADR-045 option B): anyone
  * who may write campaigns creates one and becomes its first admin; only a campaign's own admins open it, close it and
  * add people to it. Every account, facility, campaign and person here is fictional.
  */

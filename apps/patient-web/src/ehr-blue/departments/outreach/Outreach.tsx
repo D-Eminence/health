@@ -40,7 +40,7 @@ type View =
 type FocusRequest = { id?: string; ifLost: boolean }
 
 /**
- * Whether Outreach serves campaign management (hid-system#222, 0122: a campaign's own admins open, close and staff it).
+ * Whether Outreach serves campaign management (hid-system#222, 0111: a campaign's own admins open, close and staff it).
  * An Outreach before it answers 404, and the page then keeps campaigns read only.
  */
 async function campaignsManaged(facilityId: string): Promise<boolean> {
