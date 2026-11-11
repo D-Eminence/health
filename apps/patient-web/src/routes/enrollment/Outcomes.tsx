@@ -12,8 +12,8 @@ type Focus = (element: HTMLElement | null) => void
  * a correlation id (owner's rule, 1 Nov 2026).
  */
 export function AlreadyRegistered({ focusTarget }: { focusTarget: Focus }) {
-  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-registered-title">
-    <h2 id="enroll-registered-title" ref={focusTarget} tabIndex={-1}>This NIN already has a Health ID</h2>
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_p]:m-0" aria-labelledby="enroll-registered-title">
+    <h2 id="enroll-registered-title" ref={focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">This NIN already has a Health ID</h2>
     <p>We can't create another Health ID for this NIN. Use account recovery to get back into it.</p>
     <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/recover">Recover your account</Link>
     <Link className={buttonClass({ size: 'lg', block: true })} to="/sign-in">Sign in</Link>
@@ -31,8 +31,8 @@ export function AlreadyRegistered({ focusTarget }: { focusTarget: Focus }) {
  * no new paid lookup; one that is gone starts afresh.
  */
 export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: Focus; onStartAgain: () => void }) {
-  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-ended-title">
-    <h2 id="enroll-ended-title" ref={focusTarget} tabIndex={-1}>This registration has ended</h2>
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_p]:m-0" aria-labelledby="enroll-ended-title">
+    <h2 id="enroll-ended-title" ref={focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">This registration has ended</h2>
     <p>If the staff member told you this NIN already has a Health ID, use account recovery to get back into it.</p>
     <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/recover">Recover your account</Link>
     <Link className={buttonClass({ size: 'lg', block: true })} to="/sign-in">Sign in</Link>
@@ -50,8 +50,8 @@ export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: 
  * so it says nothing about anyone else's NIN.
  */
 export function RegistrationCompleted({ focusTarget }: { focusTarget: Focus }) {
-  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-completed-title">
-    <h2 id="enroll-completed-title" ref={focusTarget} tabIndex={-1}>This registration was completed</h2>
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_p]:m-0" aria-labelledby="enroll-completed-title">
+    <h2 id="enroll-completed-title" ref={focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">This registration was completed</h2>
     <p>A Health ID was created with this registration, so it can't be started again.</p>
     <p>Sign in with your email or Health ID and the password you chose. If you can't, or you don't have your Health ID, use account recovery.</p>
     <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/sign-in">Sign in</Link>

@@ -7,7 +7,7 @@ import { AddRecordDrawer } from '../routes/AddRecord'
 import {
   PATIENT_DOCUMENT_DAILY_LIMIT_CODE, PATIENT_DOCUMENT_DAILY_LIMIT_FILES, PATIENT_ENTRY_MAX_FILE_BYTES, PATIENT_ENTRY_MAX_FILES, PATIENT_ENTRY_MEDIA_TYPES,
 } from '../api'
-import { forgetPatientEntriesServed, patientEntriesServed } from '../patientEntriesServed'
+import { forgetPatientEntriesServed, learnPatientEntryFilesServed, patientEntriesServed } from '../patientEntriesServed'
 import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 import { NEVER_LEFT, PLAIN_JPEG, contains, gpsTaggedJpeg, metadataPng } from './photoFixtures'
 
@@ -151,7 +151,8 @@ const headerOf = (headers: ReturnType<typeof renderPortal>['headers'], path: str
   headers.filter(request => request.path === path && request.method === 'POST')[at]?.headers.get('Idempotency-Key')
 const intentPath = `${ENTRIES}/${ENTRY_ID}/documents/upload-intents`
 
-beforeEach(() => { forgetPatientEntriesServed(); log = []; vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:https://portal.test/${Math.random()}`); vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {}) })
+// Photos and files are on their own switch (patientEntryFilesServed): these tests are of the drawer with them taken.
+beforeEach(() => { forgetPatientEntriesServed(); learnPatientEntryFilesServed(); log = []; vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:https://portal.test/${Math.random()}`); vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {}) })
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('Add a record, before a backend serves it', () => {

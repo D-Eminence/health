@@ -65,7 +65,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
           {item.instructions ? <span className="text-[13px] text-ink-2 break-words">{item.instructions}</span> : null}
           <span className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-line pt-2 text-[13px]">
             <span className="min-w-0"><span className="sr-only">For </span><QueuePatient patient={item.patient} fallback={patientFallback} /></span>
-            <span className="text-ink-3 tabular" title={`Accepted ${when}`}>{item.dispensing ? `Accepted ${timeAgo(item.acceptedAt)}` : `Waiting ${timeAgo(item.acceptedAt).replace(/ ago$/, '')}`}</span>
+            <span className="text-ink-3 tabular" title={`Accepted ${when}`}>{item.dispensing ? `Accepted ${timeAgo(item.acceptedAt)}` : waitingText(item.acceptedAt)}</span>
           </span>
         </span>
         <ChevronRight className="mt-1 hidden size-5 shrink-0 text-ink-3 @sm:block" aria-hidden />
@@ -73,6 +73,22 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
       {below ? <div className="flex flex-col gap-2 border-t border-line px-4 py-3 @sm:px-5">{below}</div> : null}
     </li>
   )
+}
+
+/**
+ * How long a prescription has waited, as a sentence: "Waiting 25 min", "Waiting 2 days", "Waiting since 8 Oct";
+ * "Just accepted" in its first minute. Never "Waiting yesterday" or "Waiting 8 Oct".
+ */
+export function waitingText(acceptedAt: string, now = Date.now()): string {
+  const ago = timeAgo(acceptedAt, now)
+  if (!ago) return ''
+  if (ago === 'just now') return 'Just accepted'
+  // timeAgo's "yesterday" is any time 24 to 48 hours ago, which can be two calendar days back: say the days instead.
+  if (ago === 'yesterday') {
+    const days = Math.round((now - Date.parse(acceptedAt)) / 86_400_000)
+    return `Waiting ${days} day${days === 1 ? '' : 's'}`
+  }
+  return ago.endsWith(' ago') ? `Waiting ${ago.slice(0, -' ago'.length)}` : `Waiting since ${ago}`
 }
 
 /** The cards: one column on a phone, two on a counter tablet, three on a wide screen. */

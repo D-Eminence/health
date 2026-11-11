@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { HealthIdCode } from '../routes/HealthIdCode'
+import { described } from './portalHarness'
 
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+
+// The status line is always there (empty until a copy), so a test waits for what it says, not for the line itself:
+// found at once, it was read before the copy's answer had been drawn, and failed now and then.
 
 describe('the Health ID on the profile and the dashboard', () => {
   it('is plain text with no Copy HID button, and a click copies exactly the code', async () => {
@@ -18,7 +22,7 @@ describe('the Health ID on the profile and the dashboard', () => {
 
     fireEvent.click(code)
 
-    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Health ID copied.'))
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
   })
 
@@ -32,7 +36,7 @@ describe('the Health ID on the profile and the dashboard', () => {
 
     fireEvent.keyDown(code, { key })
 
-    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Health ID copied.'))
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
   })
 
@@ -50,6 +54,62 @@ describe('the Health ID on the profile and the dashboard', () => {
     fireEvent.click(screen.getByText('HID-AB2C3D'))
     expect((await screen.findByRole('alert')).textContent).toContain('Press and hold your Health ID to copy it')
   })
+
+  // HCS-23: a screen reader user hears what the control does, not only the code; the visible code stays its name.
+  it('tells assistive technology that pressing it copies the Health ID', () => {
+    render(<HealthIdCode code="HID-AB2C3D" />)
+    const code = screen.getByRole('button', { name: 'HID-AB2C3D' })
+    expect(described(code)).toBe('Copies your Health ID')
+  })
+
+  // HCS-23: "Health ID copied." is printed on the card; it says so for a few seconds, not for as long as the page is open.
+  it('clears "Health ID copied." after a few seconds', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } })
+    render(<HealthIdCode code="HID-AB2C3D" />)
+    await act(async () => { fireEvent.click(screen.getByText('HID-AB2C3D')) })
+    expect(screen.getByRole('status').textContent).toBe('Health ID copied.')
+    await act(async () => { vi.advanceTimersByTime(2_000) })
+    expect(screen.getByRole('status').textContent).toBe('Health ID copied.')
+    await act(async () => { vi.advanceTimersByTime(1_500) })
+    expect(screen.getByRole('status').textContent).toBe('')
+  })
+
+  it('keeps the advice to copy by hand on screen: it is not timed out', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => { throw new Error('denied') }) } })
+    render(<HealthIdCode code="HID-AB2C3D" />)
+    await act(async () => { fireEvent.click(screen.getByText('HID-AB2C3D')) })
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(screen.getByRole('alert').textContent).toContain('Press and hold your Health ID to copy it')
+  })
+
+  // R2-HCS-23: on the card face the advice was cut off at the card's edge. Given a place outside the card, the advice is
+  // printed there, whole, and stays there; nothing about it is left inside the code's own block.
+  it('prints the advice to copy by hand in the place it is given, outside the card, and keeps it there', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => { throw new Error('denied') }) } })
+    const outside = document.createElement('div')
+    document.body.append(outside)
+    const { container } = render(<HealthIdCode code="HID-AB2C3D" adviceIn={outside} />)
+    await act(async () => { fireEvent.click(screen.getByText('HID-AB2C3D')) })
+    const alert = screen.getByRole('alert')
+    expect(outside.contains(alert)).toBe(true)
+    expect(container.contains(alert)).toBe(false)
+    expect(alert.textContent).toBe('Copying is not available here. Press and hold your Health ID to copy it, or write it down.')
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(outside.contains(screen.getByRole('alert'))).toBe(true)
+    outside.remove()
+  })
+
+  it('stops its timer when it is no longer shown', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } })
+    const { unmount } = render(<HealthIdCode code="HID-AB2C3D" />)
+    await act(async () => { fireEvent.click(screen.getByText('HID-AB2C3D')) })
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
 })
 
 describe('the Health ID on the sign-up screens (as hid-1.0)', () => {
@@ -64,7 +124,7 @@ describe('the Health ID on the sign-up screens (as hid-1.0)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy your Health ID' }))
 
-    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Health ID copied.'))
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
     expect(screen.getByRole('button', { name: 'Copied your Health ID' })).toBeTruthy()
   })
@@ -82,6 +142,29 @@ describe('the Health ID on the sign-up screens (as hid-1.0)', () => {
     render(<HealthIdCode code="HID-AB2C3D" copyButton />)
     fireEvent.click(screen.getByRole('button', { name: 'Copy your Health ID' }))
     expect(await screen.findByRole('alert')).toBeTruthy()
+  })
+
+  // HCS-23: the button says "Copied" for a few seconds, then offers to copy again.
+  it('offers Copy again a few seconds after copying', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } })
+    render(<HealthIdCode code="HID-AB2C3D" copyButton />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy your Health ID' })) })
+    expect(screen.getByRole('button', { name: 'Copied your Health ID' })).toBeTruthy()
+    await act(async () => { vi.advanceTimersByTime(3_500) })
+    expect(screen.getByRole('button', { name: 'Copy your Health ID' })).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('')
+  })
+
+  // SO-14: at 320px the new Health ID broke at its hyphen ("HID-" / "SMP4821"), on the one screen that may not show it
+  // again. It stays on one line, a little smaller on a narrow screen, and Copy goes under it when they do not fit side by
+  // side. (jsdom lays nothing out: the classes that do it are checked.)
+  it('keeps the Health ID on one line on a narrow screen, with Copy under it when both do not fit', () => {
+    render(<HealthIdCode code="HID-SMP4821" copyButton />)
+    const code = screen.getByText('HID-SMP4821')
+    expect(code.className.split(' ')).toEqual(expect.arrayContaining(['whitespace-nowrap', 'text-[clamp(18px,6vw,22px)]']))
+    expect(code.className).not.toMatch(/(^| )text-\[22px\]( |$)/)
+    expect(code.parentElement!.className.split(' ')).toContain('flex-wrap')
   })
 
   it('shows nothing, and offers nothing to copy, when there is no code', () => {

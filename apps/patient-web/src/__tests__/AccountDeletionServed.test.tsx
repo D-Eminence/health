@@ -79,7 +79,8 @@ describe('account deletion on Novu', () => {
     // The profile's last section, under More, which the link to it opens; what it needs first, in one short sentence.
     expect(title.closest('section')?.id).toBe('account-deletion')
     expect(title.closest('details')?.open).toBe(true)
-    expect(screen.getByText('For your safety, sign out, sign in again, then come back within 10 minutes.')).toBeTruthy()
+    // The rule, as the Access PIN states it; how to sign in again is said only with a refusal (PPS-09).
+    expect(screen.getByText('You must have signed in within the last 10 minutes to delete your account.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
     await press(screen.getByRole('button', { name: 'Continue to delete account' }))

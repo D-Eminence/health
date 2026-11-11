@@ -259,7 +259,9 @@ describe('Migrate list view', () => {
     fireEvent.change(field, { target: { value: 'HID-ZDEMAAA2' } })
     await press(button('Find job'))
     await waitFor(() => expect(focused()).toBe(field))
-    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter a valid document ID (a UUID).')
+    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe('This needs the document ID, not a Health ID.')
+    // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     expect(api.findOcrJob).not.toHaveBeenCalled()
   })
 
@@ -656,6 +658,8 @@ describe('Migrate: creating a job (New document job), picked, never typed', () =
     expect(within(form()).queryAllByRole('textbox')).toEqual([])
     expect(form().textContent).not.toMatch(UUID)
     expect(document.body.textContent).not.toMatch(/UUID/)
+    // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
   })
 
   it('only a document whose virus check is clean can be chosen; the others say why', async () => {
@@ -993,6 +997,8 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     expect(descriptions(pick)[0]).toBe('Choose the patient on the paper.')
     await press(pick)
     await press(submit)
+    // No placeholder, label or message says UUID or canonical (owner's answer on IDs: no internal terms on screen).
+    expect(document.body.innerHTML).not.toMatch(/uuid|canonical/i)
     const first = screen.getByRole('radio', { name: 'Name and date of birth match' })
     await waitFor(() => expect(focused()).toBe(first))
     expect(descriptions(first)).toEqual(['Choose how you checked.'])

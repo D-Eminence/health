@@ -15,6 +15,11 @@ import { isHidApiError } from '@hid/http'
  * list. Held in memory for the page's life, as shareServed.ts holds its own.
  *
  * `null` until an answer has said either (treated as not served). Once served, it stays served for the page's life.
+ *
+ * Photos and files are a second, separate signal (the coordinator's decision of 4 November): being served says only that
+ * text entries work. Uploads are offered only once a records answer has carried `patientEntryFiles: true`
+ * (patientEntryFilesServed below); a Save's 201 says nothing of them. So with `patientEntries` and no such flag, "Added
+ * by you" and the drawer's text entry work, and the drawer offers no photo or file picker and sends no upload request.
  */
 type Served = boolean | null
 
@@ -42,9 +47,32 @@ export function usePatientEntriesServed(): Served {
   return useSyncExternalStore(subscribe, patientEntriesServed, patientEntriesServed)
 }
 
-/** For tests: forget what was learned, as a new page would. */
+/**
+ * Whether the backend takes the photos and files of a patient's own records (their upload link, the PUT and the
+ * confirm), as this page has learned it: only the records answer (GET ehr/me/records) carrying `patientEntryFiles` as
+ * exactly `true` says so. Anything else (the key missing, `false`, a string) says nothing, and nothing ever says they are
+ * not taken: `false` until the flag is seen, then `true` for the page's life. Held in memory only, like the rest here.
+ */
+let filesServed = false
+
+/** Records that a records answer carried `patientEntryFiles: true`. Never turned off again. */
+export function learnPatientEntryFilesServed(): void {
+  if (filesServed) return
+  filesServed = true
+  changed()
+}
+
+export function patientEntryFilesServed(): boolean { return filesServed }
+
+/** The same, re-rendering the caller when it is learned. */
+export function usePatientEntryFilesServed(): boolean {
+  return useSyncExternalStore(subscribe, patientEntryFilesServed, patientEntryFilesServed)
+}
+
+/** For tests: forget what was learned (both signals), as a new page would. */
 export function forgetPatientEntriesServed(): void {
   served = null
+  filesServed = false
   changed()
 }
 

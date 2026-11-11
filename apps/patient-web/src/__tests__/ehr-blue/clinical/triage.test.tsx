@@ -752,7 +752,7 @@ describe('Triage & Vitals record', () => {
     await openRecord()
     expect(await screen.findByText('Corrected (correction 2)')).toBeTruthy()
     const card = saved()
-    expect(within(card).getByText('118/76')).toBeTruthy()
+    expect(await within(card).findByText('118/76')).toBeTruthy()
     expect(within(card).getByText('Repeat reading')).toBeTruthy()
     expect(within(card).queryByText('120/80')).toBeNull()
     const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!

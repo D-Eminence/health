@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ChevronRight, CircleCheck, CircleDashed, ListChecks } from 'lucide-react'
 import type { ProfileCompletion } from './profileCompletion'
 import { ItemName } from '../ItemName'
+import { LoadingRows } from '../kasuwa/parts'
 
 /**
  * "Profile completion" (hid-1.0 parity B3): the percentage, a bar, and what is still missing, each a link to where it
@@ -31,4 +32,14 @@ export function ProfileCompletionCard({ completion, compact = false }: { complet
       <Link to={item.href} className="flex min-h-11 items-center gap-3 px-5 py-2.5 text-[13px] font-medium text-ink no-underline hover:bg-subtle">
         <CircleDashed className="size-4 shrink-0 text-ink-3" aria-hidden /><span className="flex-1">{item.label}</span><ChevronRight className="size-4 text-ink-3" aria-hidden /></Link></li>)}</ul>}
   </section>
+}
+
+/**
+ * The completion's place while the reads it counts are still out (PPS-06): a card of about its height with a polite
+ * loading status, so About you and the sections under it, first on a phone, do not jump down when it comes.
+ */
+export function ProfileCompletionPending() {
+  return <div className="overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line">
+    <LoadingRows rows={2} label="Loading your profile completion" />
+  </div>
 }

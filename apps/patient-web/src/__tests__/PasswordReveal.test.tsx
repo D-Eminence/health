@@ -73,7 +73,9 @@ describe('showing the password', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })
     expect(signIn).toHaveBeenCalledWith('ada@example.test', 'typed-secret-123', 'turnstile-token')
-    expect(await screen.findByRole('alert')).toBeTruthy()
+    // The refusal describes the password, where focus moves (launch audit SO-03).
+    await waitFor(() => expect(document.getElementById('sign-in-error')).toBeTruthy())
+    expect(document.activeElement).toBe(password)
     expect(password.type).toBe('password')
     expect(password.value).toBe('typed-secret-123')
   })

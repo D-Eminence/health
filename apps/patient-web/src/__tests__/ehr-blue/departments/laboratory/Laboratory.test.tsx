@@ -1167,6 +1167,31 @@ describe('testing and results', () => {
     await waitFor(() => expect(api.labResultHistory).toHaveBeenCalledTimes(2))
   })
 
+  // Today's Laboratory page offers the history only with lab.result.released.read (the server refuses it otherwise).
+  it('reads and shows the result history with lab.result.released.read alone, no step permission needed', async () => {
+    const result = publishedResult()
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    api.labResultHistory.mockResolvedValue(result)
+    await openReceived([...ACCESSION, 'lab.execution.read', 'lab.result.released.read'])
+    const history = cardOf(/^Preserved versions & amendments/)
+    fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+    expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
+  })
+
+  it('offers no result history, and never reads it, without lab.result.released.read', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    api.labResultHistory.mockResolvedValue(publishedResult())
+    const card = await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.released.read'))
+    // The result itself is still there to read: only its history is left out.
+    expect(within(card).getByText('Hemoglobin')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /^Preserved versions & amendments/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'View result history' })).toBeNull()
+    expect(screen.queryByText('Every version of this result is kept. View the history to read them.')).toBeNull()
+    expect(screen.queryByText(/result history/i)).toBeNull()
+    expect(api.labResultHistory).not.toHaveBeenCalled()
+  })
+
   it('reads the record again when the history read is refused', async () => {
     api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: publishedResult() })] })
       .mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
@@ -1557,6 +1582,25 @@ describe('work from another facility', () => {
     expect(stageCard().textContent).not.toMatch(/Your role can’t/)
   })
 
+  // An ended order takes away only the permissions that write; reading a result's history is not one of them, so it
+  // stays, as on today's Laboratory page.
+  it('still offers and reads the result history on an ended order, with lab.result.released.read', async () => {
+    as(PROCESSING)
+    const result = publishedResult()
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'],
+      orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'order_changed' }) as LabWorkItem['orderRoute'] })]))
+    api.labAccession.mockResolvedValue(accession([specimen('received')]))
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    api.labResultHistory.mockResolvedValue(result)
+    renderPage()
+    await openRecord()
+    expect(screen.getByText('This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.')).toBeTruthy()
+    const history = (await screen.findByRole('heading', { name: /^Preserved versions & amendments/ })).closest('section') as HTMLElement
+    fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+    expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
+  })
+
   it('says work on orders from other facilities is paused', async () => {
     api.labWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     renderPage()
@@ -1627,6 +1671,165 @@ describe('ending an order from its request', () => {
     expect(routes.cannotComplete).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'lab', { id: ROUTE_ID, version: 3 },
       { reason: 'supplies_unavailable', confirmedPatient: true }, expect.any(String))
     await waitFor(() => expect(screen.queryByRole('button', { name: /, Haemoglobin$/ })).toBeNull())
+  })
+
+  it('keeps the request open, read only, after an ending that kept its reads, as today, and says the ending on it with focus', async () => {
+    as(RECEIVE)
+    // After the ending, the list still holds the work (its reads are kept for 7 days), closed for work.
+    const kept = routed({ orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'receiving_unable', version: 4 }) as LabWorkItem['orderRoute'] })
+    api.labWorkItems.mockResolvedValueOnce(answer([routed(), local], { cannotComplete: true }))
+      .mockResolvedValue(answer([kept, local], { cannotComplete: true }))
+    routes.cannotComplete.mockResolvedValue({ route: { id: ROUTE_ID, version: 4, effectiveState: 'cancelled', endedKind: 'receiving_unable' },
+      reason: 'supplies_unavailable', readUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), specimensCollected: 0,
+      resultsRecorded: 0, criticalCandidates: 0, replayed: false })
+    renderPage()
+    await openRecord()
+    fireEvent.click(await screen.findByRole('button', { name: `${CC}: Haemoglobin, Ref 9C1B2D3E` }))
+    const form = screen.getByRole('form', { name: 'End this order: we can’t complete it' })
+    fireEvent.click(within(form).getByRole('radio', { name: 'Reagents or test kits have run out' }))
+    fireEvent.click(within(form).getByRole('checkbox', { name: /^The person we accepted this/ }))
+    fireEvent.click(within(form).getByRole('button', { name: 'End it: we can’t complete it' }))
+    const ended = await screen.findByText(/^Ended: Haemoglobin, reference 9C1B2D3E\./)
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    // Today's Operations.tsx:959-964: the request stays open; its address and its one heading stay.
+    expect(where()).toBe(`${WORK_LIST}/w-routed`)
+    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Haemoglobin'])
+    // What was said is on the page shown, not in the hidden list, and has focus.
+    expect(ended.closest('[hidden]')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(ended))
+    // Read only now: nothing more can be recorded, and no ending is offered again.
+    expect(await screen.findByText('This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: new RegExp(`^${CC}`) })).toBeNull()
+    expect(screen.queryByRole('button', { name: new RegExp(`^${WP}`) })).toBeNull()
+  })
+
+  /** "We can’t complete this order" on the open Haemoglobin request: a reason, the patient confirmed, End it. */
+  async function endItCantComplete(test = 'Haemoglobin', reference = '9C1B2D3E') {
+    fireEvent.click(await screen.findByRole('button', { name: `${CC}: ${test}, Ref ${reference}` }))
+    const form = screen.getByRole('form', { name: 'End this order: we can’t complete it' })
+    fireEvent.click(within(form).getByRole('radio', { name: 'Reagents or test kits have run out' }))
+    fireEvent.click(within(form).getByRole('checkbox', { name: /^The person we accepted this/ }))
+    fireEvent.click(within(form).getByRole('button', { name: 'End it: we can’t complete it' }))
+    return screen.findByText(new RegExp(`^Ended: ${test}, reference ${reference}\\.`))
+  }
+  const endedAnswer = (readUntil: string, id = ROUTE_ID) => ({ route: { id, version: 4, effectiveState: 'cancelled', endedKind: 'receiving_unable' },
+    reason: 'supplies_unavailable', readUntil, specimensCollected: 0, resultsRecorded: 0, criticalCandidates: 0, replayed: false })
+  const IN_7_DAYS = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const READ_ONLY = 'This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.'
+  const keptRoute = () => routed({ orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'receiving_unable', version: 4 }) as LabWorkItem['orderRoute'] })
+
+  it('closes the request at once after an ending whose reads ended, before the list is read again', async () => {
+    as(RECEIVE)
+    const refreshed = deferred<ReturnType<typeof answer>>()
+    api.labWorkItems.mockResolvedValueOnce(answer([routed(), local], { cannotComplete: true })).mockReturnValue(refreshed.promise)
+    routes.cannotComplete.mockResolvedValue(endedAnswer(new Date(Date.now() - 1000).toISOString()))
+    renderPage()
+    await openRecord()
+    await endItCantComplete()
+    // The list is being read again, and has not answered: the request has already gone.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Work list' })).toBeTruthy()
+    expect(api.labWorkItems).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeNull()
+    expect(where()).toBe(`${WORK_LIST}?stage=collect`)
+    refreshed.resolve(answer([local], { cannotComplete: true }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /, Haemoglobin$/ })).toBeNull())
+    // Closed on the list, focus goes back to the list's heading.
+    fireEvent.click(screen.getByRole('button', { name: 'Close: Haemoglobin, Ref 9C1B2D3E' }))
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('lab-work-title')))
+  })
+
+  it('is read only at once after an ending that kept its reads, before the list is read again, and if that read fails', async () => {
+    as(RECEIVE)
+    const refreshed = deferred<ReturnType<typeof answer>>()
+    api.labWorkItems.mockResolvedValueOnce(answer([routed(), local], { cannotComplete: true })).mockReturnValue(refreshed.promise)
+    routes.cannotComplete.mockResolvedValue(endedAnswer(IN_7_DAYS()))
+    renderPage()
+    await openRecord()
+    const ended = await endItCantComplete()
+    expect(api.labWorkItems).toHaveBeenCalledTimes(2)
+    // The list still says the order is open for work, but this page has ended it: nothing more is offered on it.
+    expect(where()).toBe(`${WORK_LIST}/w-routed`)
+    expect(screen.getByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: new RegExp(`^${CC}`) })).toBeNull()
+    expect(screen.queryByRole('button', { name: new RegExp(`^${WP}`) })).toBeNull()
+    expect(screen.queryByRole('form', { name: 'End this order: we can’t complete it' })).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(ended))
+    refreshed.reject(new Error('offline'))
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: new RegExp(`^${CC}`) })).toBeNull()
+  })
+
+  it('says an ending only on its own request: another request leaves it hidden, and the list shows it again', async () => {
+    as(RECEIVE)
+    api.labWorkItems.mockResolvedValueOnce(answer([routed(), local], { cannotComplete: true }))
+      .mockResolvedValue(answer([keptRoute(), local], { cannotComplete: true }))
+    routes.cannotComplete.mockResolvedValue(endedAnswer(IN_7_DAYS()))
+    renderPage()
+    await openRecord()
+    const ended = await endItCantComplete()
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    expect(ended.closest('[hidden]')).toBeNull()
+    // Over the request, in the request's own column.
+    expect(ended.closest('.hid-ehr-dept-laboratory-said-on-request')).not.toBeNull()
+    fireEvent.click(screen.getByRole('link', { name: 'Back to the work list' }))
+    await screen.findByRole('heading', { level: 1, name: 'Work list' })
+    expect(ended.closest('[hidden]')).toBeNull()
+    expect(ended.closest('.hid-ehr-dept-laboratory-said-on-request')).toBeNull()
+    // Another patient's request: the ending stays mounted (it is not said again) but is not shown on it.
+    await openRecord('Malaria parasite')
+    expect(ended.isConnected).toBe(true)
+    expect(ended.closest('[hidden]')).not.toBeNull()
+    // With no ending of its own to say, nothing of the endings' box is left above it.
+    expect(ended.closest('.hid-ehr-dept-embedded')!.closest('[hidden]')).not.toBeNull()
+    expect(document.activeElement).not.toBe(ended)
+    fireEvent.click(screen.getByRole('link', { name: 'Back to the work list' }))
+    await screen.findByRole('heading', { level: 1, name: 'Work list' })
+    expect(ended.closest('[hidden]')).toBeNull()
+    expect(document.activeElement).not.toBe(ended)
+  })
+
+  it('on a request it ended, says only that request’s ending, not another order’s', async () => {
+    as(RECEIVE)
+    const ROUTE_2 = '7a1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5f'
+    const second = (overrides: Record<string, unknown> = {}) => routed({ id: 'w-routed-2', testName: 'Full blood count',
+      patientId: 'a0000000-0000-4000-8000-000000cc22dd', orderRoute: routeCard({ id: ROUTE_2, reference: '7A1B2D3E', ...overrides }) as LabWorkItem['orderRoute'] })
+    const keptSecond = second({ effectiveState: 'cancelled', access: 'read', endedKind: 'receiving_unable', version: 4 })
+    api.labWorkItems.mockResolvedValueOnce(answer([routed(), second(), local], { cannotComplete: true }))
+      .mockResolvedValueOnce(answer([keptRoute(), second(), local], { cannotComplete: true }))
+      .mockResolvedValue(answer([keptRoute(), keptSecond, local], { cannotComplete: true }))
+    routes.cannotComplete.mockResolvedValueOnce(endedAnswer(IN_7_DAYS())).mockResolvedValueOnce(endedAnswer(IN_7_DAYS(), ROUTE_2))
+    renderPage()
+    await openRecord()
+    const first = await endItCantComplete()
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('link', { name: 'Back to the work list' }))
+    await screen.findByRole('heading', { level: 1, name: 'Work list' })
+    await openRecord('Full blood count')
+    const other = await endItCantComplete('Full blood count', '7A1B2D3E')
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(3))
+    expect(other.closest('[hidden]')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(other))
+    // Haemoglobin's ending, about Patient One, stays mounted but is not shown on this request.
+    expect(first.isConnected).toBe(true)
+    expect(first.closest('[hidden]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('link', { name: 'Back to the work list' }))
+    await screen.findByRole('heading', { level: 1, name: 'Work list' })
+    expect(first.closest('[hidden]')).toBeNull()
+    expect(other.closest('[hidden]')).toBeNull()
+  })
+
+  it('puts focus back on the request’s heading when its ending is closed', async () => {
+    as(RECEIVE)
+    api.labWorkItems.mockResolvedValueOnce(answer([routed(), local], { cannotComplete: true }))
+      .mockResolvedValue(answer([keptRoute(), local], { cannotComplete: true }))
+    routes.cannotComplete.mockResolvedValue(endedAnswer(IN_7_DAYS()))
+    renderPage()
+    await openRecord()
+    const ended = await endItCantComplete()
+    await waitFor(() => expect(document.activeElement).toBe(ended))
+    fireEvent.click(screen.getByRole('button', { name: 'Close: Haemoglobin, Ref 9C1B2D3E' }))
+    await waitFor(() => expect(screen.queryByText(/^Ended: Haemoglobin/)).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('lab-record-title')))
   })
 
   it('ends an order accepted for the wrong person, then says so above the list', async () => {
@@ -1782,5 +1985,78 @@ describe('payment settings', () => {
     renderPage()
     await waitFor(() => expect(paymentSettings).toHaveBeenCalled())
     await waitFor(() => expect(cardButton('Haemoglobin').textContent).toMatch(/Take payment/))
+  })
+})
+
+describe('Visit rehearsal (11 Nov): the doctor’s clinical information reaches the lab', () => {
+  // As the rehearsal's doctor wrote it on the request; Lab keeps it on the work item (clinical_indication).
+  const WHY = 'Fever 3 days, 38.6 °C. No antimalarial taken yet.'
+  const withIndication = (clinicalIndication: unknown) => ({ ...workItem(), clinicalIndication }) as LabWorkItem
+
+  async function openWith(item: LabWorkItem, permissions = ACCESSION) {
+    as(permissions)
+    api.labWorkItems.mockResolvedValue({ items: [item] })
+    renderPage()
+    await openRecord()
+    return stageCard()
+  }
+
+  it('shows it under the request, and registers the sample with it, without asking the scientist to type it again', async () => {
+    const created = { ...accession([specimen('required')]) }
+    api.createLabAccession.mockResolvedValue(created)
+    api.labAccession.mockResolvedValue(created)
+    const card = await openWith(withIndication(`  ${WHY} `))
+    expect(requestFacts()['Clinical information']).toBe(WHY)
+    // Shown in the step as the request's, with no box to type it in.
+    expect(within(card).queryByRole('textbox', { name: 'Why the test' })).toBeNull()
+    expect(within(card).getByText(WHY)).toBeTruthy()
+    expect(within(card).getByText('From the request, as it was written.')).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sample' }), { target: { value: 'Venous blood (EDTA)' } })
+    press(within(card).getByRole('button', { name: 'Register sample' }))
+    await waitFor(() => expect(api.createLabAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'work-item-1', 'Venous blood (EDTA)', WHY))
+  })
+
+  it.each([['sends none (today’s Lab)', undefined], ['sends null', null], ['sends it blank', '   ']])(
+    'asks as before when Lab %s', async (_case, clinicalIndication) => {
+      const card = await openWith(clinicalIndication === undefined ? workItem() : withIndication(clinicalIndication))
+      expect(Object.keys(requestFacts())).not.toContain('Clinical information')
+      expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
+    })
+
+  it('still asks for a short reason when the clinical information is longer than Lab takes for a sample (500 characters)', async () => {
+    const long = `${'Fever and rigors for three days. '.repeat(16)}`.trim()
+    expect(long.length).toBeGreaterThan(500)
+    const card = await openWith(withIndication(long))
+    expect(requestFacts()['Clinical information']).toBe(long)
+    expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
+  })
+})
+
+describe('Visit rehearsal (11 Nov): a finished request is no longer waiting', () => {
+  const tenMinutesAgo = () => new Date(Date.now() - 10 * 60_000).toISOString()
+  const received = () => workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'], acceptedAt: tenMinutesAgo() })
+
+  /** The open request's page: its heading, the line under it, and its cards. */
+  const recordPage = () => screen.getByRole('heading', { level: 1, name: 'Haemoglobin' }).closest('[data-layout="column"]') as HTMLElement
+
+  async function openDone(result: LabResult | null) {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    await openAccession(PROCESSING, accession([specimen('received')]), received())
+    await waitFor(() => expect(api.labExecutions).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'specimen-1'))
+  }
+
+  it('says how long it has waited while there is work left', async () => {
+    await openDone(draftResult())
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release')
+    expect(requestFacts().Waiting).toBe('10 min')
+    expect(recordPage().textContent).toContain('waiting 10 min')
+  })
+
+  it('says no waiting time once every result is released (Done)', async () => {
+    await openDone(publishedResult())
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done')
+    expect(Object.keys(requestFacts())).not.toContain('Waiting')
+    // The request's own page; the work list beside it is the list's own (its stage is health#164's).
+    expect(recordPage().textContent).not.toMatch(/waiting \d+ min/i)
   })
 })

@@ -192,7 +192,9 @@ describe('access status in words', () => {
     expect(within(screen.getByRole('dialog', { name: 'Lagos General' })).getByText('You said no')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /^Who has access/ }))
-    const item = async (name: string) => (await screen.findByText(name)).closest('li')!.textContent
+    // Each access is listed under its facility's heading.
+    const item = async (name: string) => within((await screen.findByRole('heading', { level: 3, name })).parentElement!
+      .nextElementSibling as HTMLElement).getByRole('listitem').textContent
     expect(await item('Yaba Hospital')).toContain('Active')
     expect(await item('Surulere Lab')).toContain('Ended')
     expect(await item('Ojota Pharmacy')).toContain('Time ran out')

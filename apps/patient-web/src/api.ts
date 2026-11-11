@@ -3,7 +3,7 @@ import {
   type ImportedAttachmentDownload, type ImportedHealthProfile, type ImportedHistoryPage, type ImportedHistorySharing,
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
-import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
+import { stagingChatQuestion, parseNovuPatientChat, parseNovuPatientChatHistory, parseNovuPatientChatSource } from '@hid/contracts'
 import {
   HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject,
   type ApiClient, type DownloadResult, type PresignedUpload, type RequestSpec, type RetryPolicy,
@@ -14,7 +14,7 @@ import { endSessionHref } from './sso/handOff'
 import { portalHandsOff } from './sso/singleSignOn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 import { getEnvironment } from './env'
-import { learnPatientEntriesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
+import { learnPatientEntriesServed, learnPatientEntryFilesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
 import { startsAsType } from './fileSignature'
 import {
   EDGE_BODY_MAX_BYTES, jsonBodyBytes, parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
@@ -298,9 +298,11 @@ export function parsePatientEntries(value: unknown): PatientEntry[] | null {
  * The records the patient added themselves, as the records answer carries them (PROPOSED, BACKEND-NEEDS.md §1), read in
  * place, and what the answer says of whether they are served (patientEntriesServed.ts): the key `patientEntries`, a
  * list, says served; an answer without it (today's) says not served, but only while nothing has said otherwise. A key
- * that is not a list is left out and says neither.
+ * that is not a list is left out and says neither. Apart from that, `patientEntryFiles: true` says photos and files are
+ * taken too (patientEntryFilesServed); any other value of that key says nothing.
  */
 function readPatientEntries(records: PatientRecords): void {
+  if (records.patientEntryFiles === true) learnPatientEntryFilesServed()
   if (records.patientEntries === undefined) { learnPatientEntriesServed(false); return }
   const entries = parsePatientEntries(records.patientEntries)
   if (!entries) { delete records.patientEntries; return }
@@ -413,6 +415,12 @@ export interface PatientRecords {
    * not a list.
    */
   patientEntries?: PatientEntry[]
+  /**
+   * PROPOSED (BACKEND-NEEDS.md §1): `true` when the backend takes the photos and files of those records (their upload
+   * link, PUT and confirm). Only exactly `true` turns uploads on in "Add a record" (patientEntryFilesServed); without it
+   * the patient can still add text entries.
+   */
+  patientEntryFiles?: unknown
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
@@ -526,6 +534,8 @@ export interface AccessRequest {
   approvedAt: string | null
   deniedAt: string | null
   deniedReason: string | null
+  /** The purpose of use (hid-system 0104 D5), when Identity sends it: 'healthcare-operations' is records processing. */
+  purpose?: string
 }
 
 export interface PatientNotification {
@@ -636,6 +646,9 @@ export function parseImportedNotifications(value: unknown): ImportedNotification
   })
 }
 
+/** The most inbox notifications one read lists (GET identity/me/notifications takes a limit of 1 to 100). */
+export const NOTIFICATIONS_LIMIT = 100
+
 /** The most imported notifications one read lists (Identity takes 1 to 100). */
 export const IMPORTED_NOTIFICATIONS_PAGE = 100
 
@@ -708,12 +721,17 @@ export function createPatientApi(sender: ApiClient) {
       return () => { accepted.delete(listener) }
     },
     // Retained Novu backend: real ready/preparing replies, 10 exchanges/30 days,
-    // source reads and a 500-character question. No main-only notice endpoint.
+    // source reads and a 500-character question. No main-only notice endpoint. From hid-system #167 each source
+    // carries the server's origin label; a service before it sends none and the answer shows as before.
     novuChat: async (question: string, signal?: AbortSignal) =>
-      parseStagingPatientChat(await call<unknown>('POST', 'ehr/me/chat',
+      parseNovuPatientChat(await call<unknown>('POST', 'ehr/me/chat',
         { question: stagingChatQuestion(question) }, { signal, timeoutMs: 65_000 })),
     novuChatHistory: async (signal?: AbortSignal) =>
-      parseStagingChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+      parseNovuPatientChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+    // The source viewer (hid-system #167): only a source the current answer cites, else 404 CHAT_SOURCE_UNAVAILABLE.
+    novuChatSource: async (kind: string, id: string, signal?: AbortSignal) =>
+      parseNovuPatientChatSource(await call<unknown>('GET',
+        `ehr/me/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, undefined, { signal }), { kind, id }),
     clearNovuChatHistory: async (signal?: AbortSignal): Promise<{ cleared: true }> => {
       const answer = await call<{ cleared?: unknown }>('DELETE', 'ehr/me/chat/history', undefined, { signal })
       if (answer?.cleared !== true) throw new Error('The conversation could not be cleared.')
@@ -795,7 +813,8 @@ export function createPatientApi(sender: ApiClient) {
      * backend serves it yet; until one does it answers 404 NOT_FOUND and nothing is saved. `idempotencyKey` is one per
      * Save, sent again when that Save is retried, so the server answers a retry with the same entry. A body over the edge
      * limit is refused here, before anything is sent. A 201 says the routes are served; a 404 NOT_FOUND that they are not
-     * (patientEntriesServed.ts). Kept as "added by you", never as a clinician's: the records answer lists it under
+     * (patientEntriesServed.ts). Neither says anything of photos and files, which only the records answer's
+     * `patientEntryFiles: true` turns on. Kept as "added by you", never as a clinician's: the records answer lists it under
      * `patientEntries` once read again.
      */
     addOwnRecord: async (entry: OwnRecordInput, idempotencyKey: string, signal?: AbortSignal): Promise<{ id: string }> => {
@@ -953,7 +972,8 @@ export function createPatientApi(sender: ApiClient) {
     accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined, { signal }),
     approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`),
     denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason }),
-    notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal }),
+    // The newest NOTIFICATIONS_LIMIT, the most Identity lists (RN-11); the page says when the list is full.
+    notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal, query: { limit: String(NOTIFICATIONS_LIMIT) } }),
     // Orders a clinician sent to another facility (Novu, P4c): hid-system main, and a Novu before it, answer 404.
     orderRoutes: (signal?: AbortSignal) => call<{ items: PatientOrderRoute[] }>('GET', 'ehr/me/order-routes', undefined, { signal }),
     // Stop, before the receiving facility accepts it: the patient's only action on an order sent elsewhere.

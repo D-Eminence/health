@@ -159,10 +159,13 @@ const FLAG: Record<FlagLevel, { text: string; icon: Icon; tone: string }> = {
   critical: { text: 'Critical', icon: TriangleAlert, tone: 'text-danger-ink bg-danger-soft' },
 }
 
-/** An abnormal value, said in a word with an icon (never colour alone). */
-export function Flag({ level }: { level: FlagLevel }) {
+/**
+ * An abnormal value, said in a word with an icon (never colour alone). `text` says it in other words with the same icon
+ * and tone, as Lab's "Possibly critical" for a value it has not confirmed as critical.
+ */
+export function Flag({ level, text }: { level: FlagLevel; text?: string }) {
   const f = FLAG[level]
-  return <span className={cx('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold', f.tone)}><f.icon className="size-3" aria-hidden />{f.text}</span>
+  return <span className={cx('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold', f.tone)}><f.icon className="size-3" aria-hidden />{text ?? f.text}</span>
 }
 
 /** A measurement with its unit, always; its flag when it is out of range. Decimals keep a leading zero. */

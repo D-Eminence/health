@@ -12,6 +12,7 @@ import { pageHrefOf } from '../../frame/pageHref'
 import { modulePath } from '../../frame/sample/paths'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { focusIsLost, useFocusById } from '../../../staff/focus'
+import { notAnOcrId } from '../../../staff/ocrIdWords'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
@@ -452,7 +453,7 @@ export function Migrate() {
     setProblem(null); setError(''); setNotice('')
     const documentId = findDocument.trim()
     const refused = !documentId ? { field: 'ocr-document', message: 'Complete this field.' }
-      : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
+      : !UUID_V4.test(documentId) ? { field: 'ocr-document', message: notAnOcrId('document', documentId) } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     setPollLong(null)
     const result = await lookup(documentId)
@@ -666,7 +667,7 @@ export function Migrate() {
         <p className="hid-ehr-dept-muted">Use the document ID from an authorized clinical record. The document must be available and virus scan clean before extraction can begin.</p>
         <form className="hid-ehr-dept-form hid-ehr-dept-migrate-find" noValidate aria-labelledby="ocr-find-title" onSubmit={event => void find(event)}>
           <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-document" error={problemText(problem, 'ocr-document')}>
-            <EhrInput value={findDocument} placeholder="Document UUID" required autoComplete="off"
+            <EhrInput value={findDocument} required autoComplete="off"
               onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
           </EhrField>
           <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
