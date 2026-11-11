@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AllergiesCard, NOTHING_REPORTED, SEVERITY_HINT, SEVERITY_TONES } from '../../../ehr-blue/clinical/patients/AllergiesCard'
 import { NOT_A_SUBSTANCE } from '../../../ehr-blue/clinical/parts/allergyWarning'
 import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { parseAllergyCheck, parseAllergyList, warningMessages } from '../../../staff/allergies'
 
@@ -55,6 +56,17 @@ describe('Allergies card', () => {
     expect(screen.getAllByRole('button', { name: 'Mark as entered in error' })).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Add allergy' })).toBeTruthy()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('labels each source as the emergency summary does, and says the date is the patient’s health profile’s, not the allergies’', async () => {
+    api.allergies.mockResolvedValue({ recorded: [here], patientReported: { allergies: 'Peanuts', updatedAt: '2026-10-02T08:30:00.000Z' } })
+    render(<AllergiesCard chart={chartWith(['ehr.note.read'])} />)
+    const recorded = (await screen.findByRole('heading', { level: 3, name: 'Recorded by clinicians' })).closest('section')!
+    expect(within(recorded).getByText('Clinician-recorded')).toBeTruthy()
+    const reported = screen.getByRole('heading', { level: 3, name: 'Reported by the patient' }).closest('section')!
+    expect(within(reported).getByText('Patient-reported')).toBeTruthy()
+    expect(within(reported).getByText(`Entered by the patient in their Health ID portal, not clinically verified. Health profile last updated ${formatWhen('2026-10-02T08:30:00.000Z')}.`)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Last updated')
   })
 
   it('before 0124 (404) shows what the patient reported only, with no add button', async () => {

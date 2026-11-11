@@ -168,15 +168,11 @@ function AllergyLists({ chart, allergies, reload }: {
   const records = allergies.recordedOffered && chart.canWrite && chart.can('ehr.note.write')
   // In the EHR's order: active first, then severe, not known, moderate, mild, then newest first. Never sorted again here.
   const active = allergies.recorded.filter(item => item.status === 'active')
-  const reportedWhen = formatWhen(allergies.reportedAt)
   return (
     <div className="flex flex-col gap-4 px-5 pb-5">
       {allergies.recordedOffered ? (
         <section aria-labelledby="allergies-recorded-title">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 id="allergies-recorded-title" className="m-0 text-[13px] font-semibold text-ink">Recorded by clinicians</h3>
-            <Badge size="sm" tone="info">Clinician-recorded</Badge>
-          </div>
+          <RecordedHeading id="allergies-recorded-title" />
           {active.length === 0
             ? <p className="m-0 mt-1 text-sm text-ink-3">No allergies recorded by clinicians.</p>
             : <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
@@ -185,16 +181,43 @@ function AllergyLists({ chart, allergies, reload }: {
         </section>
       ) : null}
       <section aria-labelledby="allergies-reported-title">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 id="allergies-reported-title" className="m-0 text-[13px] font-semibold text-ink">Reported by the patient</h3>
-          <Badge size="sm" tone="warn">Patient-reported</Badge>
-        </div>
-        <p className="m-0 mt-1 text-[12px] text-ink-3">Entered by the patient in their Health ID portal, not clinically verified.{reportedWhen ? ` Last updated ${reportedWhen}.` : ''}</p>
+        <ReportedHeading id="allergies-reported-title" />
+        <p className="m-0 mt-1 text-[12px] text-ink-3">Entered by the patient in their Health ID portal, not clinically verified.{profileUpdated(allergies.reportedAt)}</p>
         <p className="m-0 mt-1 text-sm break-words whitespace-pre-line text-ink">{allergies.patientReported ?? NOTHING_REPORTED}</p>
       </section>
       {records ? <AddAllergy chart={chart} onAdded={reload} /> : null}
     </div>
   )
+}
+
+/** The heading of the allergies clinicians recorded, with its source badge: the chart's card and the emergency summary alike. */
+export function RecordedHeading({ id }: { id: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <h3 id={id} className="m-0 text-[13px] font-semibold text-ink">Recorded by clinicians</h3>
+      <Badge size="sm" tone="info">Clinician-recorded</Badge>
+    </div>
+  )
+}
+
+/** The heading of the patient's own words, with its source badge: the chart's card and the emergency summary alike. */
+export function ReportedHeading({ id }: { id: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <h3 id={id} className="m-0 text-[13px] font-semibold text-ink">Reported by the patient</h3>
+      <Badge size="sm" tone="warn">Patient-reported</Badge>
+    </div>
+  )
+}
+
+/**
+ * The date beside the patient's own words, said for what it is: " Health profile last updated 2 Oct 2026, 08:30." The EHR
+ * gives the time the patient last changed any part of their health profile (blood group, medicines…), not only the
+ * allergies, so it is never said as the allergies' date. Empty when there is none.
+ */
+export function profileUpdated(updatedAt: string | null): string {
+  const when = formatWhen(updatedAt)
+  return when ? ` Health profile last updated ${when}.` : ''
 }
 
 /**

@@ -8,7 +8,7 @@ import { staffApi, type EmergencyRecords, type EmergencySection } from '../../..
 import { refusalText } from '../../../staff/fieldProblem'
 import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { NOTHING_REPORTED, RecordedAllergyFacts } from '../patients/AllergiesCard'
+import { NOTHING_REPORTED, RecordedAllergyFacts, RecordedHeading, ReportedHeading, profileUpdated } from '../patients/AllergiesCard'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
@@ -165,8 +165,10 @@ function Text({ children }: { children: ReactNode }) {
 /**
  * The patient's allergies under emergency access (Ola, W5; hid-system#218 at 7fbb04aa), first: those clinicians recorded,
  * at this facility or another, in the EHR's order (most serious first, never sorted again here), then the patient's own
- * words, each labelled by its source. Reading only: nothing here adds, marks or reads anything; the allergy routes are
- * direct care only. `allergies` null: the answer has none that can be shown, said plainly, never as "none".
+ * words, each labelled by its source with the chart card's headings and badges (RecordedHeading, ReportedHeading). The
+ * date beside the patient's words is their health profile's (profileUpdated). Reading only: nothing here adds, marks or
+ * reads anything; the allergy routes are direct care only. `allergies` null: the answer has none that can be shown, said
+ * plainly, never as "none".
  */
 function AllergiesSection({ allergies }: { allergies: EmergencyAllergies | null }) {
   const id = useId()
@@ -181,13 +183,12 @@ function AllergiesSection({ allergies }: { allergies: EmergencyAllergies | null 
     )
   }
   const { recorded, patientReported } = allergies
-  const reportedWhen = formatWhen(patientReported.updatedAt)
   return (
     <Card>
       <CardHeader as="h2" title="Allergies" icon={AlertTriangle} iconTone="danger" />
       <div className="flex flex-col gap-4 px-5 py-4">
         <section aria-labelledby={recordedId}>
-          <h3 id={recordedId} className="m-0 text-[13px] font-semibold text-ink">Allergies recorded by clinicians</h3>
+          <RecordedHeading id={recordedId} />
           {recorded.length === 0
             ? <p className="m-0 mt-1 text-sm text-ink-3">{NO_RECORDED_ALLERGIES}</p>
             : <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
@@ -195,9 +196,9 @@ function AllergiesSection({ allergies }: { allergies: EmergencyAllergies | null 
               </ul>}
         </section>
         <section aria-labelledby={reportedId}>
-          <h3 id={reportedId} className="m-0 text-[13px] font-semibold text-ink">Reported by the patient</h3>
+          <ReportedHeading id={reportedId} />
           {patientReported.allergies ? <>
-            <p className="m-0 mt-1 text-[12px] text-ink-3">{PATIENT_REPORTED_SOURCE}{reportedWhen ? ` Last updated ${reportedWhen}.` : ''}</p>
+            <p className="m-0 mt-1 text-[12px] text-ink-3">{PATIENT_REPORTED_SOURCE}{profileUpdated(patientReported.updatedAt)}</p>
             <p className="m-0 mt-1 text-sm break-words whitespace-pre-line text-ink">{patientReported.allergies}</p>
           </> : <p className="m-0 mt-1 text-sm text-ink-3">{NOTHING_REPORTED}</p>}
         </section>

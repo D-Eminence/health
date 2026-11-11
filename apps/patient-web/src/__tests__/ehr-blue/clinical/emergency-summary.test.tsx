@@ -331,7 +331,8 @@ describe('the summary is read-only', () => {
 describe('allergies under emergency access', () => {
   // hid-system#218 at 7fbb04aa: the emergency read carries the active allergies recorded at every facility and the
   // patient's own words, read-only. The page shows them first, labelled by source, and never calls a direct-care route.
-  const recordedList = () => screen.getByRole('heading', { level: 3, name: 'Allergies recorded by clinicians' }).closest<HTMLElement>('section')!
+  // The same source labels as the chart's Allergies card (Ola, W5): its headings and its badges.
+  const recordedList = () => screen.getByRole('heading', { level: 3, name: 'Recorded by clinicians' }).closest<HTMLElement>('section')!
   const reportedPart = () => screen.getByRole('heading', { level: 3, name: 'Reported by the patient' }).closest<HTMLElement>('section')!
   const rows = () => Array.from(recordedList().querySelectorAll('li'))
   const expectNoDirectCareRead = () => {
@@ -364,9 +365,13 @@ describe('allergies under emergency access', () => {
     expect(within(aspirin!).getByText(`Recorded at this facility on ${formatWhen(ASPIRIN.recordedOn)}.`)).toBeTruthy()
     expect(within(codeine!).getByText('Mild')).toBeTruthy()
     expect(within(codeine!).getByText(`Recorded at another facility on ${formatWhen(CODEINE.recordedOn)}.`)).toBeTruthy()
-    // Reported by the patient: their words, whole, labelled as theirs and not checked by a clinician, with the date.
+    expect(within(recordedList()).getByText('Clinician-recorded').className.split(' ')).toEqual(expect.arrayContaining(TONE_OUTLINE.info.split(' ')))
+    // Reported by the patient: their words, whole, labelled as theirs and not checked by a clinician, with the date
+    // their health profile was last changed (any field of it, not only the allergies: so it says which date it is).
     const reported = reportedPart()
-    expect(within(reported).getByText(`${PATIENT_SOURCE} Last updated ${formatWhen(UPDATED_AT)}.`)).toBeTruthy()
+    expect(within(reported).getByText('Patient-reported').className.split(' ')).toEqual(expect.arrayContaining(TONE_OUTLINE.warn.split(' ')))
+    expect(within(reported).getByText(`${PATIENT_SOURCE} Health profile last updated ${formatWhen(UPDATED_AT)}.`)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Last updated')
     expect(within(reported).getByText((_, element) => element?.tagName === 'P' && element.textContent === PATIENT_WORDS)).toBeTruthy()
     expect(recordedList().compareDocumentPosition(reported) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expectNoDirectCareRead()
@@ -426,7 +431,9 @@ describe('allergies under emergency access', () => {
     expect(notice.closest('[role="note"]')).toBeTruthy()
     expect(notice.closest('[role="alert"], [role="status"], [aria-live]')).toBeNull()
     expect(card.compareDocumentPosition(screen.getByRole('heading', { level: 2, name: 'Finished visits' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Allergies recorded by clinicians' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Recorded by clinicians' })).toBeNull()
+    expect(screen.queryByText('Clinician-recorded')).toBeNull()
+    expect(screen.queryByText('Patient-reported')).toBeNull()
     expect(document.body.textContent).not.toMatch(/None recorded|no (known )?(drug )?allergies|allergies: none/i)
     expect(screen.queryByText(NOTHING_ENTERED)).toBeNull()
     expectNoDirectCareRead()
