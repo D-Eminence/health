@@ -5,7 +5,8 @@ import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, homeHeading, json, ope
 
 /**
  * Help in the blue EHR: Health ID's support assistant (support-api, anonymous), in a drawer of the frame, for any
- * signed-in staff member, where the build offers it (each staff product site's build), from the sidebar's account menu. Its privacy guard
+ * signed-in staff member, where the build offers it (each staff product site's build), from Help in the header (and the
+ * facility menu's Help). Its privacy guard
  * keeps patients out of it: the notice above the question, and a question that could hold a Health ID, a NIN, an email
  * address or a phone number refused before anything is sent, saying what to remove. The guard refuses shapes, not
  * words (#61, option a): some ordinary questions are refused on purpose, and a Health ID of letters only, written other
@@ -37,8 +38,7 @@ async function openHelp(routes: Record<string, (() => Response)[]> = {}, at = DE
   const sent = serve({ [SESSION]: [sessionAt(here, [here])], ...routes })
   await openStaffApp('/provider')
   await screen.findByRole('heading', { level: 1, name: homeHeading() })
-  // The redesign's account controls are the sidebar's: Help is in the facility switcher's menu, after My profile.
-  fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
+  // Help stands in the header, beside Notifications, on every page.
   fireEvent.click(screen.getByRole('button', { name: 'Help' }))
   return { sent, drawer: within(screen.getByRole('dialog', { name: 'Help' })) }
 }
@@ -49,6 +49,36 @@ function ask(drawer: ReturnType<typeof within>, text: string) {
 }
 
 describe('Help opens the support assistant', () => {
+  it('from a Help button in the header, beside Notifications, without opening any menu', async () => {
+    const here = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    serve({ [SESSION]: [sessionAt(here, [here])] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    const actions = document.querySelector('.hid-ehr-host-actions')
+    expect(actions).not.toBeNull()
+    const help = within(actions as HTMLElement).getByRole('button', { name: 'Help' })
+    // Search, then Help, then Notifications.
+    const names = within(actions as HTMLElement).getAllByRole('button').map(button => button.textContent ?? '')
+    expect(names.findIndex(name => name.includes('Help'))).toBe(names.findIndex(name => name.includes('Notifications')) - 1)
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull()
+    fireEvent.click(help)
+    const drawer = within(screen.getByRole('dialog', { name: 'Help' }))
+    expect(drawer.getByText(NOTICE)).toBeDefined()
+    expect(drawer.getByRole('textbox', { name: 'Your question' })).toBeDefined()
+  })
+
+  it('from the facility menu\'s Help too, the same assistant', async () => {
+    const here = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    serve({ [SESSION]: [sessionAt(here, [here])] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
+    const helps = screen.getAllByRole('button', { name: 'Help' })
+    expect(helps).toHaveLength(2)
+    fireEvent.click(helps.at(-1)!)
+    expect(within(screen.getByRole('dialog', { name: 'Help' })).getByText(NOTICE)).toBeDefined()
+  })
+
   it('in a drawer of the frame, with the privacy notice right above the question', async () => {
     const { drawer } = await openHelp()
     const notice = drawer.getByText(NOTICE)
@@ -758,7 +788,9 @@ describe('where the build does not offer it', () => {
     await screen.findByRole('heading', { level: 1, name: homeHeading() })
     fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
     expect(screen.getByRole('button', { name: 'My profile' })).toBeDefined()
+    // Neither in the header nor in the facility menu.
     expect(screen.queryByRole('button', { name: 'Help' })).toBeNull()
+    expect(document.querySelector('.hid-ehr-host-actions')?.textContent).not.toContain('Help')
     expect(screen.queryByText(NOTICE)).toBeNull()
     expect(sent.some(call => call.route === SUPPORT)).toBe(false)
   })

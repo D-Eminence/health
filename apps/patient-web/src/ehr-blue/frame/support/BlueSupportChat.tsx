@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { CircleHelp } from 'lucide-react'
 import { createRegisteredBrowserClient, createSupportService } from '@hid/api'
 import { createApiClient, isHidApiError } from '@hid/http'
 import { EhrButton, EhrDrawer, EhrField, EhrInput } from '@hid/ui/ehr'
@@ -24,6 +25,17 @@ export function supportChatOffered(): boolean {
 function supportSend(): SupportSend {
   const transport = createApiClient({ baseUrl: getEnvironment().apiBaseUrl, clientId: 'staff-web', sessionMode: 'bearer' })
   return createSupportService({ app: 'staff-web', client: createRegisteredBrowserClient(transport, 'staff-web') }).chat
+}
+
+/**
+ * Help in the frame's header, beside Notifications, on every page: the support assistant one press away. Staff did
+ * not find it in the facility menu, which keeps its Help too. On narrower screens the word is hidden and the icon
+ * stays, as Search's and Notifications' do; its name is still "Help".
+ */
+export function SupportHelpButton({ onOpen }: { readonly onOpen: () => void }) {
+  return <EhrButton variant="secondary" icon={<CircleHelp size={18} strokeWidth={1.65} />} onClick={onOpen}>
+    <span className="hid-ehr-blue-label">Help</span>
+  </EhrButton>
 }
 
 /** The account menu's Help: the support assistant, in a drawer of the blue frame. */
