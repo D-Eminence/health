@@ -148,6 +148,12 @@ function FacilityOnAnotherSite({ facility, site, href, choosing }: { facility: s
     </div>} />
 }
 
+/** The phone's three tabs, each place once: a later tab that leads where an earlier one does is dropped. */
+function uniqueTabs(items: readonly NavItem[]): NavItem[] {
+  const seen = new Set<string>()
+  return items.filter(item => !seen.has(item.to) && Boolean(seen.add(item.to))).slice(0, 3)
+}
+
 /** "Back to <site>" after a switch (siteSwitch.ts): the page left, on that site's own hostname. */
 function SwitchBackLink({ arrival }: { arrival: SwitchArrival }) {
   return <a href={arrival.href} className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-brand-ink no-underline hover:underline">
@@ -353,6 +359,26 @@ export function BlueFrame() {
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
+  // A single product keeps Patients and Access requests on every site (product.ts; parity report 3.1 #7): the phone's
+  // tabs lead there first, then Staff and Audit in their place. A place is never shown twice (Staff and Audit both
+  // fall back to Facility when neither is open).
+  const phoneTabs = uniqueTabs(product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
+    : [home, ...[tabsFor('patients') ? tab('patients', 'Patients', facilityTab) : null,
+      tabsFor('requests/*') || tabsFor('requests') ? tab('requests', 'Access', facilityTab) : null,
+      tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)].filter((item): item is NavItem => item !== null)])
+  const findItem = { to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }
+  // Access requests ask the patient to share their record with this facility: nothing goes to another facility.
+  // Said as the page and copy.ts say it ("Ask a patient"), not "Request record access".
+  const askItem = { to: '/provider/requests', label: 'Ask a patient for access', hint: 'Ask a patient to share their record here', icon: ShieldCheck }
+  const canFind = tabsFor('patients') !== undefined
+  const canAsk = tabsFor('requests/*') !== undefined || tabsFor('requests') !== undefined
+  // A single product's Start offers only the two ways to a record its staff have: registration and vitals stay the EHR's.
+  const startItems = [
+    ...(canFind ? [findItem] : []),
+    ...(product === 'ehr' && tabsFor('registration') ? [{ to: '/provider/registration', label: 'Register a patient', hint: 'New Health ID at the front desk', icon: UserPlus }] : []),
+    ...(product === 'ehr' && (tabsFor('triage/*') || tabsFor('triage')) ? [{ to: '/provider/triage', label: 'Record vitals', hint: 'Triage and observations', icon: Activity }] : []),
+    ...(canAsk ? [askItem] : []),
+  ]
 
   return (
     <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={openHere}>
@@ -392,16 +418,8 @@ export function BlueFrame() {
               {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
               {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
               <NotificationsButton /></div>}
-            tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
-              : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
-            create={product !== 'ehr' ? undefined : { label: 'Start', items: [
-              ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),
-              ...(tabsFor('registration') ? [{ to: '/provider/registration', label: 'Register a patient', hint: 'New Health ID at the front desk', icon: UserPlus }] : []),
-              ...(tabsFor('triage/*') || tabsFor('triage') ? [{ to: '/provider/triage', label: 'Record vitals', hint: 'Triage and observations', icon: Activity }] : []),
-              // Access requests ask the patient to share their record with this facility: nothing goes to another facility.
-              // Said as the page and copy.ts say it ("Ask a patient"), not "Request record access".
-              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Ask a patient for access', hint: 'Ask a patient to share their record here', icon: ShieldCheck }] : []),
-            ] }}
+            tabs={phoneTabs}
+            create={startItems.length > 0 ? { label: 'Start', items: startItems } : undefined}
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
