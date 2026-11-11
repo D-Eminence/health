@@ -936,6 +936,39 @@
   margin: 0;
 }
 
+/* All the page says while a document is sent for reading; the region stays mounted, empty, the rest of the time. */
+.hid-ehr .hid-ehr-dept-migrate-starting > p {
+  margin: 24px 0;
+  color: var(--ehr-text);
+  font-size: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-state {
+  margin: 0;
+}
+
+/* Details, at the end of a record: closed until opened, its extractions without a card of their own. */
+.hid-ehr .hid-ehr-dept-migrate-more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin: -12px 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more[open] > summary {
+  margin-bottom: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more > .hid-ehr-dept-history-card {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-quick {
   display: grid;
   gap: 12px;
