@@ -129,24 +129,59 @@ export function isListedTest(record: ClinicalRecord): boolean {
   return !TEST_NOT_LISTED.has(text(record.status))
 }
 
+interface MembershipAt {
+  readonly id: string
+  readonly membershipId?: unknown
+}
+
+/**
+ * The signed-in member as the paper reads them: the staff session's actor (staff/api.ts Actor). EHR writes a record's
+ * createdBy as its author's account id and createdByMembershipId as their membership at the facility it was written
+ * at (hid-system ehr-api: context.actor.accountId, context.membershipId). The actor's `id` is the sign-in subject
+ * ("staff-invitation:<account id>", say), never the account id, so it is never compared. Identity sends `accountId`
+ * on every staff session (current-staff-context), though the Actor type does not name it, so it is read as unknown.
+ */
+export interface PrintingMember {
+  readonly displayName?: string
+  readonly accountId?: unknown
+  readonly facility?: MembershipAt
+  readonly facilities?: readonly MembershipAt[]
+}
+
+/**
+ * Whether the signed-in member wrote a record: by account when the session carries one; else by their membership at
+ * the chart's facility (where the chart's records were written), when the record carries one. Neither known: no.
+ */
+function writtenBy(actor: PrintingMember, facilityId: string): (record: ClinicalRecord) => boolean {
+  const accountId = text(actor.accountId)
+  if (accountId) return record => text(record.createdBy) === accountId
+  const membership = facilityId ? [actor.facility, ...(actor.facilities ?? [])].find(facility => facility?.id === facilityId) : undefined
+  const membershipId = text(membership?.membershipId)
+  if (membershipId) return record => text(record.createdByMembershipId) === membershipId
+  return () => false
+}
+
+/** The signed-in member's name, only when they wrote every one of the records; else null, a line to write by hand. */
+function authorName(records: readonly ClinicalRecord[], actor: PrintingMember | null | undefined, facilityId: string): string | null {
+  const name = actor?.displayName?.trim()
+  if (!actor || !name || records.length === 0) return null
+  return records.every(writtenBy(actor, facilityId)) ? name : null
+}
+
 /**
  * The clinician's name on the discharge summary, only when the signed-in member wrote the consultation note; anyone
- * else printing it (a nurse, records) leaves the line to be written by hand.
+ * else printing it (a nurse, records) leaves the line to be written by hand. `facilityId` is the chart's.
  */
-export function clinicianName(note: ClinicalRecord | null | undefined, actor: { readonly id: string; readonly displayName?: string } | null | undefined): string | null {
-  const name = actor?.displayName?.trim()
-  if (!name || !note) return null
-  return text(note.createdBy) === actor?.id ? name : null
+export function clinicianName(note: ClinicalRecord | null | undefined, actor: PrintingMember | null | undefined, facilityId: string): string | null {
+  return note ? authorName([note], actor, facilityId) : null
 }
 
 /**
  * The prescriber's name, when the paper can say it truthfully: the signed-in member wrote every printed record.
- * Records written by someone else carry only an account id, so the name is left for the prescriber to write.
+ * When anyone else wrote one, the name is left for the prescriber to write. `facilityId` is the chart's.
  */
-export function prescriberName(records: readonly ClinicalRecord[], actor: { readonly id: string; readonly displayName?: string } | null | undefined): string | null {
-  const name = actor?.displayName?.trim()
-  if (!name || records.length === 0) return null
-  return records.every(record => text(record.createdBy) === actor?.id) ? name : null
+export function prescriberName(records: readonly ClinicalRecord[], actor: PrintingMember | null | undefined, facilityId: string): string | null {
+  return authorName(records, actor, facilityId)
 }
 
 function PaperHead({ facility, kind, printedAt }: { readonly facility: string; readonly kind: string; readonly printedAt: string }) {

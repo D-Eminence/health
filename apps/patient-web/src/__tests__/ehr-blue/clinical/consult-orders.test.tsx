@@ -12,7 +12,7 @@ import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
-import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, patientBanner, renderPage } from './harness'
+import { COLLEAGUE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, SIGNED_IN, activePatient, allowedLookup, deniedLookup, labelled, patientBanner, renderPage, type SignedIn } from './harness'
 
 /**
  * Orders raised from a consultation (prescriptions and lab requests): the design's "Connected orders", create and
@@ -26,7 +26,7 @@ const api = vi.hoisted(() => ({
   allergies: vi.fn(), allergyCheck: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, roles: undefined as string[] | undefined }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, roles: undefined as string[] | undefined, signedIn: undefined as SignedIn | undefined }))
 
 vi.mock('../../../staff/api', async () => ({
   staffApi: api,
@@ -81,6 +81,7 @@ function setLists(prescriptions: unknown[], labs: unknown[], extra: Record<strin
 beforeEach(() => {
   staff.facilityId = undefined
   staff.roles = undefined
+  staff.signedIn = undefined
   vi.clearAllMocks()
   forgetWrongPatientServed()
   forgetLateCorrectionServed()
@@ -1182,7 +1183,10 @@ describe('A lab request’s page', () => {
 
   it('prints a prescription with the patient, Health ID, the medicine and the prescriber', async () => {
     staff.permissions = [...READ_WRITE]
-    setLists([prescription({ status: 'active', rowVersion: 3, createdBy: 'staff-1', startsOn: '2026-10-30', endsOn: '2026-11-05' })], [])
+    // As production has them: the session's actor.id is the sign-in subject, the prescription carries the author's account.
+    staff.signedIn = SIGNED_IN
+    setLists([prescription({ status: 'active', rowVersion: 3, createdBy: SIGNED_IN.accountId, createdByMembershipId: SIGNED_IN.membershipId,
+      startsOn: '2026-10-30', endsOn: '2026-11-05' })], [])
     let printed = ''
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '' })
     await openOrder('pharmacy', RX)
@@ -1196,6 +1200,19 @@ describe('A lab request’s page', () => {
     // The paper leaves the page once the print dialog closes.
     act(() => { window.dispatchEvent(new Event('afterprint')) })
     expect(document.querySelector('[data-clinical-print]')).toBeNull()
+  })
+
+  it('leaves the prescriber’s name for handwriting when a colleague wrote the prescription', async () => {
+    staff.permissions = [...READ_WRITE]
+    staff.signedIn = SIGNED_IN
+    setLists([prescription({ status: 'active', rowVersion: 3, createdBy: COLLEAGUE.accountId, createdByMembershipId: COLLEAGUE.membershipId })], [])
+    let printed = ''
+    vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '' })
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Print prescription' }))
+    expect(printed).toContain('Amoxicillin 500 mg')
+    expect(printed).not.toContain('Demo Clinician')
+    expect(document.querySelector('[data-clinical-print] .hid-clinical-paper-sign .hid-clinical-paper-line')?.textContent).toBe('')
   })
 
   it.each(['draft', 'on_hold', 'completed', 'cancelled', 'entered_in_error'])('offers no print for a prescription that is %s', async status => {
