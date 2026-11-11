@@ -197,6 +197,28 @@ function AllergyLists({ chart, allergies, reload }: {
   )
 }
 
+/**
+ * One recorded allergy, as the chart's card and the emergency summary show it: the substance, its severity in words on
+ * a badge in its tone (SEVERITY_TONES), the reaction, and where and when it was recorded. Reading only.
+ */
+export function RecordedAllergyFacts({ item }: {
+  item: Pick<RecordedAllergy, 'substance' | 'severity' | 'reaction' | 'recordedHere'> & { readonly recordedOn: string | null }
+}) {
+  const when = formatWhen(item.recordedOn)
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 text-sm font-semibold text-ink [overflow-wrap:anywhere]">{item.substance}</span>
+        <Badge size="sm" tone={SEVERITY_TONES[item.severity]}>{SEVERITY_LABELS[item.severity]}</Badge>
+      </div>
+      {item.reaction ? <p className="m-0 mt-0.5 text-sm text-ink [overflow-wrap:anywhere]">Reaction: {item.reaction}</p> : null}
+      <p className="m-0 mt-0.5 text-[12px] text-ink-3">
+        {item.recordedHere ? 'Recorded at this facility' : 'Recorded at another facility'}{when ? ` on ${when}` : ''}.
+      </p>
+    </>
+  )
+}
+
 function RecordedRow({ chart, item, canMark, onChanged }: { chart: Chart; item: RecordedAllergy; canMark: boolean; onChanged: () => void }) {
   const [marking, setMarking] = useState(false)
   const [reason, setReason] = useState('')
@@ -229,14 +251,7 @@ function RecordedRow({ chart, item, canMark, onChanged }: { chart: Chart; item: 
 
   return (
     <li className="rounded-md border border-line px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-ink">{item.substance}</span>
-        <Badge size="sm" tone={SEVERITY_TONES[item.severity]}>{SEVERITY_LABELS[item.severity]}</Badge>
-      </div>
-      {item.reaction ? <p className="m-0 mt-0.5 text-sm text-ink">Reaction: {item.reaction}</p> : null}
-      <p className="m-0 mt-0.5 text-[12px] text-ink-3">
-        {item.recordedHere ? 'Recorded at this facility' : 'Recorded at another facility'}{item.createdAt ? ` on ${formatWhen(item.createdAt)}` : ''}.
-      </p>
+      <RecordedAllergyFacts item={{ ...item, recordedOn: item.createdAt }} />
       {canMark && !marking ? (
         <Button size="sm" variant="ghost" className="mt-1" onClick={() => { setMarking(true); setError('') }}>Mark as entered in error</Button>
       ) : null}

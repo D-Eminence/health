@@ -181,8 +181,11 @@ export function messageLines(messages: readonly string[]): AllergyWarningLine[] 
   return messages.map((message, index) => ({ key: `message:${index}`, message, match: null }))
 }
 
-/** The EHR's head of a recorded line: "Penicillin allergy: SEVERE (Anaphylaxis)." (the severity's word, then the reaction). */
-const RECORDED_HEAD = / allergy: (SEVERE|moderate|mild|severity not recorded)(?: \((.*?)\))?\.(?: |$)/
+/**
+ * The EHR's head of a recorded line: "Penicillin allergy: SEVERE (Anaphylaxis)." (the severity's word, then the reaction).
+ * Not known reads "severity not known" (#218 at 7fbb04aa), and "severity not recorded" on a backend at 76283f57.
+ */
+const RECORDED_HEAD = / allergy: (SEVERE|moderate|mild|severity not known|severity not recorded)(?: \((.*?)\))?\.(?: |$)/
 /** The EHR's head of a patient-reported line: "Patient-reported allergy: “Penicillin (anaphylaxis)”." */
 const PATIENT_HEAD = /^Patient-reported allergy: “(.*?)”\.(?: |$)/
 
@@ -190,7 +193,7 @@ const PATIENT_HEAD = /^Patient-reported allergy: “(.*?)”\.(?: |$)/
  * A line the title calls severe (Ola, wording #0): a recorded allergy whose severity is severe or not known (a reaction
  * nobody graded may have been severe), or whose reaction is serious (SERIOUS_REACTION); a patient-reported term that
  * names a serious reaction ("Penicillin (anaphylaxis)"). A 409 line alone has only the EHR's sentence: its head says the
- * same things ("… allergy: SEVERE (Anaphylaxis).", "… allergy: severity not recorded.", "Patient-reported allergy: “…”."),
+ * same things ("… allergy: SEVERE (Anaphylaxis).", "… allergy: severity not known.", "Patient-reported allergy: “…”."),
  * so a line gets the same title from the check or from the 409.
  */
 export function isSevereLine(line: AllergyWarningLine): boolean {
@@ -201,7 +204,7 @@ export function isSevereLine(line: AllergyWarningLine): boolean {
   if (line.message.startsWith('Patient-reported allergy:')) return SERIOUS_REACTION.test(PATIENT_HEAD.exec(line.message)?.[1] ?? '')
   const head = RECORDED_HEAD.exec(line.message)
   if (!head) return false
-  return head[1] === 'SEVERE' || head[1] === 'severity not recorded' || SERIOUS_REACTION.test(head[2] ?? '')
+  return head[1] === 'SEVERE' || head[1] === 'severity not known' || head[1] === 'severity not recorded' || SERIOUS_REACTION.test(head[2] ?? '')
 }
 
 /** "Severe allergy warning for Amoxicillin 500 mg capsules" or "Allergy warning for …". */

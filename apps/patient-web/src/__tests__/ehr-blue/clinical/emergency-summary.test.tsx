@@ -2,6 +2,9 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { emergencyAllergies } from '../../../ehr-blue/clinical/emergency/emergencyAllergies'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import { SEVERITY_TONES } from '../../../ehr-blue/clinical/patients/AllergiesCard'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, renderPage } from './harness'
@@ -112,7 +115,25 @@ async function renderSummary() {
 const banner = () => screen.queryByRole('region', { name: `Patient: ${PATIENT_NAME}` })
 const LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
-const ALLERGIES_NOTICE = 'Allergies aren’t shown in emergency access yet. Ask the patient, or the person with them, about allergies before giving any medicine.'
+const ASK = 'Ask the patient, or the person with them, about allergies before giving any medicine.'
+const NOT_SHOWN = `Allergies can’t be shown here. ${ASK}`
+const NONE_RECORDED = 'No allergies recorded by clinicians.'
+const NOTHING_ENTERED = 'The patient has not entered any allergies in their Health ID portal.'
+const PATIENT_SOURCE = 'Entered by the patient in their Health ID portal, not checked by a clinician.'
+
+// The emergency read's allergies at hid-system#218 7fbb04aa, in its order: severe, not known, moderate, mild, newest
+// first within each. Neither by name nor by date, so a sort on the page would show.
+const recordedAllergy = (n: number, substance: string, severity: string, reaction: string | null, recordedHere: boolean, recordedOn: string) =>
+  ({ source: 'recorded', id: `b0000000-0000-4000-8000-00000000000${n}`, substance, reaction, severity, recordedHere, recordedOn })
+const PENICILLIN = recordedAllergy(1, 'Penicillin', 'severe', 'Anaphylaxis', false, '2026-03-03T10:15:00.000Z')
+const LATEX = recordedAllergy(2, 'Latex', 'unknown', null, true, '2026-11-01T08:00:00.000Z')
+const ASPIRIN = recordedAllergy(3, 'Aspirin', 'moderate', 'Wheeze', true, '2026-06-01T09:00:00.000Z')
+const CODEINE = recordedAllergy(4, 'Codeine', 'mild', 'Itch', false, '2026-07-01T09:00:00.000Z')
+const PATIENT_WORDS = 'Sulfa drugs\nPeanuts (swelling)'
+const UPDATED_AT = '2026-10-02T12:00:00.000Z'
+function allergies(recorded: unknown[] = [PENICILLIN, LATEX, ASPIRIN, CODEINE], text: string | null = PATIENT_WORDS, updatedAt: string | null = UPDATED_AT) {
+  return { recorded, patientReported: { source: 'patient_reported', allergies: text, updatedAt } }
+}
 
 function section(name: string) {
   return screen.getByRole('heading', { level: 2, name }).closest<HTMLElement>('section')!
@@ -282,9 +303,19 @@ describe('the emergency summary page', () => {
 })
 
 describe('the summary is read-only', () => {
-  it('offers no control that creates, changes, signs or sends anything', async () => {
+  it.each([
+    ['with the allergies the emergency read carries', true],
+    ['from an EHR whose emergency read has no allergies', false],
+  ])('offers no control that creates, changes, signs or sends anything, %s', async (_case, withAllergies) => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read', 'ehr.note.write', 'ehr.prescription.write', 'ehr.lab-request.write']
+    api.emergencyRecords.mockResolvedValue(withAllergies ? summary({ allergies: allergies() }) : summary())
     await renderSummary()
+    // The allergies are shown (or said to be unavailable) with nothing to add, mark or change.
+    const allergiesCard = section('Allergies')
+    if (withAllergies) expect(within(allergiesCard).getByText('Penicillin')).toBeTruthy()
+    else expect(within(allergiesCard).getByText(NOT_SHOWN)).toBeTruthy()
+    expect(within(allergiesCard).queryAllByRole('button')).toEqual([])
+    expect(within(allergiesCard).queryAllByRole('link')).toEqual([])
     const names = screen.getAllByRole('button').map(button => button.textContent)
     for (const name of names) expect(['Refresh', 'End emergency access', 'Show results']).toContain(name)
     expect(screen.queryAllByRole('textbox')).toEqual([])
@@ -298,29 +329,148 @@ describe('the summary is read-only', () => {
 })
 
 describe('allergies under emergency access', () => {
-  // hid-system#218 at 76283f57 serves no allergies on the emergency read, and its allergy routes are direct care only.
-  // Until the emergency read carries them, the summary says so in a line of its own, loads nothing for it, and never
-  // reads a direct-care route: its silence is never taken for "no allergies".
-  it('says allergies aren’t shown here and to ask about them, reads no allergy route, and never says the patient has none', async () => {
-    await renderSummary()
-    await act(async () => {})
-    const notice = screen.getByText(ALLERGIES_NOTICE)
-    // A note, not an alert: said once, in the page, before the sections.
-    expect(notice.closest('[role="note"]')).toBeTruthy()
-    expect(notice.closest('[role="alert"], [role="status"], [aria-live]')).toBeNull()
-    expect(notice.compareDocumentPosition(screen.getByRole('heading', { level: 2, name: 'Finished visits' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  // hid-system#218 at 7fbb04aa: the emergency read carries the active allergies recorded at every facility and the
+  // patient's own words, read-only. The page shows them first, labelled by source, and never calls a direct-care route.
+  const recordedList = () => screen.getByRole('heading', { level: 3, name: 'Allergies recorded by clinicians' }).closest<HTMLElement>('section')!
+  const reportedPart = () => screen.getByRole('heading', { level: 3, name: 'Reported by the patient' }).closest<HTMLElement>('section')!
+  const rows = () => Array.from(recordedList().querySelectorAll('li'))
+  const expectNoDirectCareRead = () => {
     expect(api.allergies).not.toHaveBeenCalled()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
     expect(api.allergyCheck).not.toHaveBeenCalled()
     expect(api.emergencyRecords).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID)
-    expect(document.body.textContent).not.toMatch(/None recorded|no (known )?(drug )?allergies|allergies: none/i)
+  }
+
+  it('shows them first, those recorded by clinicians in the EHR’s order and then the patient’s own words, each labelled, and reads no allergy route', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({ allergies: allergies() }))
+    await renderSummary()
+    await act(async () => {})
+    const card = section('Allergies')
+    expect(card.compareDocumentPosition(screen.getByRole('heading', { level: 2, name: 'Finished visits' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The interim note is gone.
+    expect(document.body.textContent).not.toContain('Allergies aren’t shown in emergency access yet')
+    expect(within(card).queryByText(NOT_SHOWN)).toBeNull()
+    // Recorded by clinicians, most serious first as the EHR sent them: never sorted again here.
+    expect(rows().map(row => row.querySelector('span')?.textContent)).toEqual(['Penicillin', 'Latex', 'Aspirin', 'Codeine'])
+    const [penicillin, latex, aspirin, codeine] = rows()
+    expect(within(penicillin!).getByText('Severe')).toBeTruthy()
+    expect(within(penicillin!).getByText('Reaction: Anaphylaxis')).toBeTruthy()
+    expect(within(penicillin!).getByText(`Recorded at another facility on ${formatWhen(PENICILLIN.recordedOn)}.`)).toBeTruthy()
+    expect(within(latex!).getByText('Severity not known')).toBeTruthy()
+    expect(within(latex!).queryByText(/^Reaction:/)).toBeNull()
+    expect(within(latex!).getByText(`Recorded at this facility on ${formatWhen(LATEX.recordedOn)}.`)).toBeTruthy()
+    expect(within(aspirin!).getByText('Moderate')).toBeTruthy()
+    expect(within(aspirin!).getByText('Reaction: Wheeze')).toBeTruthy()
+    expect(within(aspirin!).getByText(`Recorded at this facility on ${formatWhen(ASPIRIN.recordedOn)}.`)).toBeTruthy()
+    expect(within(codeine!).getByText('Mild')).toBeTruthy()
+    expect(within(codeine!).getByText(`Recorded at another facility on ${formatWhen(CODEINE.recordedOn)}.`)).toBeTruthy()
+    // Reported by the patient: their words, whole, labelled as theirs and not checked by a clinician, with the date.
+    const reported = reportedPart()
+    expect(within(reported).getByText(`${PATIENT_SOURCE} Last updated ${formatWhen(UPDATED_AT)}.`)).toBeTruthy()
+    expect(within(reported).getByText((_, element) => element?.tagName === 'P' && element.textContent === PATIENT_WORDS)).toBeTruthy()
+    expect(recordedList().compareDocumentPosition(reported) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expectNoDirectCareRead()
   })
 
-  it('says it whatever the summary withholds', async () => {
-    api.emergencyRecords.mockResolvedValue(releasedSummary(['vitals', 'notes']))
+  it('says each severity in words on a badge in the chart’s tone: severe in red, not known in amber as moderate, mild quiet', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({ allergies: allergies() }))
     await renderSummary()
-    expect(screen.getByText(ALLERGIES_NOTICE)).toBeTruthy()
-    expect(screen.queryByText(VITALS_NOTICE)).toBeNull()
+    const badge = (words: string) => within(recordedList()).getByText(words).className.split(' ')
+    for (const [words, severity] of [['Severe', 'severe'], ['Severity not known', 'unknown'], ['Moderate', 'moderate'], ['Mild', 'mild']] as const) {
+      expect(badge(words)).toEqual(expect.arrayContaining(TONE_OUTLINE[SEVERITY_TONES[severity]].split(' ')))
+    }
+    expect(badge('Severe')).toEqual(expect.arrayContaining(TONE_OUTLINE.danger.split(' ')))
+    expect(badge('Severity not known')).toEqual(expect.arrayContaining(TONE_OUTLINE.warn.split(' ')))
+    expect(badge('Mild')).toEqual(expect.arrayContaining(TONE_OUTLINE.neutral.split(' ')))
+  })
+
+  it('with none recorded by clinicians, says so and still shows the patient’s own words', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({ allergies: allergies([]) }))
+    await renderSummary()
+    expect(within(recordedList()).getByText(NONE_RECORDED)).toBeTruthy()
+    expect(rows()).toEqual([])
+    expect(within(reportedPart()).getByText((_, element) => element?.tagName === 'P' && element.textContent === PATIENT_WORDS)).toBeTruthy()
+    expect(screen.queryByText(NOT_SHOWN)).toBeNull()
+    expectNoDirectCareRead()
+  })
+
+  it('with no words from the patient, says they entered none; with nothing from anyone, asks about allergies too', async () => {
+    // A profile row with its Allergies field empty still has a date: no date or "not checked" line is said for nothing.
+    api.emergencyRecords.mockResolvedValue(summary({ allergies: allergies([PENICILLIN], null) }))
+    await renderSummary()
+    expect(within(reportedPart()).getByText(NOTHING_ENTERED)).toBeTruthy()
+    expect(within(reportedPart()).queryByText(new RegExp(PATIENT_SOURCE))).toBeNull()
+    expect(within(recordedList()).getByText('Penicillin')).toBeTruthy()
+    expect(screen.queryByText(ASK)).toBeNull()
+
+    api.emergencyRecords.mockResolvedValue(summary({ allergies: allergies([], '  ', null) }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })) })
+    await waitFor(() => expect(within(recordedList()).getByText(NONE_RECORDED)).toBeTruthy())
+    // A blank text is none.
+    expect(within(reportedPart()).getByText(NOTHING_ENTERED)).toBeTruthy()
+    expect(within(section('Allergies')).getByText(ASK)).toBeTruthy()
+    expect(screen.queryByText(NOT_SHOWN)).toBeNull()
+    expectNoDirectCareRead()
+  })
+
+  it.each([
+    ['today’s emergency read', () => summary()],
+    ['the released and withheld emergency read', () => releasedSummary(['vitals', 'notes'])],
+  ])('from an EHR whose emergency read has no allergies (%s), says they can’t be shown here and to ask, never “none”', async (_case, answer) => {
+    api.emergencyRecords.mockResolvedValue(answer())
+    await renderSummary()
+    await act(async () => {})
+    const card = section('Allergies')
+    const notice = within(card).getByText(NOT_SHOWN)
+    // A note, not an alert: said once, in the page, before the sections.
+    expect(notice.closest('[role="note"]')).toBeTruthy()
+    expect(notice.closest('[role="alert"], [role="status"], [aria-live]')).toBeNull()
+    expect(card.compareDocumentPosition(screen.getByRole('heading', { level: 2, name: 'Finished visits' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Allergies recorded by clinicians' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/None recorded|no (known )?(drug )?allergies|allergies: none/i)
+    expect(screen.queryByText(NOTHING_ENTERED)).toBeNull()
+    expectNoDirectCareRead()
+  })
+
+  const ROW = { ...PENICILLIN }
+  it.each<[string, unknown]>([
+    ['allergies that are not an object', 'none'],
+    ['allergies that are null', null],
+    ['allergies that are a list', [ROW]],
+    ['no recorded list', { patientReported: allergies().patientReported }],
+    ['a recorded list that is not a list', { ...allergies(), recorded: 'none' }],
+    ['no patient part', { recorded: [ROW] }],
+    ['a patient text that is not a text', { recorded: [ROW], patientReported: { allergies: 42, updatedAt: null } }],
+    ['a row that is not one', allergies([ROW, 'Latex'])],
+    ['a row without its id', allergies([ROW, { ...LATEX, id: undefined }])],
+    ['a row without its substance', allergies([ROW, { ...LATEX, substance: ' ' }])],
+    ['a row whose reaction is not a text', allergies([ROW, { ...LATEX, reaction: 42 }])],
+    ['a row that does not say where it was recorded', allergies([ROW, { ...LATEX, recordedHere: 'yes' }])],
+  ])('with %s, says they can’t be shown here and shows none of them', async (_case, value) => {
+    api.emergencyRecords.mockResolvedValue(summary({ allergies: value }))
+    await renderSummary()
+    const card = section('Allergies')
+    expect(within(card).getByText(NOT_SHOWN)).toBeTruthy()
+    // Never shown in part: a dropped line could be the severe one.
+    expect(within(card).queryByText('Penicillin')).toBeNull()
+    expect(within(card).queryByRole('listitem')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/None recorded|no (known )?(drug )?allergies|allergies: none/i)
+    expectNoDirectCareRead()
+  })
+})
+
+describe('the emergency read’s allergies, as read', () => {
+  it('keeps each row’s fields, reads an odd severity as not known and a blank text as none, and trims', () => {
+    expect(emergencyAllergies({ allergies: allergies([PENICILLIN, { ...LATEX, severity: 'extreme', recordedOn: 'not a time' }], ' Peanuts \n', null) })).toEqual({
+      recorded: [
+        { id: PENICILLIN.id, substance: 'Penicillin', reaction: 'Anaphylaxis', severity: 'severe', recordedHere: false, recordedOn: PENICILLIN.recordedOn },
+        { id: LATEX.id, substance: 'Latex', reaction: null, severity: 'unknown', recordedHere: true, recordedOn: null },
+      ],
+      patientReported: { allergies: 'Peanuts', updatedAt: null },
+    })
+    expect(emergencyAllergies({ allergies: allergies([], '   ', UPDATED_AT) })).toEqual({ recorded: [], patientReported: { allergies: null, updatedAt: UPDATED_AT } })
+    expect(emergencyAllergies(summary())).toBeNull()
+    expect(emergencyAllergies(null)).toBeNull()
   })
 })
 

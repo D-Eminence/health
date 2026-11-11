@@ -15,7 +15,7 @@ import {
 } from '../../../staff/allergies'
 
 /**
- * The allergy warning's foundation (hid-system#218 at 76283f57): the check's answer, the 409 that asks for (or again
+ * The allergy warning's foundation (hid-system#218 at 7fbb04aa): the check's answer, the 409 that asks for (or again
  * for) a reason, the reason's rule, and the shared panel the prescribing form, Activate, Resume and Send show. The
  * messages are the backend's format word for word; every id, token, date and name is fictional.
  */
@@ -40,7 +40,7 @@ const MODERATE_ELSEWHERE = {
 const GROUPED_UNKNOWN = {
   source: 'recorded', allergyId: ID_3, allergyIds: [ID_3, ID_4], substance: 'Amoxicillin', reaction: null, severity: 'unknown',
   matchKind: 'same_medicine', recordedHere: true, recordedOn: '2026-04-20T10:00:00.000Z',
-  message: 'Amoxicillin allergy: severity not recorded. This medicine may be, or may contain, the same medicine. Recorded by clinicians (recorded at 2 facilities), most recently on 20 Apr 2026.',
+  message: 'Amoxicillin allergy: severity not known. This medicine may be, or may contain, the same medicine. Recorded by clinicians (recorded at 2 facilities), most recently on 20 Apr 2026.',
 }
 const PATIENT_TERM = {
   source: 'patient_reported', substance: 'Augmentin', reaction: null, severity: null, matchKind: 'same_medicine',
@@ -75,7 +75,7 @@ function refusal(messages: string[], token: string | null = TOKEN_B, detail = 'T
   })
 }
 
-describe('the allergy check’s answer (76283f57)', () => {
+describe('the allergy check’s answer (7fbb04aa)', () => {
   it('keeps every field of a recorded line, a grouped line and a patient-reported line, and the token', () => {
     const read = check([SEVERE_HERE, GROUPED_UNKNOWN, SULFA_TERM])
     expect(read.acknowledgementRequired).toBe(true)
@@ -227,6 +227,26 @@ describe('warning lines and the title', () => {
     // The patient's words are read inside their quotes only: "SEVERE" written by the patient is not the EHR's severity.
     const [fromPatient] = messageLines(['Patient-reported allergy: “Penicillin allergy: SEVERE (rash)”. …'])
     expect(isSevereLine(fromPatient!)).toBe(false)
+  })
+
+  it('titles “severity not known” (#218 at 7fbb04aa) severe from the check’s line and from the 409’s sentence alone, and “severity not recorded” (76283f57) too', () => {
+    const LATEX = {
+      source: 'recorded', allergyId: ID_2, allergyIds: [ID_2], substance: 'Latex', reaction: null, severity: 'unknown',
+      matchKind: 'same_medicine', recordedHere: true, recordedOn: '2026-11-01T08:00:00.000Z',
+      message: 'Latex allergy: severity not known. This medicine may be, or may contain, the same medicine. Recorded by a clinician at this facility on 1 Nov 2026.',
+    }
+    const SEVERE_TITLE = 'Severe allergy warning for Amoxicillin 500 mg capsules'
+    // From the check: its line, with the severity it names.
+    expect(allergyWarningTitle(warningFromCheck(check([LATEX]), MEDICINE)!)).toBe(SEVERE_TITLE)
+    // From the 409 alone (its check failed): the EHR's sentence is all there is.
+    const alone = warningFromRefusal(readAllergyRefusal(refusal([LATEX.message]), false)!, MEDICINE, null)!
+    expect(alone.lines.map(line => line.match)).toEqual([null])
+    expect(allergyWarningTitle(alone)).toBe(SEVERE_TITLE)
+    // With a reaction that is not serious, and in the wording a backend at 76283f57 still sends.
+    for (const message of [
+      'Latex allergy: severity not known (Itch). This medicine may be, or may contain, the same medicine. Recorded by a clinician at this facility on 1 Nov 2026.',
+      'Latex allergy: severity not recorded. This medicine may be, or may contain, the same medicine. Recorded by a clinician at this facility on 1 Nov 2026.',
+    ]) expect(isSevereLine(messageLines([message])[0]!), message).toBe(true)
   })
 
   it('titles the warning for its medicine', () => {
