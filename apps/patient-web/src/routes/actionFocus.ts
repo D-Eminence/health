@@ -1,13 +1,15 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { focusLost } from '../pageFocus'
+import { focusOnWrapper } from '../wrapperFocus'
 
 /**
  * Keyboard focus after an action on a portal page (PR-03, PR-05). The control
  * that ran it is disabled while the request runs and is often gone once the page
  * shows the outcome: the item was decided, the form closed. `focusAfter(find)`
  * moves focus to the element `find` returns once the render showing the outcome
- * has committed, and only when focus was lost there: focus the person moved
- * elsewhere in the meantime stays where it is.
+ * has committed, and only when focus was lost there (or fell to a wrapper
+ * around it, as a second tap on the busy button leaves it: focusOnWrapper):
+ * focus the person moved elsewhere in the meantime stays where it is.
  */
 export function useActionFocus() {
   const target = useRef<(() => HTMLElement | null) | null>(null)
@@ -18,7 +20,7 @@ export function useActionFocus() {
     const find = target.current
     target.current = null
     const element = find?.()
-    if (element?.isConnected && focusLost()) element.focus()
+    if (element?.isConnected && (focusLost() || focusOnWrapper(element))) element.focus()
   }, [request])
   return useCallback((find: () => HTMLElement | null) => { target.current = find; setRequest(value => value + 1) }, [])
 }

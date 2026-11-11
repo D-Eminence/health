@@ -5,13 +5,14 @@ import { getEnvironment } from '../env'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
 import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
-import { PageState } from '../kasuwa/parts'
+import { ConfirmSheet, PageState } from '../kasuwa/parts'
 import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
-import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
+import { Actions, ButtonR, Hint, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
 import { isAdult, paperRecordsLineForRequest, PIN_COVERS } from '../paperRecordsWording'
@@ -42,8 +43,10 @@ import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
 import { useFocusSectionFromHash, useOpenSections } from './sectionFocus'
 import { OpenSectionsContext, ProfileSection } from './ProfileSection'
 import { completionOf, useProfileSources } from './profileSources'
-import { ProfileCompletionCard } from './ProfileCompletion'
+import { ProfileCompletionCard, ProfileCompletionPending } from './ProfileCompletion'
+import { completionServed } from './profileCompletion'
 import { ContactDetails } from './ProfileContact'
+import { needsRecentSignIn, SignInAgain } from './SignInAgain'
 import { usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
 import { HealthInformationCard } from './HealthInformation'
@@ -51,8 +54,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
-import { countryName } from '../profileParity'
+import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
@@ -236,7 +238,7 @@ export function ProfilePage() {
   if (moreVisit !== key) { setMoreVisit(key); if (hash === '#account-deletion') setMoreOpen(true) }
 
   return <div className="flex flex-col gap-6">
-    <PageHeader titleRef={heading} title="Profile" description="What a hospital sees when you share your records." />
+    <PageHeader titleRef={heading} title="Profile" description="Your details, how you sign in, and your Access PIN." />
     <PageState what="your profile" loading={profile.loading} error={profile.error} hasData={profile.data !== null}
       onRetry={() => retryFocus.retry(profile.reload)} retryRef={retryFocus.button}>{null}</PageState>
     {shown && <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
@@ -245,22 +247,24 @@ export function ProfilePage() {
         <HealthIdCard profile={shown} onChanged={profile.reload} verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
           bloodGroup={health.error ? null : health.data?.bloodGroup} genotype={health.error ? null : health.data?.genotype}
           allergies={health.error ? null : health.data?.allergies} shareTo="/access" links={[]} />
-        {completion && <ProfileCompletionCard completion={completion} />}
+        {/* Its place is held while the reads it counts are out, so the sections under it on a phone do not jump. */}
+        {completion ? <ProfileCompletionCard completion={completion} /> : completionServed(shown) && <ProfileCompletionPending />}
       </div>
       <div className="flex min-w-0 flex-col gap-4">
         <OpenSectionsContext.Provider value={sections}>
           {/* Not the whole section busy while the profile reloads: the contact's and PIN's notices are in it. */}
           <ProfileSection id="bio-data" title={WORDS.aboutYou}>
             <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3" aria-busy={profile.loading || undefined}>
-              {([['Full name', shown.fullName], ['Date of birth', date(shown.dateOfBirth)], ['Gender', shown.gender || 'Not given'],
-                ['State', shown.state || 'Not given'], ['Country', shown.country?.trim() ? countryName(shown.country) : 'Not given']] as const).map(([term, value]) =>
+              {/* In words, and one wording for every detail not there. */}
+              {([['Full name', shown.fullName], ['Date of birth', shown.dateOfBirth ? date(shown.dateOfBirth) : 'Not given'], ['Gender', genderLabel(shown.gender)],
+                ['State', shown.state || 'Not given'], ['Country', countryLabel(shown.country)]] as const).map(([term, value]) =>
                 <div key={term} className={term === 'Full name' ? 'col-span-2' : undefined}><dt className="text-[13px] text-ink-3">{term}</dt>
                   <dd className="m-0 mt-0.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}
             </dl>
             <ContactDetails profile={shown} onChanged={profile.reload} />
             <AccessPinSettings profile={shown} loading={profile.loading} onChanged={profile.reload} />
           </ProfileSection>
-          <CoverageCard resource={details} />
+          <CoverageCard resource={details} expected={completionServed(shown)} />
           {/* The emergency contacts, in Health information (alone in it where the health information is not served). Both
               backends: main's patient-safety routes, and hid-system #109's on Novu. They read availability first, and
               show nothing where the routes are not served (Novu's 404), or while delivery is off for a patient without
@@ -281,7 +285,8 @@ export function ProfilePage() {
         {/* Delete account, out of the way under More (both backends: main's 0064, Novu's 0096; a 404 shows nothing). */}
         <details className="group" hidden={deletion === false} open={moreOpen} onToggle={event => setMoreOpen(event.currentTarget.open)}>
           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
-            More<ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
+            {/* Named for what it holds: a closed <details> hides Delete account's heading from a search by heading. */}
+            More<ItemName>: delete your account</ItemName><ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
           <div className="mt-3"><AccountDeletionCard /></div>
         </details>
       </div>
@@ -1092,16 +1097,21 @@ function pinProblem(cause: unknown, fallback: string) {
 
 /**
  * The Access PIN, at the end of Bio-data (moved there from Settings, which is gone: the owner's decision of
- * 2026-10-28): its status, Set or Replace PIN, and Revoke. A refused PIN is tied to its field (PR-07), as a refused
- * NIN is.
+ * 2026-10-28): its status, Set or Replace PIN, and Remove. A refused PIN is tied to its field (PR-07), as a refused
+ * NIN is. The PIN has a Show PIN toggle, as every password field has, so a mistyped one can be checked before it is
+ * saved (PPS-08). Remove PIN asks first, in a sheet that says what removing it does, with Cancel as easy (PPS-07); only
+ * the button of what runs is busy. A refusal that needs a recent sign-in offers "Sign in again" (PPS-09).
  */
 function AccessPinSettings({ profile, loading, onChanged }: {
   profile: PatientProfile; loading: boolean; onChanged: () => Promise<unknown>
 }) {
   const { api } = useSession()
   const [pin, setPin] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [working, setWorking] = useState<'saving' | 'removing' | null>(null)
+  const busy = working !== null
+  const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [signInAgain, setSignInAgain] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [pinFieldError, setPinFieldError] = useState(false)
   const [errorAlert, setErrorAlert] = useState(true)
@@ -1114,22 +1124,27 @@ function AccessPinSettings({ profile, loading, onChanged }: {
   const configurePin = async (event: FormEvent) => {
     event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return
     const fromField = pinFocus.onTarget()
-    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
+    setWorking('saving'); setError(null); setSignInAgain(false); setNotice(null); setPinFieldError(false); setErrorAlert(true)
     try { await api.setAccessPin(pin); setPin(''); setNotice('PIN saved.'); await onChanged() }
     catch (cause) {
       const aboutField = isFieldProblem(cause)
-      setError(pinProblem(cause, 'Couldn’t save your PIN. Try again.'))
+      setError(pinProblem(cause, 'Couldn’t save your PIN. Try again.')); setSignInAgain(needsRecentSignIn(cause))
       setPinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
-    } finally { setBusy(false); pinFocus.focus() }
+    } finally { setWorking(null); pinFocus.focus() }
   }
+  const askToRemove = () => { if (!busy) { setAsking(true); setError(null); setSignInAgain(false); setNotice(null) } }
+  // Cancel: the sheet gives focus back to Remove PIN as it closes.
+  const keepPin = () => { if (working !== 'removing') setAsking(false) }
   const revokePin = async () => {
     if (busy) return
-    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.revokeAccessPin(); setNotice('PIN removed.'); await onChanged(); focusAfter(() => pinHeading.current) }
-    catch (cause) {
-      setError(pinProblem(cause, 'Couldn’t remove your PIN. Try again.'))
-      focusAfter(() => revokePinButton.current)
-    } finally { setBusy(false) }
+    setWorking('removing'); setError(null); setSignInAgain(false); setNotice(null); setPinFieldError(false); setErrorAlert(true)
+    try {
+      await api.revokeAccessPin(); setNotice('PIN removed.'); await onChanged()
+      setAsking(false); focusAfter(() => pinHeading.current)
+    } catch (cause) {
+      setError(pinProblem(cause, 'Couldn’t remove your PIN. Try again.')); setSignInAgain(needsRecentSignIn(cause))
+      setAsking(false); focusAfter(() => revokePinButton.current)
+    } finally { setWorking(null) }
   }
 
   const pinError = error && pinFieldError ? <span role={errorAlert ? 'alert' : undefined}>{error}</span> : undefined
@@ -1141,17 +1156,23 @@ function AccessPinSettings({ profile, loading, onChanged }: {
       {/* The paper records part only to an adult (under-18s are refused paper records). */}
       {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
     <Saved>{notice}</Saved>
-    <form onSubmit={event => void configurePin(event)} className="flex flex-wrap items-start gap-2">
-      <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
+    {/* On a phone, Save PIN goes under the field and its hint; wider, beside the field. */}
+    <form onSubmit={event => void configurePin(event)} className="flex flex-col items-start gap-3 sm:flex-row sm:gap-2">
+      {/* Wide enough for the Show PIN toggle beside eight digits, on a 320px phone too. */}
+      <Field className="w-full max-w-64 sm:w-60" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
         errorId="access-pin-error" error={pinError}>
-        <InputR id="access-pin-input" ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin}
+        <PasswordInput id="access-pin-input" ref={pinFocus.target} toggleLabel="Show PIN" required inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin}
           onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
           aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'access-pin-error')} />
       </Field>
-      <Button type="submit" variant="primary" className="mt-[25px]" loading={busy} disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</Button>
+      <Button type="submit" variant="primary" className="shrink-0 sm:mt-[25px]" loading={working === 'saving'} disabled={busy || !/^\d{4,8}$/.test(pin)}>{working === 'saving' ? 'Saving…' : 'Save PIN'}</Button>
     </form>
     {error && !pinFieldError && <Problem id="access-pin-error" alert={errorAlert}>{error}</Problem>}
-    {profile.accessPinConfigured && <ButtonR ref={revokePinButton} variant="danger" className="self-start" disabled={busy || loading} onClick={() => void revokePin()}>Remove PIN</ButtonR>}
+    {error && signInAgain && <SignInAgain at="access-pin" />}
+    {profile.accessPinConfigured && <ButtonR ref={revokePinButton} variant="danger" className="self-start" disabled={busy || loading} onClick={askToRemove}>Remove PIN</ButtonR>}
+    <ConfirmSheet open={asking} onClose={keepPin} title="Remove your Access PIN?" destructive busy={working === 'removing'}
+      effect="Hospitals you gave this PIN to won’t be able to use it to open your records."
+      undo="You can set a new PIN later." confirmLabel={working === 'removing' ? 'Removing…' : 'Remove PIN'} onConfirm={() => void revokePin()} />
   </div>
 }
 

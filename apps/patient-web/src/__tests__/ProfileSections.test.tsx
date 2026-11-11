@@ -69,7 +69,7 @@ async function allShown() {
 const click = (element: HTMLElement) => act(async () => { fireEvent.click(element) })
 /** "More", at the end of the profile, which holds Delete account, once it is shown. */
 async function moreOf() {
-  const more = (await screen.findByText('More')).closest('details') as HTMLDetailsElement
+  const more = (await screen.findByText(/^More/, { selector: 'summary' })).closest('details') as HTMLDetailsElement
   await waitFor(() => expect(more.hidden).toBe(false))
   return more
 }
@@ -199,7 +199,7 @@ describe('a section of the profile', () => {
     // Out of the way: More is closed (a browser shows nothing in a closed <details> but its summary).
     const more = await moreOf()
     expect(more.open).toBe(false)
-    expect(more.querySelector('summary')?.textContent).toBe('More')
+    expect(more.querySelector('summary')?.textContent).toBe('More: delete your account')
     await click(more.querySelector('summary') as HTMLElement)
     expect(more.open).toBe(true)
     const order = screen.getAllByRole('heading', { level: 2 })
@@ -207,7 +207,8 @@ describe('a section of the profile', () => {
     expect(more.contains(heading('Delete account'))).toBe(true)
     const card = within(heading('Delete account').closest('section') as HTMLElement)
     expect(card.getByText('This signs you out everywhere and removes your Access PIN, share invites, emergency contacts and the access you gave. Your Health ID and medical records are kept. You have 14 days to change your mind; after that, it can’t be undone.')).toBeTruthy()
-    expect(card.getByText(SAY.signInAgain)).toBeTruthy()
+    expect(card.getByText('You must have signed in within the last 10 minutes to delete your account.')).toBeTruthy()
+    expect(card.queryByText(SAY.signInAgain)).toBeNull()
     expect(card.getByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
   })
 
@@ -330,23 +331,21 @@ describe('a section of the profile', () => {
 })
 
 describe('a link to a section of the profile', () => {
-  it('opens it in the commit that shows it, after its read, with focus on its heading\'s button', async () => {
+  it('opens it at once, while it is still read, with focus on its heading\'s button, which keeps focus once it is read', async () => {
+    // Insurance & hospital holds its place while it is first read (PPS-06), so a link to it lands there at once.
     let answer!: () => void
     const read = new Promise<void>(resolve => { answer = resolve })
-    atProfile('/profile#coverage', gateway({ 'GET /identity/me/profile-details': async () => { await read; return json(details) } }))
-    await screen.findByRole('heading', { name: 'About you' })
-    expect(screen.queryByRole('heading', { name: 'Insurance & hospital' })).toBeNull()
     const shown = focusWhenShown(() => document.querySelector<HTMLElement>('#coverage h2 > button'))
-    // Answered outside act, as a fetch's answer arrives: React renders the section in one task, and runs effects later.
-    environment.IS_REACT_ACT_ENVIRONMENT = false
-    answer()
+    atProfile('/profile#coverage', gateway({ 'GET /identity/me/profile-details': async () => { await read; return json(details) } }))
     const { element, focused } = await shown
     expect(element.getAttribute('aria-expanded')).toBe('true')
     expect(focused).toBe(element)
-    environment.IS_REACT_ACT_ENVIRONMENT = undefined
+    expect(within(content('Insurance & hospital')).getByRole('status', { name: 'Loading your insurance and hospital' })).toBeTruthy()
+    await act(async () => { answer() })
+    expect(await within(content('Insurance & hospital')).findByRole('textbox', { name: HMO })).toBeTruthy()
+    expect(document.activeElement).toBe(element)
     await allShown()
     expect(SECTIONS.filter(isOpen)).toEqual(['Insurance & hospital'])
-    expect(within(content('Insurance & hospital')).getByRole('textbox', { name: HMO })).toBeTruthy()
   })
 
   it.each([
