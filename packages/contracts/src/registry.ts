@@ -149,6 +149,10 @@ const STAFF_ROUTE = `${STAFF_P4B_NOVU} Staff session with X-Facility-ID (healthc
 const FACILITY_SETTINGS_ROUTE = 'hid-system 0111 (claude/ehr-e-lab-one-person-release); not served by hid-system main (404, '
   + 'which the Facility profile takes as "show nothing"). Staff session with X-Facility-ID (healthcare-operations) and '
   + 'organization.manage there; CSRF on POST.'
+/** Records patients add themselves (Akos step 6, owner decision 25): text only. */
+const PATIENT_ENTRIES_0116 = 'hid-system 0116 (PR #163, claude/patient-entries-0116); not served by hid-system main (404 NOT_FOUND, '
+  + 'which the portal reads as not served). Served on by default (the owner\'s decision of 4 Nov 2026, after legal approval); '
+  + 'PATIENT_ENTRIES_ENABLED=false for ehr-api switches it off, and then every patient-entry route answers 404 NOT_FOUND.'
 const STAFF_INVITATIONS_CLOSED = '423 STAFF_INVITATIONS_UNAVAILABLE while invitations are switched off.'
 /**
  * Cross-facility orders (P4c, owner's fifth and sixth decisions): a clinician sends a lab request or prescription to a
@@ -780,22 +784,26 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §2); no backend serves it. Public: the link in the email a provider '
     + 'receives when a patient shares. Answers { card, sharedBy, recipientEmail, level, duration, expiresAt, records } while the share '
     + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
-  // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes
-  // in it, then each photo or file goes up under it as staff uploads do (an upload link, a PUT of the exact bytes to it, a
-  // confirm). Until a backend serves them, and while patient uploads are off, each answers 404 NOT_FOUND (off looks the same
-  // as not built), and the portal sends no file at all. The entries are listed in ehr.myRecords' own answer, under
-  // `patientEntries`: there is no list route. The portal says each refusal in its own fixed words, by status and code
-  // alone, and never shows the server's.
-  proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
-    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only, no facility. POST '
-    + '(Idempotency-Key, one per Save) { kind, title, facilityName, occurredOn, notes }, a JSON body of at most 8000 bytes with no file '
-    + 'in it, answers 201 { entry }; the same key with the same body replays it. A record the patient adds themselves, kept apart from '
-    + 'clinicians\' and shown as "added by you". Not read back here: ehr.myRecords lists the entries under patientEntries [{ id, source: '
-    + '\'patient\', kind, title, facilityName, occurredOn, notes, createdAt, documents[] }], newest first, removed entries left out; that '
-    + 'key, or a 201, says served. Until then the Save answers 404 NOT_FOUND and nothing is saved. While patient uploads are off (before '
-    + 'NDPA sign-off or migration 0110) the records answer leaves out patientEntries and every patient-entry route answers exactly as if '
-    + 'it were not built (404 NOT_FOUND): off must look the same as not built. The backend must not send patientEntries until uploads are '
-    + 'cleared under the NDPA: that one served signal turns on both the entries list and uploads.')),
+  // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): text only since hid-system 0116 (PR #163),
+  // on by default since the owner's decision of 4 Nov 2026 after legal approval. The first page is listed in
+  // ehr.myRecords' own answer, under `patientEntries`; the pages after it come from ehr.myPatientEntries' GET. Switched off
+  // (PATIENT_ENTRIES_ENABLED=false), and on a backend before 0116, every route answers 404 NOT_FOUND, which the portal reads
+  // as "not served". Photos and files go up under a saved entry later (step 7), through the upload routes below, which stay
+  // proposed. The portal says each refusal in its own fixed words, by status and code alone, and never shows the server's.
+  proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',GP,false,undefined,
+    `${PATIENT_ENTRIES_0116} Patient sessions only, no facility, no-store. POST (optional Idempotency-Key, one per Save and sent `
+    + 'again when it is retried) { kind, title, facilityName, occurredOn, notes }, a JSON body of at most 8000 bytes with no file in it '
+    + '(title 2 to 160 characters, place at most 160, notes at most 1000, counted in UTF-16 units after CRLF and CR read as a newline '
+    + 'and trimming; the newline the only control character), answers 201 { entry, replayed: false }; the same key and values '
+    + '(or, without a key, the same values within 60 seconds) 200 { entry, replayed: true }. 400 VALIDATION_FAILED with '
+    + 'errors[{ field, messages }], 400 PATIENT_ENTRY_INVALID, 409 IDEMPOTENCY_KEY_REUSED (the portal makes a new key), 422 '
+    + 'PATIENT_ENTRY_FILES_NOT_READY (any file listed in the body: photos and files are not served yet), 429 '
+    + 'PATIENT_ENTRY_LIMITED (30 added in 24 hours). ehr.myRecords lists the first page under patientEntries [{ id, source: '
+    + '\'patient\', kind, title, facilityName, occurredOn, notes, createdAt, documents: [] }], newest occurredOn first, removed entries '
+    + 'left out, at most 50, with patientEntriesMore and patientEntriesNextBefore; that key, or a 201, says served. GET ?before= '
+    + 'answers { items, nextBefore }, the next 50 in the same order; 400 INVALID_CURSOR for a cursor not as issued (the portal '
+    + 'reads the list again from the start). While switched off every patient-entry route answers 404 NOT_FOUND before '
+    + 'authentication and the records answer has exactly its old keys: off looks the same as not built. (BACKEND-NEEDS.md §1)')),
   proposed(r('ehr.myPatientEntryUploadIntent','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents',P,false,undefined,
     'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. Idempotency-Key, one per file. Body { fileName, '
     + 'mediaType: application/pdf | image/jpeg | image/png, sizeBytes (1 to 10485760 bytes; at most 5 files per entry), sha256Hex }; the server '
@@ -817,10 +825,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'offers Try again); 409 PATIENT_DOCUMENT_TYPE_MISMATCH for leading bytes that are not mediaType\'s (the portal says the file isn\'t a '
     + 'JPEG, PNG or PDF, with no Try again).')),
   proposed(r('ehr.myPatientEntryWithdraw','ehr','/api/v1/ehr/me/patient-entries/:entryId/withdraw',P,false,undefined,
-    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. No body. 200 { entry: { id, status: \'withdrawn\', '
-    + 'withdrawnAt } }, and a replay answers the same: the entry and its files are gone from the list, the patient chat and every staff '
-    + 'read. Nothing is erased, so the portal says "Removed from your records", never "deleted". An id that is not one of the patient\'s '
-    + 'entries answers 404 PATIENT_ENTRY_NOT_FOUND: the portal says the record has already been removed and reads the records again.')),
+    `${PATIENT_ENTRIES_0116} Patient sessions only. No body. 200 { entry: { id, status: 'withdrawn', withdrawnAt }, replayed }, `
+    + 'and a repeat answers the first withdrawnAt: the entry is gone from the list, both chats, saved chat answers that cite it and '
+    + 'every staff read. Nothing is erased, so the portal says "Removed from your records", never "deleted". An id that is not one '
+    + 'of the patient\'s entries answers 404 PATIENT_ENTRY_NOT_FOUND (never the plain 404): the portal says the record has already '
+    + 'been removed and reads the records again. (BACKEND-NEEDS.md §1)')),
+  // The staff chart's read-only list of what the patient added (0116), "Added by the patient. Not checked by a health worker."
+  proposed(r('ehr.patientEntries','ehr','/api/v1/ehr/patients/:patientId/patient-entries',G,false,one('GET','ehr.note.read'),
+    `${PATIENT_ENTRIES_0116} Staff session with ehr.note.read, X-Facility-ID and X-Purpose-Of-Use: direct-care, and the patient's `
+    + 'read access at that facility. Optional ?before=. 200 { items, more, nextBefore }, the same items and pages as the patient\'s '
+    + 'list, 50 at a time. 400 PURPOSE_OF_USE_REQUIRED, INVALID_CURSOR; 403 CONSENT_REQUIRED, PERMISSION_DENIED, '
+    + 'FACILITY_ACCESS_DENIED, PATIENT_SCOPE_DENIED. Audited ehr.record.read, shown to the patient as a view.')),
   proposed(r('ehr.myImportedAttachment','ehr','/api/v1/ehr/me/imported-attachments/:fileId/download',G,false,undefined,
     `${NOT_ON_MAIN} Offered only when ehr.myRecords carries importedRecords, which main's does not.`)),
   proposed(r('ehr.importedRecords','ehr','/api/v1/ehr/patients/:patientId/imported-records',G,false,one('GET','ehr.note.read'),

@@ -3,6 +3,7 @@ import { usesNovuBackend } from '../../backendContract'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
 import { PatientReportedHealth } from './PatientReportedHealth'
 import { StaffImportedHistory } from './StaffImportedHistory'
+import { PatientAddedRecords } from './PatientAddedRecords'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -1824,6 +1825,10 @@ export function Clinical() {
     {/* hid-1.0 parity B3 (hid-system 0094): what the patient entered about their health, as reported by them. Read as the
         chart's other reads are; a backend before it answers 404 and nothing is shown. */}
     {permissions.includes('ehr.note.read') && activePatient.purpose === 'direct-care' && <PatientReportedHealth
+      key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
+      facilityId={facility.id} patientId={patientId!} />}
+    {/* hid-system 0116: the records the patient added themselves, read-only; 404 (main, or switched off) shows nothing. */}
+    {permissions.includes('ehr.note.read') && activePatient.purpose === 'direct-care' && <PatientAddedRecords
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} />}
     {permissions.includes('ehr.note.read') && importedRecordsEnabled() && <ImportedPatientHistory

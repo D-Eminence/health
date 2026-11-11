@@ -63,6 +63,47 @@ const patient = {
 }
 
 /*
+ * Records the patient added themselves (hid-system 0116, switched on): text only, newest occurredOn first, 50 a page in
+ * the backend and 3 a page here, so "Show older" can be tried. Fictional. Kept in memory for the page's life, with what
+ * the preview adds and removes; removed ones are kept and hidden, as the backend keeps them.
+ */
+const PATIENT_ENTRY_PAGE = 3
+const patientEntries = [
+  ['visit', 'Antenatal check-up', 'Ikeja Medical Centre', '2026-10-28', 'Blood pressure fine. Next visit in four weeks.'],
+  ['test', 'Malaria test', 'Lagos General Hospital', '2026-10-18', 'Rapid test positive. Given artemether-lumefantrine.'],
+  ['medicine', 'Amoxicillin 500 mg', null, '2026-09-30', 'Three times a day for a week.'],
+  ['vaccination', 'Hepatitis B, dose 2', 'Reddington Clinic', '2026-08-12', null],
+  ['diagnosis', 'Mild anaemia', 'Lagos General Hospital', '2026-06-03', 'Iron tablets for three months.'],
+].map(([kind, title, facilityName, occurredOn, notes], index) => ({
+  id: `e0000000-0000-4000-8000-00000000000${index + 1}`, source: 'patient', kind, title, facilityName, occurredOn, notes,
+  createdAt: `${occurredOn}T12:00:00.000Z`, documents: [], status: 'active',
+}))
+const entryOrder = (a, b) => b.occurredOn.localeCompare(a.occurredOn) || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+const shownEntry = ({ status: _status, ...entry }) => entry
+/** A page of the active entries after the cursor `before` (here, plainly, the index to start from). */
+function patientEntryPage(before) {
+  const active = patientEntries.filter(entry => entry.status === 'active').sort(entryOrder)
+  const start = before ? Number(String(before).replace(/^p/, '')) : 0
+  const items = active.slice(start, start + PATIENT_ENTRY_PAGE).map(shownEntry)
+  const more = active.length > start + PATIENT_ENTRY_PAGE
+  return { items, more, nextBefore: more ? `p${String(start + PATIENT_ENTRY_PAGE).padStart(16, '0')}` : null }
+}
+const entryKeys = new Map()
+function addPatientEntry(body, key) {
+  const title = String(body?.title ?? '').trim()
+  if (Array.from(title).length < 2 || title.length > 160) {
+    return [400, { type: 'about:blank', title: 'VALIDATION_FAILED', status: 400, code: 'VALIDATION_FAILED', detail: 'One or more request fields are invalid.',
+      errors: [{ field: 'title', messages: ['Use 2 to 160 characters, on one line.'] }] }]
+  }
+  if (key && entryKeys.has(key)) return [200, { entry: shownEntry(entryKeys.get(key)), replayed: true }]
+  const entry = { id: crypto.randomUUID(), source: 'patient', kind: body.kind, title, facilityName: body.facilityName ?? null,
+    occurredOn: body.occurredOn, notes: body.notes ?? null, createdAt: iso(), documents: [], status: 'active' }
+  patientEntries.push(entry)
+  if (key) entryKeys.set(key, entry)
+  return [201, { entry: shownEntry(entry), replayed: false }]
+}
+
+/*
  * What the patient did in this preview, kept in memory for the page's life (never stored): a decided request, an ended
  * grant, a share. The bodies are not read here, so a share goes to the first sample clinician for 7 days.
  */
@@ -75,7 +116,20 @@ const SHARE_PROVIDERS = [
   { membershipId: 'm-3', clinicianName: 'Nurse Bisi Adeyemi', role: 'nurse', facilityName: 'Reddington Clinic', organizationName: '', newOnHealthId: false },
 ]
 
-function patientRoute(method, path) {
+function patientRoute(method, path, request = {}) {
+  if (method === 'POST' && path === '/ehr/me/patient-entries') return addPatientEntry(request.body, request.headers?.['idempotency-key'])
+  const withdraw = method === 'POST' && /^\/ehr\/me\/patient-entries\/([^/]+)\/withdraw$/.exec(path)
+  if (withdraw) {
+    const entry = patientEntries.find(item => item.id === decodeURIComponent(withdraw[1]))
+    if (!entry) return [404, { type: 'about:blank', title: 'PATIENT_ENTRY_NOT_FOUND', status: 404, code: 'PATIENT_ENTRY_NOT_FOUND', detail: 'This record could not be found.' }]
+    const replayed = entry.status === 'withdrawn'
+    if (!replayed) Object.assign(entry, { status: 'withdrawn', withdrawnAt: iso() })
+    return [200, { entry: { id: entry.id, status: 'withdrawn', withdrawnAt: entry.withdrawnAt }, replayed }]
+  }
+  if (method === 'GET' && path === '/ehr/me/patient-entries') {
+    const { items, nextBefore } = patientEntryPage(request.query?.get?.('before'))
+    return [200, { items, nextBefore }]
+  }
   if (method !== 'GET') {
     if (/^\/identity\/me\/notifications\/[^/]+\/read$/.test(path)) return [200, { id: path.split('/')[4], readAt: iso() }]
     const decision = path.match(/^\/identity\/access-requests\/([^/]+)\/(approve|deny)$/)
@@ -95,7 +149,10 @@ function patientRoute(method, path) {
     case '/identity/me': return [200, patient.me]
     case '/identity/me/profile-details': return [200, patient.profileDetails]
     case '/ehr/me/health-profile': return [200, patient.healthProfile]
-    case '/ehr/me/records': return [200, patient.records]
+    case '/ehr/me/records': {
+      const { items, more, nextBefore } = patientEntryPage(null)
+      return [200, { ...patient.records, patientEntries: items, patientEntriesMore: more, patientEntriesNextBefore: nextBefore }]
+    }
     case '/identity/me/access-history': return [200, patient.accessHistory()]
     case '/identity/me/access-requests': return [200, patient.accessRequests()]
     case '/identity/me/notifications': return [200, patient.notifications()]
@@ -202,7 +259,7 @@ const outreachCases = () => [
   { id: 'oc-4', fullName: 'Segun Adewale', ageYears: 45, sex: 'unknown', temporaryPatientId: 'tmp_4e6f0b77', phone: null, operationalNotes: null, createdAt: iso(-2 * DAY), rowVersion: 1 },
 ].map(item => ({ ...item, status: outreachLinked.has(item.id) ? 'identity_resolved' : 'identity_resolution_pending', rowVersion: item.rowVersion + (outreachLinked.has(item.id) && item.id !== 'oc-3' ? 1 : 0) }))
 
-function staffRoute(method, path) {
+function staffRoute(method, path, request = {}) {
   if (method === 'POST' && path === '/auth/facility') return [200, staffSession()]
   const dispense = method === 'POST' && /^\/pharmacy\/work-items\/([^/]+)\/dispensings$/.exec(path)
   if (dispense) {
@@ -242,6 +299,8 @@ function staffRoute(method, path) {
     { id: 'cm-2', campaignId: 'camp-1', membershipId: 'member-demo-7', role: 'enumerator', createdAt: iso(-4 * DAY) },
   ] : []]
   if (/^\/ehr\/patients\/[^/]+\/encounters(\/[^/]+\/[a-z-]+)?$/.test(path) || path === '/ehr/documents') return [200, { items: [], nextCursor: null }]
+  // The records the patient added themselves, read-only on the chart (hid-system 0116): the sample patient's own.
+  if (/^\/ehr\/patients\/[^/]+\/patient-entries$/.test(path)) return [200, patientEntryPage(request.query?.get?.('before'))]
   switch (path) {
     case '/identity/access-requests': return [200, [
       { accessRequestId: 'ar-1', patientId: DEMO_PATIENT_ID, scope: 'read_records', purposeOfUse: 'direct-care', reason: 'Follow-up', status: 'pending', requestedDurationMinutes: 60, requestedAt: iso(-20 * MIN), approvedAt: null, deniedAt: null, deniedReason: null, consentGrantId: null, grantExpiresAt: null, effectiveStatus: 'pending', authorizationMethod: null },

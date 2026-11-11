@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isHidApiError } from '@hid/http'
 import { ownRecordFits, parsePatientEntries, type OwnRecordInput } from '../api'
+import { cleanOwnRecord, ownRecordLength, titleLongEnough } from '../patientEntries'
 import {
   forgetPatientEntriesServed, learnPatientEntriesServed, patientEntriesServed, saysPatientEntriesNotServed,
 } from '../patientEntriesServed'
@@ -95,7 +96,8 @@ describe('api.addOwnRecord', () => {
 
   it('refuses, before sending, a body over the edge limit', async () => {
     const { api, sent } = patientApi(() => json({ entry: { id: ENTRY_ID } }, 201))
-    const long = { ...ENTRY, notes: '\u0002'.repeat(1400) }
+    // Each quotation mark is sent as two bytes: within no limit the API applies, over 8000 bytes.
+    const long = { ...ENTRY, notes: '"'.repeat(4100) }
     expect(ownRecordFits(long)).toBe(false)
     expect(ownRecordFits({ ...ENTRY, notes: 'x'.repeat(2000) })).toBe(true)
     expect(await refusal(api.addOwnRecord(long, 'k'))).toMatchObject({ status: 413, code: 'PATIENT_ENTRY_TOO_LARGE' })
@@ -178,7 +180,69 @@ describe('api.records, which lists the records the patient added', () => {
   })
 })
 
+/** The list a page at a time (hid-system 0116): the first page in the records answer, the next from GET ?before=. */
+describe('the list of records the patient added, a page at a time', () => {
+  const entry = (id: string, title: string) => ({ id, source: 'patient', kind: 'visit', title, facilityName: null, occurredOn: '2026-09-01',
+    notes: null, createdAt: '2026-09-02T08:00:00.000Z', documents: [] })
+  const CURSOR = 'MjAyNi0wOS0wMXwyMDI2LTA5LTAyVDA4OjAwOjAwWnw1'
+
+  it('reads whether there are more, and the cursor of the next page, from the records answer', async () => {
+    const { api } = patientApi(() => json({ ...TODAYS_RECORDS, patientEntries: [entry(ENTRY_ID, 'Check-up')], patientEntriesMore: true,
+      patientEntriesNextBefore: CURSOR }))
+    const records = await api.records()
+    expect(records.patientEntriesMore).toBe(true)
+    expect(records.patientEntriesNextBefore).toBe(CURSOR)
+  })
+
+  it('reads no next page from a cursor of another shape, or without more', async () => {
+    for (const [more, before] of [[true, 'not a cursor!'], [true, 'x'.repeat(513)], [false, CURSOR], ['yes', CURSOR], [true, 42]] as const) {
+      const { api } = patientApi(() => json({ ...TODAYS_RECORDS, patientEntries: [], patientEntriesMore: more, patientEntriesNextBefore: before }))
+      const records = await api.records()
+      expect(records.patientEntriesNextBefore ?? null, JSON.stringify([more, before])).toBeNull()
+    }
+  })
+
+  it('asks for the page after the cursor, and reads its items and the next cursor', async () => {
+    const { api, sent, headers } = patientApi(() => json({ items: [entry(DOCUMENT_ID, 'Older visit'), { id: 'bad' }], nextBefore: null }))
+    const page = await api.ownRecordsPage(CURSOR)
+    expect(sent).toEqual([{ path: ENTRIES, method: 'GET', body: null }])
+    expect(headers[0]?.search).toBe(`?before=${CURSOR}`)
+    expect(page).toEqual({ items: [{ ...entry(DOCUMENT_ID, 'Older visit') }], nextBefore: null })
+  })
+
+  it('does not take a page that is not one', async () => {
+    const { api } = patientApi(() => json({ entries: [] }))
+    expect(await refusal(api.ownRecordsPage(CURSOR))).toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+
+  it('passes a changed list’s refusal on as it is', async () => {
+    const { api } = patientApi(() => problem(400, 'INVALID_CURSOR', 'This list changed. Load it again from the start.'))
+    expect(await refusal(api.ownRecordsPage(CURSOR))).toMatchObject({ status: 400, code: 'INVALID_CURSOR' })
+  })
+})
+
+describe('what a Save sends', () => {
+  it('reads CRLF and CR as a newline, trims, and sends any other control character as a space', () => {
+    expect(cleanOwnRecord({ kind: 'visit', title: ' Check\tup\u0007 ', facilityName: '  ', occurredOn: '2026-10-20',
+      notes: '\r\n Line one\r\nLine two\rLine three\u0000 \n' })).toEqual({ kind: 'visit', title: 'Check up', facilityName: null,
+      occurredOn: '2026-10-20', notes: 'Line one\nLine two\nLine three' })
+  })
+
+  it('counts as the backend does: UTF-16 units for the upper limits, characters for the title’s two', () => {
+    expect(ownRecordLength('a\r\nb ')).toBe(3)
+    expect(ownRecordLength('😀')).toBe(2)
+    expect(titleLongEnough('😀')).toBe(false)
+    expect(titleLongEnough('😀😀')).toBe(true)
+    expect(titleLongEnough(' a ')).toBe(false)
+  })
+})
+
 describe('api.withdrawOwnRecord', () => {
+  it('reads a repeated removal’s answer as done', async () => {
+    const { api } = patientApi(() => json({ entry: { id: ENTRY_ID, status: 'withdrawn', withdrawnAt: '2026-10-22T09:00:00.000Z' }, replayed: true }))
+    expect(await api.withdrawOwnRecord(ENTRY_ID)).toEqual({ id: ENTRY_ID, status: 'withdrawn', withdrawnAt: '2026-10-22T09:00:00.000Z' })
+  })
+
   it('posts the removal with no body and reads its answer', async () => {
     const { api, sent } = patientApi(() => json({ entry: { id: ENTRY_ID, status: 'withdrawn', withdrawnAt: '2026-10-22T09:00:00.000Z' } }))
     expect(await api.withdrawOwnRecord(ENTRY_ID)).toEqual({ id: ENTRY_ID, status: 'withdrawn', withdrawnAt: '2026-10-22T09:00:00.000Z' })

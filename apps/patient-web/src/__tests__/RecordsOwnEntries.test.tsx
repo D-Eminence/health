@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { RecordsPage } from '../routes/Portal'
-import { forgetPatientEntriesServed, patientEntriesServed } from '../patientEntriesServed'
+import { forgetPatientEntriesServed, learnPatientEntryFilesServed, patientEntriesServed } from '../patientEntriesServed'
 import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 import { PLAIN_JPEG } from './photoFixtures'
 
@@ -44,13 +44,13 @@ const amoxicillin = { id: AMOXICILLIN, source: 'patient', kind: 'medicine', titl
 const served = (items: readonly unknown[], records: object = RECORDS) => ({ ...records, patientEntries: items })
 
 /** The gateway: the page's records as `records` answers them, and anything else as `other` does (else 404 NOT_FOUND). */
-function gateway(records: () => unknown, other?: (path: string, method: string, body: unknown) => Response | undefined): Handler {
-  return (path, method, body) => {
+function gateway(records: () => unknown, other?: (path: string, method: string, body: unknown, search?: string) => Response | undefined): Handler {
+  return (path, method, body, search) => {
     if (path === RECORDS_PATH && method === 'GET') {
       const answer = records()
       return answer instanceof Response ? answer : json(answer)
     }
-    return other?.(path, method, body) ?? problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
+    return other?.(path, method, body, search) ?? problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
   }
 }
 
@@ -394,7 +394,8 @@ describe('after "Add a record" saves one', () => {
       .toEqual([`GET ${RECORDS_PATH}`, `POST ${ENTRIES}`, `GET ${RECORDS_PATH}`])
   })
 
-  it('says nothing of the list while that Save’s photos go up, then shows it with them', async () => {
+  it('says nothing of the list while that Save’s photos go up, then shows it with them (once photos are served, step 7)', async () => {
+    learnPatientEntryFilesServed(true)
     vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:https://portal.test/preview')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const items: unknown[] = []
@@ -438,5 +439,140 @@ describe('after "Add a record" saves one', () => {
     // The records read again once, after the photo is up; never a read of the entries alone.
     expect(requests(sent).filter(request => request.includes(RECORDS_PATH))).toEqual([`GET ${RECORDS_PATH}`, `GET ${RECORDS_PATH}`])
     expect(requests(sent)).not.toContain(`GET ${ENTRIES}`)
+  })
+})
+
+/** hid-system 0116, switched on: text only, and the list a page at a time ("Show older"). Fictional data only. */
+describe('the records the patient added, as hid-system 0116 serves them', () => {
+  const visit = (n: number) => ({ id: `0000000${n}-1111-4111-8111-111111111111`, source: 'patient', kind: 'visit', title: `Check-up ${n}`,
+    facilityName: null, occurredOn: `2026-0${n}-01`, notes: null, createdAt: `2026-0${n}-02T08:00:00.000Z`, documents: [] })
+  const CURSOR_1 = 'Y3Vyc29yLW9uZS1maWN0aW9uYWw'
+  const CURSOR_2 = 'Y3Vyc29yLXR3by1maWN0aW9uYWw'
+  const firstPage = { ...served([visit(9), visit(8)]), patientEntriesMore: true, patientEntriesNextBefore: CURSOR_1 }
+  const pages = (answer: (search: string) => Response) => (path: string, method: string, _body: unknown, search?: string) =>
+    path === ENTRIES && method === 'GET' ? answer(search ?? '') : undefined
+  const titles = (card: HTMLElement) => within(card).getAllByRole('heading', { level: 3 }).map(item => item.textContent)
+  const showOlder = (card: HTMLElement) => within(card).getByRole('button', { name: 'Show older records you added' })
+
+  it('opens "Add a record" without a photo step, and says nothing of photos, while photos and files are not served', async () => {
+    renderPortal(<RecordsPage />, gateway(() => served([], NO_RECORDS)))
+    expect(await screen.findByText('Records from your providers appear here. You can add your own too, from any hospital or clinic.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/photo of the paper/)
+    await press(screen.getAllByRole('button', { name: 'Add a record' })[0]!)
+    const dialog = await screen.findByRole('dialog', { name: 'Add a record' })
+    expect(within(dialog).queryByRole('button', { name: 'Take a photo' })).toBeNull()
+    expect(dialog.querySelector('input[type=file]')).toBeNull()
+  })
+
+  it('shows older records a page at a time, moving focus to the first one shown and saying how many', async () => {
+    const { sent, headers } = renderPortal(<RecordsPage />, gateway(() => firstPage, pages(search =>
+      search === `?before=${CURSOR_1}` ? json({ items: [visit(7), visit(6)], nextBefore: CURSOR_2 }) : json({ items: [visit(5)], nextBefore: null }))))
+    const card = await ownCard()
+    expect(titles(card)).toEqual(['Check-up 9', 'Check-up 8'])
+    await press(showOlder(card))
+    await waitFor(() => expect(titles(card)).toEqual(['Check-up 9', 'Check-up 8', 'Check-up 7', 'Check-up 6']))
+    expect(document.activeElement).toBe(within(card).getByRole('heading', { level: 3, name: 'Check-up 7' }))
+    expect(screen.getByText('2 older records shown.').closest('[role="status"]')).not.toBeNull()
+    await press(showOlder(card))
+    await waitFor(() => expect(titles(card)).toHaveLength(5))
+    expect(screen.getByText('1 older record shown. That’s all of them.')).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: 'Show older records you added' })).toBeNull()
+    expect(document.activeElement).toBe(within(card).getByRole('heading', { level: 3, name: 'Check-up 5' }))
+    expect(headers.filter(request => request.path === ENTRIES).map(request => request.search)).toEqual([`?before=${CURSOR_1}`, `?before=${CURSOR_2}`])
+    expect(requests(sent)).toEqual([`GET ${RECORDS_PATH}`, `GET ${ENTRIES}`, `GET ${ENTRIES}`])
+    // Each is offered Remove, older ones too.
+    expect(within(card).getAllByRole('button', { name: /^Remove/ })).toHaveLength(5)
+  })
+
+  it('asks once however often Show older is pressed while it loads', async () => {
+    let release: (response: Response) => void = () => {}
+    const { sent } = renderPortal(<RecordsPage />, gateway(() => firstPage, pages(() => new Promise<Response>(resolve => { release = resolve }) as unknown as Response)))
+    const card = await ownCard()
+    const button = showOlder(card)
+    await press(button)
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(requests(sent).filter(request => request === `GET ${ENTRIES}`)).toHaveLength(1)
+    expect(button.getAttribute('aria-busy') === 'true' || (button as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { release(json({ items: [visit(7)], nextBefore: null })) })
+    await waitFor(() => expect(titles(card)).toHaveLength(3))
+  })
+
+  it('says older records could not be loaded, keeps what is shown, and offers Show older again', async () => {
+    let fail = true
+    renderPortal(<RecordsPage />, gateway(() => firstPage, pages(() => fail
+      ? problem(503, 'EHR_UNAVAILABLE', 'relation ehr.patient_entries is locked (pg 7f3c)') : json({ items: [visit(7)], nextBefore: null }))))
+    const card = await ownCard()
+    await press(showOlder(card))
+    expect(await within(card).findByText('Your older records couldn’t be loaded. Please try again.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/relation|7f3c/)
+    expect(titles(card)).toEqual(['Check-up 9', 'Check-up 8'])
+    expect(document.activeElement).toBe(showOlder(card))
+    fail = false
+    await press(showOlder(card))
+    await waitFor(() => expect(titles(card)).toHaveLength(3))
+    expect(within(card).queryByText(/couldn’t be loaded/)).toBeNull()
+  })
+
+  it('reads the list again from the start when it changed meanwhile (400 INVALID_CURSOR), and says so', async () => {
+    let records: object = firstPage
+    const { sent } = renderPortal(<RecordsPage />, gateway(() => records, pages(() => {
+      records = served([visit(9), visit(8), visit(7)])
+      return problem(400, 'INVALID_CURSOR', 'This list changed. Load it again from the start.')
+    })))
+    const card = await ownCard()
+    await press(showOlder(card))
+    expect(await screen.findByText('Your list changed, so it was loaded again from the start.')).toBeTruthy()
+    await waitFor(() => expect(titles(card)).toEqual(['Check-up 9', 'Check-up 8', 'Check-up 7']))
+    expect(requests(sent)).toEqual([`GET ${RECORDS_PATH}`, `GET ${ENTRIES}`, `GET ${RECORDS_PATH}`])
+    expect(document.body.textContent).not.toContain('Load it again from the start')
+  })
+
+  it('keeps Show older while searching, counts only what is shown so far, and searches each older page as it comes', async () => {
+    renderPortal(<RecordsPage />, gateway(() => firstPage, pages(() => json({ items: [visit(7), visit(6)], nextBefore: null }))))
+    const card = await ownCard()
+    // Only an older record, not yet loaded, is from June.
+    search('June')
+    expect(within(card).getByText('None of the 2 shown so far match. Show older to look further.')).toBeTruthy()
+    expect(within(card).queryAllByRole('heading', { level: 3 })).toHaveLength(0)
+    expect(screen.queryByText('Nothing matches')).toBeNull()
+    await press(showOlder(card))
+    await waitFor(() => expect(titles(card)).toEqual(['Check-up 6']))
+    expect(within(card).getByText('1 of 4 match')).toBeTruthy()
+    expect(screen.getByText('2 older records shown, 1 matching your search. That’s all of them.').closest('[role="status"]')).not.toBeNull()
+    expect(document.activeElement).toBe(within(card).getByRole('heading', { level: 3, name: 'Check-up 6' }))
+    // With everything loaded, a search that matches nothing is said as the page says it.
+    search('typhoid')
+    expect(screen.queryByRole('region', { name: 'Added by you' })).toBeNull()
+    expect(screen.getByText('Nothing matches')).toBeTruthy()
+  })
+
+  it('says how many of those shown so far match while older records are left to load', async () => {
+    renderPortal(<RecordsPage />, gateway(() => firstPage))
+    const card = await ownCard()
+    search('September')
+    expect(within(card).getByText('1 of the 2 shown so far match. Show older to look further.')).toBeTruthy()
+    expect(showOlder(card)).toBeTruthy()
+  })
+
+  it('starts from the first page again after a removal, so nothing shown is out of date', async () => {
+    let records: object = firstPage
+    const { sent } = renderPortal(<RecordsPage />, gateway(() => records, (path, method, body, search) => {
+      if (path === `${ENTRIES}/${visit(7).id}/withdraw` && method === 'POST') {
+        records = { ...served([visit(9), visit(8)]), patientEntriesMore: true, patientEntriesNextBefore: CURSOR_1 }
+        return json({ entry: { id: visit(7).id, status: 'withdrawn', withdrawnAt: '2026-11-04T10:00:00.000Z' }, replayed: false })
+      }
+      return pages(() => json({ items: [visit(7), visit(6)], nextBefore: null }))(path, method, body, search)
+    }))
+    const card = await ownCard()
+    await press(showOlder(card))
+    await waitFor(() => expect(titles(card)).toHaveLength(4))
+    await press(within(card).getByRole('button', { name: /^Remove Check-up 7/ }))
+    await press(within(card).getByRole('button', { name: 'Yes, remove' }))
+    expect(await screen.findByText('Removed from your records')).toBeTruthy()
+    await waitFor(() => expect(titles(card)).toEqual(['Check-up 9', 'Check-up 8']))
+    expect(document.activeElement).toBe(ownTitle(card))
+    expect(showOlder(card)).toBeTruthy()
+    expect(requests(sent).at(-1)).toBe(`GET ${RECORDS_PATH}`)
   })
 })
