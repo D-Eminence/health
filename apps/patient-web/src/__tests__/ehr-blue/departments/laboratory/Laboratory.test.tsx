@@ -1828,3 +1828,32 @@ describe('Visit rehearsal (11 Nov): the doctor’s clinical information reaches 
     expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
   })
 })
+
+describe('Visit rehearsal (11 Nov): a finished request is no longer waiting', () => {
+  const tenMinutesAgo = () => new Date(Date.now() - 10 * 60_000).toISOString()
+  const received = () => workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'], acceptedAt: tenMinutesAgo() })
+
+  /** The open request's page: its heading, the line under it, and its cards. */
+  const recordPage = () => screen.getByRole('heading', { level: 1, name: 'Haemoglobin' }).closest('[data-layout="column"]') as HTMLElement
+
+  async function openDone(result: LabResult | null) {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    await openAccession(PROCESSING, accession([specimen('received')]), received())
+    await waitFor(() => expect(api.labExecutions).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'specimen-1'))
+  }
+
+  it('says how long it has waited while there is work left', async () => {
+    await openDone(draftResult())
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release')
+    expect(requestFacts().Waiting).toBe('10 min')
+    expect(recordPage().textContent).toContain('waiting 10 min')
+  })
+
+  it('says no waiting time once every result is released (Done)', async () => {
+    await openDone(publishedResult())
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done')
+    expect(Object.keys(requestFacts())).not.toContain('Waiting')
+    // The request's own page; the work list beside it is the list's own (its stage is health#164's).
+    expect(recordPage().textContent).not.toMatch(/waiting \d+ min/i)
+  })
+})
