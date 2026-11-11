@@ -25,7 +25,7 @@ import { Labels, usePrint } from './labPrint'
 import { CheckStep, CollectStep, ResultForm, ResultHistory, ResultValue, TestingStep, type LabSubject } from './labSteps'
 import { LAB_RESULTS_HIDDEN, stampText } from './labText'
 import {
-  ageSex, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
+  ageSex, clinicalIndicationOf, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
 } from './stage'
 
 /** The Lab permissions that write on a request: taken away on work from another facility's order that has closed. */
@@ -143,11 +143,12 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
   const defaultReason = walkIn?.clinicalNote ?? (outside ? `Asked for by ${outside.prescriberName}` : walkIn ? 'Walk-in request' : '')
+  // How long it has waited, only while it waits: a finished request, or an ended order, is not waiting.
+  const waited = stage === 'done' || closed ? null : waitedText(item.acceptedAt)
 
   return <FormPage wide back={{ to: backTo, label: 'Back to the work list' }}
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}
-    description={[isUrgent(item.priority) ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
-      .filter(Boolean).join(' · ') || undefined}>
+    description={[isUrgent(item.priority) ? 'Urgent' : null, waited ? `waiting ${waited}` : null].filter(Boolean).join(' · ') || undefined}>
     {personBanner(person)}
     <StageTrack stage={stage} />
     {/* Focusable, so focus can be put on what a refused ending said once its form is gone. */}
@@ -209,6 +210,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />
       <DescriptionList items={[
         ['Test', test],
+        // Why the test was asked for, as written on the request (once Lab sends it).
+        clinicalIndicationOf(item) ? ['Clinical information', <span className="whitespace-pre-line break-words">{clinicalIndicationOf(item)}</span>] : null,
         // Stat, as soon as possible and urgent requests are all marked Urgent, as the work list sorts them first.
         ['Priority', isUrgent(item.priority) ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
         requestOf(item) ? ['Request', requestOf(item)!.number] : null,
@@ -217,7 +220,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         walkIn?.clinicalNote ? ['Clinical note', walkIn.clinicalNote] : null,
         outside ? ['Referred by', [outside.prescriberName, outside.facilityName].filter(Boolean).join(', ')] : null,
         route?.ordererName ? ['Ordered by', route.ordererName + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '')] : null,
-        ['Waiting', waitedText(item.acceptedAt) ?? 'Not known'],
+        stage === 'done' || closed ? null : ['Waiting', waited ?? 'Not known'],
       ]} />
     </Card>
 

@@ -1784,3 +1784,76 @@ describe('payment settings', () => {
     await waitFor(() => expect(cardButton('Haemoglobin').textContent).toMatch(/Take payment/))
   })
 })
+
+describe('Visit rehearsal (11 Nov): the doctor’s clinical information reaches the lab', () => {
+  // As the rehearsal's doctor wrote it on the request; Lab keeps it on the work item (clinical_indication).
+  const WHY = 'Fever 3 days, 38.6 °C. No antimalarial taken yet.'
+  const withIndication = (clinicalIndication: unknown) => ({ ...workItem(), clinicalIndication }) as LabWorkItem
+
+  async function openWith(item: LabWorkItem, permissions = ACCESSION) {
+    as(permissions)
+    api.labWorkItems.mockResolvedValue({ items: [item] })
+    renderPage()
+    await openRecord()
+    return stageCard()
+  }
+
+  it('shows it under the request, and registers the sample with it, without asking the scientist to type it again', async () => {
+    const created = { ...accession([specimen('required')]) }
+    api.createLabAccession.mockResolvedValue(created)
+    api.labAccession.mockResolvedValue(created)
+    const card = await openWith(withIndication(`  ${WHY} `))
+    expect(requestFacts()['Clinical information']).toBe(WHY)
+    // Shown in the step as the request's, with no box to type it in.
+    expect(within(card).queryByRole('textbox', { name: 'Why the test' })).toBeNull()
+    expect(within(card).getByText(WHY)).toBeTruthy()
+    expect(within(card).getByText('From the request, as it was written.')).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sample' }), { target: { value: 'Venous blood (EDTA)' } })
+    press(within(card).getByRole('button', { name: 'Register sample' }))
+    await waitFor(() => expect(api.createLabAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'work-item-1', 'Venous blood (EDTA)', WHY))
+  })
+
+  it.each([['sends none (today’s Lab)', undefined], ['sends null', null], ['sends it blank', '   ']])(
+    'asks as before when Lab %s', async (_case, clinicalIndication) => {
+      const card = await openWith(clinicalIndication === undefined ? workItem() : withIndication(clinicalIndication))
+      expect(Object.keys(requestFacts())).not.toContain('Clinical information')
+      expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
+    })
+
+  it('still asks for a short reason when the clinical information is longer than Lab takes for a sample (500 characters)', async () => {
+    const long = `${'Fever and rigors for three days. '.repeat(16)}`.trim()
+    expect(long.length).toBeGreaterThan(500)
+    const card = await openWith(withIndication(long))
+    expect(requestFacts()['Clinical information']).toBe(long)
+    expect(within(card).getByRole('textbox', { name: 'Why the test' })).toBeTruthy()
+  })
+})
+
+describe('Visit rehearsal (11 Nov): a finished request is no longer waiting', () => {
+  const tenMinutesAgo = () => new Date(Date.now() - 10 * 60_000).toISOString()
+  const received = () => workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'], acceptedAt: tenMinutesAgo() })
+
+  /** The open request's page: its heading, the line under it, and its cards. */
+  const recordPage = () => screen.getByRole('heading', { level: 1, name: 'Haemoglobin' }).closest('[data-layout="column"]') as HTMLElement
+
+  async function openDone(result: LabResult | null) {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    await openAccession(PROCESSING, accession([specimen('received')]), received())
+    await waitFor(() => expect(api.labExecutions).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'specimen-1'))
+  }
+
+  it('says how long it has waited while there is work left', async () => {
+    await openDone(draftResult())
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Check & release')
+    expect(requestFacts().Waiting).toBe('10 min')
+    expect(recordPage().textContent).toContain('waiting 10 min')
+  })
+
+  it('says no waiting time once every result is released (Done)', async () => {
+    await openDone(publishedResult())
+    expect(document.getElementById('lab-stage-title')?.textContent).toBe('Done')
+    expect(Object.keys(requestFacts())).not.toContain('Waiting')
+    // The request's own page; the work list beside it is the list's own (its stage is health#164's).
+    expect(recordPage().textContent).not.toMatch(/waiting \d+ min/i)
+  })
+})
