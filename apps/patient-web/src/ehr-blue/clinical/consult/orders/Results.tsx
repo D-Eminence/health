@@ -2,6 +2,7 @@ import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
 import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
+import { labPaperLines, type LabPaperLine } from '../../parts/clinicalPrint'
 import { ErrorBox } from '../../parts/Notices'
 import { releasedResultsRefusal } from './words'
 
@@ -35,11 +36,13 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
  * Today's ReleasedResults (Clinical.tsx) as a card under the lab request: read only when opened or refreshed, since
  * Lab audits every read; what was shown is hidden while it is read again.
  */
-export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: {
+export function ReleasedResults({ facilityId, requestId, revision, onRefresh, onPrint }: {
   facilityId: string
   requestId: string
   revision: number
   onRefresh: () => void
+  /** Prints the released results shown (their latest released versions, none entered in error). */
+  onPrint?: (test: string, lines: readonly LabPaperLine[]) => void
 }) {
   const [released, setReleased] = useState<LabOrderReleasedResults | null>(null)
   const [loading, setLoading] = useState(false)
@@ -56,10 +59,14 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh }: 
     return () => { active = false }
   }, [revision, facilityId, requestId])
 
+  const printable = released ? labPaperLines(released.results) : []
   return (
     <EhrCard title="Released results">
       <p>
         <EhrButton variant="quiet" size="sm" busy={loading} onClick={() => { if (!loading) onRefresh() }}>Refresh released results</EhrButton>
+        {onPrint && released && printable.length > 0 && !loading ? (
+          <EhrButton variant="secondary" size="sm" onClick={() => onPrint(released.test.name, printable)}>Print result</EhrButton>
+        ) : null}
       </p>
       <div role="status">{loading ? <p>Loading released results…</p> : null}</div>
       {error ? <ErrorBox>{error}</ErrorBox> : null}

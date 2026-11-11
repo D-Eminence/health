@@ -1,5 +1,5 @@
 import type { OcrCandidateType, OcrTargetDomain, OcrValidationInput } from '../../../staff/api'
-import { PAPER_READING_CONTRACT, itemNotActive, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
+import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
 /*
  * The check of a paper reading, as staff make it on the Document OCR page: each item read is kept, changed or removed,
@@ -75,23 +75,36 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+/** Words read from the paper as they are saved: with no reader's marks (cleanReading), so no "?" the reader added. */
+function clean(value: unknown): string {
+  return cleanReading(text(value))
+}
+
 function words(...parts: unknown[]): string {
-  return parts.map(text).filter(Boolean).join(' ')
+  return parts.map(clean).filter(Boolean).join(' ')
 }
 
 /** A lab result's test, as read: the test the reader named, or the item's name. */
 export function labTest(item: PaperItem): string {
-  return text(item.fields.test) || itemName(item)
+  return clean(item.fields.test) || itemName(item)
 }
 
 /** A lab result's result, as read ("11.2 g/dL"), or what is written when no value was picked out. */
 export function labResult(item: PaperItem): string {
-  return words(item.fields.value, item.fields.unit) || item.asWritten.trim()
+  return words(item.fields.value, item.fields.unit) || itemHeadlineText(item)
 }
 
-/** An item's name as the page shows it in bold: the plain reading, or what is written. */
+/** An item's name as saved: the plain reading, or what is written, each with no reader's marks. */
 export function itemName(item: PaperItem): string {
-  return item.plain.trim() || item.asWritten.trim()
+  return clean(item.plain) || itemHeadlineText(item)
+}
+
+/**
+ * What Keep saves for an item, as the check shows it: a lab result's test and result as they go to past lab results,
+ * any other item's readingLine.
+ */
+export function keptText(item: PaperItem): string {
+  return item.kind === 'lab_result' ? `${labTest(item)} ${labResult(item)}` : readingLine(item)
 }
 
 /**
@@ -115,17 +128,22 @@ export function reviewItems(reading: PaperReading | null): PaperItem[] {
   return reading && reading.status === 'read' ? orderItems(reading.items) : []
 }
 
-/** Where each item starts: a clear item is kept; one to check carefully waits for staff to choose. */
+/**
+ * Where each item starts: a clear item is kept; one to check (the reader said so, or part of it couldn't be read) waits
+ * for staff to choose. A line that couldn't be read at all is removed, and stays removed whatever is chosen
+ * (buildValidation): it is never saved.
+ */
 export function initialDecisions(items: readonly PaperItem[]): Record<string, ItemDecision> {
   return Object.fromEntries(items.map(item => [item.id, {
-    choice: item.confidence === 'clear' ? 'keep' : null, text: readingLine(item),
+    choice: isUnreadable(item) ? 'remove' : needsCheck(item) ? null : 'keep', text: readingLine(item),
     ...(item.kind === 'lab_result' ? { test: labTest(item), result: labResult(item) } : {}),
   }]))
 }
 
 /** The domains a reading can be saved as. `canAttachNote`: the job names a patient whose visits this account can read. */
 export function offeredDomains(reading: PaperReading | null, canAttachNote: boolean): SaveAs[] {
-  const items = reviewItems(reading)
+  // A line that couldn't be read is never kept, so it offers nothing to save it as.
+  const items = reviewItems(reading).filter(item => !isUnreadable(item))
   if (items.length === 0) return ['DOCUMENT_ONLY']
   const offered = new Set<SaveAs>(['DOCUMENT_ONLY'])
   if (canAttachNote) offered.add('EHR')
@@ -136,7 +154,7 @@ export function offeredDomains(reading: PaperReading | null, canAttachNote: bool
 
 /** How many medicines are kept or changed so far. */
 export function keptMedicines(items: readonly PaperItem[], decisions: Decisions): number {
-  return items.filter(item => item.kind === 'medicine' && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').length
+  return items.filter(item => item.kind === 'medicine' && !isUnreadable(item) && decisions[item.id]?.choice && decisions[item.id]?.choice !== 'remove').length
 }
 
 /** What the form says when more medicines are kept than one review can add. */
@@ -216,11 +234,11 @@ function observation(entry: CheckedItem): Observation {
   const source = { page: item.page, itemId: item.id, reportedAtAsWritten: upTo(text(item.dateAsWritten), 120) }
   // A changed result carries the test and result staff typed, so the reading's own value and unit can't contradict them.
   if (entry.lab?.changed) return optional<Observation>({ testName, valueText: entry.lab.result, ...source })
-  const value = text(f.value)
+  const value = clean(f.value)
   const flag = text(f.flag).toLowerCase()
   return optional<Observation>({
-    testName, value: value || undefined, valueText: value ? undefined : item.asWritten.trim(),
-    unit: upTo(text(f.unit), 80), referenceRange: upTo(text(f.referenceRange), 240), abnormalFlag: LAB_FLAGS.has(flag) ? flag : undefined,
+    testName, value: value || undefined, valueText: value ? undefined : itemHeadlineText(item),
+    unit: upTo(clean(f.unit), 80), referenceRange: upTo(clean(f.referenceRange), 240), abnormalFlag: LAB_FLAGS.has(flag) ? flag : undefined,
     ...source,
   })
 }
@@ -232,9 +250,9 @@ function medication(entry: CheckedItem) {
   // A status staff confirmed as not active ("Stopped") goes with the record, kept or changed, as it shows on the card.
   const notActive = itemNotActive(item)
   const context = [
-    `From a paper record, page ${item.page}. As written: ${item.asWritten.trim()}`,
+    `From a paper record, page ${item.page}. Read as: ${itemHeadlineText(item)}`,
     notActive && `Status: ${notActive}`,
-    text(f.duration) && `For ${text(f.duration)}`,
+    clean(f.duration) && `For ${clean(f.duration)}`,
     item.prescription?.prescriberAsWritten?.trim() && `Prescribed by ${item.prescription.prescriberAsWritten.trim()}`,
     item.prescription?.dateAsWritten?.trim() && `Prescribed on ${item.prescription.dateAsWritten.trim()}`,
     item.dateAsWritten?.trim() && `Dated ${item.dateAsWritten.trim()}`,
@@ -243,8 +261,8 @@ function medication(entry: CheckedItem) {
   return optional({
     itemId: item.id, page: item.page,
     medicationText: changed ? entry.final : itemName(item),
-    strengthText: changed ? undefined : upTo(text(f.strength), 240),
-    frequencyText: changed ? undefined : upTo(text(f.frequency), 240),
+    strengthText: changed ? undefined : upTo(clean(f.strength), 240),
+    frequencyText: changed ? undefined : upTo(clean(f.frequency), 240),
     historicalContext: context.slice(0, 2_000),
   })
 }
@@ -259,7 +277,9 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
   const items = reviewItems(reading)
   const checked: CheckedItem[] = []
   for (const [index, item] of items.entries()) {
-    const decision = decisions[item.id] ?? { choice: null, text: readingLine(item) }
+    // A line that couldn't be read at all is always removed: it is listed as rejected and never accepted or published.
+    const decision: ItemDecision = isUnreadable(item) ? { choice: 'remove', text: readingLine(item) }
+      : decisions[item.id] ?? { choice: null, text: readingLine(item) }
     if (!decision.choice) return { problem: { field: itemCardId(index), message: 'Choose Keep, Change or Remove for this item.' } }
     if (item.kind === 'lab_result') {
       const read = { test: labTest(item), result: labResult(item) }

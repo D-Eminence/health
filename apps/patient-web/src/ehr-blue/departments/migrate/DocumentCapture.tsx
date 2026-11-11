@@ -5,6 +5,7 @@ import {
   DEFAULT_DOCUMENT_TYPE, documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, isDocumentType,
   learnDocumentTypesFrom, useDocumentTypesServed, type DocumentType,
 } from '../../../documentTypes'
+import { SOURCE_DELETED_WORDS, isSourceDeleted, sourceDeleted } from '../../../documentSource'
 import { isAllowedPatientLookup, staffApi, type DocumentRecord, type Encounter, type Page } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
 import { getEnvironment } from '../../../staff/env'
@@ -274,6 +275,8 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
     try {
       await verify()
       const result = await staffApi.documentDownload(facilityId, id)
+      // A source page deleted after 24 hours (hid-system 0110) has no file to open: said in its own sentence.
+      if (isSourceDeleted(result)) { setError(SOURCE_DELETED_WORDS); return }
       // Only a signed storage link opens: never javascript:, data: or plain http to another host.
       assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local',
         code: 'INVALID_DOWNLOAD_URL', message: 'The document could not be opened.' })
@@ -290,11 +293,14 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
         { id: 'record', header: 'Record', cell: item => <div className="hid-ehr-dept-record-name">
           <span className="hid-ehr-dept-strong" id={`migrate-document-${item.id}`}>{item.fileName}</span>
           <span className="hid-ehr-dept-reference">{documentReference(item, served)}</span></div> },
-        { id: 'status', header: 'Status', cell: item => <>
+        { id: 'status', header: 'Status', cell: item => sourceDeleted(item)
+          ? <span className="hid-ehr-dept-reference">{SOURCE_DELETED_WORDS}</span>
+          : <>
           <EhrBadge tone={item.status === 'initiated' ? 'caution' : 'brand'}>{item.status === 'initiated' ? 'not completed' : scanStatusLabel(item.scanStatus) || 'Uploaded'}</EhrBadge>
           {item.status === 'initiated' && <span className="hid-ehr-dept-reference">Upload not completed. Only the person who started it can finish it: upload the file again.</span>}</> },
         { id: 'updated', header: 'Updated', cell: item => dateText(item.createdAt) },
-        { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => <div className="hid-ehr-dept-table-actions">
+        // A source page deleted after 24 hours offers neither its file nor OCR.
+        { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => sourceDeleted(item) ? null : <div className="hid-ehr-dept-table-actions">
           <EhrButton variant="secondary" size="sm" disabled={item.scanStatus !== 'clean'} aria-describedby={`migrate-document-${item.id}`}
             onClick={() => download(item.id)}>Open file</EhrButton>
           {canOcr && item.scanStatus === 'clean' && <DeptLinkButton describedBy={`migrate-document-${item.id}`}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Navigate, Route, Routes, UNSAFE_RouteContext, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
-import { Activity, ArrowLeft, Check, ExternalLink, Hospital, House, Search, ShieldCheck, ShieldX, UserPlus, UserRound } from 'lucide-react'
+import { Activity, ArrowLeft, Check, CircleHelp, ExternalLink, Hospital, House, Search, ShieldCheck, ShieldX, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
@@ -30,6 +30,7 @@ import { pageShownHere } from './pageAccess'
 import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
+import { SupportChatDrawer, SupportHelpButton, supportChatOffered } from './support/BlueSupportChat'
 import type { EhrBluePage } from './types'
 import { PLAIN, plainErrorText } from '@hid/http'
 
@@ -374,6 +375,8 @@ export function BlueFrame() {
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === switching ? <span className="text-ink-3">Opening…</span> : null}{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
                 {/* My profile is a sample that saves nothing: the demo facilities' alone. */}
                 {isDemoFacility(facility?.id) ? <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li> : null}
+                {/* Help: the support assistant where this build offers it (each staff product site's build, not the admin console). */}
+                {supportChatOffered() ? <li><button type="button" onClick={() => { close(); setSamplePanel('help') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><CircleHelp className="size-4" aria-hidden />Help</button></li> : null}
               </ul>,
             }}
             nav={nav}
@@ -385,7 +388,10 @@ export function BlueFrame() {
               {arrival ? <SwitchBackLink arrival={arrival} /> : null}
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
-            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /></div>}
+            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} />
+              {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
+              {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
+              <NotificationsButton /></div>}
             tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
               : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
             create={product !== 'ehr' ? undefined : { label: 'Start', items: [
@@ -430,7 +436,9 @@ export function BlueFrame() {
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
-            <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
+            {/* Help opens the support assistant, never the sample panel: the menu offers Help only where the chat is served. */}
+            <AccountSamplePanel panel={samplePanel === 'help' && supportChatOffered() ? null : samplePanel} onClose={() => setSamplePanel(null)} />
+            <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)} />
           </AppShell>
         </EhrAppShell>
       </AttentionProvider>
