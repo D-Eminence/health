@@ -1326,7 +1326,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${OUTREACH_SIGNUP} Body { membershipId, reason (8 to 500) }. 200 { campaignId, membershipId, role: 'admin' }. 422 `
     + 'OUTREACH_CAMPAIGN_ADMIN_NOT_ELIGIBLE when the person is not an active member of the group.')),
   // Deleting one registered person's details sooner, at their request (the registration notice and organiser terms say
-  // they can): find the registration, then delete it (0115 identity.admin_redact_outreach_registration).
+  // they can): find the registration, then delete it (0116 identity.admin_redact_outreach_registration, found with identity.admin_find_outreach_registrations).
   proposed(r('admin.outreachRegistrationSearch','admin','/api/v1/admin/outreach-registrations/search',P,false,
     one('POST','platform.facility.manage','platform.facility.unlock'),
     `${OUTREACH_SIGNUP} A read sent as POST, so a phone number stays out of addresses. Body { organizationId, and `
