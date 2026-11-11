@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { ClinicalRecord, LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
 import { routeLabel } from '../../../plainLabels'
 import { ageInYears, formatDate, formatWhen } from './format'
@@ -8,8 +9,9 @@ import './clinicalPrint.css'
 /*
  * Printing clinical paper from the consultation: a prescription, a discharge summary and a lab result. Each is built
  * only from what the page already read; nothing is fetched to print. The paper is put on the page only while it
- * prints (clinicalPrint.css hides it on screen and prints it alone); window.print runs in the commit that shows it, and
- * the paper goes once the print dialog closes. Where the record holds nothing for a line (the prescriber's licence,
+ * prints, straight under <body> so it is in normal flow and its named page size applies (clinicalPrint.css hides it on
+ * screen and prints it alone); window.print runs in the commit that shows it, and the paper goes once the print dialog
+ * closes. Where the record holds nothing for a line (the prescriber's licence,
  * follow-up), the paper leaves a line to write on by hand rather than inventing it.
  */
 
@@ -25,7 +27,9 @@ export function usePaperPrint() {
     return () => window.removeEventListener('afterprint', done)
   }, [paper])
   const print = useCallback((kind: PaperKind, node: ReactNode) => setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1 })), [])
-  const area = paper ? <div data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div> : null
+  const area = paper && typeof document !== 'undefined'
+    ? createPortal(<div data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div>, document.body)
+    : null
   return { print, area }
 }
 
@@ -98,15 +102,41 @@ export function drugLine(record: ClinicalRecord): DrugLine {
   }
 }
 
-/** Prescriptions not to print: cancelled, entered in error, or stopped. */
-const NOT_PRINTED: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error', 'stopped', 'revoked'])
+/**
+ * Only an active prescription prints as a prescription. A draft was never activated or checked, one on hold was held
+ * for a reason, and a completed, cancelled or entered-in-error one is over: once signed by hand, paper for any of them
+ * could be dispensed anywhere, past the activation the Pharmacy hand-off checks.
+ */
+const PRINTED_STATUSES: ReadonlySet<string> = new Set(['active'])
 
 export function isPrintable(record: ClinicalRecord): boolean {
-  return !NOT_PRINTED.has(text(record.status))
+  return PRINTED_STATUSES.has(text(record.status))
 }
 
 export function printableDrugs(records: readonly ClinicalRecord[] | null | undefined): DrugLine[] {
   return (records ?? []).filter(isPrintable).map(drugLine)
+}
+
+/** Held medicines, listed apart on the discharge summary so nobody takes them as ones to continue. */
+export function heldDrugs(records: readonly ClinicalRecord[] | null | undefined): DrugLine[] {
+  return (records ?? []).filter(record => text(record.status) === 'on_hold').map(drugLine)
+}
+
+/** Lab requests the discharge summary lists as requested: any not cancelled or entered in error. */
+const TEST_NOT_LISTED: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error', 'revoked'])
+
+export function isListedTest(record: ClinicalRecord): boolean {
+  return !TEST_NOT_LISTED.has(text(record.status))
+}
+
+/**
+ * The clinician's name on the discharge summary, only when the signed-in member wrote the consultation note; anyone
+ * else printing it (a nurse, records) leaves the line to be written by hand.
+ */
+export function clinicianName(note: ClinicalRecord | null | undefined, actor: { readonly id: string; readonly displayName?: string } | null | undefined): string | null {
+  const name = actor?.displayName?.trim()
+  if (!name || !note) return null
+  return text(note.createdBy) === actor?.id ? name : null
 }
 
 /**
@@ -185,12 +215,16 @@ function DrugList({ drugs }: { readonly drugs: readonly DrugLine[] }) {
 
 const FOOT = 'Printed from Health ID. Check this paper against the patient’s record before acting on it.'
 
-export function PrescriptionPaper({ facility, patient, drugs, prescriber, printedAt }: {
+const MORE_PRESCRIPTIONS = 'This visit has more prescriptions on later pages of the record, and they are not on this paper. Check the record.'
+
+export function PrescriptionPaper({ facility, patient, drugs, prescriber, printedAt, more = false }: {
   readonly facility: string
   readonly patient: PaperPatient
   readonly drugs: readonly DrugLine[]
   readonly prescriber: string | null
   readonly printedAt: string
+  /** The visit holds more prescriptions than the page read. */
+  readonly more?: boolean
 }) {
   return (
     <div className="hid-clinical-paper" data-paper="prescription">
@@ -199,12 +233,34 @@ export function PrescriptionPaper({ facility, patient, drugs, prescriber, printe
       <section>
         <h2>Rx</h2>
         {drugs.length > 0 ? <DrugList drugs={drugs} /> : <p>No medicine to print.</p>}
+        {more ? <p className="hid-clinical-paper-caption">{MORE_PRESCRIPTIONS}</p> : null}
       </section>
       <SignBlock who="Prescriber" name={prescriber} />
       <p className="hid-clinical-paper-foot">{FOOT}</p>
     </div>
   )
 }
+
+/**
+ * One part of the record as the page holds it. "shown" is what was read (and whether the record holds more than
+ * that); otherwise the part was not read, and the paper says why rather than saying there is none.
+ */
+export type Section<T> =
+  | { readonly state: 'shown'; readonly value: T; readonly more?: boolean }
+  | { readonly state: 'no-right' | 'loading' | 'failed' | 'later-page' }
+
+export function shown<T>(value: T, more = false): Section<T> {
+  return { state: 'shown', value, more }
+}
+
+const NOT_SHOWN: Readonly<Record<Exclude<Section<unknown>['state'], 'shown'>, string>> = {
+  'no-right': 'Not available to you. Check the patient’s record.',
+  loading: 'Still loading when this was printed. Check the patient’s record.',
+  failed: 'Could not be loaded. Check the patient’s record.',
+  'later-page': 'On a later page of the record, not on this paper. Check the patient’s record.',
+}
+
+const MORE_ON_LATER_PAGES = 'More are on later pages of the record and are not on this paper. Check the record.'
 
 /** What a discharge summary is built from: the consultation as the page has read it. */
 export interface DischargeSummary {
@@ -214,13 +270,29 @@ export interface DischargeSummary {
   readonly startedAt: string
   readonly status: string
   readonly complaint: string
-  readonly diagnoses: readonly string[]
-  /** The consultation note's latest content, and whether it is signed. */
-  readonly note: { readonly content: string; readonly signed: boolean } | null
-  readonly tests: readonly string[]
-  readonly drugs: readonly DrugLine[]
+  readonly diagnoses: Section<readonly string[]>
+  /** The consultation note's latest content and whether it is signed, or null when the visit has none. */
+  readonly note: Section<{ readonly content: string; readonly signed: boolean } | null>
+  readonly tests: Section<readonly string[]>
+  /** Active prescriptions: the medicines to continue. */
+  readonly drugs: Section<readonly DrugLine[]>
+  /** Prescriptions on hold, listed apart. */
+  readonly held: readonly DrugLine[]
   readonly clinician: string | null
   readonly printedAt: string
+}
+
+/** A section's body: what it holds, what to say when it holds nothing, or why it was not read. */
+function SectionBody<T>({ section, empty, children }: {
+  readonly section: Section<T>
+  readonly empty: (value: T) => boolean
+  readonly children: (value: T) => ReactNode
+}) {
+  if (section.state !== 'shown') return <p>{NOT_SHOWN[section.state]}</p>
+  return <>
+    {empty(section.value) ? null : children(section.value)}
+    {section.more ? <p className="hid-clinical-paper-caption">{MORE_ON_LATER_PAGES}</p> : null}
+  </>
 }
 
 function Lines({ count }: { readonly count: number }) {
@@ -240,27 +312,42 @@ export function DischargeSummaryPaper({ summary }: { readonly summary: Discharge
       </section>
       <section>
         <h2>Diagnoses</h2>
-        {summary.diagnoses.length > 0 ? <ul>{summary.diagnoses.map(item => <li key={item}>{item}</li>)}</ul> : <p>None recorded</p>}
+        <SectionBody section={summary.diagnoses} empty={() => false}>
+          {items => items.length > 0 ? <ul>{items.map(item => <li key={item}>{item}</li>)}</ul> : <p>None recorded</p>}
+        </SectionBody>
       </section>
       <section>
         <h2>Clinical summary</h2>
-        {summary.note
-          ? <>
-            {summary.note.signed ? null : <p className="hid-clinical-paper-caption">This note is a draft and has not been signed.</p>}
-            <p className="hid-clinical-paper-note">{summary.note.content}</p>
-          </>
-          : <p>No consultation note recorded</p>}
+        <SectionBody section={summary.note} empty={() => false}>
+          {note => note
+            ? <>
+              {note.signed ? null : <p className="hid-clinical-paper-caption">This note is a draft and has not been signed.</p>}
+              <p className="hid-clinical-paper-note">{note.content}</p>
+            </>
+            : <p>No consultation note recorded</p>}
+        </SectionBody>
       </section>
-      {summary.tests.length > 0 ? (
+      {summary.tests.state === 'shown' && summary.tests.value.length === 0 && !summary.tests.more ? null : (
         <section>
           <h2>Tests requested</h2>
-          <ul>{summary.tests.map(item => <li key={item}>{item}</li>)}</ul>
+          <SectionBody section={summary.tests} empty={items => items.length === 0}>
+            {items => <ul>{items.map(item => <li key={item}>{item}</li>)}</ul>}
+          </SectionBody>
         </section>
-      ) : null}
+      )}
       <section>
         <h2>Medicines on discharge</h2>
-        {summary.drugs.length > 0 ? <DrugList drugs={summary.drugs} /> : <p>None prescribed at this visit</p>}
+        <SectionBody section={summary.drugs} empty={() => false}>
+          {drugs => drugs.length > 0 ? <DrugList drugs={drugs} /> : <p>None active at this visit</p>}
+        </SectionBody>
       </section>
+      {summary.drugs.state === 'shown' && summary.held.length > 0 ? (
+        <section>
+          <h2>Medicines on hold</h2>
+          <p className="hid-clinical-paper-caption">Held at this visit: not to be taken unless a clinician says so.</p>
+          <DrugList drugs={summary.held} />
+        </section>
+      ) : null}
       <section>
         <h2>Follow-up</h2>
         <Lines count={3} />

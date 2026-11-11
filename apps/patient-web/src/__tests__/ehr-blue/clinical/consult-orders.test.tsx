@@ -1194,9 +1194,9 @@ describe('A lab request’s page', () => {
     expect(document.querySelector('[data-clinical-print]')).toBeNull()
   })
 
-  it('offers no print for a cancelled prescription', async () => {
+  it.each(['draft', 'on_hold', 'completed', 'cancelled', 'entered_in_error'])('offers no print for a prescription that is %s', async status => {
     staff.permissions = [...READ_WRITE]
-    setLists([prescription({ status: 'cancelled', rowVersion: 3 })], [])
+    setLists([prescription({ status, rowVersion: 3 })], [])
     await openOrder('pharmacy', RX)
     expect(screen.queryByRole('button', { name: 'Print prescription' })).toBeNull()
   })

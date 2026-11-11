@@ -15,7 +15,10 @@ import { MoreActions } from '../parts/MoreActions'
 import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { DischargeSummaryPaper, PrescriptionPaper, isPrintable, paperPatient, prescriberName, printableDrugs, usePaperPrint } from '../parts/clinicalPrint'
+import {
+  DischargeSummaryPaper, PrescriptionPaper, clinicianName, heldDrugs, isListedTest, isPrintable, paperPatient, prescriberName, printableDrugs, shown,
+  usePaperPrint, type DischargeSummary, type Section,
+} from '../parts/clinicalPrint'
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
 import { vitalStatus } from '../triage/vitals'
@@ -153,6 +156,8 @@ type Again = Readonly<Partial<Record<keyof PageLists, Reread>>>
  */
 type PageError = { readonly text: string; readonly again: Again; readonly said?: number }
 const NO_ERROR: PageError = { text: '', again: {} }
+/** Beside "Print discharge summary" while a part of the visit it prints is still loading or could not be loaded. */
+const DISCHARGE_WAIT = 'The discharge summary can be printed once the visit’s diagnoses, note, tests and medicines have loaded. If one could not be loaded, try again.'
 /** The lists a cancel or entered in error changes, each read again after it. */
 const CLOSED_LISTS = ['notes', 'diagnoses', 'vitals', 'prescriptions', 'labs', 'documents'] as const
 
@@ -487,30 +492,54 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     saved.push({ label: 'Note', value: onLaterPage ? NOTE_ON_LATER_PAGE : noteValue(notes, note, revisions, latest) })
   }
 
-  // Paper from what this page has read: the visit's prescriptions (first page, none cancelled or entered in error), and
-  // a discharge summary of the visit. Nothing is read again to print.
+  // Paper from what this page has read: the visit's active prescriptions (first page), and a discharge summary of the
+  // visit. Nothing is read again to print. Each part of the summary the page could not read (no right to it, its read
+  // failed, still loading) says so on the paper rather than "none".
   const toPrint = (prescriptions.first ?? []).filter(isPrintable)
   const printedAt = () => formatWhen(new Date().toISOString())
   const printPrescriptions = () => print('prescription', (
     <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={printableDrugs(toPrint)}
-      prescriber={prescriberName(toPrint, actor)} printedAt={printedAt()} />
+      prescriber={prescriberName(toPrint, actor)} printedAt={printedAt()} more={prescriptions.more} />
   ))
-  const printDischarge = () => print('discharge', (
-    <DischargeSummaryPaper summary={{
-      facility: chart.facilityName,
-      patient: paperPatient(chart.facts),
-      visitType: encounterTypeLabel(encounter.encounterType),
-      startedAt: encounter.startedAt,
-      status: statusWords(encounter.status),
-      complaint: encounter.chiefComplaint ?? '',
-      diagnoses: reads.diagnoses ? currentDiagnoses : [],
-      note: reads.notes && note && latest?.content && recordStatus(note, 'unknown') !== 'entered_in_error' ? { content: latest.content, signed: recordStatus(note, 'unknown') === 'signed' || recordStatus(note, 'unknown') === 'amended' } : null,
-      tests: reads.labs ? (labs.first ?? []).filter(isPrintable).map(record => field(record, 'testDisplay') || 'Lab request') : [],
-      drugs: reads.prescriptions ? printableDrugs(prescriptions.first) : [],
-      clinician: actor?.displayName?.trim() || null,
-      printedAt: printedAt(),
-    }} />
-  ))
+  const section = <T,>(allowed: boolean, list: { readonly first: unknown; readonly loading: boolean; readonly error: string; readonly more: boolean }, value: () => T): Section<T> => {
+    if (!allowed) return { state: 'no-right' }
+    if (list.error) return { state: 'failed' }
+    if (list.loading || list.first === null) return { state: 'loading' }
+    return shown(value(), list.more)
+  }
+  const noteLive = !!note && recordStatus(note, 'unknown') !== 'entered_in_error'
+  const noteOnLaterPage = !note && (notes.first?.length ?? 0) > 0 && (notes.cursors.length >= 2 || notes.next !== null)
+  const noteSection = ((): DischargeSummary['note'] => {
+    const listed = section(reads.notes, { ...notes, more: false }, () => null)
+    if (listed.state !== 'shown') return listed
+    if (noteOnLaterPage) return { state: 'later-page' }
+    if (!note || !noteLive) return shown(null)
+    if (revisions.error) return { state: 'failed' }
+    if (revisions.loading || revisions.items === null) return { state: 'loading' }
+    const status = recordStatus(note, 'unknown')
+    return shown(latest?.content ? { content: latest.content, signed: status === 'signed' || status === 'amended' } : null)
+  })()
+  const summary: Omit<DischargeSummary, 'printedAt'> = {
+    facility: chart.facilityName,
+    patient: paperPatient(chart.facts),
+    visitType: encounterTypeLabel(encounter.encounterType),
+    startedAt: encounter.startedAt,
+    status: statusWords(encounter.status),
+    complaint: encounter.chiefComplaint ?? '',
+    diagnoses: section(reads.diagnoses, diagnoses, () => currentDiagnoses),
+    note: noteSection,
+    tests: section(reads.labs, labs, () => (labs.first ?? []).filter(isListedTest).map(record => field(record, 'testDisplay') || 'Lab request')),
+    drugs: section(reads.prescriptions, prescriptions, () => printableDrugs(prescriptions.first)),
+    held: reads.prescriptions ? heldDrugs(prescriptions.first) : [],
+    clinician: noteLive ? clinicianName(note, actor) : null,
+  }
+  // The summary prints once every part the user may read has been read without error, so the paper never stands in
+  // for a part still loading or that failed.
+  const summaryReady = [summary.diagnoses, summary.note, summary.tests, summary.drugs].every(part => part.state === 'shown' || part.state === 'no-right' || part.state === 'later-page')
+  const printDischarge = () => {
+    if (!summaryReady) return
+    print('discharge', <DischargeSummaryPaper summary={{ ...summary, printedAt: printedAt() }} />)
+  }
 
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit
   // quietly behind More actions.
@@ -589,8 +618,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         <EhrCard title="Print">
           <ActionList>
             {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
-            <EhrButton variant="secondary" onClick={printDischarge}>Print discharge summary</EhrButton>
+            <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={!summaryReady || undefined}
+              aria-describedby={summaryReady ? undefined : `${actionsId}-print-wait`}>Print discharge summary</EhrButton>
           </ActionList>
+          {summaryReady ? null : <p id={`${actionsId}-print-wait`}>{DISCHARGE_WAIT}</p>}
         </EhrCard>
       ) : null}
       {reads.notes ? (
