@@ -73,8 +73,16 @@ export const EXPECTATIONS = Object.freeze([
   // #216: a scanned source page is deleted after 7 days, not 24 hours (apps/patient-web/src/documentSource.ts).
   { id: '216-source-7-days', label: '#216 source page deleted after 7 days', sites: ['ehr', 'migrate', 'lab'],
     text: 'Source page deleted after 7 days', expect: 'present', enabled: true },
-  // No "after 24 hours is gone" check: packages/contracts/src/registry.ts describes the 410 with those words, and that
-  // description is in the build (never shown on a page), so the old words stay in the bundle after #216.
+  { id: '216-reading-7-days', label: '#216 reading deleted after 7 days', sites: ['migrate'],
+    text: 'Reading deleted after 7 days', expect: 'present', enabled: true },
+  // The old words are gone everywhere after #216, including the registry's description of the 410
+  // (packages/contracts/src/registry.ts files.download, which #216 also changes and which is bundled).
+  { id: '216-source-24-hours-gone', label: '#216 old "source page deleted after 24 hours" gone',
+    sites: ['app', 'ehr', 'migrate', 'lab', 'pharmacy', 'outreach'],
+    text: 'Source page deleted after 24 hours', expect: 'absent', enabled: true },
+  { id: '216-reading-24-hours-gone', label: '#216 old "reading deleted after 24 hours" gone',
+    sites: ['app', 'ehr', 'migrate', 'lab', 'pharmacy', 'outreach'],
+    text: 'Reading deleted after 24 hours', expect: 'absent', enabled: true },
 
   // #229: the emergency (break-glass) notice and acknowledgement say only what is true
   // (apps/patient-web/src/ehr-blue/clinical/emergency/access.ts NOTICE_BEFORE, BreakGlass.tsx ACKNOWLEDGE).
