@@ -15,9 +15,15 @@ interface CodeBoxesProps {
   onChange: (code: string) => void
   /** Ref for the first box: where focus goes as the step opens (authSteps.ts useStepFocus). */
   inputRef?: (element: HTMLInputElement | null) => void
-  invalid?: true
+  /** The code was refused: every box is marked invalid. */
+  invalid?: boolean
   /** The hint, and the error when it is about the code: on the group and on the first box, where focus arrives. */
   describedBy?: string
+  /**
+   * The id of the error that says what is wrong with the code. While `invalid`, it describes every box (and the group),
+   * so a screen reader user who comes back to any box hears it there, not only from the alert said once.
+   */
+  errorId?: string
   /** A request is running: a code completed meanwhile is not sent by itself. */
   busy?: boolean
   autoFocus?: boolean
@@ -35,15 +41,19 @@ interface CodeBoxesProps {
  * not split or cut short, and an empty code's focus is in the first box, the one that offers the code from a
  * message. A box with a digit takes focus wherever it is, to correct it.
  *
- * A fieldset names the group; the first box is named by it and "Digit 1 of 6", the others "Digit n of 6".
+ * A fieldset names the group; the first box is named by it and "Digit 1 of 6", the others "Digit n of 6". A refused
+ * code marks every box invalid, and its error (`errorId`) describes each of them.
  */
-export function CodeBoxes({ id, label, value, onChange, inputRef, invalid, describedBy, busy = false, autoFocus }: CodeBoxesProps) {
+export function CodeBoxes({ id, label, value, onChange, inputRef, invalid = false, describedBy, errorId, busy = false, autoFocus }: CodeBoxesProps) {
   const boxes = useRef<Array<HTMLInputElement | null>>([])
   const group = useRef<HTMLFieldSetElement>(null)
   const digits = Array.from({ length: CODE_LENGTH }, (_, index) => /\d/.test(value[index] ?? '') ? value[index]! : '')
   // The code a change just completed: the form is sent once the page holds it (below).
   const completed = useRef<string | null>(null)
   const boxId = (index: number) => index === 0 ? id : `${id}-${index + 1}`
+  // The first box and the group: the hint and the error, each named once. The other boxes: the error, while there is one.
+  const error = invalid && errorId ? errorId : undefined
+  const described = [...new Set([...(describedBy ?? '').split(' '), error ?? ''].filter(Boolean))].join(' ') || undefined
   const firstEmpty = digits.findIndex(digit => !digit)
   /** Whether a box may hold focus: one with a digit, or the first empty one. */
   const reachable = (index: number) => Boolean(digits[index]) || firstEmpty === -1 || index <= firstEmpty
@@ -117,7 +127,7 @@ export function CodeBoxes({ id, label, value, onChange, inputRef, invalid, descr
     else moveTo(firstEmpty)
   }
 
-  return <fieldset ref={group} className="patient-code-field" data-code-boxes="" aria-describedby={describedBy}>
+  return <fieldset ref={group} className="patient-code-field" data-code-boxes="" aria-describedby={described}>
     <legend id={`${id}-label`}>{label}</legend>
     <div className="patient-code-boxes">{digits.map((digit, index) => <input key={index} id={boxId(index)}
       ref={element => { boxes.current[index] = element; if (index === 0) inputRef?.(element) }}
@@ -125,7 +135,7 @@ export function CodeBoxes({ id, label, value, onChange, inputRef, invalid, descr
       tabIndex={reachable(index) ? undefined : -1} data-code-box={index + 1} autoFocus={index === 0 ? autoFocus : undefined}
       aria-label={`Digit ${index + 1} of ${CODE_LENGTH}`}
       aria-labelledby={index === 0 ? `${id}-label ${id}` : undefined}
-      aria-invalid={invalid} aria-describedby={index === 0 ? describedBy : undefined}
+      aria-invalid={invalid || undefined} aria-describedby={index === 0 ? described : error}
       onChange={event => change(index, event.target.value)} onPaste={event => paste(index, event)}
       onKeyDown={event => key(index, event)} onFocus={event => focused(index, event.target)} />)}</div>
   </fieldset>

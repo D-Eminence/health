@@ -83,6 +83,27 @@ describe('keyboard focus under the sticky headers', () => {
     expect(padding).toBeGreaterThan(Math.max(patientHeader, staffTopbar, 56))
     expect(valueAt(portalCss, 'html', 'scroll-padding-top', DESKTOP)).toBe(valueAt(portalCss, 'html', 'scroll-padding-top', PHONE))
   })
+
+  it.each([PHONE, 390, 768])('scrolls a focused control clear of the bottom menu at %ipx', width => {
+    // The shell's bottom menu on phones (kasuwa AppShell, below 1024px): 64px measured at 360px, with the raised ➕
+    // above it. A focused "Save contact" 10px from the bottom edge sat wholly under it (WCAG 2.4.11).
+    const padding = valueAt(portalCss, 'html', 'scroll-padding-bottom', width) ?? ''
+    expect(Number.parseFloat(/(\d+)px/.exec(padding)?.[1] ?? '0')).toBeGreaterThanOrEqual(72)
+    expect(padding).toContain('env(safe-area-inset-bottom)')
+  })
+
+  it.each([PHONE, 390, 768])('scrolls a focused control clear of the Support chat launcher above the bottom menu at %ipx', width => {
+    // Since the Support chat launcher sits above the bottom menu on phones (packages/ui tokens.css: 76px up, 48px
+    // tall, so its top is 124px from the bottom), a focused button at the right of the page scrolled to 88px from the
+    // bottom ended under it; the launcher steps aside only for a field being typed in.
+    const padding = valueAt(portalCss, 'html', 'scroll-padding-bottom', width) ?? ''
+    expect(Number.parseFloat(/(\d+)px/.exec(padding)?.[1] ?? '0')).toBeGreaterThanOrEqual(124 + 8)
+  })
+
+  it('keeps no space for a bottom menu on a computer, where there is none', () => {
+    expect(valueAt(portalCss, 'html', 'scroll-padding-bottom', 1024)).toBeUndefined()
+    expect(valueAt(portalCss, 'html', 'scroll-padding-bottom', DESKTOP)).toBeUndefined()
+  })
 })
 
 /** WCAG 2 contrast ratio of two #rrggbb colours. */

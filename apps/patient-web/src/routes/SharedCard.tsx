@@ -166,6 +166,7 @@ export function useMyCard(): CardData | null {
 
 /** /card/preview: the patient sees exactly what a provider sees when they open the card, with their own records. */
 export function SharedCardPreview() {
+  useDocumentTitle('Card preview · Health ID')
   const { api } = useSession()
   const card = useMyCard()
   const records = usePatientResource(api.records)
