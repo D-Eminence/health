@@ -365,7 +365,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   const stepTitle = 'm-0 text-title-2 text-ink'
 
   return <AuthLayout brandTo="/" title="Create your Health ID." titleId="enroll-title"
-    lede="Your records, from every hospital, in your control."
+    lede="Your records from Health ID hospitals, in one place."
     steps={steps} stepsLabel="Sign-up steps">
     <div className="flex flex-col gap-5">
     {error && <Alert intent="error" id="signup-error" live={errorAlert}>{error}</Alert>}

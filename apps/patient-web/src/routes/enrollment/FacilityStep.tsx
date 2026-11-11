@@ -45,8 +45,8 @@ interface FacilityStepProps {
 export function FacilityStep(props: FacilityStepProps) {
   const { focusTarget, api, busy, deskCode, deskCodeExpiresAt, notRecordedYet, online, onGetCode, onChecked, onOnline, onDifferentNin } = props
   const expires = until(deskCodeExpiresAt)
-  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-facility-stage-title">
-    <h2 id="enroll-facility-stage-title" ref={deskCode ? undefined : focusTarget} tabIndex={-1}>Register at a healthcare facility</h2>
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_p]:m-0" aria-labelledby="enroll-facility-stage-title">
+    <h2 id="enroll-facility-stage-title" ref={deskCode ? undefined : focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Register at a healthcare facility</h2>
     <p>A staff member at a participating facility must check your identity in person before your registration can be finished. Nothing has been verified yet.</p>
     <ol className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-sm text-ink-2">
       <li>Get your desk code here, on your own phone.</li>
