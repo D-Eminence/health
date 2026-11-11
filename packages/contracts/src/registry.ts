@@ -757,15 +757,22 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
   proposed(r('ehr.allergies','ehr','/api/v1/ehr/patients/:patientId/allergies',GP,false,
     {GET:['ehr.note.read'],POST:['ehr.note.write']},
-    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[], patientReported: { allergies, updatedAt } }; POST { substance, reaction?, `
-    + 'severity } with Idempotency-Key, 201 the recorded allergy.')),
+    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[] (each with recordedHere), patientReported: { allergies, updatedAt } }, `
+    + 'in the EHR\'s order: active first, the most serious first (severe, not known, moderate, mild), then newest; at most 200. '
+    + 'POST { substance, reaction?, severity } with Idempotency-Key, 201 the recorded allergy; "NKDA", "No known allergies", '
+    + '"none" and the like are refused with 400 ALLERGY_NOT_A_SUBSTANCE (no errors member).')),
   proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
     one('POST','ehr.note.write'),
     `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
     + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 412 VERSION_CONFLICT.')),
   proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
-    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired }. A prescription that `
-    + 'matches is refused (409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED) until it carries allergyAcknowledgement { reason }.')),
+    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
+    + '(warningToken: 64 lower-case hex, on every answer; kept only when acknowledgementRequired). A prescription create (a '
+    + 'draft too), Activate or Resume (PATCH status active) and a send of a draft to another facility that match are refused '
+    + 'with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one allergyAcknowledgement entry per match, then '
+    + 'allergyAcknowledgement.warningToken with the current token) until the body carries allergyAcknowledgement { reason '
+    + '(10-500, a word of three letters), warningToken }; a token that is not the current warning\'s gets the same 409. Sent '
+    + 'only after a warning: a backend before 0124 refuses the property (400).')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),
