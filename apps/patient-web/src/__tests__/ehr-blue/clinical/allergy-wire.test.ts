@@ -1,3 +1,4 @@
+import { findEndpoint } from '@hid/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test', apiBaseUrl: 'https://gateway.example.test' }) }))
@@ -141,5 +142,30 @@ describe('the allergy check and its refusals on the wire', () => {
     const caught = await staffApi.addAllergy(FACILITY, PATIENT, { substance: 'NKDA', severity: 'unknown' }, 'allergy-key-00000001')
       .then(() => null, (error: unknown) => error)
     expect(allergy.isNotASubstanceRefusal(caught)).toBe(true)
+  })
+})
+
+describe('the contract registry describes what this page reads at hid-system#218 7fbb04aa', () => {
+  it('the allergy check: the 409’s rejected parts, read by code, and the rule failures that are now that 409, not a 400', () => {
+    const note = findEndpoint('ehr.allergyCheck')?.note ?? ''
+    for (const words of ['allergyAcknowledgement.rejected', 'by code', 'ALLERGY_ACKNOWLEDGEMENT_MISSING', 'ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING',
+      'ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID', 'ALLERGY_WARNING_TOKEN_INVALID', 'ALLERGY_WARNING_TOKEN_STALE', 'instead of a 400']) {
+      expect(note).toContain(words)
+    }
+  })
+
+  it('the prescription reads: allergyAcknowledgements on each, where absent means it can’t be shown', () => {
+    for (const name of ['ehr.prescriptions', 'ehr.prescription']) {
+      const note = findEndpoint(name)?.note ?? ''
+      expect(note).toContain('allergyAcknowledgements')
+      expect(note).toContain('createdByMembershipId')
+      expect(note).toContain('absent')
+    }
+  })
+
+  it('the emergency read: allergies { recorded, patientReported }, where absent means they can’t be shown', () => {
+    const note = findEndpoint('ehr.emergencyRecords')?.note ?? ''
+    expect(note).toContain('allergies { recorded, patientReported }')
+    expect(note).toContain('absent')
   })
 })
