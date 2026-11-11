@@ -21,8 +21,10 @@ import { recordedAllergyLine, useAllergies, type AllergiesState } from '../../pa
 const TITLE_ID = 'order-allergy-overrides-title'
 
 /**
- * Where the reasons would be, on a prescription read from an EHR before 7fbb04aa (no allergyAcknowledgements): it does
- * not say whether a warning was overridden, so neither does the page.
+ * Where the reasons would be, when the prescription's allergyAcknowledgements is there but can't be read: the page then
+ * says it can't be shown, never that there is none. A prescription read with no allergyAcknowledgements at all comes
+ * from an EHR without the allergy check (before hid-system#218), where no warning can have been overridden, so the
+ * page says nothing about overrides there: this website goes live before that backend does.
  */
 export const OVERRIDES_NOT_SHOWN = 'Whether an allergy warning was overridden on this prescription can’t be shown here.'
 

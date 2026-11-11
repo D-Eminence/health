@@ -508,7 +508,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       <DetailGrid>
         <SavedRecord items={items} />
         <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
-          {lab ? null : !overrides ? <p className="hid-ehr-clinical-orders-muted hid-ehr-clinical-allergy-override-unknown">{OVERRIDES_NOT_SHOWN}</p>
+          {lab || record.allergyAcknowledgements === undefined ? null
+            : !overrides ? <p className="hid-ehr-clinical-orders-muted hid-ehr-clinical-allergy-override-unknown">{OVERRIDES_NOT_SHOWN}</p>
             : overrides.items.length > 0 || overrides.unread > 0
               ? <AllergyOverrides chart={chart} overrides={overrides} membershipId={membershipAt(actor, chart.facilityId)} /> : null}
           {actions.length > 0 ? (

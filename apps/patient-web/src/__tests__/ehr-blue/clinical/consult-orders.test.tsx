@@ -3632,7 +3632,22 @@ describe('Reasons given to go ahead over an allergy warning, on a prescription�
   it.each([
     ['a draft', { status: 'draft' }, 'Activate'],
     ['an active one', { status: 'active', rowVersion: 2 }, 'Put on hold'],
-  ])('says plainly on %s from an EHR before 7fbb04aa (no allergyAcknowledgements) that overrides can’t be shown, never that there are none', async (_label, fields, action) => {
+  ])('says nothing about overrides on %s from an EHR without the allergy check (no allergyAcknowledgements)', async (_label, fields, action) => {
+    // The website goes live before hid-system#218: no warning can have been overridden there, so no line on every page.
+    setLists([prescription(fields)], [])
+    await openOrder('pharmacy', RX)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: action })).toBeTruthy()
+    expect(screen.queryByText(OVERRIDES_NOT_SHOWN)).toBeNull()
+    expect(screen.queryByRole('region', { name: /overridden/i })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/overrid/i)
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a draft', { status: 'draft', allergyAcknowledgements: { items: [] } }, 'Activate'],
+    ['an active one', { status: 'active', rowVersion: 2, allergyAcknowledgements: 'stored' }, 'Put on hold'],
+  ])('says plainly on %s whose allergyAcknowledgements can’t be read that overrides can’t be shown, never that there are none', async (_label, fields, action) => {
     setLists([prescription(fields)], [])
     await openOrder('pharmacy', RX)
     await act(async () => {})

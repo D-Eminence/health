@@ -105,8 +105,9 @@ const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (
   + 'one-prescription GET; never a write answer) also carries allergyAcknowledgements: the reasons given to go ahead over an '
   + 'allergy warning, oldest first, [] when none, each { id, stage (create, activate, resume or send), reason, createdBy (an '
   + 'account id), createdByMembershipId (the membership at this facility: "you" when it is the session\'s membership here), '
-  + 'createdAt, matchedRecordedAllergyIds, patientReportedMatched, patientReportedTerms }. The member absent (an EHR before '
-  + '7fbb04aa) means whether a warning was overridden can\'t be shown, never "none".'
+  + 'createdAt, matchedRecordedAllergyIds, patientReportedMatched, patientReportedTerms }. The member absent comes from an '
+  + 'EHR without the allergy check, where no warning can have been overridden, so the page says nothing about overrides; '
+  + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
