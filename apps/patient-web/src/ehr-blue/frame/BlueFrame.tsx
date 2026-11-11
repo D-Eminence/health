@@ -30,7 +30,7 @@ import { pageShownHere } from './pageAccess'
 import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
-import { SupportChatDrawer, supportChatOffered } from './support/BlueSupportChat'
+import { SupportChatDrawer, SupportHelpButton, supportChatOffered } from './support/BlueSupportChat'
 import type { EhrBluePage } from './types'
 import { PLAIN, plainErrorText } from '@hid/http'
 
@@ -388,7 +388,10 @@ export function BlueFrame() {
               {arrival ? <SwitchBackLink arrival={arrival} /> : null}
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
-            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /></div>}
+            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} />
+              {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
+              {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
+              <NotificationsButton /></div>}
             tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
               : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
             create={product !== 'ehr' ? undefined : { label: 'Start', items: [
