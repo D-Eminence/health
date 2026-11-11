@@ -14,6 +14,7 @@ import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
+import { readingDeleted } from './readingDeleted'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, REPORT_DATE_FIELD, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
@@ -214,6 +215,11 @@ function visitWords(visit: Encounter) {
   return [visitClassLabel(visit.encounterType), dateText(visit.startedAt), visit.chiefComplaint?.trim()].filter(Boolean).join(' · ')
 }
 
+/** The paper reading to review: none for a reading deleted after 7 days, so nothing it once held is offered to keep. */
+function readingOf(extraction: OcrExtraction | undefined) {
+  return extraction && !readingDeleted(extraction) ? parsePaperReading(extraction.structuredPayload) : null
+}
+
 function newestOf(extractions: readonly OcrExtraction[]) {
   return extractions.reduce<OcrExtraction | undefined>((newest, item) => !newest || item.version > newest.version ? item : newest, undefined)
 }
@@ -230,7 +236,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const ordered = [...extractions].sort((a, b) => a.version - b.version)
   const [extractionId, setExtractionId] = useState(newestOf(extractions)?.id ?? '')
   const selected = extractions.find(item => item.id === extractionId) ?? newestOf(extractions)
-  const reading = selected ? parsePaperReading(selected.structuredPayload) : null
+  const reading = readingOf(selected)
   const items = reviewItems(reading)
   const canAttachNote = !!job.patientId && permissions.includes('ehr.encounter.read')
   const offered = offeredDomains(reading, canAttachNote)
@@ -251,7 +257,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   function chooseExtraction(id: string) {
     const next = extractions.find(item => item.id === id)
     setExtractionId(id)
-    setDecisions(initialDecisions(reviewItems(next ? parsePaperReading(next.structuredPayload) : null)))
+    setDecisions(initialDecisions(reviewItems(readingOf(next))))
     setProblem(null)
   }
 
