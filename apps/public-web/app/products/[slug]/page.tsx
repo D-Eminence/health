@@ -12,7 +12,7 @@ import { WorkflowBento } from '@/components/product/WorkflowBento'
 import { EhrWorkflowBento } from '@/components/product/EhrWorkflowBento'
 import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowcase'
 import { PRODUCT_DETAILS, findProductDetail } from '@/content/product-details'
-import { productSignInHref, ROUTES } from '@/content/site'
+import { OUTREACH_SIGN_UP_CTA, outreachSignUpHref, productSignInHref, ROUTES } from '@/content/site'
 import type { HealthIDModuleSlug } from '@/content/module-showcase'
 import { isApplicationProduct, providerApplicationHref } from '@/lib/provider-application'
 
@@ -48,9 +48,13 @@ export default async function ProductPage({ params }: PageProps) {
   // for what exists.
   if (!product) notFound()
 
+  // Outreach's way in is the organiser sign-up on its own site, not a demo and not facility sign-up.
+  const outreach = product.slug === 'outreach'
+
   return (
     <>
-      <ProviderNav preserveDemoAction={product.slug === 'api' || product.slug === 'outreach'} signInHref={productSignInHref(product.slug)}
+      <ProviderNav preserveDemoAction={product.slug === 'api'} signInHref={productSignInHref(product.slug)}
+        primaryAction={outreach ? { label: OUTREACH_SIGN_UP_CTA, href: outreachSignUpHref() } : undefined}
         applicationProduct={isApplicationProduct(product.slug) ? product.slug : undefined} />
       <main id="main">
         <ProductHero product={product} />
@@ -95,8 +99,9 @@ export default async function ProductPage({ params }: PageProps) {
         <ProviderClosing
           title={product.closingTitle}
           lede={product.closingBody}
-          primary={product.cta}
-          primaryHref={isApplicationProduct(product.slug) ? providerApplicationHref(product.slug) : '#demo'}
+          primary={outreach ? OUTREACH_SIGN_UP_CTA : product.cta}
+          primaryHref={outreach ? outreachSignUpHref()
+            : isApplicationProduct(product.slug) ? providerApplicationHref(product.slug) : '#demo'}
           secondary="Hospital sign in"
           secondaryHref={productSignInHref(product.slug)}
         />
