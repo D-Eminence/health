@@ -134,15 +134,16 @@ function usePatientCheck(chart: Chart) {
 }
 
 /**
- * The patient's allergies where a prescription may go ahead (a new prescription, and a draft or held one's page; the
- * patient is named in the banner above), in the same lines as triage and a new consultation (AllergyLines, Ola's W4):
+ * The patient's allergies above a new prescription (the patient is named in the banner above; a saved prescription's
+ * page shows the reasons given to go ahead over a warning instead, AllergyOverrides), in the same lines as triage and a
+ * new consultation (AllergyLines, Ola's W4):
  * the allergies clinicians recorded, in the EHR's order (the most serious first), and what the patient reported in their
  * Health ID portal, each labelled (hid-system 0124); on a backend before 0124, what the patient reported only. Nothing
  * while it loads; a read that failed, was refused or is not served says so, never "none". Where the EHR checks the
  * medicine (0124), it says too that no warning does not mean the medicine is safe (Ola, wording #10), warning or not.
- * `allergies` is useAllergies(chart).state, read again by the page whenever it shows an allergy warning.
+ * `allergies` is useAllergies(chart).state, read again by the form whenever it shows an allergy warning.
  */
-export function RecordedAllergies({ allergies }: { allergies: AllergiesState }) {
+function RecordedAllergies({ allergies }: { allergies: AllergiesState }) {
   return (
     <>
       <AllergyLines allergies={allergies} lineClassName="hid-ehr-clinical-note" />

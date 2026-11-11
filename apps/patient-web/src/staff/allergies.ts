@@ -5,8 +5,8 @@
  * A backend before 0124 answers 404 to the allergy routes: screens then show the patient-reported text only and offer
  * no way to add an allergy, and the prescribing form sends no allergy acknowledgement.
  * Shapes as hid-system#218 serves them at 7fbb04aa (docs/INTERFACE_CONTRACT.md, "Allergies and the allergy check at
- * prescribing"); what a backend at 76283f57 lacks (the rejected parts of a 409) is read as not
- * said, never as "none".
+ * prescribing"); what a backend at 76283f57 lacks (the rejected parts of a 409, a prescription's stored reasons) is read
+ * as not said, never as "none".
  */
 
 export const ALLERGY_SEVERITIES = ['severe', 'moderate', 'mild', 'unknown'] as const
@@ -243,6 +243,67 @@ export function refusalRejections(details: unknown): AllergyRejectionCode[] | nu
   const codes = details.flatMap(entry => record(entry) && entry.field === 'allergyAcknowledgement.rejected'
     && (ALLERGY_REJECTION_CODES as readonly unknown[]).includes(entry.code) ? [entry.code as AllergyRejectionCode] : [])
   return codes.length > 0 ? codes : null
+}
+
+/** When a reason to go ahead over an allergy warning was given: on create, Activate, Resume, or sending a draft elsewhere. */
+export const ACKNOWLEDGEMENT_STAGES = ['create', 'activate', 'resume', 'send'] as const
+export type AcknowledgementStage = typeof ACKNOWLEDGEMENT_STAGES[number]
+
+/**
+ * A reason to go ahead over an allergy warning, stored with the prescription (hid-system#218 at 7fbb04aa): one item of
+ * the prescription's allergyAcknowledgements. The reason is the prescriber's own words: shown as text, never kept.
+ */
+export interface PrescriptionAllergyAcknowledgement {
+  id: string
+  /** Null for a stage this page does not know. */
+  stage: AcknowledgementStage | null
+  reason: string
+  /** The account that gave it (an id, never shown); null when unread. */
+  createdBy: string | null
+  createdAt: string | null
+  /** The recorded allergies it covered: name them from the patient's allergy list. */
+  matchedRecordedAllergyIds: string[]
+  patientReportedMatched: boolean
+  /** The patient's own terms it covered, as the EHR matched them (lower case). */
+  patientReportedTerms: string[]
+}
+
+export interface PrescriptionAllergyAcknowledgements {
+  /** Oldest first, as the EHR serves them. */
+  items: PrescriptionAllergyAcknowledgement[]
+  /** Items that could not be read: counted, never dropped in silence. */
+  unread: number
+}
+
+/** The longest reason kept: the EHR stores 10-500 characters (and refuses over 2000 before that). */
+const STORED_REASON_LIMIT = 2000
+
+function parsePrescriptionAllergyAcknowledgement(value: unknown): PrescriptionAllergyAcknowledgement | null {
+  if (!record(value)) return null
+  const ackId = id(value.id)
+  const reason = text(value.reason, STORED_REASON_LIMIT)
+  if (!ackId || !reason) return null
+  const strings = (items: unknown, limit: number) => Array.isArray(items)
+    ? [...new Set(items.flatMap(item => text(item, limit) ?? []))] : []
+  return {
+    id: ackId,
+    stage: typeof value.stage === 'string' && (ACKNOWLEDGEMENT_STAGES as readonly string[]).includes(value.stage) ? value.stage as AcknowledgementStage : null,
+    reason, createdBy: id(value.createdBy), createdAt: time(value.createdAt),
+    matchedRecordedAllergyIds: strings(value.matchedRecordedAllergyIds, 100),
+    patientReportedMatched: value.patientReportedMatched === true,
+    patientReportedTerms: strings(value.patientReportedTerms, MESSAGE_LIMIT),
+  }
+}
+
+/**
+ * A prescription's allergyAcknowledgements (the list and the one-prescription read, hid-system#218 at 7fbb04aa). Null
+ * when the member is absent or not a list: an EHR before 7fbb04aa, which does not say whether a reason was given (never
+ * read as "none"). `[]` is the only "none".
+ */
+export function parsePrescriptionAllergyAcknowledgements(value: unknown): PrescriptionAllergyAcknowledgements | null {
+  if (!Array.isArray(value)) return null
+  const items = value.flatMap(item => parsePrescriptionAllergyAcknowledgement(item) ?? [])
+  return { items, unread: value.length - items.length }
 }
 
 export const ALLERGY_ACKNOWLEDGEMENT_REQUIRED = 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED'

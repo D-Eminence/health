@@ -1034,9 +1034,24 @@
   margin-top: 12px;
 }
 
-/* The patient's allergies above a draft or held prescription's actions (OrderPage.tsx OrderAllergies). */
-.hid-ehr .hid-ehr-clinical-orders-allergies > :first-child {
-  margin-top: 0;
+/* The reasons given on a prescription to go ahead over an allergy warning, above its actions (AllergyOverrides.tsx), in
+   the allergy warning's red edge: each reason with its own line breaks, a little air between its lines and between
+   reasons. */
+.hid-ehr .hid-ehr-clinical-allergy-override li > p + p {
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-override .hid-ehr-clinical-allergy-warning-lines > li + li {
+  margin-top: 10px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-override-reason {
+  white-space: pre-line;
+}
+
+/* From an EHR before 7fbb04aa: whether a warning was overridden can't be shown, said above the actions. */
+.hid-ehr .hid-ehr-clinical-allergy-override-unknown {
+  margin-bottom: 12px;
 }
 
 .hid-ehr .hid-ehr-clinical-orders-lead {

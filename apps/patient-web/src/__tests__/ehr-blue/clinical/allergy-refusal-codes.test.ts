@@ -1,12 +1,24 @@
 import { HidApiError } from '@hid/http'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  BY_A_CLINICIAN, coveredLine, overrideLine, overridesTitle, patientWordsLine, reasonLine, unreadLine,
+} from '../../../ehr-blue/clinical/consult/orders/AllergyOverrides'
 import { readAllergyRefusal } from '../../../ehr-blue/clinical/parts/allergyWarning'
-import { refusalRejections, warningMessages } from '../../../staff/allergies'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import type { AllergiesState } from '../../../ehr-blue/clinical/patients/AllergiesCard'
+import {
+  parsePrescriptionAllergyAcknowledgements, refusalRejections, warningMessages, type PrescriptionAllergyAcknowledgement,
+  type RecordedAllergy,
+} from '../../../staff/allergies'
+
+// The page's words are pure; the allergy read they sit beside is never called here.
+vi.mock('../../../staff/api', () => ({ staffApi: {} }))
 
 /**
  * What hid-system#218 at 7fbb04aa adds to the allergy check at prescribing, read by the blue EHR: the refused parts of
- * the 409 (allergyAcknowledgement.rejected, read by code). An EHR at 76283f57 sends none: it is read as before, never
- * as "none". Every id, token, name and date is fictional.
+ * the 409 (allergyAcknowledgement.rejected, read by code), and the reasons stored with a prescription
+ * (allergyAcknowledgements) with the words the prescription's page says them in. An EHR at 76283f57 sends neither: it
+ * is read as before, never as "none". Every id, token, name and date is fictional.
  */
 
 const TOKEN = 'd'.repeat(64)
@@ -61,5 +73,84 @@ describe('the refused parts of a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (7fbb04aa)
     expect(readAllergyRefusal(refusal(), true)).toEqual({ messages: [LINE], warningToken: TOKEN, changedSinceShown: true })
     expect(readAllergyRefusal(refusal(), false)).toEqual({ messages: [LINE], warningToken: TOKEN, changedSinceShown: false })
     expect(readAllergyRefusal(refusal(rejected('ALLERGY_SOMETHING_NEW')), true)!.changedSinceShown).toBe(true)
+  })
+})
+
+const ME = 'staff-1'
+const PENICILLIN_ID = 'a1240000-0000-4000-8000-000000000041'
+const LATEX_ID = 'a1240000-0000-4000-8000-000000000042'
+
+const STORED = {
+  id: 'e1240000-0000-4000-8000-000000000041', stage: 'activate', reason: 'Has taken amoxicillin since 2024 with no reaction',
+  createdBy: ME, createdByMembershipId: 'e0000000-0000-4000-8000-0000000000f4', createdAt: '2026-11-10T09:00:00.000Z',
+  matchedRecordedAllergyIds: [PENICILLIN_ID, PENICILLIN_ID, LATEX_ID], patientReportedMatched: true, patientReportedTerms: ['penicillin'],
+}
+
+describe('a prescription’s stored reasons (allergyAcknowledgements, 7fbb04aa)', () => {
+  it('is null when the member is absent or not a list (an EHR before 7fbb04aa): never "none"', () => {
+    expect(parsePrescriptionAllergyAcknowledgements(undefined)).toBeNull()
+    expect(parsePrescriptionAllergyAcknowledgements(null)).toBeNull()
+    expect(parsePrescriptionAllergyAcknowledgements({})).toBeNull()
+  })
+
+  it('reads [] as none, and an item whole, the ids once each', () => {
+    expect(parsePrescriptionAllergyAcknowledgements([])).toEqual({ items: [], unread: 0 })
+    expect(parsePrescriptionAllergyAcknowledgements([STORED])).toEqual({ unread: 0, items: [{
+      id: STORED.id, stage: 'activate', reason: STORED.reason, createdBy: ME, createdAt: STORED.createdAt,
+      matchedRecordedAllergyIds: [PENICILLIN_ID, LATEX_ID], patientReportedMatched: true, patientReportedTerms: ['penicillin'],
+    }] })
+  })
+
+  it('counts an item it cannot read (no id or no reason) rather than dropping it in silence, and keeps a step it does not know as none', () => {
+    const read = parsePrescriptionAllergyAcknowledgements([{ ...STORED, reason: ' ' }, { ...STORED, id: undefined }, 'x', { ...STORED, stage: 'later' }])!
+    expect(read.unread).toBe(3)
+    expect(read.items.map(item => item.stage)).toEqual([null])
+  })
+})
+
+function item(overrides: Partial<PrescriptionAllergyAcknowledgement> = {}): PrescriptionAllergyAcknowledgement {
+  return { ...parsePrescriptionAllergyAcknowledgements([STORED])!.items[0]!, ...overrides }
+}
+
+function recorded(id: string, substance: string, status: RecordedAllergy['status'] = 'active'): RecordedAllergy {
+  return { id, substance, reaction: null, severity: 'moderate', status, rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }
+}
+
+function shown(list: RecordedAllergy[]): AllergiesState {
+  return { status: 'shown', recordedOffered: true, recorded: list, patientReported: null, reportedAt: null }
+}
+
+describe('the words of a stored reason', () => {
+  it('says who, when and at which step; never an id', () => {
+    expect(overrideLine(item(), ME)).toBe(`By you on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item(), 'someone-else')).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item({ createdBy: null }), null)).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item({ createdAt: null, stage: null }), ME)).toBe('By you.')
+    expect(overridesTitle(1)).toBe('Allergy warning overridden')
+    expect(overridesTitle(2)).toBe('Allergy warnings overridden')
+  })
+
+  it('quotes the reason as written', () => {
+    expect(reasonLine('Tolerated <b>it</b>\nObserve')).toBe('Reason given: “Tolerated <b>it</b>\nObserve”.')
+  })
+
+  it('names the allergies it covered from the list, says plainly of one no longer on it, and never guesses a name it can’t read', () => {
+    const list = shown([recorded(PENICILLIN_ID, 'Penicillin'), recorded(LATEX_ID, 'Latex', 'entered_in_error')])
+    expect(coveredLine([PENICILLIN_ID], list)).toBe('Recorded allergy it covered: Penicillin (moderate).')
+    expect(coveredLine([PENICILLIN_ID, LATEX_ID, 'gone-1', 'gone-2'], list))
+      .toBe('Recorded allergies it covered: Penicillin (moderate); Latex (moderate), since marked entered in error; 2 more recorded allergies, since marked entered in error.')
+    expect(coveredLine(['gone-1'], list)).toBe('Recorded allergy it covered: one since marked entered in error.')
+    expect(coveredLine(['gone-1', 'gone-2'], list)).toBe('Recorded allergies it covered: 2 since marked entered in error.')
+    expect(coveredLine([PENICILLIN_ID, LATEX_ID], { status: 'loading' })).toBe('Recorded allergies it covered: 2.')
+    expect(coveredLine([PENICILLIN_ID], { status: 'hidden' })).toBe('Recorded allergy it covered: 1 (their names can’t be shown here).')
+    expect(coveredLine([PENICILLIN_ID], { status: 'failed', recordedOffered: true, retry: () => undefined }))
+      .toBe('Recorded allergy it covered: 1 (their names could not be loaded).')
+  })
+
+  it('labels the patient’s own words as theirs', () => {
+    expect(patientWordsLine(['augmentin', 'amoxil'])).toBe('The patient’s own words it covered, from their Health ID portal: “augmentin”, “amoxil”.')
+    expect(patientWordsLine([])).toBe('It covered allergies the patient entered in their Health ID portal.')
+    expect(unreadLine(1)).toBe('1 more allergy warning override can’t be shown here.')
+    expect(unreadLine(2)).toBe('2 more allergy warning overrides can’t be shown here.')
   })
 })

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   orderRoutesApi, staffApi, type ClinicalRecord, type OrderDestination, type OrderRouteSummary, type OrderRouteWithdrawReason,
 } from '../../../../staff/api'
-import type { AllergyAcknowledgement } from '../../../../staff/allergies'
+import { parsePrescriptionAllergyAcknowledgements, type AllergyAcknowledgement } from '../../../../staff/allergies'
 import { refusalText } from '../../../../staff/fieldProblem'
 import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../../../../staff/orderRoutes'
 import { sendLabel, type RouteContext } from '../../../../staff/routes/OrderRoutes'
@@ -16,7 +16,6 @@ import {
   type AllergyAcknowledgementState, type AllergyRefusal,
 } from '../../parts/allergyWarning'
 import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
-import { useAllergies } from '../../patients/AllergiesCard'
 import type { Chart } from '../../parts/chart'
 import { LabResultPaper, PrescriptionPaper, drugLine, isPrintable, paperPatient, prescriberName, usePaperPrint } from '../../parts/clinicalPrint'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
@@ -28,7 +27,7 @@ import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } fro
 import { useClinical, useWorkspaceHref } from '../../parts/Workspace'
 import { RELOAD_FAILED } from '../encounters'
 import { KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, text, useFlash, type OrderKind } from './orders'
-import { RecordedAllergies } from './CreateOrder'
+import { AllergyOverrides, OVERRIDES_NOT_SHOWN } from './AllergyOverrides'
 import { ACK_REFUSED_ERROR, storedMedicine, warnAfterRefusal } from './prescribingAllergies'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
@@ -119,8 +118,6 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const [resultsRevision, setResultsRevision] = useState(0)
   const [asking, setAsking] = useState<{ label: string; description?: string; answer: (yes: boolean) => void } | null>(null)
   const [focusIds, setFocusIds] = useState<readonly string[] | null>(null)
-  // Counts the allergy warnings shown on this page: the patient's allergies above the actions are read again with each.
-  const [allergyWarnings, setAllergyWarnings] = useState(0)
   const pharmacyAttempt = useRef<{ reason: string; key: string } | null>(null)
   const labAttempt = useRef<string | null>(null)
   const chartRef = useRef(chart)
@@ -257,10 +254,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed
   const sendElsewhere = rights.canRoute(kind) && mayBeSent(record)
-  // A prescription that may go ahead over an allergy warning here (Activate, Resume, or a draft's send): the patient's
-  // allergies are shown above the actions (Ola, W3, interim until the EHR serves the reasons already given).
-  const goesAhead = !lab && (((status === 'draft' || status === 'on_hold') && choices.some(option => option.value === 'active'))
-    || (status === 'draft' && sendElsewhere))
+  // The reasons given on this prescription to go ahead over an allergy warning (7fbb04aa), whatever its status: null
+  // from an EHR before 7fbb04aa, which does not say (the page says plainly it can't show them, never that there are none).
+  const overrides = lab ? null : parsePrescriptionAllergyAcknowledgements(record.allergyAcknowledgements)
   const labNotes = lab && canWrite && !routed
     ? [LAB_NOT_TOLD[status], !rights.canSendToLab ? LAB_SENT_BY_OTHERS[status] : undefined].filter((note): note is string => Boolean(note)) : []
 
@@ -293,11 +289,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
    * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume or a send of this draft (0124): the warning
    * for the medicine the prescription holds, shown in the form that was sent, which answers what to say.
    */
-  const warnAboutAllergies = async (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => {
-    const said = await warnAfterRefusal({ ack, refusal, medicine: storedMedicine(record), chart })
-    setAllergyWarnings(count => count + 1)
-    return said
-  }
+  const warnAboutAllergies = (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) =>
+    warnAfterRefusal({ ack, refusal, medicine: storedMedicine(record), chart })
 
   /**
    * A status change. A prescription's Activate or Resume carries `allergyAcknowledgement` only when sent again after
@@ -515,7 +508,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       <DetailGrid>
         <SavedRecord items={items} />
         <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
-          {goesAhead ? <OrderAllergies chart={chart} warnings={allergyWarnings} /> : null}
+          {lab ? null : !overrides ? <p className="hid-ehr-clinical-orders-muted hid-ehr-clinical-allergy-override-unknown">{OVERRIDES_NOT_SHOWN}</p>
+            : overrides.items.length > 0 || overrides.unread > 0
+              ? <AllergyOverrides chart={chart} overrides={overrides} actorId={actor?.id ?? null} /> : null}
           {actions.length > 0 ? (
             <div className="hid-ehr-clinical-orders-actions">
               <ActionList>
@@ -635,24 +630,6 @@ function StatusChange({ option, lab, notice, disabled, confirmCancel, onChange, 
       </RecordForm>
     </div>
   )
-}
-
-/**
- * The patient's allergies on a draft or held prescription's page, above Activate, Resume and Send (Ola, W3, interim):
- * the EHR may let it go ahead with no warning when a reason given earlier covers the allergies, and does not serve that
- * reason yet, so whoever presses here sees the patient's allergies first. In the lines of the prescribing form; read
- * again whenever a form below shows an allergy warning (`warnings` counts them), so the lines never miss an allergy the
- * warning names.
- */
-function OrderAllergies({ chart, warnings }: { chart: Chart; warnings: number }) {
-  const { state, reload } = useAllergies(chart)
-  const read = useRef(warnings)
-  useEffect(() => {
-    if (read.current === warnings) return
-    read.current = warnings
-    reload()
-  }, [warnings])
-  return <div className="hid-ehr-clinical-orders-allergies"><RecordedAllergies allergies={state} /></div>
 }
 
 function RecordHeadingOnly({ title, back }: { title: string; back: string }) {

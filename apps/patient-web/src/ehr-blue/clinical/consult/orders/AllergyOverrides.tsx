@@ -1,0 +1,145 @@
+import type {
+  AcknowledgementStage, PrescriptionAllergyAcknowledgement, PrescriptionAllergyAcknowledgements, RecordedAllergy,
+} from '../../../../staff/allergies'
+import type { Chart } from '../../parts/chart'
+import { formatWhen } from '../../parts/format'
+import { ClinicalIcon } from '../../parts/icons'
+import { recordedAllergyLine, useAllergies, type AllergiesState } from '../../patients/AllergiesCard'
+
+/**
+ * The reasons given on this prescription to go ahead over an allergy warning (hid-system#218 at 7fbb04aa: the
+ * prescription's allergyAcknowledgements), shown on its page above the actions, oldest first as the EHR serves them:
+ * when, at which step, who, the reason in the prescriber's own words, and what it covered. The EHR may let Activate,
+ * Resume or Send go ahead with no new warning when a reason here covers the allergies, so whoever presses sees it.
+ *
+ * Shown only when there is one: `[]` is "none". An EHR before 7fbb04aa does not say: the page then says plainly that
+ * this can't be shown (OVERRIDES_NOT_SHOWN), never that there is none. Read only: nothing here writes, and the reason
+ * is never kept.
+ */
+
+const TITLE_ID = 'order-allergy-overrides-title'
+
+/**
+ * Where the reasons would be, on a prescription read from an EHR before 7fbb04aa (no allergyAcknowledgements): it does
+ * not say whether a warning was overridden, so neither does the page.
+ */
+export const OVERRIDES_NOT_SHOWN = 'Whether an allergy warning was overridden on this prescription can’t be shown here.'
+
+/** The step the reason was given at, as the prescriber knows it. */
+export const STAGE_WORDS: Readonly<Record<AcknowledgementStage, string>> = {
+  create: 'when it was prescribed',
+  activate: 'when it was activated',
+  resume: 'when it was resumed',
+  send: 'when it was sent to a pharmacy',
+}
+
+/** Who gave it: the account signed in, or anyone else (the EHR gives an id, never a name, and serves only this facility's). */
+export const BY_YOU = 'you'
+export const BY_A_CLINICIAN = 'a clinician at this facility'
+
+export function overridesTitle(count: number): string {
+  return count === 1 ? 'Allergy warning overridden' : 'Allergy warnings overridden'
+}
+
+/** "By you on 10 Nov 2026, 10:00, when it was prescribed." */
+export function overrideLine(item: PrescriptionAllergyAcknowledgement, actorId: string | null): string {
+  const who = actorId !== null && item.createdBy === actorId ? BY_YOU : BY_A_CLINICIAN
+  const when = formatWhen(item.createdAt)
+  return `By ${who}${when ? ` on ${when}` : ''}${item.stage ? `, ${STAGE_WORDS[item.stage]}` : ''}.`
+}
+
+/** The reason as written, quoted: text only (React never reads it as markup), its own line breaks kept. */
+export function reasonLine(reason: string): string {
+  return `Reason given: “${reason}”.`
+}
+
+const allergies = (count: number) => count === 1 ? 'allergy' : 'allergies'
+
+/**
+ * The recorded allergies a reason covered, named from the patient's allergy list (the active ones, every facility's):
+ * "Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy, since marked entered in
+ * error." An id no longer on the list was marked entered in error since. Where the list can't be read, the count only,
+ * and why the names are missing; never a name guessed.
+ */
+export function coveredLine(ids: readonly string[], state: AllergiesState): string {
+  const head = `Recorded ${allergies(ids.length)} it covered: `
+  if (state.status === 'loading') return `${head}${ids.length}.`
+  if (state.status === 'hidden' || (state.status === 'shown' && !state.recordedOffered)) return `${head}${ids.length} (their names can’t be shown here).`
+  if (state.status === 'failed') return `${head}${ids.length} (their names could not be loaded).`
+  const byId = new Map<string, RecordedAllergy>(state.recorded.map(item => [item.id, item]))
+  const named: string[] = []
+  let gone = 0
+  for (const id of ids) {
+    const item = byId.get(id)
+    if (!item) gone += 1
+    else named.push(item.status === 'active' ? recordedAllergyLine(item) : `${recordedAllergyLine(item)}, since marked entered in error`)
+  }
+  if (gone > 0) {
+    named.push(named.length > 0 ? `${gone} more recorded ${allergies(gone)}, since marked entered in error`
+      : `${gone === 1 ? 'one' : gone} since marked entered in error`)
+  }
+  return `${head}${named.join('; ')}.`
+}
+
+/** What the patient wrote that it covered, labelled as the patient's own words (lower case, as the EHR matched them). */
+export function patientWordsLine(terms: readonly string[]): string {
+  return terms.length > 0
+    ? `The patient’s own words it covered, from their Health ID portal: ${terms.map(term => `“${term}”`).join(', ')}.`
+    : 'It covered allergies the patient entered in their Health ID portal.'
+}
+
+/** "1 more allergy warning override can’t be shown here." */
+export function unreadLine(count: number): string {
+  return `${count} more allergy warning ${count === 1 ? 'override' : 'overrides'} can’t be shown here.`
+}
+
+export function AllergyOverrides({ chart, overrides, actorId }: {
+  chart: Chart
+  overrides: PrescriptionAllergyAcknowledgements
+  /** The signed-in account, said as "you". */
+  actorId: string | null
+}) {
+  const ids = [...new Set(overrides.items.flatMap(item => item.matchedRecordedAllergyIds))]
+  // The allergy list is read only when there is an allergy to name, and afresh whenever the allergies to name change
+  // (a reason given since on this page may cover an allergy recorded since the list was read).
+  return ids.length > 0
+    ? <NamedOverrides key={ids.join(',')} chart={chart} overrides={overrides} actorId={actorId} />
+    : <OverrideList overrides={overrides} actorId={actorId} allergies={null} />
+}
+
+function NamedOverrides({ chart, overrides, actorId }: { chart: Chart; overrides: PrescriptionAllergyAcknowledgements; actorId: string | null }) {
+  const { state } = useAllergies(chart)
+  return <OverrideList overrides={overrides} actorId={actorId} allergies={state} />
+}
+
+function OverrideList({ overrides, actorId, allergies: state }: {
+  overrides: PrescriptionAllergyAcknowledgements
+  actorId: string | null
+  allergies: AllergiesState | null
+}) {
+  const count = overrides.items.length + overrides.unread
+  return (
+    <section aria-labelledby={TITLE_ID} className="hid-ehr-clinical-allergy-warning hid-ehr-clinical-allergy-override">
+      <h3 id={TITLE_ID} className="hid-ehr-clinical-allergy-warning-title">
+        <ClinicalIcon name="alert" size={18} />
+        <span>{overridesTitle(count)}</span>
+      </h3>
+      {overrides.items.length > 0 ? (
+        <ul className="hid-ehr-clinical-allergy-warning-lines">
+          {overrides.items.map(item => (
+            <li key={item.id}>
+              <p>{overrideLine(item, actorId)}</p>
+              <p className="hid-ehr-clinical-allergy-override-reason">{reasonLine(item.reason)}</p>
+              {state && item.matchedRecordedAllergyIds.length > 0 ? <p>{coveredLine(item.matchedRecordedAllergyIds, state)}</p> : null}
+              {item.patientReportedMatched ? <p>{patientWordsLine(item.patientReportedTerms)}</p> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {overrides.unread > 0 ? <p>{unreadLine(overrides.unread)}</p> : null}
+      {state?.status === 'failed' ? (
+        <p><button type="button" className="hid-ehr-clinical-link hid-ehr-clinical-link-button" onClick={state.retry}>Try again</button></p>
+      ) : null}
+    </section>
+  )
+}
