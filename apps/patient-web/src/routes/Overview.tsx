@@ -18,7 +18,7 @@ import { HealthIdCard } from './HealthIdCard'
 import { completionOf, servedOrNull, useProfileSources } from './profileSources'
 import type { ProfileCompletion } from './profileCompletion'
 import { contactsToCount } from './AccountSafety'
-import { WHAT, accessLogActor } from './AccessLog'
+import { WHAT, accessLogActor, eventSentence } from './AccessLog'
 import { notificationTitle } from './notificationTitles'
 import { ninVerifiedOf } from './NinVerificationCard'
 import { neverSaved } from './HealthInformation'
@@ -78,6 +78,9 @@ export interface ActivityRow { id: string; at: string; text: string; to: string 
  * said by who did it.
  */
 function activityText(event: AccessLogEvent): string {
+  // The patient giving or ending access reads as on the Access & sharing activity list (AccessLog.tsx eventSentence).
+  const sentence = eventSentence(event)
+  if (sentence) return sentence
   const what = WHAT[event.action]
   if (event.actorKind !== 'patient') return `${accessLogActor(event)}: ${what.toLowerCase()}`
   const facility = event.facilityName ?? 'a facility'
@@ -89,7 +92,7 @@ function activityText(event: AccessLogEvent): string {
 /** The newest few of the access log's events and the inbox's notices, newest first. */
 export function recentActivity(log: AccessLogPage | null | undefined, notices: PatientNotification[] | null | undefined, rows = RECENT_ROWS): ActivityRow[] {
   const events = list<AccessLogEvent>(log?.events).map((event): ActivityRow => ({
-    id: `log-${event.id}`, at: event.at, text: activityText(event), to: '/access' }))
+    id: `log-${event.id}`, at: event.at, text: activityText(event), to: '/access?tab=activity' }))
   const inbox = list<PatientNotification>(notices).filter(item => typeof item?.id === 'string' && !Number.isNaN(stamp(item.createdAt)))
     .map((item): ActivityRow => ({ id: `notice-${item.id}`, at: item.createdAt, text: notificationTitle(item), to: '/notifications' }))
   return [...events, ...inbox].sort((a, b) => stamp(b.at) - stamp(a.at)).slice(0, rows)
@@ -302,7 +305,7 @@ export function Overview() {
           <StatCard icon={FolderHeart} tone="brand" label="Records" {...tileValue(counts?.records ?? null, recordsFailed)} to="/records" />
           {sections.includes('documents') && <StatCard icon={FileText} tone="violet" label="Documents" {...tileValue(counts?.documents ?? null, recordsFailed)} to="/records?tab=documents" />}
           <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'}
-            {...tileValue(active, history.error !== null && !history.loading)} to="/access" />
+            {...tileValue(active, history.error !== null && !history.loading)} to="/access?tab=granted" />
           {sections.includes('prescriptions') && <StatCard icon={Pill} tone="warn" label="Medicines" {...tileValue(counts?.medicines ?? null, recordsFailed)} to="/records?tab=prescriptions" />}
         </StatGroup>
 
@@ -332,7 +335,7 @@ export function Overview() {
               onRetry={() => logRetry.retry(log.reload)} name={<ItemName>loading who viewed or changed your records</ItemName>} />}
           </div>}
           {activity.length > 0
-            ? <Timeline items={activity.map(row => ({ id: row.id, text: row.text, when: timeAgo(row.at), to: row.to, tone: row.to === '/access' ? 'success' : undefined }))} empty={null} />
+            ? <Timeline items={activity.map(row => ({ id: row.id, text: row.text, when: timeAgo(row.at), to: row.to, tone: row.to.startsWith('/access') ? 'success' : undefined }))} empty={null} />
             : !notifications.error && !log.error && <EmptyState compact icon={History} title="No activity yet"
                 description="When a hospital asks to see your records, opens them or is given access, you’ll see it here." />}
         </>}

@@ -66,7 +66,7 @@ describe('orders sent to other facilities, on Access and consent', () => {
     expect(within(item).getByText('What Yaba Diagnostics will receive')).toBeTruthy()
     const fields = [...item.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)
     expect(fields).toEqual([
-      'Test: Haemoglobin, LOINC 718-7', 'Priority: urgent', 'Sample type: Venous blood',
+      'Test: Haemoglobin, LOINC 718-7', 'Priority: Urgent', 'Sample type: Venous blood',
       'Your doctor’s note: Tired for two weeks', 'Requested on: 20 Oct 2026',
       'Requested by: Dr Ade Okon, licence MDCN MDCN/12345',
       'You: your name, sex, date of birth and the last 4 characters of your Health ID, once it accepts',
@@ -84,6 +84,7 @@ describe('orders sent to other facilities, on Access and consent', () => {
       return handler(path, method)
     })
     fireEvent.click(await screen.findByRole('button', { name: /^Stop it/ }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop it' }))
     expect(await screen.findByText('Stopped. Yaba Diagnostics can no longer accept it, and General Hospital has been told.')).toBeTruthy()
     expect(await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: you stopped it')).toBeTruthy()
     expect(requests.filter(request => request.method === 'POST')).toEqual([
@@ -95,6 +96,7 @@ describe('orders sent to other facilities, on Access and consent', () => {
     stopped = problem(409, 'ORDER_ROUTE_NOT_PENDING', 'Not pending')
     await whoHasAccess(handler)
     fireEvent.click(await screen.findByRole('button', { name: /^Stop it/ }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop it' }))
     expect(await screen.findByText('It can’t be stopped now. Yaba Diagnostics has accepted it, or it has already ended. The list below is up to date.')).toBeTruthy()
   })
 
@@ -116,7 +118,7 @@ describe('orders sent to other facilities, on Access and consent', () => {
     expect(screen.getAllByText('What Yaba Diagnostics received')).toHaveLength(2)
     const prescription = screen.getByText(/^Amoxicillin 500 mg capsules from/).closest('li')!
     expect([...prescription.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)).toEqual([
-      'Medicine: Amoxicillin 500 mg capsules', 'Dose: 500 mg', 'How to take it: oral', 'How often: Three times daily',
+      'Medicine: Amoxicillin 500 mg capsules', 'Dose: 500 mg', 'How to take it: By mouth', 'How often: Three times daily',
       'Instructions: Take with food', 'Starts: 20 Oct 2026', 'Ends: 27 Oct 2026', 'Prescribed on: 20 Oct 2026', 'Prescribed by: Dr Ade Okon',
       'You: your name, sex, date of birth and the last 4 characters of your Health ID'])
     expect(screen.queryByRole('button', { name: /^Stop it/ })).toBeNull()

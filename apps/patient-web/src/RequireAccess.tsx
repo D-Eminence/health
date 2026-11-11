@@ -16,6 +16,7 @@ import { focusLost, focusPageHeading } from './pageFocus'
 import { useDocumentTitle } from './authSteps'
 import { portalHandsOff } from './sso/singleSignOn'
 import { PortalSignInHandOff } from './sso/SignInHandOff'
+import { signInReturningTo } from './returnPath'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement
@@ -84,10 +85,11 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
     case 'sign-in-required': {
       // With single sign-on on, on app., the whole tab goes to auth. and back to this page when it may (contract v2).
       if (portalHandsOff()) return <PortalSignInHandOff />
-      // The page the patient asked for goes with them (router state, never the
-      // address), so sign-in can bring them back to it.
+      // Off, sign-in comes back to this page once signed in (SA-04): after "Sign in again" on Access & sharing, this
+      // redirect can land after the button's own, so it must carry the same return (`next`); a session that ran out
+      // comes back too. The page also goes as router state (never the address alone), as sign-in reads either.
       const from: SignInFrom = { pathname, search, hash }
-      return <Navigate to="/sign-in" replace state={{ from }} />
+      return <Navigate to={signInTarget(pathname, search, hash)} replace state={{ from }} />
     }
 
     case 'mfa-required':
@@ -116,4 +118,10 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
         </main>
       )
   }
+}
+
+/** The sign-in page's address from a page that needs a signed-in patient: plain from Home, else coming back to it. */
+function signInTarget(pathname: string, search: string, hash: string) {
+  const here = `${pathname}${search}${hash}`
+  return here === '/' ? '/sign-in' : signInReturningTo(here)
 }

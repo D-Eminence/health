@@ -231,7 +231,9 @@ describe('the Access PIN field (PPS-08)', () => {
  */
 function SignInPage() {
   const { state } = useLocation()
-  return <p>Sign-in page, back to {(state as { from?: string } | null)?.from ?? 'nowhere'}</p>
+  // The route guard passes a location ({ pathname, search, hash }); "Sign in again" passes a path.
+  const from = (state as { from?: string | { pathname: string; search: string; hash: string } } | null)?.from
+  return <p>Sign-in page, back to {typeof from === 'object' ? `${from.pathname}${from.search}${from.hash}` : from ?? 'nowhere'}</p>
 }
 const signInRoutes = (page: React.ReactElement) => <Routes><Route path="/profile" element={page} /><Route path="/sign-in" element={<SignInPage />} /></Routes>
 const RECENT = () => problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again before changing this')

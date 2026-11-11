@@ -3047,3 +3047,51 @@ From the patient launch audit (HE-01 to HE-12, HE-14), on `claude/patient-health
   - Gates after the fixes: typecheck, lint, audit:boundaries, build:patient-web and audit:launch-build pass. The full vitest run: 9,866 passed; the 2 NovuEmergencyContacts expectations of no alert after Save failed against the first version of the fix (an alert always), which now holds back the alert there, and pass on their own with the suites above; the full run was not repeated.
 - **Left for the shell.** The + menu still offers "Add an emergency contact" where contacts are not offered (`Portal.tsx`). The link now explains itself. Hiding the item would mean the shell reading contacts on every page.
 - **Gates.** typecheck, lint, audit:boundaries, build:patient-web and audit:launch-build pass. The full vitest run: 9,801 passed and the 4 NovuProductionChat expectations above failed. Those were updated and pass on their own; the full run was not repeated.
+
+## 2026-11-04: Access & sharing ready for launch (audit SA-02 to SA-23)
+
+- Headings say only the section's name ("Requests", "Who has access") while a
+  list loads or after it failed; a count or "No one has access now" only once
+  the list is read. The hint is now "Past access stays listed." (the list has
+  no time access ended).
+- The tab is in the address (`/access?tab=granted|activity`). "See who has
+  access", "Back to Access & sharing", Home's "Facilities with access" and
+  activity rows, and the old `/logs` address open the right tab. The page's
+  title is "Access & sharing · Health ID". The edge redirect for `/logs`
+  (`infra/cloudflare`) still sends it to `/access`.
+- A refusal for an old sign-in (403 `PATIENT_RECENT_AUTH_REQUIRED`) on Approve,
+  Share my records or Confirm and share is said in place with a "Sign in again"
+  button: it signs out and opens `/sign-in?next=…`. Sign-in goes back to `next`
+  when it is a path on this site (`returnPath.ts`), else Home. Any signed-out
+  page now opens sign-in the same way (`RequireAccess`), so a session that ran
+  out also comes back to its page. With single sign-on on, `/sign-in?next=`
+  hands off with `return_to` set to `next` when it is one of app.'s exact
+  return pages (`/access` and `/access/share` are; `/access?tab=granted` is
+  not, so that one comes back Home), and the sign-out there may first leave for
+  the provider's end-session address. Single sign-on stays off at launch.
+- A request, access or invitation changed elsewhere (404, 409 or 412) reads the
+  lists again, closes the drawer and says so. Share refusals have plain words
+  and a next step, with "Choose someone else" for a person who can't receive
+  records. The Change buttons are disabled while sharing and are 44px targets.
+- Empty lists are designed empty states with the next step. The Activity tab
+  shows one where the log is not served (404), instead of nothing.
+- Emergency access says the reason given and when it ends, and access a
+  facility gave says it can't be ended here; both offer "Contact Health ID
+  support". The patient's own decisions read "You gave X access to your
+  records" and "You ended X's access". The purpose is said in words.
+- Invitations wrap on phones, the pressed button shows it is busy, and a
+  confirmed invitation says whether the share it made still runs.
+- Orders sent elsewhere: Try again on a failed read, plain priority and route,
+  "in progress" for a state the page doesn't know, and Stop asks first.
+- Needs the backend (SA-14): shares made with "Share my records" and confirmed
+  invitations are not in the access log (0093's classifier drops
+  `identity.consent-grant.patient-share` and `identity.share-invitation.confirm`).
+- Verified in Chromium at 320, 360, 390 and 1366 px against the mock gateway.
+- Review (2026-11-05): "Sign in again" lost its return in the browser: the
+  page guard's own redirect to a bare `/sign-in` landed after the button's
+  `/sign-in?next=…`, so sign-in went Home. The guard now carries the page in
+  `next` (`RequireAccess.tsx`); with single sign-on on, the hand-off from
+  `/sign-in?next=` returns to `next` (`sso/SignInHandOff.tsx`). Tests first
+  (`RequireAccess.test.tsx`, `sso/handOffPages.test.tsx`, a guarded flow in
+  `AccessSharingLaunch.test.tsx`); checked again in Chromium: Approve, then
+  Sign in again, now stays on `/sign-in?next=%2Faccess`.

@@ -159,3 +159,14 @@ export function genderLabel(value: string | null | undefined): string {
 export function countryLabel(value: string | null | undefined): string {
   return value?.trim() ? countryName(value) : 'Not given'
 }
+
+const PRIORITIES: Readonly<Record<string, string>> = {
+  routine: 'Routine', urgent: 'Urgent', asap: 'As soon as possible', stat: 'Immediately',
+}
+
+/** How soon a test is wanted, in words: "Routine", "Urgent", "As soon as possible", "Immediately". */
+export function priorityLabel(value: string | null | undefined): string | null {
+  const key = (value ?? '').trim().toLowerCase()
+  if (!key) return null
+  return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : plainCode(key)
+}

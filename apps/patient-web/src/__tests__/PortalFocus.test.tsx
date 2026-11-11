@@ -107,9 +107,9 @@ describe('access and consent', () => {
     const approve = drawer().getByRole('button', { name: /^Approve/ })
     await inChromium(approve)
     expect(focused()).toBe(document.body)
-    await act(async () => { answer.resolve(problem(409, 'ACCESS_REQUEST_NOT_PENDING', 'This request was already decided.')) })
+    await act(async () => { answer.resolve(problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', 'Recovery hold.')) })
 
-    expect((await screen.findByRole('alert')).textContent).toContain('already decided')
+    expect((await screen.findByRole('alert')).textContent).toContain('24 hours after you recover')
     await waitFor(() => expect(focused()).toBe(approve))
   })
 
@@ -186,14 +186,14 @@ describe('access and consent', () => {
   it('says each outcome in a polite status, and a refusal in an alert', async () => {
     let refuse = false
     access((path, method) => method === 'POST'
-      ? (refuse ? problem(409, 'ACCESS_REQUEST_NOT_PENDING', 'This request was already decided.')
+      ? (refuse ? problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', 'Recovery hold.')
         : json({ accessRequestId: request.accessRequestId, status: 'approved' }))
       : json(path === '/identity/me/access-requests' ? [request] : { items: [] }))
     await review()
     refuse = true
     await press(drawer().getByRole('button', { name: /^Approve/ }))
     const refusal = await screen.findByRole('alert')
-    expect(refusal.textContent).toContain('This request was already decided.')
+    expect(refusal.textContent).toContain('For your safety, this isn’t available for 24 hours after you recover your account.')
     expect(refusal.getAttribute('aria-live')).toBe('assertive')
     refuse = false
     await press(drawer().getByRole('button', { name: /^Approve/ }))

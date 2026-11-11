@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleCheck, Clock, Eye, Loc
 import { Alert, Button, Card, Field, cx } from '../kasuwa/ui'
 import { FormPage, PageState } from '../kasuwa/parts'
 import { SAY, WORDS } from '../copy'
+import { needsRecentSignIn, SignInAgainButton } from './RecentSignIn'
 import { InputR } from './profileParts'
 import { CARD_LINK_OPENS, ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
@@ -37,7 +38,19 @@ const SHARE_REFUSALS: Readonly<Record<string, string>> = {
   SHARE_PERMISSION_DENIED: 'Sharing isn’t available for your account right now.',
   SHARE_PROVIDER_NOT_ELIGIBLE: 'This person can’t receive records through Health ID. Choose someone else.',
   SHARE_SEARCH_MAX_RESULTS: 'Too many people match. Type more of the name to narrow the search.',
+  // The patient-side refusals (hid-system 0095), each with its next step.
+  SHARE_PROVIDER_UNAVAILABLE: 'This person can’t receive records through Health ID right now. Choose someone else.',
+  SHARE_CREATE_LIMITED: 'You’ve shared your records many times today. Try again tomorrow.',
+  SHARE_SEARCH_LIMITED: 'Too many searches. Try again in an hour.',
+  SHARE_INVITATION_TOO_MANY_OPEN: 'You have 20 open invitations. Cancel one to send another.',
+  SHARE_INVITATION_LIMITED: 'You can send 5 invitations a day. Try again tomorrow.',
+  SHARE_INVITATION_NOT_ACCEPTED: 'They haven’t accepted this invitation yet, so there is nothing to confirm. The list is up to date.',
+  SHARE_INVITATION_NOT_CANCELLABLE: 'This invitation can’t be cancelled now. It has been accepted, confirmed or has ended. The list is up to date.',
+  IDEMPOTENCY_KEY_REUSED: 'Something changed while this was sending. Start again.',
 }
+
+/** Refusals about the person chosen: the check step offers to choose someone else. */
+const CHOOSE_AGAIN = new Set(['SHARE_PROVIDER_UNAVAILABLE', 'SHARE_PROVIDER_NOT_ELIGIBLE'])
 
 export function shareProblem(cause: unknown, fallback: string): string {
   if (!isHidApiError(cause)) return fallback
@@ -45,7 +58,7 @@ export function shareProblem(cause: unknown, fallback: string): string {
   if (cause.code === 'PATIENT_RECENT_RECOVERY_HOLD') {
     return 'Sharing is not available in the 24 hours after you recover your account. Please try again later.'
   }
-  if (cause.status === 404 && !cause.code?.startsWith('SHARE_')) return 'Sharing is not available right now. Try again later.'
+  if (cause.status === 404 && !cause.code?.startsWith('SHARE_') && cause.code !== 'IDEMPOTENCY_KEY_REUSED') return 'Sharing is not available right now. Try again later.'
   return plainErrorText(cause, fallback, { codes: SHARE_REFUSALS })
 }
 
@@ -116,6 +129,8 @@ function ShareFlow() {
   const [duration, setDuration] = useState<ShareDuration>('24h')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // What the error offers as the way on: signing in again, or choosing someone else.
+  const [errorNext, setErrorNext] = useState<'sign-in' | 'choose' | null>(null)
   const [created, setCreated] = useState<ShareCreated | null>(null)
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -132,11 +147,18 @@ function ShareFlow() {
   const shareKey = useIdempotencyKey()
   const inviteKey = useIdempotencyKey()
 
+  // A refusal shown under the step: brought into view, as on a phone the buttons held at the bottom would cover it.
+  const errorBox = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (error) errorBox.current?.scrollIntoView?.({ block: 'center' }) }, [error])
   // Whether the error shown is the choice's (the search step's second form) rather than the search's.
   const [choosing, setChoosing] = useState(false)
-  const go = (next: Step) => { setStep(next); setError(null); stepFocus.focus() }
+  const go = (next: Step) => { setStep(next); setError(null); setErrorNext(null); stepFocus.focus() }
   // A failed request is said in place, under the step, where focus goes.
-  const fail = (message: string, ofChoice = false) => { setError(message); setChoosing(ofChoice); errorFocus.focus() }
+  const fail = (message: string, ofChoice = false, next: 'sign-in' | 'choose' | null = null) => {
+    setError(message); setChoosing(ofChoice); setErrorNext(next); errorFocus.focus()
+  }
+  const failWith = (cause: unknown, fallback: string) => fail(shareProblem(cause, fallback), false, needsRecentSignIn(cause) ? 'sign-in'
+    : isHidApiError(cause) && CHOOSE_AGAIN.has(cause.code) ? 'choose' : null)
   const refuseField = (fromField: boolean) => { setProblemAlert(value => fromField ? (value ?? 0) + 1 : null); fieldFocus.focus() }
 
   const search = async (event: FormEvent) => {
@@ -175,7 +197,7 @@ function ShareFlow() {
       // The done step says it: no toast repeats it.
       setCreated(answer); go('done')
     } catch (cause) {
-      fail(shareProblem(cause, 'Your records could not be shared. Please try again.'))
+      failWith(cause, 'Your records could not be shared. Please try again.')
     } finally { setBusy(false) }
   }
 
@@ -196,7 +218,7 @@ function ShareFlow() {
       setInvited({ ...answer, email: address }); go('invited')
     } catch (cause) {
       if (isHidApiError(cause) && cause.code === 'SHARE_INVITATION_EMAIL_INVALID') { setEmailProblem('Enter a valid email address, like name@example.com.'); refuseField(fromField) }
-      else fail(shareProblem(cause, 'The invitation could not be sent. Please try again.'))
+      else failWith(cause, 'The invitation could not be sent. Please try again.')
     } finally { setBusy(false) }
   }
 
@@ -206,7 +228,11 @@ function ShareFlow() {
   }
 
   // A failed request, or a choice left out, is said in place; focus goes to it.
-  const alert = error && <div ref={errorFocus.target} tabIndex={-1} className="outline-none"><Alert intent="error" size="sm">{error}</Alert></div>
+  const alert = error && <div ref={errorBox} className="flex flex-col items-start gap-2">
+    <div ref={errorFocus.target} tabIndex={-1} className="w-full outline-none"><Alert intent="error" size="sm">{error}</Alert></div>
+    {errorNext === 'sign-in' && <SignInAgainButton back="/access/share" />}
+    {errorNext === 'choose' && <Button size="sm" disabled={busy} icon={Search} onClick={() => go('search')}>Choose someone else</Button>}
+  </div>
   const number = STEP_NUMBER[step]
   const heading = (text: string, hint?: ReactNode) => <div className="flex flex-col gap-1">
     <h2 ref={stepFocus.target} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{text}</h2>
@@ -262,7 +288,7 @@ function ShareFlow() {
         </fieldset>}
         {choosing && alert}
       </form>
-      <button type="button" className="inline-flex cursor-pointer items-center gap-2 self-start border-0 bg-transparent p-0 text-[13px] font-semibold text-brand-ink hover:underline" onClick={() => go('invite')}><Mail className="size-4" aria-hidden />Can’t find them? Invite them by email</button>
+      <button type="button" className="-mx-2 inline-flex min-h-11 cursor-pointer items-center gap-2 self-start border-0 bg-transparent px-2 text-[13px] font-semibold text-brand-ink hover:underline" onClick={() => go('invite')}><Mail className="size-4" aria-hidden />Can’t find them? Invite them by email</button>
     </>, <><Button to="/access" variant="ghost">Cancel</Button>
       {items.length > 0 && <Button type="submit" form="share-choose" variant="primary" iconRight={ArrowRight}>Continue</Button>}</>)
   }
@@ -281,15 +307,15 @@ function ShareFlow() {
       <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand-ink">{initials(provider.clinicianName)}</span>
       <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-ink">{provider.clinicianName}, {SHARE_ROLE_LABELS[provider.role]}</span>
         <span className="block text-[13px] text-ink-3">{[provider.facilityName, provider.organizationName].filter(Boolean).join(', ')}</span></span>
-      <button type="button" onClick={() => go('search')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> who</span></button>
+      <button type="button" disabled={busy} onClick={() => go('search')} className={CHANGE}>Change<span className="sr-only"> who</span></button>
     </div>
     <dl className="m-0 divide-y divide-line rounded-xl ring-1 ring-line">
       <div className="flex items-start gap-3 px-4 py-3"><Eye className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden /><div className="min-w-0 flex-1"><dt className="text-[12px] text-ink-3">What they can do</dt>
         <dd className="m-0 text-sm font-medium text-ink">{shareLevelLabel(level)}</dd>{level === 'clinical_collaboration' && <dd className="m-0 mt-1 text-[13px] text-warn-ink">{COLLABORATION_WARNING}</dd>}</div>
-        <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> what they can do</span></button></div>
+        <button type="button" disabled={busy} onClick={() => go('level')} className={CHANGE}>Change<span className="sr-only"> what they can do</span></button></div>
       <div className="flex items-start gap-3 px-4 py-3"><Clock className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden /><div className="min-w-0 flex-1"><dt className="text-[12px] text-ink-3">How long</dt>
         <dd className="m-0 text-sm font-medium text-ink">{shareDurationLabel(duration)}</dd></div>
-        <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> how long</span></button></div>
+        <button type="button" disabled={busy} onClick={() => go('level')} className={CHANGE}>Change<span className="sr-only"> how long</span></button></div>
     </dl>
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. {SAY.everyViewRecorded}</p>
     {adult && shareCoversPaper(level) && <p className="m-0 text-[13px] text-ink-3">{shareCoversPaperText(level)}</p>}
@@ -313,7 +339,7 @@ function ShareFlow() {
     {CARD_LINK_OPENS && <Link to="/card/preview" state={{ level: created.level, expiresAt: created.expiresAt }}
       className="text-[13px] font-semibold text-brand-ink no-underline hover:underline">Preview what they see when they open your card</Link>}
   </div>, <><Button onClick={() => startAgain('search')}>Share with someone else</Button>
-    <Button to="/access" variant="primary">See who has access</Button></>)
+    <Button to="/access?tab=granted" variant="primary">See who has access</Button></>)
 
   if (step === 'invite') return frame('invite', <form id="share-invite" noValidate onSubmit={event => void invite(event)} className="flex flex-col gap-5">
     {heading('Invite them by email', 'For a doctor, nurse or clinician who isn’t on Health ID yet.')}
@@ -345,12 +371,14 @@ function ShareFlow() {
     {invited.deliveryOutcome === 'not_confirmed' && <p className="m-0 text-[13px] text-warn-ink">Delivery not confirmed. The invitation stays open
       until {shareDay(invited.expiresAt)}, and you can cancel it in Access & sharing.</p>}
   </div>, <><Button onClick={() => startAgain('invite')}>Invite someone else</Button>
-    <Button to="/access" variant="primary">Back to Access & sharing</Button></>)
+    <Button to="/access?tab=granted" variant="primary">Back to Access & sharing</Button></>)
 
   // A step whose choice is gone (it cannot happen through the page) starts again.
   return frame('lost', <Button onClick={() => startAgain('search')}>Start again</Button>)
 }
 
+/** A text button in the check step: its tap area 44px high without moving the row; still while the share is sending. */
+const CHANGE = '-mx-2 -my-3 min-h-11 cursor-pointer border-0 bg-transparent px-2 text-[13px] font-semibold text-brand-ink hover:underline disabled:cursor-not-allowed disabled:text-ink-3 disabled:no-underline'
 const TILE = 'flex cursor-pointer items-center gap-3 rounded-xl p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand'
 const TILE_ON = 'bg-brand-soft ring-[1.5px] ring-brand'
 const TILE_OFF = 'bg-surface ring-1 ring-line hover:bg-subtle'

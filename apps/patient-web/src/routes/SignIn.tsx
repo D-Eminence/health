@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
 import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
@@ -15,6 +15,7 @@ import { useActionFocus } from './actionFocus'
 import { signupHandoff } from './enrollment/signupHandoff'
 import { ButtonR, Hint, InputR } from './profileParts'
 import { Alert, Button, Field } from '../kasuwa/ui'
+import { safeReturnPath } from '../returnPath'
 
 const SUPPORT_EMAIL = 'support@healthidentitydirectory.com'
 /**
@@ -57,12 +58,29 @@ function withSupportLink(text: string) {
   return <>{text.slice(0, at)}<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>{text.slice(at + SUPPORT_EMAIL.length)}</>
 }
 
+/**
+ * Where sign-in goes once it has worked: the page that asked the patient to sign in again (its `next`, a path on this
+ * site only), else Home. With single sign-on on, the same for a patient back from auth.
+ */
+function useReturnPath() {
+  const [params] = useSearchParams()
+  return safeReturnPath(params.get('next'))
+}
+
+export function SignedInReturn() {
+  return <Navigate to={useReturnPath()} replace />
+}
+
 export function SignIn() {
   const { state, sessionError, otherPortalSession, signedOutElsewhere, sessionEnded, retrySessionCheck, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
   const location = useLocation()
-  // The patient page asked for, when the route guard sent the patient here (SO-04): only this site's patient pages.
-  const returnTo = patientReturnPath(location.state)
+  const [params] = useSearchParams()
+  // Where sign-in goes once it has worked (SO-04, SA-04): the page that asked the patient to sign in again (its
+  // `next`), else the patient page the route guard sent here from (router state), else Home. Only this site's
+  // patient pages either way.
+  const next = params.get('next')
+  const returnTo = patientReturnPath(next !== null ? { from: safeReturnPath(next) } : location.state)
   useDocumentTitle('Sign in · Health ID')
   // Empty, with "HID-" only in the placeholder (the review of 2026-10-31): a prefilled HID- got in the way of the
   // people who sign in with an email or a phone number. One typed is still read as a Health ID (signInPrincipal).

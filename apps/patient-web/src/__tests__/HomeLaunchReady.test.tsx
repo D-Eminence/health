@@ -227,8 +227,8 @@ describe('HCS-08: the tiles while loading and after a failed read', () => {
   it('shows a dash and says the count could not be loaded, for the records and for the facilities with access', async () => {
     renderPortal(<Overview />, gateway({ '/ehr/me/records': failure, '/identity/me/access-history': failure }), {}, served)
     await screen.findByText('Couldn’t load your records')
-    await waitFor(() => expect(tile('/access').textContent).toContain('Couldn’t load'))
-    for (const href of ['/records', '/access']) {
+    await waitFor(() => expect(tile('/access?tab=granted').textContent).toContain('Couldn’t load'))
+    for (const href of ['/records', '/access?tab=granted']) {
       expect(tile(href).textContent).not.toContain('…')
       expect(tile(href).textContent).toContain('—')
       expect(tile(href).textContent).toContain('Couldn’t load')
@@ -309,7 +309,8 @@ describe('HCS-10: the patient\'s own actions in Activity', () => {
       { id: 'p-4', at: at(6), action: 'changed', actorKind: 'patient', actorName: null, facilityName: null },
     ] }
     expect(recentActivity(own, []).map(row => row.text)).toEqual([
-      'You gave Lagos General Hospital access', 'You ended Ikeja Clinic’s access', 'You gave a facility access', 'You changed your record'])
+      'You gave Lagos General Hospital access to your records', 'You ended Ikeja Clinic’s access', 'You gave a facility access to your records',
+      'You changed your record'])
   })
 
   it('keeps naming the facility or clinician for what others did', () => {
