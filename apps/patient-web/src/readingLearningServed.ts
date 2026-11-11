@@ -5,11 +5,11 @@ import { useSyncExternalStore } from 'react'
  * backend's own answers, as cannotCompleteServed.ts and wrongPatientServed.ts do. In memory only, for the page's life;
  * nothing is kept in the browser. The website ships before that backend and stays dormant until it.
  *
- * - `review`: what says so is an extractions answer whose served flag is exactly `true`; Check and save and Reject
- *   reading then ask for reasons, seen items, checked pages and missed counts and send them. An answer without the flag
- *   says nothing either way.
- * - `quality`: the admin "Reading quality" read answering (served) or answering 404 (not served, and only while nothing
- *   has said otherwise). Its sidebar entry stays listed until a 404 says otherwise, as wrong-patient reports do.
+ * - `review`: what says so is an extraction whose served flag (reviewLearning) is exactly `true`; Check and save and
+ *   Reject reading then offer the optional reasons and the missed box, count the items seen, and send what was given.
+ *   An answer without the flag says nothing either way.
+ * - `quality`: Migrate's "Reading quality" read answering (served) or answering 404 (not served, and only while nothing
+ *   has said otherwise). Migrate offers it until a 404 says otherwise.
  *
  * `null` until an answer has said either (treated as not served). Once served, it stays served for the page's life.
  */

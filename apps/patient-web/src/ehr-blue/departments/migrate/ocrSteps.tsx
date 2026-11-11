@@ -20,9 +20,9 @@ import {
   keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, REPORT_DATE_FIELD, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
-import { MissedItems, PagesChecked, RejectionReasonField, ItemReason, MedicineChange, useSeenItems } from './learning'
+import { MissedItems, RejectionReasonField, ItemReason, MedicineChange, useSeenItems } from './learning'
 import { useReviewLearningServed } from '../../../readingLearningServed'
-import type { MissedKind, RejectionReason } from '../../../readingLearningContract'
+import type { RejectionReason } from '../../../readingLearningContract'
 import { usePaperListsServed } from './paperRecordsApi'
 
 /*
@@ -169,7 +169,7 @@ function ReviewItemCard({ item, index, decision, problem, onChange, learning = f
       {showSaved && <span className="hid-ehr-dept-muted">{`Keep saves: ${saved}`}</span>}
       {cardError && <p id={`${cardId}-error`} className="hid-ehr-error">{cardError}</p>}
       {learning && (decision.choice === 'remove' || decision.choice === 'change')
-        && <ItemReason index={index} decision={decision} problem={problem} onChange={onChange} />}
+        && <ItemReason index={index} decision={decision} onChange={onChange} />}
       {decision.choice === 'change' && (learning && item.kind === 'medicine'
         ? <MedicineChange item={item} index={index} decision={decision} problem={problem} onChange={onChange} />
         : item.kind === 'lab_result'
@@ -268,8 +268,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   // Migrate learning, dormant until the backend says it takes it: with it off, the form is today's, and sends today's.
   const learning = useReviewLearningServed() === true
   const seen = useSeenItems()
-  const [pagesChecked, setPagesChecked] = useState<ReadonlySet<number>>(() => new Set())
-  const [missed, setMissed] = useState<Partial<Record<MissedKind, string>>>({})
+  const [missed, setMissed] = useState('')
   const [rejectionReason, setRejectionReason] = useState<RejectionReason | ''>('')
   const clearProblem = useCallback(() => setProblem(null), [])
   const { visits, retry, more } = useVisits(facilityId, job.patientId, validating && saveAs === 'EHR')
@@ -280,7 +279,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     setExtractionId(id)
     setDecisions(initialDecisions(reviewItems(readingOf(next))))
     setProblem(null)
-    seen.forget(); setPagesChecked(new Set()); setMissed({}); setRejectionReason('')
+    seen.forget(); setMissed(''); setRejectionReason('')
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -292,7 +291,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     const built = validating
       ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason,
         ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}),
-        ...(learning ? { learning: { itemsSeen: seen.ids(), pagesChecked: [...pagesChecked], missed } } : {}) })
+        ...(learning ? { learning: { itemsSeen: seen.ids(), missed } } : {}) })
       : buildRejection(selected.id, reason, learning ? { rejectionReason } : undefined)
     if ('problem' in built) {
       // With no visit to choose from, the choice to change is Save as.
@@ -320,7 +319,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   </>
   if (!validating) return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label={label} onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">Nothing read from this document is kept. The document itself stays where it is.</p>
-    {learning && <RejectionReasonField value={rejectionReason} problem={problem} onChange={value => { setRejectionReason(value); clearProblem() }} />}
+    {learning && <RejectionReasonField value={rejectionReason} onChange={setRejectionReason} />}
     {reasonField}
     {actions}
   </form>
@@ -352,10 +351,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
         ? <p className="hid-ehr-dept-muted">{`${READING_DELETED}. You can keep the document only, or reject this reading.`}</p>
         : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
     <UnreadableLines items={items} />
-    {learning && reading && <>
-      <PagesChecked reading={reading} items={items} checked={pagesChecked} onChange={next => { setPagesChecked(next); clearProblem() }} />
-      <MissedItems missed={missed} problem={problem} onChange={next => { setMissed(next); clearProblem() }} />
-    </>}
+    {learning && reading && <MissedItems missed={missed} problem={problem} onChange={next => { setMissed(next); clearProblem() }} />}
     {offered.length > 1
       ? <EhrField label="Save as" controlId="ocr-review-domain" hint={SAVE_AS_HINTS[saveAs]} error={problemText(problem, 'ocr-review-domain')}>
         <EhrSelect value={saveAs} onChange={event => { setSaveAs(event.target.value as SaveAs); setProblem(null) }}>

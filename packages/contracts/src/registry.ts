@@ -34,9 +34,8 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
  * the push keys as well: callers treat a 404 as "not available yet" and show
- * nothing; and Migrate learning's admin "Reading quality" counts, a
- * platform-wide read of Session B's per-facility OCR quality summary that no
- * hid-system branch serves yet.
+ * nothing; and Migrate learning's "Reading quality" counts, Session B's
+ * per-facility OCR quality summary, on a hid-system branch and not on main yet.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -1025,9 +1024,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ocr.validations','ocr','/api/v1/ocr/jobs/:jobId/validations',GP,false,{GET:['ocr.job.read'],POST:['ocr.validation.write']}),
   r('ocr.patientConfirmation','ocr','/api/v1/ocr/jobs/:jobId/patient-confirmation',P,false,one('POST','ocr.patient.confirm')),
   r('ocr.publications','ocr','/api/v1/ocr/validations/:validationId/publications',GP,false,{GET:['ocr.job.read'],POST:['ocr.publication.write']}),
-  // Session B's review-outcome summary (hid-system claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, a3fb5abe), not on
-  // main yet. Platform administrators only, for the one facility named by X-Facility-ID; the website does not call it
-  // (the admin application never sends a facility): the admin page reads admin.readingQuality.
+  // Session B's review-outcome summary (hid-system claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, d9c02668), not on
+  // main yet. Platform administrators only (platform permissions), for the one facility named by X-Facility-ID. Migrate's
+  // "Reading quality" view reads it (ehr-blue/departments/migrate/readingQualityApi.ts); 404 until served.
   proposed(r('ocr.qualitySummary','ocr','/api/v1/ocr/quality/summary',G,false,one('GET','platform.admin.access','platform.operations.read'),
     'On a hid-system branch, not main. from/to optional YYYY-MM-DD (default the last 28 days, at most 92); widened to ISO weeks.')),
 
@@ -1090,13 +1089,6 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Service availability and response times; 503 not_configured until monitoring is set up.')),
   proposed(r('admin.operationsErrors','admin','/api/v1/admin/operations/errors',G,false,one('GET','platform.dashboard.read'),
     'Open problems from error reporting; 503 not_configured until it is connected.')),
-  // Migrate learning, phase 1: the admin "Reading quality" page's read, proposed. Session B's summary
-  // (ocr.qualitySummary, below) is per facility and outside the admin routes; this is the platform-wide, aggregate-only
-  // admin read its README names as the next step, answering the same hid.ocr.quality-summary/v1 shape. 404 until
-  // served, when the page says it isn't available yet and the sidebar stops listing it.
-  proposed(r('admin.readingQuality','admin','/api/v1/admin/ocr/quality/summary',G,false,
-    one('GET','platform.admin.access','platform.operations.read'),
-    'Proposed, not served by hid-system yet (404). from/to optional (default the last 28 days); counts only, small groups suppressed.')),
   r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
     'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),

@@ -1,0 +1,190 @@
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
+import type * as HidApi from '@hid/api'
+import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
+import { parseReadingQuality } from '../../../../ehr-blue/departments/migrate/ReadingQuality'
+import { readsReadingQuality } from '../../../../ehr-blue/departments/migrate/readingQualityApi'
+import { forgetReadingQualityServed } from '../../../../readingLearningServed'
+import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
+
+/**
+ * "Reading quality" (Migrate learning, phase 1), on the staff side in Migrate: plain-word tiles from Session B's
+ * review-outcome summary for the working facility (GET /api/v1/ocr/quality/summary with X-Facility-ID), added up over
+ * its groups, for an actor with Session B's two platform permissions only, offered until a 404 says it isn't served.
+ * Requests go through the real contract registry and app boundary, to a fake transport. Fictional data only.
+ */
+const api = vi.hoisted(() => ({
+  findOcrJob: vi.fn(), ocrExtractions: vi.fn(), ocrValidations: vi.fn(), ocrPublications: vi.fn(),
+  createOcrJob: vi.fn(), retryOcrJob: vi.fn(), validateOcrJob: vi.fn(), confirmOcrPatient: vi.fn(), publishOcrValidation: vi.fn(),
+  labImport: vi.fn(), pharmacyImport: vi.fn(), encounters: vi.fn(), lookupPatient: vi.fn(), documents: vi.fn(), consentStatus: vi.fn(),
+}))
+const transport = vi.hoisted(() => ({ request: vi.fn() }))
+const session = vi.hoisted(() => ({ platformPermissions: [] as string[] | undefined }))
+
+vi.mock('../../../../staff/api', () => ({ staffApi: api,
+  isAllowedPatientLookup: (lookup: { authorization: { decision: string }; patient?: object }) => lookup.authorization.decision === 'allow' && !!lookup.patient }))
+vi.mock('../../../../staff/App', async () => {
+  const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../harness')
+  return {
+    useStaff: () => {
+      const context = staffContext(fakeFacility(['ocr.job.read', 'ocr.job.write'], { id: hospital, name: 'Demo Hospital' }))
+      const actor = { ...context.state.session.actor, ...(session.platformPermissions ? { platformPermissions: session.platformPermissions } : {}) }
+      return { ...context, lock: null, activePatient: null, setActivePatient: () => {}, state: { ...context.state, session: { actor } } }
+    },
+  }
+})
+vi.mock('../../../../staff/session', () => ({
+  staffSessionGeneration: () => 1, untilStaffSessionReady: async () => {}, staffSessionSignal: () => new AbortController().signal,
+  endsStaffSession: () => false, reportStaffSessionEnded: () => {},
+}))
+vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test', apiBaseUrl: 'https://gateway.example.test' }) }))
+// The real registered client (contract registry and app boundary), over a fake transport.
+vi.mock('@hid/api', async importOriginal => {
+  const actual = await importOriginal<typeof HidApi>()
+  return {
+    ...actual,
+    createRegisteredBrowserClient: (_inner: unknown, app: Parameters<typeof actual.createRegisteredBrowserClient>[1]) =>
+      actual.createRegisteredBrowserClient({ baseUrl: 'https://gateway.example.test', request: transport.request,
+        get: () => Promise.reject(new Error('unused')), post: () => Promise.reject(new Error('unused')) }, app),
+  }
+})
+
+const ADMIN = ['platform.admin.access', 'platform.operations.read']
+const READING_QUALITY = '/api/v1/ocr/quality/summary'
+
+const reviews = (week: string, counts: object) => ({ week, facilityId: DEMO_HOSPITAL_ID, promptVersion: 'demo-prompt-1', estimated: 0,
+  summaryFailed: 0, correctionFields: {}, ...counts })
+const items = (week: string, kind: string, decisions: Record<string, number>) => ({ week, facilityId: DEMO_HOSPITAL_ID, kind,
+  promptVersion: 'demo-prompt-1', items: Object.values(decisions).reduce((sum, count) => sum + count, 0), decisions, byConfidence: {},
+  byReadBy: {}, hardPage: {}, fieldChanges: {}, checkReasons: {} })
+
+/** Session B's answer (hid.ocr.quality-summary/v1): two weeks shown, one held back, and some small reason counts left out. */
+const ANSWER = {
+  schema: 'hid.ocr.quality-summary/v1', from: '2026-10-12', to: '2026-11-08', scope: 'bound_facility', minGroupSize: 20, truncated: false,
+  reviewGroups: [
+    reviews('2026-W42', { reviews: 120, validated: 110, rejected: 10, reviewConfirmed: 90, missedItems: 9,
+      rejectionReasons: { wrong_patient: 5, duplicate_document: 5 }, removalReasons: { not_on_paper: 9, duplicate: 14, some_later_code: 5 },
+      changeReasons: { misread: 80 }, smallCellsHidden: 2 }),
+    reviews('2026-W43', { reviews: 90, validated: 88, rejected: 2, reviewConfirmed: 70, missedItems: 4,
+      rejectionReasons: {}, removalReasons: { unreadable: 21 }, changeReasons: { misread: 7, clinical_update: 12 } }),
+    { week: '2026-W44', facilityId: DEMO_HOSPITAL_ID, promptVersion: 'demo-prompt-1', suppressed: true },
+  ],
+  itemGroups: [
+    items('2026-W42', 'medicine', { kept_unchanged: 700, kept_changed: 80, removed: 23 }),
+    items('2026-W43', 'lab_result', { kept_unchanged: 540, kept_changed: 19, removed: 21 }),
+    { week: '2026-W44', facilityId: DEMO_HOSPITAL_ID, kind: 'allergy', promptVersion: 'demo-prompt-1', suppressed: true },
+  ],
+}
+
+let answer: () => Promise<unknown> = async () => ANSWER
+const qualityCalls = () => transport.request.mock.calls.map(([spec]) => spec as { path: string; method: string; query?: unknown;
+  headers: Record<string, string> }).filter(spec => spec.path === READING_QUALITY)
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  forgetReadingQualityServed()
+  session.platformPermissions = [...ADMIN]
+  api.documents.mockResolvedValue({ items: [], nextCursor: null })
+  answer = async () => ANSWER
+  transport.request.mockImplementation((spec: { path: string }) => spec.path === READING_QUALITY ? answer()
+    : Promise.reject(new Error(`unexpected ${spec.path}`)))
+})
+
+async function press(button: HTMLElement) {
+  button.focus()
+  await act(async () => { fireEvent.click(button) })
+}
+
+const tile = (name: string) => screen.getByRole('article', { name })
+
+async function openQuality() {
+  renderDept(<Migrate />)
+  await press(await screen.findByRole('button', { name: 'Reading quality' }))
+}
+
+describe('Reading quality, in Migrate', () => {
+  it('is offered only to an actor with both platform permissions, and nothing is read until it is opened', async () => {
+    expect(readsReadingQuality({ platformPermissions: ADMIN })).toBe(true)
+    expect(readsReadingQuality({ platformPermissions: ['platform.admin.access'] })).toBe(false)
+    expect(readsReadingQuality({ permissions: ADMIN })).toBe(false)
+    expect(readsReadingQuality(undefined)).toBe(false)
+    session.platformPermissions = ['platform.admin.access']
+    const { unmount } = renderDept(<Migrate />)
+    await screen.findByRole('heading', { name: 'Find document job' })
+    expect(screen.queryByRole('button', { name: 'Reading quality' })).toBeNull()
+    unmount()
+    session.platformPermissions = [...ADMIN]
+    renderDept(<Migrate />)
+    expect(await screen.findByRole('button', { name: 'Reading quality' })).toBeTruthy()
+    expect(qualityCalls()).toHaveLength(0)
+  })
+
+  it('reads this facility’s summary and shows its counts as plain-word tiles, with no code or ID', async () => {
+    await openQuality()
+    await screen.findByRole('heading', { name: 'Items read from paper' })
+    expect(document.activeElement?.id).toBe('migrate-view-title')
+    expect(qualityCalls()).toEqual([expect.objectContaining({ method: 'GET', path: READING_QUALITY,
+      headers: expect.objectContaining({ 'X-Facility-ID': DEMO_HOSPITAL_ID, 'X-Purpose-Of-Use': 'healthcare-operations' }) })])
+    expect(qualityCalls()[0]!.query ?? {}).toEqual({})
+    expect(screen.getByText('Weeks from 12 October 2026 to 8 November 2026, at this facility.')).toBeTruthy()
+    expect(within(tile('Documents checked and saved')).getByText('198')).toBeTruthy()
+    expect(within(tile('Checks where every item was looked at')).getByText('160 of 198')).toBeTruthy()
+    expect(within(tile('Items kept as read')).getByText('1,240')).toBeTruthy()
+    expect(within(tile('Items changed')).getByText('99')).toBeTruthy()
+    expect(within(tile('Changed because the AI misread the paper')).getByText('87')).toBeTruthy()
+    expect(within(tile('Changed because the paper was out of date')).getByText('12')).toBeTruthy()
+    // A reason the page has no words for is never shown; one the server left out isn't listed.
+    const removed = within(tile('Items removed, and why'))
+    expect(removed.getByText('44')).toBeTruthy()
+    expect(within(removed.getByRole('list', { name: 'Items removed, by reason' })).getAllByRole('listitem').map(item => item.textContent))
+      .toEqual(['Not on the paper9', 'Written twice14', 'Can’t read it21'])
+    expect(within(tile('Items the reading missed')).getByText('13')).toBeTruthy()
+    const rejected = within(tile('Documents rejected, and why'))
+    expect(rejected.getByText('12')).toBeTruthy()
+    expect(within(rejected.getByRole('list')).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Wrong patient5',
+      'Same document twice5'])
+    // What was held back is said in words.
+    const leftOut = within(screen.getByRole('region', { name: 'What these figures leave out' }))
+    expect(leftOut.getByText(/too few checks to show/)).toBeTruthy()
+    expect(leftOut.getByText(/fewer than 5 times in a week/)).toBeTruthy()
+    const page = document.body.textContent ?? ''
+    expect(page).not.toMatch(/misread\b(?! the)|clinical_update|not_on_paper|lab_result|wrong_patient|some_later_code|kept_unchanged|W4\d|demo-prompt|98d00002|suppressed|quality\/summary/)
+    expect(screen.queryByRole('alert')).toBeNull()
+    // Back goes to the list, with focus on the way in.
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reading quality' })))
+  })
+
+  it('says “Too few to show” for a change reason the server left out, and counts nothing from an empty answer', async () => {
+    expect(parseReadingQuality({ reviewGroups: [], itemGroups: [] })).toMatchObject({ anyShown: false, heldBack: 0, validated: 0 })
+    answer = async () => ({ ...ANSWER, reviewGroups: [reviews('2026-W43', { reviews: 30, validated: 30, rejected: 0, reviewConfirmed: 0,
+      missedItems: 0, rejectionReasons: {}, removalReasons: {}, changeReasons: { misread: 7 } })], itemGroups: [] })
+    await openQuality()
+    await screen.findByRole('heading', { name: 'Items read from paper' })
+    expect(within(tile('Changed because the paper was out of date')).getByText('Too few to show')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'What these figures leave out' })).toBeNull()
+  })
+
+  it('while the backend does not serve it (404): says it isn’t available yet, calmly, and stops offering it', async () => {
+    answer = () => Promise.reject(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
+    await openQuality()
+    expect(await screen.findByRole('heading', { name: 'Not available yet' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/404|NOT_FOUND|Not found/)
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await waitFor(() => expect(document.activeElement?.id).toBe('ocr-find-title'))
+    expect(screen.queryByRole('button', { name: 'Reading quality' })).toBeNull()
+  })
+
+  it('says a failed read in plain words, with Refresh to try again', async () => {
+    answer = () => Promise.reject(new HidApiError(503, 'upstream down', { code: 'SERVICE_UNAVAILABLE' }))
+    await openQuality()
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Reading quality could not be loaded.')
+    expect(alert.textContent).not.toMatch(/SERVICE_UNAVAILABLE|upstream/)
+    answer = async () => ANSWER
+    await press(within(alert).getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByRole('heading', { name: 'Items read from paper' })).toBeTruthy()
+  })
+})

@@ -1,7 +1,7 @@
 import type { OcrCandidateType, OcrTargetDomain, OcrValidationInput } from '../../../staff/api'
 import {
-  MAX_MISSED, MAX_REMOVED_ITEMS, MISSED_KINDS, UNREADABLE_REMOVAL, isCode, REJECTION_REASONS, type ChangeReason, type FieldClass, type MissedKind,
-  type RejectionReason, type RemovalReason, type ReviewSignals,
+  MAX_MISSED_ITEMS, MAX_REMOVED_ITEMS, isCode, REJECTION_REASONS, type ChangeReason, type FieldClass, type RejectionReason, type RemovalReason,
+  type ReviewSignals,
 } from '../../../readingLearningContract'
 import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
@@ -48,7 +48,7 @@ export type ItemChoice = 'keep' | 'change' | 'remove'
  */
 export interface ItemDecision {
   readonly choice: ItemChoice | null; readonly text: string; readonly test?: string; readonly result?: string
-  /** Migrate learning only (dormant until served): why it was removed, or why changed. */
+  /** Migrate learning only (dormant until served): why it was removed, or why changed, if staff chose one (never required). */
   readonly removalReason?: RemovalReason | ''; readonly changeReason?: ChangeReason | ''
   /** Migrate learning only: a medicine's Change, field by field; a field not typed yet is as read (medicineAsRead). */
   readonly medicine?: Partial<MedicineFields>
@@ -245,9 +245,8 @@ export const itemResultId = (index: number) => `ocr-item-${index}-result`
 export const itemRemovalReasonId = (index: number) => `ocr-item-${index}-removal-reason`
 export const itemChangeReasonId = (index: number) => `ocr-item-${index}-change-reason`
 export const itemMedicineId = (index: number, field: keyof MedicineFields) => `ocr-item-${index}-medicine-${field}`
-/** Migrate learning: "I've checked this page", "The reading missed a ___" and why a whole reading is rejected. */
-export const pageCheckedId = (page: number) => `ocr-page-${page}-checked`
-export const missedId = (kind: MissedKind) => `ocr-missed-${kind}`
+/** Migrate learning: "The reading missed…" and why a whole reading is rejected. */
+export const MISSED_FIELD = 'ocr-missed'
 export const REJECTION_REASON_FIELD = 'ocr-review-rejection-reason'
 
 /** A medicine as read, as the structured Change form starts it. */
@@ -257,31 +256,22 @@ export function medicineAsRead(item: PaperItem): MedicineFields {
 }
 
 /**
- * What a reviewer said for Migrate learning beyond each item's choice: the items they had on screen, the pages they
- * ticked as checked, and how many items of each kind the reading missed, as typed (blank is none). Given only while
- * the backend serves it; without it, buildValidation sends exactly what it sends today. The server takes the items seen
- * and pages ticked as one answer, reviewConfirmed, and the missed counts as their total.
+ * What Migrate learning has beyond each item's choice: the items the reviewer had on screen (counted in memory only) and
+ * the one optional "The reading missed…" box, as typed (blank: nothing said). Given only while the backend serves it;
+ * without it, buildValidation sends exactly what it sends today.
  */
 export interface ReviewLearning {
   readonly itemsSeen: readonly string[]
-  readonly pagesChecked: readonly number[]
-  readonly missed: Readonly<Partial<Record<MissedKind, string>>>
+  readonly missed: string
 }
 
-/** A missed count as typed: a whole number from 0 to MAX_MISSED, blank as 0; null when it is not one. */
-export function missedCount(typed: string | undefined): number | null {
-  const value = (typed ?? '').trim()
-  if (!value) return 0
-  if (!/^\d{1,2}$/.test(value)) return null
+/** The missed box as typed: absent when blank (nothing is sent), a whole number from 0 to 200, or null when it is not one. */
+export function missedTotal(typed: string): number | undefined | null {
+  const value = typed.trim()
+  if (!value) return undefined
+  if (!/^\d{1,3}$/.test(value)) return null
   const count = Number(value)
-  return count <= MAX_MISSED ? count : null
-}
-
-/** The pages of a reading, in order: those the reader listed, or else those its items are on. */
-export function readingPages(reading: PaperReading | null): number[] {
-  if (!reading || reading.status !== 'read') return []
-  const pages = reading.pages.length ? reading.pages.map(page => page.page) : reading.items.map(item => item.page)
-  return [...new Set(pages)].sort((a, b) => a - b)
+  return count <= MAX_MISSED_ITEMS ? count : null
 }
 
 export interface ReviewChoices {
@@ -406,11 +396,6 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
     const decision: ItemDecision = isUnreadable(item) ? { choice: 'remove', text: readingLine(item) }
       : decisions[item.id] ?? { choice: null, text: readingLine(item) }
     if (!decision.choice) return { problem: { field: itemCardId(index), message: 'Choose Keep, Change or Remove for this item.' } }
-    // Migrate learning: every item staff remove or change says why (a line that couldn't be read is removed for that).
-    if (learning && !isUnreadable(item)) {
-      if (decision.choice === 'remove' && !decision.removalReason) return { problem: { field: itemRemovalReasonId(index), message: 'Choose why you’re removing it.' } }
-      if (decision.choice === 'change' && !decision.changeReason) return { problem: { field: itemChangeReasonId(index), message: 'Choose why you’re changing it.' } }
-    }
     if (learning && item.kind === 'medicine' && decision.choice === 'change') {
       const read = medicineAsRead(item)
       const typed = Object.fromEntries(MEDICINE_FIELDS.map(field => [field, (decision.medicine?.[field] ?? read[field]).trim()])) as unknown as MedicineFields
@@ -469,15 +454,9 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
     return withReason(final !== line ? [correction('reading', line, final)] : [])
   })
 
-  // Migrate learning: "The reading missed a ___", a whole number of each kind (blank is none); the server takes the total.
-  let missedItems = 0
-  if (learning && reading) {
-    for (const { code } of MISSED_KINDS) {
-      const count = missedCount(learning.missed[code])
-      if (count === null) return { problem: { field: missedId(code), message: `Enter a number from 0 to ${MAX_MISSED}.` } }
-      missedItems += count
-    }
-  }
+  // Migrate learning: "The reading missed…", one optional total; blank sends nothing.
+  const missedItems = learning ? missedTotal(learning.missed) : undefined
+  if (missedItems === null) return { problem: { field: MISSED_FIELD, message: `Enter a number from 0 to ${MAX_MISSED_ITEMS}, or leave it blank.` } }
 
   let domainFields: Record<string, unknown> = {}
   const domainProblem = (message: string) => ({ problem: { field: 'ocr-review-domain', message } })
@@ -527,29 +506,27 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
   return { input: {
     extractionId: choices.extractionId, validatedPayload, acceptedFields, rejectedFields, corrections,
     disposition: 'validated', targetDomain: saveAs, candidateType: CANDIDATE_TYPES[saveAs], reason,
-    ...(learning ? reviewSignals(learning, items, reading, removed, missedItems) : {}),
+    ...(learning ? reviewSignals(learning, items, removed, missedItems) : {}),
   } }
 }
 
 /**
- * The review signals Migrate learning sends beside a check (Session B's names, readingLearningContract.ts):
- * - reviewConfirmed: every page of the reading ticked "I've checked this page", and every item the reviewer could check
- *   was on screen. Only with a reading that has pages.
- * - missedItems: the total the reviewer counted. Only with a reading.
- * - removedItems: each removed item and why (a line that couldn't be read: Can't read it), up to the server's 200.
+ * The review signals Migrate learning sends beside a check (Session B's names, readingLearningContract.ts), only what
+ * the reviewer actually did or said:
+ * - reviewConfirmed: every item the reviewer could check was on screen (Session B: "checked every item of the reading").
+ *   Only when the reading has an item to check; there is no page tick.
+ * - missedItems: only when the reviewer typed a number.
+ * - removedItems: each removed item whose reason the reviewer chose, up to the server's 200; nothing for one without.
  */
-function reviewSignals(learning: ReviewLearning, items: readonly PaperItem[], reading: PaperReading | null, removed: readonly CheckedItem[],
-  missedItems: number): ReviewSignals {
-  const pages = readingPages(reading)
-  const ticked = new Set(learning.pagesChecked)
+function reviewSignals(learning: ReviewLearning, items: readonly PaperItem[], removed: readonly CheckedItem[],
+  missedItems: number | undefined): ReviewSignals {
+  const checkable = items.filter(item => !isUnreadable(item))
   const seen = new Set(learning.itemsSeen)
-  const removedItems = removed.slice(0, MAX_REMOVED_ITEMS).flatMap(({ item, decision }) => {
-    const removalReason = isUnreadable(item) ? UNREADABLE_REMOVAL : decision.removalReason
-    return removalReason ? [{ itemId: item.id, removalReason }] : []
-  })
+  const removedItems = removed.flatMap(({ item, decision }) =>
+    !isUnreadable(item) && decision.removalReason ? [{ itemId: item.id, removalReason: decision.removalReason }] : []).slice(0, MAX_REMOVED_ITEMS)
   return {
-    ...(pages.length ? { reviewConfirmed: pages.every(page => ticked.has(page)) && items.every(item => isUnreadable(item) || seen.has(item.id)) } : {}),
-    ...(reading ? { missedItems } : {}),
+    ...(checkable.length ? { reviewConfirmed: checkable.every(item => seen.has(item.id)) } : {}),
+    ...(missedItems !== undefined ? { missedItems } : {}),
     ...(removedItems.length ? { removedItems } : {}),
   }
 }
@@ -557,10 +534,6 @@ function reviewSignals(learning: ReviewLearning, items: readonly PaperItem[], re
 /** A rejection: nothing read is kept, and OCR takes it as unclassified (ocr-publication-policy.ts:17-19 allows only that). */
 export function buildRejection(extractionId: string, reason: string, learning?: { readonly rejectionReason: RejectionReason | '' }):
   { readonly input: ReviewInput } | { readonly problem: ReviewProblem } {
-  // Migrate learning: what is wrong with the reading, chosen above the reason.
-  if (learning && !isCode(REJECTION_REASONS, learning.rejectionReason)) {
-    return { problem: { field: REJECTION_REASON_FIELD, message: 'Choose what’s wrong with this reading.' } }
-  }
   const trimmed = reason.trim()
   if (!trimmed) return { problem: { field: 'ocr-review-reason', message: 'Complete this field.' } }
   if (trimmed.length < 8) return { problem: { field: 'ocr-review-reason', message: 'Write at least 8 characters.' } }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { isUnreadable, parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
-  REJECTION_REASON_FIELD, buildRejection, buildValidation, initialDecisions, itemChangeReasonId, itemMedicineId, itemRemovalReasonId,
-  missedCount, missedId, readingLine, readingPages, reviewItems, type Decisions, type ReviewChoices, type ReviewLearning, type SaveAs,
+  MISSED_FIELD, buildRejection, buildValidation, initialDecisions, itemMedicineId, missedTotal, readingLine, reviewItems, type Decisions,
+  type ReviewChoices, type ReviewLearning, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import { SERVED_FLAG, saysReviewLearning } from '../../../../readingLearningContract'
 import { paperReading, unreadablePage } from './paperReadingPayload'
@@ -10,7 +10,8 @@ import { paperReading, unreadablePage } from './paperReadingPayload'
 /*
  * Migrate learning, phase 1: the review signals a check sends once the backend serves them, in Session B's names and
  * codes (reviewConfirmed, missedItems, removedItems, rejectionReasonCode; corrections[].fields and changeReason), and
- * nothing new while it does not. Fictional data only.
+ * nothing new while it does not. Owner decision Q43: nothing is ever required, and only what the reviewer did or said is
+ * sent. Fictional data only.
  */
 
 const EXTRACTION = '7f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f'
@@ -29,7 +30,7 @@ function decided(overrides: Decisions = {}): Decisions {
   return { ...start, ...overrides }
 }
 
-const LEARNING: ReviewLearning = { itemsSeen: [], pagesChecked: [], missed: {} }
+const LEARNING: ReviewLearning = { itemsSeen: [], missed: '' }
 
 function choices(saveAs: SaveAs, overrides: Partial<ReviewChoices> = {}): ReviewChoices {
   return { extractionId: EXTRACTION, reading, decisions: decided(), saveAs, encounterId: '', reason: 'Checked against the paper record', ...overrides }
@@ -63,25 +64,32 @@ describe('Migrate learning while the backend does not serve it', () => {
       disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified', reason: 'The scan is unreadable' } })
   })
 
-  it('is learned only from an answer whose flag is exactly true', () => {
-    expect(saysReviewLearning({ items: [], [SERVED_FLAG]: true })).toBe(true)
-    expect(saysReviewLearning({ items: [] })).toBe(false)
-    expect(saysReviewLearning({ items: [], [SERVED_FLAG]: 'true' })).toBe(false)
+  it('is learned only from an extraction whose flag is exactly true', () => {
+    expect(saysReviewLearning({ id: EXTRACTION, version: 1, [SERVED_FLAG]: true })).toBe(true)
+    expect(saysReviewLearning({ id: EXTRACTION, version: 1 })).toBe(false)
+    expect(saysReviewLearning({ id: EXTRACTION, version: 1, [SERVED_FLAG]: 'true' })).toBe(false)
     expect(saysReviewLearning(null)).toBe(false)
   })
 })
 
 describe('Migrate learning once served', () => {
-  it('asks why an item is removed, then why one is changed, at that item’s own reason', () => {
-    const removed = buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING,
-      decisions: decided({ [ALLERGY]: { choice: 'remove', text: readingLine(byId(ALLERGY)) } }) }))
-    expect(removed).toEqual({ problem: { field: itemRemovalReasonId(indexOf(ALLERGY)), message: 'Choose why you’re removing it.' } })
-    const changed = buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING,
-      decisions: decided({ [ALLERGY]: { choice: 'change', text: 'Penicillin allergy, hives' } }) }))
-    expect(changed).toEqual({ problem: { field: itemChangeReasonId(indexOf(ALLERGY)), message: 'Choose why you’re changing it.' } })
+  it('never asks why: a removal or change with no reason saves, and sends no reason', () => {
+    const sent = input(buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING, decisions: decided({
+      [ALLERGY]: { choice: 'remove', text: readingLine(byId(ALLERGY)) },
+      'it-00000000000000f1': { choice: 'change', text: 'Come back in three weeks' },
+    }) })))
+    expect(sent).not.toHaveProperty('removedItems')
+    expect(sent.rejectedFields.map(entry => entry.itemId)).toEqual([ALLERGY])
+    expect(sent.corrections).toEqual([{ itemId: 'it-00000000000000f1', kind: 'note', page: 2, field: 'reading',
+      oldValue: 'Come back in two weeks', newValue: 'Come back in three weeks' }])
+    // A reason chosen and then cleared (tapped again) is the same as none.
+    const cleared = input(buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING, decisions: decided({
+      [ALLERGY]: { choice: 'remove', text: readingLine(byId(ALLERGY)), removalReason: '' },
+    }) })))
+    expect(cleared).not.toHaveProperty('removedItems')
   })
 
-  it('sends each removal’s reason in removedItems and each change’s on its correction, and a line that couldn’t be read as Can’t read it', () => {
+  it('sends each removal’s reason chosen in removedItems and each change’s on its correction; a line the reading couldn’t read gets no reason', () => {
     const page = parsePaperReading(unreadablePage()) as PaperReading
     const pageItems = reviewItems(page)
     const unreadable = pageItems.filter(isUnreadable).map(item => item.id)
@@ -89,7 +97,8 @@ describe('Migrate learning once served', () => {
     const decisions = Object.fromEntries(pageItems.map(item => [item.id, { ...initialDecisions([item])[item.id]!,
       ...(isUnreadable(item) ? {} : { choice: 'keep' as const }) }]))
     const sent = input(buildValidation({ ...choices('DOCUMENT_ONLY'), reading: page, decisions, learning: LEARNING }))
-    expect(sent.removedItems).toEqual(unreadable.map(itemId => ({ itemId, removalReason: 'unreadable' })))
+    // The reviewer said nothing about those lines, so nothing is sent for them.
+    expect(sent).not.toHaveProperty('removedItems')
     expect(sent.rejectedFields.map(entry => entry.itemId)).toEqual(unreadable)
 
     const both = input(buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING, decisions: decided({
@@ -139,37 +148,42 @@ describe('Migrate learning once served', () => {
     expect(change({ frequency: 'x'.repeat(241) })).toEqual({ problem: { field: itemMedicineId(at, 'frequency'), message: 'Shorten this to 240 characters or fewer.' } })
   })
 
-  it('says the check was complete only with every page ticked and every item it could check seen, and sends the missed total', () => {
+  it('says every item was looked at from the items seen alone, and sends the missed total only when typed', () => {
     const readable = items.filter(item => !isUnreadable(item)).map(item => item.id)
     const signals = (learning: ReviewLearning) => {
       const sent = input(buildValidation(choices('DOCUMENT_ONLY', { learning })))
-      return { reviewConfirmed: sent.reviewConfirmed, missedItems: sent.missedItems }
+      return { reviewConfirmed: sent.reviewConfirmed, missedItems: sent.missedItems, missedSent: 'missedItems' in sent }
     }
-    expect(signals({ itemsSeen: [...readable, 'it-ffffffffffffffff'], pagesChecked: [2, 9, 1, 2], missed: { medicine: '2', allergy: ' ', lab_result: '40' } }))
-      .toEqual({ reviewConfirmed: true, missedItems: 42 })
-    expect(signals({ itemsSeen: readable, pagesChecked: [1], missed: {} })).toEqual({ reviewConfirmed: false, missedItems: 0 })
-    expect(signals({ itemsSeen: readable.slice(1), pagesChecked: [1, 2], missed: {} })).toEqual({ reviewConfirmed: false, missedItems: 0 })
+    expect(signals({ itemsSeen: [...readable, 'it-ffffffffffffffff'], missed: ' 42 ' })).toEqual({ reviewConfirmed: true, missedItems: 42, missedSent: true })
+    expect(signals({ itemsSeen: readable, missed: '0' })).toEqual({ reviewConfirmed: true, missedItems: 0, missedSent: true })
+    expect(signals({ itemsSeen: readable.slice(1), missed: '' })).toEqual({ reviewConfirmed: false, missedItems: undefined, missedSent: false })
+    // Nothing given: only what the page counted itself.
     const sent = input(buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING })))
-    for (const key of ['learning', 'itemsSeen', 'pagesChecked', 'removedItems', 'rejectionReasonCode']) expect(sent).not.toHaveProperty(key)
+    expect(sent.reviewConfirmed).toBe(false)
+    for (const key of ['learning', 'itemsSeen', 'pagesChecked', 'missedItems', 'removedItems', 'rejectionReasonCode']) expect(sent).not.toHaveProperty(key)
   })
 
-  it('refuses a missed count that isn’t a whole number from 0 to 40, at its own box', () => {
-    for (const typed of ['-1', '1.5', 'two', '41', '100']) {
-      expect(buildValidation(choices('DOCUMENT_ONLY', { learning: { ...LEARNING, missed: { diagnosis: typed } } })))
-        .toEqual({ problem: { field: missedId('diagnosis'), message: 'Enter a number from 0 to 40.' } })
+  it('sends no reviewConfirmed when there was nothing to check', () => {
+    const sent = input(buildValidation(choices('DOCUMENT_ONLY', { reading: null, decisions: {}, learning: { itemsSeen: [], missed: '' } })))
+    expect(sent).not.toHaveProperty('reviewConfirmed')
+    expect(sent).not.toHaveProperty('missedItems')
+  })
+
+  it('refuses a missed total that isn’t a whole number from 0 to 200, at its own box; blank is nothing', () => {
+    for (const typed of ['-1', '1.5', 'two', '201', '1000']) {
+      expect(buildValidation(choices('DOCUMENT_ONLY', { learning: { ...LEARNING, missed: typed } })))
+        .toEqual({ problem: { field: MISSED_FIELD, message: 'Enter a number from 0 to 200, or leave it blank.' } })
     }
-    expect(missedCount('')).toBe(0)
-    expect(missedCount(' 7 ')).toBe(7)
+    expect(missedTotal('')).toBeUndefined()
+    expect(missedTotal('   ')).toBeUndefined()
+    expect(missedTotal(' 7 ')).toBe(7)
+    expect(missedTotal('200')).toBe(200)
   })
 
-  it('doesn’t need every page ticked to save', () => {
-    expect('input' in buildValidation(choices('DOCUMENT_ONLY', { learning: LEARNING }))).toBe(true)
-    expect(readingPages(reading)).toEqual([1, 2])
-  })
-
-  it('a rejection asks what is wrong first, then sends its code beside the reason in words', () => {
-    expect(buildRejection(EXTRACTION, 'The scan is unreadable', { rejectionReason: '' }))
-      .toEqual({ problem: { field: REJECTION_REASON_FIELD, message: 'Choose what’s wrong with this reading.' } })
+  it('a rejection saves without a reason chosen, and sends the code only when one is', () => {
+    expect(buildRejection(EXTRACTION, 'The scan is unreadable', { rejectionReason: '' })).toEqual({ input: { extractionId: EXTRACTION,
+      validatedPayload: {}, acceptedFields: {}, rejectedFields: [], corrections: [], disposition: 'rejected', targetDomain: 'UNCLASSIFIED',
+      candidateType: 'unclassified', reason: 'The scan is unreadable' } })
     const sent = buildRejection(EXTRACTION, 'Belongs to Patient One’s sister', { rejectionReason: 'wrong_patient' })
     expect(sent).toEqual({ input: { extractionId: EXTRACTION, validatedPayload: {}, acceptedFields: {}, rejectedFields: [], corrections: [],
       disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified', reason: 'Belongs to Patient One’s sister',

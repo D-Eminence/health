@@ -1,41 +1,43 @@
 /*
- * Migrate learning, phase 1: what staff tell the reading service while they check a paper reading, and the admin
- * "Reading quality" read that counts it.
+ * Migrate learning, phase 1: what staff may tell the reading service while they check a paper reading, and the staff
+ * "Reading quality" read that counts it. Owner decision Q43: learn without additional stress or work for users, so
+ * nothing here is ever required. There is no page tick; every reason is an optional one-tap choice; the missed count is
+ * one optional box.
  *
- * The validation body's review signals and their codes are Session B's (hid-system branch
- * claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, a3fb5abe: ocr-api validate-ocr-job.dto.ts and
- * quality/review-outcome.ts, INTERFACE_CONTRACT.md section 15 "Optional review signals"): top-level `reviewConfirmed`,
- * `missedItems` (one whole number, 0-200), `removedItems` ([{ itemId, removalReason }], up to 200) and, on a rejection
- * only, `rejectionReasonCode`; on a corrections[] entry, `fields` and `changeReason`. The server has no field for the
- * items seen or the pages ticked: they make up `reviewConfirmed` (reviewPayload.ts).
+ * Session B's names (hid-system branch claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, d9c02668: ocr-api
+ * validate-ocr-job.dto.ts, quality/review-outcome.ts, reading/extraction-view.ts, INTERFACE_CONTRACT.md section 15
+ * "Optional review signals"): top-level `reviewConfirmed`, `missedItems` (one whole number, 0-200), `removedItems`
+ * ([{ itemId, removalReason? }], up to 200) and, on a rejection only, `rejectionReasonCode`; on a corrections[] entry,
+ * `fields` and `changeReason`. Every one, and every reason, is optional. The server has no field for the items seen:
+ * they make up `reviewConfirmed` (reviewPayload.ts).
  *
- * Still proposed, not on Session B's branch: the served flag (`servedFlag`, below) and the admin read
- * (READING_QUALITY_PATH). Until the flag is served the page sends exactly what it sends today: today's ocr-api takes
- * its validation body with forbidNonWhitelisted, so any new top-level key would be refused (400).
+ * Each extraction on GET /api/v1/ocr/jobs/:jobId/extractions carries `reviewLearning: true` on an ocr-api that takes
+ * the signals. Until the page sees it, it sends exactly what it sends today: an older ocr-api takes its validation
+ * body with forbidNonWhitelisted, so any new key would be refused (400).
  */
 
-/** `true` on the answer of GET /api/v1/ocr/jobs/:jobId/extractions from an ocr-api that takes the review signals. Proposed. */
+/** `true` on each extraction of GET /api/v1/ocr/jobs/:jobId/extractions from an ocr-api that takes the review signals. */
 export const SERVED_FLAG = 'reviewLearning'
 
 /** Session B's field classes (review-outcome.ts FIELD_CLASSES) the website names in corrections[].fields. */
 export type FieldClass = 'name' | 'strength' | 'dose' | 'frequency' | 'route' | 'duration' | 'date' | 'value' | 'unit'
 
-/** The review signals beside OCR's validation body, as Session B's api-client OcrValidationInput adds them. */
+/** The review signals beside OCR's validation body, every one optional. */
 export interface ReviewSignals {
   readonly reviewConfirmed?: boolean
   readonly missedItems?: number
-  readonly removedItems?: readonly { readonly itemId: string; readonly removalReason: RemovalReason }[]
+  readonly removedItems?: readonly { readonly itemId: string; readonly removalReason?: RemovalReason }[]
   readonly rejectionReasonCode?: RejectionReason
 }
 
 /**
- * The admin "Reading quality" read. Proposed: Session B serves the same summary as GET /api/v1/ocr/quality/summary,
- * but only for the one facility named by X-Facility-ID, and the admin application never sends a facility or calls a
- * non-admin route (admin/api.ts request()). Its README names a cross-facility, aggregate-only admin read as the next
- * step; this is that read, answering in the same shape (schema hid.ocr.quality-summary/v1).
+ * The staff "Reading quality" read, in Migrate: Session B's review-outcome summary (schema hid.ocr.quality-summary/v1)
+ * for the one facility named by X-Facility-ID (row-level security), for the last 28 days by default. Platform
+ * administrators only: a staff actor whose platform permissions include both of READING_QUALITY_PERMISSIONS, else 403.
+ * The platform-wide admin read comes with phase 2 (hid-system #237).
  */
-export const READING_QUALITY_PATH = '/api/v1/admin/ocr/quality/summary'
-/** Session B's permissions for the summary: both are needed. */
+export const READING_QUALITY_PATH = '/api/v1/ocr/quality/summary'
+/** Session B's platform permissions for the summary (quality-summary.service.ts QUALITY_PERMISSIONS): both are needed. */
 export const READING_QUALITY_PERMISSIONS = ['platform.admin.access', 'platform.operations.read'] as const
 
 export interface ReasonChoice<Code extends string> { readonly code: Code; readonly words: string }
@@ -49,8 +51,6 @@ export const REMOVAL_REASONS = [
   { code: 'other_patient', words: 'Belongs to another patient' },
 ] as const satisfies readonly ReasonChoice<string>[]
 export type RemovalReason = (typeof REMOVAL_REASONS)[number]['code']
-/** A line the reading itself couldn't read is always removed, for this reason. */
-export const UNREADABLE_REMOVAL: RemovalReason = 'unreadable'
 /** The most removedItems entries Session B takes in one review (ArrayMaxSize). */
 export const MAX_REMOVED_ITEMS = 200
 
@@ -74,26 +74,14 @@ export const REJECTION_REASONS = [
 ] as const satisfies readonly ReasonChoice<string>[]
 export type RejectionReason = (typeof REJECTION_REASONS)[number]['code']
 
-/**
- * "The reading missed a ___": the kinds the form asks about, in order. Session B takes one total (missedItems), so the
- * kinds only help staff count; what is sent is their sum.
- */
-export const MISSED_KINDS = [
-  { code: 'medicine', words: 'Medicine' },
-  { code: 'allergy', words: 'Allergy' },
-  { code: 'diagnosis', words: 'Diagnosis' },
-  { code: 'lab_result', words: 'Lab result' },
-  { code: 'other', words: 'Something else' },
-] as const satisfies readonly ReasonChoice<string>[]
-export type MissedKind = (typeof MISSED_KINDS)[number]['code']
-/** The most of one kind a reviewer may say was missed: five kinds of 40 stay within Session B's total of 200. */
-export const MAX_MISSED = 40
+/** "The reading missed…": one optional total, as Session B takes it (missedItems, 0-200). */
+export const MAX_MISSED_ITEMS = 200
 
 export function isCode<Code extends string>(choices: readonly ReasonChoice<Code>[], value: unknown): value is Code {
   return typeof value === 'string' && choices.some(choice => choice.code === value)
 }
 
-/** Whether an extractions answer says the backend takes the review signals: its flag is exactly `true`. */
+/** Whether an extraction (or an extractions answer) says the backend takes the review signals: its flag is exactly `true`. */
 export function saysReviewLearning(answer: unknown): boolean {
   return Boolean(answer && typeof answer === 'object' && (answer as Record<string, unknown>)[SERVED_FLAG] === true)
 }

@@ -1624,27 +1624,88 @@
   margin: 0;
 }
 
-/* Migrate learning (dormant until served): page ticks, missed counts and a medicine's Change, field by field. */
-.hid-ehr .hid-ehr-dept-migrate-pages {
+/* Migrate learning (dormant until served): optional one-tap reasons, the missed box and a medicine's Change, field by field. */
+.hid-ehr .hid-ehr-dept-migrate-reason {
   display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 4px;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-pages .hid-ehr-dept-check {
+.hid-ehr .hid-ehr-dept-migrate-reason-label {
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reason-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reason-choices > button {
   min-height: 44px;
-  cursor: pointer;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-missed,
 .hid-ehr .hid-ehr-dept-migrate-medicine {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   gap: 8px 12px;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-medicine {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+/* Migrate learning: the facility's Reading quality, plain-word tiles each with its breakdown by reason. */
+.hid-ehr .hid-ehr-dept-quality {
+  display: grid;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-quality-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-quality-tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-quality-tile h3 {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.hid-ehr .hid-ehr-dept-quality-value {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hid-ehr .hid-ehr-dept-quality-breakdown {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-quality-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-dept-quality-breakdown strong {
+  color: var(--ehr-ink);
+  font-variant-numeric: tabular-nums;
 }
