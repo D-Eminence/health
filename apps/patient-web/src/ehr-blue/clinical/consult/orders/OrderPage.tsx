@@ -498,8 +498,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ] : [
     { label: 'Medicine', value: text(record.medicationDisplay) },
-    // The dose always with its unit; a decimal with its leading zero (Value).
-    { label: 'Dose', value: dose ? <Value value={dose.replace(/^\./, '0.')} unit={text(record.doseUnit) || null} /> : '' },
+    // The dose always with its unit, as entered (decimalText: no trailing zeros, a leading zero).
+    { label: 'Dose', value: dose ? <Value value={dose} unit={text(record.doseUnit) || null} /> : '' },
     { label: 'Route', value: text(record.routeCode) },
     { label: 'How often', value: text(record.frequency) },
     { label: 'Instructions', value: text(record.instructions) },
