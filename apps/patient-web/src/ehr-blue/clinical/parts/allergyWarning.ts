@@ -295,19 +295,16 @@ export function normaliseAcknowledgementReason(raw: string): string {
   return raw.replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim()
 }
 
-/** The length the EHR's Length(10, 500) counts (validator's isLength): a character with its presentation selector, or a surrogate pair, is one. */
-function validatorLength(text: string): number {
-  return text.length - (text.match(/[^️︎][️︎]/g)?.length ?? 0) - (text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0)
-}
-
 /**
  * What is wrong with a reason (already trimmed), by the EHR's own rule: 10-500 characters, three letters in a row, no
- * control character but a new line. Null when the EHR accepts it. The 500 is also counted as the database counts it
- * (code points), so a reason passes only if both would.
+ * control character but a new line. Null when the EHR accepts it. Characters are counted as code points, as the EHR's
+ * isValidAcknowledgementReason and the database's char_length count them (hid-system#218 5ba23141): an emoji is one,
+ * and a presentation selector after a character is a character of its own.
  */
 export function acknowledgementReasonProblem(reason: string): string | null {
-  if (validatorLength(reason) < ACK_REASON_MIN) return ACK_REASON_SHORT
-  if (validatorLength(reason) > ACK_REASON_LIMIT || [...reason].length > ACK_REASON_LIMIT) return ACK_REASON_LONG
+  const length = [...reason].length
+  if (length < ACK_REASON_MIN) return ACK_REASON_SHORT
+  if (length > ACK_REASON_LIMIT) return ACK_REASON_LONG
   if (ACK_REASON.test(reason)) return null
   // eslint-disable-next-line no-control-regex -- as in ACK_REASON
   return /[\u0000-\u0009\u000b-\u001f\u007f]/.test(reason) ? ACK_REASON_HIDDEN : ACK_REASON_NO_WORD

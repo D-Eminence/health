@@ -292,6 +292,16 @@ describe('the reason, by the EHR’s rule', () => {
     expect(acknowledgementReasonProblem(`abc${'😀'.repeat(498)}`)).toBe(ACK_REASON_LONG)
   })
 
+  it('counts code points, as the EHR (hid-system#218 5ba23141) and the database count them', () => {
+    // The EHR's own cases (allergies.service.spec.ts, isValidAcknowledgementReason).
+    expect(acknowledgementReasonProblem('Nil \u{1F600}\u{1F600}\u{1F600}')).toBe(ACK_REASON_SHORT)
+    expect(acknowledgementReasonProblem(`Ok because ${'\u{1F600}'.repeat(250)}`)).toBeNull()
+    expect(acknowledgementReasonProblem(`Ok because ${'\u{1F600}'.repeat(490)}`)).toBe(ACK_REASON_LONG)
+    // A presentation selector is a code point of its own: "Fine ❤️❤️❤️" is 11 characters to the EHR, so it is not short.
+    expect(acknowledgementReasonProblem('Fine ❤️❤️❤️')).toBeNull()
+    expect(acknowledgementReasonProblem('Fine ❤️❤️')).toBe(ACK_REASON_SHORT)
+  })
+
   it('sends line ends as new lines and tabs as spaces, drops hidden characters and trims', () => {
     expect(normaliseAcknowledgementReason('  Tolerated\r\nbefore\rand\tafter\u0007  ')).toBe('Tolerated\nbefore\nand after')
   })
