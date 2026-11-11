@@ -14,7 +14,7 @@ const AVAILABILITY = '/identity/patient-enrollments/availability'
 const START = '/identity/patient-enrollments'
 const NIN = '12345678901'
 const anonymous = { state: { status: 'anonymous', principal: null } } as const
-const CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
+const CLOSED = 'New sign-ups are paused right now. Please try again later. If you already have a Health ID, sign in.'
 
 function gateway(availability: unknown, start: Handler = (path, method) => problem(500, 'UNEXPECTED', `${method} ${path}`)): Handler {
   return (path, method, body) => {
@@ -74,7 +74,7 @@ describe('how the NIN will be proved, told at the NIN step', () => {
 
   it('keeps open as the only gate: the routes alone do not offer a start', async () => {
     renderPortal(<Enrollment />, gateway({ open: false, online: true, facility: true }), anonymous)
-    const notice = await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
+    const notice = await screen.findByRole('region', { name: 'New sign-ups are paused' })
     expect(within(notice).getByText(CLOSED)).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
@@ -92,7 +92,7 @@ describe('the start\'s refusals since the holder step', () => {
     const { sent } = renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: true }, () =>
       problem(503, 'PATIENT_REGISTRATION_NOT_OPEN', CLOSED)), { ...anonymous, signOut })
     await submitNin()
-    const notice = await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
+    const notice = await screen.findByRole('region', { name: 'New sign-ups are paused' })
     expect(within(notice).getByText(CLOSED)).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(signOut).not.toHaveBeenCalled()

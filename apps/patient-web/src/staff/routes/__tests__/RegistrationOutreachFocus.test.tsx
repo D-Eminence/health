@@ -113,7 +113,7 @@ describe('outreach', () => {
     const card = title.closest<HTMLElement>('.staff-list-item')!
     const status = region('outreach-case-status-case-1')
     fireEvent.click(within(card).getByText('Link verified existing patient'))
-    fireEvent.change(within(card).getByRole('textbox', { name: /Canonical patient ID/ }), { target: { value: patientId } })
+    fireEvent.change(within(card).getByRole('textbox', { name: /^Patient ID/ }), { target: { value: patientId } })
     fireEvent.change(within(card).getByRole('textbox', { name: /Resolution reason/ }), { target: { value: 'Matched by phone and date of birth' } })
     await press(within(card).getByRole('button', { name: 'Link existing patient' }))
     await waitFor(() => expect(document.activeElement).toBe(title))

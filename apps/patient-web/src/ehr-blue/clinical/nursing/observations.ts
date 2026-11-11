@@ -33,6 +33,35 @@ export function isObservation(record: ClinicalRecord) {
   return record.noteType === NOTE_TYPE
 }
 
+/**
+ * An observation saved under the old "Vitals" category (offered until 1 November 2026, no longer saved): a clinical
+ * note, never range-checked and not in the vitals chart, so wherever its text shows, a line goes under it. The line is
+ * the owner's (OLD_VITALS_NOTE), naming the date, for a note saved before 1 November, or one with no time to read. A
+ * "Vitals" note saved on or after 1 November should not exist; if one does, its line names no date (OLD_VITALS_NOTE_LATE).
+ */
+export const OLD_VITALS_CATEGORY = 'Vitals'
+export const OLD_VITALS_NOTE = 'Saved as a note before 1 November. These readings are not in the vitals chart.'
+export const OLD_VITALS_NOTE_LATE = 'Saved as a note under the old Vitals category. These readings are not in the vitals chart.'
+/** 1 November 2026, 00:00 in Lagos (UTC+1): the category's last day was 31 October. */
+const VITALS_CLOSED = Date.parse('2026-10-31T23:00:00.000Z')
+
+export function isOldVitalsNote(note: Readonly<Record<string, unknown>>): boolean {
+  return note.noteType === NOTE_TYPE && typeof note.title === 'string' && note.title.trim() === OLD_VITALS_CATEGORY
+}
+
+/**
+ * The line under an old "Vitals" note's text, or null for any other note. The note's own time is read: when it was
+ * created (saved), or, where a read gives no such time (the emergency summary), when it was signed, which is never
+ * earlier. With no time, or one that is not a date, the owner's line.
+ */
+export function oldVitalsLine(note: Readonly<Record<string, unknown>>): string | null {
+  if (!isOldVitalsNote(note)) return null
+  const when = typeof note.createdAt === 'string' && note.createdAt ? note.createdAt
+    : typeof note.signedAt === 'string' && note.signedAt ? note.signedAt : null
+  const time = when === null ? Number.NaN : Date.parse(when)
+  return !Number.isNaN(time) && time >= VITALS_CLOSED ? OLD_VITALS_NOTE_LATE : OLD_VITALS_NOTE
+}
+
 /** Today's note wording, word for word. */
 export const REVISION_RECORDED = 'A new note revision was recorded.'
 export const REVISION_FAILED = 'Note revision could not be recorded.'

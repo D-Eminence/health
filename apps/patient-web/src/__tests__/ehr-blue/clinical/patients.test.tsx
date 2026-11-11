@@ -208,7 +208,8 @@ describe('Find a patient', () => {
     const panel = await refusedPanel()
     // In the search card, under the search.
     expect(panel.parentElement!.contains(searchField())).toBe(true)
-    expect(within(panel).getByText(SAID_REFUSED)).toBeTruthy()
+    // No grant yet: how to get it, beside the ways in (visit rehearsal, 11 Nov), never "ask your facility administrator".
+    expect(within(panel).getByText('Choose how to get it.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('Patient access is not authorized')
     // Which patient and why only: every way in is Obtain access's, for the Health ID still in the field.
     expect(within(panel).queryAllByRole('button')).toEqual([])
@@ -1715,5 +1716,47 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       await settle()
       for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('Visit rehearsal (11 Nov): finding a patient you have no access to yet', () => {
+  /** Finds the patient whom the lookup refuses with `refusal`, and answers what the panel says under its heading. */
+  async function refusedWith(refusal: unknown) {
+    api.lookupPatient.mockRejectedValue(refusal)
+    open()
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    fireEvent.click(findButton())
+    const heading = await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)
+    return heading.nextElementSibling?.textContent
+  }
+
+  // Identity's answer when it holds no grant for this member (identity.service lookupPatient: a bare ForbiddenException).
+  const NO_GRANT = new HidApiError(403, 'Patient access is not authorized', { code: 'ACCESS_DENIED' })
+
+  it('says to choose how to get access, beside Ask the patient and the Access PIN, not to ask the administrator', async () => {
+    staff.permissions = [...ALL, 'identity.patient-access-pin.verify']
+    expect(await refusedWith(NO_GRANT)).toBe('Choose how to get it.')
+    expect(document.body.textContent).not.toContain(SAID_REFUSED)
+    expect(tileTitles(accessGroup())).toEqual(['Ask the patient', 'Use their Access PIN', 'Emergency access'])
+    expect(tile(accessGroup(), 'Ask the patient').disabled).toBe(false)
+    expect(tile(accessGroup(), 'Use their Access PIN').disabled).toBe(false)
+  })
+
+  it('keeps "ask your facility administrator" for a missing permission', async () => {
+    expect(await refusedWith(new HidApiError(403, 'Required permission is missing', { code: 'PERMISSION_DENIED' }))).toBe(SAID_REFUSED)
+  })
+
+  it.each([[['lab']], [['pharmacist']], [['lab', 'pharmacist']]])('tells a %s role that answers 404 that the record isn’t open to its role here, not "not found"', async roles => {
+    staff.roles = roles
+    expect(await refusedWith(new HidApiError(404, 'Patient was not found or is not available', { code: 'NOT_FOUND' })))
+      .toBe('This patient’s record isn’t open to your role here. Check the Health ID, then ask the patient for access.')
+    expect(document.body.textContent).not.toMatch(/couldn’t find|not found/i)
+    expect(tile(accessGroup(), 'Ask the patient').disabled).toBe(false)
+  })
+
+  it('keeps today’s words for a doctor’s 404, where the Health ID may simply be wrong', async () => {
+    staff.roles = ['doctor']
+    expect(await refusedWith(new HidApiError(404, 'Patient was not found or is not available', { code: 'NOT_FOUND' })))
+      .toBe('We couldn’t find what you were looking for. It may have been moved or removed.')
   })
 })

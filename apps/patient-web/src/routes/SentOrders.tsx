@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Card } from '../kasuwa/ui'
-import { LoadingRows } from '../kasuwa/parts'
-import { Problem, Saved } from './profileParts'
+import { Send } from 'lucide-react'
+import { Button, Card, EmptyState } from '../kasuwa/ui'
+import { ConfirmSheet, LoadingRows } from '../kasuwa/parts'
+import { LoadProblem, Problem, Saved } from './profileParts'
+import { plainCode, priorityLabel, routeLabel } from '../plainLabels'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
@@ -12,7 +14,7 @@ import {
 } from '../lateCorrectionServed'
 import { usePatientResource } from './usePatientResource'
 import { useOnNotificationChange } from '../notificationBadge'
-import { useActionFocus } from './actionFocus'
+import { useActionFocus, useRetryFocus } from './actionFocus'
 
 /**
  * Orders a clinician sent to a laboratory or pharmacy at another facility (Novu, P4c, SPEC-FINAL §5, §13.4): the
@@ -114,7 +116,8 @@ function stateWords(route: PatientOrderRoute, receiving: string): string {
     case 'cancelled':
       if (route.endedKind === 'receiving_unable') return wrongPatientReportOf(route) ? `ended at ${receiving}` : `${receiving} couldn’t complete it`
       return route.endedKind === 'support' ? 'cancelled by Health ID support' : `cancelled at ${receiving}`
-    default: return route.effectiveState.replaceAll('_', ' ')
+    // A state this page does not know yet: never its code.
+    default: return 'in progress'
   }
 }
 
@@ -129,14 +132,14 @@ export function sentFields(route: PatientOrderRoute): Array<[label: string, valu
     ? `${text(content.ordererLicenceBody)}${text(content.ordererLicenceNumber) ? ` ${text(content.ordererLicenceNumber)}` : ''}` : null
   const fields: Array<[string, string | null]> = route.kind === 'lab_request' ? [
     ['Test', [text(content.testDisplay), [text(content.testCodeSystem), text(content.testCode)].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null],
-    ['Priority', text(content.priority)],
-    ['Sample type', text(content.specimenTypeCode)],
+    ['Priority', priorityLabel(text(content.priority))],
+    ['Sample type', text(content.specimenTypeCode) ? plainCode(text(content.specimenTypeCode)) : null],
     ['Your doctor’s note', text(content.clinicalInformation)],
     ['Requested on', content.requestedAt ? day(String(content.requestedAt)) : null],
   ] : [
     ['Medicine', [text(content.medicationDisplay), [text(content.medicationCodeSystem), text(content.medicationCode)].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null],
     ['Dose', [text(content.doseQuantity), text(content.doseUnit)].filter(Boolean).join(' ') || null],
-    ['How to take it', text(content.routeCode)],
+    ['How to take it', howToTake(text(content.routeCode))],
     ['How often', text(content.frequency)],
     ['Instructions', text(content.instructions)],
     ['Starts', calendarDay(content.startsOn)],
@@ -147,6 +150,13 @@ export function sentFields(route: PatientOrderRoute): Array<[label: string, valu
     [route.kind === 'lab_request' ? 'Requested by' : 'Prescribed by', [orderer, licence ? `licence ${licence}` : null].filter(Boolean).join(', ') || null],
     ['You', `your name, sex, date of birth and the last 4 characters of your Health ID${route.acceptedAt ? '' : ', once it accepts'}`],
   ].filter((entry): entry is [string, string] => entry[1] !== null)
+}
+
+/** How a medicine is taken, in words ("By mouth"); a route the words here don't know as the prescriber wrote it. */
+function howToTake(code: string | null): string | null {
+  if (!code) return null
+  const words = routeLabel(code)
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : plainCode(code)
 }
 
 /** The clinician's confirmation as they confirmed it, with the names filled. */
@@ -247,6 +257,9 @@ export function SentOrdersCard() {
   const [notice, setNotice] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
+  const retryFocus = useRetryFocus(heading)
+  // The order whose Stop is being confirmed: it withdraws the order at once, and only the doctor can send it again.
+  const [confirming, setConfirming] = useState<PatientOrderRoute | null>(null)
   // A list whose orders carry their deadline comes from a backend that serves the late correction (D17, SPEC-FINAL §9.0):
   // it says so from that list's first paint, and the page learns it for its other screens.
   const listed = routes.data?.items
@@ -280,9 +293,12 @@ export function SentOrdersCard() {
       <p className="m-0 text-[13px] text-ink-3">What your doctor sent to another lab or pharmacy, and exactly what they get.</p>
     </div>
     {routes.loading && routes.data === null && <LoadingRows rows={2} label="Loading your orders" />}
-    {(routes.error || error) && <div className="flex flex-col gap-3 px-5 pt-4">{routes.error && <Problem>{routes.error}</Problem>}{error && <Problem>{error}</Problem>}</div>}
+    {(routes.error || error) && <div className="flex flex-col gap-3 px-5 pt-4">
+      {routes.error && <LoadProblem what="your orders" error={routes.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(routes.reload)} />}
+      {error && <Problem>{error}</Problem>}</div>}
     <div className="px-5 pt-4 empty:hidden"><Saved>{notice}</Saved></div>
-    {routes.data && !routes.error && (items.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Nothing has been sent to another lab or pharmacy.</p>
+    {routes.data && !routes.error && (items.length === 0 ? <EmptyState compact icon={Send} title="Nothing sent elsewhere"
+      description="When your doctor sends a test or prescription to another lab or pharmacy, it shows here with exactly what they get." />
       : <ul className="m-0 list-none divide-y divide-line p-0">{items.map(route => {
         const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
         const ordering = named(route.orderingFacilityName, 'your doctor’s clinic')
@@ -326,8 +342,15 @@ export function SentOrdersCard() {
           </>}
         </div>
           {canStop && <Button id={`stop-${route.id}`} variant="destructive" className="self-start"
-            disabled={!!working || routes.loading} loading={working === route.id} onClick={() => void stop(route)}>{working === route.id ? 'Stopping…' : 'Stop it'}<ItemName>: {whatWasSent(route)} to {receiving}</ItemName></Button>}
+            disabled={!!working || routes.loading} loading={working === route.id} onClick={() => setConfirming(route)}>{working === route.id ? 'Stopping…' : 'Stop it'}<ItemName>: {whatWasSent(route)} to {receiving}</ItemName></Button>}
         </li>
       })}</ul>)}
+    {/* Stop withdraws the order at once and can't be undone: it is confirmed first. */}
+    <ConfirmSheet open={confirming !== null} destructive busy={confirming !== null && working === confirming.id}
+      onClose={() => { const id = confirming?.id; setConfirming(null); if (id) focusAfter(() => document.getElementById(`stop-${id}`)) }}
+      title={confirming?.kind === 'prescription' ? 'Stop this prescription?' : 'Stop this test request?'}
+      effect={confirming ? `${named(confirming.receivingFacilityName ?? confirming.receivingFacility.name, 'The lab or pharmacy')} won’t be able to accept it, and ${named(confirming.orderingFacilityName, 'your doctor’s clinic')} will be told.` : ''}
+      undo="You can’t undo this. If you need it after all, ask your doctor to send it again."
+      confirmLabel="Stop it" onConfirm={() => { const route = confirming; if (route) void stop(route).finally(() => setConfirming(null)) }} />
   </Card>
 }

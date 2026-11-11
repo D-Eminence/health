@@ -70,7 +70,8 @@ describe('signing in to a suspended account', () => {
   it('answers a wrong password as before: the generic refusal, with the way to finish a sign-up', async () => {
     openSignIn(path => path === '/auth/patient/login' ? invalid() : problem(500, 'UNEXPECTED', path))
     await signInWithPassword()
-    const alert = await screen.findByRole('alert')
+    // Read as the fields' description, focus on the password (launch audit SO-03), not as an alert.
+    const alert = document.getElementById('sign-in-error')!
     expect(shownText(alert)).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
     expect(within(alert).queryByRole('link', { name: 'support@healthidentitydirectory.com' })).toBeNull()
   })
@@ -83,7 +84,7 @@ describe('signing in to a suspended account', () => {
 
     answer = invalid
     await signInWithPassword()
-    expect(shownText(screen.getByRole('alert'))).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(document.getElementById('sign-in-error')!)).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
   })
 
   it('says the same after Google sign-in, where Identity refuses a suspended account so', async () => {

@@ -11,7 +11,8 @@ export const LEGACY_PATIENT_PATHS = Object.freeze({
   // hid-1.0's short link to /patient/records, which the public host would otherwise answer with its 404.
   '/records': '/records',
   '/patient/history': '/access',
-  '/logs': '/access',
+  // hid-1.0's activity log: the Access page's Activity tab.
+  '/logs': '/access?tab=activity',
   '/patient/notifications': '/notifications',
   '/patient/auth': '/sign-in',
   '/login': '/sign-in',

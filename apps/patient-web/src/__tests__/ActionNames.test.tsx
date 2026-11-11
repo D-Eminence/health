@@ -44,7 +44,7 @@ describe('per-item action names', () => {
     expect(names(/^Deny the request from Lagos General, Can view records, /)).toHaveLength(1)
     await press(screen.getByRole('button', { name: /^Who has access/ }))
     expect(distinct(names(/^End access /))).toBe(true)
-    expect(names(/^End access for Lagos General/)).toHaveLength(2)
+    expect(names(/^End access for A staff member at Lagos General/)).toHaveLength(2)
   })
 
   it('names the notification each Mark as read is for', async () => {

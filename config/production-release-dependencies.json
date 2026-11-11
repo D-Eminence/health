@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #214 visit-note fix, #212 reader cleanup, #209 record chat, #213 support Health ID check (0109, signed by the owner) with #224, #165 backend error reporting, #181 Outreach campaign fix (0110, signed by the owner). Each service is pinned to the commit its last deploy built. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
+  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005: hid-system #229 (migration 0113, drafts) deployed ehr-api, gateway, identity-api, lab-api, notification-api, ocr-api, outreach-api, pharmacy-api, support-api at 2dc6ba7a; the others stay at 730a6845 (#226, migration 0112). Website release approved by the owner in chat on 2026-11-11 (\"Q46 release #226 and #225\").",
   "backend_commits": {
-    "gateway": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "identity-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "ehr-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
-    "lab-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "pharmacy-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "ocr-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "outreach-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
-    "support-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
-    "notification-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d"
+    "gateway": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "identity-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "ehr-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "lab-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "pharmacy-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "ocr-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "outreach-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "support-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
+    "notification-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7"
   }
 }

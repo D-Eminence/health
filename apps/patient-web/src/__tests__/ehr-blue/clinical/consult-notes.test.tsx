@@ -5,6 +5,7 @@ import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWork
 import { NOTE_ON_LATER_PAGE, NOTE_STATUS_ON_LATER_PAGE, WRITE_NOTE_LABEL } from '../../../ehr-blue/clinical/consult/encounters'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
+import { OLD_VITALS_NOTE } from '../../../ehr-blue/clinical/nursing/observations'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { SAID_CHANGED, SAID_UNAVAILABLE } from '../../said'
 
@@ -170,6 +171,37 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(notes().queryByText('No notes for this consultation.')).toBeNull()
     // One page, nursing notes only: no consultation note was written, and the Saved record says so.
     expect(savedValues()).toMatchObject({ 'Note status': 'Not recorded', Note: 'Not recorded' })
+  })
+
+  it('item 5: says under an old "Vitals" nursing note’s text, and only there, that it is a note, not in the vitals chart', async () => {
+    const handover = { ...OBSERVATION, id: 'b2c6ef36-0000-4000-8000-000000000002', title: 'Handover' }
+    const titled = { ...NOTE, id: 'note-2', title: 'Vitals', createdAt: '2026-10-29T08:00:00.000Z' }
+    pages['clinical-notes'] = { '': { items: [NOTE, OBSERVATION, handover, titled], nextCursor: null } }
+    revisions = {
+      ...FIRST_REVISIONS,
+      [OBSERVATION.id]: [
+        { id: 'rev-o1', revisionNo: 1, content: 'Fictional reading', changeReason: 'Initial draft', createdAt: '2026-10-30T08:10:00.000Z' },
+        { id: 'rev-o2', revisionNo: 2, content: 'Corrected fictional reading', changeReason: 'Typo', createdAt: '2026-10-30T08:20:00.000Z' },
+      ],
+      [handover.id]: [{ id: 'rev-h1', revisionNo: 1, content: 'Fictional handover', changeReason: 'Initial draft', createdAt: '2026-10-30T08:10:00.000Z' }],
+      [titled.id]: [{ id: 'rev-t1', revisionNo: 1, content: 'Doctor’s fictional note', changeReason: 'Initial draft', createdAt: '2026-10-30T08:10:00.000Z' }],
+    }
+    await openEncounter()
+    const rows = within(card('Notes')).getAllByRole('listitem')
+    const row = (index: number) => within(rows[index]!)
+    expect(screen.queryByText(OLD_VITALS_NOTE)).toBeNull()
+    for (const [index, content] of [[1, 'Corrected fictional reading'], [2, 'Fictional handover'], [3, 'Doctor’s fictional note']] as const) {
+      fireEvent.click(row(index).getByRole('button', { name: 'Review note content' }))
+      expect(await row(index).findByText(content)).toBeTruthy()
+    }
+    // Under each revision's text of the nursing note saved under "Vitals"; never under another category, nor a doctor's
+    // note that happens to be titled "Vitals".
+    for (const content of ['Fictional reading', 'Corrected fictional reading']) {
+      expect(row(1).getByText(content).closest('dd')!.textContent).toBe(`${content}${OLD_VITALS_NOTE}`)
+    }
+    expect(row(1).getAllByText(OLD_VITALS_NOTE)).toHaveLength(2)
+    expect(row(2).queryByText(OLD_VITALS_NOTE)).toBeNull()
+    expect(row(3).queryByText(OLD_VITALS_NOTE)).toBeNull()
   })
 
   it('says "No notes for this consultation." when the visit has no notes at all', async () => {

@@ -107,7 +107,7 @@ describe('Coverage', () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(patient) : problem(404, 'NOT_FOUND', path))
     await screen.findByRole('heading', { name: 'About you' })
     await waitFor(() => expect(document.getElementById('contact-details')).not.toBeNull())
-    expect(screen.queryByRole('heading', { name: 'Insurance & hospital' })).toBeNull()
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Insurance & hospital' })).toBeNull())
   })
 
   it('says when it could not be read, with its own Try again', async () => {

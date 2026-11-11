@@ -5,7 +5,8 @@ import pathlib
 import tempfile
 import unittest
 import zipfile
-from staging_release import HOSTS, PRODUCTION_HOSTS, archive_files, chat_features, digest, tree_digest, validate_config, verify_manifest
+from staging_release import (HOSTS, PRODUCTION_HOSTS, SUPPORT_CHAT_APPS, archive_files, chat_features, digest, tree_digest,
+                             validate_config, verify_manifest)
 
 CONFIG = pathlib.Path(__file__).parents[1] / 'config'
 DSN = 'https://0123456789abcdef0123456789abcdef@o12345.ingest.us.sentry.io/4504123456789'
@@ -181,6 +182,30 @@ class ErrorReportingConfigTests(unittest.TestCase):
             'VITE_HID_STAFF_PATIENT_CHAT_ENABLED': 'true',
             'VITE_HID_GOOGLE_CLIENT_ID': config['google_client_id'],
         })
+
+    def test_each_app_is_built_with_the_chat_its_release_offers(self):
+        # What each app is built with (app_environment) matches SUPPORT_CHAT_APPS and the release manifest's
+        # chat_features, for every app in both profiles, with support chat on and off. A support-chat list kept in one
+        # place only (such as a merge that leaves ['web', 'public'] in the build) then fails here instead of quietly
+        # turning a staff site's Help off.
+        build = load_build()
+        for environment, hosts in (('staging', HOSTS), ('production', PRODUCTION_HOSTS)):
+            self.assertLessEqual(set(SUPPORT_CHAT_APPS), set(hosts), environment)
+            for support in (True, False):
+                config = self.config(environment)
+                config['chat']['supportChatEnabled'] = support
+                for app, host in hosts.items():
+                    where = (environment, app, support)
+                    prefix = 'NEXT_PUBLIC_HID_' if app == 'public' else 'VITE_HID_'
+                    env = build.app_environment(config, environment, app, host, SOURCE, {})
+                    features = chat_features(config, app)
+                    self.assertEqual(env[prefix + 'SUPPORT_CHAT_ENABLED'], str(support and app in SUPPORT_CHAT_APPS).lower(), where)
+                    self.assertEqual(env[prefix + 'SUPPORT_CHAT_ENABLED'], str(features['supportChatEnabled']).lower(), where)
+                    self.assertEqual(env[prefix + 'PATIENT_CHAT_ENABLED'], str(features['patientChatEnabled']).lower(), where)
+                    if app != 'public':
+                        # "Ask about this patient" and imported records: the ehr build only, as the manifest says.
+                        self.assertEqual(env[prefix + 'STAFF_PATIENT_CHAT_ENABLED'], str(features['staffPatientChatEnabled']).lower(), where)
+                        self.assertEqual(env[prefix + 'IMPORTED_HISTORY_ENABLED'], str(features['importedRecordsEnabled']).lower(), where)
 
 
 if __name__ == '__main__':
