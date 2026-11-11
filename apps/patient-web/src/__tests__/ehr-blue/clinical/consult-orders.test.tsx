@@ -2943,6 +2943,20 @@ describe('Allergies on a new prescription (hid-system 0124)', () => {
       expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_B })
     })
 
+    it(`${TOKEN_INVALID} for the very warning ticked (the same token again): the box is unticked all the same`, async () => {
+      // The page sends only a token it was given, so a refusal for it names the same warning: nothing but the refusal
+      // itself unticks the box here.
+      api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+      expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_A, [TOKEN_INVALID]))).toBe(ALLERGY_TICK_AGAIN_ERROR)
+      expect(lines(warningPanel(`Severe allergy warning for ${MEDICINE}`))).toEqual([SEVERE_PENICILLIN.message])
+      expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+      expect(tickBox().checked).toBe(false)
+      expect(ackReason().value).toBe(GOOD_REASON)
+      fireEvent.click(tickBox())
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_A })
+    })
+
     it('a reason and a token refused together: unticked, the reason kept and marked, and both said', async () => {
       api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
       expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [REASON_INVALID, TOKEN_INVALID]))).toBe(ALLERGY_TICK_AND_REASON_ERROR)
@@ -3234,6 +3248,18 @@ describe('Allergies on Activate and Resume (hid-system 0124)', () => {
     submitStatus()
     expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
     expect(patched(2)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_C } })
+  })
+
+  it(`Activate refused for its token (${TOKEN_INVALID}) with the same token as the warning ticked: unticked all the same`, async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await activateAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [TOKEN_INVALID]), ALLERGY_TICK_AGAIN_ERROR)
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    fireEvent.click(tickBox())
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(2)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
   })
 
   it(`Activate refused for its reason and its token (${REASON_MISSING} and ${TOKEN_INVALID}): unticked, the reason kept and marked, both said`, async () => {
