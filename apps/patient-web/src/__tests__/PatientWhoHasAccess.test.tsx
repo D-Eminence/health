@@ -101,8 +101,9 @@ describe('each access says what, until when and why', () => {
       expect(text).toContain(`From ${at(item.startsAt)} until ${at(item.expiresAt)}`)
       expect(text).toContain(`Reason given: “${item.reason}”`)
     })
-    // The time is said, not only the day: "until 11 Nov 2026, 14:41".
+    // The time is said, not only the day: "until 11 Nov 2026, 14:41". Each day and time stays on one line on a phone.
     expect(rows[1]!.textContent).toMatch(/until \d{1,2} Nov 2026, \d{2}:\d{2}/)
+    expect([...rows[1]!.querySelectorAll('p > span.whitespace-nowrap')].map(time => time.textContent)).toEqual([at(FOUR[1]!.startsAt), at(FOUR[1]!.expiresAt)])
     // No two rows read the same, and no two End access buttons are named the same.
     expect(new Set(rows.map(row => row.textContent)).size).toBe(4)
     const ends = screen.getAllByRole('button', { name: /^End access for/ }).map(button => button.textContent)

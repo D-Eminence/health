@@ -67,12 +67,11 @@ export function dayAndTime(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? value : AT.format(parsed)
 }
 
-/** When an access runs: "From 11 Nov 2026, 14:45 until 11 Nov 2026, 15:45"; one ended early says so, not "until". */
-export function accessTimes(item: AccessItem): string {
-  const from = `From ${dayAndTime(item.startsAt)}`
-  return ['revoked', 'ended'].includes(item.status) ? `${from} · ended before ${dayAndTime(item.expiresAt)}`
-    : `${from} until ${dayAndTime(item.expiresAt)}`
-}
+/**
+ * An access the patient or the facility ended before its end: its row says "From … · ended before …", not "From … until
+ * …" (the list gives no time it ended).
+ */
+export const endedEarly = (item: AccessItem) => ['revoked', 'ended'].includes(item.status)
 
 /**
  * The reason the staff member gave when they asked (an access from a request, an Access PIN or an emergency): with the
