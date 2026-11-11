@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import type { AccessHistory } from '../api'
 import { AccessPage } from '../routes/Portal'
 import { ToastProvider } from '../kasuwa/toast'
@@ -121,5 +121,45 @@ describe('each access says what, until when and why', () => {
     expect(share!.textContent).not.toContain('Reason given')
     expect(ended!.textContent).toContain(`From ${at('2026-11-11T13:45:00Z')} · ended before ${at('2026-11-11T14:45:00Z')}`)
     expect(ended!.textContent).not.toContain(' until ')
+  })
+})
+
+describe('ending one access among several at a facility', () => {
+  it('ends the access of the row chosen, shows its times and reason first, and says the facility keeps the others', async () => {
+    let items = FOUR
+    const { sent } = await whoHasAccess(() => ({ items }), (path, method) => {
+      if (method !== 'POST') return json({}, 404)
+      items = items.map(item => path.includes(item.consentGrantId) ? { ...item, status: 'revoked', patientRevocable: false } : item)
+      return json({ consentGrantId: FOUR[2]!.consentGrantId, status: 'revoked', replayed: false })
+    })
+    await screen.findByRole('heading', { level: 2, name: 'Demo Hospital has access now' })
+    await press(within(facility('Demo Hospital').rows[2]!).getByRole('button', { name: /^End access for/ }))
+    const drawer = within(screen.getByRole('dialog', { name: 'End access' }))
+    expect(drawer.getByText('A staff member at Demo Hospital')).toBeTruthy()
+    const term = (name: string) => drawer.getByText(name, { selector: 'dt' }).nextElementSibling?.textContent
+    expect(term('From')).toBe(at(FOUR[2]!.startsAt))
+    expect(term('Until')).toBe(at(FOUR[2]!.expiresAt))
+    expect(term('Reason given')).toBe('Second check of the malaria result')
+
+    fireEvent.change(drawer.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'Test is done' } })
+    await press(drawer.getByRole('button', { name: 'End access' }))
+    expect(await screen.findByText('This access at Demo Hospital has ended. Other access there is still open, listed below.')).toBeTruthy()
+    expect(screen.queryByText('Demo Hospital can no longer see your records.')).toBeNull()
+    expect(sent.filter(request => request.method === 'POST')).toEqual([{ method: 'POST', body: { reason: 'Test is done' },
+      path: `/identity/me/consent-grants/${FOUR[2]!.consentGrantId}/revoke` }])
+    expect(await screen.findByText('3 active · 1 past')).toBeTruthy()
+  })
+
+  it('says the facility can no longer see the records when its last access ends', async () => {
+    let items = [grant('1', { reason: 'Consultation for fever' })]
+    await whoHasAccess(() => ({ items }), () => {
+      items = items.map(item => ({ ...item, status: 'revoked', patientRevocable: false }))
+      return json({ consentGrantId: items[0]!.consentGrantId, status: 'revoked', replayed: false })
+    })
+    await press(await screen.findByRole('button', { name: /^End access for Demo Hospital/ }))
+    const drawer = within(screen.getByRole('dialog', { name: 'End access' }))
+    fireEvent.change(drawer.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'No longer needed' } })
+    await press(drawer.getByRole('button', { name: 'End access' }))
+    expect(await screen.findByText('Demo Hospital can no longer see your records.')).toBeTruthy()
   })
 })

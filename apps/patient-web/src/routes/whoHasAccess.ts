@@ -83,3 +83,13 @@ export function theirReason(item: AccessItem): string | null {
   if (item.shareLevel || item.shareDuration) return null
   return typeof item.reason === 'string' && item.reason.trim() ? item.reason.trim() : null
 }
+
+/** The other rows at the same facility still open: whether that facility keeps access once this one ends. */
+export function stillOpenThere(items: readonly AccessItem[], ended: AccessItem): number {
+  return items.filter(item => item.consentGrantId !== ended.consentGrantId && isOpen(item) && facilityOf(item) === facilityOf(ended)).length
+}
+
+/** "Dr Tunde Example at Demo Hospital" or "A staff member at Demo Hospital": an access named on its own. */
+export function holderAt(item: AccessItem): string {
+  return `${holder(item)} at ${item.facilityName}`
+}
