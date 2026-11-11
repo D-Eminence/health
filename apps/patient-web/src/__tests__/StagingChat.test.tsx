@@ -264,3 +264,25 @@ it('says to a clinician where each source came from, about the patient', async (
   expect(sourceRow('Clinic visit').textContent).toContain('Recorded by a health worker')
   expect(sourceRow('Your profile').textContent).toContain('From the patient’s Health ID profile')
 })
+
+it('formats answers with the shared renderer, cleans dashes and explains missing documents plainly, for patient and staff', async () => {
+  const answer = '## First diagnosis\nThe earliest diagnosis is **anaemia** \u2014 recorded 2025\u20132026.\n- Seen at a clinic'
+  for (const staff of [undefined, { patientName: 'Synthetic Patient', hid: 'HID-AAAAAA', facilityName: 'Synthetic Hospital' }]) {
+    const chat = vi.fn().mockResolvedValue({ status: 'ready', answer, sources: [],
+      coverage: { complete: false, unavailable: ['Lab results \u2014 not released.'], pendingDocuments: 1, recordCount: 3, selectedCount: 2 } })
+    const view = render(<StagingChatConversation api={apiFor(chat)} staff={staff} />)
+    await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+    fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'First diagnosis \u2014 please' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    expect(await screen.findByRole('heading', { level: 3, name: 'First diagnosis' })).toBeTruthy()
+    expect(screen.getByText('anaemia').tagName).toBe('STRONG')
+    expect(screen.getByText('Seen at a clinic').tagName).toBe('LI')
+    // The person's own words are shown as typed; only the assistant's text is cleaned.
+    expect(screen.getByText('First diagnosis \u2014 please')).toBeTruthy()
+    const log = screen.getByRole('log').querySelector('.record-chat-reply')?.textContent ?? ''
+    expect(log).not.toMatch(/[\u2013\u2014]/)
+    expect(log).toContain('recorded 2025 to 2026.')
+    expect(log).toContain('This answer may be incomplete. 1 document was not read because it is still being processed, could not be read or was not included. Lab results, not released.')
+    view.unmount()
+  }
+})

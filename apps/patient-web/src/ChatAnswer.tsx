@@ -1,3 +1,4 @@
+import { RecordAnswer } from './RecordAnswer'
 import type { PatientChatCoverage, PatientChatSource, PatientChatSourceKind, PatientChatStoredReply } from '@hid/contracts'
 
 const KIND_LABELS: Record<PatientChatSourceKind, string> = {
@@ -28,7 +29,8 @@ function Coverage({ coverage }: { coverage: PatientChatCoverage }) {
 }
 
 /**
- * An answer as hid-system returns it (ADR-068): plain text blocks, never markup. A `record` block cites the
+ * An answer as hid-system returns it (ADR-068): text blocks, shown through the shared RecordAnswer renderer
+ * (headings, bold and lists as React elements; never HTML). A `record` block cites the
  * numbered sources below it; an `explanation` or `safety` block cites none. A refused or unchecked answer
  * (`declined`, `unverified`) is a fixed text and cites nothing.
  */
@@ -37,7 +39,7 @@ export function ChatAnswer({ answerId, reply, coverage }: { answerId: string; re
   return <div className="record-chat-answer-blocks">
     {reply.blocks.map((block, index) => <div key={index} className={`record-chat-block record-chat-block-${block.kind}${fixed ? ' record-chat-block-fixed' : ''}`}>
       {block.kind === 'safety' && <span className="record-chat-block-label">Important</span>}
-      <p>{block.text}</p>
+      <RecordAnswer text={block.text} className="record-chat-block-text" />
       {block.kind === 'record' && block.references.length > 0 && <p className="record-chat-references">
         <span className="record-chat-block-label">From</span>
         {block.references.map(number => <a key={number} href={`#${sourceAnchor(answerId, number)}`}

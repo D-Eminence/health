@@ -210,4 +210,15 @@ describe('StaffRecordChat', () => {
     await screen.findByText('<img src=x onerror=alert(1)> done')
     expect(document.querySelector('img')).toBeNull()
   })
+
+  it('formats block text with the shared renderer and cleans dashes', async () => {
+    const text = '## Blood pressure\nThe last reading was **118 over 76** \u2014 taken 2026.\n- Normal range'
+    render(<StaffRecordChat api={apiFor({ ask: vi.fn().mockResolvedValue(answer({ blocks: [{ kind: 'record', text, references: [1] }] })) })} {...props} />)
+    await ready()
+    ask('What was it?')
+    expect(await screen.findByRole('heading', { level: 3, name: 'Blood pressure' })).toBeTruthy()
+    expect(screen.getByText('118 over 76').tagName).toBe('STRONG')
+    expect(screen.getByText('Normal range').tagName).toBe('LI')
+    expect(document.body.textContent).not.toMatch(/[\u2013\u2014]/)
+  })
 })
