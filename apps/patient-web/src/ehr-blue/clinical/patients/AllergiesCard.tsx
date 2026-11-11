@@ -1,15 +1,34 @@
 import { isHidApiError } from '@hid/http'
 import { AlertTriangle } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
-import { Badge, Button, Card, CardHeader, Field, Input, Select } from '../../../kasuwa/ui'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { Badge, Button, Card, CardHeader, Field, Input, Select, type Tone } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
 import {
-  ALLERGY_SEVERITIES, REACTION_LIMIT, REASON_LIMIT, REASON_MIN, SEVERITY_LABELS, SUBSTANCE_LIMIT,
+  ALLERGY_SEVERITIES, REACTION_LIMIT, REASON_LIMIT, REASON_MIN, SEVERITY_LABELS, SUBSTANCE_LIMIT, isNoKnownAllergy,
   type AllergySeverity, type RecordedAllergy,
 } from '../../../staff/allergies'
 import { refusalText } from '../../../staff/fieldProblem'
+import { NOT_A_SUBSTANCE, isNotASubstanceRefusal } from '../parts/allergyWarning'
 import type { Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
+
+/**
+ * Each severity's badge (Ola, wording #9): severe in red; not known in amber, as moderate, never as quiet as mild (a
+ * reaction nobody graded may have been severe). The severity's word is always on the badge, so colour is never alone.
+ */
+export const SEVERITY_TONES: Readonly<Record<AllergySeverity, Tone>> = { severe: 'danger', unknown: 'warn', moderate: 'warn', mild: 'neutral' }
+
+/** Under Severity in the add form (Ola, wording #9). */
+export const SEVERITY_HINT = 'Severe: anaphylaxis, swelling of the face, lips or throat, difficulty breathing, or a blistering skin rash. '
+  + 'If you are not sure, choose “Severity not known”.'
+
+/** The patient's own text is empty (Ola, wording #9): it says whose list is empty, never that the patient has no allergies. */
+export const NOTHING_REPORTED = 'The patient has not entered any allergies in their Health ID portal.'
+
+/** AllergyLines' words where nothing can be listed: never silence a reader could take for "no allergies". */
+export const ALLERGIES_NOT_SHOWN = 'The patient’s allergies can’t be shown here. Confirm allergies with the patient.'
+export const ALLERGIES_UNREAD = 'The patient’s allergies could not be loaded. Confirm allergies with the patient.'
+const CONFIRM_ALLERGIES = 'Confirm allergies with the patient.'
 
 /** What the card shows: recorded allergies only when the EHR serves them (hid-system 0124; 404 before). */
 export type AllergiesState =
@@ -81,6 +100,47 @@ export function useAllergies(chart: Chart): { state: AllergiesState; reload: () 
   return { state: answer.state, reload }
 }
 
+/** One recorded allergy in a line (Ola, wording #0): "Penicillin (severe: Anaphylaxis)", "Latex (severity not known)". */
+export function recordedAllergyLine(item: RecordedAllergy): string {
+  return `${item.substance} (${SEVERITY_LABELS[item.severity].toLowerCase()}${item.reaction ? `: ${item.reaction}` : ''})`
+}
+
+/**
+ * The patient's allergies in a line or two, for a page where a clinician acts on them (triage, a new consultation): the
+ * active allergies clinicians recorded, in the EHR's order (most serious first, never sorted again here), then what the
+ * patient entered in their Health ID portal, labelled as theirs. On a backend before 0124 only the patient's text is
+ * read, so nothing is said about recorded allergies. Nothing while it loads; otherwise always a line. A read that failed,
+ * was refused or is not served says so and asks to confirm with the patient: an empty answer is the only "none".
+ * `allergies` is useAllergies(chart).state.
+ */
+export function AllergyLines({ allergies, lineClassName }: { allergies: AllergiesState; lineClassName?: string }) {
+  const className = lineClassName ? `hid-ehr-clinical-allergy-line ${lineClassName}` : 'hid-ehr-clinical-allergy-line'
+  if (allergies.status === 'loading') return null
+  if (allergies.status === 'hidden') return <p className={className}>{ALLERGIES_NOT_SHOWN}</p>
+  if (allergies.status === 'failed') {
+    return (
+      <p className={className}>
+        {ALLERGIES_UNREAD}{' '}
+        <button type="button" className="hid-ehr-clinical-link hid-ehr-clinical-link-button" onClick={allergies.retry}>Try again</button>
+      </p>
+    )
+  }
+  const reported = allergies.patientReported
+    ? `Allergies reported by the patient: ${allergies.patientReported} (entered by the patient in their Health ID portal, not clinically verified).`
+    : NOTHING_REPORTED
+  if (!allergies.recordedOffered) {
+    return <p className={className}>{allergies.patientReported ? reported : `${reported} ${CONFIRM_ALLERGIES}`}</p>
+  }
+  const recorded = allergies.recorded.filter(item => item.status === 'active').map(recordedAllergyLine)
+  const none = recorded.length === 0 && !allergies.patientReported
+  return (
+    <>
+      <p className={className}>{recorded.length > 0 ? `Allergies recorded by clinicians: ${recorded.join('; ')}.` : 'Allergies recorded by clinicians: none.'}</p>
+      <p className={className}>{none ? `${reported} ${CONFIRM_ALLERGIES}` : reported}</p>
+    </>
+  )
+}
+
 /** The patient's allergies on the chart: recorded by clinicians, then reported by the patient, each labelled. */
 export function AllergiesCard({ chart }: { chart: Chart }) {
   const { state: allergies, reload } = useAllergies(chart)
@@ -105,6 +165,7 @@ function AllergyLists({ chart, allergies, reload }: {
 }) {
   // Adding and marking are offered only where the EHR serves them, to a role that records notes, with access to add.
   const records = allergies.recordedOffered && chart.canWrite && chart.can('ehr.note.write')
+  // In the EHR's order: active first, then severe, not known, moderate, mild, then newest first. Never sorted again here.
   const active = allergies.recorded.filter(item => item.status === 'active')
   const reportedWhen = formatWhen(allergies.reportedAt)
   return (
@@ -128,7 +189,7 @@ function AllergyLists({ chart, allergies, reload }: {
           <Badge size="sm" tone="warn">Patient-reported</Badge>
         </div>
         <p className="m-0 mt-1 text-[12px] text-ink-3">Entered by the patient in their Health ID portal, not clinically verified.{reportedWhen ? ` Last updated ${reportedWhen}.` : ''}</p>
-        <p className="m-0 mt-1 text-sm break-words whitespace-pre-line text-ink">{allergies.patientReported ?? 'Nothing reported.'}</p>
+        <p className="m-0 mt-1 text-sm break-words whitespace-pre-line text-ink">{allergies.patientReported ?? NOTHING_REPORTED}</p>
       </section>
       {records ? <AddAllergy chart={chart} onAdded={reload} /> : null}
     </div>
@@ -169,7 +230,7 @@ function RecordedRow({ chart, item, canMark, onChanged }: { chart: Chart; item: 
     <li className="rounded-md border border-line px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-ink">{item.substance}</span>
-        <Badge size="sm" tone={item.severity === 'severe' ? 'danger' : item.severity === 'moderate' ? 'warn' : 'neutral'}>{SEVERITY_LABELS[item.severity]}</Badge>
+        <Badge size="sm" tone={SEVERITY_TONES[item.severity]}>{SEVERITY_LABELS[item.severity]}</Badge>
       </div>
       {item.reaction ? <p className="m-0 mt-0.5 text-sm text-ink">Reaction: {item.reaction}</p> : null}
       <p className="m-0 mt-0.5 text-[12px] text-ink-3">
@@ -202,9 +263,20 @@ function AddAllergy({ chart, onAdded }: { chart: Chart; onAdded: () => void }) {
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState('')
   const key = useRef<{ signature: string; value: string } | null>(null)
+  // The field to move focus to once its error is drawn, so it is read out with the error it points to.
+  const [focusRequest, setFocusRequest] = useState<{ id: string } | null>(null)
   const substanceId = useId()
   const reactionId = useId()
   const severityId = useId()
+  const substanceErrorId = `${substanceId}-error`
+  const reactionHintId = `${reactionId}-hint`
+  const severityHintId = `${severityId}-hint`
+  const severityErrorId = `${severityId}-error`
+
+  // In the commit that draws the error, so focus and the error it points to arrive together.
+  useLayoutEffect(() => {
+    if (focusRequest) document.getElementById(focusRequest.id)?.focus()
+  }, [focusRequest])
 
   async function add(event: FormEvent) {
     event.preventDefault()
@@ -212,9 +284,14 @@ function AddAllergy({ chart, onAdded }: { chart: Chart; onAdded: () => void }) {
     const input = { substance: substance.trim(), reaction: reaction.trim() || undefined, severity }
     const problems: typeof errors = {}
     if (!input.substance) problems.substance = 'Enter the medicine or substance.'
+    // "NKDA", "No known allergies", "none" and the like: the EHR refuses them (400 ALLERGY_NOT_A_SUBSTANCE); said here first.
+    else if (isNoKnownAllergy(input.substance)) problems.substance = NOT_A_SUBSTANCE
     if (!input.severity) problems.severity = 'Choose how severe the reaction is, or “Severity not known”.'
     setErrors(problems)
-    if (problems.substance || problems.severity) return
+    if (problems.substance || problems.severity) {
+      setFocusRequest({ id: problems.substance ? substanceId : severityId })
+      return
+    }
     // One Idempotency-Key per attempt: the same allergy sent again is the same record.
     const signature = JSON.stringify(input)
     if (key.current?.signature !== signature) key.current = { signature, value: crypto.randomUUID() }
@@ -232,7 +309,13 @@ function AddAllergy({ chart, onAdded }: { chart: Chart; onAdded: () => void }) {
       setAdded(`Allergy to ${input.substance} recorded.`)
       onAdded()
     } catch (caught) {
-      setErrors({ form: refusalText(caught, 'The allergy could not be recorded. Please try again.') })
+      if (isNotASubstanceRefusal(caught)) {
+        // The EHR's own list may hold a phrase this page's copy does not: its words, said at the field, never its detail.
+        setErrors({ substance: NOT_A_SUBSTANCE })
+        setFocusRequest({ id: substanceId })
+      } else {
+        setErrors({ form: refusalText(caught, 'The allergy could not be recorded. Please try again.') })
+      }
     } finally {
       setBusy(false)
     }
@@ -243,14 +326,17 @@ function AddAllergy({ chart, onAdded }: { chart: Chart; onAdded: () => void }) {
       <div role="status">{added ? <p className="m-0 text-sm text-success-ink">{added}</p> : null}</div>
       {!open ? <Button size="sm" variant="secondary" onClick={() => { setOpen(true); setAdded('') }}>Add allergy</Button> : (
         <form className="flex flex-col gap-3" onSubmit={event => void add(event)} aria-label="Add allergy">
-          <Field label="Medicine or substance" htmlFor={substanceId} error={errors.substance}>
-            <Input id={substanceId} value={substance} maxLength={SUBSTANCE_LIMIT} onChange={event => setSubstance(event.target.value)} />
+          <Field label="Medicine or substance" htmlFor={substanceId} error={errors.substance} errorId={substanceErrorId}>
+            <Input id={substanceId} value={substance} maxLength={SUBSTANCE_LIMIT} onChange={event => setSubstance(event.target.value)}
+              aria-invalid={errors.substance ? true : undefined} aria-describedby={errors.substance ? substanceErrorId : undefined} />
           </Field>
-          <Field label="Reaction" optional htmlFor={reactionId} hint="For example: rash, swelling, difficulty breathing.">
-            <Input id={reactionId} value={reaction} maxLength={REACTION_LIMIT} onChange={event => setReaction(event.target.value)} />
+          <Field label="Reaction" optional htmlFor={reactionId} hint="For example: rash, swelling, difficulty breathing." hintId={reactionHintId}>
+            <Input id={reactionId} value={reaction} maxLength={REACTION_LIMIT} onChange={event => setReaction(event.target.value)} aria-describedby={reactionHintId} />
           </Field>
-          <Field label="Severity" htmlFor={severityId} error={errors.severity}>
-            <Select id={severityId} value={severity} onChange={event => setSeverity(event.target.value as AllergySeverity | '')}>
+          {/* The hint says what severe means and when to choose "Severity not known"; an error takes its place. */}
+          <Field label="Severity" htmlFor={severityId} error={errors.severity} errorId={severityErrorId} hint={SEVERITY_HINT} hintId={severityHintId}>
+            <Select id={severityId} value={severity} onChange={event => setSeverity(event.target.value as AllergySeverity | '')}
+              aria-invalid={errors.severity ? true : undefined} aria-describedby={errors.severity ? severityErrorId : severityHintId}>
               <option value="">Choose…</option>
               {ALLERGY_SEVERITIES.map(value => <option key={value} value={value}>{SEVERITY_LABELS[value]}</option>)}
             </Select>

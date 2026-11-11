@@ -13,7 +13,7 @@ import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allo
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), breakGlass: vi.fn(), closeGrant: vi.fn(), emergencyRecords: vi.fn(),
-  labReleasedResultsForOrder: vi.fn(), documentDownload: vi.fn(),
+  labReleasedResultsForOrder: vi.fn(), documentDownload: vi.fn(), allergies: vi.fn(), reportedHealthProfile: vi.fn(), allergyCheck: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 
@@ -293,6 +293,21 @@ describe('the summary is read-only', () => {
     expect(screen.getAllByRole('link')).toEqual([
       screen.getByRole('link', { name: 'Back to emergency access' }), screen.getByRole('link', { name: 'Find another patient' }),
     ])
+  })
+})
+
+describe('allergies under emergency access', () => {
+  // hid-system#218 at 76283f57 serves no allergies on the emergency read, and its allergy routes are direct care only.
+  // Until the emergency read carries them, the summary shows none of its own and never reads a direct-care route.
+  it('reads no allergy route (direct care only) and never says the patient has no allergies', async () => {
+    await renderSummary()
+    await act(async () => {})
+    expect(api.allergies).not.toHaveBeenCalled()
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    expect(api.allergyCheck).not.toHaveBeenCalled()
+    expect(api.emergencyRecords).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID)
+    expect(document.body.textContent).not.toMatch(/None recorded|no (known )?(drug )?allergies|allergies: none/i)
+    expect(screen.queryByRole('heading', { name: /allerg/i })).toBeNull()
   })
 })
 

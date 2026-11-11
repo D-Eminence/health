@@ -762,6 +762,16 @@
   margin: 0;
 }
 
+/* The patient's allergies in a line or two (patients/AllergiesCard.tsx AllergyLines): the patient's own words can be one
+   long run with no space, so they wrap at phone width; the second line sits just under the first. */
+.hid-ehr .hid-ehr-clinical-allergy-line {
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-line + .hid-ehr-clinical-allergy-line {
+  margin-top: 4px;
+}
+
 /* ---- Quick view drawer content --------------------------------------------- */
 
 /* Title, "Last updated", the rows and "Open full record" stack with no gap (record-quick-view.png). */
