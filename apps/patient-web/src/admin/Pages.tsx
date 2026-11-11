@@ -246,8 +246,8 @@ const CONTROL_NOTES: Readonly<Record<string, string>> = {
     + 'to stop all of that work at once.',
   // Open sign-up on outreach. (owner decisions of 11 November 2026), seeded off.
   outreach_organiser_signup_enabled: 'Lets volunteers, NGOs and community groups sign up on Health ID Outreach, and lets a staff '
-    + 'login start its own outreach group. Each new group is checked once before its first campaign starts, so turn it on '
-    + 'only when “Outreach organisers to check” is staffed. Turning it off stops new sign-ups; existing groups carry on.',
+    + 'login start its own outreach group. Health ID does not check a new group before its campaigns start, so someone should '
+    + 'watch “Outreach organisers” and pause any group that misuses it. Turning it off stops new sign-ups; existing groups carry on.',
 }
 
 function ControlAction({ control, reload }: { control: PlatformControl; reload: () => void }) {

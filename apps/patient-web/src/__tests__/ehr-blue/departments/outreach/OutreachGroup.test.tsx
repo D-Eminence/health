@@ -6,10 +6,11 @@ import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 
 /*
- * An outreach group's own Outreach (open sign-up on outreach., owner decisions of 11 November 2026): "Waiting for a
- * Health ID check" until the one-time check, "Create your first campaign", "Your team", the person's agreement before
- * they are registered, notes kept short, a campaign required, the duplicate hint, no Health ID linking, and the offline
- * queue. Fictional data only.
+ * An outreach group's own Outreach (open sign-up on outreach., owner decisions of 11 November 2026): no Health ID check
+ * before its campaigns go live (decision Q38), "This outreach group is paused" once paused, "Create your first
+ * campaign", "Your team", the person's agreement before they are registered (told the group is an unverified
+ * organiser), notes kept short, a campaign required, the duplicate hint, no Health ID linking, and the offline queue.
+ * Fictional data only.
  */
 
 const GROUP_ID = '0e7c0000-0000-4000-8000-000000000001'
@@ -72,22 +73,19 @@ function fillPerson(age = '30') {
 }
 
 describe('an outreach group’s Outreach', () => {
-  it('says the group waits for Health ID’s check, and asks Health ID nothing it does not need', async () => {
+  it('says nothing of a Health ID check for a new (unverified) group, and asks Health ID nothing it does not need', async () => {
     renderDept(<Outreach />)
-    expect(await screen.findByText('Waiting for a Health ID check')).toBeTruthy()
-    expect(document.body.textContent).toContain('no campaign can be opened')
+    await screen.findByRole('list', { name: 'Campaigns' })
     expect(api.outreachCampaignGovernance).toHaveBeenCalledWith(GROUP_ID)
+    expect(document.body.textContent).not.toMatch(/Health ID check|checks every new outreach group|no campaign can be opened/)
+    expect(screen.queryByText('This outreach group is paused')).toBeNull()
   })
 
-  it('says nothing about a check once the group is checked, and says a paused group is paused', async () => {
-    api.outreachCampaignGovernance.mockResolvedValue({ rule: 'campaign_admins', organiserStatus: 'reviewed' })
-    const view = renderDept(<Outreach />)
-    await screen.findByRole('list', { name: 'Campaigns' })
-    expect(screen.queryByText('Waiting for a Health ID check')).toBeNull()
-    view.unmount()
+  it('says a paused group is paused', async () => {
     api.outreachCampaignGovernance.mockResolvedValue({ rule: 'campaign_admins', organiserStatus: 'suspended' })
-    renderDept(<Outreach />)
+    const view = renderDept(<Outreach />)
     expect(await screen.findByText('This outreach group is paused')).toBeTruthy()
+    view.unmount()
   })
 
   it('offers “Create your first campaign” when the group has none', async () => {
@@ -163,6 +161,7 @@ describe('registering someone at an outreach group', () => {
     await openNewRegistration()
     const notice = screen.getByRole('note', { name: 'Registration notice' })
     expect(notice.textContent).toContain('Ajegunle Health Volunteers is registering people at this event on Health ID Outreach.')
+    expect(notice.textContent).toContain('Unverified organiser. Health ID has not checked who runs Ajegunle Health Volunteers.')
     expect(notice.textContent).toContain('deleted 1 year after the campaign closes')
     expect(notice.textContent).toContain('You can say no.')
     fillPerson()
@@ -261,11 +260,11 @@ describe('the offline queue', () => {
       accountId: 'staff-demo-1', facilityId: GROUP_ID, savedAt: new Date().toISOString(), state: 'waiting',
       input: { campaignId: 'campaign-1', fullName: 'Ibrahim Musa', sex: 'male', ageYears: 61 } })
     setOutreachQueueStore(store)
-    api.createOutreachCase.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_AWAITING_REVIEW' }))
+    api.createOutreachCase.mockRejectedValue(new HidApiError(423, 'x', { code: 'OUTREACH_ORGANISER_SUSPENDED' }))
     renderDept(<Outreach />)
     const queue = await screen.findByRole('region', { name: 'Saved on this device' })
     expect(await within(queue).findByText('Not accepted')).toBeTruthy()
-    expect(within(queue).getByText(/Health ID checks every new outreach group once/)).toBeTruthy()
+    expect(within(queue).getByText(/This outreach group has been paused by Health ID/)).toBeTruthy()
     await press(within(queue).getByRole('button', { name: 'Remove from this device' }))
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull())
     expect(await store.list()).toEqual([])

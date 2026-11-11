@@ -22,7 +22,8 @@ const NEW_GROUP = '0e7c0000-0000-4000-8000-000000000003'
 beforeEach(() => {
   vi.clearAllMocks()
   api.outreachGroupAvailability.mockResolvedValue({ open: true, termsVersion: '2026-11-01' })
-  api.startOutreachGroup.mockResolvedValue({ started: true, organizationId: 'org-3', facilityId: NEW_GROUP, membershipId: 'm-3', reviewState: 'pending' })
+  api.startOutreachGroup.mockResolvedValue({ started: true, organizationId: 'org-3', facilityId: NEW_GROUP, membershipId: 'm-3', organiserStatus: 'active',
+    label: 'Unverified organiser' })
   staff.refresh.mockResolvedValue(undefined)
   staff.selectFacility.mockResolvedValue(true)
 })

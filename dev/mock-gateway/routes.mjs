@@ -226,8 +226,9 @@ const outreachProblem = (status, code, detail) => [status, { type: 'about:blank'
 function outreachCampaignRoute(method, path, { body, headers } = {}) {
   const base = '/outreach/registration-cases/campaigns'
   if (method === 'GET' && path === `${base}/governance`) {
+    // Health ID never verifies an outreach group (owner decision Q38): any group not paused is 'unverified'.
     return [200, { rule: 'campaign_admins', organiserStatus: options.facility !== 'outreach' ? 'not_outreach_group'
-      : outreachGroupState.reviewState === 'pending' ? 'unverified' : outreachGroupState.reviewState }]
+      : outreachGroupState.status === 'suspended' ? 'suspended' : 'unverified' }]
   }
   const match = new RegExp(`^${base}/([^/]+)/(staff|status|members)$`).exec(path)
   const campaign = match ? outreachCampaignStore.find(entry => entry.id === decodeURIComponent(match[1])) : undefined
@@ -275,10 +276,11 @@ function outreachCampaignRoute(method, path, { body, headers } = {}) {
 }
 // --------------------------------------------- open sign-up on outreach. --
 // Owner decisions of 11 November 2026: the organiser sign-up (details, email code, terms, password), "Start an outreach
-// group" for a signed-in login, the team's invitations, accepting one, and support's queue. Fictional data only; what is
-// made lasts until the mock restarts. The demo code is 123456.
+// group" for a signed-in login, the team's invitations, accepting one, and support's list. No Health ID check before a
+// group's campaigns go live (decision Q38). Fictional data only; what is made lasts until the mock restarts. The demo
+// code is 123456.
 const OUTREACH_TERMS = '2026-11-01'
-const outreachGroupState = { reviewState: 'pending' }
+const outreachGroupState = { status: 'active' }
 const outreachSignups = new Map()
 const outreachInvitationStore = [
   { invitationId: 'b1000000-0000-4000-8000-000000000002', name: 'Chinedu Eze', email: 'chinedu@example.test', status: 'pending', expiresAt: iso(6 * DAY), createdAt: iso(-3 * 60 * MIN), acceptedAt: null },
@@ -291,15 +293,16 @@ const outreachTeamMembers = [
 const outreachOrganiserStore = [
   { organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, version: 1, displayName: null, groupName: 'Ajegunle Health Volunteers', kind: 'group',
     registrationNumber: 'IT123456', organiserName: 'Funke Ade', organiserEmail: 'funke@example.test', phone: '+2348012345678', termsVersion: OUTREACH_TERMS,
-    createdAt: iso(-5 * 60 * MIN), reviewedAt: null, suspendedAt: null, campaigns: 1, activeCampaigns: 0, members: 2, pendingInvitations: 1 },
+    createdAt: iso(-5 * 60 * MIN), suspendedAt: null, suspensionReason: null, campaigns: 1, activeCampaigns: 0, members: 2, pendingInvitations: 1 },
   { organizationId: 'org-outreach-demo-2', facilityId: '0e7c0000-0000-4000-8000-000000000002', version: 2, displayName: 'Makoko Youth Health Club', groupName: 'Makoko Youth Health Club', kind: 'group',
     registrationNumber: null, organiserName: 'Tobi Bello', organiserEmail: 'tobi@example.test', phone: '+2348098765432', termsVersion: OUTREACH_TERMS,
-    createdAt: iso(-9 * DAY), reviewedAt: iso(-8 * DAY), suspendedAt: null, campaigns: 3, activeCampaigns: 1, members: 6, pendingInvitations: 0 },
+    createdAt: iso(-9 * DAY), suspendedAt: null, suspensionReason: null, campaigns: 3, activeCampaigns: 1, members: 6, pendingInvitations: 0 },
 ]
-const outreachOrganiserRows = () => outreachOrganiserStore.map(row => {
-  const reviewState = row.organizationId === 'org-outreach-demo' ? outreachGroupState.reviewState : row.suspendedAt ? 'suspended' : row.reviewedAt ? 'reviewed' : 'pending'
-  return { ...row, reviewState, label: reviewState === 'reviewed' ? 'Checked by Health ID' : reviewState === 'suspended' ? 'Paused' : 'Unverified organiser' }
-})
+/** identity-api's list: `status` active, suspended or all (the default), each row with its status and label. */
+const outreachOrganiserRows = (status) => outreachOrganiserStore.map(row => {
+  const rowStatus = row.suspendedAt ? 'suspended' : 'active'
+  return { ...row, status: rowStatus, label: rowStatus === 'suspended' ? 'Paused' : 'Unverified organiser' }
+}).filter(row => status !== 'active' && status !== 'suspended' ? true : row.status === status)
 
 function outreachSignupRoute(method, path, { body } = {}) {
   const signup = '/identity/outreach-organisers'
@@ -323,11 +326,12 @@ function outreachSignupRoute(method, path, { body } = {}) {
   }
   if (method === 'POST' && path === `${signup}/activate`) {
     if (body?.termsVersion !== OUTREACH_TERMS || body?.acceptTerms !== true) return outreachProblem(409, 'OUTREACH_TERMS_VERSION_INVALID', 'Reload the terms.')
-    return [200, { activated: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, accountId: 'staff-demo-1', reviewState: 'pending',
+    return [200, { activated: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, accountId: 'staff-demo-1', organiserStatus: 'active', label: 'Unverified organiser',
       actor: staffSession().actor, expiresAt: iso(15 * MIN) }]
   }
   if (method === 'POST' && path === `${signup}/for-my-account`) {
-    return [201, { started: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, membershipId: 'member-outreach-1', reviewState: 'pending' }]
+    return [201, { started: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, membershipId: 'member-outreach-1', organiserStatus: 'active',
+      label: 'Unverified organiser' }]
   }
   const invitations = '/identity/outreach-invitations'
   if (method === 'GET' && path === invitations) {
@@ -361,25 +365,22 @@ function adminOutreachVersion(headers, body) {
   return Number.isSafeInteger(version) && version >= 1 ? version : null
 }
 
-function adminOutreachRoute(method, path, { body, headers } = {}) {
-  if (method === 'GET' && path === '/admin/outreach-organisers') return [200, { organisers: outreachOrganiserRows() }]
-  const organiser = method === 'POST' && /^\/admin\/outreach-organisers\/([^/]+)\/(review|suspend)$/.exec(path)
+function adminOutreachRoute(method, path, { body, headers, query } = {}) {
+  if (method === 'GET' && path === '/admin/outreach-organisers') return [200, { organisers: outreachOrganiserRows(query?.get?.('status') ?? 'all') }]
+  // Pausing a group; there is no review route (decision Q38).
+  const organiser = method === 'POST' && /^\/admin\/outreach-organisers\/([^/]+)\/suspend$/.exec(path)
   if (organiser) {
     const row = outreachOrganiserStore.find(entry => entry.organizationId === decodeURIComponent(organiser[1]))
     if (!row) return outreachProblem(404, 'OUTREACH_ORGANISER_NOT_FOUND', 'That outreach group was not found.')
     const version = adminOutreachVersion(headers, body)
     if (version === null) return outreachProblem(428, 'OUTREACH_ADMIN_VERSION_REQUIRED', 'Reload the list, then try again.')
     if (version !== row.version) return outreachProblem(409, 'OUTREACH_ORGANISER_VERSION_CONFLICT', 'Someone else changed this outreach group just now. Reload the list and try again.')
+    if (row.suspendedAt) return outreachProblem(409, 'OUTREACH_ORGANISER_ALREADY_SUSPENDED', 'This outreach group is already paused.')
     row.version += 1
-    if (organiser[2] === 'review') {
-      row.reviewedAt = iso()
-      if (body?.displayName) row.displayName = body.displayName
-      if (row.organizationId === 'org-outreach-demo') outreachGroupState.reviewState = 'reviewed'
-      return [200, { organizationId: row.organizationId, version: row.version, reviewState: 'reviewed', label: 'Checked by Health ID' }]
-    }
     row.suspendedAt = iso()
-    if (row.organizationId === 'org-outreach-demo') outreachGroupState.reviewState = 'suspended'
-    return [200, { organizationId: row.organizationId, version: row.version, reviewState: 'suspended', label: 'Paused', revokedRoles: row.members }]
+    row.suspensionReason = body?.reason ?? null
+    if (row.organizationId === 'org-outreach-demo') outreachGroupState.status = 'suspended'
+    return [200, { organizationId: row.organizationId, version: row.version, status: 'suspended', label: 'Paused', revokedRoles: row.members }]
   }
   const campaign = method === 'POST' && /^\/admin\/outreach-campaigns\/([^/]+)\/(close|admins)$/.exec(path)
   if (campaign) {

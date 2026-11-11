@@ -1321,11 +1321,11 @@ export interface OutreachCaseInput {
 }
 
 /**
- * An outreach group's standing with Health ID, from the governance read (open sign-up, outreach-api): 'unverified'
- * until Health ID's one-time check (campaigns can be set up and practised, not started), 'reviewed', 'suspended'
- * (paused by Health ID), 'not_outreach_group' at a hospital's facility, or 'unknown' when it could not be read.
+ * An outreach group's standing with Health ID, from the governance read (open sign-up, outreach-api): 'unverified' for
+ * any group that is not paused (Health ID never verifies one, and its campaigns can go live at once: owner decision Q38),
+ * 'suspended' (paused by Health ID), 'not_outreach_group' at a hospital's facility, or 'unknown' when it could not be read.
  */
-export type OutreachOrganiserStatus = 'not_outreach_group' | 'unverified' | 'reviewed' | 'suspended' | 'unknown'
+export type OutreachOrganiserStatus = 'not_outreach_group' | 'unverified' | 'suspended' | 'unknown'
 
 /** One of an organiser's team invitations (GET identity/outreach-invitations), newest first. */
 export interface OutreachInvitation {
@@ -1359,13 +1359,14 @@ export interface OutreachInvitationCreated {
   replayed: boolean
 }
 
-/** "Start an outreach group" for a signed-in account: the new group, which waits for Health ID's one-time check. */
+/** "Start an outreach group" for a signed-in account: the new group, whose campaigns can go live at once. */
 export interface OutreachGroupStarted {
   started: true
   organizationId: string
   facilityId: string
   membershipId: string
-  reviewState: 'pending'
+  organiserStatus: 'active'
+  label: 'Unverified organiser' | string
 }
 
 /** The group details both ways of starting an outreach group send. */
@@ -1812,7 +1813,8 @@ export interface OutreachOrganiserActivation {
   organizationId: string
   facilityId: string
   accountId: string
-  reviewState: 'pending'
+  organiserStatus: 'active'
+  label: 'Unverified organiser' | string
   actor?: StaffSession['actor']
   expiresAt: string
 }
@@ -2462,7 +2464,7 @@ export const staffApi = {
 
   /*
    * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach
-   * volunteer, before or after Health ID's check. Identity answers only the organiser at the group (403
+   * volunteer. Identity answers only the organiser at the group (403
    * OUTREACH_ORGANISER_REQUIRED otherwise); an Identity without the routes answers 404.
    */
   outreachInvitations: (facilityId: string) =>

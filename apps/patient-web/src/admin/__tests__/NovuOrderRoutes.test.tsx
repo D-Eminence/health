@@ -85,8 +85,8 @@ describe('orders between facilities in the Novu console', () => {
       .find(section => section.title === 'Organizations')?.items.map(item => item.title) ?? []
     expect(organizations(['platform.admin.access', 'platform.principal.read', 'platform.facility.read'])).toEqual([
       // Open sign-up on outreach.: support's queue is listed for platform.facility.read too.
-      'Outreach organisers to check', 'Facilities', 'Orders between facilities', 'Wrong-patient reports'])
-    expect(organizations(['platform.admin.access', 'platform.facility.read'])).toEqual(['Outreach organisers to check', 'Facilities',
+      'Outreach organisers', 'Facilities', 'Orders between facilities', 'Wrong-patient reports'])
+    expect(organizations(['platform.admin.access', 'platform.facility.read'])).toEqual(['Outreach organisers', 'Facilities',
       'Wrong-patient reports'])
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     expect(isServed(NAVIGATION_ITEMS.find(item => item.path === '/admin/order-routes')!)).toBe(false)

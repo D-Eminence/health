@@ -234,9 +234,10 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
 }
 
 /**
- * The person's agreement, before anything about them is written down (open sign-up on outreach.): the notice, read to
- * them or read by them, in the language chosen (any but English means it was read aloud in that language), how they
- * agreed, and the name of the parent or guardian who agreed for anyone under 18.
+ * The person's agreement, before anything about them is written down (open sign-up on outreach.): that the group is an
+ * unverified organiser, and the notice, read to them or read by them, in the language chosen (any but English means it
+ * was read aloud in that language), how they agreed, and the name of the parent or guardian who agreed for anyone under
+ * 18.
  */
 function ConsentStep({ group, language, method, onLanguage, onMethod, methodError, methodAlert, guardian }: {
   readonly group: string
@@ -251,6 +252,8 @@ function ConsentStep({ group, language, method, onLanguage, onMethod, methodErro
   return (
     <Step n={1} title="Their agreement" hint="Before you write anything down, give them this notice and ask if they agree.">
       <div className="rounded-xl bg-subtle p-4 text-body text-ink" aria-label="Registration notice" role="note">
+        {/* Health ID never verifies an outreach group (owner decision Q38), and the person is told so before agreeing. */}
+        <p className="m-0 mb-2"><strong>Unverified organiser.</strong> Health ID has not checked who runs {group.trim() || 'this outreach group'}.</p>
         {registrationNotice(group).map(line => <p key={line} className="m-0 mb-2 last:mb-0">{line}</p>)}
       </div>
       <OutreachField id="outreach-consent-language" label="Language the notice was given in" required

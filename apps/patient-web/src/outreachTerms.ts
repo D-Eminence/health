@@ -58,9 +58,9 @@ export const ORGANISER_TERMS: readonly TermsSection[] = [
     'Health ID then decides what must be done, including telling the Nigeria Data Protection Commission when the law '
       + 'requires it.',
   ] },
-  { heading: 'Health ID’s one-time check', paragraphs: [
-    'Before your group’s first campaign can start registering people, someone from Health ID checks your group once. We '
-      + 'aim to do this the same working day. Until then you can set up campaigns, invite your team and practise.',
+  { heading: 'Health ID does not check your group', paragraphs: [
+    'Health ID does not check who you are before your campaigns start. The people you register are told that your group is '
+      + 'an unverified organiser. Do not use a name that suggests you are a hospital, a ministry or another official body.',
     'Health ID may pause your group, or close a campaign, if these terms are not followed or if people report a problem. '
       + 'While your group is paused, nobody in it can register anyone.',
   ] },
@@ -84,7 +84,7 @@ export const ORGANISER_TERMS_SUMMARY: readonly string[] = [
   'Read the notice to each person and record how they agreed. A parent or guardian agrees for anyone under 18.',
   'No diagnoses or test results in the notes.',
   'Tell Health ID support within 24 hours if details may have been seen by the wrong person.',
-  'Health ID checks your group once before your first campaign starts.',
+  'Health ID does not check your group: people you register are told you are an unverified organiser.',
   `Details never linked to a Health ID are deleted ${RETENTION_WORDS}.`,
   'It is free for now.',
 ]

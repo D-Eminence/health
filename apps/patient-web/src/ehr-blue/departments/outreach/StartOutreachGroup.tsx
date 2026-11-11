@@ -17,8 +17,9 @@ const FAILED = 'Your outreach group could not be started. Please try again.'
 /**
  * "Start an outreach group" (owner decision 5 of 11 November 2026): someone who already has a Health ID staff login,
  * such as a hospital worker, starts their own outreach group with the same login. They become its organiser, at the
- * group's own new facility, and keep every role they have at their hospital; Switch facility moves between them. The
- * group waits for Health ID's one-time check like any new group. Identity decides it all; closed while the switch is off.
+ * group's own new facility, and keep every role they have at their hospital; Switch facility moves between them. As
+ * with any new group, Health ID does not check it first (decision Q38): its campaigns can open at once. Identity decides
+ * it all; closed while the switch is off.
  */
 export function StartOutreachGroup() {
   const { state, selectFacility, refresh } = useStaff()
@@ -93,8 +94,8 @@ export function StartOutreachGroup() {
   }
   if (started) {
     return <FormPage title="Your outreach group is ready" description={`You are the organiser of ${started}.`}>
-      <Alert intent="success" title="Group started">Use Switch facility to open {started}. Before its first campaign can start
-        registering people, Health ID checks the group once. We aim to do this the same working day.</Alert>
+      <Alert intent="success" title="Group started">Use Switch facility to open {started}, then create its first campaign and
+        invite your team.</Alert>
       <FormActions sticky={false} align="start"><Button variant="primary" onClick={() => navigate('/provider/institutions')}>Switch facility</Button></FormActions>
     </FormPage>
   }
@@ -118,7 +119,7 @@ export function StartOutreachGroup() {
             </EhrSelect>
           </OutreachField>
           <OutreachField id="start-group-phone" label="Phone number" required error={problems.phone}
-            hint="Health ID may call this number when it checks your group.">
+            hint="Health ID may call this number if there is a problem with your group.">
             <EhrInput type="tel" inputMode="tel" maxLength={32} autoComplete="tel" value={details.phone}
               onChange={event => setDetails(previous => ({ ...previous, phone: event.target.value }))}
               {...controlProps('start-group-phone', problems.phone, true)} />

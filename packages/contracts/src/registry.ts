@@ -1008,7 +1008,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('outreach.campaigns','outreach','/api/v1/outreach/registration-cases/campaigns',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   proposed(r('outreach.campaignGovernance','outreach','/api/v1/outreach/registration-cases/campaigns/governance',G,false,one('GET','outreach.campaign.read'),
-    `${OUTREACH_CAMPAIGN_ADMINS} Answers { rule: 'campaign_admins' }.`)),
+    `${OUTREACH_CAMPAIGN_ADMINS} Answers { rule: 'campaign_admins' }. With open sign-up on outreach. it adds organiserStatus `
+    + '(not_outreach_group|unverified|suspended|unknown): unverified is any outreach group not paused; nothing waits for a check.')),
   proposed(r('outreach.campaignStaff','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/staff',G,false,one('GET','outreach.campaign.read'),
     `${OUTREACH_CAMPAIGN_ADMINS} Answers { yourRole, people: [{ membershipId, name, campaignRole }] }: a campaign's members by name, `
     + 'and to its admins the facility\'s active staff who could be added (campaignRole null); a non-member is sent no one.')),
@@ -1034,14 +1035,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('enrollment.outreachOrganiserActivate','enrollment','/api/v1/identity/outreach-organisers/activate',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { termsVersion: '2026-11-01', acceptTerms: true, password (12 `
     + 'to 256) }. Signs the organiser in as a staff sign-in does: 200 { activated, organizationId, facilityId, accountId, '
-    + 'reviewState: \'pending\', actor, expiresAt }. 409 OUTREACH_TERMS_VERSION_INVALID.')),
+    + 'organiserStatus: \'active\', label: \'Unverified organiser\', actor, expiresAt }. 409 OUTREACH_TERMS_VERSION_INVALID. '
+    + 'No Health ID check follows: the group\'s campaigns can go live at once (owner decision Q38).')),
   proposed(r('identity.outreachGroupAvailability','identity','/api/v1/identity/outreach-organisers/for-my-account/availability',G,false,undefined,
     `${OUTREACH_SIGNUP} A staff session, no X-Facility-ID: 200 { open, termsVersion }.`)),
   proposed(r('identity.outreachGroupStart','identity','/api/v1/identity/outreach-organisers/for-my-account',P,false,undefined,
     `${OUTREACH_SIGNUP} "Start an outreach group" (owner decision 5): a staff session with CSRF, no X-Facility-ID. Body { `
     + 'groupName, kind, registrationNumber?, phone, termsVersion, acceptTerms: true }. 201 { started, organizationId, '
-    + 'facilityId, membershipId, reviewState: \'pending\' }: the account becomes the new group\'s organiser beside its hospital '
-    + 'roles. 403 OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED, 409 OUTREACH_ORGANISER_ALREADY_RUNNING.')),
+    + 'facilityId, membershipId, organiserStatus: \'active\', label: \'Unverified organiser\' }: the account becomes the new '
+    + 'group\'s organiser beside its hospital roles. 403 OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED, 409 OUTREACH_ORGANISER_ALREADY_RUNNING.')),
   proposed(r('identity.outreachInvitations','identity','/api/v1/identity/outreach-invitations',GP,false,
     { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
     `${OUTREACH_SIGNUP} The organiser at the X-Facility-ID outreach group only (403 OUTREACH_ORGANISER_REQUIRED). GET: { `
@@ -1296,24 +1298,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'no Idempotency-Key or step-up. Answers { applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, '
     + '409 VERSION_CONFLICT. Unless allowRetry, its email and network then can\'t start a sign-up for the CAC number and '
     + 'product for 7 days.')),
-  // Open sign-up on outreach.: support's "Outreach organisers to check" queue, the one-click check, pausing a group, and
-  // rescuing a campaign whose only admin has gone.
+  // Open sign-up on outreach.: support's "Outreach organisers" list, pausing a group, and rescuing a campaign whose only
+  // admin has gone. There is no review route: Health ID does not check a group before its campaigns go live (Q38).
   proposed(r('admin.outreachOrganisers','admin','/api/v1/admin/outreach-organisers',G,false,one('GET','platform.facility.read'),
-    `${OUTREACH_SIGNUP} Query reviewState (pending|reviewed|suspended), optional. 200 { organisers: [{ organizationId, `
+    `${OUTREACH_SIGNUP} Query status (active|suspended|all), all by default. 200 { organisers: [{ organizationId, `
     + 'facilityId, version, displayName, groupName, kind, registrationNumber, origin, organiserAccountId, organiserName, '
-    + 'organiserEmail, phone, reviewState, label, reviewedAt, reviewNote, suspendedAt, suspensionReason, createdAt, termsVersion, '
-    + 'members, pendingInvitations, campaigns, activeCampaigns }] }.')),
-  proposed(r('admin.outreachOrganiserReview','admin','/api/v1/admin/outreach-organisers/:organizationId/review',P,false,
-    one('POST','platform.facility.manage','platform.facility.unlock'),
-    `${OUTREACH_SIGNUP} One click: If-Match with the list's version (or body.version), else 428 `
-    + 'OUTREACH_ADMIN_VERSION_REQUIRED; optional { displayName, note }. 200 { organizationId, version, reviewState: '
-    + '\'reviewed\', label }. 409 OUTREACH_ORGANISER_VERSION_CONFLICT or OUTREACH_ORGANISER_NOT_PENDING, 404 '
-    + 'OUTREACH_ORGANISER_NOT_FOUND. Needs platform.facility.manage and platform.facility.unlock.')),
+    + 'organiserEmail, phone, status (active|suspended), label (Unverified organiser|Paused), suspendedAt, suspensionReason, '
+    + 'createdAt, termsVersion, members, pendingInvitations, campaigns, activeCampaigns }] }.')),
   proposed(r('admin.outreachOrganiserSuspend','admin','/api/v1/admin/outreach-organisers/:organizationId/suspend',P,false,
     one('POST','platform.facility.manage','platform.facility.unlock'),
     `${OUTREACH_SIGNUP} If-Match with the list's version, else 428 OUTREACH_ADMIN_VERSION_REQUIRED. Body { reason (8 to 500) `
-    + '}. 200 { organizationId, version, reviewState: \'suspended\', label, revokedRoles }; the group\'s roles are revoked. 409 '
-    + 'OUTREACH_ORGANISER_ALREADY_SUSPENDED or OUTREACH_ORGANISER_VERSION_CONFLICT.')),
+    + '}. 200 { organizationId, version, status: \'suspended\', label: \'Paused\', revokedRoles }; the group\'s roles are '
+    + 'revoked. 409 OUTREACH_ORGANISER_ALREADY_SUSPENDED or OUTREACH_ORGANISER_VERSION_CONFLICT, 404 OUTREACH_ORGANISER_NOT_FOUND.')),
   proposed(r('admin.outreachCampaignClose','admin','/api/v1/admin/outreach-campaigns/:campaignId/close',P,false,
     one('POST','platform.facility.manage','platform.facility.unlock'),
     `${OUTREACH_SIGNUP} If-Match with the campaign's version (its rowVersion), else 428 OUTREACH_ADMIN_VERSION_REQUIRED. Body `

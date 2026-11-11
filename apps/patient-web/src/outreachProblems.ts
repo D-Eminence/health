@@ -58,7 +58,6 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_INVITATION_RATE_LIMITED: 'Too many tries from this network. Please wait an hour and try again.',
   OUTREACH_INVITATION_UNAVAILABLE: 'Invitations aren’t working right now. Please try again in a few minutes.',
   // Registering at an outreach group (outreach-api).
-  OUTREACH_ORGANISER_AWAITING_REVIEW: 'Health ID checks every new outreach group once before its first campaign can start. You can keep setting up and practising. We aim to check groups the same day.',
   OUTREACH_TENANT_NO_HEALTH_ID_LINK: 'Outreach groups can’t link people to a Health ID. The person can link their own Health ID later, from their own account.',
   OUTREACH_CONSENT_GUARDIAN_REQUIRED: 'This person is under 18. Enter the name of the parent or guardian who agreed.',
   OUTREACH_CONSENT_REQUIRED: 'Read the notice to the person and record how they agreed before registering them.',

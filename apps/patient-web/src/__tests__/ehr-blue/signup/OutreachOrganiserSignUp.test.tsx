@@ -29,7 +29,7 @@ beforeEach(() => {
   api.availability.mockResolvedValue({ open: true, termsVersion: '2026-11-01' })
   api.start.mockResolvedValue({ accepted: true, challengeId: CHALLENGE, expiresInSeconds: 600, resendAfterSeconds: 60 })
   api.verify.mockResolvedValue({ verified: true })
-  api.activate.mockResolvedValue({ activated: true, organizationId: 'org-1', facilityId: 'f-1', accountId: 'a-1', reviewState: 'pending', expiresAt: '2026-11-11T10:00:00.000Z' })
+  api.activate.mockResolvedValue({ activated: true, organizationId: 'org-1', facilityId: 'f-1', accountId: 'a-1', organiserStatus: 'active', label: 'Unverified organiser', expiresAt: '2026-11-11T10:00:00.000Z' })
 })
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -83,7 +83,8 @@ describe('Start running outreach', () => {
     await press('Create my outreach group')
     expect(api.activate).toHaveBeenCalledWith({ termsVersion: '2026-11-01', password: 'a long fictional passphrase' })
     expect(await screen.findByRole('heading', { level: 1, name: 'Your outreach group is ready' })).toBeTruthy()
-    expect(document.body.textContent).toContain('Health ID checks your group once')
+    expect(document.body.textContent).toContain('open the campaign when your event starts')
+    expect(document.body.textContent).not.toMatch(/checks your group|same working day/)
     expect(screen.getByRole('link', { name: 'Open Outreach' }).getAttribute('href')).toBe('/provider/outreach')
   })
 

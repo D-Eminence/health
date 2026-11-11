@@ -34,19 +34,10 @@ export const LINKS_LATER = 'The person links their own Health ID to this registr
   + 'Outreach groups can’t link people to a Health ID.'
 
 /**
- * Where the group stands with Health ID: "Waiting for a Health ID check" until the one-time check, or paused. Nothing
- * once checked, at a hospital, or when Outreach could not say.
+ * Whether Health ID has paused the group. Health ID does not check a group before its campaigns go live (owner decision
+ * Q38), so a group that is not paused, a hospital, or an Outreach that could not say shows nothing.
  */
 export function OutreachGroupBanner({ status }: { readonly status: OutreachOrganiserStatus | undefined }) {
-  if (status === 'unverified') {
-    return (
-      <Alert intent="warning" title="Waiting for a Health ID check">
-        Health ID checks every new outreach group once before its first campaign can start registering people. We aim to do
-        this the same working day. Until then you can create campaigns, invite your team and practise, but no campaign can
-        be opened. Planning an event? Sign up well before it.
-      </Alert>
-    )
-  }
   if (status === 'suspended') {
     return (
       <Alert intent="error" title="This outreach group is paused">
@@ -75,8 +66,7 @@ const NAME = /^[\p{L}\p{M}0-9][\p{L}\p{M}0-9 .,'&()/-]*$/u
 
 /**
  * "Your team" (the organiser's): invite helpers by email, each as an outreach volunteer, and see who has joined. Helpers
- * register people at the group's campaigns; they can't see any hospital's records. Invitations work before Health ID's
- * check, so a team can set up and practise.
+ * register people at the group's campaigns; they can't see any hospital's records.
  */
 export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
   const load = useCallback((id: string) => staffApi.outreachInvitations(id)

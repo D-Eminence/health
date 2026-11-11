@@ -74,13 +74,14 @@ export interface AuditFilters {
   resourceType?: string; resourceId?: string
 }
 /**
- * An outreach group in support's queue (open sign-up on outreach., owner decisions of 11 November 2026): the group, its
- * organiser with the phone they gave, where it stands, and what it has done. "Unverified organiser" until checked once.
+ * An outreach group on support's list (open sign-up on outreach., owner decisions of 11 November 2026, and decision Q38:
+ * Health ID does not check a group before its campaigns go live): the group, its organiser with the phone they gave,
+ * whether it is paused, and what it has done. Its label is "Unverified organiser", or "Paused".
  */
 export interface OutreachOrganiser {
   organizationId: string
   facilityId: string
-  /** The group's row version: the review and the pause send it back as If-Match. */
+  /** The group's row version: pausing it sends it back as If-Match. */
   version: number
   displayName: string | null
   groupName: string
@@ -89,13 +90,11 @@ export interface OutreachOrganiser {
   organiserName: string | null
   organiserEmail: string | null
   phone: string | null
-  reviewState: 'pending' | 'reviewed' | 'suspended' | string
+  status: 'active' | 'suspended' | string
   label?: string
-  reviewedAt: string | null
   suspendedAt: string | null
   createdAt: string | null
   termsVersion: string | null
-  reviewNote?: string | null
   suspensionReason?: string | null
   campaigns: number
   activeCampaigns: number
@@ -103,12 +102,13 @@ export interface OutreachOrganiser {
   pendingInvitations: number
 }
 
-/** The answer to a review or a pause: the group's new version and state. */
+/** The answer to a pause: the group's new version and status, and how many roles were taken away. */
 export interface OutreachOrganiserChanged {
   organizationId: string
   version: number
-  reviewState: string
+  status: string
   label?: string
+  revokedRoles?: number
 }
 
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
@@ -1072,21 +1072,16 @@ export const adminApi = {
       { decisionCode, reason }, { version: application.version, idempotencyKey })
   },
   /**
-   * Support's "Outreach organisers to check" (open sign-up on outreach.): the groups in one state, pending (waiting for
-   * their one-time check) by default. An Identity without the route answers 404, said as OUTREACH_ORGANISERS_UNAVAILABLE.
+   * Support's "Outreach organisers" (open sign-up on outreach.): the groups that are running (`active`, the default here),
+   * paused, or all. An Identity without the route answers 404, said as OUTREACH_ORGANISERS_UNAVAILABLE.
    */
-  outreachOrganisers(reviewState: 'pending' | 'reviewed' | 'suspended', signal?: AbortSignal) {
-    return outreachRead(request<{ organisers: OutreachOrganiser[] }>('/api/v1/admin/outreach-organisers', { signal, query: { reviewState } }))
+  outreachOrganisers(status: 'active' | 'suspended' | 'all', signal?: AbortSignal) {
+    return outreachRead(request<{ organisers: OutreachOrganiser[] }>('/api/v1/admin/outreach-organisers', { signal, query: { status } }))
   },
   /**
-   * One click: marks the group checked, so its campaigns can start; optionally the name it is shown by. Identity needs
-   * the version the list gave (If-Match), else it answers 428 OUTREACH_ADMIN_VERSION_REQUIRED.
+   * Pauses the group: nobody in it can register people or change campaigns. Identity needs the version the list gave
+   * (If-Match), else it answers 428 OUTREACH_ADMIN_VERSION_REQUIRED.
    */
-  reviewOutreachOrganiser(organiser: Pick<OutreachOrganiser, 'organizationId' | 'version'>, body: { displayName?: string } = {}) {
-    return outreachRead(adminApi.command<OutreachOrganiserChanged>(
-      at('/api/v1/admin/outreach-organisers', organiser.organizationId, 'review'), body, { version: organiser.version }))
-  },
-  /** Pauses the group: nobody in it can register people or change campaigns. With the list's version, as the review. */
   suspendOutreachOrganiser(organiser: Pick<OutreachOrganiser, 'organizationId' | 'version'>, reason: string) {
     return outreachRead(adminApi.command<OutreachOrganiserChanged>(
       at('/api/v1/admin/outreach-organisers', organiser.organizationId, 'suspend'), { reason }, { version: organiser.version }))

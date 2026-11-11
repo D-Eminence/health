@@ -45,7 +45,7 @@ export function OutreachOrganiserSignUp() {
 
 function OutreachFooter() {
   return <p>Starting an outreach group sets up your group’s own private Outreach space and the organiser’s login. Health
-    ID checks every new group once before its first campaign starts registering people.</p>
+    ID does not check your group, so the people you register are told you are an unverified organiser.</p>
 }
 
 function OpenOnOutreach({ href }: { readonly href: string }) {
@@ -215,7 +215,7 @@ function SignUpSteps() {
               onChange={event => setDetails(previous => ({ ...previous, email: event.target.value }))} />
           </EhrField>
           <EhrField label={<Required>Phone number</Required>} controlId="outreach-signup-phone" error={field('phone')}
-            hint="Health ID may call this number when it checks your group.">
+            hint="Health ID may call this number if there is a problem with your group.">
             <EhrInput type="tel" inputMode="tel" required maxLength={32} autoComplete="tel" value={details.phone}
               onChange={event => setDetails(previous => ({ ...previous, phone: event.target.value }))} />
           </EhrField>
@@ -316,9 +316,8 @@ function TermsChanged() {
 function Ready() {
   return <>
     <ScreenHeading id="outreach-signup-ready">Your outreach group is ready</ScreenHeading>
-    <p className="hid-ehr-signup-intro">You are signed in as its organiser. Create your first campaign and invite your team
-      now. Before your first campaign can start registering people, Health ID checks your group once. We aim to do this the
-      same working day, so sign up well before your event.</p>
+    <p className="hid-ehr-signup-intro">You are signed in as its organiser. Create your first campaign, invite your team and
+      open the campaign when your event starts.</p>
     <a className="hid-ehr-button hid-ehr-signup-wide" href="/provider/outreach">Open Outreach</a>
   </>
 }

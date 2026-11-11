@@ -4,19 +4,19 @@ import { adminApi, type AdminActor, type OutreachOrganiser } from './api'
 import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useResource, useUrlFilters } from './ui'
 
 /**
- * Support's "Outreach organisers to check" (open sign-up on outreach., owner decisions of 11 November 2026). Anyone can
- * sign up to run outreach; before a group's first campaign can start registering people, Health ID checks it once
- * (decision 1). The check is one click. Support can also pause a group, close a campaign whose only admin has gone, or
- * make another member its admin. There are no limits to raise (decision 2) and nothing to bill (decision 6).
+ * Support's "Outreach organisers" (open sign-up on outreach., owner decisions of 11 November 2026). Anyone can sign up to
+ * run outreach, and Health ID does not check a group before its campaigns go live (decision Q38): a new group can open a
+ * campaign at once, and the people it registers are told it is an "Unverified organiser". Support can pause a group,
+ * close a campaign whose only admin has gone, or make another member its admin. There are no limits to raise (decision 2)
+ * and nothing to bill (decision 6).
  */
 
-type View = 'pending' | 'reviewed' | 'suspended'
+type View = 'active' | 'suspended' | 'all'
 
 /** Plain words for every refusal these tools can meet. */
 const PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_ORGANISER_NOT_FOUND: 'That outreach group was not found. Refresh the list.',
   OUTREACH_ORGANISER_VERSION_CONFLICT: 'Someone else changed this outreach group just now. Refresh the list and try again.',
-  OUTREACH_ORGANISER_NOT_PENDING: 'This outreach group has already been checked or is paused. Refresh the list.',
   OUTREACH_ORGANISER_ALREADY_SUSPENDED: 'This outreach group is already paused.',
   OUTREACH_ADMIN_VERSION_REQUIRED: 'Refresh the list, then try again.',
   OUTREACH_CAMPAIGN_NOT_FOUND: 'No campaign at an outreach group has that reference. Check it with the organiser.',
@@ -30,56 +30,56 @@ const PROBLEMS: Readonly<Record<string, string>> = {
 }
 
 const KIND_WORDS: Readonly<Record<string, string>> = { individual: 'A volunteer on their own', group: 'A group, NGO or community organisation' }
-const STATE_WORDS: Readonly<Record<string, string>> = { pending: 'Unverified organiser', reviewed: 'Checked by Health ID', suspended: 'Paused' }
+/** Health ID never verifies an outreach group, so a group that is not paused is an "Unverified organiser". */
+const STATUS_WORDS: Readonly<Record<string, string>> = { active: 'Unverified organiser', suspended: 'Paused' }
 /** "1 campaign", "3 campaigns"; a number Identity left out reads as 0. */
 const count = (value: number | undefined, word: string) => { const n = Number.isFinite(value) ? Number(value) : 0; return `${n} ${word}${n === 1 ? '' : 's'}` }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function OutreachOrganisersPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['view'] as const)
-  const view: View = filters.view === 'reviewed' || filters.view === 'suspended' ? filters.view : 'pending'
+  const view: View = filters.view === 'suspended' || filters.view === 'all' ? filters.view : 'active'
   const load = useCallback((signal?: AbortSignal) => adminApi.outreachOrganisers(view, signal), [view])
   const resource = useResource(load, 'Outreach groups could not be loaded.')
   const [notice, setNotice] = useState<string | null>(null)
-  // Identity asks for both on every one of these commands (review, pause, close, make admin).
-  const canReview = has(actor, 'platform.facility.unlock') && has(actor, 'platform.facility.manage')
-  const canManage = canReview
+  // Identity asks for both on every one of these commands (pause, close, make admin).
+  const canManage = has(actor, 'platform.facility.unlock') && has(actor, 'platform.facility.manage')
   const done = (text: string) => { setNotice(text); resource.reload() }
 
-  return <Page eyebrow="Organizations" title="Outreach organisers to check"
-    description="Volunteers, NGOs and community groups that signed up to run outreach. Check each new group once, the same working day."
+  return <Page eyebrow="Organizations" title="Outreach organisers"
+    description="Volunteers, NGOs and community groups that signed up to run outreach. Health ID does not check them before their campaigns start."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <section className="admin-panel" aria-labelledby="outreach-organisers-what-title">
-      <div className="admin-panel-head"><div><h2 id="outreach-organisers-what-title">What to check</h2>
-        <p>Until a group is checked, it can set up campaigns, invite its team and practise, but no campaign can start registering
-          people. Aim to check every group the same working day, Saturday mornings included.</p></div></div>
+      <div className="admin-panel-head"><div><h2 id="outreach-organisers-what-title">What to look out for</h2>
+        <p>A new group can open a campaign and register people straight away. The people it registers are told it is an
+          unverified organiser. Pause a group if something is wrong.</p></div></div>
       <ul className="admin-notes">
-        <li>Call the organiser on the phone number they gave. Ask what events they run, where, and who helps them.</li>
-        <li>Check the group name is not pretending to be a hospital, a ministry or another official body. Change the name it is
-          shown by when you check it, if needed.</li>
-        <li>If something is wrong, don’t mark it checked: pause the group and write down why.</li>
+        <li>If people report a group, call the organiser on the phone number they gave. Ask what events they run, where, and who helps them.</li>
+        <li>A group whose name pretends to be a hospital, a ministry or another official body: pause it and write down why.</li>
+        <li>A group collecting phone numbers for marketing, politics or anything but outreach: pause it and write down why.</li>
         <li>A group whose campaign has lost its only admin: close the campaign, or make another member its admin.</li>
       </ul>
     </section>
-    <FilterTabs label="Outreach groups" value={view as string} onChange={value => { setNotice(null); setFilters({ view: value === 'pending' ? '' : value }) }}
-      options={[{ value: 'pending', label: 'To check' }, { value: 'reviewed', label: 'Checked' }, { value: 'suspended', label: 'Paused' }]} />
+    <FilterTabs label="Outreach groups" value={view as string} onChange={value => { setNotice(null); setFilters({ view: value === 'active' ? '' : value }) }}
+      options={[{ value: 'active', label: 'Running' }, { value: 'suspended', label: 'Paused' }, { value: 'all', label: 'All' }]} />
     <div role="status">{notice && <p className="admin-success">{notice}</p>}</div>
     <ResourceView resource={resource}>{({ organisers }) => organisers.length === 0
-      ? <p className="admin-state">{view === 'pending' ? 'No outreach group is waiting to be checked.' : view === 'reviewed'
-        ? 'No outreach group has been checked yet.' : 'No outreach group is paused.'}</p>
+      ? <p className="admin-state">{view === 'active' ? 'No outreach group is running.' : view === 'suspended'
+        ? 'No outreach group is paused.' : 'No outreach group has signed up yet.'}</p>
       : <Table headings={['Group', 'Organiser', 'Signed up', 'So far', 'Status', 'Actions']}>
-        {organisers.map(organiser => <OrganiserRow key={`${organiser.organizationId}-${organiser.reviewState}`} organiser={organiser}
-          canReview={canReview} canManage={canManage} onDone={done} />)}
+        {organisers.map(organiser => <OrganiserRow key={`${organiser.organizationId}-${organiser.status}`} organiser={organiser}
+          canManage={canManage} onDone={done} />)}
       </Table>}</ResourceView>
     {canManage ? <CampaignRescue onDone={text => setNotice(text)} /> : null}
   </Page>
 }
 
-function OrganiserRow({ organiser, canReview, canManage, onDone }: {
-  organiser: OutreachOrganiser; canReview: boolean; canManage: boolean; onDone: (text: string) => void
+function OrganiserRow({ organiser, canManage, onDone }: {
+  organiser: OutreachOrganiser; canManage: boolean; onDone: (text: string) => void
 }) {
   const name = organiser.displayName?.trim() || organiser.groupName
-  return <tr data-flagged={organiser.reviewState === 'pending' || undefined}>
+  const paused = organiser.status === 'suspended'
+  return <tr>
     <td><strong>{name}</strong>
       {organiser.displayName && organiser.displayName !== organiser.groupName ? <small>Signed up as {organiser.groupName}</small> : null}
       <small>{KIND_WORDS[organiser.kind] ?? 'Kind not given'}</small>
@@ -89,44 +89,14 @@ function OrganiserRow({ organiser, canReview, canManage, onDone }: {
     <td>{date(organiser.createdAt)}<small>Terms {organiser.termsVersion ?? 'not recorded'}</small></td>
     <td>{count(organiser.campaigns, 'campaign')}<small>{organiser.activeCampaigns} open now</small>
       <small>{count(organiser.members, 'team member')}</small><small>{count(organiser.pendingInvitations, 'invitation')} waiting</small></td>
-    <td>{STATE_WORDS[organiser.reviewState] ?? organiser.label ?? 'Status not known'}
-      {organiser.reviewedAt ? <small>Checked {date(organiser.reviewedAt)}</small> : null}
-      {organiser.suspendedAt ? <small>Paused {date(organiser.suspendedAt)}</small> : null}</td>
+    <td>{STATUS_WORDS[organiser.status] ?? organiser.label ?? 'Status not known'}
+      {organiser.suspendedAt ? <small>Paused {date(organiser.suspendedAt)}</small> : null}
+      {paused && organiser.suspensionReason ? <small>{organiser.suspensionReason}</small> : null}</td>
     <td>
-      {organiser.reviewState === 'pending' && canReview ? <ReviewAction organiser={organiser} name={name} onDone={onDone} /> : null}
-      {organiser.reviewState !== 'suspended' && canManage ? <SuspendAction organiser={organiser} name={name} onDone={onDone} /> : null}
-      {!canReview ? 'Checking or pausing a group needs platform.facility.manage and platform.facility.unlock.' : null}
+      {!paused && canManage ? <SuspendAction organiser={organiser} name={name} onDone={onDone} /> : null}
+      {!canManage ? 'Pausing a group needs platform.facility.manage and platform.facility.unlock.' : null}
     </td>
   </tr>
-}
-
-/** One click marks the group checked; the name it is shown by can be changed first. */
-function ReviewAction({ organiser, name, onDone }: { organiser: OutreachOrganiser; name: string; onDone: (text: string) => void }) {
-  const governed = useGovernedSubmit()
-  const [displayName, setDisplayName] = useState('')
-  const id = `outreach-review-${organiser.organizationId}`
-
-  async function review(rename: boolean) {
-    const shown = displayName.trim()
-    if (rename && (shown.length < 2 || shown.length > 120)) { governed.setError('Enter a name of 2 to 120 characters.'); return }
-    const reviewed = await governed.submit(() => adminApi.reviewOutreachOrganiser(organiser, rename ? { displayName: shown } : {}),
-      'The group could not be marked checked. Try again.', PROBLEMS, `mark ${name} checked`)
-    if (reviewed) onDone(`${rename ? shown : name} is checked. Its campaigns can now start registering people.`)
-  }
-
-  return <div className="admin-action-form">
-    <button type="button" className="admin-primary" disabled={governed.busy} onClick={() => void review(false)}>
-      {governed.busy ? 'Saving…' : 'Mark checked'}</button>
-    <details className="admin-action">
-      <summary>Change the name shown, then mark checked</summary>
-      <form className="admin-action-form" onSubmit={(event: FormEvent) => { event.preventDefault(); void review(true) }}>
-        <label htmlFor={`${id}-name`}>Name shown to people</label>
-        <input id={`${id}-name`} maxLength={120} value={displayName} onChange={event => setDisplayName(event.target.value)} />
-        <button type="submit" className="admin-primary" disabled={governed.busy}>Save name and mark checked</button>
-      </form>
-    </details>
-    {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
-  </div>
 }
 
 /** Pauses the group, with a reason kept in the audit log: its roles are taken away until support restores them. */

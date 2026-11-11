@@ -54,12 +54,12 @@ export const NAVIGATION: readonly NavigationSection[] = [
     { path: '/admin/self-service-facilities', title: 'New facility sign-ups', served: onNovuBackend,
       visible: can('platform.identity-review.read'),
       description: 'Facilities that signed themselves up, for support to check within one working day.' },
-    // Open sign-up on outreach. (owner decisions of 11 November 2026): the one-time check before a group's first campaign
-    // starts. Reading the queue needs platform.facility.read; marking a group checked platform.facility.unlock; pausing it,
-    // and rescuing a campaign, platform.facility.manage. An Identity without it answers 404, which the page says.
-    { path: '/admin/outreach-organisers', title: 'Outreach organisers to check', served: onNovuBackend,
+    // Open sign-up on outreach. (owner decisions of 11 November 2026; Q38: no check before a group's campaigns go live).
+    // Reading the list needs platform.facility.read; pausing a group, and rescuing a campaign, platform.facility.manage and
+    // platform.facility.unlock. An Identity without it answers 404, which the page says.
+    { path: '/admin/outreach-organisers', title: 'Outreach organisers', served: onNovuBackend,
       visible: can('platform.facility.read'),
-      description: 'Volunteer and community groups that signed up to run outreach, for support to check once, the same working day.' },
+      description: 'Volunteer and community groups that signed up to run outreach, for support to pause if something is wrong.' },
     { path: '/admin/facilities', title: 'Facilities', visible: can('platform.facility.read'),
       description: 'Facility status, organization and membership counts.' },
     // P4c: finding an order between facilities needs the lookup's permission; closing one platform.facility.manage.

@@ -70,7 +70,7 @@ const NOT_ON_MAIN = [
   'enrollment.outreachOrganiserAvailability', 'enrollment.outreachOrganiserStart', 'enrollment.outreachOrganiserVerify',
   'enrollment.outreachOrganiserActivate', 'identity.outreachGroupAvailability', 'identity.outreachGroupStart',
   'identity.outreachInvitations', 'enrollment.outreachInvitationAccept', 'identity.outreachInvitationSignedInAccept',
-  'admin.outreachOrganisers', 'admin.outreachOrganiserReview', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
+  'admin.outreachOrganisers', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
   'admin.outreachCampaignAdmins',
 ] as const
 

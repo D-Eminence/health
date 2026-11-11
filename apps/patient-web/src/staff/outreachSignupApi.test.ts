@@ -58,7 +58,7 @@ describe('open sign-up on outreach.: the organiser sign-up', () => {
 describe('open sign-up on outreach.: signed in', () => {
   it('starts an outreach group for the signed-in login, with no facility', async () => {
     document.cookie = 'hid_access_csrf=csrf-1'
-    const requests = recordFetch({ started: true, organizationId: 'org-1', facilityId: 'f-1', membershipId: 'm-1', reviewState: 'pending' })
+    const requests = recordFetch({ started: true, organizationId: 'org-1', facilityId: 'f-1', membershipId: 'm-1', organiserStatus: 'active', label: 'Unverified organiser' })
     const { staffApi } = await signedInStaffApi()
     await staffApi.startOutreachGroup({ groupName: 'Ajegunle Health Volunteers', kind: 'group', phone: '08012345678',
       termsVersion: '2026-11-01', acceptTerms: true })

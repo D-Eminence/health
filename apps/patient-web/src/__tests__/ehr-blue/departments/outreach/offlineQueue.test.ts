@@ -17,7 +17,7 @@ describe('the offline queue', () => {
     [new HidApiError(0, 'x', { code: 'REQUEST_CANCELLED' }), false],
     [new HidApiError(422, 'x', { code: 'OUTREACH_CONSENT_GUARDIAN_REQUIRED' }), false],
     [new HidApiError(401, 'x', { code: 'AUTHENTICATION_REQUIRED' }), false],
-    [new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_AWAITING_REVIEW' }), false],
+    [new HidApiError(423, 'x', { code: 'OUTREACH_ORGANISER_SUSPENDED' }), false],
     [new HidApiError(403, 'x', { code: 'PERMISSION_DENIED' }), false],
   ])('%s waits for the network: %s', (error, waits) => {
     expect(waitsForNetwork(error)).toBe(waits)
@@ -28,7 +28,7 @@ describe('the offline queue', () => {
     [new HidApiError(403, 'x', { code: 'CSRF_VALIDATION_FAILED' }), true],
     [new HidApiError(403, 'x', { code: 'STAFF_MFA_REQUIRED' }), true],
     [new HidApiError(403, 'x', { code: 'PERMISSION_DENIED' }), false],
-    [new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_AWAITING_REVIEW' }), false],
+    [new HidApiError(422, 'x', { code: 'OUTREACH_CONSENT_REQUIRED' }), false],
     [new HidApiError(423, 'x', { code: 'OUTREACH_ORGANISER_SUSPENDED' }), false],
   ])('%s waits for the person to sign in again: %s', (error, waits) => {
     expect(waitsForSignIn(error)).toBe(waits)
