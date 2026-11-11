@@ -77,6 +77,10 @@ export { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
 export type {
   StagingPatientChatReply, StagingPatientChatSource, StagingPatientChatHistory, StagingChatSourceOrigin,
 } from './stagingChat'
+export { parseNovuPatientChat, parseNovuPatientChatHistory, parseNovuPatientChatSource } from './novuPatientChat'
+export type {
+  NovuPatientChatReply, NovuPatientChatSource, NovuPatientChatTypedSource, NovuPatientChatHistory, NovuPatientChatSourceView,
+} from './novuPatientChat'
 export type {
   SupportChatReply, PatientChatReply, PatientChatSource, PatientChatSourceKind, PatientChatStatus, PatientChatBlock,
   PatientChatBlockKind, PatientChatCoverage, PatientChatStoredReply, PatientChatExchange, PatientChatHistory,

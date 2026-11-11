@@ -112,6 +112,15 @@ const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on
  * OUTREACH_CAMPAIGN_ADMIN_REQUIRED otherwise). Not served before (404): the page then offers no campaign management.
  */
 const OUTREACH_CAMPAIGN_ADMINS = 'Outreach campaign admins (hid-system#222, 0111); 404 before, and the page then offers no campaign management.'
+/**
+ * The same POST on a Novu build (hid-system staging-novu-ci-20261005, "Patient chat safety PR 1", #167): the staging
+ * contract, no notice or idempotency key.
+ */
+const NOVU_PATIENT_CHAT_NOTE = 'Novu (staging-novu-ci-20261005, hid-system #167): { question (1 to 500) } answers '
+  + "{ status: 'ready' | 'preparing', answer, sources, coverage? }; the answer ends with the server's \"Talk to your doctor\" "
+  + 'lines and sources lists only the cited ones, each with originLabel. 400 INVALID_QUESTION; 429 PATIENT_CHAT_RATE_LIMITED; '
+  + '409 CHAT_SOURCES_CHANGED, CHAT_CONVERSATION_CHANGED or CHAT_ACCESS_CHANGED (ask again); 503 PATIENT_CHAT_UNAVAILABLE or '
+  + 'PATIENT_CHAT_DISABLED.'
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
@@ -372,8 +381,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${RECORD_CHAT_NOTE} 200 { available: false } while off; no model call.`),
   r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P,false,undefined,
     `${RECORD_CHAT_NOTE} Needs Idempotency-Key (16 to 128 URL-safe characters) and { question (1 to 1000), noticeVersion } `
-    + 'taken from availability (428 CHAT_NOTICE_REQUIRED otherwise).'),
-  proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,CHAT_NOTE)),
+    + 'taken from availability (428 CHAT_NOTICE_REQUIRED otherwise). ' + NOVU_PATIENT_CHAT_NOTE),
+  proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,
+    `${CHAT_NOTE} From hid-system #167 (staging-novu-ci-20261005): only a source the current saved answer cites, as `
+    + '{ kind, id, kindLabel, title, recordedAt, effectiveAt, originLabel, provenance, items: [{ label, value }], notices }; '
+    + 'anything else 404 CHAT_SOURCE_UNAVAILABLE, and 503 CHAT_HISTORY_SOURCE_UNAVAILABLE while a service it needs is down.')),
   r('ehr.staffPatientChatAvailability','ehr','/api/v1/ehr/patients/:patientId/chat/availability',G,false,one('GET','ehr.record-chat.use'),
     `${STAFF_CHAT_NOTE} 200 { available: false } while off; otherwise names the categories this member's permissions let chat read (released) and the rest (withheld, Lab always among them). No model call.`),
   r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.record-chat.use'),
