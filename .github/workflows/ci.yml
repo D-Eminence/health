@@ -36,6 +36,10 @@ jobs:
       - name: Tests
         run: npm test
 
+      # The live release check's own tests: local fixture sites on 127.0.0.1 only, never a live site.
+      - name: Live release check tests
+        run: npm run test:live-release
+
       # Builds use placeholder local configuration. No staging or production
       # gateway address is available to CI, and CI never points at production.
       - name: Build applications
