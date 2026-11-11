@@ -261,6 +261,17 @@ describe('registering someone at an outreach group', () => {
     await press(screen.getByRole('button', { name: 'Save registration' }))
     expect(await screen.findByText('This person is under 18. Enter the name of the parent or guardian who agreed.')).toBeTruthy()
   })
+
+  it('never offers to save without the campaign when the campaign refuses: a group\'s registration needs its campaign', async () => {
+    api.createOutreachCase.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_CAMPAIGN_CLOSED' }))
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0))
+    expect(screen.queryByRole('button', { name: 'Save without the campaign' })).toBeNull()
+    expect(api.createOutreachCase).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('the offline queue', () => {
