@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Card } from '../kasuwa/ui'
+import { ShieldCheck } from 'lucide-react'
+import { Button, Card, EmptyState } from '../kasuwa/ui'
+import { supportHref } from '../supportContact'
 import { LoadingRows } from '../kasuwa/parts'
 import { LoadProblem, Problem } from './profileParts'
 import { isHidApiError, plainErrorText } from '@hid/http'
@@ -38,6 +40,20 @@ export function accessLogActor(event: AccessLogEvent): string {
       const clinician = event.actorName ?? 'A health worker'
       return event.facilityName ? `${clinician} at ${event.facilityName}` : clinician
     }
+  }
+}
+
+/**
+ * The patient's own decisions, said as theirs and naming whom they let in or shut out: "You gave Lagos General access
+ * to your records". Null for any other event, which reads as who, then what.
+ */
+export function eventSentence(event: AccessLogEvent): string | null {
+  if (event.actorKind !== 'patient') return null
+  const facility = event.facilityName?.trim() || null
+  switch (event.action) {
+    case 'access_granted': return `You gave ${facility ?? 'a facility'} access to your records`
+    case 'access_ended': return `You ended ${facility ? `${facility}’s` : 'a facility’s'} access`
+    default: return null
   }
 }
 
@@ -115,7 +131,13 @@ export function AccessLogCard() {
     if (older) setOlder(first.data && basis ? olderAfterReread(first.data, [...basis.events, ...older.events], older.next) : undefined)
   }
 
-  if (first.data === null && !first.loading && !first.error) return null
+  // A backend without the log (404): the tab says there is nothing to show, rather than nothing at all.
+  if (first.data === null && !first.loading && !first.error) return <Card aria-labelledby="access-log-heading">
+    <div className="border-b border-line px-5 py-4">
+      <h2 ref={heading} id="access-log-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Who viewed or changed your records</h2>
+    </div>
+    <NoActivity />
+  </Card>
   const page = first.data
   const events = page ? together(page.events, older?.events ?? []) : []
   const next = older ? older.next : page?.nextBefore ?? null
@@ -149,12 +171,15 @@ export function AccessLogCard() {
     </div>
     {first.loading && first.data === null && <LoadingRows rows={3} label="Loading activity" />}
     {first.error && <div className="p-5"><LoadProblem what="activity" error={first.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(first.reload)} /></div>}
-    {page && !first.error && (events.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">{next
-      ? 'Nothing recent. Tap Show more to look further back.' : 'No one has viewed or changed your records yet.'}</p>
+    {page && !first.error && (events.length === 0 ? next ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Nothing recent. Tap Show more to look further back.</p>
+      : <NoActivity />
       : <ul ref={list} className="m-0 list-none divide-y divide-line p-0">{events.map(event => <li key={event.id} tabIndex={-1} className="flex items-start gap-3 px-5 py-3.5 outline-none focus-visible:bg-subtle">
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{accessLogActor(event)}</p>
-          <p className="m-0 text-[13px] text-ink-3">{WHAT[event.action]}</p>
+          {eventSentence(event) ? <p className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{eventSentence(event)}</p> : <>
+            <p className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{accessLogActor(event)}</p>
+            <p className="m-0 text-[13px] text-ink-3">{WHAT[event.action]}</p></>}
+          {event.action === 'emergency_access' && <p className="m-0 mt-1 text-[13px] text-ink-2">Don’t recognise this? <a href={supportHref()}
+            className="font-medium text-brand-ink">Contact Health ID support</a>.</p>}
         </div>
         <time dateTime={event.at} className="shrink-0 text-[12px] text-ink-3">{when(event.at)}</time>
       </li>)}</ul>)}
@@ -165,4 +190,10 @@ export function AccessLogCard() {
         disabled={loadingMore || first.loading} onClick={() => void showMore()}>{loadingMore ? 'Loading…' : 'Show more'}</Button>}
     </div>}
   </Card>
+}
+
+/** No activity to show: a designed empty state, with what will show here. */
+function NoActivity() {
+  return <EmptyState compact icon={ShieldCheck} title="No activity yet"
+    description="No one has viewed or changed your records yet." />
 }

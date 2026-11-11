@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createApiClient, HidApiError } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import type { PatientChatAvailability, PatientChatHistory, PatientChatReply } from '@hid/contracts'
@@ -42,6 +42,11 @@ async function ready(accept = true) {
   if (accept) fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
 }
 const ask = (text: string) => { fireEvent.change(asked(), { target: { value: text } }); fireEvent.click(send()) }
+/** New conversation, then Delete when asked (RN-16). */
+const startNew = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete this conversation?' })).getByRole('button', { name: 'Delete' }))
+}
 beforeEach(() => { vi.restoreAllMocks() })
 
 it('sends a question with the notice version and an Idempotency-Key through the registered cookie client', async () => {
@@ -78,7 +83,26 @@ it('asks for the notice first: no question is sent until it is accepted', async 
   const api = apiFor()
   render(<ChatConversation api={api} />)
   await ready(false)
-  expect(screen.getByText(/Anthropic/)).toBeTruthy()
+  const notice = screen.getByRole('heading', { name: 'Before you ask' }).parentElement!.textContent!
+  expect(notice).toContain('Anthropic, an outside company, writes the answer. It handles the data in the United States.')
+  expect(notice).toContain('Amazon Web Services')
+  expect(notice).toContain('in Ireland')
+  // Identifier removal is by pattern and only on some fields: the notice says "we try" and names what it misses.
+  expect(notice).toContain('we try to remove your name, date of birth, Health ID, email addresses, phone numbers, NIN, BVN')
+  expect(notice).toContain('only where we recognise them. Some can still be sent')
+  expect(notice).toContain('Nothing is removed from test results, or from the allergies, conditions and medicines in your health profile.')
+  expect(notice).toContain('Web links and the names of other people, such as staff, are not removed.')
+  // Everything the patient query sends: visits, tests ordered and the imported health profile included.
+  expect(notice).toContain('finished visits and their notes, confirmed diagnoses, medicines, tests ordered and their results')
+  expect(notice).toContain('imported history, the text of your documents, and your age and sex')
+  expect(notice).toContain('health profile: blood group, genotype, allergies, long-term conditions, medicines and notes')
+  // Sensitive conditions are left out only of diagnoses, medicines and tests.
+  expect(notice).toContain('Diagnoses, medicines and tests for sensitive conditions')
+  expect(notice).toContain('notes, documents, imported history and your health profile are still sent, even when they mention these conditions')
+  // Old rows are hidden after 30 days and deleted only on the next use: nothing deletes them on a schedule.
+  expect(notice).toContain('up to 50 exchanges. After 30 days they are no longer shown. They are deleted the next time you open the chat')
+  for (const gone of [/web links and long numbers are removed/i, /until you delete them/, /Claude/, /deleted after 30 days/,
+    /are not used/, /numbers are removed/]) expect(notice).not.toMatch(gone)
   fireEvent.change(asked(), { target: { value: 'A question' } })
   expect(send().disabled).toBe(true)
   fireEvent.keyDown(asked(), { key: 'Enter' })
@@ -98,7 +122,7 @@ it('says record chat is not available, keeps the saved conversation readable and
   expect(await screen.findByText('Old question')).toBeTruthy()
   expect(screen.queryByLabelText('Your question')).toBeNull()
   expect(screen.queryByRole('checkbox')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   await waitFor(() => expect(api.clearChatHistory).toHaveBeenCalledTimes(1))
   await waitFor(() => expect(screen.queryByText('Old question')).toBeNull())
 })
@@ -277,10 +301,10 @@ it('deletes the saved conversation, and keeps it visible with a clear message if
   const clear = vi.fn().mockRejectedValueOnce(new HidApiError(409, 'Private', { code: 'CHAT_HISTORY_ON_HOLD' })).mockResolvedValue({ cleared: true, deletedCount: 1 })
   render(<ChatConversation api={apiFor({ chatHistory: vi.fn().mockResolvedValue(saved), clearChatHistory: clear })} />)
   expect(await screen.findByText('Saved question')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   expect((await screen.findByRole('alert')).textContent).toContain('legal hold')
   expect(screen.getByText('Saved question')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   await waitFor(() => expect(screen.queryByText('Saved question')).toBeNull())
 })
 
@@ -290,7 +314,7 @@ it('new conversation cancels old work and ignores a late reply', async () => {
   render(<ChatConversation api={apiFor({ chat })} />)
   await ready()
   ask('Old question')
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  startNew()
   expect(chat.mock.calls[0]?.[2].signal.aborted).toBe(true)
   await waitFor(() => expect(screen.queryByText('Old question')).toBeNull())
   pending[0]?.(answer({ answer: 'Late old reply', blocks: [{ kind: 'explanation', text: 'Late old reply', references: [] }], sources: [] }))
@@ -332,4 +356,24 @@ it('Enter sends, Shift+Enter does not, and a question over the service limit doe
   await screen.findAllByText('A released note says example.')
   expect(api.chat).toHaveBeenCalledTimes(1)
   expect(asked().maxLength).toBe(1000)
+})
+
+it('RN-16: asks before deleting the saved conversation, and Cancel keeps it with focus back on New conversation', async () => {
+  const api = apiFor({ chatHistory: vi.fn().mockResolvedValue({ conversationId: id(2), limit: 50, exchanges: [exchange(3, 'Saved question', 'Saved answer')] }) })
+  render(<ChatConversation api={api} />)
+  expect(await screen.findByText('Saved question')).toBeTruthy()
+  const start = screen.getByRole('button', { name: 'New conversation' })
+  start.focus()
+  fireEvent.click(start)
+  const sheet = screen.getByRole('dialog', { name: 'Delete this conversation?' })
+  expect(sheet.textContent).toContain('can’t be undone')
+  expect(api.clearChatHistory).not.toHaveBeenCalled()
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(start)
+  expect(screen.getByText('Saved question')).toBeTruthy()
+  expect(api.clearChatHistory).not.toHaveBeenCalled()
+  startNew()
+  await waitFor(() => expect(screen.queryByText('Saved question')).toBeNull())
+  expect(api.clearChatHistory).toHaveBeenCalledTimes(1)
 })

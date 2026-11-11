@@ -5,6 +5,7 @@ import { useDocumentTitle } from '../authSteps'
 import { STAFF_JOIN_PATH, STAFF_PRODUCT_ROUTES, STAFF_SIGN_IN_PATH } from '../productHostname'
 import { isSafeReturnPath, ssoStartHref } from './handOff'
 import { leavePage } from './leave'
+import { safeReturnPath } from '../returnPath'
 import { leavingAfterSignOut, signedOutInThisPage, type StaffSite } from './singleSignOn'
 
 /**
@@ -52,9 +53,12 @@ export function StaffSignInHandOff({ site, children }: { readonly site: StaffSit
 
 /**
  * The patient portal's hand-off (app.), where RequireAccess finds no session: back to the page asked for when a sign-in
- * may return to it, else Home.
+ * may return to it, else Home. On the sign-in entrance that page is its `next` (returnPath.ts signInReturningTo), as
+ * "Sign in again" and a signed-out page ask for (SA-04); the sign-in entrance itself is never come back to.
  */
 export function PortalSignInHandOff() {
   const { pathname, search } = useLocation()
-  return <SignInHandOff returnPath={`${pathname}${search}`} home="/" />
+  const asked = pathname === '/sign-in' ? new URLSearchParams(search).getAll('next') : null
+  const returnPath = asked === null ? `${pathname}${search}` : asked.length === 1 ? safeReturnPath(asked[0]) : '/'
+  return <SignInHandOff returnPath={returnPath} home="/" />
 }

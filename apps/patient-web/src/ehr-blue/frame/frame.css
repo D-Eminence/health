@@ -631,6 +631,67 @@
   margin-top: 24px;
 }
 
+/* ---- Help: the support assistant ------------------------------------------ */
+
+.hid-ehr .hid-ehr-blue-support {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-support-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-support-log {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-support-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ehr-surface-tint);
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-blue-support-mine {
+  align-self: flex-end;
+  background: var(--ehr-tint);
+}
+
+/* The privacy notice, right above the question. */
+.hid-ehr .hid-ehr-blue-support-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-warning-banner-text);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-blue-support-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-support-form .hid-ehr-field {
+  align-self: stretch;
+}
+
 /* ---- Status bar (connection-tools in the design) ------------------------- */
 
 .hid-ehr .hid-ehr-main {

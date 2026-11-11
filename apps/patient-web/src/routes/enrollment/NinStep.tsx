@@ -4,7 +4,7 @@ import { describedBy } from '../../authSteps'
 import { FACILITY_LIST_PATH, type OwnershipRoutes } from './availability'
 import type { StepProps } from './stepProps'
 import { Button, Field } from '../../kasuwa/ui'
-import { InputR } from '../profileParts'
+import { Hint, InputR } from '../profileParts'
 
 interface NinStepProps extends StepProps {
   nin: string
@@ -14,6 +14,8 @@ interface NinStepProps extends StepProps {
   turnstile: ReactNode
   /** Why the step cannot be sent yet, besides a NIN of 11 digits and the security check. */
   blocked: boolean
+  /** The security check has given no token yet: Continue says so (SO-16), as the sign-up's password step does. */
+  checkNeeded?: boolean
   /** The routes that prove the NIN holder, or null from an Identity before the holder step. */
   routes: OwnershipRoutes | null
 }
@@ -25,7 +27,7 @@ interface NinStepProps extends StepProps {
  * who cannot use the phone linked to it (owner decision 2026-10-14, step 2). An
  * Identity before it has neither, so neither is described.
  */
-export function NinStep({ focusTarget, busy, invalid, errorId, nin, onNin, onSubmit, turnstile, blocked, routes }: NinStepProps) {
+export function NinStep({ focusTarget, busy, invalid, errorId, nin, onNin, onSubmit, turnstile, blocked, checkNeeded = false, routes }: NinStepProps) {
   return <form onSubmit={onSubmit} className="flex flex-col gap-4">
     <Field label="National Identification Number (NIN)" htmlFor="enroll-nin" hintId="enroll-nin-hint" hint="11 digits. It isn’t stored in this browser.">
       <InputR id="enroll-nin" ref={focusTarget} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => onNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
@@ -44,6 +46,8 @@ export function NinStep({ focusTarget, busy, invalid, errorId, nin, onNin, onSub
       {routes.facility && <Link to={FACILITY_LIST_PATH}>See participating facilities and what to bring</Link>}
     </section>}
     {turnstile}
-    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || blocked || nin.length !== 11}>{busy ? 'Checking your NIN…' : 'Continue'}</Button>
+    {checkNeeded && <Hint id="enroll-check-needed">Complete the security check to continue.</Hint>}
+    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || blocked || nin.length !== 11}
+      aria-describedby={checkNeeded ? 'enroll-check-needed' : undefined}>{busy ? 'Checking your NIN…' : 'Continue'}</Button>
   </form>
 }

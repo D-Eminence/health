@@ -51,6 +51,12 @@ describe('narrow screens', () => {
     expect(valueAt(portalCss, '.patient-enroll-option .patient-desk-code', 'font-size', PHONE)).toBe('clamp(22px, 7vw, 28px)')
   })
 
+  it.each([PHONE, 390])('lets the six code boxes shrink inside a narrow card at %ipx', width => {
+    // Review R2: a plain grid track took the boxes' 352px min-content, wider than an emergency contact row at 320 to 390px.
+    expect(valueAt(portalCss, '.patient-code-field', 'grid-template-columns', width)).toBe('minmax(0, 1fr)')
+    expect(valueAt(portalCss, '.patient-code-boxes', 'min-width', width)).toBe('0')
+  })
+
   it('lets long document names in the provider lists wrap', () => {
     expect(valueAt(staffCss, '.staff-list-item strong', 'overflow-wrap', PHONE)).toBe('anywhere')
   })
@@ -82,6 +88,27 @@ describe('keyboard focus under the sticky headers', () => {
     const staffTopbar = Number.parseFloat(valueAt(staffCss, '.staff-topbar', 'height', PHONE)!)
     expect(padding).toBeGreaterThan(Math.max(patientHeader, staffTopbar, 56))
     expect(valueAt(portalCss, 'html', 'scroll-padding-top', DESKTOP)).toBe(valueAt(portalCss, 'html', 'scroll-padding-top', PHONE))
+  })
+
+  it.each([PHONE, 390, 768])('scrolls a focused control clear of the bottom menu at %ipx', width => {
+    // The shell's bottom menu on phones (kasuwa AppShell, below 1024px): 64px measured at 360px, with the raised ➕
+    // above it. A focused "Save contact" 10px from the bottom edge sat wholly under it (WCAG 2.4.11).
+    const padding = valueAt(portalCss, 'html', 'scroll-padding-bottom', width) ?? ''
+    expect(Number.parseFloat(/(\d+)px/.exec(padding)?.[1] ?? '0')).toBeGreaterThanOrEqual(72)
+    expect(padding).toContain('env(safe-area-inset-bottom)')
+  })
+
+  it.each([PHONE, 390, 768])('scrolls a focused control clear of the Support chat launcher above the bottom menu at %ipx', width => {
+    // Since the Support chat launcher sits above the bottom menu on phones (packages/ui tokens.css: 76px up, 48px
+    // tall, so its top is 124px from the bottom), a focused button at the right of the page scrolled to 88px from the
+    // bottom ended under it; the launcher steps aside only for a field being typed in.
+    const padding = valueAt(portalCss, 'html', 'scroll-padding-bottom', width) ?? ''
+    expect(Number.parseFloat(/(\d+)px/.exec(padding)?.[1] ?? '0')).toBeGreaterThanOrEqual(124 + 8)
+  })
+
+  it('keeps no space for a bottom menu on a computer, where there is none', () => {
+    expect(valueAt(portalCss, 'html', 'scroll-padding-bottom', 1024)).toBeUndefined()
+    expect(valueAt(portalCss, 'html', 'scroll-padding-bottom', DESKTOP)).toBeUndefined()
   })
 })
 

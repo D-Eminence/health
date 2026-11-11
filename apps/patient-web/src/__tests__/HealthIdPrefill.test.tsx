@@ -111,15 +111,19 @@ describe('patient sign-in', () => {
     expect(field().value).toBe('HID-234567')
   })
 
-  it('shows a phone number among the examples while empty', () => {
+  it('shows a phone number among the examples while empty, short enough for a 320px phone (launch audit SO-17)', () => {
     show(<SignIn />)
-    expect(field().placeholder).toBe('HID-…, you@example.com or 0803…')
+    expect(field().placeholder).toBe('HID-…, 0803… or email')
   })
 
   it('sends nothing while only the prefix is there, and says what is missing', async () => {
     await signInWith('HID-')
     expect(signIn).not.toHaveBeenCalled()
-    expect(shownText(await screen.findByRole('alert'))).toBe('Enter your email, phone number or Health ID.')
+    // Focus moves to the field, which it describes and marks (launch audit SO-03): read there once, not as an alert.
+    expect(shownText(document.getElementById('sign-in-error')!)).toBe('Enter your email, phone number or Health ID.')
+    expect(document.activeElement).toBe(field())
+    expect(field().getAttribute('aria-invalid')).toBe('true')
+    expect(field().getAttribute('aria-describedby')).toBe('sign-in-error')
   })
 })
 

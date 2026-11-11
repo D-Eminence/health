@@ -8,6 +8,7 @@ import {
 } from '../../../documentTypes'
 import { fileSizeLabel, fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { staffApi, type DocumentRecord } from '../../../staff/api'
+import { SOURCE_DELETED_WORDS, isSourceDeleted, sourceDeleted } from '../../../documentSource'
 import { getEnvironment } from '../../../staff/env'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
@@ -173,6 +174,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
     const sentIn = staffSessionGeneration()
     try {
       const result = await staffApi.documentDownload(facilityId, document.id)
+      // A source page deleted after 24 hours (hid-system 0110) has no file to open: said in its own sentence.
+      if (isSourceDeleted(result)) { setOpenError(SOURCE_DELETED_WORDS); return }
       // Only a signed storage link opens: never javascript:, data: or plain http to another host.
       assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local', code: 'INVALID_DOWNLOAD_URL',
         message: OPEN_FAILED })
@@ -254,9 +257,10 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
                 <span className="text-[13px] text-ink-3 tabular">{documentLine(document)}</span>
                 {document.status === 'initiated' && <span className="text-[13px] text-ink-3">Upload not completed. Only the person who
                   started it can finish it: attach the file again.</span>}
+                {sourceDeleted(document) && <span className="text-[13px] text-ink-3">{SOURCE_DELETED_WORDS}</span>}
               </div>
               {/* Busy while its link is asked for, but never disabled: a disabled button would lose the focus it has. */}
-              {document.scanStatus === 'clean' && document.status !== 'initiated' && <Button size="sm" icon={ExternalLink}
+              {document.scanStatus === 'clean' && document.status !== 'initiated' && !sourceDeleted(document) && <Button size="sm" icon={ExternalLink}
                 aria-describedby={name} aria-busy={opening === document.id || undefined} aria-disabled={opening === document.id || undefined}
                 onClick={() => void open(document)}>Open file</Button>}
             </li>

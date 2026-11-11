@@ -2,6 +2,7 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
+import { parseAllergyCheck, parseAllergyList, parseRecordedAllergy, type AllergyCheck, type AllergyList, type AllergySeverity, type RecordedAllergy } from './allergies'
 import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
@@ -20,6 +21,7 @@ import { staffLoginAction } from '../productHostname'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
+import { SOURCE_DELETED, isSourceDeletedRefusal, type DocumentDownload, type DocumentLink } from '../documentSource'
 
 export interface Facility {
   id: string
@@ -523,7 +525,11 @@ export interface DocumentRecord {
   fileName: string
   mediaType: string
   sizeBytes: number | string
-  status: string
+  /**
+   * 'initiated' until the upload is completed; since hid-system 0110 'source_deleted' once Migrate's source page was
+   * deleted after 24 hours (documentSource.ts), when it offers no download. Other values pass through as they come.
+   */
+  status: 'initiated' | 'source_deleted' | (string & {})
   scanStatus: string
   createdAt: string
   documentType?: string
@@ -1250,7 +1256,22 @@ export interface OutreachCampaign {
   status: string
   services: string[]
   startsAt: string
+  /** When it ends, null when no end was given. Outreach sends it on every campaign; an older answer may leave it out. */
+  endsAt?: string | null
   rowVersion: number
+}
+
+/** A role in an Outreach campaign, as Outreach takes it (hid-system AddCampaignMemberDto). */
+export type OutreachCampaignRole = 'enumerator' | 'health_worker' | 'admin'
+
+/**
+ * A campaign's people as Outreach answers them from 0111 (hid-system#222): its members by name, and, to its admins,
+ * the facility's active staff who could be added (campaignRole null), with the caller's own role. A non-member is
+ * sent no one.
+ */
+export interface OutreachCampaignStaff {
+  yourRole: OutreachCampaignRole | null
+  people: { membershipId: string; name: string; campaignRole: OutreachCampaignRole | null }[]
 }
 
 export interface OutreachCase {
@@ -2043,6 +2064,24 @@ export const staffApi = {
   reportedHealthProfile: async (facilityId: string, patientId: string, signal?: AbortSignal): Promise<ReportedHealthProfile | null> =>
     parseReportedHealthProfile(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/reported-health-profile`,
       { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  // Allergies (hid-system 0124; 404 from a backend before it, which the chart takes as "not offered": the patient-reported
+  // text is shown from reportedHealthProfile instead and nothing can be added). Direct care, at the selected facility.
+  allergies: async (facilityId: string, patientId: string, signal?: AbortSignal): Promise<AllergyList> =>
+    parseAllergyList(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergies`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  addAllergy: async (facilityId: string, patientId: string,
+    input: { substance: string; reaction?: string; severity: AllergySeverity }, idempotencyKey?: string): Promise<RecordedAllergy | null> =>
+    parseRecordedAllergy(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergies`, input,
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } })),
+  markAllergyEnteredInError: async (facilityId: string, patientId: string, allergyId: string,
+    input: { expectedRowVersion: number; reason: string }): Promise<RecordedAllergy | null> =>
+    parseRecordedAllergy(await client.post<unknown>(
+      `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergies/${encodeURIComponent(allergyId)}/entered-in-error`, input,
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
+  // The prescribing form's check before it saves (0124); 404 before 0124, when the form saves without it.
+  allergyCheck: async (facilityId: string, patientId: string, input: { medicationDisplay: string; medicationCode?: string }): Promise<AllergyCheck> =>
+    parseAllergyCheck(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergy-check`, input,
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),
@@ -2115,10 +2154,18 @@ export const staffApi = {
       query: { patientId, ...workItemPlace(workItem) }, headers: facilityHeaders(facilityId),
     })
   },
-  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
-  documentDownload: (facilityId: string, documentId: string) =>
-    client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
-      { headers: facilityHeaders(facilityId) }),
+  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload). Since hid-system 0110 a
+  // document whose source page was deleted after 24 hours answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
+  // an outcome of its own (documentSource.ts), which every caller says in its own sentence. Any other refusal is thrown.
+  async documentDownload(facilityId: string, documentId: string): Promise<DocumentDownload> {
+    try {
+      return await client.get<DocumentLink>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
+        { headers: facilityHeaders(facilityId) })
+    } catch (caught) {
+      if (isSourceDeletedRefusal(caught)) return SOURCE_DELETED
+      throw caught
+    }
+  },
   // Without a type, exactly today's upload. A type is sent only when given, and
   // only once the backend has said it serves the types; before then it is
   // refused here and nothing is sent.
@@ -2214,9 +2261,11 @@ export const staffApi = {
   ocrJob: (facilityId: string, jobId: string) =>
     client.get<OcrJob>(`/api/v1/ocr/jobs/${encodeURIComponent(jobId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
-  createOcrJob: (facilityId: string, documentId: string, patientId: string) =>
+  // OCR makes a new job for a document only for a new Idempotency-Key, and only when the newest reader has not read it
+  // yet; otherwise it answers with the job it has. A caller that may send the same request again holds the key.
+  createOcrJob: (facilityId: string, documentId: string, patientId: string, idempotencyKey?: string) =>
     client.post<OcrJob>('/api/v1/ocr/jobs', { documentId, patientId, provider: 'textract', purpose: 'healthcare-operations' },
-      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders() } }),
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
   ocrExtractions: (facilityId: string, jobId: string) =>
     client.get<{ items: OcrExtraction[] }>(`/api/v1/ocr/jobs/${encodeURIComponent(jobId)}/extractions`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -2256,6 +2305,26 @@ export const staffApi = {
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
   outreachCampaignMembers: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignMember[]>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
+      { headers: facilityHeaders(facilityId) }),
+  /**
+   * How campaigns are managed: from 0111 (hid-system#222) `{ rule: 'campaign_admins' }`, a campaign's own admins open,
+   * close and staff it. An older Outreach answers 404, and the page then offers no campaign management.
+   */
+  outreachCampaignGovernance: (facilityId: string) =>
+    client.get<{ rule: string }>('/api/v1/outreach/registration-cases/campaigns/governance', { headers: facilityHeaders(facilityId) }),
+  outreachCampaignStaff: (facilityId: string, campaignId: string) =>
+    client.get<OutreachCampaignStaff>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/staff`,
+      { headers: facilityHeaders(facilityId) }),
+  // Campaign writes take no Idempotency-Key, so the client never sends one again by itself: a lost answer is read back
+  // from the list. The creator becomes the campaign's first admin.
+  createOutreachCampaign: (facilityId: string, input: { name: string; services: string[]; startsAt: string; endsAt?: string }) =>
+    client.post<OutreachCampaign>('/api/v1/outreach/registration-cases/campaigns', input, { headers: facilityHeaders(facilityId) }),
+  /** Opens or closes a campaign, against the version it was read at (412 VERSION_CONFLICT when it changed since). */
+  setOutreachCampaignStatus: (facilityId: string, campaign: Pick<OutreachCampaign, 'id' | 'rowVersion'>, status: 'active' | 'closed', reason: string) =>
+    client.post<OutreachCampaign>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaign.id)}/status`, { status, reason },
+      { headers: { ...facilityHeaders(facilityId), 'If-Match': `"${campaign.rowVersion}"` } }),
+  addOutreachCampaignMember: (facilityId: string, campaignId: string, input: { membershipId: string; role: OutreachCampaignRole }) =>
+    client.post<OutreachCampaignMember>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`, input,
       { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),

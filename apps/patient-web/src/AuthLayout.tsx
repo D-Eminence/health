@@ -65,7 +65,7 @@ export function AuthLayout({
         <aside className="auth-aside" aria-hidden="true">
           <span className="auth-brand"><BrandLogo /></span>
           <div className="auth-aside-body">
-            <p className="auth-aside-overline">One record · Every hospital · Your consent</p>
+            <p className="auth-aside-overline">One record · Health ID hospitals · Your choice</p>
             <p className="auth-aside-headline">Your health, one ID.</p>
             <PrintedCard />
           </div>
@@ -95,7 +95,9 @@ export function AuthLayout({
                 {children}
               </section>
             </div>
-            <p className="auth-trust"><Lock aria-hidden="true" size={14} />Your records are shared only with the facilities you approve.</p>
+            {/* Emergency access is on at launch, so who sees the records is the patient's choice except in an emergency,
+                which they are told of (owner's words, 3 Nov 2026). */}
+            <p className="auth-trust"><Lock aria-hidden="true" size={14} />{TRUST_LINE}</p>
           </div>
         </div>
       </div>
@@ -103,7 +105,14 @@ export function AuthLayout({
   )
 }
 
-const CARD_LINES = ['Your records from every hospital', 'You approve who sees them', 'Emergency contacts', 'Lab results and prescriptions', 'A log of every view']
+/** The line under every sign-in, sign-up and recovery form (owner, 3 Nov 2026). */
+const TRUST_LINE = 'You choose who can see your records. In an emergency, a hospital can open them, and we tell you.'
+
+/**
+ * What an account includes, listing only what the portal shows today (owner, 3 Nov 2026): Records shows visits and
+ * doctors' notes from Health ID hospitals, not lab results or prescriptions, and not from every hospital.
+ */
+const CARD_LINES = ['Visits and doctors’ notes from Health ID hospitals', 'The health information you add', 'Who has opened your record']
 
 /** paytrail's welcome receipt, as a Health ID card: it prints out of its slot once, listing what an account includes. */
 function PrintedCard() {
@@ -116,7 +125,7 @@ function PrintedCard() {
             <div className="auth-print-head"><span className="auth-print-chip" /><span>HEALTH ID</span></div>
             <p className="auth-print-id">HID-•••• ••••</p>
             <ul>{CARD_LINES.map(line => <li key={line}><span>{line}</span><span className="auth-print-leader" /><span className="auth-print-tick">✓</span></li>)}</ul>
-            <div className="auth-print-foot"><span>Works at</span><span>Every Health ID facility</span></div>
+            <div className="auth-print-foot"><span>Works at</span><span>Health ID hospitals</span></div>
           </div>
         </div>
       </div>

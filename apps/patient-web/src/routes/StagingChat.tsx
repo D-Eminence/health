@@ -8,6 +8,7 @@ import type { StagingPatientChatReply } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import './chat.css'
 import { RecordAnswer } from '../RecordAnswer'
+import { ConfirmSheet } from '../kasuwa/parts'
 import type { StagingPatientChatHistory } from '@hid/contracts'
 import { ChatSourceContent } from '../ChatSource'
 
@@ -22,6 +23,13 @@ const staffSuggestions = [
   { title: 'Compare lab results', detail: 'Changes across previous visits', question: 'Compare this patient’s laboratory results across visits and cite the records supporting the changes.' },
 ]
 interface Exchange { id: number; question: string; reply?: StagingPatientChatReply; error?: string }
+/**
+ * A 503: ehr-api could not answer this turn (the model, or a source such as the Lab service, was unavailable:
+ * CHAT_HISTORY_SOURCE_UNAVAILABLE among them), or the gateway answered for it (it turns every 502, 503 and 504
+ * into its own 503), so the cause cannot be told apart and the words promise nothing about it. Worded for a
+ * patient and for staff alike.
+ */
+const UNAVAILABLE_503 = 'Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.'
 function failure(reason: unknown): string {
   if (!isHidApiError(reason)) return 'Record chat is unavailable. Please try later.'
   if (reason.status === 401) return 'Your session ended. Please sign in again.'
@@ -33,6 +41,7 @@ function failure(reason: unknown): string {
   if (reason.code === 'CHAT_RECORD_SCOPE_EXCEEDED') return 'Your record history is too large for chat. Please use the Records page.'
   if (reason.code === 'PATIENT_CHAT_DISABLED') return 'Record chat is not available.'
   if (reason.code === 'REQUEST_TIMEOUT') return 'The reply took too long. Please try later.'
+  if (reason.status === 503) return UNAVAILABLE_503
   return 'Record chat is unavailable. Please try later.'
 }
 function NoteIcon() {
@@ -52,6 +61,9 @@ export function StagingChatConversation({api,staff}:{api:StagingChatConversation
   const [historyAttempt, setHistoryAttempt] = useState(0)
   const [historyError, setHistoryError] = useState('')
   const [resetting, setResetting] = useState(false)
+  // New conversation deletes the saved one for good, so it is asked first (RN-16).
+  const [confirming, setConfirming] = useState(false)
+  const resetButton = useRef<HTMLButtonElement>(null)
   const flight = useRef<AbortController | null>(null)
   const nextId = useRef(0)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -123,8 +135,13 @@ export function StagingChatConversation({api,staff}:{api:StagingChatConversation
   return <section className="patient-section record-chat-page" aria-labelledby="record-chat-title">
     <header className="record-chat-page-header">
       <div><p className="patient-eyebrow">{staff ? 'Clinical record assistant' : 'Your record assistant'}</p><PageHeading id="record-chat-title" className="patient-page-title">{staff ? 'Ask about this patient' : 'Ask about your records'}</PageHeading><p className="patient-page-copy">{staff ? 'Answers from this patient’s available records, within your current access.' : 'A little clarity, from your clinical notes.'}</p></div>
-      <button type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading'} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
+      {/* Nothing to delete while nothing is shown, unless the saved conversation could not be loaded (it may still be there). */}
+      <button ref={resetButton} type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading' || (historyStatus === 'ready' && exchanges.length === 0 && !busy)}
+        onClick={() => setConfirming(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
     </header>
+    <ConfirmSheet open={confirming} onClose={() => { setConfirming(false); resetButton.current?.focus() }} title="Delete this conversation?"
+      effect={staff ? 'Your saved questions and answers about this patient are deleted, and a new conversation starts.' : 'Your saved questions and answers are deleted, and a new conversation starts.'}
+      undo="This can’t be undone." confirmLabel="Delete" destructive onConfirm={() => { setConfirming(false); void reset() }} />
     <div className="record-chat-panel">
       <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>{staff ? `${staff.patientName} · ${staff.hid} · ${staff.facilityName}` : 'Uses your available authorized patient records'}</p></div><span className="record-chat-private">{staff ? 'Separate for this patient and your facility membership' : 'Private to your account'}</span></header>
       <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Ask about medical history, prescriptions, conditions, observations, investigations and released lab results. Readable documents can be included; unclear or pending scans are identified. Patient-reported history stays labelled. Your care team guides diagnosis and treatment.</p></details>

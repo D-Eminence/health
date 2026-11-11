@@ -10,11 +10,12 @@
  * Phones: a tab bar in thumb reach (two tabs, a raised ➕ when there is something to start, one tab, Menu). Menu is a page
  * of its own (#menu), so the Back button closes it.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight, ChevronsUpDown, LogOut, Menu as MenuIcon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, UserRound, X } from 'lucide-react'
+import { ChevronRight, ChevronsUpDown, Loader2, LogOut, Menu as MenuIcon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, UserRound, X } from 'lucide-react'
 import { Avatar, cx, type Icon } from './ui'
-import { ThemeSwitch } from './interactive'
+import { keepTabInside, ThemeSwitch } from './interactive'
+import { focusLost, focusPageHeading } from '../pageFocus'
 
 /** Whether the sidebar is folded to its rail: kept for the visit only (nothing is stored in the browser). */
 let railed = false
@@ -44,7 +45,39 @@ export interface Switcher {
   readonly menu?: (close: () => void) => ReactNode
 }
 
-export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink }: {
+/**
+ * A menu that drops from its button (the switcher, the account ⋯): it opens onto its first item, and Escape or a press
+ * anywhere else closes it. Escape gives focus back to the button; so does a press elsewhere when focus was in the menu.
+ */
+function useMenu(open: boolean, close: () => void, button: RefObject<HTMLElement | null>, panel: RefObject<HTMLElement | null>) {
+  const closeRef = useRef(close)
+  useLayoutEffect(() => { closeRef.current = close })
+  useLayoutEffect(() => {
+    if (!open) return
+    panel.current?.querySelector<HTMLElement>('a[href], button:not(:disabled)')?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeRef.current()
+      button.current?.focus()
+    }
+    const onPress = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (target && (panel.current?.contains(target) || button.current?.contains(target))) return
+      const inside = panel.current?.contains(document.activeElement) ?? false
+      closeRef.current()
+      if (inside) button.current?.focus()
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onPress)
+    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', onPress) }
+  }, [open, button, panel])
+}
+
+/** The text after the last " · " of a tab's title: the product it names ("Health ID", "Health ID Platform"). */
+const productOf = (title: string) => title.includes(' · ') ? title.slice(title.lastIndexOf(' · ') + 3) : 'Health ID'
+
+export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content' }: {
   brand: ReactNode
   switcher: Switcher
   nav: readonly NavGroup[]
@@ -66,24 +99,36 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   wide?: boolean
   /**
    * The text of a "skip to content" link, the first thing a keyboard reaches: it jumps past the navigation to <main>.
-   * Shown only while focused. Needs mainAs 'main' (the link's target is the shell's own <main>).
+   * Shown only while focused; "Skip to main content" unless the product names its own. Only with mainAs 'main' (the
+   * link's target is the shell's own <main>); a host that holds the page's <main> has its own way past.
    */
   skipLink?: string
 }) {
-  const { pathname, hash, search } = useLocation()
+  const location = useLocation()
+  const { pathname, hash, search } = location
   const navigate = useNavigate()
   const [switching, setSwitching] = useState(false)
   const [creating, setCreating] = useState(false)
   const [personMenu, setPersonMenu] = useState(false)
-  // The ⋯ button that opens the person menu: Sign out closes the menu, so focus goes back to it (a failed sign-out
-  // leaves the person where they were, not on the page).
+  const switcherButton = useRef<HTMLButtonElement>(null)
+  const switcherPanel = useRef<HTMLDivElement>(null)
+  const switcherId = useId()
+  useMenu(switching, () => setSwitching(false), switcherButton, switcherPanel)
+  // The ⋯ button that opens the person menu, and the menu. Sign out closes the menu, so focus goes back to ⋯ (a failed
+  // sign-out leaves the person where they were, not on the page); while it runs, ⋯ is busy and the row beside it says
+  // "Signing out…", so a slow connection shows it is under way.
   const personButton = useRef<HTMLButtonElement>(null)
+  const personPanel = useRef<HTMLDivElement>(null)
+  const personId = useId()
+  useMenu(personMenu, () => setPersonMenu(false), personButton, personPanel)
   const [rail, setRailState] = useState(railed)
   const setRail = (next: boolean) => { railed = next; setRailState(next) }
-  // Menu is a page of its own, at #menu: the Back button closes it, as people expect.
+  // Menu is a page of its own, at #menu: the Back button closes it, as people expect. Opened as the first page of a visit
+  // (the address had #menu), there is nothing to go back to in the app: Close shows the page under it instead.
   const menu = hash === '#menu'
+  const titleBeforeMenu = useRef('')
   const openMenu = () => navigate({ pathname, search, hash: 'menu' })
-  const closeMenu = () => navigate(-1)
+  const closeMenu = () => location.key === 'default' ? navigate({ pathname, search }, { replace: true }) : navigate(-1)
   // Leaving a page closes its menus. Only a real change of address does: on mount there is nothing to close, and a
   // close run then would undo a menu opened before the effect ran.
   const shownPath = useRef(pathname)
@@ -97,17 +142,48 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const isOpen = (group: NavGroup) => !group.collapsible || !group.title ? true
     : folded[group.title] !== undefined ? !folded[group.title] : group.defaultOpen === true || holdsCurrent(group)
 
-  // The create sheet: Escape closes it, and focus moves into it as it opens and back to ➕ as it closes.
+  // The create sheet: focus moves into it as it opens and stays inside while it is open; Escape closes it. Closed with
+  // Escape, Cancel or the backdrop, focus goes back to ➕; closed by choosing an item, it is left to the page that item
+  // opens (its heading or section takes it), not put back on ➕.
   const sheet = useRef<HTMLDivElement>(null)
   const plus = useRef<HTMLButtonElement>(null)
+  const chose = useRef(false)
   useLayoutEffect(() => {
     if (!creating) return
+    chose.current = false
     sheet.current?.querySelector<HTMLElement>('a,button')?.focus()
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setCreating(false) }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCreating(false)
+      else keepTabInside(event, sheet.current)
+    }
     document.addEventListener('keydown', onKey)
     const back = plus.current
-    return () => { document.removeEventListener('keydown', onKey); back?.focus() }
+    return () => { document.removeEventListener('keydown', onKey); if (!chose.current) back?.focus() }
   }, [creating])
+
+  // The Menu page names the tab (the product's name kept from the page it covers) and takes focus to its heading when
+  // opened; when it closes and focus has nowhere left (Close was on it), the page's heading takes it.
+  const menuHeading = useRef<HTMLHeadingElement>(null)
+  const page = useRef<HTMLElement & HTMLDivElement>(null)
+  const menuShown = useRef(menu)
+  useLayoutEffect(() => {
+    const was = menuShown.current
+    menuShown.current = menu
+    if (menu === was) return
+    if (menu) { titleBeforeMenu.current = document.title; menuHeading.current?.focus() }
+    else if (focusLost()) focusPageHeading(page.current)
+  }, [menu])
+  // After the layout effect above, and after the covered page has put its own title back as it went: then the Menu's.
+  useEffect(() => {
+    if (!menu) return
+    const before = document.title
+    document.title = `Menu · ${productOf(titleBeforeMenu.current || before)}`
+    return () => { document.title = before }
+  }, [menu])
+
+  // "Signing out…", said once by a screen reader while a sign-out runs: a polite live region mounted throughout, so the
+  // change is heard; empty otherwise, and no status element of the page's while idle.
+  const signingOutSaid = <span aria-live="polite" className="sr-only" data-shell-announcement="">{signingOut ? 'Signing out…' : ''}</span>
 
   const badge = (count: number) => <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1.5 text-[11px] font-semibold text-surface tabular" aria-label={`${count} new`}>{count}</span>
 
@@ -133,7 +209,8 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     </div>
     {rail ? null : sidebarTop}
     <div className={cx('relative pt-2 pb-2', rail ? 'flex justify-center px-2' : 'px-3')}>
-      <button type="button" onClick={() => switcher.menu && setSwitching(v => !v)} aria-expanded={switcher.menu ? switching : undefined} disabled={!switcher.menu}
+      <button ref={switcherButton} type="button" onClick={() => switcher.menu && setSwitching(v => !v)} aria-expanded={switcher.menu ? switching : undefined}
+        aria-controls={switcher.menu && switching ? switcherId : undefined} disabled={!switcher.menu}
         title={rail ? `${switcher.name} · ${switcher.subtitle}` : undefined}
         className={cx('flex items-center gap-3 rounded-xl border-0 bg-transparent text-left', rail ? 'p-1' : 'w-full p-2', switcher.menu && 'cursor-pointer hover:bg-hover', !switcher.menu && 'cursor-default')}>
         {switcher.avatar ?? <Avatar name={switcher.name} />}
@@ -145,7 +222,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
           {switcher.menu && <ChevronsUpDown className="size-4 shrink-0 text-ink-3" aria-hidden />}
         </>}
       </button>
-      {switching && switcher.menu && <div className={cx('absolute top-full z-[var(--z-dropdown)] mt-1 animate-rise rounded-xl bg-surface p-1.5 shadow-[var(--shadow-pop)] ring-1 ring-line', rail ? 'left-2 w-60' : 'inset-x-3')}>
+      {switching && switcher.menu && <div ref={switcherPanel} id={switcherId} className={cx('absolute top-full z-[var(--z-dropdown)] mt-1 animate-rise rounded-xl bg-surface p-1.5 shadow-[var(--shadow-pop)] ring-1 ring-line', rail ? 'left-2 w-60' : 'inset-x-3')}>
         {switcher.menu(() => setSwitching(false))}
       </div>}
     </div>
@@ -170,14 +247,17 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
             {person.avatar ?? <Avatar name={person.name} size="sm" />}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-medium text-ink">{person.name}</span>
-              <span className="block truncate text-xs text-ink-3">{person.detail}</span>
+              <span className="block truncate text-xs text-ink-3" aria-hidden={signingOut || undefined}>{signingOut ? 'Signing out…' : person.detail}</span>
             </span>
           </>}
-          <button ref={personButton} type="button" onClick={() => setPersonMenu(v => !v)} aria-expanded={personMenu} aria-label={`${person.name}: account`} title={rail ? person.name : 'Account'}
+          <button ref={personButton} type="button" onClick={() => setPersonMenu(v => !v)} aria-expanded={personMenu} aria-controls={personMenu ? personId : undefined}
+            aria-label={`${person.name}: account`} aria-busy={signingOut || undefined} title={rail ? person.name : 'Account'}
             className={cx('inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-ink-3 hover:bg-hover hover:text-ink', rail ? 'size-11' : 'size-9')}>
-            {rail ? (person.avatar ?? <Avatar name={person.name} size="sm" />) : <MoreHorizontal className="size-[18px]" aria-hidden />}</button>
+            {signingOut ? <Loader2 className="size-[18px] animate-spin motion-reduce:animate-none" aria-hidden />
+              : rail ? (person.avatar ?? <Avatar name={person.name} size="sm" />) : <MoreHorizontal className="size-[18px]" aria-hidden />}</button>
+          {signingOutSaid}
         </div>
-        {personMenu && <div className={cx('absolute bottom-full z-[var(--z-dropdown)] mb-2 w-56 animate-rise rounded-xl bg-surface p-1.5 shadow-[var(--shadow-pop)] ring-1 ring-line', rail ? 'left-0' : 'right-0')}>
+        {personMenu && <div ref={personPanel} id={personId} className={cx('absolute bottom-full z-[var(--z-dropdown)] mb-2 w-56 animate-rise rounded-xl bg-surface p-1.5 shadow-[var(--shadow-pop)] ring-1 ring-line', rail ? 'left-0' : 'right-0')}>
           {person.profileTo ? <Link to={person.profileTo} onClick={() => setPersonMenu(false)} className="flex h-10 items-center gap-2.5 rounded-md px-2.5 text-sm text-ink no-underline hover:bg-hover"><UserRound className="size-4 text-ink-3" aria-hidden />Your profile</Link> : null}
           <button type="button" onClick={() => { setPersonMenu(false); personButton.current?.focus(); onSignOut() }} disabled={signingOut}
             className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 text-left text-sm text-danger-ink hover:bg-danger-soft disabled:opacity-50"><LogOut className="size-4" aria-hidden />{signingOut ? 'Signing out…' : 'Sign out'}</button>
@@ -188,7 +268,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
 
   const row = 'flex min-h-14 items-center gap-3.5 px-4 py-2.5 text-[15px] font-medium text-ink no-underline hover:bg-hover'
   const menuPage = <div className="mx-auto flex max-w-xl flex-col gap-5 pb-4">
-    <div className="flex items-center justify-between"><h1 className="m-0 text-title-1 text-ink">Menu</h1>
+    <div className="flex items-center justify-between"><h1 ref={menuHeading} tabIndex={-1} className="m-0 text-title-1 text-ink outline-none">Menu</h1>
       <button type="button" onClick={closeMenu} aria-label="Close menu" className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-ink-2 ring-1 ring-line-control ring-inset"><X className="size-5" /></button></div>
     <div className="overflow-hidden rounded-2xl bg-surface ring-1 ring-line">
       <div className="flex items-center gap-3.5 px-4 py-4">{switcher.avatar ?? <Avatar name={switcher.name} />}
@@ -209,7 +289,10 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     <div className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3 ring-1 ring-line">
       {person.avatar ?? <Avatar name={person.name} size="sm" />}
       <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-medium text-ink">{person.name}</span><span className="block truncate text-[13px] text-ink-3">{person.detail}</span></span>
-      <button type="button" onClick={onSignOut} disabled={signingOut} className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border-0 bg-transparent px-3.5 text-[14px] font-medium text-danger-ink ring-1 ring-line ring-inset hover:bg-danger-soft"><LogOut className="size-4" aria-hidden />{signingOut ? 'Signing out…' : 'Sign out'}</button>
+      {/* Busy while it runs, and still holding focus (aria-disabled: a disabled button drops focus to the page). */}
+      <button type="button" onClick={() => { if (!signingOut) onSignOut() }} aria-disabled={signingOut || undefined} aria-busy={signingOut || undefined}
+        className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border-0 bg-transparent px-3.5 text-[14px] font-medium text-danger-ink ring-1 ring-line ring-inset hover:bg-danger-soft aria-disabled:cursor-default aria-disabled:opacity-60"><LogOut className="size-4" aria-hidden />{signingOut ? 'Signing out…' : 'Sign out'}</button>
+      {signingOutSaid}
     </div>
   </div>
 
@@ -229,8 +312,10 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
       <div className="absolute inset-0 animate-fade-in bg-[#101828]/45" onClick={() => setCreating(false)} />
       <div ref={sheet} role="dialog" aria-modal="true" aria-label={create.label} className="absolute inset-x-0 bottom-0 animate-rise rounded-t-3xl bg-surface px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-[var(--shadow-dialog)]">
         <div className="flex justify-center pb-2"><span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-line-strong" /></div>
-        <ul className="m-0 flex list-none flex-col p-0">{create.items.map(c => <li key={c.to}>
-          <Link to={c.to} onClick={() => setCreating(false)} className="flex min-h-14 items-center gap-3.5 rounded-2xl px-3 py-2.5 no-underline hover:bg-hover">
+        {/* Keyed by name: an item whose destination changes while the sheet is open (sharing found to be served) keeps its
+            place, and focus with it. */}
+        <ul className="m-0 flex list-none flex-col p-0">{create.items.map(c => <li key={c.label}>
+          <Link to={c.to} onClick={() => { chose.current = true; setCreating(false) }} className="flex min-h-14 items-center gap-3.5 rounded-2xl px-3 py-2.5 no-underline hover:bg-hover">
             <span className={cx('inline-flex size-10 shrink-0 items-center justify-center rounded-xl', c.main ? 'bg-brand-fill text-white' : 'bg-brand-soft text-brand-ink')}><c.icon className="size-5" aria-hidden /></span>
             <span className="min-w-0"><span className="block text-[15px] font-semibold text-ink">{c.label}</span><span className="block text-[13px] text-ink-3">{c.hint}</span></span>
           </Link></li>)}</ul>
@@ -245,8 +330,8 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         <div className="flex items-center gap-2">{headerActions}</div>
       </header>
       {mainAs === 'main'
-        ? <main id="main" tabIndex={-1} className="@container mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36">{menu ? menuPage : children}</main>
-        : <div className={cx('@container mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{menu ? menuPage : children}</div>}
+        ? <main ref={page} id="main" tabIndex={-1} className="@container mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36">{menu ? menuPage : children}</main>
+        : <div ref={page} className={cx('@container mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{menu ? menuPage : children}</div>}
     </div>
     <nav aria-label="Quick" data-hid-bottom-nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden">
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}
