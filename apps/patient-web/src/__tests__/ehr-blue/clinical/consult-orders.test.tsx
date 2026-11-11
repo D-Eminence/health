@@ -2443,3 +2443,37 @@ describe('Allergies on a new prescription (hid-system 0124)', () => {
     expect((api.createRecord.mock.calls[0]![4] as Record<string, unknown>).allergyAcknowledgement).toBeUndefined()
   })
 })
+
+describe('Visit rehearsal (11 Nov): a dose is shown as it was entered', () => {
+  /** The value beside a label on the order's "Saved record". */
+  function saved(label: string) {
+    const term = Array.from(document.querySelectorAll('dt')).find(item => item.textContent === label)
+    return term?.nextElementSibling?.textContent ?? null
+  }
+
+  // The EHR keeps a dose to four decimal places and answers it as text, as the rehearsal's prescriptions came back.
+  it.each([
+    ['4.0000', 'tablet(s)', '4tablet(s)'],
+    ['1000.0000', 'mg', '1000mg'],
+    ['0.5000', 'mL', '0.5mL'],
+    ['2.5000', 'mg', '2.5mg'],
+    ['.25', 'mg', '0.25mg'],
+    [250, 'mg', '250mg'],
+  ])('shows %s %s on the prescription’s page with no trailing zeros', async (doseQuantity, doseUnit, shown) => {
+    setLists([prescription({ doseQuantity, doseUnit })], [])
+    await openOrder('pharmacy', RX)
+    expect(saved('Dose')).toBe(shown)
+    expect(document.body.textContent).not.toMatch(/\d\.\d*0(?!\d)\s*(tablet|mg|mL)/)
+  })
+
+  it('prints the dose as entered on the prescription paper', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3, medicationDisplay: 'Paracetamol', doseQuantity: '1000.0000', doseUnit: 'mg' })], [])
+    let printed = ''
+    vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '' })
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Print prescription' }))
+    expect(printed).toContain('Paracetamol 1000 mg')
+    expect(printed).not.toContain('1000.0000')
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+  })
+})

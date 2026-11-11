@@ -13,7 +13,7 @@ import { useWrongPatientServed } from '../../../../wrongPatientServed'
 import type { Chart } from '../../parts/chart'
 import { LabResultPaper, PrescriptionPaper, drugLine, isPrintable, paperPatient, prescriberName, usePaperPrint } from '../../parts/clinicalPrint'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
-import { formatWhen } from '../../parts/format'
+import { decimalText, formatWhen } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
 import { Value } from '../../../../kasuwa/parts'
 import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
@@ -474,7 +474,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     return null
   })()
 
-  const dose = text(record.doseQuantity)
+  const dose = decimalText(record.doseQuantity)
   const items: KeyValue[] = lab ? [
     { label: 'Test', value: text(record.testDisplay) },
     { label: 'Code', value: [text(record.testCodeSystem), text(record.testCode)].filter(Boolean).join(' ') },

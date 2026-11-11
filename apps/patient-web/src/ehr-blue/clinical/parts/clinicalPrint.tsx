@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ClinicalRecord, LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
 import { routeLabel } from '../../../plainLabels'
-import { ageInYears, formatDate, formatWhen } from './format'
+import { ageInYears, decimalText, formatDate, formatWhen } from './format'
 import type { PatientFacts } from './PatientHeader'
 import './clinicalPrint.css'
 
@@ -77,9 +77,9 @@ export function durationText(startsOn: unknown, endsOn: unknown): string {
   return ''
 }
 
-/** The dose with its unit, a decimal with its leading zero: "0.5 mg". */
+/** The dose with its unit, as entered: "0.5 mg", "4 tablet(s)" (never the EHR's "4.0000"). */
 export function doseText(quantity: unknown, unit: unknown): string {
-  const amount = text(quantity).replace(/^\./, '0.')
+  const amount = decimalText(quantity)
   return amount ? [amount, text(unit)].filter(Boolean).join(' ') : ''
 }
 
