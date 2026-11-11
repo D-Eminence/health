@@ -1141,6 +1141,71 @@
   margin-top: 8px;
 }
 
+/* The allergy warning at prescribing (parts/AllergyWarningPanel.tsx): its own red edge, apart from the lab draft note's
+   pink notice; a severe warning has a heavier edge and a stronger tint. Long patient words wrap at phone width. */
+.hid-ehr .hid-ehr-clinical-allergy-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--ehr-danger-300);
+  border-left: 4px solid var(--ehr-critical);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-ink);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning.hid-ehr-clinical-allergy-warning-severe {
+  border-width: 2px 2px 2px 6px;
+  border-color: var(--ehr-critical);
+  background: #fde8e6;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ehr-critical);
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-title > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Focus is moved to the title when a warning appears, for a screen reader to read it; no ring for that. */
+.hid-ehr .hid-ehr-clinical-allergy-warning-title:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-changed {
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-lines {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-lines > li + li {
+  margin-top: 6px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-severe-line {
+  font-weight: 600;
+}
+
 /* Where a sent order stands, in the tone of its state. */
 .hid-ehr .hid-ehr-clinical-orders-route-status {
   margin: 12px 0;

@@ -121,10 +121,14 @@ describe('allergy parsers', () => {
     expect(() => parseAllergyList({})).toThrow()
   })
 
-  it('reads the check and a refusal’s warning messages', () => {
-    expect(parseAllergyCheck({ matches: [{ source: 'patient_reported', substance: 'penicillin', message: 'M' }, { message: '' }] }).matches)
-      .toEqual([{ source: 'patient_reported', substance: 'penicillin', message: 'M' }])
-    expect(warningMessages([{ field: 'allergyAcknowledgement', messages: ['One', 2, ''] }, { field: 'other', messages: ['x'] }])).toEqual(['One'])
+  it('reads the check and a refusal’s warning messages; a line it cannot read fails the whole answer', () => {
+    const token = 'c'.repeat(64)
+    const reported = { source: 'patient_reported', substance: 'penicillin', reaction: null, severity: null, matchKind: 'same_medicine', message: 'M' }
+    expect(parseAllergyCheck({ matches: [reported], acknowledgementRequired: true, warningToken: token }).matches)
+      .toEqual([{ source: 'patient_reported', substance: 'penicillin', reaction: null, severity: null, matchKind: 'same_medicine', message: 'M' }])
+    expect(() => parseAllergyCheck({ matches: [reported, { message: '' }], acknowledgementRequired: true, warningToken: token })).toThrow()
+    expect(warningMessages([{ field: 'allergyAcknowledgement', messages: ['One', 2, ''] }, { field: 'other', messages: ['x'] },
+      { field: 'allergyAcknowledgement.warningToken', messages: [token] }])).toEqual(['One'])
     expect(warningMessages(null)).toEqual([])
   })
 })
