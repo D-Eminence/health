@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 013c3eff for hid-system#205 (reader cleanups: one alternative per field, headings and duplicate stop notes dropped; PROMPT_VERSION 12), on top of #204 (last-resort read). Every other service stays at 14bac287. No browser-facing contract change. OCR train deploys approved by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\"); clean output requested 2026-11-06.",
+  "review_reference": "The services as deployed now. Every service was redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 281bbe25 for hid-system#211 (gateway base image zlib 1.4-r0 pin; the owner approved the zlib change in chat: \"approve zlib\"). The build rebuilt all services from the same commit, which already contains #205 (ocr-api) and every earlier change. No browser-facing contract change. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
   "backend_commits": {
-    "gateway": "14bac28708251f639b726348fc5c03c080de96c1",
-    "identity-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "ehr-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "lab-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "pharmacy-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "ocr-api": "013c3eff0940795158cd0147a4cab3502a78d64d",
-    "outreach-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "support-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "notification-api": "14bac28708251f639b726348fc5c03c080de96c1"
+    "gateway": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "identity-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "ehr-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "lab-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "pharmacy-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "ocr-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "outreach-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "support-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6",
+    "notification-api": "281bbe251af8b4c45f78e67bd3d8db329c68d2b6"
   }
 }
