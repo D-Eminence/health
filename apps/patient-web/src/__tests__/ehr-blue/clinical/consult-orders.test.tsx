@@ -1055,8 +1055,10 @@ describe('A prescription’s page', () => {
     api.consentStatus.mockResolvedValue({ writeAllowed: false })
     await openOrder('pharmacy', RX)
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
-    expect(screen.getByText('Nothing more to do here.')).toBeTruthy()
+    // Printing is a read, so it stays; nothing that changes the order is offered.
+    expect(screen.getByRole('button', { name: 'Print prescription' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel order' })).toBeNull()
   })
 
   it('shows today’s message when the order cannot be read', async () => {
@@ -1141,6 +1143,66 @@ describe('A lab request’s page', () => {
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+  })
+
+  it('prints the released result as a lab result paper', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValue({
+      workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-10-30T10:00:00.000Z',
+      test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 2, currentReleasedVersion: 2, revisions: [
+        { version: 2, resultType: 'numeric', numericValue: 9.8, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low', entrySource: 'manual',
+          verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null },
+      ] }],
+    })
+    let printed = ''
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="lab-result"]')?.textContent ?? '' })
+    await openOrder('laboratory', LAB)
+    // No print until a result is read and shown.
+    expect(screen.queryByRole('button', { name: 'Print result' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Print result' }))
+    expect(printSpy).toHaveBeenCalledTimes(1)
+    for (const words of [FACILITY_NAME, PATIENT_NAME, PATIENT_HID, 'Laboratory result', 'Haemoglobin', '9.8 g/dL', '12.0-15.5', 'Low']) expect(printed).toContain(words)
+    // Printing reads nothing more.
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers no result print when nothing is released', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValue({ workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID,
+      acceptedAt: '2026-10-30T10:00:00.000Z', test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' }, results: [] })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('No result released yet.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Print result' })).toBeNull()
+  })
+
+  it('prints a prescription with the patient, Health ID, the medicine and the prescriber', async () => {
+    staff.permissions = [...READ_WRITE]
+    setLists([prescription({ status: 'active', rowVersion: 3, createdBy: 'staff-1', startsOn: '2026-10-30', endsOn: '2026-11-05' })], [])
+    let printed = ''
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '' })
+    await openOrder('pharmacy', RX)
+    const button = screen.getByRole('button', { name: 'Print prescription' })
+    expect(button.getAttribute('aria-expanded')).toBeNull()
+    fireEvent.click(button)
+    expect(printSpy).toHaveBeenCalledTimes(1)
+    for (const words of [FACILITY_NAME, PATIENT_NAME, PATIENT_HID, 'Amoxicillin 500 mg', 'By mouth · Twice daily · for 7 days', 'After meals', 'Demo Clinician', 'Licence number']) {
+      expect(printed).toContain(words)
+    }
+    // The paper leaves the page once the print dialog closes.
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    expect(document.querySelector('[data-clinical-print]')).toBeNull()
+  })
+
+  it.each(['draft', 'on_hold', 'completed', 'cancelled', 'entered_in_error'])('offers no print for a prescription that is %s', async status => {
+    staff.permissions = [...READ_WRITE]
+    setLists([prescription({ status, rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    expect(screen.queryByRole('button', { name: 'Print prescription' })).toBeNull()
   })
 
   it('says when no result is released, and today’s refusals', async () => {

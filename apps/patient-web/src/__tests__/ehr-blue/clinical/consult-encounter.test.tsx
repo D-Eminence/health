@@ -7,7 +7,7 @@ import { ENCOUNTER_STATUS_UPDATED, RELOAD_FAILED, REVISION_RECORDED } from '../.
 import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
-import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -223,6 +223,123 @@ describe('Consultation record', () => {
     expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes')
     expect(api.noteRevisions).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-1')
+  })
+
+  it('prints a discharge summary and the visit’s prescription from what the page read', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read', 'ehr.lab-request.read']
+    records.prescriptions = [
+      { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', createdBy: 'staff-1', status: 'active',
+        medicationDisplay: 'Artemether-lumefantrine', doseQuantity: '4', doseUnit: 'tablets', routeCode: 'oral', frequency: 'Twice a day', instructions: 'With food',
+        startsOn: '2026-10-30', endsOn: '2026-11-01' },
+      { id: 'rx-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:41:00.000Z', createdBy: 'staff-1', status: 'cancelled',
+        medicationDisplay: 'Cancelled medicine', frequency: 'Daily', instructions: '' },
+      { id: 'rx-3', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:42:00.000Z', createdBy: 'staff-1', status: 'draft',
+        medicationDisplay: 'Draft medicine', frequency: 'Daily', instructions: '' },
+      { id: 'rx-4', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:43:00.000Z', createdBy: 'staff-1', status: 'on_hold',
+        medicationDisplay: 'Held medicine', frequency: 'Daily', instructions: '' },
+      { id: 'rx-5', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:44:00.000Z', createdBy: 'staff-1', status: 'completed',
+        medicationDisplay: 'Finished medicine', frequency: 'Once', instructions: '' },
+    ]
+    records['clinical-notes'] = [{ ...NOTE, createdBy: 'staff-1' }]
+    records['lab-requests'] = [{ id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }]
+    const papers: Record<string, string> = {}
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {
+      const paper = document.querySelector('[data-clinical-print]')
+      if (paper) papers[paper.getAttribute('data-clinical-print')!] = paper.textContent ?? ''
+    })
+    await openEncounter()
+    const printing = within(card('Print'))
+    fireEvent.click(await printing.findByRole('button', { name: 'Print prescription' }))
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    fireEvent.click(printing.getByRole('button', { name: 'Print discharge summary' }))
+    expect(printSpy).toHaveBeenCalledTimes(2)
+    for (const words of [FACILITY_NAME, PATIENT_HID, 'Artemether-lumefantrine 4 tablets', 'By mouth · Twice a day · for 3 days', 'With food', 'Demo Clinician']) {
+      expect(papers.prescription).toContain(words)
+    }
+    for (const left of ['Cancelled medicine', 'Draft medicine', 'Held medicine', 'Finished medicine']) expect(papers.prescription).not.toContain(left)
+    for (const words of ['Discharge summary', PATIENT_HID, 'Fever for two days', 'Malaria (fictional)', 'This note is a draft and has not been signed.',
+      'Cough for three days.', 'Malaria smear', 'Medicines on discharge', 'Artemether-lumefantrine', 'Follow-up', 'Demo Clinician']) {
+      expect(papers.discharge).toContain(words)
+    }
+    for (const left of ['Cancelled medicine', 'Draft medicine', 'Finished medicine']) expect(papers.discharge).not.toContain(left)
+    // A held medicine is listed apart, never as one to continue.
+    expect(papers.discharge).toMatch(/Medicines on hold.*not to be taken unless a clinician says so.*Held medicine/)
+    expect(papers.discharge?.indexOf('Held medicine')).toBeGreaterThan(papers.discharge?.indexOf('Medicines on hold') ?? -1)
+  })
+
+  it('leaves the clinician’s name blank when the person printing did not write the consultation note', async () => {
+    records['clinical-notes'] = [{ ...NOTE, createdBy: 'staff-9' }]
+    let printed = ''
+    vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print]')?.textContent ?? '' })
+    await openEncounter()
+    fireEvent.click(within(card('Print')).getByRole('button', { name: 'Print discharge summary' }))
+    expect(printed).toContain('Cough for three days.')
+    expect(printed).not.toContain('Demo Clinician')
+    expect(document.querySelector('[data-clinical-print] .hid-clinical-paper-sign .hid-clinical-paper-line')?.textContent).toBe('')
+  })
+
+  it('says a part is not available to the user rather than that the visit has none', async () => {
+    records.prescriptions = [{ id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', status: 'active', medicationDisplay: 'Artemether-lumefantrine' }]
+    let printed = ''
+    vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print]')?.textContent ?? '' })
+    await openEncounter()
+    fireEvent.click(within(card('Print')).getByRole('button', { name: 'Print discharge summary' }))
+    // ALL carries no prescription or lab request read.
+    expect(printed).toMatch(/Medicines on discharge\s*Not available to you\. Check the patient’s record\./)
+    expect(printed).not.toContain('None active at this visit')
+    expect(printed).not.toContain('Artemether-lumefantrine')
+  })
+
+  it('won’t print the discharge summary while a part failed to load, and says why', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read']
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'prescriptions') throw new HidApiError(503, 'Unavailable')
+      return { items: records[kind] ?? [], nextCursor: null }
+    })
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    await openEncounter()
+    const button = within(card('Print')).getByRole('button', { name: 'Print discharge summary' })
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
+    expect(within(card('Print')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    fireEvent.click(button)
+    expect(printSpy).not.toHaveBeenCalled()
+  })
+
+  it('won’t print the discharge summary while a part is still loading', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read']
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) =>
+      kind === 'prescriptions' ? new Promise(() => {}) : { items: records[kind] ?? [], nextCursor: null })
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    await openEncounter()
+    const button = within(card('Print')).getByRole('button', { name: 'Print discharge summary' })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button)
+    expect(printSpy).not.toHaveBeenCalled()
+  })
+
+  it('says on the paper when the visit has more prescriptions than the first page', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read']
+    records.prescriptions = [{ id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', status: 'active', medicationDisplay: 'Artemether-lumefantrine' }]
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) =>
+      ({ items: records[kind] ?? [], nextCursor: kind === 'prescriptions' ? 'next-page' : null }))
+    const papers: Record<string, string> = {}
+    vi.spyOn(window, 'print').mockImplementation(() => {
+      const paper = document.querySelector('[data-clinical-print]')
+      if (paper) papers[paper.getAttribute('data-clinical-print')!] = paper.textContent ?? ''
+    })
+    await openEncounter()
+    fireEvent.click(await within(card('Print')).findByRole('button', { name: 'Print prescription' }))
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    fireEvent.click(within(card('Print')).getByRole('button', { name: 'Print discharge summary' }))
+    expect(papers.prescription).toContain('This visit has more prescriptions on later pages of the record')
+    expect(papers.discharge).toContain('More are on later pages of the record')
+  })
+
+  it('offers only the discharge summary when the visit has no prescription to print', async () => {
+    await openEncounter()
+    const printing = within(card('Print'))
+    expect(printing.getByRole('button', { name: 'Print discharge summary' })).toBeTruthy()
+    expect(printing.queryByRole('button', { name: 'Print prescription' })).toBeNull()
   })
 
   it('lists the connected hospital history, each with its status, linking records that have their own page by ids only', async () => {
