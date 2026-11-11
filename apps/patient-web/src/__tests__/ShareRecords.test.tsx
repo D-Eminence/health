@@ -104,7 +104,9 @@ describe('the share flow', () => {
     const post = sent.find(item => item.path === '/identity/me/shares')
     expect(post?.body).toEqual({ membershipId: providers[0]!.membershipId, level: 'clinical_collaboration', duration: 'until_revoked' })
     expect(headers.find(item => item.path === '/identity/me/shares')?.headers.get('Idempotency-Key')).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
-    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access')
+    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access?tab=granted')
+    // No preview of a provider page that no link opens yet (HCS-03: the card link is off, CARD_LINK_OPENS).
+    expect(screen.queryByRole('link', { name: /Preview what they see/ })).toBeNull()
   })
 
   it('asks for a recent sign-in in its own words, moves focus to the error, and sends the same key again', async () => {
@@ -367,7 +369,8 @@ describe('Access and consent with sharing', () => {
       return json({ items: list, limits: LIMITS })
     })
     const section = await card()
-    expect(screen.getByRole('link', { name: 'Share records' }).getAttribute('href')).toBe('/access/share')
+    // The page's action, and the next step in the empty list of who has access.
+    for (const link of screen.getAllByRole('link', { name: 'Share records' })) expect(link.getAttribute('href')).toBe('/access/share')
     const rows = within(section).getAllByRole('listitem')
     expect(rows[0]!.textContent).toContain('Dr New (dr.new@example.com)')
     expect(rows[0]!.textContent).toContain('View Only · 7 days')
@@ -462,9 +465,10 @@ describe('Access and consent with sharing', () => {
       grant('g-1', { clinicianName: 'Dr Ada Obi', shareLevel: 'view_only', shareDuration: 'until_revoked' }),
       grant('g-2', { shareLevel: null, shareDuration: null, clinicianName: null }),
     ] })
-    const history = (await screen.findByRole('heading', { name: '2 facilities have access now' })).closest('section') as HTMLElement
+    const history = (await screen.findByRole('heading', { name: 'Lagos General has access now' })).closest('section') as HTMLElement
     const rows = await within(history).findAllByRole('listitem')
-    expect(rows[0]!.textContent).toContain('Dr Ada Obi at Lagos General')
+    expect(within(history).getByRole('heading', { level: 3, name: 'Lagos General' })).toBeTruthy()
+    expect(rows[0]!.textContent).toContain('Dr Ada Obi')
     expect(rows[0]!.textContent).toContain('Shared by you · View Only · Until you end it')
     expect(within(rows[0]!).getByRole('button', { name: /^End access for Dr Ada Obi at Lagos General/ })).toBeTruthy()
     expect(rows[1]!.textContent).not.toContain('Shared by you')

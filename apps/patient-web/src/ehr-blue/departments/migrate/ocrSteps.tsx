@@ -2,15 +2,16 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea, type EhrBadgeTone } from '@hid/ui/ehr'
 import {
-  staffApi, type Encounter, type LabAbnormalFlag, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain,
+  isAllowedPatientLookup, staffApi, type Encounter, type PatientSummary, type LabAbnormalFlag, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain,
   type OcrValidation, type PharmacyImport,
 } from '../../../staff/api'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
+import { useStaff } from '../../../staff/App'
 import { visitClassLabel } from '../../../plainLabels'
 import { DeptNotice } from '../parts/DeptNotice'
 import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
-import { dateText } from '../parts/format'
+import { birthDateText, dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import {
@@ -336,31 +337,135 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   </form>
 }
 
+/** A patient this step offers to pick: who they are, in words, and their record's ID, which is sent but never shown. */
+interface PatientChoice {
+  readonly patientId: string
+  readonly name: string
+  readonly born: string
+  readonly hidEnding: string
+  /** Where the page got them: the patient this reading is for, or one found by Health ID. */
+  readonly from: 'reading' | 'search'
+}
+
+function patientChoice(summary: PatientSummary, hid: string, from: PatientChoice['from']): PatientChoice {
+  const joined = [summary.firstName, summary.lastName].filter(Boolean).join(' ')
+  const health = (summary.hid || hid).trim()
+  return {
+    patientId: summary.patientId, from,
+    name: summary.fullName?.trim() || joined || 'Name not recorded',
+    born: birthDateText(summary.dateOfBirth),
+    hidEnding: health.replace(/^HID-?/i, '').slice(-4).toUpperCase(),
+  }
+}
+
+/** "Born 12 Mar 1980 · Health ID ending AAA2": enough to tell the person from the paper, and never their record ID. */
+function choiceFacts(choice: PatientChoice) {
+  return [choice.born ? `Born ${choice.born}` : 'Date of birth not recorded', choice.hidEnding ? `Health ID ending ${choice.hidEnding}` : '']
+    .filter(Boolean).join(' · ')
+}
+
 /**
- * "Confirm source patient". OCR takes one patient confirmation per job version. A retry of the same confirmation
- * reuses its key, so OCR answers with the one it recorded; if the job was confirmed already, it is reloaded rather
- * than left with a dead form.
+ * How the patient was checked, as the confirmation's reason. OCR takes any reason of 8 to 500 characters
+ * (ConfirmPatientDto), so each choice is sent in these words; Other sends what is written.
  */
-export function ConfirmForm({ facilityId, job, onChanged }: {
-  readonly facilityId: string; readonly job: OcrJob; readonly onChanged: (notice?: string) => Promise<void>
+export const CONFIRM_REASONS = ['Name and date of birth match', 'Folder number matches', 'Confirmed with the patient'] as const
+const OTHER_REASON = 'Other'
+
+/**
+ * A Health ID as Identity takes it, from what was typed after the box's HID- ("zdem aaa2", "HID-ZDEMAAA2"). A pasted
+ * "HID-" is dropped only when a separator follows it, so a Health ID whose own letters begin with HID is kept whole.
+ */
+function healthIdFrom(text: string) {
+  const upper = text.trim().toUpperCase()
+  const rest = /^HID[\s_-]/.test(upper) ? upper.slice(4) : upper
+  return `HID-${rest.replace(/[\s_-]+/g, '')}`
+}
+
+/**
+ * "Confirm the patient". OCR takes one patient confirmation per job version. Nobody types a patient's record ID (owner's
+ * no-typing rule for Migrate): the patient this reading is for, when the page knows who they are (the patient opened for
+ * this visit, from Patient documents or the clinical record's hand-off), is offered as a person, name, date of birth and
+ * the end of their Health ID, to pick with "This is the patient". Otherwise they are found by Health ID, as the
+ * department pages find a patient, and picked the same way. The picked patient's ID is sent exactly as before; OCR
+ * checks it is the job's patient (OCR_PATIENT_MISMATCH). A retry of the same confirmation reuses its key, so OCR answers
+ * with the one it recorded; if the job was confirmed already, it is reloaded rather than left with a dead form.
+ */
+export function ConfirmForm({ facilityId, job, permissions, onChanged }: {
+  readonly facilityId: string; readonly job: OcrJob; readonly permissions: readonly string[]
+  readonly onChanged: (notice?: string) => Promise<void>
 }) {
+  const { activePatient } = useStaff()
+  // The patient opened here, offered only when they are the one this reading is for: any other would be refused.
+  // A job that names no patient offers nobody here: the patient is then found by Health ID.
+  const visitPatient = activePatient && !!job.patientId && activePatient.lookup.patient.patientId === job.patientId
+    ? patientChoice(activePatient.lookup.patient, activePatient.hid, 'reading') : null
+  const canFind = permissions.includes('identity.patient.read')
+  const [found, setFound] = useState<PatientChoice | null>(null)
+  const choices = [visitPatient, found && found.patientId !== visitPatient?.patientId ? found : null].filter((choice): choice is PatientChoice => !!choice)
+  const [picked, setPicked] = useState('')
+  const pickedChoice = choices.find(choice => choice.patientId === picked) ?? null
+  const [reasonChoice, setReasonChoice] = useState('')
+  const [otherReason, setOtherReason] = useState('')
+  const [hid, setHid] = useState('')
+  const [finding, setFinding] = useState(false)
+  const [findError, setFindError] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const focus = useFocusById()
   const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // Each search, and each edit of the Health ID box, takes a new number; an answer for an older one is dropped.
+  const findRequest = useRef(0)
+
+  /** Forgets the last search's patient, and its pick, so Confirm can never send a patient the last search did not find. */
+  function forgetFound() {
+    findRequest.current += 1
+    setFound(null)
+    if (picked && picked !== visitPatient?.patientId) setPicked('')
+  }
+
+  async function find() {
+    if (finding) return
+    const value = healthIdFrom(hid)
+    forgetFound()
+    const request = findRequest.current
+    setFindError(''); setProblem(null)
+    if (!/^HID-[A-Z0-9]{4,}$/.test(value)) {
+      setProblem(refusal({ field: 'ocr-confirm-hid', message: 'Type the letters and numbers after HID- on their Health ID card.' }))
+      focus('ocr-confirm-hid'); return
+    }
+    setFinding(true)
+    try {
+      const lookup = await staffApi.lookupPatient(facilityId, value)
+      if (request !== findRequest.current) return
+      if (!isAllowedPatientLookup(lookup)) { setFindError(NOT_OPENED_HERE); focus('ocr-confirm-hid'); return }
+      const choice = patientChoice(lookup.patient, value, 'search')
+      // Shown to pick, never picked for them: the person still says it is the patient on the paper.
+      setFound(choice)
+      focus(`ocr-confirm-pick-${choice.from}`)
+    } catch (caught) {
+      if (request !== findRequest.current) return
+      setFindError(isHidApiError(caught) && caught.status === 404 ? 'No patient has this Health ID. Check the card and try again.'
+        : isHidApiError(caught) && caught.status === 403 ? NOT_OPENED_HERE
+          : errorText(caught, 'The patient could not be found.'))
+      focus('ocr-confirm-hid')
+    } finally { setFinding(false) }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    const form = new FormData(event.currentTarget)
-    const patientId = String(form.get('patientId') ?? '').trim()
-    const reason = String(form.get('reason') ?? '').trim()
+    const reason = reasonChoice === OTHER_REASON ? otherReason.trim() : reasonChoice
     setError(''); setProblem(null)
-    const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Complete this field.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
-      : !reason ? { field: 'ocr-confirm-reason', message: 'Complete this field.' }
-      : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
+    const refused = !pickedChoice
+      ? choices.length > 0 ? { field: `ocr-confirm-pick-${choices[0]!.from}`, message: 'Choose the patient on the paper.' }
+        : canFind ? { field: 'ocr-confirm-hid', message: 'Find the patient by their Health ID first.' }
+          : { field: 'ocr-confirm-patient', message: NO_PATIENT_HERE }
+      : !reasonChoice ? { field: 'ocr-confirm-reason', message: 'Choose how you checked.' }
+        : !reason ? { field: 'ocr-confirm-other', message: 'Complete this field.' }
+          : reason.length < 8 ? { field: 'ocr-confirm-other', message: 'Write at least 8 characters.' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
+    const patientId = pickedChoice!.patientId
     const signature = JSON.stringify([patientId, reason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
@@ -376,18 +481,64 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
     }
     finally { setBusy(false) }
   }
+
+  const patientError = problemText(problem, 'ocr-confirm-patient') ?? (choices.length > 0 ? problemText(problem, `ocr-confirm-pick-${choices[0]!.from}`) : undefined)
+  const reasonError = problemText(problem, 'ocr-confirm-reason')
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Confirm source patient" onSubmit={event => void submit(event)}>
-    <p className="hid-ehr-dept-muted">Check the patient against the source document before publishing. Health ID checks for an exact match and write access.</p>
-    <EhrField label={<>Canonical patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')}>
-      <EhrInput name="patientId" defaultValue={job.patientId ?? ''} required autoComplete="off" />
-    </EhrField>
-    <EhrField label={<>Confirmation reason<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')}>
-      <EhrTextarea name="reason" minLength={8} maxLength={500} required />
-    </EhrField>
+    <p className="hid-ehr-dept-muted">Check the name and date of birth on the paper against the patient below before publishing. Health ID checks that it is the same patient.</p>
+    <fieldset className="hid-ehr-dept-migrate-group" aria-describedby={patientError ? 'ocr-confirm-patient-error' : undefined}>
+      <legend className="hid-ehr-label">Who is on the paper?<span aria-hidden="true"> *</span></legend>
+      {choices.length > 0
+        ? <ul className="hid-ehr-dept-migrate-people">{choices.map(choice => <li key={choice.patientId}
+          className={choice.patientId === picked ? 'hid-ehr-dept-migrate-person hid-ehr-dept-migrate-person-picked' : 'hid-ehr-dept-migrate-person'}>
+          <div className="hid-ehr-dept-migrate-person-text" id={`ocr-confirm-person-${choice.from}`}>
+            <strong className="hid-ehr-dept-strong">{choice.name}</strong>
+            <span>{choiceFacts(choice)}</span>
+            <span className="hid-ehr-dept-muted">{choice.from === 'reading' ? 'The patient this reading is for' : 'Found by Health ID'}</span>
+          </div>
+          <label className="hid-ehr-dept-migrate-choice">
+            <input type="radio" name="ocr-confirm-patient" id={`ocr-confirm-pick-${choice.from}`} value={choice.from} checked={choice.patientId === picked}
+              aria-describedby={[patientError ? 'ocr-confirm-patient-error' : '', `ocr-confirm-person-${choice.from}`].filter(Boolean).join(' ')}
+              aria-invalid={patientError ? true : undefined}
+              onChange={() => { setPicked(choice.patientId); setProblem(null); setError('') }} />
+            <span>This is the patient</span>
+          </label>
+        </li>)}</ul>
+        : <p className="hid-ehr-dept-muted" id="ocr-confirm-patient" tabIndex={-1}>{canFind ? 'The patient this reading is for isn’t open on this page. Find them by their Health ID.' : NO_PATIENT_HERE}</p>}
+      {patientError && <p id="ocr-confirm-patient-error" className="hid-ehr-error">{patientError}</p>}
+    </fieldset>
+    {canFind && !visitPatient && <div className="hid-ehr-dept-migrate-find-patient">
+      <EhrField label="Health ID" controlId="ocr-confirm-hid" hint="The letters and numbers after HID- on their Health ID card."
+        error={problemText(problem, 'ocr-confirm-hid') ?? (findError || undefined)}>
+        <div className="hid-ehr-dept-migrate-hid">
+          <span aria-hidden="true">HID-</span>
+          <EhrInput value={hid} autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={40}
+            onChange={event => { setHid(event.target.value); forgetFound(); setFindError(''); setProblem(null) }}
+            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void find() } }} />
+        </div>
+      </EhrField>
+      <div><EhrButton id="ocr-confirm-find" variant="secondary" busy={finding} onClick={() => void find()}>{finding ? 'Finding…' : 'Find patient'}</EhrButton></div>
+    </div>}
+    <fieldset className="hid-ehr-dept-migrate-group" aria-describedby={reasonError ? 'ocr-confirm-reason-error' : undefined}>
+      <legend className="hid-ehr-label">How did you check?<span aria-hidden="true"> *</span></legend>
+      {[...CONFIRM_REASONS, OTHER_REASON].map((option, index) => <label key={option} className="hid-ehr-dept-migrate-choice">
+        <input type="radio" name="ocr-confirm-reason" id={index === 0 ? 'ocr-confirm-reason' : undefined} value={option} checked={reasonChoice === option}
+          aria-describedby={reasonError ? 'ocr-confirm-reason-error' : undefined} aria-invalid={reasonError ? true : undefined}
+          onChange={() => { setReasonChoice(option); setProblem(null) }} />
+        <span>{option}</span>
+      </label>)}
+      {reasonError && <p id="ocr-confirm-reason-error" className="hid-ehr-error">{reasonError}</p>}
+    </fieldset>
+    {reasonChoice === OTHER_REASON && <EhrField label={<>What you checked<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-other" error={problemText(problem, 'ocr-confirm-other')}>
+      <EhrTextarea value={otherReason} minLength={8} maxLength={500} required onChange={event => { setOtherReason(event.target.value); setProblem(null) }} />
+    </EhrField>}
     <FormRefusal error={error} />
     <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-confirm-submit" type="submit" busy={busy}>{busy ? 'Saving…' : 'Confirm source patient'}</EhrButton></div>
   </form>
 }
+
+const NOT_OPENED_HERE = 'This patient’s record can’t be opened here. Open them through approved access first.'
+const NO_PATIENT_HERE = 'Open the patient this reading is for through approved access, then come back to confirm them.'
 
 /** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
 const RETRYABLE_PUBLICATION_FAILURES: readonly string[] = ['OWNING_SERVICE_UNAVAILABLE', 'REQUEST_IN_PROGRESS']

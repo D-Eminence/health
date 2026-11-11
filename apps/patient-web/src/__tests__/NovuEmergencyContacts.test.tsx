@@ -125,9 +125,9 @@ describe('the destination field', () => {
     save.disabled = false; save.blur(); save.disabled = true
     await act(async () => { answer(problem(400, code, detail)) })
     await waitFor(() => expect(field.getAttribute('aria-invalid')).toBe('true'))
-    // The card's error, which a kasuwa Alert opens with its intent, read as the field's description.
-    expect(described(field)).toBe('Error: Enter a valid email address.')
-    expect(shownText(screen.getByRole('alert'))).toBe('Enter a valid email address.')
+    // Said under the field itself (launch audit HE-05), read as its description, where focus lands.
+    expect(described(field)).toBe('Enter a valid email address.')
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(document.activeElement).toBe(field)
     fireEvent.change(field, { target: { value: 'ada@example.com' } })
     expect(field.getAttribute('aria-invalid')).toBeNull()
@@ -163,7 +163,7 @@ describe('delivery switched off (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE)', (
     await press(screen.getByRole('button', { name: 'Save contact' }))
     expect(shownText(await screen.findByRole('alert'))).toBe('Emergency contacts aren’t available right now. This contact wasn’t added.')
     await waitFor(() => expect(reads(sent, LIST)).toBe(2))
-    await waitFor(() => expect(screen.queryByText('No emergency contacts yet.')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('No emergency contacts yet')).toBeNull())
     expect(screen.queryByRole('button')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
@@ -394,7 +394,7 @@ describe('an edit the list no longer matches', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi O.' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
     expect(shownText(await screen.findByRole('alert'))).toBe('This contact was removed. The list below is up to date.')
-    expect(await screen.findByText('No emergency contacts yet.')).toBeTruthy()
+    expect(await screen.findByText('No emergency contacts yet')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     expect(reads(sent, LIST)).toBe(2)
     await waitFor(() => expect(document.activeElement).toBe(heading()))

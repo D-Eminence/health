@@ -107,9 +107,9 @@ describe('access and consent', () => {
     const approve = drawer().getByRole('button', { name: /^Approve/ })
     await inChromium(approve)
     expect(focused()).toBe(document.body)
-    await act(async () => { answer.resolve(problem(409, 'ACCESS_REQUEST_NOT_PENDING', 'This request was already decided.')) })
+    await act(async () => { answer.resolve(problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', 'Recovery hold.')) })
 
-    expect((await screen.findByRole('alert')).textContent).toContain('already decided')
+    expect((await screen.findByRole('alert')).textContent).toContain('24 hours after you recover')
     await waitFor(() => expect(focused()).toBe(approve))
   })
 
@@ -186,14 +186,14 @@ describe('access and consent', () => {
   it('says each outcome in a polite status, and a refusal in an alert', async () => {
     let refuse = false
     access((path, method) => method === 'POST'
-      ? (refuse ? problem(409, 'ACCESS_REQUEST_NOT_PENDING', 'This request was already decided.')
+      ? (refuse ? problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', 'Recovery hold.')
         : json({ accessRequestId: request.accessRequestId, status: 'approved' }))
       : json(path === '/identity/me/access-requests' ? [request] : { items: [] }))
     await review()
     refuse = true
     await press(drawer().getByRole('button', { name: /^Approve/ }))
     const refusal = await screen.findByRole('alert')
-    expect(refusal.textContent).toContain('This request was already decided.')
+    expect(refusal.textContent).toContain('For your safety, this isn’t available for 24 hours after you recover your account.')
     expect(refusal.getAttribute('aria-live')).toBe('assertive')
     refuse = false
     await press(drawer().getByRole('button', { name: /^Approve/ }))
@@ -208,7 +208,7 @@ describe('access and consent', () => {
     await whoHasAccess()
     await press(await screen.findByRole('button', { name: 'Try again' }))
     await screen.findByText('Lagos General')
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: '1 facility has access now' })))
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Lagos General has access now' })))
   })
 })
 
@@ -223,7 +223,7 @@ describe('Try again pressed as soon as it is shown', () => {
       let reads = 0
       access(path => path === '/identity/me/access-requests' ? json([]) : ++reads === 1 ? unavailable() : json({ items: [grant] }))
       await whoHasAccess()
-      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: '1 facility has access now' }) }
+      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: 'Lagos General has access now' }) }
     }],
     ['the overview', async () => {
       let reads = 0
@@ -350,7 +350,8 @@ describe('the Access PIN, in the profile\'s Bio-data', () => {
     settings((_path, method) => method === 'POST' ? json({ configured: true }) : json({ revoked: true }))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     await press(screen.getByRole('button', { name: 'Save PIN' }))
-    await inChromium(await screen.findByRole('button', { name: 'Remove PIN' }))
+    await press(await screen.findByRole('button', { name: 'Remove PIN' }))
+    await inChromium(within(await screen.findByRole('dialog', { name: 'Remove your Access PIN?' })).getByRole('button', { name: 'Remove PIN' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove PIN' })).toBeNull())
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access PIN' })))
   })

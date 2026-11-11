@@ -15,7 +15,7 @@ vi.mock('../GoogleButton', () => ({
 afterEach(() => { vi.unstubAllEnvs() })
 
 const AVAILABILITY = '/identity/patient-enrollments/availability'
-const CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
+const CLOSED = 'New sign-ups are paused right now. Please try again later. If you already have a Health ID, sign in.'
 const anonymous = { state: { status: 'anonymous', principal: null } } as const
 const none = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
 /** The gateway's 503; Retry-After 0 lets the client spend its read retries without waiting. */
@@ -32,7 +32,7 @@ function gateway(availability: () => Response, current: () => Response = none, o
     return other(path, method, body)
   }
 }
-const closedNotice = () => screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
+const closedNotice = () => screen.findByRole('region', { name: 'New sign-ups are paused' })
 const availabilityReads = (sent: Array<{ path: string }>) => sent.filter(request => request.path === AVAILABILITY).length
 
 /**
@@ -83,14 +83,14 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     expect(screen.getByRole('list', { name: 'Enrollment steps' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'New sign-ups are paused' })).toBeNull()
   })
 
   it('continues an enrollment in progress while registration is not open', async () => {
     renderPortal(<Enrollment />, gateway(() => json({ open: false }),
       () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com' })), anonymous)
     expect(await screen.findByLabelText('Code')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'New sign-ups are paused' })).toBeNull()
   })
 
   it('shows the Health ID of an enrollment activated here while registration is not open', async () => {
@@ -98,7 +98,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
       () => json({ stage: 'active', hidCode: 'HID-ABCDEF23' })), anonymous)
     expect(await screen.findByRole('heading', { name: 'Your Health ID is ready' })).toBeTruthy()
     expect(screen.getByText('HID-ABCDEF23')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'New sign-ups are paused' })).toBeNull()
   })
 
   it('says it could not check, without asking for a NIN, when the availability read fails; Try again reads it again', async () => {
@@ -108,7 +108,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     const alert = await screen.findByRole('alert')
     expect(shownText(alert)).toContain('We couldn’t check whether new sign-ups are open. Try again before starting.')
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'New sign-ups are paused' })).toBeNull()
     const reads = availabilityReads(sent)
 
     open = () => json({ open: true })
@@ -129,7 +129,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     open = () => json({ open: false })
     await press(second)
     await closedNotice()
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Sign-ups aren’t open yet' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'New sign-ups are paused' })))
   })
 
   it('does not ask for the NIN again when an enrollment in progress ends here while registration is not open', async () => {

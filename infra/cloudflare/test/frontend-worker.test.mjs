@@ -407,7 +407,7 @@ test('sends hid-1.0\'s patient pages on the public host to the portal page that 
     ['/patient/records', 'https://app.healthidentitydirectory.com/records'],
     ['/records', 'https://app.healthidentitydirectory.com/records'],
     ['/patient/history', 'https://app.healthidentitydirectory.com/access'],
-    ['/logs', 'https://app.healthidentitydirectory.com/access'],
+    ['/logs', 'https://app.healthidentitydirectory.com/access?tab=activity'],
     ['/patient/notifications', 'https://app.healthidentitydirectory.com/notifications'],
     ['/patient/auth', 'https://app.healthidentitydirectory.com/sign-in'],
     ['/login', 'https://app.healthidentitydirectory.com/sign-in'],

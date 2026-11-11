@@ -76,12 +76,12 @@ describe('Contact details', () => {
     const shown = await card()
     expect(shown.getByText('Email').nextElementSibling?.textContent).toBe('a•••@example.comNot verified')
     await press(shown.getByRole('button', { name: 'Change phone number' }))
-    expect(screen.getByText(/Health ID can’t text it\s+yet, so it will show as not verified\.$/)).toBeTruthy()
+    expect(described(screen.getByRole('textbox', { name: 'Phone number' }))).toBe('Like 0801 234 5678.')
     type('Phone number', '0805 555 1234')
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Save phone number' }))
     const notice = await screen.findByText(/Your phone number is now \+234 •••• 1234\./)
-    expect(notice.textContent).toBe('Your phone number is now +234 •••• 1234. It shows as not verified.')
+    expect(notice.textContent).toBe('Your phone number is now +234 •••• 1234.')
     expect(changes(sent)).toHaveLength(1)
   })
 
@@ -399,13 +399,13 @@ describe('changing the phone', () => {
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Save phone number' }))
 
-    expect(await screen.findByText(/Your phone number is now \+234 •••• 1234\. It shows as not verified/)).toBeTruthy()
+    expect(await screen.findByText(/^Your phone number is now \+234 •••• 1234\. We emailed you about the change\.$/)).toBeTruthy()
     // The form is gone: focus is on the Change button that started it.
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Change phone number' })))
     expect(changes(sent)).toEqual([{ path: CHANGES, method: 'POST', body: { channel: 'phone', phone: '+2348055551234', currentPassword: 'Secret-pass-1' } }])
     const shown = await card()
-    // The profile is read again: the phone row says the new number, not verified.
-    await waitFor(() => expect(shown.getByText('Phone').nextElementSibling?.textContent).toBe('+234 •••• 1234Not verified'))
+    // The profile is read again: the phone row says the new number, with no badge (no phone is checked by text yet).
+    await waitFor(() => expect(shown.getByText('Phone').nextElementSibling?.textContent).toBe('+234 •••• 1234'))
     // No code is asked for: production sends no SMS.
     expect(screen.queryByRole('textbox', { name: /Digit 1 of 6/ })).toBeNull()
   })

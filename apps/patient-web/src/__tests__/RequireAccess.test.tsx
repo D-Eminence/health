@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { createApiClient } from '@hid/http'
 import { PATIENT_ROUTE, STAFF_ROUTE, type SessionState } from '@hid/auth'
 import { RequireAccess } from '../RequireAccess'
@@ -36,10 +36,16 @@ function stubApi(): PatientApi {
   return createPatientApi(client)
 }
 
+/** Where the sign-in screen will return to, from its `next`. */
+function SignInNext() {
+  const { search } = useLocation()
+  return <p data-testid="next">{new URLSearchParams(search).get('next') ?? 'none'}</p>
+}
+
 function renderGuard(state: SessionState, requirement = PATIENT_ROUTE,
-  sessionError: string | null = null, retrySessionCheck = vi.fn()) {
+  sessionError: string | null = null, retrySessionCheck = vi.fn(), at = '/') {
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={[at]}>
       <SessionContext.Provider value={{ ...createTestSessionValue(state.principal, stubApi()), state,
         sessionError, retrySessionCheck }}>
         <Routes>
@@ -51,7 +57,8 @@ function renderGuard(state: SessionState, requirement = PATIENT_ROUTE,
               </RequireAccess>
             }
           />
-          <Route path="/sign-in" element={<p>Sign-in screen</p>} />
+          <Route path="/access/*" element={<RequireAccess requirement={requirement}><p>Protected content</p></RequireAccess>} />
+          <Route path="/sign-in" element={<><p>Sign-in screen</p><SignInNext /></>} />
           <Route path="/verify" element={<p>Verification screen</p>} />
         </Routes>
       </SessionContext.Provider>
@@ -85,6 +92,42 @@ describe('RequireAccess', () => {
     expect(retry).toHaveBeenCalledOnce()
   })
 
+  it('makes Try again the page\'s one full-size action, not a line of plain text', () => {
+    renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
+    const button = screen.getByRole('button', { name: 'Try again' })
+    // .patient-primary-button: 44px tall at least, the brand fill (index.css). It was a bare 56x22px button.
+    expect(button.classList.contains('patient-primary-button')).toBe(true)
+    expect(button.parentElement?.classList.contains('patient-state-actions')).toBe(true)
+  })
+
+  it('names the tab while the session is checked and when the check fails, and gives the name back after', () => {
+    document.title = 'Health ID: Patient'
+    const { unmount } = renderGuard({ status: 'unknown', principal: null })
+    expect(document.title).toBe('Checking your session · Health ID')
+    unmount()
+    expect(document.title).toBe('Health ID: Patient')
+    const failed = renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
+    expect(document.title).toBe('Couldn’t check your session · Health ID')
+    failed.unmount()
+    expect(document.title).toBe('Health ID: Patient')
+  })
+
+  it('keeps the page the patient asked for, so sign-in can return there', () => {
+    function SignInShows() {
+      const from = (useLocation().state as { from?: { pathname: string; search: string; hash: string } } | null)?.from
+      return <p>Sign-in screen, then {from ? `${from.pathname}${from.search}${from.hash}` : 'nowhere'}</p>
+    }
+    render(<MemoryRouter initialEntries={['/records?tab=notes#note-1']}>
+      <SessionContext.Provider value={createTestSessionValue(null, stubApi())}>
+        <Routes>
+          <Route path="/records" element={<RequireAccess requirement={PATIENT_ROUTE}><p>Protected content</p></RequireAccess>} />
+          <Route path="/sign-in" element={<SignInShows />} />
+        </Routes>
+      </SessionContext.Provider>
+    </MemoryRouter>)
+    expect(screen.getByText('Sign-in screen, then /records?tab=notes#note-1')).toBeTruthy()
+  })
+
   it('names the session check with a level-one heading while it runs and when it fails', () => {
     const { unmount } = renderGuard({ status: 'unknown', principal: null })
     expect(screen.getByRole('heading', { level: 1, name: 'Checking your session…' })).toBeDefined()
@@ -94,7 +137,8 @@ describe('RequireAccess', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'We could not check your session' })).toBeDefined()
     // The check also fails for an outage or a session this portal cannot use, not
     // only for a lost connection, so the advice blames none of them.
-    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionTry again in a moment.Try again')
+    // Said plainly: nothing changed in the account, and what to do.
+    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionNothing in your account has changed. Try again in a moment.Try again')
   })
 
   it('after Try again, moves focus to the page that opens, or to Try again when the check fails again', async () => {
@@ -201,6 +245,19 @@ describe('RequireAccess', () => {
 
     expect(screen.getByText('Sign-in screen')).toBeDefined()
     expect(screen.queryByText('Protected content')).toBeNull()
+  })
+
+  it('sends a signed-out visitor to sign-in with the page they were on to come back to (SA-04)', () => {
+    renderGuard({ status: 'anonymous', principal: null }, PATIENT_ROUTE, null, vi.fn(), '/access?tab=granted')
+
+    expect(screen.getByText('Sign-in screen')).toBeDefined()
+    expect(screen.getByTestId('next').textContent).toBe('/access?tab=granted')
+  })
+
+  it('asks for no return from the home page: sign-in goes home anyway', () => {
+    renderGuard({ status: 'anonymous', principal: null })
+
+    expect(screen.getByTestId('next').textContent).toBe('none')
   })
 
   it('never renders protected content for the wrong portal', () => {
