@@ -82,6 +82,32 @@ describe('who has access, counted and grouped by facility', () => {
     expect(screen.getAllByText('Demo Hospital')).toHaveLength(1)
   })
 
+  it('lists a facility with access now above one whose access has all ended, even when that ended most recently', async () => {
+    // The list comes newest first: here a Lagos General access ended most recently, so it is first in the list.
+    await whoHasAccess(() => ({ items: [
+      grant('1', { status: 'revoked', patientRevocable: false, facilityName: 'Lagos General' }), grant('2', { facilityName: 'Yaba Clinic' }),
+      grant('3', { status: 'expired', patientRevocable: false, facilityName: 'Lagos General' }),
+    ] }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Yaba Clinic has access now' })).toBeTruthy()
+    expect(facilityHeadings()).toEqual(['Yaba Clinic', 'Lagos General'])
+    // Yaba Clinic's open access is the first row on the page, above Lagos General's two ended ones.
+    const [yaba] = facility('Yaba Clinic').rows, [firstEnded] = facility('Lagos General').rows
+    expect(yaba!.compareDocumentPosition(firstEnded!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(yaba!).getByRole('button', { name: /^End access for/ })).toBeTruthy()
+    expect(facility('Lagos General').counts).toBe('2 past')
+  })
+
+  it('lists the open rows at a facility above its past ones, each part newest first', async () => {
+    await whoHasAccess(() => ({ items: [
+      grant('1', { status: 'revoked', patientRevocable: false, reason: 'Ended most recently' }),
+      grant('2', { reason: 'Open, newer' }), grant('3', { status: 'expired', patientRevocable: false, reason: 'Ended earlier' }),
+      grant('4', { reason: 'Open, older' }),
+    ] }))
+    await screen.findByRole('heading', { level: 2, name: 'Demo Hospital has access now' })
+    expect(facility('Demo Hospital').rows.map(row => row.textContent?.match(/Reason given: “([^”]+)”/)?.[1]))
+      .toEqual(['Open, newer', 'Open, older', 'Ended most recently', 'Ended earlier'])
+  })
+
   it('still lists an access whose facility is not named, under a heading that says so', async () => {
     await whoHasAccess(() => ({ items: [grant('1'), grant('2', { facilityName: null as unknown as string })] }))
     expect(await screen.findByRole('heading', { level: 2, name: '2 facilities have access now' })).toBeTruthy()

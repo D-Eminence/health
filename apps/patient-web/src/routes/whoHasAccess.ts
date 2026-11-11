@@ -35,14 +35,18 @@ export interface FacilityGroup {
   past: number
 }
 
-/** The list under one heading per facility, in the order the list first names each; rows keep their order. */
+/**
+ * The list under one heading per facility. Facilities with access now come first, then the rest, each in the order the
+ * list first names it; in each, its open rows come first, then its past ones. The list comes newest first (by when each
+ * access was given, hid-system 0095), and each part keeps that order, so an open access is never under ended ones.
+ */
 export function groupByFacility(items: readonly AccessItem[]): FacilityGroup[] {
   const groups = new Map<string, AccessItem[]>()
   for (const item of items) groups.set(facilityOf(item), [...(groups.get(facilityOf(item)) ?? []), item])
   return [...groups].map(([facility, rows]) => {
-    const open = rows.filter(isOpen).length
-    return { facility, items: rows, open, past: rows.length - open }
-  })
+    const open = rows.filter(isOpen)
+    return { facility, items: [...open, ...rows.filter(row => !isOpen(row))], open: open.length, past: rows.length - open.length }
+  }).sort((x, y) => Number(y.open > 0) - Number(x.open > 0))
 }
 
 /** "4 active · 1 past": what a facility's heading says about its rows. */
