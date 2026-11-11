@@ -8,7 +8,10 @@ import {
 } from '../collected/facilityProfile'
 import { profileControlId, ProfileFields } from '../collected/ProfileFields'
 import type { FacilityProfileHandle } from './facilityProfileState'
-import { facilityCheckDone, facilityCheckPending, PROFILE_CONFLICT, PROFILE_FAILED, PROFILE_KEPT, PROFILE_LOADING } from './setupText'
+import {
+  CONTINUE_UNSAVED, facilityCheckDone, facilityCheckPending, PROFILE_CONFLICT, PROFILE_FAILED, PROFILE_KEPT, PROFILE_LOADING,
+  PROFILE_NOT_SAVED,
+} from './setupText'
 
 const PREFIX = 'hid-ehr-onboarding-profile'
 
@@ -16,7 +19,8 @@ const PREFIX = 'hid-ehr-onboarding-profile'
  * Step 1, Facility (screens 14): the facility's registered name as Health ID has it (from its CAC record, read-only)
  * and its details (hid-system 0122), read from Identity and saved there by "Save and continue", every field required.
  * Where Identity keeps the details itself (a facility Health ID support manages, a demo facility) they are not shown,
- * and Continue goes on. The logo waits for the document store and its virus scanner and is not asked for. Where the
+ * and Continue goes on. While the details are read there is nothing to press; after a failed read the step says the
+ * details are not saved, offers Try again first, and only then lets the administrator go on without them. The logo waits for the document store and its virus scanner and is not asked for. Where the
  * design says how the hospital's review stands, today's Facility check says it.
  */
 export function FacilityStep({ facility, profile, onNext }: {
@@ -38,10 +42,16 @@ export function FacilityStep({ facility, profile, onNext }: {
               {state.status === 'kept' ? <p className="hid-ehr-onboarding-text">{PROFILE_KEPT}</p> : null}
               {state.status === 'failed' ? <div role="alert" className="hid-ehr-onboarding-blocker">
                 <p>{PROFILE_FAILED}</p>
-                <EhrButton variant="secondary" size="sm" onClick={profile.reload}>Try again</EhrButton>
+                <p>{PROFILE_NOT_SAVED}</p>
               </div> : null}
             </div>
-            <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Continue</EhrButton></div>
+            {/* Continue only where there is nothing to give here (support keeps the details), or, after a failed read, once
+                the step has said plainly that the details are not saved. Nothing to press while they are still read. */}
+            {state.status === 'kept' ? <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Continue</EhrButton></div> : null}
+            {state.status === 'failed' ? <div className="hid-ehr-onboarding-full hid-ehr-onboarding-actions">
+              <EhrButton onClick={profile.reload}>Try again</EhrButton>
+              <EhrButton type="submit" variant="secondary">{CONTINUE_UNSAVED}</EhrButton>
+            </div> : null}
           </form>
         )}
         {review === 'pending' ? <p className="hid-ehr-onboarding-text">{facilityCheckPending(facility.name)}</p> : null}

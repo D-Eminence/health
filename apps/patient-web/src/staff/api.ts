@@ -214,7 +214,9 @@ export interface ResolveNinInput {
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
   /**
    * hid-system 0122 (Novu): the desk's contact for the patient, kept by the facility, unverified, never used for sign-in
-   * or recovery, and the Health ID the patient says they already have (collect-fields-contract.md §3). All required.
+   * or recovery, and the Health ID the patient says they already have (collect-fields-contract.md §3). The 0122 backend
+   * takes them all or none (a partial set is refused) until a follow-up release makes them required; this website
+   * always sends every one.
    */
   phone: string
   addressLine: string
@@ -1725,8 +1727,9 @@ export const providerEnrollmentApi = {
     administratorEmail: string
     turnstileToken: string
     /**
-     * hid-system 0122 (Novu): the applicant's role and phone and the facility's details, all required there
-     * (collect-fields-contract.md §2). hid-system main refuses them as unknown fields, so today's page leaves them out.
+     * hid-system 0122 (Novu): the applicant's role and phone and the facility's details (collect-fields-contract.md
+     * §2), taken all or none there until a follow-up release makes them required; the sign-up page always sends all
+     * three. hid-system main refuses them as unknown fields.
      */
     administratorRole?: string
     administratorPhone?: string

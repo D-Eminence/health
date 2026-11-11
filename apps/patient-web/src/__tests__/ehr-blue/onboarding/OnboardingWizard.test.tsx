@@ -42,7 +42,7 @@ const STAFF_WAITS = `You can add staff from Staff & access once Health ID suppor
 const DONE = `Health ID support has checked ${RIVERSIDE}, and it now has full access.`
 
 async function openSetup(path = '/provider/onboarding', review: Review = 'reviewed', current = membership({ review }),
-  profile: Array<() => Response> = many(current.id === DEMO_HOSPITAL ? profileKept : profileAnswer())) {
+  profile: Array<() => Response | Promise<Response>> = many(current.id === DEMO_HOSPITAL ? profileKept : profileAnswer())) {
   const sent = serve({ [SESSION]: [sessionWith(current)], [STAFF]: many(staffAnswer(current.name, current.id, review)),
     [PROFILE]: profile })
   await openStaffApp(path)
@@ -95,6 +95,7 @@ describe('the stepper and each step\'s heading', () => {
 
   it('moves focus to the heading when the step\'s own button takes it on, or Back takes it back', async () => {
     await openDemoSetup()
+    await screen.findByText(KEPT)
     press('Continue')
     expect(eyebrow()).toBe('Step 2 of 9 · Type')
     expect(document.activeElement).toBe(heading())
@@ -312,6 +313,26 @@ describe('step 1, Facility', () => {
     expect(await screen.findByText(KEPT)).toBeDefined()
     expect(screen.queryByRole('textbox', { name: 'Facility phone' })).toBeNull()
     press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('offers nothing to press while the details are read, so the step cannot be passed without them', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), [() => new Promise<Response>(() => undefined)])
+    expect(await screen.findByText('Getting your facility’s details…')).toBeDefined()
+    expect(screen.queryByRole('button', { name: /^Continue/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull()
+  })
+
+  it('after a failed read says the details are not saved, tries again, and only then lets the administrator go on', async () => {
+    const sent = await openSetup('/provider/onboarding', 'reviewed', membership(),
+      [() => problem(503, 'FACILITY_PROFILE_UNAVAILABLE', 'Unavailable.'), () => problem(503, 'FACILITY_PROFILE_UNAVAILABLE', 'Unavailable.')])
+    expect(await screen.findByText('We couldn’t get your facility’s details just now.')).toBeDefined()
+    expect(screen.getByText(/are not saved yet/)).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    press('Try again')
+    await waitFor(() => expect(routes(sent).filter(route => route === PROFILE)).toHaveLength(2))
+    await screen.findByRole('button', { name: 'Continue without saving' })
+    press('Continue without saving')
     expect(eyebrow()).toBe('Step 2 of 4 · Staff')
   })
 

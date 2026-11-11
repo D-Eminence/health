@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NIGERIA_STATES, phoneE164 } from '../../../ehr-blue/collected/places'
+import { emailAcceptable, NIGERIA_STATES, phoneE164 } from '../../../ehr-blue/collected/places'
 import {
   emptyProfileForm, normalizeMdcn, profileFieldProblem, profileProblems, profileValues, type FacilityProfileForm,
 } from '../../../ehr-blue/collected/facilityProfile'
@@ -23,6 +23,31 @@ describe('the phone rule', () => {
     expect(phoneE164('8031234567')).toBeNull()
     expect(phoneE164('+1234567')).toBeNull()
     expect(phoneE164('+1234567890123456')).toBeNull()
+  })
+
+  it('refuses a number whose first digit after + is 0, as Identity does', () => {
+    expect(phoneE164('+0803 123 4567')).toBeNull()
+    expect(phoneE164('+08031234567')).toBeNull()
+    expect(phoneE164('+2348031234567')).toBe('+2348031234567')
+  })
+})
+
+describe('the email rule', () => {
+  it('takes an address with a top-level domain, as Identity does', () => {
+    expect(emailAcceptable(' desk@example.test ')).toBe(true)
+    expect(emailAcceptable('first.last+desk@mail.example.ng')).toBe(true)
+  })
+
+  it('refuses a domain with no dot, a numeric or one-letter top level, and an empty word before the @', () => {
+    expect(emailAcceptable('info@stmarys')).toBe(false)
+    expect(emailAcceptable('info@example.1')).toBe(false)
+    expect(emailAcceptable('info@example.c')).toBe(false)
+    expect(emailAcceptable('first..last@example.test')).toBe(false)
+    expect(emailAcceptable('.first@example.test')).toBe(false)
+    expect(emailAcceptable('first.@example.test')).toBe(false)
+    expect(emailAcceptable('info@-example.test')).toBe(false)
+    expect(emailAcceptable('@example.test')).toBe(false)
+    expect(emailAcceptable(`${'a'.repeat(65)}@example.test`)).toBe(false)
   })
 })
 

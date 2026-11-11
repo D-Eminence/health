@@ -44,6 +44,12 @@ export const PROFILE_KEPT = 'Health ID support keeps this facility’s details. 
 /** The read failed for a fault. */
 export const PROFILE_FAILED = 'We couldn’t get your facility’s details just now.'
 
+/** After a failed read: what going on without them means. */
+export const PROFILE_NOT_SAVED = 'Your facility’s details are not saved yet. Try again, or go on and come back to this step to give them.'
+
+/** The button that goes on after a failed read. */
+export const CONTINUE_UNSAVED = 'Continue without saving'
+
 /** Someone else saved the details first (412): they were read again. */
 export const PROFILE_CONFLICT = 'Someone else saved these details first. Here are theirs: check them, then save again.'
 
