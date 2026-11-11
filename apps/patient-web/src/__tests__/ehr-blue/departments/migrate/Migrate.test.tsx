@@ -1741,6 +1741,35 @@ describe('Migrate: Read again', () => {
     expect(api.ocrExtractions).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, newer.id)
   })
 
+  it('after a refusal that names no job, says the reading is gone and sends a fresh key on the next press', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(new HidApiError(404, 'OCR job was not found', { code: 'OCR_JOB_NOT_FOUND' }))
+    await press(readAgain())
+    expect(await screen.findByText('This reading is no longer available to you. Press Read again to start a new one.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('OCR_JOB_NOT_FOUND')
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(2))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[0]).toEqual(expect.any(String))
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('keeps the same key after a failure that may have made the job (a 5xx), so a retry is not read twice', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(unavailable())
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    await screen.findByRole('alert')
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(2))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[1]).toBe(keys[0])
+  })
+
   it('is not offered without OCR job write, nor while the document is still being read', async () => {
     session.permissions = ['ocr.job.read']
     const { unmount } = await findJob(awaiting)
