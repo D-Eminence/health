@@ -301,7 +301,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const printedAt = () => formatWhen(new Date().toISOString())
   const printPrescription = () => print('prescription', (
     <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={[drugLine(record)]}
-      prescriber={prescriberName([record], actor)} printedAt={printedAt()} />
+      prescriber={prescriberName([record], actor, chart.facilityId)} printedAt={printedAt()} />
   ))
   const printResult = (test: string, lines: Parameters<typeof LabResultPaper>[0]['lines']) => print('lab-result', (
     <LabResultPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} test={test} lines={lines} printedAt={printedAt()} />

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ import { ENCOUNTER_STATUS_UPDATED, RELOAD_FAILED, REVISION_RECORDED } from '../.
 import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
-import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { COLLEAGUE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, SIGNED_IN, activePatient, allowedLookup, labelled, patientBanner, renderPage, type SignedIn } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -22,7 +22,7 @@ const api = vi.hoisted(() => ({
   records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), updateDiagnosis: vi.fn(), noteRevisions: vi.fn(), addNoteRevision: vi.fn(),
   documents: vi.fn(), documentDownload: vi.fn(), uploadDocument: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, signedIn: undefined as SignedIn | undefined }))
 
 vi.mock('../../../staff/api', async () => ({ staffApi: api, isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup }))
 vi.mock('../../../staff/App', async () => {
@@ -74,6 +74,7 @@ let records: Record<string, unknown[]>
 beforeEach(() => {
   vi.clearAllMocks()
   staff.facilityId = undefined
+  staff.signedIn = undefined
   staff.permissions = [...ALL]
   staff.activePatient = activePatient()
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -227,20 +228,23 @@ describe('Consultation record', () => {
 
   it('prints a discharge summary and the visit’s prescription from what the page read', async () => {
     staff.permissions = [...ALL, 'ehr.prescription.read', 'ehr.lab-request.read']
+    // As production has them: the session's actor.id is the sign-in subject, the records carry the author's account.
+    staff.signedIn = SIGNED_IN
+    const byMe = { createdBy: SIGNED_IN.accountId, createdByMembershipId: SIGNED_IN.membershipId }
     records.prescriptions = [
-      { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', createdBy: 'staff-1', status: 'active',
+      { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', ...byMe, status: 'active',
         medicationDisplay: 'Artemether-lumefantrine', doseQuantity: '4', doseUnit: 'tablets', routeCode: 'oral', frequency: 'Twice a day', instructions: 'With food',
         startsOn: '2026-10-30', endsOn: '2026-11-01' },
-      { id: 'rx-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:41:00.000Z', createdBy: 'staff-1', status: 'cancelled',
+      { id: 'rx-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:41:00.000Z', ...byMe, status: 'cancelled',
         medicationDisplay: 'Cancelled medicine', frequency: 'Daily', instructions: '' },
-      { id: 'rx-3', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:42:00.000Z', createdBy: 'staff-1', status: 'draft',
+      { id: 'rx-3', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:42:00.000Z', ...byMe, status: 'draft',
         medicationDisplay: 'Draft medicine', frequency: 'Daily', instructions: '' },
-      { id: 'rx-4', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:43:00.000Z', createdBy: 'staff-1', status: 'on_hold',
+      { id: 'rx-4', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:43:00.000Z', ...byMe, status: 'on_hold',
         medicationDisplay: 'Held medicine', frequency: 'Daily', instructions: '' },
-      { id: 'rx-5', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:44:00.000Z', createdBy: 'staff-1', status: 'completed',
+      { id: 'rx-5', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:44:00.000Z', ...byMe, status: 'completed',
         medicationDisplay: 'Finished medicine', frequency: 'Once', instructions: '' },
     ]
-    records['clinical-notes'] = [{ ...NOTE, createdBy: 'staff-1' }]
+    records['clinical-notes'] = [{ ...NOTE, ...byMe }]
     records['lab-requests'] = [{ id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }]
     const papers: Record<string, string> = {}
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {
@@ -268,7 +272,8 @@ describe('Consultation record', () => {
   })
 
   it('leaves the clinician’s name blank when the person printing did not write the consultation note', async () => {
-    records['clinical-notes'] = [{ ...NOTE, createdBy: 'staff-9' }]
+    staff.signedIn = SIGNED_IN
+    records['clinical-notes'] = [{ ...NOTE, createdBy: COLLEAGUE.accountId, createdByMembershipId: COLLEAGUE.membershipId }]
     let printed = ''
     vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print]')?.textContent ?? '' })
     await openEncounter()
@@ -276,6 +281,31 @@ describe('Consultation record', () => {
     expect(printed).toContain('Cough for three days.')
     expect(printed).not.toContain('Demo Clinician')
     expect(document.querySelector('[data-clinical-print] .hid-clinical-paper-sign .hid-clinical-paper-line')?.textContent).toBe('')
+  })
+
+  it('names the prescriber by the membership at this facility when the session carries no account', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read']
+    staff.signedIn = { subject: SIGNED_IN.subject, sessionId: SIGNED_IN.sessionId, membershipId: SIGNED_IN.membershipId }
+    const rx = { patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, status: 'active', frequency: 'Daily', instructions: '' }
+    records.prescriptions = [
+      { ...rx, id: 'rx-1', createdAt: '2026-10-30T08:40:00.000Z', medicationDisplay: 'Paracetamol', createdBy: SIGNED_IN.accountId, createdByMembershipId: SIGNED_IN.membershipId },
+    ]
+    const papers: string[] = []
+    vi.spyOn(window, 'print').mockImplementation(() => { papers.push(document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '') })
+    await openEncounter()
+    fireEvent.click(await within(card('Print')).findByRole('button', { name: 'Print prescription' }))
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    expect(papers[0]).toContain('Demo Clinician')
+    // A prescription written under a colleague's membership: the name is left for handwriting.
+    records.prescriptions = [
+      ...records.prescriptions,
+      { ...rx, id: 'rx-2', createdAt: '2026-10-30T08:41:00.000Z', medicationDisplay: 'Ibuprofen', createdBy: COLLEAGUE.accountId, createdByMembershipId: COLLEAGUE.membershipId },
+    ]
+    cleanup()
+    await openEncounter()
+    fireEvent.click(await within(card('Print')).findByRole('button', { name: 'Print prescription' }))
+    expect(papers[1]).toContain('Ibuprofen')
+    expect(papers[1]).not.toContain('Demo Clinician')
   })
 
   it('says a part is not available to the user rather than that the visit has none', async () => {
