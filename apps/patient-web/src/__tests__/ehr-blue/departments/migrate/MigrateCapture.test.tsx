@@ -304,6 +304,25 @@ describe('Patient documents: opening and extracting', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
+  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
+    await openDocuments()
+    await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Open file' }))
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page was deleted with that sentence, and offers no download or OCR', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...clean, status: 'source_deleted' }], nextCursor: null })
+    await openDocuments()
+    const row = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(within(row).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
   it('Extract with OCR sends the document for reading at once and opens it, with no form of IDs to fill in', async () => {
     await openDocuments()
     api.findOcrJob.mockResolvedValue({ job: null })

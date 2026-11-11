@@ -467,6 +467,34 @@ describe('switch on: Result documents on a Lab work item', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
+  it('says EHR’s 410 DOCUMENT_SOURCE_DELETED in its own sentence, and opens nothing (hid-system 0110)', async () => {
+    network.downloadRefused = { status: 410, body: { code: 'DOCUMENT_SOURCE_DELETED', message: 'Source page deleted after 24 hours' } }
+    renderPage('lab')
+    const shown = await openLabDocuments()
+    fireEvent.click(await within(shown).findByRole('button', { name: 'Open file' }))
+    expect((await within(shown).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('says any other 410 as today, never as a deleted source page', async () => {
+    network.downloadRefused = { status: 410, body: { code: 'GONE', message: 'Gone' } }
+    renderPage('lab')
+    const shown = await openLabDocuments()
+    fireEvent.click(await within(shown).findByRole('button', { name: 'Open file' }))
+    expect((await within(shown).findByRole('alert')).textContent).not.toBe('Source page deleted after 24 hours')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page was deleted with that sentence, and offers no download', async () => {
+    network.documents = [{ ...LAB_RESULT, status: 'source_deleted' }]
+    renderPage('lab')
+    const shown = await openLabDocuments()
+    const item = (await within(shown).findByText('full-blood-count.jpg')).closest<HTMLElement>('.staff-list-item')!
+    expect(within(item).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(item).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(named('GET', '/api/v1/ehr/documents/document-1/download')).toEqual([])
+  })
+
   it('shows under the accession when the work is opened from its accession too', async () => {
     network.labList = { items: [ACCESSIONED], documentTypes: true }
     network.documents = [{ ...LAB_RESULT, labWorkItemId: 'work-item-2' }]

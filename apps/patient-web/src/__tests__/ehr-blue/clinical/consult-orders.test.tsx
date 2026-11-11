@@ -23,6 +23,7 @@ import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(),
   acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(), reportedHealthProfile: vi.fn(),
+  allergies: vi.fn(), allergyCheck: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, roles: undefined as string[] | undefined }))
@@ -95,6 +96,9 @@ beforeEach(() => {
   api.createRecord.mockResolvedValue(prescription())
   api.updateRecord.mockResolvedValue(prescription())
   api.reportedHealthProfile.mockResolvedValue(null)
+  // A backend before hid-system 0124 (allergies): both allergy routes answer 404.
+  api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+  api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
   routes.attestation.mockImplementation(async (_facility: string, kind: string) => kind === 'lab_request'
     ? { kind, version: 'order-route-lab-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this test request to {receivingFacility}.' }
     : { kind, version: 'order-route-prescription-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this prescription to {receivingFacility}.' })
@@ -1051,8 +1055,10 @@ describe('A prescription’s page', () => {
     api.consentStatus.mockResolvedValue({ writeAllowed: false })
     await openOrder('pharmacy', RX)
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
-    expect(screen.getByText('Nothing more to do here.')).toBeTruthy()
+    // Printing is a read, so it stays; nothing that changes the order is offered.
+    expect(screen.getByRole('button', { name: 'Print prescription' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel order' })).toBeNull()
   })
 
   it('shows today’s message when the order cannot be read', async () => {
@@ -1137,6 +1143,66 @@ describe('A lab request’s page', () => {
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, LAB, 'direct-care')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+  })
+
+  it('prints the released result as a lab result paper', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValue({
+      workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID, acceptedAt: '2026-10-30T10:00:00.000Z',
+      test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' },
+      results: [{ id: 'r1', executionId: 'x1', status: 'released', verificationStatus: 'verified', currentVersion: 2, currentReleasedVersion: 2, revisions: [
+        { version: 2, resultType: 'numeric', numericValue: 9.8, textValue: null, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low', entrySource: 'manual',
+          verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-10-30T11:00:00.000Z', releasedAt: '2026-10-30T11:30:00.000Z', correctionReason: null },
+      ] }],
+    })
+    let printed = ''
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="lab-result"]')?.textContent ?? '' })
+    await openOrder('laboratory', LAB)
+    // No print until a result is read and shown.
+    expect(screen.queryByRole('button', { name: 'Print result' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Print result' }))
+    expect(printSpy).toHaveBeenCalledTimes(1)
+    for (const words of [FACILITY_NAME, PATIENT_NAME, PATIENT_HID, 'Laboratory result', 'Haemoglobin', '9.8 g/dL', '12.0-15.5', 'Low']) expect(printed).toContain(words)
+    // Printing reads nothing more.
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers no result print when nothing is released', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.result.released.read']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    api.labReleasedResultsForOrder.mockResolvedValue({ workItemId: 'w1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, patientId: PATIENT_ID,
+      acceptedAt: '2026-10-30T10:00:00.000Z', test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' }, results: [] })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
+    expect(await screen.findByText('No result released yet.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Print result' })).toBeNull()
+  })
+
+  it('prints a prescription with the patient, Health ID, the medicine and the prescriber', async () => {
+    staff.permissions = [...READ_WRITE]
+    setLists([prescription({ status: 'active', rowVersion: 3, createdBy: 'staff-1', startsOn: '2026-10-30', endsOn: '2026-11-05' })], [])
+    let printed = ''
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '' })
+    await openOrder('pharmacy', RX)
+    const button = screen.getByRole('button', { name: 'Print prescription' })
+    expect(button.getAttribute('aria-expanded')).toBeNull()
+    fireEvent.click(button)
+    expect(printSpy).toHaveBeenCalledTimes(1)
+    for (const words of [FACILITY_NAME, PATIENT_NAME, PATIENT_HID, 'Amoxicillin 500 mg', 'By mouth · Twice daily · for 7 days', 'After meals', 'Demo Clinician', 'Licence number']) {
+      expect(printed).toContain(words)
+    }
+    // The paper leaves the page once the print dialog closes.
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    expect(document.querySelector('[data-clinical-print]')).toBeNull()
+  })
+
+  it.each(['draft', 'on_hold', 'completed', 'cancelled', 'entered_in_error'])('offers no print for a prescription that is %s', async status => {
+    staff.permissions = [...READ_WRITE]
+    setLists([prescription({ status, rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    expect(screen.queryByRole('button', { name: 'Print prescription' })).toBeNull()
   })
 
   it('says when no result is released, and today’s refusals', async () => {
@@ -2290,5 +2356,90 @@ describe('"Try again" beside "The change was saved, but the records could not be
     expect(api.lookupPatient.mock.calls.length).toBe(checks)
     expect(screen.getByText('Draft')).toBeTruthy()
     expect(screen.getByText('Clinical record saved.')).toBeTruthy()
+  })
+})
+
+describe('Allergies on a new prescription (hid-system 0124)', () => {
+  const WARNING = 'This medicine is in the same group (penicillins) as a recorded allergy to Penicillin.'
+  const recordedPenicillin = { id: 'a1240000-0000-4000-8000-000000000001', substance: 'Penicillin', reaction: 'Hives',
+    severity: 'severe' as const, status: 'active' as const, rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }
+
+  beforeEach(() => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    api.allergies.mockResolvedValue({ recorded: [recordedPenicillin], patientReported: { allergies: 'Peanuts', updatedAt: null } })
+  })
+
+  async function form() {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    return screen.findByRole('button', { name: 'Save draft' })
+  }
+
+  function fill(medicine = 'Amoxicillin 500 mg') {
+    change('Medication', medicine)
+    change('Frequency', 'Three times daily')
+    change('Instructions', 'After meals')
+  }
+
+  it('shows the recorded and the patient-reported allergies apart, each labelled', async () => {
+    await form()
+    expect(await screen.findByText('Allergies recorded by clinicians: Penicillin (severe).')).toBeTruthy()
+    expect(screen.getByText('Allergies reported by the patient: Peanuts (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
+  })
+
+  it('warns before saving a medicine that matches an allergy, and saves only with a tick and a reason', async () => {
+    api.allergyCheck.mockResolvedValue({ matches: [{ source: 'recorded', substance: 'Penicillin', message: WARNING }] })
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    expect(await screen.findByText(WARNING)).toBeTruthy()
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin 500 mg' })
+    expect(api.createRecord).not.toHaveBeenCalled()
+    // Saving again without the tick and a reason is refused at the form.
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    expect(await screen.findByText('Tick the box and give a reason (at least 3 characters) to go ahead with this medicine.')).toBeTruthy()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('I have checked these allergies and want to go ahead with this prescription.'))
+    change('Reason for going ahead', 'Tolerated amoxicillin last year; will monitor')
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    const body = api.createRecord.mock.calls[0]![4] as Record<string, unknown>
+    expect(body.allergyAcknowledgement).toEqual({ reason: 'Tolerated amoxicillin last year; will monitor' })
+    expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the warning the EHR gives when it refuses the save, and checks a changed medicine afresh', async () => {
+    api.allergyCheck.mockResolvedValue({ matches: [] })
+    api.createRecord.mockRejectedValueOnce(new HidApiError(409, 'This medicine may match an allergy.', {
+      code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED', details: [{ field: 'allergyAcknowledgement', messages: [WARNING] }],
+    }))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    expect(await screen.findByText(WARNING)).toBeTruthy()
+    // A different medicine: the warning goes, the check runs again, and nothing is acknowledged.
+    change('Medication', 'Paracetamol 500 mg')
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX('Paracetamol 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect((api.createRecord.mock.calls[1]![4] as Record<string, unknown>).allergyAcknowledgement).toBeUndefined()
+    expect(api.allergyCheck).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(WARNING)).toBeNull()
+  })
+
+  it('saves as before when the EHR has no allergy check (404), sending no acknowledgement', async () => {
+    api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
+    const save = await form()
+    expect(await screen.findByText('Recorded allergies: None recorded. Confirm with the patient.')).toBeTruthy()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect((api.createRecord.mock.calls[0]![4] as Record<string, unknown>).allergyAcknowledgement).toBeUndefined()
   })
 })

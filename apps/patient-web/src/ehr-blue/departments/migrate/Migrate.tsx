@@ -20,6 +20,7 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
+import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
   type PaperReading,
@@ -158,6 +159,16 @@ function newestExtraction(items: readonly OcrExtraction[]) {
 }
 
 /** Whether OCR read any text at all: text that is only spaces or line breaks is none. */
+/** Read again's answer when the reading it was asked for no longer exists for this member. */
+const READING_GONE = 'This reading is no longer available to you. Press Read again to start a new one.'
+
+/** A 4xx refusal that carries no job id: nothing was made for the request's key. */
+function refusedWithoutJob(caught: unknown): boolean {
+  if (!isHidApiError(caught) || caught.status < 400 || caught.status >= 500) return false
+  const details = caught.details as { job?: { id?: unknown }; jobId?: unknown } | null
+  return !(typeof details?.job?.id === 'string' || typeof details?.jobId === 'string')
+}
+
 function hasText(text: string | null | undefined): text is string {
   return !!text && text.trim().length > 0
 }
@@ -500,8 +511,15 @@ export function Migrate() {
         : created.status === 'awaiting_validation' ? 'The document has been read and is ready to check.' : `${jobStatusWords(created.status)}.` })
     }
     catch (caught) {
+      // A refusal that names no job means no reading was made for this key: the next press sends a fresh key, never the
+      // same one again (the server would answer it as the old job, now not found).
+      const gone = isHidApiError(caught) && caught.status === 404 && caught.code === 'OCR_JOB_NOT_FOUND'
+      if (gone || refusedWithoutJob(caught)) readAgainAttempt.current = null
       if (!current()) return
-      setError(needsPatientAccess(caught) ? STAFF_PAPER_NEEDS_ACCESS : errorText(caught, 'The document wasn’t sent for reading again.'))
+      // OCR answers a replayed key whose job is no longer open to this member with 404 OCR_JOB_NOT_FOUND
+      // (ocr.service.ts createJob); a new key for a patient whose OK is missing is answered as needsPatientAccess says.
+      setError(gone ? READING_GONE : needsPatientAccess(caught) ? STAFF_PAPER_NEEDS_ACCESS
+        : errorText(caught, 'The document wasn’t sent for reading again.'))
       focus('ocr-read-again', true)
     }
     finally { setBusy(false) }
@@ -665,6 +683,8 @@ export function Migrate() {
 
   /** What OCR read from the document, its newest extraction, shown as it is: Check and save follows it on the page. */
   function readOut(extraction: OcrExtraction, shown: OcrJob) {
+    // A reading blanked after 24 hours (hid-system 0110) says so, never an empty review.
+    if (readingDeleted(extraction)) return <DeptSection title="What was read" headingId="ocr-read-title"><p role="note" className="hid-ehr-dept-muted">{READING_DELETED}</p></DeptSection>
     // A paper reading shows its items; a payload that says it is one but is not whole shows only the text and says the
     // items must be entered by hand, never its parts as loose fields; any other payload shows its named fields.
     const reading = parsePaperReading(extraction.structuredPayload)

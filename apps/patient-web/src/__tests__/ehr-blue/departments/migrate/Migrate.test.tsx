@@ -1288,6 +1288,27 @@ describe('Migrate: a record is one page, its facts and history under Details', (
   })
 })
 
+describe('Migrate: a reading blanked after 24 hours (hid-system 0110)', () => {
+  const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
+
+  it('says the reading was deleted, never an empty review', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {} }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Reading deleted after 24 hours')).toBeTruthy()
+    expect(read.textContent).not.toContain('No text was read')
+    expect(within(read).queryByText(/confidence/)).toBeNull()
+  })
+
+  it('says today’s words for a reading of the last 24 hours that found nothing', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, createdAt: new Date().toISOString() }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('No text was read from this document.')).toBeTruthy()
+    expect(read.textContent).not.toContain('Reading deleted after 24 hours')
+  })
+})
+
 describe('Migrate: what was read from a paper record, item by item', () => {
   const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
 
@@ -1763,6 +1784,35 @@ describe('Migrate: Read again', () => {
     await press(readAgain())
     await waitFor(() => expect(statusRegion().textContent).toBe('The document has been read and is ready to check.'))
     expect(api.ocrExtractions).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, newer.id)
+  })
+
+  it('after a refusal that names no job, says the reading is gone and sends a fresh key on the next press', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(new HidApiError(404, 'OCR job was not found', { code: 'OCR_JOB_NOT_FOUND' }))
+    await press(readAgain())
+    expect(await screen.findByText('This reading is no longer available to you. Press Read again to start a new one.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('OCR_JOB_NOT_FOUND')
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(2))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[0]).toEqual(expect.any(String))
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('keeps the same key after a failure that may have made the job (a 5xx), so a retry is not read twice', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(unavailable())
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    await screen.findByRole('alert')
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(2))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[1]).toBe(keys[0])
   })
 
   it('is not offered without OCR job write, nor while the document is still being read', async () => {

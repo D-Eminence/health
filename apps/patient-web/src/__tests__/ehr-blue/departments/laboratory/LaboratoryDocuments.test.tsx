@@ -368,6 +368,27 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
+  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
+    renderPage()
+    await openRecord()
+    await within(card()).findByText('full-blood-count.jpg')
+    fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page was deleted with that sentence, and offers no download', async () => {
+    api.workItemDocuments.mockResolvedValue(page([{ ...document(), status: 'source_deleted' }]))
+    renderPage()
+    await openRecord()
+    const row = (await within(card()).findByText('full-blood-count.jpg')).closest('li') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
   it('says a refused or failed open in plain words, never the backend’s or the browser’s', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     api.documentDownload.mockRejectedValueOnce(new HidApiError(403, 'Download denied: membership m-0001 lacks lab.document.read', { code: 'FORBIDDEN' }))

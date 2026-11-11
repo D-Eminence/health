@@ -16,6 +16,38 @@ Provider widgets and login requests share the backend's product-specific
 Turnstile action. Recovery runs on the canonical portal and returns only to a
 known product. Existing admin bookmarks redirect to `/admin/...`.
 
+## Error reporting
+
+The portal and the public site can send error reports to Sentry (owner's
+approval, 2026-11-03). It is on in production: `config/production.json` holds
+the public DSN of the owner's website project in Sentry's EU region (ingest host
+`o4512373598519296.ingest.de.sentry.io`). It is off in staging:
+`config/staging.json` says `null`, and a build without a DSN adds no listener
+and sends nothing.
+
+To switch it on for another environment, set `sentry_dsn` to the Sentry project's
+public DSN (`https://<32 hex key>@<host>[/<prefix>]/<project id>`; the release
+check refuses anything else) and build a release. `build-staging.py` then gives
+every app `*_SENTRY_DSN`; it gives every app `*_BUILD`, the first 12 characters
+of the source commit, either way. Set it back to `null` and rebuild to switch it
+off.
+
+A report holds the error's type, its stack (script addresses without query or
+hash, function names, line and column), the route name (`/card/:id`, never the
+address itself), the environment's name and the build. It never holds the
+error's message, anything typed into a page, a page address, a Health ID, an
+email, a phone number, an account or user id, cookies or an IP address, and
+there is no session replay. Each kind of error is sent once per page load, ten
+reports at most.
+
+In the Sentry project, before the first production release that carries the
+DSN: turn on "Prevent Storing of IP
+Addresses" and data scrubbing (the Data Scrubber with the default scrubbers),
+under Security & Privacy. When a Content-Security-Policy is added (hand-off D6),
+its `connect-src` must allow the ingest host the DSN names
+(`https://o4512373598519296.ingest.de.sentry.io` for production), or reports are
+blocked.
+
 ## Repeatable builds
 
 Use Node 22.23.2 and Python 3 from a clean committed checkout:

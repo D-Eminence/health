@@ -11,13 +11,14 @@ import { sendLabel, type RouteContext } from '../../../../staff/routes/OrderRout
 import { useLateCorrectionServed } from '../../../../lateCorrectionServed'
 import { useWrongPatientServed } from '../../../../wrongPatientServed'
 import type { Chart } from '../../parts/chart'
+import { LabResultPaper, PrescriptionPaper, drugLine, isPrintable, paperPatient, prescriberName, usePaperPrint } from '../../parts/clinicalPrint'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
 import { formatWhen } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
 import { Value } from '../../../../kasuwa/parts'
 import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
 import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
-import { useWorkspaceHref } from '../../parts/Workspace'
+import { useClinical, useWorkspaceHref } from '../../parts/Workspace'
 import { RELOAD_FAILED } from '../encounters'
 import { KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, text, useFlash, type OrderKind } from './orders'
 import { ReleasedResults } from './Results'
@@ -48,6 +49,8 @@ interface Action {
   readonly id: string
   readonly label: string
   readonly toggle?: boolean
+  /** Prints the order: no form opens, and it is never locked while the order is read again. */
+  readonly print?: boolean
 }
 
 /**
@@ -113,6 +116,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   chartRef.current = chart
   const wrongPatientServed = useWrongPatientServed() === true
   const lateCorrectionServed = useLateCorrectionServed() === true
+  const { print, area: printArea } = usePaperPrint()
+  const { state: staffState } = useClinical()
+  const actor = staffState.status === 'ready' ? staffState.session.actor : null
 
   // What the create page said is shown here once; it is never kept anywhere else.
   useEffect(() => { if (flash) setFlash(null) }, [])
@@ -249,7 +255,16 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     ...(sendLab ? [{ id: 'lab', label: 'Send to Lab' }] : []),
     ...(sendElsewhere ? [{ id: 'route', label: sendLabel(info.route) }] : []),
     ...(results ? [{ id: 'results', label: resultsOpen ? 'Hide released results' : 'View released results', toggle: true }] : []),
+    ...(!lab && isPrintable(record) ? [{ id: 'print', label: 'Print prescription', print: true }] : []),
   ]
+  const printedAt = () => formatWhen(new Date().toISOString())
+  const printPrescription = () => print('prescription', (
+    <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={[drugLine(record)]}
+      prescriber={prescriberName([record], actor)} printedAt={printedAt()} />
+  ))
+  const printResult = (test: string, lines: Parameters<typeof LabResultPaper>[0]['lines']) => print('lab-result', (
+    <LabResultPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} test={test} lines={lines} printedAt={printedAt()} />
+  ))
 
   const confirm = (label: string, description?: string) => new Promise<boolean>(answer => setAsking({ label, description, answer }))
 
@@ -494,12 +509,13 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
                 {actions.map(action => {
                   // While the order is read again, a change can't be opened on the version shown (today's
                   // disabled={recordsLoading}): the button stays focusable and says so, and a press does nothing.
-                  const locked = reloading && !action.toggle && selected !== action.id
+                  const locked = reloading && !action.toggle && !action.print && selected !== action.id
                   return (
                     <EhrButton key={action.id} id={actionId(action.id)} variant="secondary"
-                      aria-expanded={action.toggle ? resultsOpen : selected === action.id}
+                      aria-expanded={action.print ? undefined : action.toggle ? resultsOpen : selected === action.id}
                       aria-disabled={locked || undefined}
                       onClick={() => {
+                        if (action.print) { printPrescription(); return }
                         if (action.toggle) { setResultsOpen(open => !open); return }
                         if (locked) return
                         setSelected(open => open === action.id ? null : action.id)
@@ -516,7 +532,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         </EhrCard>
       </DetailGrid>
       {results && resultsOpen ? (
-        <ReleasedResults facilityId={chart.facilityId} requestId={record.id} revision={resultsRevision} onRefresh={() => setResultsRevision(count => count + 1)} />
+        <ReleasedResults facilityId={chart.facilityId} requestId={record.id} revision={resultsRevision} onRefresh={() => setResultsRevision(count => count + 1)}
+          onPrint={printResult} />
       ) : null}
       {rights.novu && route ? (
         <RouteCard
@@ -537,6 +554,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         onConfirm={() => { asking?.answer(true); setAsking(null) }}
         onCancel={() => { asking?.answer(false); setAsking(null) }}
       />
+      {printArea}
     </>
   )
 }

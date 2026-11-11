@@ -49,6 +49,17 @@ describe('embedded hospital patient chat',()=>{
     await waitFor(()=>expect(api.clearPatientChatHistory).toHaveBeenCalledWith('facility-a','patient-a',expect.any(AbortSignal)))
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Retry loading conversation'})).toBeNull())
   })
+  it('words a 503 (the gateway\'s or ehr-api\'s) for staff without speaking as the patient, and keeps the question',async()=>{
+    api.patientChat.mockRejectedValue(new HidApiError(503,'A required platform service is temporarily unavailable.',{code:'UPSTREAM_UNAVAILABLE'}))
+    render(<StaffPatientChat {...props} />);open()
+    const input=await screen.findByLabelText('Your question')
+    await waitFor(()=>expect(screen.queryByText('Loading your saved conversation…')).toBeNull())
+    fireEvent.change(input,{target:{value:'Summarise this patient’s history'}});fireEvent.click(screen.getByRole('button',{name:'Send question'}))
+    const alert=await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.')
+    expect(alert.textContent).not.toMatch(/\byour\b|platform service/i)
+    expect(screen.getByRole('log').textContent).toContain('Summarise this patient’s history')
+  })
   it('removes visible messages when a subsequent request discovers consent was revoked',async()=>{
     api.patientChatHistory.mockResolvedValue({...empty,exchanges:[{id:'saved',question:'Saved question',reply:{status:'ready',answer:'Previously authorized answer',sources:[]}}]})
     api.patientChat.mockRejectedValue(new HidApiError(403,'Access ended'))

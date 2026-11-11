@@ -164,6 +164,16 @@ describe('publishing validated OCR evidence', () => {
     expect(keys()[1]).toBe(keys()[0])
   })
 
+  it('says to ask a clinician with access when publishing needs direct care, with no code on screen', async () => {
+    await openJob()
+    api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(403, 'Publishing needs direct-care access to the patient',
+      { code: 'OCR_PUBLISH_NEEDS_DIRECT_CARE' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Ask a clinician with access to this patient to publish it.'))
+    expect(document.body.textContent).not.toMatch(/OCR_PUBLISH_NEEDS_DIRECT_CARE|direct-care access/)
+    expect(screen.queryByText('Publication recorded.')).toBeNull()
+  })
+
   it('says when OCR has not yet allowed another attempt, and keeps the retry', async () => {
     api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
     await openJob()
