@@ -1063,6 +1063,27 @@ describe('Migrate: facility, account and hand-over', () => {
   })
 })
 
+describe('Migrate: a reading blanked after 24 hours (hid-system 0110)', () => {
+  const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
+
+  it('says the reading was deleted, never an empty review', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {} }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Reading deleted after 24 hours')).toBeTruthy()
+    expect(read.textContent).not.toContain('No text was read')
+    expect(within(read).queryByText(/confidence/)).toBeNull()
+  })
+
+  it('says today’s words for a reading of the last 24 hours that found nothing', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, createdAt: new Date().toISOString() }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('No text was read from this document.')).toBeTruthy()
+    expect(read.textContent).not.toContain('Reading deleted after 24 hours')
+  })
+})
+
 describe('Migrate: what was read from a paper record, item by item', () => {
   const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
 

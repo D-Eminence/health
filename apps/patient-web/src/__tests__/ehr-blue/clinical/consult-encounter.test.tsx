@@ -970,6 +970,26 @@ describe('Consultation record: documents', () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
+  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+    const opened = vi.spyOn(window, 'open').mockReturnValue(null)
+    api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
+    await openEncounter()
+    fireEvent.click(within(card('Documents')).getByRole('button', { name: 'Open file referral-letter.pdf' }))
+    expect((await within(card('Documents')).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page was deleted with that sentence, and offers no download or OCR', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...DOCUMENT, status: 'source_deleted' }], nextCursor: null })
+    await openEncounter()
+    const row = (await within(card('Documents')).findByText('referral-letter.pdf')).closest('li') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: /Open file/ })).toBeNull()
+    expect(within(row).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source deleted/i)
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
   it('checks the file, then uploads it after the access re-check', async () => {
     await openEncounter()
     const documents = within(card('Documents'))

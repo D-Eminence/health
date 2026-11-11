@@ -20,6 +20,7 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
+import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
   type PaperReading,
@@ -627,6 +628,8 @@ export function Migrate() {
 
   /** What OCR read from the document, its newest extraction, shown as it is: checking it is a step of its own. */
   function readOut(extraction: OcrExtraction, shown: OcrJob) {
+    // A reading blanked after 24 hours (hid-system 0110) says so, never an empty review.
+    if (readingDeleted(extraction)) return <DeptSection title="What was read" headingId="ocr-read-title"><p role="note" className="hid-ehr-dept-muted">{READING_DELETED}</p></DeptSection>
     // A paper reading shows its items; a payload that says it is one but is not whole shows only the text and says the
     // items must be entered by hand, never its parts as loose fields; any other payload shows its named fields.
     const reading = parsePaperReading(extraction.structuredPayload)

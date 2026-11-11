@@ -20,6 +20,7 @@ import { staffLoginAction } from '../productHostname'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
+import { SOURCE_DELETED, isSourceDeletedRefusal, type DocumentDownload, type DocumentLink } from '../documentSource'
 
 export interface Facility {
   id: string
@@ -523,7 +524,11 @@ export interface DocumentRecord {
   fileName: string
   mediaType: string
   sizeBytes: number | string
-  status: string
+  /**
+   * 'initiated' until the upload is completed; since hid-system 0110 'source_deleted' once Migrate's source page was
+   * deleted after 24 hours (documentSource.ts), when it offers no download. Other values pass through as they come.
+   */
+  status: 'initiated' | 'source_deleted' | (string & {})
   scanStatus: string
   createdAt: string
   documentType?: string
@@ -2115,10 +2120,18 @@ export const staffApi = {
       query: { patientId, ...workItemPlace(workItem) }, headers: facilityHeaders(facilityId),
     })
   },
-  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
-  documentDownload: (facilityId: string, documentId: string) =>
-    client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
-      { headers: facilityHeaders(facilityId) }),
+  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload). Since hid-system 0110 a
+  // document whose source page was deleted after 24 hours answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
+  // an outcome of its own (documentSource.ts), which every caller says in its own sentence. Any other refusal is thrown.
+  async documentDownload(facilityId: string, documentId: string): Promise<DocumentDownload> {
+    try {
+      return await client.get<DocumentLink>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
+        { headers: facilityHeaders(facilityId) })
+    } catch (caught) {
+      if (isSourceDeletedRefusal(caught)) return SOURCE_DELETED
+      throw caught
+    }
+  },
   // Without a type, exactly today's upload. A type is sent only when given, and
   // only once the backend has said it serves the types; before then it is
   // refused here and nothing is sent.
