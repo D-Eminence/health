@@ -14,7 +14,7 @@ import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
-import { isAdult, paperRecordsOnApproval, PIN_COVERS } from '../paperRecordsWording'
+import { isAdult, paperRecordsLineForRequest, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
@@ -893,8 +893,9 @@ export function AccessPage() {
         </dl>
         {open.status.toLowerCase() === 'pending' && !denying && <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />{SAY.everyViewRecorded} You can end access at any time.</p>}
         {/* The paper records rule (records processing, 0104): the OK also covers bringing in paper records while the
-            access lasts. Said only to an adult, as under-18s are refused paper records; not said while the age is unknown. */}
-        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsOnApproval(open.facilityName)}</p>}
+            access lasts; a records-processing request (hid-system #229) says what its own grant allows instead. Said only to an
+            adult, as under-18s are refused paper records; not said while the age is unknown. */}
+        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsLineForRequest(open)}</p>}
         {denying && <form id="deny-form" className="flex flex-col gap-3" onSubmit={event => { event.preventDefault(); confirmDenial(open.accessRequestId) }}>
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
             <legend className="mb-1 p-0 text-sm font-medium text-ink">Why are you saying no? <span className="font-normal text-ink-3">They see this.</span></legend>

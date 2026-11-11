@@ -12,6 +12,47 @@ export function paperRecordsOnApproval(facilityName: string): string {
   return `Approving also lets ${facilityName} add your old paper records to your Health ID while their access lasts.`
 }
 
+/**
+ * A records-processing request: one the patient's request list marks with the purpose healthcare-operations
+ * (hid-system 0104 D5: identity.list_my_access_requests() gives purpose_of_use, which identity-api sends as `purpose`)
+ * and that asks to change records (write_records). Approving it gives the dedicated records-processing grant (hid-system
+ * #229, 0113 D1: healthcare-operations, write_records, at most 24 hours, never a PIN or a share), under which staff add
+ * paper readings as draft notes that a clinician signs later. A backend that sends no purpose never matches.
+ */
+export function isRecordsProcessingRequest(request: { purpose?: string | null; scope: string }): boolean {
+  return request.purpose === 'healthcare-operations' && request.scope === 'write_records'
+}
+
+/** "24 hours", "8 hours", "1 hour", "30 minutes", "1 hour and 30 minutes": a request's length in plain words; null when unknown. */
+export function durationInWords(minutes: number | null | undefined): string | null {
+  if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes <= 0) return null
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (hours === 0) return count(rest, 'minute')
+  if (rest === 0) return count(hours, 'hour')
+  return `${count(hours, 'hour')} and ${count(rest, 'minute')}`
+}
+
+/**
+ * On a pending records-processing request (isRecordsProcessingRequest), in place of paperRecordsOnApproval: the wording
+ * given with hid-system #229 for the approval screen of a records-processing request, word for word.
+ */
+export function paperRecordsOnRecordsProcessingApproval(facilityName: string, duration: string): string {
+  return `If you approve, staff at ${facilityName} can add your paper records to your Health ID record for the next ${duration}. Each one is saved as a draft, and you will only see it after a clinician checks and signs it.`
+}
+
+/**
+ * The paper records line for a pending request in the patient's access-request drawer: the records-processing sentence
+ * for a records-processing request whose length is known, and today's line for every other request.
+ */
+export function paperRecordsLineForRequest(request: { purpose?: string | null; scope: string; facilityName: string; requestedDurationMinutes: number | null }): string {
+  const duration = durationInWords(request.requestedDurationMinutes)
+  return isRecordsProcessingRequest(request) && duration
+    ? paperRecordsOnRecordsProcessingApproval(request.facilityName, duration)
+    : paperRecordsOnApproval(request.facilityName)
+}
+
 /** On the patient's Access PIN. */
 export const PIN_COVERS = 'A hospital you give it to can use it to open your records, and to add your old paper records to your Health ID while that access lasts.'
 
