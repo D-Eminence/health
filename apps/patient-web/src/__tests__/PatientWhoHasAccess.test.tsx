@@ -82,6 +82,13 @@ describe('who has access, counted and grouped by facility', () => {
     expect(screen.getAllByText('Demo Hospital')).toHaveLength(1)
   })
 
+  it('still lists an access whose facility is not named, under a heading that says so', async () => {
+    await whoHasAccess(() => ({ items: [grant('1'), grant('2', { facilityName: null as unknown as string })] }))
+    expect(await screen.findByRole('heading', { level: 2, name: '2 facilities have access now' })).toBeTruthy()
+    expect(facilityHeadings()).toEqual(['Demo Hospital', 'Facility not named'])
+    expect(facility('Facility not named').rows).toHaveLength(1)
+  })
+
   it('says no one has access when every row has ended, and still lists them under their facility', async () => {
     await whoHasAccess(() => ({ items: [grant('1', { status: 'revoked', patientRevocable: false })] }))
     expect(await screen.findByRole('heading', { level: 2, name: 'No one has access now' })).toBeTruthy()

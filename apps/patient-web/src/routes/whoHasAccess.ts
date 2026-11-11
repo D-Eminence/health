@@ -12,7 +12,8 @@ export type AccessItem = AccessHistory['items'][number]
 /** Access open now, as the backend says it (an access past its end reads 'expired'). */
 export const isOpen = (item: AccessItem) => item.status === 'active'
 
-const facilityOf = (item: AccessItem) => item.facilityName.trim()
+// The list always names the facility (Identity joins it); a row without a name is still listed, never dropped.
+const facilityOf = (item: AccessItem) => typeof item.facilityName === 'string' && item.facilityName.trim() ? item.facilityName.trim() : 'Facility not named'
 
 /** The facilities with access open now, each once, in the list's order. */
 export function facilitiesWithAccess(items: readonly AccessItem[]): string[] {
@@ -90,7 +91,7 @@ export function stillOpenThere(items: readonly AccessItem[], ended: AccessItem):
 
 /** "Dr Tunde Example at Demo Hospital" or "A staff member at Demo Hospital": an access named on its own. */
 export function holderAt(item: AccessItem): string {
-  return `${holder(item)} at ${item.facilityName}`
+  return `${holder(item)} at ${facilityOf(item)}`
 }
 
 /**
