@@ -527,7 +527,7 @@ export interface DocumentRecord {
   sizeBytes: number | string
   /**
    * 'initiated' until the upload is completed; since hid-system 0110 'source_deleted' once Migrate's source page was
-   * deleted after 24 hours (documentSource.ts), when it offers no download. Other values pass through as they come.
+   * deleted after 7 days (documentSource.ts), when it offers no download. Other values pass through as they come.
    */
   status: 'initiated' | 'source_deleted' | (string & {})
   scanStatus: string
@@ -2140,7 +2140,7 @@ export const staffApi = {
     })
   },
   // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload). Since hid-system 0110 a
-  // document whose source page was deleted after 24 hours answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
+  // document whose source page was deleted after 7 days answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
   // an outcome of its own (documentSource.ts), which every caller says in its own sentence. Any other refusal is thrown.
   async documentDownload(facilityId: string, documentId: string): Promise<DocumentDownload> {
     try {

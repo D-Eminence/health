@@ -1087,12 +1087,12 @@ describe('Consultation record: documents', () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+  it('says a source page deleted after 7 days in its own sentence, and opens nothing (hid-system 0110)', async () => {
     const opened = vi.spyOn(window, 'open').mockReturnValue(null)
     api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
     await openEncounter()
     fireEvent.click(within(card('Documents')).getByRole('button', { name: 'Open file referral-letter.pdf' }))
-    expect((await within(card('Documents')).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect((await within(card('Documents')).findByRole('alert')).textContent).toBe('Source page deleted after 7 days')
     expect(opened).not.toHaveBeenCalled()
   })
 
@@ -1100,10 +1100,21 @@ describe('Consultation record: documents', () => {
     api.documents.mockResolvedValue({ items: [{ ...DOCUMENT, status: 'source_deleted' }], nextCursor: null })
     await openEncounter()
     const row = (await within(card('Documents')).findByText('referral-letter.pdf')).closest('li') as HTMLElement
-    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
     expect(within(row).queryByRole('button', { name: /Open file/ })).toBeNull()
     expect(within(row).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
     expect(row.textContent).not.toMatch(/source deleted/i)
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page is being deleted the same way: that sentence, no download or OCR (hid-system#226)', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...DOCUMENT, status: 'source_deleting' }], nextCursor: null })
+    await openEncounter()
+    const row = (await within(card('Documents')).findByText('referral-letter.pdf')).closest('li') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: /Open file/ })).toBeNull()
+    expect(within(row).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source[ _]delet(ed|ing)/i)
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 

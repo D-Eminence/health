@@ -317,7 +317,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
     try {
       await verify()
       const result = await staffApi.documentDownload(facilityId, id)
-      // A source page deleted after 24 hours (hid-system 0110) has no file to open: said in its own sentence.
+      // A source page deleted after 7 days (hid-system 0110, 0112) has no file to open: said in its own sentence.
       if (isSourceDeleted(result)) { setError(SOURCE_DELETED_WORDS); return }
       // Only a signed storage link opens: never javascript:, data: or plain http to another host.
       assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local',
@@ -341,7 +341,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
           <EhrBadge tone={item.status === 'initiated' ? 'caution' : 'brand'}>{item.status === 'initiated' ? 'not completed' : scanStatusLabel(item.scanStatus) || 'Uploaded'}</EhrBadge>
           {item.status === 'initiated' && <span className="hid-ehr-dept-reference">Upload not completed. Only the person who started it can finish it: upload the file again.</span>}</> },
         { id: 'updated', header: 'Updated', cell: item => dateText(item.createdAt) },
-        // A source page deleted after 24 hours offers neither its file nor OCR.
+        // A source page deleted after 7 days offers neither its file nor OCR.
         { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => sourceDeleted(item) ? null : <div className="hid-ehr-dept-table-actions">
           <EhrButton variant="secondary" size="sm" disabled={item.scanStatus !== 'clean'} aria-describedby={`migrate-document-${item.id}`}
             onClick={() => download(item.id)}>Open file</EhrButton>

@@ -1363,24 +1363,64 @@ describe('Migrate: a record is one page, its facts and history under Details', (
   })
 })
 
-describe('Migrate: a reading blanked after 24 hours (hid-system 0110)', () => {
+describe('Migrate: a reading blanked after 7 days (hid-system 0110)', () => {
   const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
 
   it('says the reading was deleted, never an empty review', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {} }] })
     await findJob(awaiting)
     const read = await readSection()
-    expect(within(read).getByText('Reading deleted after 24 hours')).toBeTruthy()
+    expect(within(read).getByText('Reading deleted after 7 days')).toBeTruthy()
     expect(read.textContent).not.toContain('No text was read')
     expect(within(read).queryByText(/confidence/)).toBeNull()
   })
 
-  it('says today’s words for a reading of the last 24 hours that found nothing', async () => {
+  it('says today’s words for a reading of the last 7 days that found nothing', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, createdAt: new Date().toISOString() }] })
     await findJob(awaiting)
     const read = await readSection()
     expect(within(read).getByText('No text was read from this document.')).toBeTruthy()
-    expect(read.textContent).not.toContain('Reading deleted after 24 hours')
+    expect(read.textContent).not.toContain('Reading deleted after 7 days')
+  })
+
+  it('shows none of a reading the server marks deleted, under Details or in Check and save, even if it still sent text', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: paperReading(), contentDeleted: true }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Reading deleted after 7 days')).toBeTruthy()
+    // The Extractions history says the same words in place of the text.
+    const history = (await screen.findByText('Extraction 1 · textract · confidence 92%')).closest('details') ?? detailsCard()
+    expect(within(history).getAllByText('Reading deleted after 7 days').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeNull()
+    expect(document.body.textContent).not.toContain('Amlodipine')
+    // Check and save offers none of its items to keep; nor does Reject reading.
+    const check = screen.getByRole('form', { name: 'Check and save' })
+    expect(within(check).queryByText(/Metf\?rmin/)).toBeNull()
+    await openAction('Reject reading')
+    expect(document.body.textContent).not.toContain('Metf?rmin')
+  })
+
+  it('says the reading was deleted in Check and save, not that nothing was picked out', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, contentDeleted: true }] })
+    await findJob(awaiting)
+    const check = await screen.findByRole('form', { name: 'Check and save' })
+    expect(within(check).getByText('Reading deleted after 7 days. You can keep the document only, or reject this reading.')).toBeTruthy()
+    expect(check.textContent).not.toContain('No items were picked out')
+  })
+
+  it('keeps today’s words in Check and save for a fresh reading that picked out nothing', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, createdAt: new Date().toISOString() }] })
+    await findJob(awaiting)
+    const check = await screen.findByRole('form', { name: 'Check and save' })
+    expect(within(check).getByText('No items were picked out to check one by one. You can keep the document only, or reject this reading.')).toBeTruthy()
+    expect(check.textContent).not.toContain('Reading deleted')
+  })
+
+  it('still shows the text under Details for a reading the server keeps', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Seen in clinic', structuredPayload: {}, contentDeleted: false }] })
+    await findJob(awaiting)
+    await readSection()
+    expect(await screen.findByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeTruthy()
   })
 })
 
