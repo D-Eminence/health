@@ -48,7 +48,7 @@ vi.mock('../../../../staff/api', () => {
 })
 
 const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
-const MASKED = 'Patient ••••4f9c2e'
+const MASKED = 'Patient (name not shown)'
 const WORK = ['lab.work-item.read']
 const ACCESSION = [...WORK, 'lab.accession.create', 'lab.accession.read']
 const CUSTODY = [...ACCESSION, 'lab.specimen.collect', 'lab.specimen.receive', 'lab.specimen.reject']
@@ -397,7 +397,7 @@ describe('the work list', () => {
     expect(within(card).getByText(MASKED)).toBeTruthy()
     expect(within(card).getByText('Haemoglobin')).toBeTruthy()
     expect(within(card).getByText(/^Waiting /)).toBeTruthy()
-    expect(cardButton('Serum ferritin').textContent).toBe('Collect sample: Patient ••••71d3a8, Serum ferritin')
+    expect(cardButton('Serum ferritin').textContent).toBe('Collect sample: Patient (name not shown), Serum ferritin')
     expect(cardButton('Lab test')).toBeTruthy()
     expect(document.body.innerHTML).not.toContain(PATIENT)
     expect(document.body.innerHTML).not.toContain(other)
@@ -1725,7 +1725,7 @@ describe('the patient and the priority on this facility\'s own work', () => {
     expect(within(card).getByText('Patient One')).toBeTruthy()
     expect(card.textContent).not.toContain(MASKED)
     // Work without the card is masked as today.
-    expect(cardButton('Malaria parasite').textContent).toMatch(/Patient ••••aa11bb/)
+    expect(cardButton('Malaria parasite').textContent).toMatch(/Patient \(name not shown\)/)
     await openRecord()
     expect(screen.getByRole('region', { name: 'Patient: Patient One' }).textContent).toContain('Health ID ending AAA2')
     expect(within(stageCard()).getByText('Check that the person is Patient One before you take a sample.')).toBeTruthy()

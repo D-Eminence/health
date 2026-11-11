@@ -51,7 +51,8 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode, visitClassLabel,
+  visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
 
 function date(value: string | null | undefined) {
@@ -342,8 +343,9 @@ const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string 
   notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
   vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
   diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
-  prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
-  labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
+  prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, medicineStatusLabel(item.status)],
+  labRequests: item => ['Laboratory request', item.testDisplay, plainCode(item.priority), labRequestStatusLabel(item.status), item.clinicalInformation,
+    date(item.createdAt)],
   documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
 }
 /** The date each section's rows are listed under. */
@@ -616,8 +618,8 @@ export function RecordsPage() {
     diagnoses: item => row({ section: 'diagnoses', title: item.display, meta: plainCode(item.clinicalStatus), detail: item.notes, when: item.onsetAt,
       extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }, item.id),
     prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
-      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, item.status].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
-    labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${item.status}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
+      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, medicineStatusLabel(item.status)].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
+    labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${labRequestStatusLabel(item.status)}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
     documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
   }
   const NONE: { readonly [S in RecordSection]: string } = {

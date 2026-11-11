@@ -358,3 +358,46 @@ describe('who can open Outreach', () => {
     expect(api.outreachCases).not.toHaveBeenCalled()
   })
 })
+
+/** Owner rule (IDs on screen): a case, its temporary record and a campaign member are said in words, never by an id. */
+describe('outreach names no ids', () => {
+  it('shows a case and its temporary record without the case’s or the temporary record’s id', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pendingCase, id: 'c1a5e111-1111-4111-8111-111111111111' }])
+    render(<Outreach />)
+    expect(await screen.findByText('Amaka Obi')).toBeTruthy()
+    expect(screen.getByText('A temporary record was made for this registration.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/••••|111111\b|tmp_|000001\b/)
+  })
+
+  it('names a campaign member by role, never by membership id', async () => {
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-membership`, campaignId, membershipId: 'm2222222-2222-4222-8222-222222222222', role: 'health_worker', createdAt: '2026-01-01T00:00:00.000Z' }])
+    render(<Outreach />)
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getAllByText('Health worker').length).toBeGreaterThan(0))
+    expect(document.body.textContent).not.toMatch(/Membership|••••|222222\b|health worker|health_worker/)
+  })
+
+  it('names a member with a role it has no word for as a member, never by the role’s code', async () => {
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-membership`, campaignId, membershipId: 'm3333333-3333-4333-8333-333333333333', role: 'field_supervisor', createdAt: '2026-01-01T00:00:00.000Z' }])
+    render(<Outreach />)
+    await waitFor(() => expect(screen.getAllByText('Member').length).toBeGreaterThan(0))
+    expect(document.body.textContent).not.toMatch(/field.supervisor/i)
+  })
+
+  it('says a case’s and a campaign’s status in words, never the server’s status word', async () => {
+    api.outreachCases.mockResolvedValue([pendingCase])
+    render(<Outreach />)
+    expect(await screen.findByText('Amaka Obi')).toBeTruthy()
+    // The running campaign is named twice once the case form's campaign choice has loaded: in the list and as an option.
+    await screen.findAllByText('Ikeja screening week')
+    expect(screen.getByText('Waiting to link')).toBeTruthy()
+    expect(screen.getByText('Running')).toBeTruthy()
+    expect(screen.getByText('Not started')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/identity resolution pending|identity_resolution_pending/)
+    // The campaign badges say words, not the server's "active" or "planned".
+    expect(screen.queryByText('active')).toBeNull()
+    expect(screen.queryByText('planned')).toBeNull()
+  })
+})

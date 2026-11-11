@@ -103,14 +103,14 @@ describe('Access requests list (once External record access)', () => {
     const rows = await list()
     expect(api.listAccessRequests).toHaveBeenCalledWith(FACILITY_ID, undefined)
     expect(within(rows).getByRole('link', { name: /^Follow-up consultation/ }).getAttribute('href')).toBe('/provider/requests/r0000000-0000-4000-8000-000000000001')
-    expect(within(rows).getAllByText(/^Patient ••••0001 · /)).toHaveLength(3)
+    expect(within(rows).getAllByText(/^Patient \(name not shown\) · /)).toHaveLength(3)
     expect(within(rows).getByText('Waiting for the patient')).toBeTruthy()
     expect(within(rows).getByText('Access active')).toBeTruthy()
     expect(within(rows).getByText('Denied by the patient')).toBeTruthy()
     // When it was requested, as today's list shows (AccessRequests.tsx:123), then today's extras after the status
     // (AccessRequests.tsx:123-125): how it was given, until when, the patient's reason.
-    expect(within(rows).getByText(`Patient ••••0001 · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
-    expect(within(rows).getByText(`Patient ••••0001 · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Not my clinician`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient (name not shown) · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient (name not shown) · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Not my clinician`)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/updated/i)
     // No patient name or Health ID anywhere on the list.
     expect(document.body.textContent).not.toContain(PATIENT_HID)
@@ -128,7 +128,7 @@ describe('Access requests list (once External record access)', () => {
   it('opens a request from its row, and Ask for access goes to the new request', async () => {
     open()
     fireEvent.click(within(await list()).getByRole('link', { name: /^Review of results/ }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getAllByText('Can view records').length).toBeGreaterThan(0)
   })
 
@@ -229,7 +229,7 @@ describe('Access requests list (once External record access)', () => {
     // The request's page reads with the status that found it: the address carries that filter, and no patient data.
     expect(link.getAttribute('href')).toBe('/provider/requests/r0000000-0000-4000-8000-000000000009?status=active')
     fireEvent.click(link)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText('Old active grant')).toBeTruthy()
     // An active grant's request is approved: it is read as approved, so closing it leaves it on its page.
     expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'approved')
@@ -395,7 +395,7 @@ describe('Ask the patient for access (once New external record access)', () => {
     fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '45' } })
     fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 45))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
     expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()
   })
@@ -524,7 +524,7 @@ describe('Ask the patient for access (once New external record access)', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.requestAccess).toHaveBeenCalledTimes(1)
     await act(async () => { answer(request()) })
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
   })
 
   it('says in plain words that the role can’t ask patients for access, naming no permission, and offers no submit', () => {
@@ -664,7 +664,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
 describe('An access request’s page', () => {
   it('shows a pending request as waiting, with no Close access, and the emergency step as navigation', async () => {
     open('/r0000000-0000-4000-8000-000000000001')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'The request' })).toBeTruthy()
     expect(screen.getByText('Follow-up consultation')).toBeTruthy()
     expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()
@@ -681,7 +681,7 @@ describe('An access request’s page', () => {
 
   it('shows the patient’s reason for denying', async () => {
     open('/r0000000-0000-4000-8000-000000000003')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText('Medication review')).toBeTruthy()
     expect(screen.getAllByText('Not my clinician').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Denied by the patient').length).toBeGreaterThan(0)
@@ -783,7 +783,7 @@ describe('An access request’s page', () => {
     // Read again, and it works: nothing about the close is said any more (AccessRequests.tsx:75).
     api.listAccessRequests.mockResolvedValue([request(), ACTIVE, DENIED])
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.queryByText('Couldn’t close access')).toBeNull()
     expect(screen.queryByText('This access had already ended. The list has been refreshed.')).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -828,7 +828,7 @@ describe('An access request’s page', () => {
   it('offers no emergency step on a pending request to a role that may not use emergency access', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'identity.break-glass.write')
     open('/r0000000-0000-4000-8000-000000000001')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText('Follow-up consultation')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Emergency access' })).toBeNull()
   })

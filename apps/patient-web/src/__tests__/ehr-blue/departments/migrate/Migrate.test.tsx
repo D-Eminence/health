@@ -368,6 +368,27 @@ describe('Migrate record view', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('never shows any part of the patient’s record id or the job’s id, in the list, Quick view or the opened job', async () => {
+    // Fictional ids with tails of their own, so a masked piece of either would show.
+    const job = { ...validated, id: 'j0000000-0000-4000-8000-00000000f4a9', patientId: 'a0000000-0000-4000-8000-00000000c7e1' }
+    await findJob(job)
+    const page = () => document.body.textContent ?? ''
+    for (const piece of ['f4a9', 'c7e1', 'Job ••••']) expect(page()).not.toContain(piece)
+    expect(screen.getByText('Patient (name not shown)')).toBeTruthy()
+    await press(button('Back to list'))
+    const row = (await screen.findByRole('button', { name: 'Document ••••000001' })).closest('tr') as HTMLElement
+    expect(within(row).getByText('Patient (name not shown)')).toBeTruthy()
+    await press(within(row).getByRole('button', { name: 'Quick view' }))
+    await screen.findByRole('dialog', { name: 'Record quick view' })
+    for (const piece of ['f4a9', 'c7e1', 'Job ••••']) expect(page()).not.toContain(piece)
+  })
+
+  it('says a job with no patient given in words', async () => {
+    await findJob({ ...validated, patientId: undefined })
+    expect(screen.getByText('Patient not given')).toBeTruthy()
+    expect(screen.getByText('Not given')).toBeTruthy()
+  })
+
   it('Quick view closes with Escape, giving focus back to the button that opened it', async () => {
     await findJob(validated)
     await press(button('Back to list'))

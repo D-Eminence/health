@@ -8,7 +8,7 @@ import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../pa
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  campaignFacts, campaignStatusLabel, MEMBERS_NOT_LOADED, NO_ACTIONS,
+  campaignFacts, memberRoleLabel, campaignStatusLabel, MEMBERS_NOT_LOADED, NO_ACTIONS,
   type MembersRead,
 } from './outreachParts'
 
@@ -35,11 +35,6 @@ export function CampaignMembersRead({ facilityId, membershipId, campaign, onMemb
   useEffect(() => () => onRead(campaign.id, null), [campaign.id, onRead])
   return null
 }
-
-const ROLE_WORDS: Readonly<Record<string, string>> = { enumerator: 'Enumerator', health_worker: 'Health worker', admin: 'Campaign admin' }
-
-/** A campaign member's role in words: "Member" for one the page has no word for, never its code (parity report 3.1 #16). */
-const roleWords = (role: string): string => (Object.hasOwn(ROLE_WORDS, role) ? ROLE_WORDS[role] : undefined) ?? 'Member'
 
 /**
  * A campaign as the design's record view: read only, since Identity does not authorize
@@ -72,7 +67,7 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
                   <span className="hid-ehr-dept-row-title">Team member</span>
                   <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
-                <EhrBadge>{roleWords(member.role)}</EhrBadge>
+                <EhrBadge>{memberRoleLabel(member.role)}</EhrBadge>
               </li>
             ))}
           </ul>

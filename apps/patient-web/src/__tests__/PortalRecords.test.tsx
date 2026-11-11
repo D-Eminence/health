@@ -69,3 +69,45 @@ describe('patient record visits', () => {
     expect(document.body.textContent).not.toMatch(/ambulatory|Ambulatory|\bIMP\b/)
   })
 })
+
+/**
+ * Owner rule (IDs on screen): a lab test or medicine shows its name, priority and status in plain words, in its row and
+ * when opened; never its record, visit or facility id, its test code, its outside order reference, or the status word.
+ */
+describe('lab tests and medicines name no ids or codes', () => {
+  const LAB_ID = 'd1111111-1111-4111-8111-111111111111'
+  const VISIT_ID = 'e2222222-2222-4222-8222-222222222222'
+  const FACILITY_ID = 'f3333333-3333-4333-8333-333333333333'
+  const RX_ID = 'a4444444-4444-4444-8444-444444444444'
+  const lab = (status: string) => ({ id: LAB_ID, encounterId: VISIT_ID, facilityId: FACILITY_ID, testCodeSystem: 'http://loinc.org',
+    testCode: '58410-2', testDisplay: 'Full blood count', priority: 'routine', status, specimenTypeCode: 'BLDV',
+    clinicalInformation: 'Tiredness for two weeks', externalOrderReference: 'EXT-ORDER-7731', createdAt: '2026-10-01T08:00:00.000Z' })
+  const medicine = (status: string) => ({ id: RX_ID, encounterId: VISIT_ID, facilityId: FACILITY_ID, medicationDisplay: 'Paracetamol 500 mg',
+    doseQuantity: 1, doseUnit: 'tablet', frequency: 'Three times daily', instructions: 'After food', status, startsOn: '2026-10-01' })
+  const hidden = /d1111111|e2222222|f3333333|a4444444|58410-2|loinc|BLDV|EXT-ORDER-7731|\bactive\b|on-hold|entered-in-error/
+
+  it('says a lab test’s priority and status in words, in its row and opened', async () => {
+    renderRecords({ ...empty, labRequests: [lab('active')], documents: [] })
+    const title = await screen.findByText('Full blood count')
+    expect(title.nextElementSibling?.textContent).toBe('Routine · Requested')
+    expect(document.body.textContent).not.toMatch(hidden)
+    title.closest('button')!.click()
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(hidden)
+  })
+
+  it('names a lab test put on hold or entered by mistake in words', async () => {
+    renderRecords({ ...empty, labRequests: [lab('on-hold'), { ...lab('entered-in-error'), id: 'd5555555-5555-4555-8555-555555555555', testDisplay: 'Malaria test' }], documents: [] })
+    expect((await screen.findByText('Full blood count')).nextElementSibling?.textContent).toBe('Routine · On hold')
+    expect((await screen.findByText('Malaria test')).nextElementSibling?.textContent).toBe('Routine · Entered by mistake')
+    expect(document.body.textContent).not.toMatch(hidden)
+  })
+
+  it('says a medicine’s status in words', async () => {
+    renderRecords({ ...empty, prescriptions: [medicine('active')], documents: [] })
+    expect((await screen.findByText('Paracetamol 500 mg')).nextElementSibling?.textContent).toBe('1 tablet · Three times daily · Active')
+    renderRecords({ ...empty, prescriptions: [{ ...medicine('entered-in-error'), medicationDisplay: 'Ibuprofen 200 mg' }], documents: [] })
+    expect((await screen.findByText('Ibuprofen 200 mg')).nextElementSibling?.textContent).toBe('1 tablet · Three times daily · Entered by mistake')
+    expect(document.body.textContent).not.toMatch(hidden)
+  })
+})

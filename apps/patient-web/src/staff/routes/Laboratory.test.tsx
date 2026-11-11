@@ -40,7 +40,7 @@ vi.mock('../api', () => ({ staffApi: api }))
 
 const FACILITY = 'facility-1'
 const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
-const MASKED_PATIENT = '••••4f9c2e'
+const MASKED_PATIENT = '(name not shown)'
 const ACCESS_DENIED = 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.'
 const UNVERIFIED = 'Lab results are hidden because access to them could not be verified right now. Refresh to check again.'
 const SIGNED_OUT = 'Lab results are hidden because your session has ended. Sign in again to view them.'
@@ -325,13 +325,13 @@ describe('Laboratory work-item list', () => {
 
     const first = (await screen.findByText('Haemoglobin')).closest('.staff-list-item') as HTMLElement
     expect(within(first).getByText('accepted')).toBeTruthy()
-    expect(within(first).getByText(new RegExp(`^Patient ${MASKED_PATIENT} · Accepted `))).toBeTruthy()
+    expect(within(first).getByText(new RegExp(`^Patient \\(name not shown\\) · Accepted `))).toBeTruthy()
     expect(within(first).getByRole('button', { name: 'Prepare accession' })).toBeTruthy()
 
     const second = screen.getByText('Serum ferritin').closest('.staff-list-item') as HTMLElement
     expect(within(second).getByText('Accessioned')).toBeTruthy()
     expect(within(second).getByText('Accession ACC-2026-000124')).toBeTruthy()
-    expect(within(second).getByText(/^Patient ••••71d3a8 · /)).toBeTruthy()
+    expect(within(second).getByText(/^Patient \(name not shown\) · /)).toBeTruthy()
     expect(within(second).getByRole('button', { name: 'Open accession' })).toBeTruthy()
 
     expect(screen.getByText('Lab test')).toBeTruthy()

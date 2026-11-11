@@ -2846,3 +2846,34 @@ An independent review found that a line in a Chrome stack that starts with "at" 
 
 - **Fix.** `packages/observability/src/errorReporting.ts`: a Chrome line is a frame only when it ends in a real location (`url:line:col`, an eval location, `native`, `<anonymous>` or Promise.all's `index N`), as Firefox and Safari lines already were. A function name may hold a space only where an engine puts one (`new `, `async `, ` [as alias]`, Safari's `global code`); anything else is sent as `?`.
 - **Tests first.** `errorReporting.test.ts` checks that such lines give no frame, that names with stray spaces become `?`, and that neither stack sends the name or place in a report.
+## 2026-11-04: IDs on screen (patient app and staff screens)
+
+- Owner rule: screens show a Health ID and lab sample or accession numbers, and
+  no other ids, codes or permission names. Fixed in words:
+  - Patients (classic staff): sending an access request says "Access request
+    sent. The patient must approve it before records are available.", not the
+    request id and the server's status word.
+  - Access request lists (classic and blue) and lab and pharmacy work show a
+    patient the server has not named as "Patient (name not shown)", not the
+    last characters of their record id.
+  - Outreach (classic and blue): a case without its id, its temporary record as
+    "made" instead of its id, and campaign members by role ("(you)" for the
+    reader) instead of a membership id. Classic Outreach now uses the blue
+    screens' words for a case's and a campaign's status ("Waiting to link",
+    "Running") and a member's role ("Health worker", "Member" for a role it
+    has no word for), not the server's codes (`memberRoleLabel` moved to
+    `outreachParts.tsx` so both share it).
+  - Document OCR (blue Migrate): a job's patient is "Patient (name not shown)"
+    or "Patient not given" in the list, Quick view and the opened job, and the
+    list no longer shows a "Job" reference, instead of the last characters of
+    the patient's record id and the job's id.
+  - Patient Records: lab tests and medicines say their status in words
+    (`labRequestStatusLabel`, `medicineStatusLabel` in `plainLabels.ts`).
+- Tests render fictional UUIDs and assert they, and any part of them, are absent.
+- Left for the owner (not changed): the order and share-invitation references
+  staff and patients read to each other (8 to 16 characters), the staff
+  invitation reference, the Registration ID used to continue a registration,
+  the Document OCR screens that find a job by document id, the outreach
+  "Patient ID" field, a diagnosis code shown when a patient opens a diagnosis,
+  the design sample workspaces (their names come from demo data), and the
+  platform admin site (correlation ids for support work).
