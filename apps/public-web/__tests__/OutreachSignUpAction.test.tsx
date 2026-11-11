@@ -8,8 +8,9 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
   notFound: vi.fn(),
 }))
-// The page's demo form reads the site's whole configuration, which is not what this test is about.
-vi.mock('@/components/shared/DemoDialog', () => ({ DemoDialog: () => null }))
+// The page's demo form reads the site's whole configuration, which is not what this test is about. Its stand-in says
+// "Book a demo" as the real one does while closed, so a page that still carries it is caught.
+vi.mock('@/components/shared/DemoDialog', () => ({ DemoDialog: () => <dialog data-testid="demo-dialog"><h2>Book a demo</h2></dialog> }))
 
 beforeEach(() => {
   // The page's sections measure and watch themselves as the visitor scrolls, which jsdom does not do.
@@ -70,6 +71,7 @@ describe('the outreach product page’s main action', () => {
       .toBe(productSignInHref('outreach'))
 
     expect(screen.queryByText(/book a demo/i)).toBeNull()
+    expect(screen.queryByTestId('demo-dialog')).toBeNull()
     expect(screen.queryByText('Setup Your Facility')).toBeNull()
     expect(screen.queryByText('Run an outreach campaign')).toBeNull()
     for (const link of screen.getAllByRole('link', { hidden: true })) {
@@ -92,5 +94,6 @@ describe('the api product page', () => {
     expect(within(main).getByRole('link', { name: 'Explore integration options', hidden: true }).getAttribute('href')).toBe('#demo')
     expect(within(main).getByRole('link', { name: 'Connect your stack', hidden: true }).getAttribute('href')).toBe('#demo')
     expect(screen.queryByText(OUTREACH_SIGN_UP_CTA)).toBeNull()
+    expect(screen.getByTestId('demo-dialog')).toBeTruthy()
   })
 })

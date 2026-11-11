@@ -108,7 +108,9 @@ export default async function ProductPage({ params }: PageProps) {
       </main>
       <SiteFooter />
       <BackToTop />
-      <DemoDialog />
+      {/* The outreach page offers no demo, so it carries no demo form either: its closed dialog would still put
+          "Book a demo" in the page. */}
+      {outreach ? null : <DemoDialog />}
     </>
   )
 }
