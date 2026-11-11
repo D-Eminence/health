@@ -22,6 +22,13 @@ const staffSuggestions = [
   { title: 'Compare lab results', detail: 'Changes across previous visits', question: 'Compare this patient’s laboratory results across visits and cite the records supporting the changes.' },
 ]
 interface Exchange { id: number; question: string; reply?: StagingPatientChatReply; error?: string }
+/**
+ * A 503: ehr-api could not answer this turn (the model, or a source such as the Lab service, was unavailable:
+ * CHAT_HISTORY_SOURCE_UNAVAILABLE among them), or the gateway answered for it (it turns every 502, 503 and 504
+ * into its own 503), so the cause cannot be told apart and the words promise nothing about it. Worded for a
+ * patient and for staff alike.
+ */
+const UNAVAILABLE_503 = 'Record chat could not answer just now. Please try again in a minute. If it keeps happening, try again later.'
 function failure(reason: unknown): string {
   if (!isHidApiError(reason)) return 'Record chat is unavailable. Please try later.'
   if (reason.status === 401) return 'Your session ended. Please sign in again.'
@@ -33,6 +40,7 @@ function failure(reason: unknown): string {
   if (reason.code === 'CHAT_RECORD_SCOPE_EXCEEDED') return 'Your record history is too large for chat. Please use the Records page.'
   if (reason.code === 'PATIENT_CHAT_DISABLED') return 'Record chat is not available.'
   if (reason.code === 'REQUEST_TIMEOUT') return 'The reply took too long. Please try later.'
+  if (reason.status === 503) return UNAVAILABLE_503
   return 'Record chat is unavailable. Please try later.'
 }
 function NoteIcon() {

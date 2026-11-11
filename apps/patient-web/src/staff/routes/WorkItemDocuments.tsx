@@ -7,6 +7,7 @@ import {
 } from '../../documentTypes'
 import { fileSizeLabel, fileTypeLabel, scanStatusLabel } from '../../plainLabels'
 import { staffApi, type DocumentRecord } from '../api'
+import { SOURCE_DELETED_WORDS, isSourceDeleted, sourceDeleted } from '../../documentSource'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
@@ -195,6 +196,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
     const sentIn = staffSessionGeneration()
     try {
       const result = await staffApi.documentDownload(facilityId, document.id)
+      // A source page deleted after 24 hours (hid-system 0110) has no file to open: said in its own sentence.
+      if (isSourceDeleted(result)) { setOpenError(SOURCE_DELETED_WORDS); return }
       // Only a signed storage link opens: never javascript:, data: or plain http to another host, whatever a faulty
       // backend or proxy sends.
       assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local', code: 'INVALID_DOWNLOAD_URL',
@@ -266,7 +269,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, about,
           <p>{documentLine(document)}</p>
           {document.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can
             finish it. Attach the file again.</p>}
-          {document.scanStatus === 'clean' && document.status !== 'initiated' && <Button tone="secondary" size="sm"
+          {sourceDeleted(document) && <p className="staff-muted">{SOURCE_DELETED_WORDS}</p>}
+          {document.scanStatus === 'clean' && document.status !== 'initiated' && !sourceDeleted(document) && <Button tone="secondary" size="sm"
             aria-describedby={name} aria-disabled={opening === document.id || undefined} className={UNAVAILABLE}
             onClick={() => void open(document)}>Open file</Button>}
         </div>
