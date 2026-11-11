@@ -8,6 +8,7 @@ import { learnFrom } from '../../../ehr-blue/clinical/consult/orders/orders'
 import { useRecordList } from '../../../ehr-blue/clinical/consult/records'
 import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
 import { ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/parts/chart'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
@@ -2480,9 +2481,10 @@ describe('Visit rehearsal (11 Nov): a dose is shown as it was entered', () => {
 
 describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent and offers no second send', () => {
   const ACCEPTED_AT = '2026-11-11T12:40:00.000Z'
-  const SENT_TO_PHARMACY = /^Sent to Pharmacy\. Accepted by the pharmacy on 11 Nov 2026, \d{2}:\d{2}\.$/
-  const SENT_TO_LAB = /^Sent to Lab\. Accepted by the lab on 11 Nov 2026, \d{2}:\d{2}\.$/
-  const HELD_BY_PHARMACY = /^Sent to Pharmacy at version 3\. Accepted by the pharmacy on 11 Nov 2026, \d{2}:\d{2}\. Later changes are not passed on\.$/
+  // In the app's own format, in the machine's time zone, as the page writes it.
+  const SENT_TO_PHARMACY = `Sent to Pharmacy. Accepted by the pharmacy on ${formatWhen(ACCEPTED_AT)}.`
+  const SENT_TO_LAB = `Sent to Lab. Accepted by the lab on ${formatWhen(ACCEPTED_AT)}.`
+  const HELD_BY_PHARMACY = `Sent to Pharmacy at version 3. Accepted by the pharmacy on ${formatWhen(ACCEPTED_AT)}. Later changes are not passed on.`
 
   function sendButtons(name: string) {
     return screen.queryAllByRole('button', { name })
@@ -2609,9 +2611,11 @@ describe('Visit rehearsal (11 Nov): a released result in the app’s date format
   it('says when it was entered, released and accepted in the app’s own format: day, month in words, 24-hour, no seconds', async () => {
     await view(released(revision('abnormal')))
     const text = document.body.textContent ?? ''
-    expect(text).toMatch(/Entered 11 Nov 2026, \d{2}:31/)
-    expect(text).toMatch(/Released 11 Nov 2026, \d{2}:45/)
-    expect(text).toMatch(/accepted by Lab 11 Nov 2026, \d{2}:20/)
+    // Built with the app's own formatter, so the test holds in any time zone (12:31Z is 18:01 in Kolkata, 12 Nov in Auckland).
+    expect(text).toContain(`Entered ${formatWhen('2026-11-11T12:31:20.000Z')}`)
+    expect(text).toContain(`Released ${formatWhen('2026-11-11T12:45:05.000Z')}`)
+    expect(text).toContain(`accepted by Lab ${formatWhen('2026-11-11T12:20:00.000Z')}`)
+    expect(formatWhen('2026-11-11T12:31:20.000Z')).toMatch(/^\d{1,2} [A-Z][a-z]{2} 2026, \d{2}:\d{2}$/)
     expect(text).not.toMatch(/11\/11\/2026|\d:\d{2}:\d{2}|\b(AM|PM)\b/)
   })
 
