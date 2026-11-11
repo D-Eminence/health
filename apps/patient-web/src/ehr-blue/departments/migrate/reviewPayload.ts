@@ -1,7 +1,7 @@
 import type { OcrCandidateType, OcrTargetDomain, OcrValidationInput } from '../../../staff/api'
 import {
-  LEARNING_FIELDS, MAX_MISSED, MISSED_KINDS, UNREADABLE_REMOVAL, isCode, REJECTION_REASONS, type ChangeReason, type MissedKind, type RejectionReason,
-  type RemovalReason,
+  MAX_MISSED, MAX_REMOVED_ITEMS, MISSED_KINDS, UNREADABLE_REMOVAL, isCode, REJECTION_REASONS, type ChangeReason, type FieldClass, type MissedKind,
+  type RejectionReason, type RemovalReason, type ReviewSignals,
 } from '../../../readingLearningContract'
 import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
@@ -259,7 +259,8 @@ export function medicineAsRead(item: PaperItem): MedicineFields {
 /**
  * What a reviewer said for Migrate learning beyond each item's choice: the items they had on screen, the pages they
  * ticked as checked, and how many items of each kind the reading missed, as typed (blank is none). Given only while
- * the backend serves it; without it, buildValidation sends exactly what it sends today.
+ * the backend serves it; without it, buildValidation sends exactly what it sends today. The server takes the items seen
+ * and pages ticked as one answer, reviewConfirmed, and the missed counts as their total.
  */
 export interface ReviewLearning {
   readonly itemsSeen: readonly string[]
@@ -297,8 +298,12 @@ export interface ReviewChoices {
   readonly learning?: ReviewLearning
 }
 
-/** A review as sent: OCR's validation, with Migrate learning's own fields beside it once the backend serves them. */
-export type ReviewInput = OcrValidationInput & Readonly<Record<string, unknown>>
+/** A review as sent: OCR's validation, with Migrate learning's review signals beside it once the backend serves them. */
+export type ReviewInput = OcrValidationInput & ReviewSignals
+
+/** The field class (Session B's corrections[].fields) each changed field is counted under. */
+const MEDICINE_FIELD_CLASSES: Readonly<Record<keyof MedicineFields, FieldClass>> = { name: 'name', strength: 'strength', dose: 'dose', frequency: 'frequency' }
+const LAB_FIELD_CLASSES = { test: 'name', result: 'value' } as const satisfies Readonly<Record<string, FieldClass>>
 
 /** The report date's field, under Save as when it is Past lab results. */
 export const REPORT_DATE_FIELD = 'ocr-review-report-date'
@@ -436,33 +441,41 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
   }
   const kept = checked.filter(entry => entry.decision.choice !== 'remove')
   const accepted: AcceptedItem[] = kept.map(({ item, final }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: final }))
-  const rejectedFields = checked.filter(entry => entry.decision.choice === 'remove')
-    .map(({ item, line, decision }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: line, decision: 'removed',
-      ...(learning ? { [LEARNING_FIELDS.removalReason]: isUnreadable(item) ? UNREADABLE_REMOVAL : decision.removalReason } : {}) }))
+  const removed = checked.filter(entry => entry.decision.choice === 'remove')
+  const rejectedFields = removed
+    .map(({ item, line }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: line, decision: 'removed' }))
   const corrections = kept.filter(entry => entry.decision.choice === 'change').flatMap(entry => {
     const { item, line, final, lab, med, decision } = entry
-    const correction = (field: string, oldValue: string, newValue: string) => ({ itemId: item.id, kind: item.kind, page: item.page, field, oldValue, newValue,
-      ...(learning ? { [LEARNING_FIELDS.changeReason]: decision.changeReason } : {}) })
+    // Migrate learning: each correction names its field class; the change reason goes on the item's first correction
+    // only, as the server counts one change reason for each correction that carries one.
+    const correction = (field: string, oldValue: string, newValue: string, fieldClass?: FieldClass) => ({
+      itemId: item.id, kind: item.kind, page: item.page, field, oldValue, newValue,
+      ...(learning && fieldClass ? { fields: [fieldClass] } : {}),
+    })
+    const withReason = (entries: ReturnType<typeof correction>[]) => learning && decision.changeReason
+      ? entries.map((entry, at) => at === 0 ? { ...entry, changeReason: decision.changeReason as ChangeReason } : entry)
+      : entries
     if (med) {
       const read = medicineAsRead(item)
-      return MEDICINE_FIELDS.filter(field => med[field] !== read[field]).map(field => correction(MEDICINE_FIELD_NAMES[field], read[field], med[field]))
+      return withReason(MEDICINE_FIELDS.filter(field => med[field] !== read[field])
+        .map(field => correction(MEDICINE_FIELD_NAMES[field], read[field], med[field], MEDICINE_FIELD_CLASSES[field])))
     }
     if (lab) {
-      return [
-        ...(lab.test !== labTest(item) ? [correction('test', labTest(item), lab.test)] : []),
-        ...(lab.result !== labResult(item) ? [correction('result', labResult(item), lab.result)] : []),
-      ]
+      return withReason([
+        ...(lab.test !== labTest(item) ? [correction('test', labTest(item), lab.test, learning ? LAB_FIELD_CLASSES.test : undefined)] : []),
+        ...(lab.result !== labResult(item) ? [correction('result', labResult(item), lab.result, learning ? LAB_FIELD_CLASSES.result : undefined)] : []),
+      ])
     }
-    return final !== line ? [correction('reading', line, final)] : []
+    return withReason(final !== line ? [correction('reading', line, final)] : [])
   })
 
-  // Migrate learning: "The reading missed a ___", a whole number of each kind (blank is none).
-  const missedItems: Partial<Record<MissedKind, number>> = {}
+  // Migrate learning: "The reading missed a ___", a whole number of each kind (blank is none); the server takes the total.
+  let missedItems = 0
   if (learning && reading) {
     for (const { code } of MISSED_KINDS) {
       const count = missedCount(learning.missed[code])
       if (count === null) return { problem: { field: missedId(code), message: `Enter a number from 0 to ${MAX_MISSED}.` } }
-      missedItems[code] = count
+      missedItems += count
     }
   }
 
@@ -514,18 +527,30 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
   return { input: {
     extractionId: choices.extractionId, validatedPayload, acceptedFields, rejectedFields, corrections,
     disposition: 'validated', targetDomain: saveAs, candidateType: CANDIDATE_TYPES[saveAs], reason,
-    ...(learning ? { [LEARNING_FIELDS.learning]: learningFields(learning, items, reading, missedItems) } : {}),
+    ...(learning ? reviewSignals(learning, items, reading, removed, missedItems) : {}),
   } }
 }
 
-/** What Migrate learning sends beside a check: only the reading's own items and pages, each once, in order. */
-function learningFields(learning: ReviewLearning, items: readonly PaperItem[], reading: PaperReading | null, missedItems: Partial<Record<MissedKind, number>>) {
+/**
+ * The review signals Migrate learning sends beside a check (Session B's names, readingLearningContract.ts):
+ * - reviewConfirmed: every page of the reading ticked "I've checked this page", and every item the reviewer could check
+ *   was on screen. Only with a reading that has pages.
+ * - missedItems: the total the reviewer counted. Only with a reading.
+ * - removedItems: each removed item and why (a line that couldn't be read: Can't read it), up to the server's 200.
+ */
+function reviewSignals(learning: ReviewLearning, items: readonly PaperItem[], reading: PaperReading | null, removed: readonly CheckedItem[],
+  missedItems: number): ReviewSignals {
+  const pages = readingPages(reading)
+  const ticked = new Set(learning.pagesChecked)
   const seen = new Set(learning.itemsSeen)
-  const pages = new Set(learning.pagesChecked)
+  const removedItems = removed.slice(0, MAX_REMOVED_ITEMS).flatMap(({ item, decision }) => {
+    const removalReason = isUnreadable(item) ? UNREADABLE_REMOVAL : decision.removalReason
+    return removalReason ? [{ itemId: item.id, removalReason }] : []
+  })
   return {
-    [LEARNING_FIELDS.itemsSeen]: items.filter(item => seen.has(item.id)).map(item => item.id),
-    [LEARNING_FIELDS.pagesChecked]: readingPages(reading).filter(page => pages.has(page)),
-    ...(reading ? { [LEARNING_FIELDS.missedItems]: missedItems } : {}),
+    ...(pages.length ? { reviewConfirmed: pages.every(page => ticked.has(page)) && items.every(item => isUnreadable(item) || seen.has(item.id)) } : {}),
+    ...(reading ? { missedItems } : {}),
+    ...(removedItems.length ? { removedItems } : {}),
   }
 }
 
@@ -543,6 +568,6 @@ export function buildRejection(extractionId: string, reason: string, learning?: 
   return { input: {
     extractionId, validatedPayload: {}, acceptedFields: {}, rejectedFields: [], corrections: [],
     disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified', reason: trimmed,
-    ...(learning ? { [LEARNING_FIELDS.learning]: { [LEARNING_FIELDS.rejectionReason]: learning.rejectionReason } } : {}),
+    ...(learning && isCode(REJECTION_REASONS, learning.rejectionReason) ? { rejectionReasonCode: learning.rejectionReason } : {}),
   } }
 }

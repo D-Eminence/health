@@ -4,7 +4,7 @@ import { environment } from './env'
 import { backendContract, usesNovuBackend } from '../backendContract'
 import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
 import { announceAdminSessionChange } from './tabs'
-import { READING_QUALITY_DAYS, READING_QUALITY_PATH } from '../readingLearningContract'
+import { READING_QUALITY_PATH } from '../readingLearningContract'
 
 export interface AdminActor {
   accountId: string
@@ -798,14 +798,14 @@ export const adminApi = {
     return request<PlatformActivity>('/api/v1/admin/overview/activity', { signal, query: { days } })
   },
   /**
-   * Migrate learning's counts, "Reading quality" (proposed; readingLearningContract.ts names its route and fields): what
-   * staff kept, changed, removed and found missing when they checked paper readings, for the last READING_QUALITY_DAYS
-   * days. Counts only, never an item, a patient or a facility. A backend without the route answers 404, said as
-   * READING_QUALITY_UNAVAILABLE.
+   * Migrate learning's counts, "Reading quality": Session B's review-outcome summary (hid.ocr.quality-summary/v1) for the
+   * last four weeks (the server's default period), from the proposed platform-wide admin read (readingLearningContract.ts
+   * READING_QUALITY_PATH; Session B's own route is per facility and outside the admin routes). Counts only. A backend
+   * without the route answers 404, said as READING_QUALITY_UNAVAILABLE.
    */
   async readingQuality(signal?: AbortSignal): Promise<unknown> {
     try {
-      return await request<unknown>(READING_QUALITY_PATH, { signal, query: { days: READING_QUALITY_DAYS } })
+      return await request<unknown>(READING_QUALITY_PATH, { signal })
     } catch (error) {
       if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
         throw new HidApiError(404, 'Reading quality is not available from this Identity yet.',

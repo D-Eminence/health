@@ -38,7 +38,10 @@ const extraction = { id: 'extraction-1', jobId: awaiting.id, version: 1, provide
   structuredPayload: paperReading(), createdAt: '2026-10-12T09:00:00.000Z' }
 const METFORMIN = 'it-00000000000000a2'
 
-/** An IntersectionObserver the test drives: `show(element)` puts a card on screen. */
+/**
+ * An IntersectionObserver the test drives: `show(element)` puts all of a card on screen; `show(element, part)` only that
+ * part of it, filling `screenShare` of the screen (a card taller than the screen).
+ */
 const observed = new Map<Element, IntersectionObserverCallback>()
 class FakeObserver {
   constructor(private readonly callback: IntersectionObserverCallback) {}
@@ -47,9 +50,10 @@ class FakeObserver {
   unobserve() {}
   takeRecords() { return [] }
 }
-function show(element: Element) {
+function show(element: Element, part = 1, screenShare = 0.4) {
   const callback = observed.get(element)
-  act(() => { callback?.([{ isIntersecting: true, target: element } as unknown as IntersectionObserverEntry], {} as IntersectionObserver) })
+  act(() => { callback?.([{ isIntersecting: true, target: element, intersectionRatio: part, intersectionRect: { height: 800 * screenShare },
+    rootBounds: { height: 800 } } as unknown as IntersectionObserverEntry], {} as IntersectionObserver) })
 }
 
 beforeEach(() => {
@@ -102,7 +106,7 @@ describe('Migrate learning, dormant', () => {
     await keepAll()
     await press(within(card('it-00000000000000c1')).getByRole('button', { name: 'Remove' }))
     expect(screen.queryByLabelText(/Why remove it/)).toBeNull()
-    expect(screen.queryByText('Pages you’ve checked')).toBeNull()
+    expect(screen.queryByText('I’ve checked this page')).toBeNull()
     expect(screen.queryByText('The reading missed a…')).toBeNull()
     await press(within(card(METFORMIN)).getByRole('button', { name: 'Change' }))
     expect(screen.getByLabelText('What the paper says')).toBeTruthy()
@@ -110,8 +114,11 @@ describe('Migrate learning, dormant', () => {
     await save()
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
     const sent = api.validateOcrJob.mock.calls[0]![2] as Record<string, unknown>
-    expect(sent).not.toHaveProperty('learning')
+    for (const key of ['learning', 'reviewConfirmed', 'missedItems', 'removedItems', 'rejectionReasonCode']) expect(sent).not.toHaveProperty(key)
     expect((sent.rejectedFields as Array<Record<string, unknown>>)[0]).not.toHaveProperty('removalReason')
+    for (const correction of sent.corrections as Array<Record<string, unknown>>) {
+      expect(correction).not.toHaveProperty('changeReason'); expect(correction).not.toHaveProperty('fields')
+    }
   })
 
   it('without the flag, Reject reading is its reason alone', async () => {
@@ -136,11 +143,13 @@ describe('Migrate learning, served', () => {
     await waitFor(() => expect(focused()).toBe(why))
     expect(document.getElementById(why.getAttribute('aria-describedby')!.split(' ')[0]!)?.textContent).toBe('Choose why you’re removing it.')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
-    fireEvent.change(why, { target: { value: 'written_twice' } })
+    fireEvent.change(why, { target: { value: 'duplicate' } })
     await press(form().getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
-    const sent = api.validateOcrJob.mock.calls[0]![2] as { rejectedFields: Array<Record<string, unknown>> }
-    expect(sent.rejectedFields).toEqual([expect.objectContaining({ itemId: 'it-00000000000000c1', removalReason: 'written_twice' })])
+    const sent = api.validateOcrJob.mock.calls[0]![2] as { rejectedFields: Array<Record<string, unknown>>; removedItems: unknown }
+    expect(sent.removedItems).toEqual([{ itemId: 'it-00000000000000c1', removalReason: 'duplicate' }])
+    expect(sent.rejectedFields).toEqual([expect.objectContaining({ itemId: 'it-00000000000000c1' })])
+    expect(sent.rejectedFields[0]).not.toHaveProperty('removalReason')
   })
 
   it('changes a medicine on its own form, asking why first', async () => {
@@ -157,7 +166,7 @@ describe('Migrate learning, served', () => {
     fireEvent.change(screen.getByLabelText(/Medicine name/), { target: { value: '' } })
     await save()
     await waitFor(() => expect(focused()).toBe(why))
-    fireEvent.change(why, { target: { value: 'ai_misread' } })
+    fireEvent.change(why, { target: { value: 'misread' } })
     await press(form().getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(focused()).toBe(screen.getByLabelText(/Medicine name/)))
     fireEvent.change(screen.getByLabelText(/Medicine name/), { target: { value: 'Metformin' } })
@@ -168,16 +177,16 @@ describe('Migrate learning, served', () => {
     const sent = api.validateOcrJob.mock.calls[0]![2] as { acceptedFields: { medications: Array<Record<string, unknown>> }; corrections: unknown[] }
     expect(sent.acceptedFields.medications.find(entry => entry.itemId === METFORMIN)).toMatchObject({ medicationText: 'Metformin',
       strengthText: '850 mg', frequencyText: 'twice a day' })
-    expect(sent.corrections).toEqual([expect.objectContaining({ field: 'strengthText', newValue: '850 mg', changeReason: 'ai_misread' })])
+    expect(sent.corrections).toEqual([expect.objectContaining({ field: 'strengthText', newValue: '850 mg', fields: ['strength'], changeReason: 'misread' })])
   })
 
-  it('ticks pages, counts what was missed, and sends the cards seen on screen or touched', async () => {
+  it('ticks pages, counts what was missed, and says the check was complete only with every page ticked and every card seen', async () => {
     vi.stubGlobal('IntersectionObserver', FakeObserver)
     await openReading(true)
-    const pages = within(screen.getByRole('group', { name: 'Pages you’ve checked' }))
+    const pages = within(screen.getByRole('group', { name: 'I’ve checked this page' }))
     expect(pages.getAllByRole('checkbox').map(box => box.closest('label')?.textContent)).toEqual([
-      'I’ve checked page 1 · 3 items read from it', 'I’ve checked page 2 · 4 items read from it'])
-    await press(pages.getByRole('checkbox', { name: /I’ve checked page 2/ }))
+      'Page 1, 3 items read from it', 'Page 2, 4 items read from it'])
+    await press(pages.getByRole('checkbox', { name: /^Page 2/ }))
     const missed = within(screen.getByRole('group', { name: 'The reading missed a…' }))
     fireEvent.change(missed.getByLabelText('Medicine'), { target: { value: '1' } })
     fireEvent.change(missed.getByLabelText('Lab result'), { target: { value: 'x' } })
@@ -190,11 +199,31 @@ describe('Migrate learning, served', () => {
     fireEvent.change(labBox, { target: { value: '' } })
     await press(form().getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
-    const sent = api.validateOcrJob.mock.calls[0]![2] as { learning: { itemsSeen: string[]; pagesChecked: number[]; missedItems: object } }
-    expect(sent.learning.pagesChecked).toEqual([2])
-    expect(sent.learning.missedItems).toEqual({ medicine: 1, allergy: 0, diagnosis: 0, lab_result: 0, other: 0 })
-    // The lab result was on screen; the two medicines to check were pressed; nothing else was seen.
-    expect(new Set(sent.learning.itemsSeen)).toEqual(new Set(['it-00000000000000d1', 'it-00000000000000a2', 'it-00000000000000c1']))
+    const sent = api.validateOcrJob.mock.calls[0]![2] as Record<string, unknown>
+    // Page 1 isn't ticked: not complete. The missed counts go as their total.
+    expect(sent).toMatchObject({ reviewConfirmed: false, missedItems: 1 })
+    expect(sent).not.toHaveProperty('learning')
+    expect(sent).not.toHaveProperty('removedItems')
+  })
+
+  it.each([
+    ['less than half the screen', 0.3, false],
+    ['half the screen', 0.6, true],
+  ])('a card taller than twice the screen, filling %s, counts as seen: %s', async (_, screenShare, complete) => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    await openReading(true)
+    const tall = 'it-00000000000000d1'
+    for (const element of Array.from(document.querySelectorAll('[data-item-id] > [role="group"]'))) {
+      if (element !== card(tall)) show(element)
+    }
+    // Never half of it in view at once, as on a phone.
+    show(card(tall), 0.25, screenShare)
+    const pages = within(screen.getByRole('group', { name: 'I’ve checked this page' }))
+    for (const box of pages.getAllByRole('checkbox')) await press(box)
+    await keepAll()
+    await save()
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ reviewConfirmed: complete, missedItems: 0 })
   })
 
   it('Reject reading asks what is wrong, with focus there, then sends its code', async () => {
@@ -203,9 +232,10 @@ describe('Migrate learning, served', () => {
     await act(async () => { fireEvent.click(within(details).getByText('Details')) })
     await press(within(details).getByRole('button', { name: 'Reject reading' }))
     const reject = within(screen.getByRole('form', { name: 'Reject reading' }))
-    const what = reject.getByLabelText(/What’s wrong with it/) as HTMLSelectElement
-    expect(Array.from(what.options).map(option => option.textContent)).toEqual(['Choose a reason', 'Wrong patient', 'Not a medical record',
-      'Can’t be read', 'Same document twice', 'Something else'])
+    const what = reject.getByLabelText(/What’s wrong with it\?/) as HTMLSelectElement
+    expect(Array.from(what.options).map(option => option.textContent)).toEqual(['Choose a reason', 'Wrong patient',
+      'Not the document it was filed as', 'Can’t be read', 'Same document twice', 'Pages are missing', 'The reading is too wrong to correct',
+      'Not a medical record', 'Something else'])
     fireEvent.change(reject.getByLabelText(/^Why you’re/), { target: { value: 'This is Patient One’s sister’s card' } })
     await press(reject.getByRole('button', { name: 'Reject reading' }))
     await waitFor(() => expect(focused()).toBe(what))
@@ -214,7 +244,8 @@ describe('Migrate learning, served', () => {
     await press(reject.getByRole('button', { name: 'Reject reading' }))
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
     expect(api.validateOcrJob.mock.calls[0]![0]).toBe(DEMO_HOSPITAL_ID)
-    expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ disposition: 'rejected', learning: { rejectionReason: 'wrong_patient' } })
+    expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ disposition: 'rejected', rejectionReasonCode: 'wrong_patient' })
+    expect(api.validateOcrJob.mock.calls[0]![2]).not.toHaveProperty('learning')
   })
 
   it('shows no code, value or ID on screen', async () => {
@@ -223,6 +254,6 @@ describe('Migrate learning, served', () => {
     await press(within(card('it-00000000000000c1')).getByRole('button', { name: 'Remove' }))
     await press(within(card(METFORMIN)).getByRole('button', { name: 'Change' }))
     const text = screen.getByRole('form', { name: 'Check and save' }).textContent ?? ''
-    expect(text).not.toMatch(/not_on_paper|ai_misread|lab_result|it-0|reviewLearning|missedItems/)
+    expect(text).not.toMatch(/not_on_paper|clinical_update|lab_result|it-0|reviewLearning|missedItems|reviewConfirmed/)
   })
 })

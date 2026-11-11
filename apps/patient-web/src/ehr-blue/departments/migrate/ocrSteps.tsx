@@ -280,7 +280,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     setExtractionId(id)
     setDecisions(initialDecisions(reviewItems(readingOf(next))))
     setProblem(null)
-    seen.forget(); setPagesChecked(new Set()); setMissed({})
+    seen.forget(); setPagesChecked(new Set()); setMissed({}); setRejectionReason('')
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {

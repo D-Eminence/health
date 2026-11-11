@@ -17,9 +17,11 @@ import {
  */
 
 /**
- * The items the reviewer had on screen, held in the page's memory only (never in the browser's storage) and sent with
- * the save. A card is seen once at least half of it has been in view, or once it is touched or focused. Without an
- * IntersectionObserver (an old browser) only touch and focus count.
+ * The items the reviewer had on screen, held in the page's memory only (never in the browser's storage); with the
+ * pages ticked they make up whether the check was complete (reviewPayload.ts reviewSignals). A card is seen once at
+ * least half of it has been in view, or once it filled at least half the screen (a card taller than twice the screen
+ * can never be half in view), or once it is touched or focused. Without an IntersectionObserver (an old browser) only
+ * touch and focus count.
  */
 export function useSeenItems() {
   const seen = useRef(new Set<string>())
@@ -27,8 +29,11 @@ export function useSeenItems() {
     if (!element) { seen.current.add(itemId); return undefined }
     if (seen.current.has(itemId) || typeof IntersectionObserver === 'undefined') return undefined
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) { seen.current.add(itemId); observer.disconnect() }
-    }, { threshold: 0.5 })
+      if (entries.some(entry => entry.isIntersecting && (entry.intersectionRatio >= 0.5
+        || (entry.rootBounds !== null && entry.intersectionRect.height >= entry.rootBounds.height * 0.5)))) {
+        seen.current.add(itemId); observer.disconnect()
+      }
+    }, { threshold: [0, 0.25, 0.5] })
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
@@ -39,7 +44,7 @@ export function useSeenItems() {
   }), [watch])
 }
 
-const REMOVAL_WORDS_HINT = 'This helps the reading get better. It isn’t saved in the patient’s record.'
+const REASON_HINT = 'This helps the reading get better. It isn’t saved in the patient’s record.'
 
 /** Why an item is removed or changed: one choice from a short list, asked under its card. */
 export function ItemReason({ index, decision, problem, onChange }: {
@@ -47,7 +52,7 @@ export function ItemReason({ index, decision, problem, onChange }: {
 }) {
   if (decision.choice === 'remove') {
     const id = itemRemovalReasonId(index)
-    return <EhrField label={<>Why remove it?<span aria-hidden="true"> *</span></>} controlId={id} hint={REMOVAL_WORDS_HINT} error={problemText(problem, id)}>
+    return <EhrField label={<>Why remove it?<span aria-hidden="true"> *</span></>} controlId={id} hint={REASON_HINT} error={problemText(problem, id)}>
       <EhrSelect value={decision.removalReason ?? ''} onChange={event => onChange({ ...decision,
         removalReason: isCode(REMOVAL_REASONS, event.target.value) ? event.target.value : '' })}>
         <option value="">Choose a reason</option>
@@ -56,7 +61,7 @@ export function ItemReason({ index, decision, problem, onChange }: {
     </EhrField>
   }
   const id = itemChangeReasonId(index)
-  return <EhrField label={<>Why change it?<span aria-hidden="true"> *</span></>} controlId={id} hint={REMOVAL_WORDS_HINT} error={problemText(problem, id)}>
+  return <EhrField label={<>Why change it?<span aria-hidden="true"> *</span></>} controlId={id} hint={REASON_HINT} error={problemText(problem, id)}>
     <EhrSelect value={decision.changeReason ?? ''} onChange={event => onChange({ ...decision,
       changeReason: isCode(CHANGE_REASONS, event.target.value) ? event.target.value : '' })}>
       <option value="">Choose a reason</option>
@@ -98,7 +103,7 @@ export function PagesChecked({ reading, items, checked, onChange }: {
   const pages = readingPages(reading)
   if (pages.length === 0) return null
   return <fieldset className="hid-ehr-dept-migrate-group" id="ocr-pages-checked" aria-describedby="ocr-pages-checked-hint">
-    <legend><strong>Pages you’ve checked</strong></legend>
+    <legend><strong>I’ve checked this page</strong></legend>
     <p id="ocr-pages-checked-hint" className="hid-ehr-hint">Tick a page once you’ve checked the whole page against the paper. You can save without ticking every page.</p>
     <ul className="hid-ehr-dept-migrate-pages">
       {pages.map(page => {
@@ -110,7 +115,7 @@ export function PagesChecked({ reading, items, checked, onChange }: {
               if (event.target.checked) next.add(page); else next.delete(page)
               onChange(next)
             }} />
-            <span>{`I’ve checked page ${page}`}<span className="hid-ehr-dept-muted">{` · ${count === 1 ? '1 item' : `${count} items`} read from it`}</span></span>
+            <span>{`Page ${page}`}<span className="hid-ehr-dept-muted">{`, ${count === 1 ? '1 item' : `${count} items`} read from it`}</span></span>
           </label>
         </li>
       })}
@@ -140,7 +145,7 @@ export function MissedItems({ missed, problem, onChange }: {
 export function RejectionReasonField({ value, problem, onChange }: {
   readonly value: RejectionReason | ''; readonly problem: FieldProblem | null; readonly onChange: (value: RejectionReason | '') => void
 }) {
-  return <EhrField label={<>What’s wrong with it<span aria-hidden="true"> *</span></>} controlId={REJECTION_REASON_FIELD}
+  return <EhrField label={<>What’s wrong with it?<span aria-hidden="true"> *</span></>} controlId={REJECTION_REASON_FIELD}
     error={problemText(problem, REJECTION_REASON_FIELD)}>
     <EhrSelect value={value} onChange={event => onChange(isCode(REJECTION_REASONS, event.target.value) ? event.target.value : '')}>
       <option value="">Choose a reason</option>

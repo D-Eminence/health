@@ -3,72 +3,90 @@ import { adminApi } from './api'
 import { isProblem } from './problems'
 import { Page, Refresh, useResource } from './ui'
 import { learnReadingQualityServed } from '../readingLearningServed'
-import {
-  CHANGE_REASONS, MISSED_KINDS, READING_QUALITY_DAYS, READING_QUALITY_FIELDS as F, REJECTION_REASONS, REMOVAL_REASONS, type ReasonChoice,
-} from '../readingLearningContract'
+import { REJECTION_REASONS, REMOVAL_REASONS, type ReasonChoice } from '../readingLearningContract'
 
 /*
  * "Reading quality" (Migrate learning, phase 1): how well paper records are read, counted from what staff do when they
- * check a reading (readingLearningContract.ts names the proposed read and its fields). Numbers and plain words only:
- * no item, patient, facility, code or ID is ever shown. Super admins only (platform.dashboard.read, as the overview's
- * activity figures). An Identity without the read answers 404 (said as READING_QUALITY_UNAVAILABLE): the page says it
- * isn't available yet, calmly, and the sidebar stops listing it.
+ * check a reading. It reads Session B's review-outcome summary (schema hid.ocr.quality-summary/v1: groups by ISO week,
+ * facility, kind and prompt version) from the proposed admin read (readingLearningContract.ts READING_QUALITY_PATH),
+ * and adds the groups up. Numbers and plain words only: no item, patient, facility, week code, reason code or ID is
+ * ever shown. A group the server held back as too small (`suppressed`) is left out and said in words, as are reason
+ * counts it left out (`smallCellsHidden`). An Identity without the read answers 404 (said as
+ * READING_QUALITY_UNAVAILABLE): the page says it isn't available yet, calmly, and the sidebar stops listing it.
  */
 
-/** A count as the page shows it: a whole number, or null when the backend can't count it yet. */
-type Count = number | null
+type Counts = Readonly<Record<string, number>>
 
 export interface ReadingQuality {
-  readonly itemsKept: Count
-  readonly itemsChanged: Readonly<Record<string, Count>>
-  readonly itemsRemoved: Readonly<Record<string, Count>>
-  readonly itemsMissed: Readonly<Record<string, Count>>
-  readonly itemsSeen: Count
-  readonly itemsShown: Count
-  readonly pagesChecked: Count
-  readonly pagesTotal: Count
-  readonly documentsChecked: Count
-  readonly documentsRejected: Readonly<Record<string, Count>>
+  /** The first and last day counted (whole ISO weeks), as the answer gives them; null when it doesn't. */
+  readonly from: string | null
+  readonly to: string | null
+  /** The server counted only part of the period. */
+  readonly truncated: boolean
+  readonly validated: number
+  readonly rejected: number
+  readonly reviewConfirmed: number
+  readonly missedItems: number
+  readonly rejectionReasons: Counts
+  readonly removalReasons: Counts
+  readonly changeReasons: Counts
+  /** Items, by Session B's decision (kept_unchanged, kept_changed, removed, ...). */
+  readonly decisions: Counts
+  /** Whether any review or item group was counted at all. */
+  readonly anyShown: boolean
+  /** Groups held back as too small to show. */
+  readonly heldBack: number
+  /** Reason counts left out inside groups that are shown. */
+  readonly smallCellsHidden: number
 }
 
-function count(value: unknown): Count {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+const whole = (value: unknown): number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+const groups = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value.map(record) : []
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+
+function addCounts(into: Record<string, number>, value: unknown) {
+  for (const [code, count] of Object.entries(record(value))) into[code] = (into[code] ?? 0) + whole(count)
 }
 
-/** Each code the page has words for, and its count; a code it doesn't know is left out, never shown. */
-function counts(value: unknown, choices: readonly ReasonChoice<string>[]): Record<string, Count> {
-  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-  return Object.fromEntries(choices.map(choice => [choice.code, count(record[choice.code])]))
-}
-
-/** The answer as the page reads it; anything not a count reads as not counted yet. */
+/** The answer as the page reads it, added up over every group the server shows. */
 export function parseReadingQuality(answer: unknown): ReadingQuality {
-  const value = answer && typeof answer === 'object' ? answer as Record<string, unknown> : {}
+  const value = record(answer)
+  const totals = { validated: 0, rejected: 0, reviewConfirmed: 0, missedItems: 0 }
+  const rejectionReasons: Record<string, number> = {}
+  const removalReasons: Record<string, number> = {}
+  const changeReasons: Record<string, number> = {}
+  const decisions: Record<string, number> = {}
+  let heldBack = 0
+  let smallCellsHidden = 0
+  let anyShown = false
+  for (const group of [...groups(value.reviewGroups), ...groups(value.itemGroups)]) {
+    if (group.suppressed === true) { heldBack += 1; continue }
+    anyShown = true
+    smallCellsHidden += whole(group.smallCellsHidden)
+  }
+  for (const group of groups(value.reviewGroups)) {
+    if (group.suppressed === true) continue
+    for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += whole(group[key])
+    addCounts(rejectionReasons, group.rejectionReasons)
+    addCounts(removalReasons, group.removalReasons)
+    addCounts(changeReasons, group.changeReasons)
+  }
+  for (const group of groups(value.itemGroups)) if (group.suppressed !== true) addCounts(decisions, group.decisions)
   return {
-    itemsKept: count(value[F.itemsKept]),
-    itemsChanged: counts(value[F.itemsChanged], CHANGE_REASONS),
-    itemsRemoved: counts(value[F.itemsRemoved], REMOVAL_REASONS),
-    itemsMissed: counts(value[F.itemsMissed], MISSED_KINDS),
-    itemsSeen: count(value[F.itemsSeen]),
-    itemsShown: count(value[F.itemsShown]),
-    pagesChecked: count(value[F.pagesChecked]),
-    pagesTotal: count(value[F.pagesTotal]),
-    documentsChecked: count(value[F.documentsChecked]),
-    documentsRejected: counts(value[F.documentsRejected], REJECTION_REASONS),
+    from: typeof value.from === 'string' && DAY.test(value.from) ? value.from : null,
+    to: typeof value.to === 'string' && DAY.test(value.to) ? value.to : null,
+    truncated: value.truncated === true,
+    ...totals, rejectionReasons, removalReasons, changeReasons, decisions, anyShown, heldBack, smallCellsHidden,
   }
 }
 
 const NUMBER = new Intl.NumberFormat('en-NG')
-const shown = (value: Count) => value === null ? 'Not yet' : NUMBER.format(value)
-/** The sum of what is counted, or null when nothing is. */
-function total(values: Readonly<Record<string, Count>>): Count {
-  const known = Object.values(values).filter((value): value is number => value !== null)
-  return known.length ? known.reduce((sum, value) => sum + value, 0) : null
-}
-function outOf(part: Count, whole: Count): string {
-  if (part === null) return 'Not yet'
-  return whole === null ? NUMBER.format(part) : `${NUMBER.format(part)} of ${NUMBER.format(whole)}`
-}
+const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+const dayText = (day: string) => DATE.format(new Date(`${day}T00:00:00Z`))
+/** A reason count: absent means the server left it out (fewer than it shows) or there were none. */
+const reasonCount = (counts: Counts, code: string) => counts[code] === undefined ? 'Too few to show' : NUMBER.format(counts[code])
 
 /** A read noting what it says of the backend: an answer means served, a 404 that it is not. */
 async function learnFrom(read: Promise<unknown>): Promise<ReadingQuality | null> {
@@ -90,10 +108,52 @@ function Tile({ id, title, value, children }: { id: string; title: string; value
   </article>
 }
 
-function Breakdown({ label, choices, values }: { label: string; choices: readonly ReasonChoice<string>[]; values: Readonly<Record<string, Count>> }) {
+/** Each reason the page has words for and the server counted; a code it has no words for is never shown. */
+function Breakdown({ label, choices, values }: { label: string; choices: readonly ReasonChoice<string>[]; values: Counts }) {
+  const shown = choices.filter(choice => values[choice.code] !== undefined)
+  if (!shown.length) return null
   return <ul className="admin-reading-breakdown" aria-label={label}>
-    {choices.map(choice => <li key={choice.code}><span>{choice.words}</span><strong>{shown(values[choice.code] ?? null)}</strong></li>)}
+    {shown.map(choice => <li key={choice.code}><span>{choice.words}</span><strong>{NUMBER.format(values[choice.code] ?? 0)}</strong></li>)}
   </ul>
+}
+
+function Figures({ data }: { data: ReadingQuality }) {
+  const n = (value: number) => NUMBER.format(value)
+  return <>
+    {data.from && data.to && <p className="admin-note">{`Weeks from ${dayText(data.from)} to ${dayText(data.to)}.`}</p>}
+    <section className="admin-stack" aria-labelledby="reading-quality-documents">
+      <h2 id="reading-quality-documents" className="admin-section-title">Documents checked</h2>
+      <div className="admin-tile-grid">
+        <Tile id="rq-documents" title="Documents checked and saved" value={n(data.validated)} />
+        <Tile id="rq-complete" title="Checks with every page ticked" value={`${n(data.reviewConfirmed)} of ${n(data.validated)}`}>
+          <p className="admin-note">Every page was ticked as checked, and every item was looked at.</p>
+        </Tile>
+        <Tile id="rq-rejected" title="Documents rejected, and why" value={n(data.rejected)}>
+          <Breakdown label="Documents rejected, by reason" choices={REJECTION_REASONS} values={data.rejectionReasons} />
+        </Tile>
+      </div>
+    </section>
+    <section className="admin-stack" aria-labelledby="reading-quality-items">
+      <h2 id="reading-quality-items" className="admin-section-title">Items read from paper</h2>
+      <div className="admin-tile-grid">
+        <Tile id="rq-kept" title="Items kept as read" value={n(data.decisions.kept_unchanged ?? 0)} />
+        <Tile id="rq-misread" title="Items changed because the AI misread the paper" value={reasonCount(data.changeReasons, 'misread')} />
+        <Tile id="rq-out-of-date" title="Items changed because the paper was out of date" value={reasonCount(data.changeReasons, 'clinical_update')} />
+        <Tile id="rq-removed" title="Items removed, and why" value={n(data.decisions.removed ?? 0)}>
+          <Breakdown label="Items removed, by reason" choices={REMOVAL_REASONS} values={data.removalReasons} />
+        </Tile>
+        <Tile id="rq-missed" title="Items the reading missed" value={n(data.missedItems)} />
+      </div>
+    </section>
+    {(data.heldBack > 0 || data.smallCellsHidden > 0 || data.truncated) && <section className="admin-panel" aria-labelledby="reading-quality-left-out">
+      <h2 id="reading-quality-left-out" className="admin-section-title">What these figures leave out</h2>
+      {data.heldBack > 0 && <p className="admin-note">Some weeks had too few checks to show without pointing at the people who did them.
+        Their figures are left out.</p>}
+      {data.smallCellsHidden > 0 && <p className="admin-note">A reason given fewer than 5 times in a week is left out of that week’s
+        figures.</p>}
+      {data.truncated && <p className="admin-note">There were too many checks to count them all. These figures count only some of them.</p>}
+    </section>}
+  </>
 }
 
 export function ReadingQualityPage() {
@@ -101,7 +161,7 @@ export function ReadingQualityPage() {
   const resource = useResource(load, 'Reading quality could not be loaded.')
   const data = resource.data
   return <Page eyebrow="Operations" title="Reading quality"
-    description={`How well paper records were read in the last ${READING_QUALITY_DAYS} days, from what staff kept, changed, removed and found missing when they checked each reading.`}
+    description="How well paper records were read in the last four weeks, from what staff kept, changed, removed and found missing when they checked each reading."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     {resource.loading && data === null ? <p className="admin-state" role="status">Loading reading quality…</p>
       : resource.error ? <div className="admin-state" role="alert"><p className="admin-error">{resource.error}</p>
@@ -113,31 +173,11 @@ export function ReadingQualityPage() {
         </section>
           : <>
             {resource.loading && <p className="admin-note" role="status">Refreshing…</p>}
-            <section className="admin-stack" aria-labelledby="reading-quality-items">
-              <h2 id="reading-quality-items" className="admin-section-title">Items read from paper</h2>
-              <div className="admin-tile-grid">
-                <Tile id="rq-kept" title="Items kept as read" value={shown(data.itemsKept)} />
-                <Tile id="rq-misread" title="Items changed because the AI misread the paper" value={shown(data.itemsChanged.ai_misread ?? null)} />
-                <Tile id="rq-out-of-date" title="Items changed because the paper was out of date" value={shown(data.itemsChanged.paper_out_of_date ?? null)} />
-                <Tile id="rq-removed" title="Items removed, and why" value={shown(total(data.itemsRemoved))}>
-                  <Breakdown label="Items removed, by reason" choices={REMOVAL_REASONS} values={data.itemsRemoved} />
-                </Tile>
-                <Tile id="rq-missed" title="Items the reading missed" value={shown(total(data.itemsMissed))}>
-                  <Breakdown label="Items the reading missed, by kind" choices={MISSED_KINDS} values={data.itemsMissed} />
-                </Tile>
-                <Tile id="rq-seen" title="Items staff looked at" value={outOf(data.itemsSeen, data.itemsShown)} />
-              </div>
-            </section>
-            <section className="admin-stack" aria-labelledby="reading-quality-documents">
-              <h2 id="reading-quality-documents" className="admin-section-title">Pages and documents</h2>
-              <div className="admin-tile-grid">
-                <Tile id="rq-pages" title="Pages checked" value={outOf(data.pagesChecked, data.pagesTotal)} />
-                <Tile id="rq-documents" title="Documents checked and saved" value={shown(data.documentsChecked)} />
-                <Tile id="rq-rejected" title="Documents rejected, and why" value={shown(total(data.documentsRejected))}>
-                  <Breakdown label="Documents rejected, by reason" choices={REJECTION_REASONS} values={data.documentsRejected} />
-                </Tile>
-              </div>
-            </section>
+            {data.anyShown || data.heldBack > 0 ? <Figures data={data} />
+              : <section className="admin-panel" aria-labelledby="reading-quality-none">
+                <h2 id="reading-quality-none">No checks yet</h2>
+                <p className="admin-note">No paper reading was checked in these weeks.</p>
+              </section>}
           </>}
   </Page>
 }
