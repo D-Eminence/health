@@ -96,10 +96,15 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, on
  * Dates are in the app's own format ("11 Nov 2026, 02:31": formatWhen), never the browser's ("11/11/2026, 2:31:20 AM").
  * A flag worth calling out is drawn as the emergency view draws it: its word, an icon and its tone, never colour alone.
  */
-const FLAGS: Partial<Record<LabResultRevision['abnormalFlag'], FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal', critical_candidate: 'critical' }
+const FLAGS: Partial<Record<LabResultRevision['abnormalFlag'], FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal' }
 
-/** After the value: the flag called out, "Normal" in words, and nothing for a flag the lab did not set. */
+/**
+ * After the value: the flag called out, "Normal" in words, and nothing for a flag the lab did not set. Lab's
+ * critical_candidate is not confirmed, so it has the critical icon and tone but Lab's own words, "Possibly critical"
+ * (labText FLAG_WORDS), as the printed result from this card says it.
+ */
 function FlagAfter({ flag }: { flag: LabResultRevision['abnormalFlag'] }) {
+  if (flag === 'critical_candidate') return <> <Flag level="critical" text="Possibly critical" /></>
   const level = FLAGS[flag]
   if (level) return <> <Flag level={level} /></>
   return flag === 'normal' ? <> · Normal</> : null

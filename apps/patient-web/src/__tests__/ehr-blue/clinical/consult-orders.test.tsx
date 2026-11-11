@@ -2610,12 +2610,14 @@ describe('Visit rehearsal (11 Nov): a released result in the app’s date format
     expect(text).not.toMatch(/11\/11\/2026|\d:\d{2}:\d{2}|\b(AM|PM)\b/)
   })
 
-  it.each([['abnormal', 'Abnormal'], ['high', 'High'], ['low', 'Low'], ['critical_candidate', 'Critical']])(
+  it.each([['abnormal', 'Abnormal'], ['high', 'High'], ['low', 'Low'], ['critical_candidate', 'Possibly critical']])(
     'calls out the %s flag in a word with its icon, not in lower-case text', async (flag, word) => {
       await view(released(revision(flag)))
       const value = screen.getByText('Plasmodium falciparum seen (++)')
       const called = within(value).getByText(word)
       expect(called.querySelector('svg')).toBeTruthy()
+      // Lab's critical_candidate is unconfirmed: never the bare word "Critical", as the printed result says it.
+      expect(within(value).queryByText('Critical')).toBeNull()
       expect(value.textContent).not.toMatch(/·\s*(abnormal|high|low|critical candidate)\b/)
     })
 
