@@ -1,8 +1,8 @@
 import { isHidApiError } from '@hid/http'
 
 /*
- * Migrate's 24-hour deletion (hid-system migration 0110): a scanned source page is deleted 24 hours after it was taken
- * in. From then on EHR answers its download with 410 DOCUMENT_SOURCE_DELETED and lists the document with status
+ * Migrate's source-page deletion (hid-system migration 0110; 7 days since hid-system#226, 0112): a scanned source page
+ * is deleted 7 days after it was taken in. From then on EHR answers its download with 410 DOCUMENT_SOURCE_DELETED and lists the document with status
  * `source_deleted`. An earlier backend sends neither, so until it does nothing here changes what a page shows.
  *
  * Kept apart from staff/api.ts so pages and their tests read these words and checks even where the API is stubbed.
@@ -19,7 +19,7 @@ export const SOURCE_DELETED_STATUS = 'source_deleted'
  */
 export const SOURCE_DELETING_STATUS = 'source_deleting'
 /** What every page says of such a document, in place of its download or any error. */
-export const SOURCE_DELETED_WORDS = 'Source page deleted after 24 hours'
+export const SOURCE_DELETED_WORDS = 'Source page deleted after 7 days'
 
 /** A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload). */
 export interface DocumentLink {

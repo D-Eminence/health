@@ -202,7 +202,7 @@ function visitWords(visit: Encounter) {
   return [visitClassLabel(visit.encounterType), dateText(visit.startedAt), visit.chiefComplaint?.trim()].filter(Boolean).join(' · ')
 }
 
-/** The paper reading to review: none for a reading deleted after 24 hours, so nothing it once held is offered to keep. */
+/** The paper reading to review: none for a reading deleted after 7 days, so nothing it once held is offered to keep. */
 function readingOf(extraction: OcrExtraction | undefined) {
   return extraction && !readingDeleted(extraction) ? parsePaperReading(extraction.structuredPayload) : null
 }

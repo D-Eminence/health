@@ -174,7 +174,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
     const sentIn = staffSessionGeneration()
     try {
       const result = await staffApi.documentDownload(facilityId, document.id)
-      // A source page deleted after 24 hours (hid-system 0110) has no file to open: said in its own sentence.
+      // A source page deleted after 7 days (hid-system 0110, 0112) has no file to open: said in its own sentence.
       if (isSourceDeleted(result)) { setOpenError(SOURCE_DELETED_WORDS); return }
       // Only a signed storage link opens: never javascript:, data: or plain http to another host.
       assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local', code: 'INVALID_DOWNLOAD_URL',
