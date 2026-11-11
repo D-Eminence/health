@@ -87,7 +87,26 @@
 
 .record-chat-answer p { margin: 0 0 .75rem; white-space: pre-wrap; }
 .record-chat-answer p:last-child { margin-bottom: 0; }
-.record-chat-answer ul { padding-left: 1.25rem; }
+.record-chat-answer ul, .record-chat-answer ol { margin: 0 0 .85rem; padding-left: 1.4rem; }
+.record-chat-answer ul:last-child, .record-chat-answer ol:last-child { margin-bottom: 0; }
+.record-chat-answer li { margin: 0 0 .35rem; padding-left: .2rem; white-space: pre-wrap; }
+.record-chat-answer li:last-child { margin-bottom: 0; }
+.record-chat-answer ul li::marker { color: var(--color-brand); }
+.record-chat-answer ol li::marker { color: var(--color-brand); font-weight: 700; }
+.record-chat-answer strong { color: var(--color-ink); font-weight: 700; }
+.record-chat-answer h3, .record-chat-answer h4 { margin: 1.1rem 0 .45rem; color: var(--color-ink); font-family: var(--font-display, inherit); line-height: 1.35; white-space: normal; }
+.record-chat-answer h3 { font-size: 16px; font-weight: 700; }
+.record-chat-answer h4 { font-size: 14.5px; font-weight: 650; }
+.record-chat-answer > :first-child { margin-top: 0; }
+.record-chat-answer li > ul, .record-chat-answer li > ol { margin: .35rem 0 0; }
+.record-chat-table-wrap { margin: 0 0 .85rem; overflow-x: auto; }
+.record-chat-table-wrap:last-child { margin-bottom: 0; }
+.record-chat-table { border-collapse: collapse; font-size: 13.5px; line-height: 1.5; }
+.record-chat-table th, .record-chat-table td { padding: 6px 10px; border: 1px solid var(--color-line); text-align: left; vertical-align: top; }
+.record-chat-table th { color: var(--color-ink); font-weight: 700; background: var(--color-surface); }
+.record-chat-preparing strong { font-weight: 700; }
+:root[data-theme='dark'] .record-chat-preparing { background: var(--color-surface); border: 1px solid var(--color-line); }
+:root[data-theme='dark'] .record-chat-block-safety { background: var(--color-surface); border: 1px solid var(--color-line-strong); }
 .chat-source-fields { display: grid; gap: .5rem; margin: .75rem 0; }
 .chat-source-fields dt { font-weight: 600; text-transform: capitalize; }
 .chat-source-fields dd { margin: .2rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -100,9 +119,12 @@
 .record-chat-accept input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; }
 .record-chat-answer-blocks { display: grid; gap: 10px; }
 .record-chat-block p { margin: 0; color: var(--color-ink); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.record-chat-block .record-chat-answer p { margin: 0 0 .75rem; }
+.record-chat-block .record-chat-answer p:last-child { margin-bottom: 0; }
 .record-chat-block-safety { padding: 10px 12px; border-radius: 9px; background: var(--color-warn-soft); }
 .record-chat-block-fixed p { color: var(--color-muted); }
 .record-chat-block-label { margin-right: 8px; color: var(--color-muted); font-size: 11px; font-weight: 650; }
+.record-chat-block-safety > .record-chat-block-label { display: block; margin: 0 0 4px; color: var(--color-ink); font-size: 12px; font-weight: 700; }
 .record-chat-references { margin-top: 4px !important; font-size: 12px !important; }
 .record-chat-references a { margin-right: 6px; color: var(--color-brand); font-weight: 650; text-decoration: none; }
 .record-chat-references a:hover { text-decoration: underline; }
