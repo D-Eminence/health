@@ -493,7 +493,8 @@ describe('New consultation', () => {
       const cases: Array<[() => void, string]> = [
         [() => { api.allergies.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
         [() => { api.allergies.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })) }, ALLERGIES_NOT_SHOWN],
-        [() => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_NOT_SHOWN],
+        [() => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_UNREAD],
+        [() => { api.allergies.mockResolvedValue({ recorded: 'not a list' }) }, ALLERGIES_UNREAD],
         [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })) }, ALLERGIES_NOT_SHOWN],
         [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
       ]

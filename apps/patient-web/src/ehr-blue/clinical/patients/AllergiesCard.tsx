@@ -48,8 +48,9 @@ export type AllergiesState =
 /**
  * The patient's allergies for the chart, read afresh for each patient and facility: the recorded allergies with the
  * patient's own text (GET allergies, hid-system 0124); on a backend before 0124 (404), the patient's own text alone from
- * the reported health profile (0094). Direct care only, with ehr.note.read; nothing is shown while it loads, without that
- * permission, or when the EHR refuses (403) or serves neither read (404).
+ * the reported health profile (0094). Direct care only, with ehr.note.read; 'hidden' without that permission, or when
+ * the EHR refuses (403) or serves neither read (404). Any other failure, an answer that cannot be read included, is
+ * 'failed', with Try again: never hidden, and never "no allergies".
  */
 export function useAllergies(chart: Chart): { state: AllergiesState; reload: () => void } {
   const { facilityId, patientId, purpose } = chart
@@ -67,7 +68,7 @@ export function useAllergies(chart: Chart): { state: AllergiesState; reload: () 
     const setState = (state: AllergiesState) => setAnswer({ scope, state })
     const failed = (recordedOffered: boolean) => (caught: unknown) => {
       if (controller.signal.aborted) return
-      const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
+      const hidden = isHidApiError(caught) && (caught.status === 403 || caught.status === 404)
       setState(hidden ? { status: 'hidden' } : { status: 'failed', recordedOffered, retry: () => setRevision(value => value + 1) })
     }
     void Promise.resolve().then(() => staffApi.allergies(facilityId, patientId, controller.signal)).then(

@@ -20,6 +20,11 @@ import { plainErrorText } from '@hid/http'
 export const SUMMARY_EYEBROW = 'Emergency summary'
 export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 export const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
+/**
+ * Allergies under emergency access (Ola, W5, interim): the EHR's emergency read carries none, and its allergy routes are
+ * direct care only (hid-system#218 at 76283f57). Said always, so the summary's silence is never read as "no allergies".
+ */
+export const ALLERGIES_NOTICE = 'Allergies aren’t shown in emergency access yet. Ask the patient, or the person with them, about allergies before giving any medicine.'
 export const SUMMARY_FAILED = 'Please try again.'
 export const LOADING_SUMMARY = 'Loading emergency summary'
 
@@ -159,6 +164,7 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
   const released = (key: EmergencySection) => !summary.released || summary.released.includes(key)
   return (
     <>
+      <Alert intent="warning" size="sm" live={false}>{ALLERGIES_NOTICE}</Alert>
       {released('vitals') ? <Alert intent="info" size="sm" live={false}>{VITALS_NOTICE}</Alert> : null}
       <SummarySection title="Finished visits" items={summary.encounters} {...sectionProps('encounters')}
         empty="No finished visits at this facility." render={item => <>

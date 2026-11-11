@@ -340,7 +340,8 @@ describe('New triage & vitals', () => {
       const cases: Array<[string, () => void, string]> = [
         ['the list failed', () => { api.allergies.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
         ['the list was refused', () => { api.allergies.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })) }, ALLERGIES_NOT_SHOWN],
-        ['the list could not be read', () => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_NOT_SHOWN],
+        ['the list could not be read', () => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_UNREAD],
+        ['the list came back malformed', () => { api.allergies.mockResolvedValue({ recorded: 'not a list' }) }, ALLERGIES_UNREAD],
         ['neither read is served', () => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })) }, ALLERGIES_NOT_SHOWN],
         ['the patient’s text failed before 0124', () => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
       ]

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AllergiesCard, NOTHING_REPORTED, SEVERITY_HINT, SEVERITY_TONES } from '../../../ehr-blue/clinical/patients/AllergiesCard'
@@ -216,6 +216,38 @@ describe('Allergies card', () => {
     expect(await screen.findByText(/could not be loaded/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('Penicillin')).toBeTruthy()
+  })
+
+  it.each([
+    ['an answer it cannot read', () => api.allergies.mockResolvedValueOnce({ recorded: 'not a list' })],
+    ['no answer at all', () => api.allergies.mockResolvedValueOnce(null)],
+    ['a failure that is not the EHR’s (a parse error)', () => api.allergies.mockRejectedValueOnce(new TypeError('The answer could not be read.'))],
+    ['the patient’s text before 0124 not read', () => {
+      api.allergies.mockRejectedValueOnce(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+      api.reportedHealthProfile.mockRejectedValueOnce(new TypeError('The answer could not be read.'))
+    }],
+  ])('keeps the card after %s: it says the allergies could not be loaded, with a retry, never nothing', async (_label, arrange) => {
+    arrange()
+    render(<AllergiesCard chart={chartWith(['ehr.note.read'])} />)
+    expect(await screen.findByRole('heading', { name: 'Allergies' })).toBeTruthy()
+    expect(screen.getByText(/could not be loaded\. Confirm allergies with the patient\./)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Penicillin')).toBeTruthy()
+  })
+
+  it('hides the card only when the EHR refuses (403) or serves neither read (404)', async () => {
+    api.allergies.mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }))
+    const refused = render(<AllergiesCard chart={chartWith(['ehr.note.read'])} />)
+    await waitFor(() => expect(api.allergies).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByText(/could not be loaded/)).toBeNull())
+    expect(screen.queryByRole('heading', { name: 'Allergies' })).toBeNull()
+    refused.unmount()
+    api.allergies.mockRejectedValueOnce(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    api.reportedHealthProfile.mockRejectedValueOnce(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    render(<AllergiesCard chart={chartWith(['ehr.note.read'])} />)
+    await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalledTimes(1))
+    await act(async () => {})
+    expect(screen.queryByRole('heading', { name: 'Allergies' })).toBeNull()
   })
 })
 

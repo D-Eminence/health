@@ -112,6 +112,7 @@ async function renderSummary() {
 const banner = () => screen.queryByRole('region', { name: `Patient: ${PATIENT_NAME}` })
 const LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
+const ALLERGIES_NOTICE = 'Allergies aren’t shown in emergency access yet. Ask the patient, or the person with them, about allergies before giving any medicine.'
 
 function section(name: string) {
   return screen.getByRole('heading', { level: 2, name }).closest<HTMLElement>('section')!
@@ -298,16 +299,28 @@ describe('the summary is read-only', () => {
 
 describe('allergies under emergency access', () => {
   // hid-system#218 at 76283f57 serves no allergies on the emergency read, and its allergy routes are direct care only.
-  // Until the emergency read carries them, the summary shows none of its own and never reads a direct-care route.
-  it('reads no allergy route (direct care only) and never says the patient has no allergies', async () => {
+  // Until the emergency read carries them, the summary says so in a line of its own, loads nothing for it, and never
+  // reads a direct-care route: its silence is never taken for "no allergies".
+  it('says allergies aren’t shown here and to ask about them, reads no allergy route, and never says the patient has none', async () => {
     await renderSummary()
     await act(async () => {})
+    const notice = screen.getByText(ALLERGIES_NOTICE)
+    // A note, not an alert: said once, in the page, before the sections.
+    expect(notice.closest('[role="note"]')).toBeTruthy()
+    expect(notice.closest('[role="alert"], [role="status"], [aria-live]')).toBeNull()
+    expect(notice.compareDocumentPosition(screen.getByRole('heading', { level: 2, name: 'Finished visits' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(api.allergies).not.toHaveBeenCalled()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
     expect(api.allergyCheck).not.toHaveBeenCalled()
     expect(api.emergencyRecords).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID)
     expect(document.body.textContent).not.toMatch(/None recorded|no (known )?(drug )?allergies|allergies: none/i)
-    expect(screen.queryByRole('heading', { name: /allerg/i })).toBeNull()
+  })
+
+  it('says it whatever the summary withholds', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary(['vitals', 'notes']))
+    await renderSummary()
+    expect(screen.getByText(ALLERGIES_NOTICE)).toBeTruthy()
+    expect(screen.queryByText(VITALS_NOTICE)).toBeNull()
   })
 })
 
