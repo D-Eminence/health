@@ -332,6 +332,36 @@ export interface PlatformOverview {
   registeredPatients: number; facilities: number; verifiedFacilities: number; suspendedFacilities: number
   activeStaffMemberships: number; pendingIdentityReviews: number
 }
+/** The periods `GET /admin/overview/activity` accepts; any other refuses with 400. */
+export type ActivityDays = 7 | 30 | 90
+/**
+ * `GET /admin/overview/activity?days=` (super admin only, `platform.dashboard.read`; every read is audited).
+ * Counts are for the period unless named otherwise; null means the backend cannot measure it yet. Names, emails and
+ * Health IDs arrive already shortened ("Ada O.", "a***@gmail.com", "HID-7K…M9"): full values never leave the database.
+ */
+export interface PlatformActivity {
+  days: ActivityDays
+  generatedAt: string
+  people: {
+    accounts: number; verifiedPct: number | null; profilesCompletePct: number | null; activeInPeriod: number
+    sharedWithFacility: number; accessPins: number; newInPeriod: number; prevNewInPeriod: number
+  }
+  care: { healthRecords: number; visits: number; labRequests: number; prescriptions: number; emergencyAccess: number; outreachSignups: number }
+  migrateAsk: { pagesRead: number; recordsMoved: number; questionsAnswered: number | null; answersWithSourcesPct: number | null }
+  daily: Array<{ date: string; signups: number; activeAccounts: number }>
+  recentSignups: Array<{ name: string; email: string; healthId: string; profilePct: number; status: 'verified' | 'pending' | 'suspended'; createdAt: string }>
+  recentUploads: Array<{ document: string; patient: string; facility: string; sizeBytes: number; scan: 'clean' | 'pending' | 'refused'; createdAt: string }>
+}
+/** `GET /admin/operations/health`; 503 `not_configured` until the service checks are set up. */
+export interface OperationsHealth {
+  services: Array<{ name: string; availabilityPct: number | null; p50Ms: number | null; p95Ms: number | null }>
+  messagesDelivered: number | null; documentsScanned: number | null; source: string
+}
+/** `GET /admin/operations/errors`; 503 `not_configured` until error reporting is connected. */
+export interface OperationsErrors {
+  unresolvedIssues: number; errorFreeSessionsPct: number | null; crashFreeUsersPct: number | null
+  top: Array<{ title: string; count: number; service: string; lastSeen: string }>
+}
 export interface DeliveryFailure {
   eventId: string | null; eventType: string | null; producer: string | null; attemptCount: number | null
   errorCode: string | null; errorSummary: string | null; failedAt: string | null
@@ -760,6 +790,11 @@ export const adminApi = {
       truncated: truncated === null ? null : truncated === 'true' }
   },
   overview(signal?: AbortSignal) { return request<PlatformOverview>('/api/v1/admin/overview', { signal }) },
+  activity(days: ActivityDays, signal?: AbortSignal) {
+    return request<PlatformActivity>('/api/v1/admin/overview/activity', { signal, query: { days } })
+  },
+  operationsHealth(signal?: AbortSignal) { return request<OperationsHealth>('/api/v1/admin/operations/health', { signal }) },
+  operationsErrors(signal?: AbortSignal) { return request<OperationsErrors>('/api/v1/admin/operations/errors', { signal }) },
   controls(signal?: AbortSignal) { return request<PlatformControl[]>('/api/v1/admin/controls', { signal }) },
   facilities(filters: { page?: number; pageSize?: number; status?: string; query?: string } = {}, signal?: AbortSignal) {
     return request<Page<Facility>>('/api/v1/admin/facilities', { signal, query: { page: filters.page ?? 1,
