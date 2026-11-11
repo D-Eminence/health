@@ -4,6 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Outreach } from '../Operations'
 import { Registration } from '../Registration'
 
+/** The desk's contact for the patient and whether they have a Health ID (hid-system 0122): fictional. */
+function fillDesk() {
+  fireEvent.change(screen.getByLabelText(/^Phone/), { target: { value: '0803 123 4567' } })
+  fireEvent.change(screen.getByLabelText(/^Address/), { target: { value: '3 Example Street' } })
+  fireEvent.change(screen.getByLabelText(/^City or town/), { target: { value: 'Ikeja' } })
+  fireEvent.change(screen.getByLabelText(/^State/), { target: { value: 'LA' } })
+  fireEvent.change(screen.getByLabelText(/^Local government area/), { target: { value: 'Ikeja' } })
+  fireEvent.change(screen.getByLabelText(/^Does the patient already have a Health ID/), { target: { value: 'no' } })
+}
+
+
 /**
  * NEW-PEHR-ACTION-FOCUS on registration and outreach. Verifying a NIN disabled
  * the whole form, button included, so focus fell to the page; a case decision
@@ -59,6 +70,7 @@ describe('registration', () => {
     fireEvent.change(screen.getByLabelText(/First name/), { target: { value: 'Amina' } })
     fireEvent.change(screen.getByLabelText(/Last name/), { target: { value: 'Example' } })
     fireEvent.change(screen.getByLabelText(/Date of birth/), { target: { value: '1990-01-02' } })
+    fillDesk()
     const status = region('registration-status')
     const button = screen.getByRole('button', { name: 'Check NIN' })
     await press(button)

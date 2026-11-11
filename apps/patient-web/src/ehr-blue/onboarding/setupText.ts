@@ -35,8 +35,20 @@ export function stepEyebrow(index: number, steps: readonly StepName[] = STEPS): 
   return `Step ${index + 1} of ${steps.length} · ${steps[index] ?? STEPS[0]}`
 }
 
-/** On every design field Health ID does not take: shown, disabled, never sent or kept. */
-export const NOT_COLLECTED = 'Not collected by Health ID yet'
+/** The Facility step while the facility's details are read (hid-system 0122). */
+export const PROFILE_LOADING = 'Getting your facility’s details…'
+
+/** Where Identity keeps the facility's details itself: a facility Health ID support manages, or a demo facility. */
+export const PROFILE_KEPT = 'Health ID support keeps this facility’s details. Contact them to change any of them.'
+
+/** The read failed for a fault. */
+export const PROFILE_FAILED = 'We couldn’t get your facility’s details just now.'
+
+/** Someone else saved the details first (412): they were read again. */
+export const PROFILE_CONFLICT = 'Someone else saved these details first. Here are theirs: check them, then save again.'
+
+/** The Review step's value for a facility whose details are not given yet. */
+export const NOT_GIVEN = 'Not given yet'
 
 /** The design's required-field message (src/ui.tsx:248). */
 export const MISSING = 'Complete this field.'

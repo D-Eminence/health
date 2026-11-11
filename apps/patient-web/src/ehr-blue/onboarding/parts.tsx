@@ -1,22 +1,8 @@
 import type { ReactNode } from 'react'
-import { EhrField, EhrInput } from '@hid/ui/ehr'
-import { NOT_COLLECTED } from './setupText'
 
 /** A label with the design's required mark: a star, hidden from screen readers (the control says it is required). */
 export function required(label: string): ReactNode {
   return <>{label}<span aria-hidden="true"> *</span></>
-}
-
-/**
- * A design field Health ID does not take: shown, disabled and empty, and said to be so. It has no name and is never
- * read, so nothing typed or chosen in it could be sent or kept (nothing can be: it is disabled).
- */
-export function NotCollectedField({ label, type = 'text' }: { readonly label: string; readonly type?: string }) {
-  return (
-    <EhrField label={label} hint={NOT_COLLECTED}>
-      <EhrInput type={type} disabled defaultValue={type === 'file' ? undefined : ''} />
-    </EhrField>
-  )
 }
 
 /** A checkbox with its label beside it, in the design's look. */

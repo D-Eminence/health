@@ -1,8 +1,8 @@
 import { screen, within } from '@testing-library/react'
 import { vi } from 'vitest'
 import type * as BlueRoutes from '../../../ehr-blue/routes'
-import type { StaffSession } from '../../../staff/api'
-import { REAL_FACILITY, json } from '../frame/blueHarness'
+import type { FacilityProfileValues, StaffSession } from '../../../staff/api'
+import { REAL_FACILITY, json, problem } from '../frame/blueHarness'
 
 /*
  * Facility setup's tests: a fictional facility that signed itself up ("Riverside Teaching Hospital (fictional)"), its
@@ -11,6 +11,9 @@ import { REAL_FACILITY, json } from '../frame/blueHarness'
  */
 
 export const STAFF = 'GET /api/v1/identity/facility-staff'
+/** The facility's details (hid-system 0122), read as Facility setup opens and saved by its Facility step. */
+export const PROFILE = 'GET /api/v1/identity/facility-profile'
+export const SAVE_PROFILE = 'POST /api/v1/identity/facility-profile'
 export const RIVERSIDE = 'Riverside Teaching Hospital (fictional)'
 
 export type Review = 'pending' | 'reviewed'
@@ -80,3 +83,24 @@ export const stepButton = (name: string) => within(stepper()).getByRole('button'
 export const eyebrow = () => document.querySelector('.hid-ehr-onboarding .hid-ehr-page-eyebrow')?.textContent ?? ''
 export const heading = () => screen.getByRole('heading', { level: 1, name: /Set up your facility$/ })
 
+
+/** A facility profile as Identity holds it (contract §1, §4): every field given, fictional. */
+export const SAVED_PROFILE: FacilityProfileValues = {
+  tradingName: 'Riverside Hospital', ownership: 'private', careLevel: 'tertiary', addressLine: '2 Fiction Close', city: 'Ikeja',
+  stateCode: 'LA', lga: 'Ikeja', gpsLatitude: 6.6, gpsLongitude: 3.35, phone: '+2348000000001', email: 'desk@riverside.example.test',
+  bedCount: 120, operatingHours: 'Mon-Sun 24 hours', emergency24h: true, departments: ['general_outpatient', 'emergency'],
+  servicesOffered: 'Outpatient and emergency care', smohLicenceNumber: 'LA/SMOH/0001', hasRegistryId: true, registryId: 'NHFR-0001',
+  hasNhiaAccreditation: false, nhiaAccreditationNumber: null, medicalDirectorName: 'Dr Fiction Director',
+  medicalDirectorMdcn: 'MDCN/00001', expectedStaff: 80, migratingRecords: true, needsInteroperability: false,
+}
+
+/** GET …/facility-profile: the facility's details at `version`, or none yet (version 0). */
+export function profileAnswer(profile: FacilityProfileValues | null = null, version = profile ? 3 : 0, name = RIVERSIDE,
+  id = REAL_FACILITY) {
+  return () => json({ facility: { id, name, reviewState: 'reviewed' }, version,
+    profile: profile ? { ...profile, source: 'self_service_signup', submitterRole: 'owner', submitterPhoneOnRecord: true,
+      updatedAt: '2026-11-10T10:00:00.000Z', version } : null })
+}
+
+/** Identity keeps this facility's details itself (a governed or demo facility): the read is refused. */
+export const profileKept = () => problem(403, 'STAFF_MANAGEMENT_NOT_AVAILABLE', 'Not a self-service facility.')

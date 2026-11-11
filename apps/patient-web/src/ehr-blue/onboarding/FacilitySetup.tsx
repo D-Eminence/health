@@ -11,6 +11,7 @@ import { LaunchStep, ReviewStep } from './ReviewSteps'
 import { BillingStep, BranchesStep, DepartmentsStep, TypeStep } from './SampleSteps'
 import { RolesStep, StaffStep } from './StaffSteps'
 import { SetupRefusal } from './SetupRefusal'
+import { useFacilityProfile } from './facilityProfileState'
 import { SETUP_TITLE, STEPS, stepEyebrow, stepsAt, type StepName } from './setupText'
 import { newSetup, type SampleSetup } from './setupState'
 import './onboarding.css'
@@ -43,10 +44,10 @@ export function openingStep(rest: string, steps: readonly StepName[] = STEPS): n
  * does. What it holds lives in this component's state for this visit only: nothing is stored, and a reload starts
  * again.
  *
- * Live where today has an API: the facility's name and Health ID support's check (the session), and Staff & access on
- * the Staff and Roles steps (today's staff API, through that page alone). The rest is a sample under the sample
- * notice, and sends nothing: Health ID does not collect the design's facility details, type, departments, branches or
- * billing policy, and has no launch step.
+ * Live where Health ID has an API: the facility's name and Health ID support's check (the session), its details on
+ * the Facility step (hid-system 0122: read and saved there, listed on Review), and Staff & access on the Staff and Roles
+ * steps (today's staff API, through that page alone). The rest is a sample under the sample notice, and sends nothing:
+ * Health ID does not keep the design's type, branches or billing policy, and has no launch step.
  *
  * The steps that are samples and nothing else (Type, Departments, Branches, Billing) show at the demo facilities only:
  * a real facility would type its settings there and believe them kept (parity report 3.2). So does Launch, which sends
@@ -68,6 +69,8 @@ export function FacilitySetup() {
   const step = Math.max(0, steps.indexOf(chosen))
   const name = steps[step] ?? STEPS[0]
   const [setup, setSetup] = useState<SampleSetup>(newSetup)
+  // The facility's details (hid-system 0122): read as the wizard opens, saved by its Facility step.
+  const profile = useFacilityProfile(facility?.id)
   const root = useRef<HTMLDivElement>(null)
   const shown = useRef(name)
 
@@ -89,7 +92,7 @@ export function FacilitySetup() {
   const shifts = demoSample('shifts')
 
   const body: Record<StepName, ReactNode> = {
-    Facility: <FacilityStep facility={facility} onNext={next} />,
+    Facility: <FacilityStep facility={facility} profile={profile} onNext={next} />,
     Type: <TypeStep type={setup.type} departments={setup.departments}
       onSave={(type, departments) => { update({ type, departments }); next() }} />,
     Departments: <DepartmentsStep departments={setup.departments} onSave={departments => { update({ departments }); next() }} />,
@@ -104,7 +107,7 @@ export function FacilitySetup() {
     Billing: <BillingStep billing={setup.billing} serviceCatalogue={demoSample('services')}
       onSave={billing => { update({ billing }); next() }} />,
     // Review leads on to Launch only where Launch is shown: elsewhere it is the last step, and has its own way out.
-    Review: <ReviewStep facility={facility} setup={demo ? setup : null}
+    Review: <ReviewStep facility={facility} profile={profile.state} setup={demo ? setup : null}
       onNext={steps.includes('Launch') ? next : null} />,
     Launch: <LaunchStep facility={facility} />,
   }

@@ -2,11 +2,12 @@ import type { FormEvent, ReactNode } from 'react'
 import { EhrButton, EhrField, EhrInput, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
-import { FIELD, START_HEADING, type Availability } from './registrationModel'
-import { ErrorBox, NotCollectedCheck, NotCollectedField, UnavailableAction, type FormProblems } from './registrationParts'
+import { DESK_PREFIX, FIELD, START_HEADING, type Availability } from './registrationModel'
+import { ErrorBox, UnavailableAction, type FormProblems } from './registrationParts'
+import { DeskFields } from '../../collected/DeskFields'
 import {
-  ADDRESS_LABEL, ALLERGIES_LABEL, BACK_TO_LIST, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, DISTINCT_PERSON, DOB_LABEL, EXISTING_HID_LABEL,
-  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NO_OVERRIDE, PHONE_LABEL, START_TEXT,
+  BACK_TO_LIST, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, DISTINCT_PERSON, DOB_LABEL,
+  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NO_OVERRIDE, START_TEXT,
   START_TITLE, VERIFY, VERIFYING,
 } from './registrationText'
 
@@ -17,9 +18,10 @@ function required(label: string): ReactNode {
 
 /**
  * The design's create form ("New patients", 02-new and 03-new-patient-validation) as today's "Start with verified
- * identity" (Registration.tsx 229-239): today's fields, checks and words where Health ID takes them; the design's other
- * fields shown, disabled, "Not collected by Health ID yet". Without NIN verification enabled, the form says so in
- * today's words and nothing can be sent.
+ * identity" (Registration.tsx 229-239): today's fields, checks and words, and the design's phone, address and
+ * existing Health ID as required fields (hid-system 0122, DeskFields). The design's allergies and "provisional local
+ * identity" are not asked (owner decisions D11, D12). Without NIN verification enabled, the form says so in today's
+ * words and nothing can be sent.
  */
 export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack }: {
   readonly availability: Availability
@@ -72,16 +74,12 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
                 <EhrField label={required(LAST_LABEL)} controlId={FIELD.last} error={problems.error(FIELD.last)}>
                   <EhrInput name="lastName" maxLength={100} autoComplete="off" readOnly={busy} required />
                 </EhrField>
-                <NotCollectedField label={PHONE_LABEL} />
                 <EhrField label={GENDER_LABEL} controlId={FIELD.gender}>
                   <EhrSelect name="gender">
                     {GENDER_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </EhrSelect>
                 </EhrField>
-                <NotCollectedField label={ADDRESS_LABEL} />
-                <NotCollectedField label={ALLERGIES_LABEL} multiline className="hid-ehr-dept-full" />
-                <NotCollectedCheck />
-                <NotCollectedField label={EXISTING_HID_LABEL} />
+                <DeskFields prefix={DESK_PREFIX} readOnly={busy} error={problems.error} fullClassName="hid-ehr-dept-full" />
               </div>
               {/* Where the design says how its duplicate review works: what today says the NIN goes through. */}
               <p className="hid-ehr-dept-registration-lead">{START_TEXT}</p>

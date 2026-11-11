@@ -5,7 +5,7 @@ import { ORGANIZATION_TYPE_NOTES } from '../../../staff/routes/ProviderEnrollmen
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, answer, button, choosePassword, deferred, EMAIL, expectFocusOnStep, NAME, open, step, submitRegistration, SUPPORT,
+  actAgain, answer, button, choosePassword, COLLECTED, deferred, EMAIL, expectFocusOnStep, NAME, open, step, submitRegistration, SUPPORT,
   TabChannel, textbox, toCode, TOLD, toPassword, toReview, verifyWith,
 } from './signupHarness'
 
@@ -123,7 +123,7 @@ describe('Didn’t get the code?', () => {
     expect((await screen.findByText(`We’ve sent a new code to ${EMAIL}.`)).closest('[role="status"]')).toBeTruthy()
     expect(api.start).toHaveBeenCalledTimes(2)
     expect(api.start).toHaveBeenLastCalledWith({ productCode: 'ehr', organizationType: 'hospital',
-      cacRegistrationNumber: 'RC123456', administratorName: NAME, administratorEmail: EMAIL, turnstileToken: 'token-1' })
+      cacRegistrationNumber: 'RC123456', administratorName: NAME, administratorEmail: EMAIL, turnstileToken: 'token-1', ...COLLECTED })
     expect(code().value).toBe('')
     expect(screen.getByText(/^You can ask for a new code in (60|59) seconds\.$/)).toBeTruthy()
     expect(button('Resend code').disabled).toBe(true)

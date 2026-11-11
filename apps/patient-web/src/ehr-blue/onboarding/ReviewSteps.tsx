@@ -4,7 +4,9 @@ import { EhrButton, EhrCard, EhrSampleBanner } from '@hid/ui/ehr'
 import type { Facility } from '../../staff/api'
 import { selfServiceReview } from '../../staff/staffAccess'
 import { Detail } from './parts'
-import { ALREADY_OPEN, NOT_COLLECTED, NO_LAUNCH_STEP, facilityCheckPending, staffOnceChecked } from './setupText'
+import { ALREADY_OPEN, NOT_GIVEN, NO_LAUNCH_STEP, PROFILE_FAILED, PROFILE_KEPT, PROFILE_LOADING, facilityCheckPending, staffOnceChecked } from './setupText'
+import { profileForm, profileRows } from '../collected/facilityProfile'
+import type { ProfileState } from './facilityProfileState'
 import { paymentMethods, type SampleSetup } from './setupState'
 
 /**
@@ -18,6 +20,16 @@ function FacilityCheckBlocker({ facility, id }: { readonly facility: Facility; r
 
 const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
 
+/** Every detail the Facility step saved, with its value, or why there are none to show. */
+function ProfileDetails({ profile }: { readonly profile: ProfileState }) {
+  if (profile.status === 'loading') return <Detail term="Facility details">{PROFILE_LOADING}</Detail>
+  if (profile.status === 'kept') return <Detail term="Facility details">{PROFILE_KEPT}</Detail>
+  if (profile.status === 'failed') return <Detail term="Facility details">{PROFILE_FAILED}</Detail>
+  const saved = profile.read.profile
+  if (!saved) return <Detail term="Facility details">{NOT_GIVEN}</Detail>
+  return <>{profileRows(profileForm(saved)).map(([term, value]) => <Detail key={term} term={term}>{value}</Detail>)}</>
+}
+
 /**
  * Step 8, Review (screen 21): the facility's name and Health ID support's check (live), then what the sample steps
  * hold for this visit. The design's other launch blockers judge sample settings, and launch nothing here: they are
@@ -29,8 +41,10 @@ const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
  * While Health ID support's check is pending, adding staff and patient records are locked (the frame's review banner),
  * so the card says instead, as Staff & access does, that staff can be added once the check is done. Home opens then too.
  */
-export function ReviewStep({ facility, setup, onNext }: {
+export function ReviewStep({ facility, profile, setup, onNext }: {
   readonly facility: Facility
+  /** The facility's details as Identity holds them (hid-system 0122): what the Facility step saved. */
+  readonly profile: ProfileState
   readonly setup: SampleSetup | null
   readonly onNext: (() => void) | null
 }) {
@@ -41,13 +55,9 @@ export function ReviewStep({ facility, setup, onNext }: {
         <FacilityCheckBlocker facility={facility} />
         {setup ? <EhrSampleBanner /> : null}
         <dl className="hid-ehr-onboarding-details">
-          <Detail term="Name">{facility.name}</Detail>
+          <Detail term="Registered name">{facility.name}</Detail>
           {setup ? <Detail term="Type">{setup.type || 'Not chosen'}</Detail> : null}
-          <Detail term="Phone">{NOT_COLLECTED}</Detail>
-          <Detail term="Email">{NOT_COLLECTED}</Detail>
-          <Detail term="Address">{NOT_COLLECTED}</Detail>
-          <Detail term="City">{NOT_COLLECTED}</Detail>
-          <Detail term="State">{NOT_COLLECTED}</Detail>
+          <ProfileDetails profile={profile} />
           {setup ? <>
             <Detail term="Departments">{setup.departments.join(', ')}</Detail>
             <Detail term="Currency">{setup.billing.currency}</Detail>

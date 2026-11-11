@@ -1,6 +1,7 @@
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { getEnvironment } from '../../staff/env'
 import type { ProviderEnrollmentAvailability, ProviderEnrollmentProfile } from '../../staff/api'
+import type { FacilityProfileForm } from '../collected/facilityProfile'
 
 /*
  * Today's facility sign-up rules and words, which the blue registration keeps unchanged underneath. None of them is
@@ -167,6 +168,8 @@ export function refusalOf(reason: unknown, step: Step, activationUncertain: bool
     text: 'The security check didn’t go through. Please complete it again, then retry.' }
   if (code === 'PROVIDER_ENROLLMENT_DENIED') return { kind: 'message', text: STEP_UNAVAILABLE }
   if (code === 'VALIDATION_FAILED') return { kind: 'message', text: 'Some of the details weren’t accepted. Check them and try again.' }
+  // hid-system 0122: the facility details were refused by the database (the page's own checks should prevent it).
+  if (code === 'FACILITY_PROFILE_INVALID') return { kind: 'message', text: 'Check the facility details and try again.' }
   return { kind: 'message', text: plainErrorText(reason, 'We couldn’t complete facility sign-up. Please try again.',
     { statuses: { 401: 'This sign-up has timed out. Please start again.' }, audience: 'facility' }) }
 }
@@ -242,10 +245,24 @@ export function cacProductKey(details: StartDetails): string {
 export interface CodeCarries {
   organizationType: OrganizationType
   administratorName: string
+  /**
+   * hid-system 0122: the role, phone and facility details the start sent, which are kept with the code it sent, as the
+   * type and name are (collect-fields-contract.md §2). Absent where the page did not send them.
+   */
+  collected?: CollectedDetails
 }
 
-export function carriesOtherThan(details: StartDetails, carries: CodeCarries): boolean {
+/** What facility sign-up collects besides the details Identity keys a sign-up on (hid-system 0122). */
+export interface CollectedDetails {
+  administratorRole: string
+  administratorPhone: string
+  profile: FacilityProfileForm
+}
+
+export function carriesOtherThan(details: StartDetails, carries: CodeCarries, collected?: CollectedDetails): boolean {
   return details.organizationType !== carries.organizationType || details.administratorName !== carries.administratorName
+    || (collected !== undefined && carries.collected !== undefined
+      && JSON.stringify(collected) !== JSON.stringify(carries.collected))
 }
 
 /**

@@ -7,7 +7,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { parse } from '../../cssRules'
 import { contrast, token } from '../../ehr-ui/ehrCss'
 import { security } from './signupFakes'
-import { combobox, next, open, step, TabChannel, textbox } from './signupHarness'
+import {
+  combobox, fillAccountExtras, fillFacilityDetails, fillRegulatory, next, open, step, TabChannel, textbox,
+} from './signupHarness'
 
 /**
  * Which facility sign-up /provider/enroll opens: the blue registration only once the clinic switch is on
@@ -120,8 +122,10 @@ describe('the blue registration on a product site, and where it is not', () => {
   async function offered() {
     fireEvent.change(textbox('Full name'), { target: { value: 'Demo Administrator' } })
     fireEvent.change(textbox('Email'), { target: { value: 'admin@demo-facility.example.test' } })
+    fillAccountExtras()
     next()
     await step('Facility details')
+    fillFacilityDetails()
     const typeField = combobox('Facility type')
     const type = typeField.value
     const types = [...typeField.options].map(option => option.value)
@@ -131,6 +135,7 @@ describe('the blue registration on a product site, and where it is not', () => {
     next()
     await step('Regulatory identity')
     fireEvent.change(textbox('CAC registration number'), { target: { value: 'RC123456' } })
+    fillRegulatory()
     next()
     await step('Platform setup')
     const productField = combobox('Product to start with')

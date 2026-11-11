@@ -143,12 +143,87 @@ export interface RegistrationEnrollment {
   replayed: boolean
 }
 
+export type Ownership = 'public' | 'private' | 'faith_based' | 'ngo'
+export type CareLevel = 'primary' | 'secondary' | 'tertiary'
+export type DepartmentCode = 'general_outpatient' | 'emergency' | 'inpatient' | 'laboratory' | 'pharmacy' | 'maternity'
+  | 'pediatrics' | 'radiology' | 'dental' | 'physiotherapy' | 'dialysis' | 'oncology' | 'cardiology' | 'icu' | 'theatre'
+export type AdministratorRole = 'owner' | 'medical_director' | 'administrator' | 'other_authorised_representative'
+
+/**
+ * A facility's details as Health ID collects them (hid-system 0122, collect-fields-contract.md §1): sent with
+ * facility sign-up as `facilityProfile`, and read and saved by Facility setup after activation (facilityProfile). Every field is
+ * required (owner: "allow trading name, all fields required"). The operating licence, CAC certificate, proof of address
+ * and logo are not collected until the document store and its virus scanner exist, and are not shown at all.
+ */
+export interface FacilityProfileValues {
+  tradingName: string
+  ownership: Ownership
+  careLevel: CareLevel
+  addressLine: string
+  city: string
+  stateCode: string
+  lga: string
+  gpsLatitude: number
+  gpsLongitude: number
+  phone: string
+  email: string
+  bedCount: number
+  operatingHours: string
+  emergency24h: boolean
+  departments: DepartmentCode[]
+  servicesOffered: string
+  smohLicenceNumber: string
+  hasRegistryId: boolean
+  registryId: string | null
+  hasNhiaAccreditation: boolean
+  nhiaAccreditationNumber: string | null
+  medicalDirectorName: string
+  medicalDirectorMdcn: string
+  expectedStaff: number
+  migratingRecords: boolean
+  needsInteroperability: boolean
+}
+
+/** GET /api/v1/identity/facility-profile (hid-system 0122): the facility's details, null until first given. */
+export interface FacilityProfileRead {
+  facility: { id: string; name: string; reviewState: string }
+  /** 0 while the facility has no profile; the If-Match of the next save. */
+  version: number
+  profile: (FacilityProfileValues & {
+    source: 'self_service_signup' | 'facility_administrator'
+    submitterRole: AdministratorRole | null
+    submitterPhoneOnRecord: boolean
+    updatedAt: string
+    version: number
+  }) | null
+}
+
+/** POST /api/v1/identity/facility-profile: the new version and the fields that changed (names only, never values). */
+export interface FacilityProfileSaved {
+  facilityId: string
+  version: number
+  changedFields: string[]
+  replayed: boolean
+}
+
 export interface ResolveNinInput {
   nin: string
   firstName: string
   lastName: string
   dateOfBirth: string
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  /**
+   * hid-system 0122 (Novu): the desk's contact for the patient, kept by the facility, unverified, never used for sign-in
+   * or recovery, and the Health ID the patient says they already have (collect-fields-contract.md §3). All required.
+   */
+  phone: string
+  addressLine: string
+  city: string
+  stateCode: string
+  lga: string
+  hasExistingHealthId: boolean
+  /** Exactly when hasExistingHealthId: HID- and 6 to 32 of A-H, J-N, P-Z, 2-9. */
+  existingHealthId?: string | null
 }
 
 /**
@@ -1649,6 +1724,13 @@ export const providerEnrollmentApi = {
     administratorName: string
     administratorEmail: string
     turnstileToken: string
+    /**
+     * hid-system 0122 (Novu): the applicant's role and phone and the facility's details, all required there
+     * (collect-fields-contract.md §2). hid-system main refuses them as unknown fields, so today's page leaves them out.
+     */
+    administratorRole?: string
+    administratorPhone?: string
+    facilityProfile?: FacilityProfileValues
   }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
     { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none', timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
 
@@ -1914,6 +1996,13 @@ export const staffApi = {
   facilitySettings: (facilityId: string) =>
     client.get<FacilitySettings>('/api/v1/identity/facility-settings',
       { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  // The facility's details (hid-system 0122): its administrator (workforce.manage) at a self-signed-up facility only.
+  facilityProfile: (facilityId: string) =>
+    client.get<FacilityProfileRead>('/api/v1/identity/facility-profile',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }),
+  saveFacilityProfile: (facilityId: string, profile: FacilityProfileValues, version: number, idempotencyKey: string) =>
+    client.post<FacilityProfileSaved>('/api/v1/identity/facility-profile', profile,
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), 'If-Match': `"${version}"`, ...keyHeaders(idempotencyKey) } }),
   setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
     client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),

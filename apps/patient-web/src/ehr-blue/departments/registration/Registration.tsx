@@ -10,8 +10,10 @@ import { DeptUnavailable } from '../parts/DeptPage'
 import { RegistrationList } from './RegistrationList'
 import { RegistrationNew } from './RegistrationNew'
 import { RegistrationRecord } from './RegistrationRecord'
-import { FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
+import { DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
 import { useCommandKey, useFormProblems } from './registrationParts'
+import { deskFormFrom, deskProblems, deskValues } from '../../collected/deskFields'
+import { deskControlId } from '../../collected/DeskFields'
 import {
   APPROVE_PERMISSION, APPROVED, CAPABILITY_FAILED, CANDIDATE_REFUSED, CASE_CREATED, CASE_CREATED_RELOAD, CASE_ID_REFUSED,
   CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_REFUSED, REGISTRATION_WORK,
@@ -215,11 +217,14 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     if (!dateOfBirth) refused.push([FIELD.dob, NAME_DATE_REFUSED])
     if (!firstName) refused.push([FIELD.first, NAME_DATE_REFUSED])
     if (!lastName) refused.push([FIELD.last, NAME_DATE_REFUSED])
+    // hid-system 0122: the desk's contact and the stated Health ID, each refused at its field, after today's.
+    const desk = deskFormFrom(data)
+    for (const [field, problem] of deskProblems(desk)) refused.push([deskControlId(DESK_PREFIX, field), problem])
     if (refused.length) { ninProblems.refuse(refused); return }
     setBusy(true)
     try {
       const result = await staffApi.resolveNin(facilityId,
-        { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}) }, resolveKey.current)
+        { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}), ...deskValues(desk) }, resolveKey.current)
       if (!live.current) return
       // The NIN is cleared from the form after a successful response, and the next verification gets a new key.
       form.reset()
