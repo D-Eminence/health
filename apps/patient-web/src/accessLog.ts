@@ -4,9 +4,11 @@
  * already record each read and write. Only the patient's own events; refused attempts and record contents are never
  * sent. `nextBefore` is an opaque cursor for the next, older page, null after the last.
  */
-export const ACCESS_LOG_ACTIONS = ['viewed', 'changed', 'access_granted', 'access_ended', 'emergency_access'] as const
+export const ACCESS_LOG_ACTIONS = ['viewed', 'changed', 'access_granted', 'access_ended', 'emergency_access',
+  // Step 8 (hid-system 0118): the card sent by email, opened with a code, and the patient's sends and endings of it.
+  'card_opened', 'card_shared', 'card_ended'] as const
 export type AccessLogAction = typeof ACCESS_LOG_ACTIONS[number]
-export const ACCESS_LOG_ACTORS = ['clinician', 'facility', 'patient', 'support', 'system'] as const
+export const ACCESS_LOG_ACTORS = ['clinician', 'facility', 'patient', 'support', 'system', 'card_recipient'] as const
 export type AccessLogActor = typeof ACCESS_LOG_ACTORS[number]
 
 export interface AccessLogEvent {
@@ -16,6 +18,8 @@ export interface AccessLogEvent {
   readonly actorKind: AccessLogActor
   readonly actorName: string | null
   readonly facilityName: string | null
+  /** A card link's masked address (step 8), for its events only; null for every other event. */
+  readonly recipientHint?: string | null
 }
 
 export interface AccessLogPage {
@@ -49,7 +53,8 @@ export function parseAccessLog(value: unknown): AccessLogPage {
     if (typeof item.id !== 'string' || item.id === '' || typeof item.at !== 'string' || Number.isNaN(Date.parse(item.at))) continue
     if (!isOneOf(ACCESS_LOG_ACTIONS, item.action) || !isOneOf(ACCESS_LOG_ACTORS, item.actorKind)) continue
     events.push({ id: item.id, at: item.at, action: item.action, actorKind: item.actorKind,
-      actorName: name(item.actorName), facilityName: name(item.facilityName) })
+      actorName: name(item.actorName), facilityName: name(item.facilityName),
+      ...(name(item.recipientHint) ? { recipientHint: name(item.recipientHint) } : {}) })
   }
   const next = page.nextBefore
   return { events, nextBefore: typeof next === 'string' && next !== '' && next.length <= 512 ? next : null }

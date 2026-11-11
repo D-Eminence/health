@@ -77,6 +77,15 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
  * served by main (#94, #95) under the contracts in the entries further down.
  */
 const NOT_ON_MAIN = 'Served by a hid-system staging branch; not served by hid-system main (41542fc).'
+/** Step 8 (hid-system 0118): sending the card by email, opened with a one-time code. */
+const CARD_SHARES = 'PROPOSED, hid-system 0118 (BACKEND-NEEDS.md §2; INTERFACE_CONTRACT.md §33 on claude/card-links-0118); not served by '
+  + 'hid-system main; 404 NOT_FOUND while off (CARD_LINKS_ENABLED) until legal sign-off.'
+/** What every route the person who received a card link calls has in common. */
+const CARD_SHARE_PUBLIC = 'Public: ignores and never refreshes a patient\'s session, never 401. Cache-Control: no-store.'
+/** The same, for the reads and the end of a view opened with a code. */
+const CARD_SHARE_VIEW = `${CARD_SHARE_PUBLIC} The view cookie and X-Card-View (the viewId from verify) must name the same view: 409 `
+  + 'CARD_SHARE_VIEW_CHANGED when another card was opened in this browser since, 410 CARD_SHARE_VIEW_ENDED when the view timed out '
+  + 'or was closed, 410 CARD_SHARE_ENDED when the link ended.'
 /** hid-1.0 patient parity B2 (owner decisions of 2026-10-28): served once hid-system 0093 is, and only by Novu. */
 const PARITY_B2 = 'Served by hid-system staging-novu-ci-20261005 from migration 0093 (patient parity B2); not served by hid-system main, '
   + 'and an Identity before 0093 answers 404, which the portal takes as not offered.'
@@ -776,10 +785,59 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Patient sessions only. GET { shared, updatedAt }; POST { shared } answers { shared, changed, updatedAt }. Turning sharing on '
     + 'needs a recent sign-in (403 PATIENT_RECENT_AUTH_REQUIRED) and no recovery in the last 24 hours (403 PATIENT_RECENT_RECOVERY_HOLD); '
     + '503 IMPORTED_HISTORY_SHARING_DISABLED while the switch is off.'),
-  proposed(r('identity.sharedCard','identity','/api/v1/identity/shared-cards/:token',G,true,undefined,
-    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §2); no backend serves it. Public: the link in the email a provider '
-    + 'receives when a patient shares. Answers { card, sharedBy, recipientEmail, level, duration, expiresAt, records } while the share '
-    + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
+  // Step 8 (hid-system 0118; BACKEND-NEEDS.md §2): the patient sends their card by email and whoever has the link opens it
+  // with a one-time code emailed to the same address. Built but switched off until legal signs off (D13): every route
+  // answers 404 NOT_FOUND while off, exactly as if unrouted. The patient's three routes are under identity/me; everything
+  // the person who received it calls is under one gateway prefix, /api/v1/card-share/, so its cookies can be scoped there
+  // (Path=/api/v1/card-share). The link's secret goes in POST bodies only, never a path or query. The old open read with
+  // the secret in its path (identity.sharedCard) is retired.
+  proposed(r('identity.myCardShares','identity','/api/v1/identity/me/card-shares',GP,false,undefined,
+    `${CARD_SHARES} Patient sessions only. GET (the portal's check that it is served) answers { items: CardShare[], createdToday, `
+    + 'dailyLimit, liveCount, liveLimit }: live links and those ended in the last 30 days, CardShare = { id, reference, recipientEmail '
+    + '(null once ended), label (private to the patient, null once ended), recipientHint, scope, duration, createdAt, expiresAt, status: '
+    + 'active | locked | ended | expired, endedAt, endedReason, lockedUntil, delivery: sent | not_sent | pending, openCount, lastOpenedAt }. '
+    + 'POST (CSRF, Idempotency-Key, recent sign-in) { email, label?, scope: card | card_and_records, duration: 24h | 7d } and no other '
+    + 'field (an unknown one is a 400; the backend records the check step\'s version itself) answers 201 { share, delivery, replacedId, '
+    + 'replayed: false }, or 200 with replayed: true for the same key and body: a live link to the same address ends (replacedId). '
+    + '400 CARD_SHARE_EMAIL_INVALID, VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED, '
+    + 'CARD_SHARE_OWN_EMAIL, CARD_SHARE_DURATION_INVALID, CARD_SHARE_SCOPE_INVALID, CARD_SHARE_LABEL_INVALID; 403 '
+    + 'PATIENT_RECENT_AUTH_REQUIRED, PATIENT_RECENT_RECOVERY_HOLD; 409 IDEMPOTENCY_KEY_REUSED, CARD_SHARE_LIVE_LIMIT (20); 429 '
+    + 'CARD_SHARE_CREATE_LIMITED (5 a day), CARD_SHARE_ADDRESS_LIMITED (2 a day to one address). A blocked or capped address, and a failed '
+    + 'send, all answer delivery not_sent alike.')),
+  proposed(r('identity.myCardShareEnd','identity','/api/v1/identity/me/card-shares/:shareId/end',P,false,undefined,
+    `${CARD_SHARES} Patient sessions only, CSRF, no body: 200 { share }, the same when it has already ended. Ends any open view at once. `
+    + '404 CARD_SHARE_NOT_FOUND. The person it was sent to is not told.')),
+  proposed(r('identity.cardShareAvailability','identity','/api/v1/card-share/availability',G,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} 204 while on; the page a link opens stays dormant otherwise and sends nothing else.`)),
+  proposed(r('identity.cardShareCode','identity','/api/v1/card-share/code',P,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { token (43 characters, base64url), turnstileToken } (Turnstile action card-share-code), at most 1 KB: `
+    + '202 { sentTo: the masked address, expiresInSeconds: 600, resendAfterSeconds: 60 }, and an HttpOnly session cookie binding the code '
+    + 'to this browser. 400 CARD_SHARE_LINK_INVALID, TURNSTILE_*; 410 CARD_SHARE_ENDED for an unknown, ended or expired link alike; 429 '
+    + 'CARD_SHARE_LOCKED { retryAfterSeconds }, CARD_SHARE_CODE_LIMITED { retryAfterSeconds } (1 a minute, 3 an hour, 6 a Lagos day per '
+    + 'link): the wait is in the problem body, with no Retry-After header; and the gateway\'s own 429.')),
+  proposed(r('identity.cardShareVerify','identity','/api/v1/card-share/verify',P,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { token, code: 6 digits }: 200 CardView { viewId, card: { fullName, healthId, ninVerified }, `
+    + 'scope, sharedByFirstName, recipientHint, reference, expiresAt, viewExpiresAt } (no photo) and the view cookie '
+    + 'hid_cv_<viewId> (HttpOnly, Secure, SameSite=Strict, Path=/api/v1/card-share, no Max-Age; the server ends the view after 30 '
+    + 'minutes). One live view per link. viewId is not a secret: every later read names it in X-Card-View. 400 CARD_SHARE_CODE_FORMAT '
+    + '(no try used), CARD_SHARE_CODE_WRONG { attemptsLeft }: a right code from another browser counts as wrong; 410 '
+    + 'CARD_SHARE_CODE_EXPIRED, CARD_SHARE_ENDED (also when a second lock ends the link); 429 CARD_SHARE_LOCKED { retryAfterSeconds } '
+    + '(3 dead codes lock the link for an hour).')),
+  proposed(r('identity.cardShareView','identity','/api/v1/card-share/view',G,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_VIEW} 200 the same CardView; the page asks every 30 seconds while the card is shown.`)),
+  proposed(r('identity.cardShareEndView','identity','/api/v1/card-share/end-view',P,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_VIEW} No body: 204, and the view cookie cleared; 204 too when it had already ended.`)),
+  proposed(r('identity.cardShareStop','identity','/api/v1/card-share/stop',P,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_PUBLIC} { stopToken } (the link id, a dot, 43 base64url characters: the stop token in E5 and E6's `
+    + '/card/stop#<stopToken>, never the card\'s token), no security check: 204 for any well-formed token, known or not, so nothing is '
+    + 'learned from it; a genuine one blocks card emails to the address, ends its live links and tells the patient (SHARED_CARD_STOPPED). '
+    + '400 CARD_SHARE_LINK_INVALID for a malformed one.')),
+  proposed(r('ehr.cardShareRecords','ehr','/api/v1/card-share/records',G,true,undefined,
+    `${CARD_SHARES} ${CARD_SHARE_VIEW} 200, every key present: { encounters, notes, importedRecords, importedHealthProfile, healthProfile: `
+    + '{ bloodGroup, genotype, allergies, chronicConditions, medications, notes } | null (ehr-api\'s names: the profile\'s currentMedications '
+    + 'and medicalNotes), patientEntries (active, first 50; [] while PATIENT_ENTRIES_ENABLED is off), '
+    + 'patientEntriesMore, diagnoses: [], prescriptions: [], labRequests: [], vitals: [], documents: [], limit }. For a card-only link '
+    + 'every list is empty and healthProfile holds blood group, genotype and allergies only. File names and types only: no download.')),
   // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes
   // in it, then each photo or file goes up under it as staff uploads do (an upload link, a PUT of the exact bytes to it, a
   // confirm). Until a backend serves them, and while patient uploads are off, each answers 404 NOT_FOUND (off looks the same

@@ -35,6 +35,8 @@ def app_environment(config, environment, app, host, source, inherited):
         env[prefix + 'BACKEND_CONTRACT'] = config.get('backend_contract', 'main-v1')
         env[prefix + 'IMPORTED_HISTORY_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
         env[prefix + 'STAFF_PATIENT_CHAT_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
+        # Step 8: the card link pages, on the patient portal's host only, and only while config turns them on.
+        env[prefix + 'CARD_SHARES'] = str(chat_features(config, app)['cardSharesEnabled']).lower()
     if public:
         env[prefix + 'PORTAL_ORIGIN'] = config['portal_origin']
     else:

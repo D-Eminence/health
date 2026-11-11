@@ -20,5 +20,6 @@
     "supportContact": "mailto:support@healthidentitydirectory.com"
   },
   "backend_contract": "novu-v1",
-  "sentry_dsn": null
+  "sentry_dsn": null,
+  "card_shares": true
 }

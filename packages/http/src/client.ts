@@ -177,6 +177,12 @@ export function retryAfterSeconds(error: unknown): number | null {
   return error instanceof HidApiError ? retryAfterByError.get(error) ?? null : null
 }
 
+/** A problem body's `retryAfterSeconds` member: a whole number of seconds from 0 to 86400, or null. */
+function bodyRetryAfterSeconds(payload: unknown): number | null {
+  const value = typeof payload === 'object' && payload !== null ? (payload as { retryAfterSeconds?: unknown }).retryAfterSeconds : undefined
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 86_400 ? value : null
+}
+
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve()
   return new Promise((resolve, reject) => {
@@ -425,7 +431,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       })
 
       // Attach transport hints the retry loop needs without widening HidApiError.
-      retryAfterByError.set(error, parseRetryAfter(response.headers.get('Retry-After')))
+      // The header first; without one, the problem's own `retryAfterSeconds` member (hid-system 0118 card links name
+      // their waits only there): a whole number of seconds, at most a day, or nothing.
+      retryAfterByError.set(error, parseRetryAfter(response.headers.get('Retry-After')) ?? bodyRetryAfterSeconds(payload))
 
       logger?.warn('api request failed', {
         method: spec.method,

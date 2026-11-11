@@ -20,6 +20,24 @@ export const WHAT: Readonly<Record<AccessLogAction, string>> = {
   access_granted: 'Got access to your record',
   access_ended: 'Access to your record ended',
   emergency_access: 'Opened your record in an emergency',
+  card_opened: 'Opened your shared card',
+  card_shared: 'Sent your card by email',
+  card_ended: 'Ended a card link',
+}
+
+/**
+ * What happened, in words. A card link's events (step 8) name the masked address it was sent to, worded "using the link
+ * sent to a•••" (owner answer 4): whoever has the link can open it, so an open is never said to be that person's.
+ */
+export function accessLogWhat(event: AccessLogEvent): string {
+  const hint = event.recipientHint ?? (event.actorKind === 'card_recipient' ? event.actorName : null)
+  if (!hint) return WHAT[event.action]
+  switch (event.action) {
+    case 'card_opened': return `Opened your shared card using the link sent to ${hint}`
+    case 'card_shared': return `Sent your card using the link sent to ${hint}`
+    case 'card_ended': return `Ended the card link sent to ${hint}`
+    default: return WHAT[event.action]
+  }
 }
 
 function when(value: string) {
@@ -32,6 +50,7 @@ export function accessLogActor(event: AccessLogEvent): string {
   switch (event.actorKind) {
     case 'patient': return 'You'
     case 'support': return 'Health ID support'
+    case 'card_recipient': return 'Someone'
     case 'system': return event.facilityName ?? 'Health ID'
     case 'facility': return event.facilityName ?? event.actorName ?? 'A health facility'
     case 'clinician': {
@@ -154,7 +173,7 @@ export function AccessLogCard() {
       : <ul ref={list} className="m-0 list-none divide-y divide-line p-0">{events.map(event => <li key={event.id} tabIndex={-1} className="flex items-start gap-3 px-5 py-3.5 outline-none focus-visible:bg-subtle">
         <div className="min-w-0 flex-1">
           <p className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{accessLogActor(event)}</p>
-          <p className="m-0 text-[13px] text-ink-3">{WHAT[event.action]}</p>
+          <p className="m-0 text-[13px] text-ink-3">{accessLogWhat(event)}</p>
         </div>
         <time dateTime={event.at} className="shrink-0 text-[12px] text-ink-3">{when(event.at)}</time>
       </li>)}</ul>)}

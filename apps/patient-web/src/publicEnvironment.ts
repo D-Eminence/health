@@ -19,4 +19,7 @@ export const PUBLIC_ENVIRONMENT = {
   VITE_HID_SUPPORT_CONTACT: import.meta.env.VITE_HID_SUPPORT_CONTACT as string | undefined,
   // Single sign-on on auth. (contract v2), off unless a build sets it to 1 (or true): unset, the product sign-in pages are today's.
   VITE_HID_SSO: import.meta.env.VITE_HID_SSO as string | undefined,
+  // Sending the card by email (step 8, hid-system 0118), off unless a build sets it to exactly "true": config/*.json set it
+  // true since legal approved and the owner switched it on (4 Nov 2026).
+  VITE_HID_CARD_SHARES: import.meta.env.VITE_HID_CARD_SHARES as string | undefined,
 }

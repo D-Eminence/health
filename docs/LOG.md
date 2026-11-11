@@ -2846,3 +2846,69 @@ An independent review found that a line in a Chrome stack that starts with "at" 
 
 - **Fix.** `packages/observability/src/errorReporting.ts`: a Chrome line is a frame only when it ends in a real location (`url:line:col`, an eval location, `native`, `<anonymous>` or Promise.all's `index N`), as Firefox and Safari lines already were. A function name may hold a space only where an engine puts one (`new `, `async `, ` [as alias]`, Safari's `global code`); anything else is sent as `?`.
 - **Tests first.** `errorReporting.test.ts` checks that such lines give no frame, that names with stray spaces become `?`, and that neither stack sends the name or place in a report.
+## 2026-11-04: Send my card by email, opened with a one-time code (step 8, switched on)
+
+Akos handover step 8 (hid-system migration 0118), built against the design and critique of 4 Nov 2026 with the owner's
+answers to all 13 questions (the recommended options) and every critique fix. **Switched on**: legal approved and the
+owner said "switch on" (4 Nov 2026). `VITE_HID_CARD_SHARES` is true in `config/staging.json` and `config/production.json`
+(false switches the pages off again), `staging_release.py` requires an exact boolean, and the build sets it on the
+patient portal's host only. On, every page still waits for the backend: the patient's list answering 200, or the receiver's availability
+answering 204. Off, or 404, nothing is shown and no card request is sent. Contract in BACKEND-NEEDS.md §2.
+
+- **Patient, `/access/share/card`.** The address, an optional private label, Card only or Card and records, 24 hours
+  (first) or 7 days. Check and send says what is shared, that records added while the link is open are included, that
+  the person can save or screenshot what they see, that anyone who can read the inbox can open it, that an earlier link
+  to the same address ends, and asks about a mistyped domain (gmial.com). One `Idempotency-Key` per send; the wording's
+  version (`card-share-check-v1`) goes with it. The done step says the patient was emailed too, and what "not sent"
+  means. Email only: no link to copy.
+- **Who has access.** "Your card, shared by email": each link's recipient (label and address, the masked address once
+  ended), what it shows, until when, opens, reference and state (Active, Paused for now, Ended: reason, Expired), with
+  End now, asked once. Entry points: Access and sharing's header, the create menu, the share search step and the Health
+  ID card.
+- **The page the link opens, `/card#<token>`,** outside the patient session (its own client: never 401 handling, no
+  refresh, no CSRF token, no retries). The token leaves the address bar at once and goes only in POST bodies; nothing is
+  sent until Email me a code (Turnstile `card-share-code`, on that step only); 6 boxes for the code; the card and, if
+  allowed, the records, read only, no downloads; every read names its view (`X-Card-View`) and 409
+  `CARD_SHARE_VIEW_CHANGED` clears the screen; checked every 30 seconds; covered after 5 minutes idle; cleared on
+  leaving the page; End view; a reload needs the link and a new code. Plain words for each refusal, never the server's.
+  `/card/stop#<token>` and a link on the page: Stop these emails (this link, or every card email to the address;
+  Turnstile `card-share-stop`). `/card/privacy`: the receiver's notice (30 days, 12 months, the processors, how to ask).
+  `/card/:token` stays dormant always.
+- **Inbox and Activity.** `SHARED_CARD_OPENED`, `SHARED_CARD_LOCKED`, `SHARED_CARD_ENDED_WRONG_CODES`; subject "Shared
+  card". Activity's `card_opened` (by "Someone"), `card_shared`, `card_ended`, each "using the link sent to a•••".
+- **Registry.** Ten routes `proposed` (three patient, seven under `/api/v1/card-share/`, the photo a download), all
+  patient-web only; `identity.sharedCard` retired. Edge: the `/card` pages send `frame-ancestors 'none'` and no referrer.
+- **Mock.** Opt-in only: `MOCK_CARD_SHARES=1` (or `?cardShares=1` in the preview) with `VITE_HID_CARD_SHARES=true`.
+- **Checked** in Chromium against the mock at 320, 360, 390 and 1366px: the whole receiver and patient flow, no sideways
+  scroll, no console errors, the token in no address or header. That walk found the records never read under React
+  StrictMode (its rehearsal unmount aborted the reads); fixed test first. Not checked against a real backend: none
+  serves these routes yet.
+
+### Card link: reconciled with the backend after review (4 Nov 2026)
+
+The review compared the website with the backend that serves card links (hid-system `claude/card-links-0118`,
+`docs/INTERFACE_CONTRACT.md` §33). Each finding was reproduced with a failing test first, then fixed on the website side,
+taking the backend's contract as the one in force:
+
+- **F1, every send refused.** The website sent `consentVersion`, which the backend's strict validation refuses. The body is
+  now `{ email, label?, scope, duration }` only, and the website's `CARD_SHARE_CONSENT_VERSION` names the backend's own
+  `card-share-v1`, which the backend records with each link.
+- **F2, Stop these emails.** `/card/stop#<stopToken>` now takes the backend's separate stop token (the link id, a dot, 43
+  characters), sends `POST card-share/stop { stopToken }` only when the person presses the button, and treats 204 as
+  done. No security check (the route takes none) and no link-or-address choice. The card page has no stop button: it
+  holds only the card's token, so it points to the link in the email. Turnstile action `card-share-stop` is gone.
+- **F3, medicines shown as "Not stated".** The records answer names them `medications` and `notes`; the website reads
+  those (and the profile names), and says "Not available" for a field the answer leaves out.
+- **F4, sending again replayed the old link.** The `Idempotency-Key` is kept only to retry one failed send: it is
+  dropped after a send that worked and on going back to the first step. A `replayed: true` answer says "Your card was
+  already sent".
+- **F5, the photo.** The backend shares none, so no photo is asked for, promised or shown in the preview, and the sharer's
+  first name comes from `sharedByFirstName`. `identity.cardSharePhoto` is removed from the registry.
+- **F6.** The wait for `CARD_SHARE_LOCKED` and `CARD_SHARE_CODE_LIMITED` is read from the problem body's
+  `retryAfterSeconds` when there is no `Retry-After` header (`@hid/http`, for any route). A right code from another
+  browser counts as wrong, so the words for a wrong code say to enter it in the browser that asked for it. The switch is
+  named `CARD_LINKS_ENABLED`. Inbox codes are the backend's: `SHARED_CARD_ENDED` (reason `too_many_wrong_codes`) and
+  `SHARED_CARD_STOPPED`.
+
+Still the backend's to decide: a contract test there that posts the website's exact body; and whether `card-share-v1`
+stays the name of the check step's wording.

@@ -61,12 +61,16 @@ def validate_config(config, environment='staging'):
         raise ValueError('Exact ' + environment + ' frontend hosts required')
     if config.get('api_origin') != api_origin or config.get('portal_origin') != portal_origin:
         raise ValueError('Exact ' + environment + ' API/portal required')
-    if set(config) - {'backend_contract', 'sentry_dsn'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
+    if set(config) - {'backend_contract', 'sentry_dsn'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat', 'card_shares'}:
         raise ValueError('Unexpected configuration fields')
     # Error reports (owner's approval, 2026-11-03): null keeps them off; a public DSN turns them on in every app.
     dsn = config.get('sentry_dsn')
     if dsn is not None and not (isinstance(dsn, str) and SENTRY_DSN.fullmatch(dsn)):
         raise ValueError('Error reporting needs null or a public Sentry DSN')
+    # Step 8 (hid-system 0118): sending the card by email, an exact boolean. Legal approved and the owner switched it on
+    # (4 Nov 2026); false switches the pages off again.
+    if type(config.get('card_shares')) is not bool:
+        raise ValueError('card_shares must be true or false')
     if config.get('backend_contract', 'main-v1') not in ('main-v1', 'novu-v1'):
         raise ValueError('Unsupported backend contract')
     chat = config.get('chat')
@@ -112,7 +116,9 @@ def chat_features(config, app):
             'supportContact': config['chat']['supportContact'],
             'backendContract': config.get('backend_contract', 'main-v1'),
             'staffPatientChatEnabled': config.get('backend_contract') == 'novu-v1' and app == 'ehr',
-            'importedRecordsEnabled': config.get('backend_contract') == 'novu-v1' and app == 'ehr'}
+            'importedRecordsEnabled': config.get('backend_contract') == 'novu-v1' and app == 'ehr',
+            # The patient portal only: the send flow and the page the link opens are both on its host.
+            'cardSharesEnabled': config['card_shares'] is True and app == 'web'}
 
 
 def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edge_path, environment='staging'):

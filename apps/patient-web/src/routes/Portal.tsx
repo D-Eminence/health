@@ -5,7 +5,7 @@ import { getEnvironment } from '../env'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage, Mail } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
@@ -50,6 +50,8 @@ import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
+import { SharedCardLinksCard, useCardShareList } from './SharedCardLinks'
+import { useCardSharesServed } from '../cardShares'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
@@ -135,6 +137,9 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   const shareTo = share === true ? '/access/share' : '/access'
   // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
   const adds = usePatientEntriesServed() === true
+  // "Send my card by email" (step 8) only once its list answers 200: read here while the build's switch is on, never off.
+  useCardShareList()
+  const sendsCard = useCardSharesServed() === true
   const name = shown?.fullName ?? 'Your Health ID'
   const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
   const nav: NavGroup[] = [
@@ -163,6 +168,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     create={{ label: 'Add or share', items: [
       ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true }] : []),
       { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
+      ...(sendsCard ? [{ to: '/access/share/card', label: 'Send my card by email', hint: 'A link they open with a code we email them', icon: Mail }] : []),
       { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
       { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
     ] }}>
@@ -705,6 +711,10 @@ export function AccessPage() {
   // Sharing (hid-system 0095): offered once its probe says it is served; hidden before (404). Probed here, as on Home:
   // the invitations card that also learns it is on another tab.
   const shareServed = useShareProbe().served
+  // Card links (step 8): their list is the check that they are served; nothing is asked while the build's switch is off.
+  useCardShareList()
+  const cardServed = useCardSharesServed() === true
+  const [params] = useSearchParams()
   const [working, setWorking] = useState<string | null>(null)
   // The request open in the drawer, and whether its denial reason is showing.
   const [reviewing, setReviewing] = useState<string | null>(null)
@@ -719,7 +729,11 @@ export function AccessPage() {
   const [revokeBusy, setRevokeBusy] = useState(false)
   const [revokeReason, setRevokeReason] = useState('')
   // Which part shows: what waits for a decision first (Hick's law: one list at a time).
-  const [tab, setTab] = useState<'requests' | 'granted' | 'activity'>('requests')
+  // The tab an address names (?tab=granted, as the card link's done step opens it), else what waits for a decision.
+  const [tab, setTab] = useState<'requests' | 'granted' | 'activity'>(() => {
+    const named = params.get('tab')
+    return named === 'granted' || named === 'activity' ? named : 'requests'
+  })
   const requestsHeading = useRef<HTMLHeadingElement>(null)
   const historyHeading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
@@ -784,7 +798,9 @@ export function AccessPage() {
 
   return <div className="flex flex-col gap-6">
     <PageHeader title="Access & sharing" description="No facility sees your records until you say yes. You can take access back at any time."
-      actions={shareServed === true ? <Button to="/access/share" variant="primary" icon={Share2}>Share records</Button> : undefined} />
+      actions={shareServed === true || cardServed ? <>
+        {cardServed && <Button to="/access/share/card" icon={Mail}>Send my card</Button>}
+        {shareServed === true && <Button to="/access/share" variant="primary" icon={Share2}>Share records</Button>}</> : undefined} />
     <FilterTabs label="Access" value={tab} onChange={setTab} options={[
       { value: 'requests', label: 'Requests', count: pendingCount || undefined, tone: 'danger' },
       { value: 'granted', label: 'Who has access', count: activeCount || undefined },
@@ -846,6 +862,8 @@ export function AccessPage() {
       </Card>
       {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
       <ShareInvitationsCard onShared={history.reload} />
+      {/* Step 8 (hid-system 0118): the card sent by email. Not shown while switched off or not served. */}
+      <SharedCardLinksCard />
     </>}
 
     {/* hid-system 0093: who viewed or changed the record. An Identity before it answers 404, and the section is not shown. */}

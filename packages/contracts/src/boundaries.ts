@@ -143,7 +143,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.contactChangeVerify',
       // Sharing with a clinician and invitations by email (hid-system 0095, Novu only; a backend before it answers 404).
       'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
-      'identity.shareInvitationConfirm', 'identity.sharedCard'],
+      'identity.shareInvitationConfirm',
+      // Sending the card by email, and opening it with a code (step 8, hid-system 0118; 404 while off until legal sign-off).
+      'identity.myCardShares', 'identity.myCardShareEnd', 'identity.cardShareAvailability', 'identity.cardShareCode',
+      'identity.cardShareVerify', 'identity.cardShareView', 'identity.cardShareEndView', 'identity.cardShareStop'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myPatientEntries', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
@@ -154,7 +157,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).
       'ehr.myOrderRoutes', 'ehr.myOrderRouteWithdraw',
       // The health information the patient enters (hid-system 0094, Novu only; a backend before it answers 404).
-      'ehr.myHealthProfile'],
+      'ehr.myHealthProfile',
+      // The records a card link opened with a code shows (step 8, hid-system 0118; 404 while off until legal sign-off).
+      'ehr.cardShareRecords'],
   },
   'staff-web': {
     // The anonymous support assistant, from the blue EHR's Help (behind its own privacy guard). Nothing else of support.

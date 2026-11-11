@@ -24,6 +24,9 @@ import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
 import { SharedCardPage, SharedCardPreview } from './routes/SharedCard'
+import { CardLinkPreview, CardPrivacyPage, CardReceiverPage, CardStopPage } from './routes/CardReceiver'
+import { cardSharesEnabled } from './cardSharesFlag'
+import { ShareCard } from './routes/ShareCard'
 import { BLUE_FOR_ALL } from './ehr-blue/clinicSwitch'
 import { portalHandsOff, staffHandOffSite } from './sso/singleSignOn'
 import { StaffSignInHandOff } from './sso/SignInHandOff'
@@ -63,10 +66,9 @@ function PatientRoutes() {
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
-      {/* Sharing by card: the patient's preview of the provider's page, and the page a shared link opens (dormant until the
-          one-time-code routes exist: it says it isn't available yet and reads nothing). */}
-      <Route path="/card/preview" element={<RequireAccess requirement={PATIENT_ROUTE}><SharedCardPreview /></RequireAccess>} />
-      <Route path="/card" element={<SharedCardPage />} />
+      {/* The patient's preview of the page a card link opens. The page itself (/card) is outside the session: below, in App. */}
+      <Route path="/card/preview" element={<RequireAccess requirement={PATIENT_ROUTE}>{cardSharesEnabled() ? <CardLinkPreview /> : <SharedCardPreview />}</RequireAccess>} />
+      {/* An address with a secret in its path: dormant always, reads nothing and sends nothing of it. */}
       <Route path="/card/:token" element={<SharedCardPage />} />
       {/* hid-1.0's old addresses open the page that replaces each; nothing of the old address is kept. */}
       {Object.entries(LEGACY_PATIENT_PATHS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={to} replace />} />)}
@@ -78,6 +80,8 @@ function PatientRoutes() {
         <Route path="access" element={<AccessPage />} />
         {/* Share my records (hid-system 0095): opens Access and consent where the backend does not serve sharing (404). */}
         <Route path="access/share" element={<ShareRecords />} />
+        {/* Send my card by email (step 8): opens Access and sharing while switched off or not served. */}
+        <Route path="access/share/card" element={<ShareCard />} />
         <Route path="notifications" element={<NotificationsPage />} />
         {/* Settings is gone: its parts are on the profile, and an old link opens it at the same #. */}
         <Route path="settings" element={<SettingsRedirect />} />
@@ -159,6 +163,12 @@ export function App() {
         (sso/SignInHandOff.tsx); unset, today's workspace exactly. */}
     <Route path="/provider/*" element={staffSite ? <StaffSignInHandOff site={staffSite}>{staffWorkspace}</StaffSignInHandOff> : staffWorkspace} />
     <Route path="/admin/*" element={<Suspense fallback={<main><p role="status">Opening platform workspace…</p></main>}><AdminApp /></Suspense>} />
+    {/* The page a card link opens (step 8, hid-system 0118): /card#<token>, with "Stop these emails" and the privacy notice.
+        Outside SessionProvider: it never reads, refreshes or ends a patient's session in this browser. Dormant while
+        switched off. */}
+    <Route path="/card" element={<CardReceiverPage />} />
+    <Route path="/card/stop" element={<CardStopPage />} />
+    <Route path="/card/privacy" element={<CardPrivacyPage />} />
     <Route path="/*" element={<SessionProvider><PatientRoutes /><PatientSupport /></SessionProvider>} />
   </Routes></ProductHostnameGate>
 }

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BadgeCheck, Camera, CircleAlert, Share2, Trash2, UserRound } from 'lucide-react'
+import { BadgeCheck, Camera, CircleAlert, Mail, Share2, Trash2, UserRound } from 'lucide-react'
 import logoSrc from '../../../public-web/public/brand/logo.png'
 import markSrc from '../../../public-web/public/brand/logo-icon.png'
 import { isHidApiError, plainErrorText } from '@hid/http'
@@ -11,6 +11,7 @@ import { Button, IconChip, cx } from '../kasuwa/ui'
 import { PHOTO_SIDE, PhotoProblem, base64Of, reencodePhoto } from '../photoImage'
 import { useAnnounceProfileChange } from '../profileChange'
 import { useSession } from '../session'
+import { useCardSharesServed } from '../cardShares'
 import { HealthIdCode } from './HealthIdCode'
 import { useActionFocus } from './actionFocus'
 import { initialsOf, useObjectUrl, usePatientPhoto } from './ProfilePhoto'
@@ -43,6 +44,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   className?: string
 }) {
   const editable = typeof profile.hasPhoto === 'boolean'
+  const sendsCard = useCardSharesServed() === true
   const photo = usePatientPhoto(profile.hasPhoto === true)
   const picker = useRef<HTMLInputElement>(null)
   const [prepared, setPrepared] = useState<Blob | null>(null)
@@ -129,6 +131,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       {links.includes('share') && <Button to={shareTo} variant={sharePrimary ? 'primary' : 'secondary'} icon={Share2} className="flex-1">Share records</Button>}
       {links.includes('profile') && <Button to="/profile" icon={UserRound} className="flex-1">View profile</Button>}
     </div>}
+    {/* Step 8: only once card links are served (the build's switch on, and the backend's list answering 200). */}
+    {links.includes('share') && sendsCard && <Button to="/access/share/card" variant="ghost" size="sm" icon={Mail} className="self-center">Send my card by email</Button>}
 
     <Drawer open={allergiesOpen} onClose={() => setAllergiesOpen(false)} title={allergyList.length === 1 ? 'Allergy' : `${allergyList.length} allergies`}
       icon={<IconChip icon={CircleAlert} tone="warn" />} description="On your card, and shown to clinicians you share your records with."

@@ -53,6 +53,36 @@ class ReleaseContractTests(unittest.TestCase):
             bad = copy.deepcopy(config); bad['chat'][key] = value
             with self.assertRaises(ValueError): validate_config(bad)
 
+    def test_card_links_switch_is_an_exact_boolean_and_on_in_every_config(self):
+        # Step 8 (hid-system 0118): sending the card by email. Legal approved and the owner switched it on (4 Nov 2026).
+        root = pathlib.Path(__file__).parents[1]
+        for environment in ('staging', 'production'):
+            config = json.loads((root / ('config/' + environment + '.json')).read_text())
+            self.assertIs(config['card_shares'], True, environment)
+            validate_config(config, environment)
+            self.assertTrue(chat_features(config, 'web')['cardSharesEnabled'])
+            for app in ('ehr', 'admin', 'public', 'lab'):
+                self.assertFalse(chat_features(config, app)['cardSharesEnabled'], app)
+            for value in ['false', 0, None, 'true']:
+                bad = copy.deepcopy(config); bad['card_shares'] = value
+                with self.assertRaises(ValueError): validate_config(bad, environment)
+            missing = copy.deepcopy(config); del missing['card_shares']
+            with self.assertRaises(ValueError): validate_config(missing, environment)
+            off = copy.deepcopy(config); off['card_shares'] = False
+            validate_config(off, environment)
+            self.assertFalse(chat_features(off, 'web')['cardSharesEnabled'])
+            # What each staff and portal build is built with (app_environment) says the same as chat_features: on for the
+            # portal only, and off everywhere when the switch is off. The public site is not given the setting.
+            hosts = HOSTS if environment == 'staging' else PRODUCTION_HOSTS
+            build = load_build()
+            for switch in (config, off):
+                for app, host in hosts.items():
+                    env = build.app_environment(switch, environment, app, host, SOURCE, {})
+                    if app == 'public':
+                        self.assertNotIn('NEXT_PUBLIC_HID_CARD_SHARES', env)
+                    else:
+                        self.assertEqual(env['VITE_HID_CARD_SHARES'], str(chat_features(switch, app)['cardSharesEnabled']).lower(), (environment, app))
+
     def test_manifest_binds_source_config_edge_and_every_archive(self):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder)
@@ -179,6 +209,8 @@ class ErrorReportingConfigTests(unittest.TestCase):
             'VITE_HID_BACKEND_CONTRACT': 'novu-v1',
             'VITE_HID_IMPORTED_HISTORY_ENABLED': 'true',
             'VITE_HID_STAFF_PATIENT_CHAT_ENABLED': 'true',
+            # Card links (step 8) are the patient portal's only.
+            'VITE_HID_CARD_SHARES': 'false',
             'VITE_HID_GOOGLE_CLIENT_ID': config['google_client_id'],
         })
 

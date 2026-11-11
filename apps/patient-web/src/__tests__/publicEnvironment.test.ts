@@ -31,3 +31,10 @@ describe('the portal public environment', () => {
     expect(names).not.toContain('VITE_HID_STAFF_PATIENT_CHAT_ENABLED')
   })
 })
+
+describe('the card link switch (step 8, on in config since legal approved)', () => {
+  it('is read by name, so a build can set it, and is off unless exactly "true"', async () => {
+    vi.stubEnv('VITE_HID_CARD_SHARES', 'true')
+    expect((await import('../publicEnvironment')).PUBLIC_ENVIRONMENT.VITE_HID_CARD_SHARES).toBe('true')
+  })
+})

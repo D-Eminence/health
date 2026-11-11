@@ -27,6 +27,10 @@ import {
   type ShareInvitationList, type ShareProvider, type ShareDuration, type ShareLevel,
 } from './shareRecords'
 import {
+  parseCardShare, parseCardShareCreated, parseCardShareList,
+  type CardShare, type CardShareCreated, type CardShareInput, type CardShareList,
+} from './cardShares'
+import {
   parseWebPushRemoved, parseWebPushState, parseWebPushSubscribed,
   type WebPushState, type WebPushSubscribed, type WebPushSubscriptionInput,
 } from './webPush'
@@ -870,8 +874,20 @@ export function createPatientApi(sender: ApiClient) {
       if (signal?.aborted) throw cancelled()
       return { alreadyUploaded: false, document: await completeOwnRecordDocument(entryId, intent.document.id, signal) }
     },
-    // The card a shared link opens is dormant (routes/SharedCard.tsx): it waits for the one-time-code routes of the owner's
-    // decision 25, and the open read with the link's secret in its address (identity.sharedCard) is no longer called.
+    // Sending the card by email (step 8, hid-system 0118; 404 NOT_FOUND while off until legal sign-off). The list is also
+    // the check that it is served. The page the link opens has its own client (cardReceiverApi.ts), outside the session.
+    cardShares: async (signal?: AbortSignal): Promise<CardShareList> =>
+      parseCardShareList(await call<unknown>('GET', 'identity/me/card-shares', undefined, { signal })),
+    // Exactly these fields: the backend refuses any other (hid-system 0118 CreateCardShareDto, forbidNonWhitelisted), and
+    // records the check step's version itself (CARD_SHARE_CONSENT_VERSION).
+    createCardShare: async (body: CardShareInput, idempotencyKey: string): Promise<CardShareCreated> =>
+      parseCardShareCreated(await call<unknown>('POST', 'identity/me/card-shares', {
+        email: body.email, ...(body.label ? { label: body.label } : {}), scope: body.scope, duration: body.duration,
+      }, { headers: { 'Idempotency-Key': idempotencyKey } })),
+    endCardShare: async (shareId: string): Promise<CardShare | null> => {
+      const answer = await call<{ share?: unknown } | null>('POST', `identity/me/card-shares/${encodeURIComponent(shareId)}/end`)
+      return parseCardShare(answer?.share)
+    },
     // ADR-063: public, by name and place only. Empty while the facility route is off.
     participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
