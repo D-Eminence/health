@@ -2,6 +2,7 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
+import { parseAllergyCheck, parseAllergyList, parseRecordedAllergy, type AllergyCheck, type AllergyList, type AllergySeverity, type RecordedAllergy } from './allergies'
 import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
@@ -20,6 +21,7 @@ import { staffLoginAction } from '../productHostname'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
+import { SOURCE_DELETED, isSourceDeletedRefusal, type DocumentDownload, type DocumentLink } from '../documentSource'
 
 export interface Facility {
   id: string
@@ -523,7 +525,11 @@ export interface DocumentRecord {
   fileName: string
   mediaType: string
   sizeBytes: number | string
-  status: string
+  /**
+   * 'initiated' until the upload is completed; since hid-system 0110 'source_deleted' once Migrate's source page was
+   * deleted after 24 hours (documentSource.ts), when it offers no download. Other values pass through as they come.
+   */
+  status: 'initiated' | 'source_deleted' | (string & {})
   scanStatus: string
   createdAt: string
   documentType?: string
@@ -2043,6 +2049,24 @@ export const staffApi = {
   reportedHealthProfile: async (facilityId: string, patientId: string, signal?: AbortSignal): Promise<ReportedHealthProfile | null> =>
     parseReportedHealthProfile(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/reported-health-profile`,
       { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  // Allergies (hid-system 0124; 404 from a backend before it, which the chart takes as "not offered": the patient-reported
+  // text is shown from reportedHealthProfile instead and nothing can be added). Direct care, at the selected facility.
+  allergies: async (facilityId: string, patientId: string, signal?: AbortSignal): Promise<AllergyList> =>
+    parseAllergyList(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergies`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  addAllergy: async (facilityId: string, patientId: string,
+    input: { substance: string; reaction?: string; severity: AllergySeverity }, idempotencyKey?: string): Promise<RecordedAllergy | null> =>
+    parseRecordedAllergy(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergies`, input,
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } })),
+  markAllergyEnteredInError: async (facilityId: string, patientId: string, allergyId: string,
+    input: { expectedRowVersion: number; reason: string }): Promise<RecordedAllergy | null> =>
+    parseRecordedAllergy(await client.post<unknown>(
+      `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergies/${encodeURIComponent(allergyId)}/entered-in-error`, input,
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
+  // The prescribing form's check before it saves (0124); 404 before 0124, when the form saves without it.
+  allergyCheck: async (facilityId: string, patientId: string, input: { medicationDisplay: string; medicationCode?: string }): Promise<AllergyCheck> =>
+    parseAllergyCheck(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/allergy-check`, input,
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),
@@ -2115,10 +2139,18 @@ export const staffApi = {
       query: { patientId, ...workItemPlace(workItem) }, headers: facilityHeaders(facilityId),
     })
   },
-  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
-  documentDownload: (facilityId: string, documentId: string) =>
-    client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
-      { headers: facilityHeaders(facilityId) }),
+  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload). Since hid-system 0110 a
+  // document whose source page was deleted after 24 hours answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
+  // an outcome of its own (documentSource.ts), which every caller says in its own sentence. Any other refusal is thrown.
+  async documentDownload(facilityId: string, documentId: string): Promise<DocumentDownload> {
+    try {
+      return await client.get<DocumentLink>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
+        { headers: facilityHeaders(facilityId) })
+    } catch (caught) {
+      if (isSourceDeletedRefusal(caught)) return SOURCE_DELETED
+      throw caught
+    }
+  },
   // Without a type, exactly today's upload. A type is sent only when given, and
   // only once the backend has said it serves the types; before then it is
   // refused here and nothing is sent.
