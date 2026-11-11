@@ -1,15 +1,16 @@
+import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { Migrate, READING_LONG, STILL_READING, needsPatientAccess } from '../../../../ehr-blue/departments/migrate/Migrate'
+import { Migrate, READING_LONG, READING_THE_PAGE, STILL_READING, needsPatientAccess } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { OpenPagesProvider } from '../../../../ehr-blue/frame/pageContext'
 import type { EhrBluePage } from '../../../../ehr-blue/frame/types'
 import { STAFF_PAPER_NEEDS_ACCESS } from '../../../../paperRecordsWording'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
-import { handwrittenPage, medicinesPaper, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
+import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
 import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocrSteps'
 
 /**
@@ -97,7 +98,7 @@ async function findJob(job: object | null) {
   const rendered = renderMigrate()
   fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
   await press(button('Find job'))
-  if (job) await screen.findByRole('heading', { name: 'Saved record' })
+  if (job) await screen.findByRole('heading', { name: 'Progress' })
   else await screen.findByText('No OCR job for this document')
   return rendered
 }
@@ -114,13 +115,24 @@ async function withFakeTimers(test: () => Promise<void>) {
   finally { vi.useRealTimers() }
 }
 
+/** Opens a step that has a button of its own: Retry job under Progress, or Reject reading under Details. */
 async function openAction(name: string) {
-  const control = within(actionsCard()).getAllByRole('button', { name })[0]!
+  if (name === 'Reject reading') await openDetails()
+  const control = screen.getAllByRole('button', { name })[0]!
   await press(control)
   return control
 }
 
-const actionsCard = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+/** Details, at the end of a record: closed until opened. */
+const detailsCard = () => document.getElementById('ocr-details') as HTMLDetailsElement
+async function openDetails() {
+  if (!detailsCard().open) await act(async () => { fireEvent.click(within(detailsCard()).getByText('Details')) })
+  expect(detailsCard().open).toBe(true)
+}
+/** The buttons under Details: Refresh status, then Reject reading when the reading may be checked. */
+const detailsButtons = () => Array.from(detailsCard().querySelectorAll(':scope > .hid-ehr-dept-form-actions > button')).map(control => control.textContent)
+/** The record's sections, in order, by their headings: Details is not one of them, and comes last. */
+const recordSections = () => screen.getAllByRole('heading', { level: 2 }).map(element => element.textContent)
 /** The check's item cards, in the order shown (a card's Why? is a disclosure, a group of its own, not a card). */
 const cards = () => within(screen.getByRole('form', { name: 'Check and save' })).queryAllByRole('group').filter(group => group.tagName !== 'DETAILS')
 
@@ -274,12 +286,14 @@ describe('Migrate record view', () => {
     expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000001'])
     await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
     expect(button('Back to list')).toBeTruthy()
-    const record = heading('Saved record').closest('section') as HTMLElement
-    expect(within(record).getByText('Ready to check')).toBeTruthy()
+    expect(within(heading('Progress').closest('section') as HTMLElement).getByText('Ready to check')).toBeTruthy()
+    await openDetails()
+    const record = detailsCard()
     expect(within(record).getByText('textract')).toBeTruthy()
     expect(within(record).getByText('Not confirmed')).toBeTruthy()
     expect(within(record).getByText('1 of 3')).toBeTruthy()
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+    expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
     expect(await screen.findByText('Extraction 1 · textract · confidence 92%')).toBeTruthy()
     expect(document.body.textContent).not.toContain(DOCUMENT)
     expect(document.body.textContent).not.toContain(PATIENT)
@@ -298,9 +312,9 @@ describe('Migrate record view', () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, confidence: 0.38, rawText: ' \n\t ' }] })
     await findJob(awaiting)
     const summary = await screen.findByText('Extraction 1 · textract · confidence 38%')
-    // A plain line, not a disclosure that opens to nothing.
+    // A plain line, not a disclosure that opens to nothing: the only disclosure it is in is the record's Details.
     expect(summary.tagName).toBe('P')
-    expect(summary.closest('details')).toBeNull()
+    expect(summary.closest('details')).toBe(detailsCard())
     const entry = summary.closest('.hid-ehr-dept-history')!
     expect(entry.querySelector('summary')).toBeNull()
     expect(entry.querySelector('pre')).toBeNull()
@@ -316,13 +330,15 @@ describe('Migrate record view', () => {
     expect(screen.getByText('Loading extractions…')).toBeTruthy()
     await act(async () => { answer({ items: [] }) })
     expect(screen.getByText('No extraction is available yet.')).toBeTruthy()
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status'])
+    expect(detailsButtons()).toEqual(['Refresh status'])
+    expect(screen.queryByRole('form', { name: 'Check and save' })).toBeNull()
   })
 
   it('offers no step to a role without the step permissions, and says so', async () => {
     session.permissions = ['ocr.job.read']
     await findJob(awaiting)
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status'])
+    expect(detailsButtons()).toEqual(['Refresh status'])
+    expect(screen.queryByRole('form', { name: 'Check and save' })).toBeNull()
     session.permissions = ['ocr.job.read']
   })
 
@@ -340,8 +356,9 @@ describe('Migrate record view', () => {
     await waitFor(() => expect(focused()).toBe(name))
     const row = name.closest('tr') as HTMLElement
     expect(within(row).getByText('Checked')).toBeTruthy()
-    expect(within(row).getByText('Patient ••••000001')).toBeTruthy()
-    expect(within(row).getByText('Job ••••000001')).toBeTruthy()
+    // In words, never any part of the patient's or the job's record id (health #183).
+    expect(within(row).getByText('Patient (name not shown)')).toBeTruthy()
+    expect(within(row).queryByText('Job ••••000001')).toBeNull()
     await press(within(row).getByRole('button', { name: 'Quick view' }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByRole('heading', { name: 'Document ••••000001' })).toBeTruthy()
@@ -371,7 +388,7 @@ describe('Migrate record view', () => {
     api.findOcrJob.mockResolvedValue({ job: { ...base, id: 'j0000000-0000-4000-8000-0000000000b2', documentId: OTHER_DOCUMENT, status: 'queued' } })
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: OTHER_DOCUMENT } })
     await press(button('Find job'))
-    await screen.findByRole('heading', { name: 'Saved record' })
+    await screen.findByRole('heading', { name: 'Progress' })
     await press(button('Back to list'))
     expect(screen.getAllByRole('row')).toHaveLength(3)
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search Document OCR' }), { target: { value: 'queued' } })
@@ -384,15 +401,16 @@ describe('Migrate record view', () => {
     api.findOcrJob.mockResolvedValue({ job: validated })
     const open = within(screen.getByRole('button', { name: 'Document ••••000001' }).closest('tr') as HTMLElement).getByRole('button', { name: /^Open/ })
     await press(open)
-    await screen.findByRole('heading', { name: 'Saved record' })
+    await screen.findByRole('heading', { name: 'Progress' })
     expect(api.findOcrJob).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
   })
 
   it('Refresh status reads the job again and keeps focus on it', async () => {
     await findJob(awaiting)
     api.findOcrJob.mockResolvedValue({ job: validated })
+    await openDetails()
     await press(button('Refresh status'))
-    await waitFor(() => expect(within(heading('Saved record').closest('section') as HTMLElement).getByText('Checked')).toBeTruthy())
+    await waitFor(() => expect(within(heading('Progress').closest('section') as HTMLElement).getByText('Checked')).toBeTruthy())
     await waitFor(() => expect(focused()).toBe(button('Refresh status')))
     expect(api.findOcrJob).toHaveBeenCalledTimes(2)
   })
@@ -400,6 +418,7 @@ describe('Migrate record view', () => {
   it('a refresh whose read fails goes back to the list, says why, and gives focus to Find job', async () => {
     await findJob(awaiting)
     api.findOcrJob.mockRejectedValue(unavailable())
+    await openDetails()
     await press(button('Refresh status'))
     expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
     expect(document.body.textContent).not.toContain('The service could not complete the request.')
@@ -417,7 +436,8 @@ describe('Migrate: following a document while it is read', () => {
     const text = within(read).getByRole('region', { name: 'Text read from the document' })
     expect(text.textContent).toBe('Haemoglobin 12.1')
     expect(text.getAttribute('tabindex')).toBe('0')
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+    expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
   })
 
   it('says in plain words what is happening to the document', async () => {
@@ -526,7 +546,7 @@ describe('Migrate: following a document while it is read', () => {
     api.retryOcrJob.mockResolvedValue({ ...queued, version: 6, attemptCount: 2 })
     api.findOcrJob.mockResolvedValue({ job: { ...queued, version: 6, attemptCount: 2 } })
     await press(within(screen.getByRole('form', { name: 'Retry job' })).getByRole('button', { name: 'Retry job' }))
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(screen.getByText('The document is being read. This page updates by itself every few seconds.')).toBeTruthy()
     expect(screen.queryByText(READING_LONG)).toBeNull()
     await wait(30_000)
@@ -546,7 +566,7 @@ describe('Migrate: following a document while it is read', () => {
     expect(api.findOcrJob).toHaveBeenCalledTimes(reads)
     await press(button('Check now'))
     await waitFor(() => expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 1))
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(screen.queryByText(STILL_READING)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull()
     expect(screen.getByText(READING_LONG)).toBeTruthy()
@@ -558,6 +578,7 @@ describe('Migrate: following a document while it is read', () => {
     await findJob(queued)
     await wait(20 * 60_000 + 30_000)
     const reads = api.findOcrJob.mock.calls.length
+    await openDetails()
     await press(button('Refresh status'))
     await waitFor(() => expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 1))
     await waitFor(() => expect(screen.queryByText(STILL_READING)).toBeNull())
@@ -565,11 +586,12 @@ describe('Migrate: following a document while it is read', () => {
     expect(api.findOcrJob).toHaveBeenCalledTimes(reads + 2)
   }))
 
-  it('stops when a read of the job fails, and says to use Refresh status', async () => withFakeTimers(async () => {
+  it('stops when a read of the job fails, and says to use Check now, beside it', async () => withFakeTimers(async () => {
     await findJob(queued)
     api.findOcrJob.mockRejectedValue(unavailable())
     await wait(5_000)
-    await waitFor(() => expect(screen.getByText('The document’s progress couldn’t be checked just now. Use Refresh status to try again.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('The document’s progress couldn’t be checked just now. Choose Check now to try again.')).toBeTruthy())
+    expect(within(heading('Progress').closest('section') as HTMLElement).getByRole('button', { name: 'Check now' })).toBeTruthy()
     await wait(30_000)
     expect(api.findOcrJob).toHaveBeenCalledTimes(2)
   }))
@@ -612,7 +634,7 @@ describe('Migrate: creating a job (New document job)', () => {
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
     await press(button('Save record'))
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(statusRegion().textContent).toBe('Extraction job created.')
     expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
     expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT, PATIENT)
@@ -627,7 +649,7 @@ describe('Migrate: creating a job (New document job)', () => {
     await press(button('Save record'))
     await waitFor(() => expect(statusRegion().textContent).toBe('This document already has an OCR job, so no new job was created.'))
     expect(api.createOcrJob).not.toHaveBeenCalled()
-    expect(heading('Saved record')).toBeTruthy()
+    expect(heading('Progress')).toBeTruthy()
   })
 
   it('creates nothing when the document cannot be checked first', async () => {
@@ -704,7 +726,7 @@ describe('Migrate: a job refused for want of the patient’s OK (owner, 5 Nov 20
   it('says the sentence for OCR’s 403 OCR_RECORDS_PROCESSING_CONSENT_REQUIRED, never the service’s words, and stays in the form', async () => {
     expect((await refusedCreate(consentRequired())).textContent).toBe(SENTENCE)
     expect(document.body.textContent).not.toContain('Records processing consent is required')
-    expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
     await waitFor(() => expect(focused()).toBe(button('Save record')))
   })
 
@@ -768,13 +790,12 @@ describe('Migrate: a job refused for want of the patient’s OK (owner, 5 Nov 20
 describe('Migrate: each step moves focus to where the work continues and says what happened', () => {
   it('review (validated): opens the next step, confirming the source patient, with focus on it', async () => {
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
     await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(focused()).toBe(document.getElementById('ocr-confirm-title')))
-    expect(focused()?.getAttribute('aria-expanded')).toBe('true')
+    expect(focused()).toBe(heading('Confirm the patient'))
     expect(statusRegion().textContent).toBe('Review recorded. Confirm the source patient next.')
     const [, , input] = api.validateOcrJob.mock.calls[0]!
     // Not a paper reading: nothing to check item by item, so the document is kept with empty objects.
@@ -787,7 +808,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   it('review (validated) to a chosen domain sends its candidate type', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
     await findJob(awaiting)
-    await openAction('Check and save')
     for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
     fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'LAB' } })
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
@@ -803,12 +823,11 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   it('review (validated) without the confirmation permission: focus goes to the saved record, naming no next step', async () => {
     session.permissions = ALL.filter(permission => permission !== 'ocr.patient.confirm')
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
     await press(within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(statusRegion().textContent).toBe('Review recorded.')
   })
 
@@ -821,7 +840,7 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: rejected })
     await press(within(screen.getByRole('form', { name: 'Reject reading' })).getByRole('button', { name: 'Reject reading' }))
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(statusRegion().textContent).toBe('Rejection recorded.')
     expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified' })
   })
@@ -829,7 +848,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   it('review: an item left undecided, then a short reason, take focus at their fields, and nothing is sent', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
     await findJob(awaiting)
-    await openAction('Check and save')
     const reason = screen.getByLabelText(/^Why you’re/)
     fireEvent.change(reason, { target: { value: 'short' } })
     const submit = within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' })
@@ -849,7 +867,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
 
   it('review: a refused review stays in its form, with focus back on its button and the reason kept', async () => {
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockRejectedValue(new HidApiError(409, 'The job changed since it was read', { code: 'OCR_JOB_VERSION_CONFLICT' }))
     const submit = within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' })
@@ -863,7 +880,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
 
   it('a review whose reload then fails: says it was recorded, and gives focus to finding the job', async () => {
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockRejectedValue(unavailable())
@@ -877,7 +893,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   it('confirm: moves focus to the review and publication history', async () => {
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(validated)
-    await openAction('Confirm source patient')
     expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
     fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
     api.confirmOcrPatient.mockResolvedValue({ id: 'confirmation-1' })
@@ -890,7 +905,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
 
   it('confirm: refuses an empty or malformed patient ID and a short reason at their fields', async () => {
     await findJob(validated)
-    await openAction('Confirm source patient')
     const patient = screen.getByLabelText(/^Patient ID/)
     const submit = within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' })
     fireEvent.change(patient, { target: { value: '' } })
@@ -915,7 +929,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
 
   it('confirm: a retry of the same confirmation reuses its key; a different one takes a new key', async () => {
     await findJob(validated)
-    await openAction('Confirm source patient')
     fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
     api.confirmOcrPatient.mockRejectedValue(unavailable())
     const submit = within(screen.getByRole('form', { name: 'Confirm source patient' })).getByRole('button', { name: 'Confirm source patient' })
@@ -934,7 +947,6 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   it('confirm: a job confirmed already is read again, and says so', async () => {
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(validated)
-    await openAction('Confirm source patient')
     fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
     api.confirmOcrPatient.mockRejectedValue(new HidApiError(409, 'Already confirmed', { code: 'OCR_PATIENT_ALREADY_CONFIRMED' }))
     api.findOcrJob.mockResolvedValue({ job: confirmed })
@@ -951,7 +963,7 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     fireEvent.change(screen.getByLabelText(/^Retry reason/), { target: { value: 'The scan was replaced with a clearer copy' } })
     api.retryOcrJob.mockResolvedValue(queued)
     await press(within(screen.getByRole('form', { name: 'Retry job' })).getByRole('button', { name: 'Retry job' }))
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(statusRegion().textContent).toBe('Retry requested.')
     expect(api.retryOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, failed, 'The scan was replaced with a clearer copy')
     expect(screen.queryByLabelText(/^Retry reason/)).toBeNull()
@@ -978,12 +990,12 @@ describe('Migrate: each step moves focus to where the work continues and says wh
   it('retry: a job at its attempt limit offers no retry, and says why', async () => {
     await findJob(exhausted)
     expect(screen.getByText('The extraction attempt limit has been reached. This job cannot be retried.')).toBeTruthy()
-    expect(within(actionsCard()).queryByRole('button', { name: 'Retry job' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry job' })).toBeNull()
   })
 
   it('action buttons are disclosures: Enter or Space on the focused button opens and closes its form', async () => {
     await findJob(failed)
-    const disclosure = within(actionsCard()).getByRole('button', { name: 'Retry job' })
+    const disclosure = within(heading('Progress').closest('section') as HTMLElement).getByRole('button', { name: 'Retry job' })
     expect(disclosure.tagName).toBe('BUTTON')
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
     await press(disclosure)
@@ -998,8 +1010,7 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     api.findOcrJob.mockResolvedValue({ job: awaiting })
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
-    await screen.findByRole('heading', { name: 'Saved record' })
-    await openAction('Check and save')
+    await screen.findByRole('heading', { name: 'Progress' })
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the scanned page' } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
     api.findOcrJob.mockResolvedValue({ job: validated })
@@ -1025,10 +1036,10 @@ describe('Migrate: facility, account and hand-over', () => {
     api.findOcrJob.mockResolvedValue({ job: validated })
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
-    await screen.findByRole('heading', { name: 'Saved record' })
+    await screen.findByRole('heading', { name: 'Progress' })
     session.facilityId = DEMO_LABORATORY_ID
     view.rerender(<MemoryRouter><div className="hid-ehr"><Migrate /></div></MemoryRouter>)
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull())
     expect(screen.getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
     expect(screen.getByText('No matching records')).toBeTruthy()
     onlyCalled('findOcrJob', 'ocrExtractions', 'ocrValidations')
@@ -1039,7 +1050,7 @@ describe('Migrate: facility, account and hand-over', () => {
     api.findOcrJob.mockResolvedValue({ job: validated })
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
-    await screen.findByRole('heading', { name: 'Saved record' })
+    await screen.findByRole('heading', { name: 'Progress' })
     await press(button('Back to list'))
     expect(screen.getByRole('button', { name: 'Document ••••000001' })).toBeTruthy()
     session.actorId = 'staff-demo-2'
@@ -1054,23 +1065,234 @@ describe('Migrate: facility, account and hand-over', () => {
   const handOver = (actorId: string, facilityId: string) => render(<MemoryRouter initialEntries={[{ pathname: '/ehr/migrate',
     state: { ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT, actorId, facilityId } }]}><div className="hid-ehr"><Migrate /><Where /></div></MemoryRouter>)
 
-  it('takes a document handed over in router state by the same account and facility, once, and clears it from history', async () => {
+  it('without OCR job write, takes a document handed over by the same account and facility into Find document job, once, and clears it from history', async () => {
+    session.permissions = ['ocr.job.read']
     handOver('staff-demo-1', DEMO_HOSPITAL_ID)
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
     await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
-    await press(button('Create record'))
-    expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    onlyCalled()
   })
 
   it('ignores a hand-over made by another account or at another facility', async () => {
     handOver('staff-demo-2', DEMO_HOSPITAL_ID)
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe('')
     await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
+    onlyCalled()
   })
 
   it('ignores a hand-over made at another facility', () => {
     handOver('staff-demo-1', DEMO_LABORATORY_ID)
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe('')
+    onlyCalled()
+  })
+})
+
+describe('Migrate: Extract with OCR goes straight to the reading', () => {
+  const HANDED = { pathname: '/ehr/migrate', state: { ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT, actorId: 'staff-demo-1', facilityId: DEMO_HOSPITAL_ID } }
+  function Where() {
+    const location = useLocation()
+    return <p data-testid="history-state">{JSON.stringify(location.state)}</p>
+  }
+  /** Leave the page for another address, and come Back to it, as the browser's Back button does. */
+  function Journey() {
+    const navigate = useNavigate()
+    return <p data-testid="journey">
+      <button type="button" onClick={() => navigate('/ehr/elsewhere')}>Leave</button>
+      <button type="button" onClick={() => navigate(-1)}>Browser back</button>
+    </p>
+  }
+  /** The app's router at `entry`, in StrictMode (effects run twice on mount), with Migrate at its address. */
+  const app = (entry: typeof HANDED | string, journey = false) => <StrictMode><MemoryRouter initialEntries={[entry]}><div className="hid-ehr">
+    <Routes><Route path="/ehr/migrate" element={<Migrate />} /><Route path="/ehr/elsewhere" element={<p>Somewhere else</p>} /></Routes>
+    <Where />{journey && <Journey />}
+  </div></MemoryRouter></StrictMode>
+  /** What the page shows: everything under the frame but the hidden parts and this test's own lines. */
+  const shown = () => Array.from(document.querySelectorAll('.hid-ehr > *'))
+    .filter(element => !(element as HTMLElement).hidden && !element.hasAttribute('data-testid')).map(element => element.textContent)
+
+  it('while the hand-over is checked and sent, the page shows only “Reading the page…”, in a status line', async () => {
+    let found!: (value: unknown) => void
+    api.findOcrJob.mockReturnValue(new Promise(resolve => { found = resolve }))
+    let made!: (value: unknown) => void
+    api.createOcrJob.mockReturnValue(new Promise(resolve => { made = resolve }))
+    render(app(HANDED))
+    // From the very first render: the list never shows first.
+    expect(shown()).toEqual([READING_THE_PAGE])
+    expect(READING_THE_PAGE).toBe('Reading the page…')
+    const line = screen.getByText(READING_THE_PAGE)
+    expect(line.closest('[role="status"]')?.id).toBe('ocr-reading')
+    expect(screen.getAllByRole('status')).toEqual([line.closest('[role="status"]')])
+    expect(screen.queryAllByRole('heading')).toEqual([])
+    expect(screen.queryAllByRole('button')).toEqual([])
+    expect(screen.queryAllByRole('textbox')).toEqual([])
+    await act(async () => { found({ job: null }) })
+    // Still checking and sending: still only the line.
+    expect(api.createOcrJob).toHaveBeenCalledTimes(1)
+    expect(shown()).toEqual([READING_THE_PAGE])
+    await act(async () => { made(queued) })
+    // Then the reading's own page, with focus on its heading; the line is gone, its region stays, empty.
+    await screen.findByRole('heading', { name: 'Progress' })
+    await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    expect(document.getElementById('ocr-reading')?.textContent).toBe('')
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000001'])
+  })
+
+  it('a refused hand-over leaves the line for the list, which says why, with the document in Find document job', async () => {
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockRejectedValue(new HidApiError(409, 'The document is not virus scan clean', { code: 'OCR_DOCUMENT_NOT_READY' }))
+    render(app(HANDED))
+    expect((await screen.findByRole('alert')).textContent).toBe('This document hasn’t finished its virus check yet. Try again once it has.')
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
+    await waitFor(() => expect(focused()).toBe(button('Find job')))
+  })
+
+  it('sends the hand-over exactly once, even with effects run twice, and spends it: Back and a reload send nothing again', async () => {
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue(queued)
+    api.ocrExtractions.mockResolvedValue({ items: [] })
+    const view = render(app(HANDED, true))
+    await screen.findByRole('heading', { name: 'Progress' })
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.createOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT, PATIENT)
+    // The history entry keeps nothing of it.
+    await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
+    // Back to the list on the page: nothing sent again.
+    await press(button('Back to list'))
+    expect(api.createOcrJob).toHaveBeenCalledTimes(1)
+    // Away, then the browser's Back to the same entry: the page mounts again, with nothing handed over.
+    await press(screen.getByRole('button', { name: 'Leave' }))
+    expect(screen.getByText('Somewhere else')).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'Browser back' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(screen.getByTestId('history-state').textContent).toBe('null')
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    // A reload: the browser opens the same entry again, with the state it holds now (none).
+    const kept = JSON.parse(screen.getByTestId('history-state').textContent ?? 'null') as typeof HANDED.state | null
+    view.unmount()
+    render(app(kept ? { ...HANDED, state: kept } : HANDED.pathname))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    await act(async () => { await Promise.resolve() })
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.createOcrJob).toHaveBeenCalledTimes(1)
+  })
+
+  it('a change of facility neither sends it again nor lets a sending still under way open at the new facility', async () => {
+    api.findOcrJob.mockResolvedValue({ job: null })
+    let made!: (value: unknown) => void
+    api.createOcrJob.mockReturnValue(new Promise(resolve => { made = resolve }))
+    const view = render(app(HANDED))
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    expect(shown()).toEqual([READING_THE_PAGE])
+    // The facility changes while the document is being sent: the line gives way to the new facility's empty list.
+    session.facilityId = DEMO_LABORATORY_ID
+    view.rerender(app(HANDED))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    await act(async () => { made(queued) })
+    expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
+    // And back again: the reset does not bring the hand-over back.
+    session.facilityId = DEMO_HOSPITAL_ID
+    view.rerender(app(HANDED))
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.createOcrJob).toHaveBeenCalledTimes(1)
+  })
+
+  it('is not sent at all without OCR job write', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.validation.write']
+    render(app(HANDED))
+    expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
+    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
+    await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
+    await act(async () => { await Promise.resolve() })
+    onlyCalled()
+  })
+})
+
+describe('Migrate: a record is one page, its facts and history under Details', () => {
+  it('shows progress, what was read, Check and save, then Details, closed, holding the facts, Refresh status, Reject reading and the extractions', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    expect(recordSections()).toEqual(['Progress', 'What was read', 'Check and save', 'Extractions'])
+    const details = detailsCard()
+    expect(details.tagName).toBe('DETAILS')
+    expect(details.open).toBe(false)
+    expect(details.querySelector(':scope > summary')?.textContent).toBe('Details')
+    // Last on the page, after every step.
+    const sections = Array.from(details.parentElement!.children)
+    expect(sections.at(-1)).toBe(details)
+    // What it holds is inside it, out of sight until it is opened.
+    expect(details.querySelector('#ocr-refresh-submit')?.textContent).toBe('Refresh status')
+    expect(details.querySelector('#ocr-action-reject')?.textContent).toBe('Reject reading')
+    expect(within(details).getByText('Not confirmed')).toBeTruthy()
+    expect(within(details).getByText('1 of 3')).toBeTruthy()
+    expect(within(details).getByText('Name not shown')).toBeTruthy()
+    expect(within(details).getByText('Extraction 1 · textract · confidence 92%')).toBeTruthy()
+    expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
+    // Nothing of these is anywhere else on the page.
+    expect(details.parentElement!.querySelectorAll('#ocr-refresh-submit')).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'Available actions' })).toBeNull()
+    await openDetails()
+    expect(button('Refresh status')).toBeTruthy()
+    expect(button('Reject reading')).toBeTruthy()
+  })
+
+  it('once checked, Confirm the patient is on the page after what was read, and the publication history follows it', async () => {
+    api.ocrValidations.mockResolvedValue({ items: [validation] })
+    await findJob(validated)
+    await screen.findByRole('heading', { name: 'Review and publication history' })
+    expect(recordSections()).toEqual(['Progress', 'What was read', 'Confirm the patient', 'Review and publication history', 'Extractions'])
+    expect(screen.getByRole('form', { name: 'Confirm source patient' })).toBeTruthy()
+    expect(detailsCard().open).toBe(false)
+    expect(detailsButtons()).toEqual(['Refresh status'])
+  })
+
+  it('says the job’s status once, in Progress, and not again on the line above it', async () => {
+    await findJob(awaiting)
+    const progress = (await screen.findByRole('heading', { name: 'Progress' })).closest('section') as HTMLElement
+    expect(within(progress).getByText('Ready to check')).toBeTruthy()
+    expect(within(document.querySelector('.hid-ehr-dept-context') as HTMLElement).queryByText('Ready to check')).toBeNull()
+    expect(screen.getAllByText('Ready to check').filter(node => !detailsCard().contains(node))).toHaveLength(1)
+  })
+
+  it('Reject reading, opened under Details, puts the check on hold until it is closed', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('form', { name: 'Check and save' })
+    const reject = await openAction('Reject reading')
+    expect(reject.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.queryByRole('form', { name: 'Check and save' })).toBeNull()
+    expect(screen.getByText('You’re rejecting this reading. Open Details and close Reject reading to check and save it instead.')).toBeTruthy()
+    expect(screen.getAllByLabelText(/^Why you’re/)).toHaveLength(1)
+    await press(reject)
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
+    expect(screen.queryByRole('form', { name: 'Reject reading' })).toBeNull()
+  })
+})
+
+describe('Migrate: a reading blanked after 24 hours (hid-system 0110)', () => {
+  const readSection = async () => (await screen.findByRole('heading', { name: 'What was read' })).closest('section') as HTMLElement
+
+  it('says the reading was deleted, never an empty review', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {} }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Reading deleted after 24 hours')).toBeTruthy()
+    expect(read.textContent).not.toContain('No text was read')
+    expect(within(read).queryByText(/confidence/)).toBeNull()
+  })
+
+  it('says today’s words for a reading of the last 24 hours that found nothing', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, createdAt: new Date().toISOString() }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('No text was read from this document.')).toBeTruthy()
+    expect(read.textContent).not.toContain('Reading deleted after 24 hours')
   })
 })
 
@@ -1095,27 +1317,45 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     // The reading's own parts never show as loose fields.
     expect(within(read).queryByText('Pages')).toBeNull()
     expect(within(read).queryByText('Contract')).toBeNull()
-    // The scanned text waits closed at the very end, under its own summary, and can still be read and scrolled.
-    const raw = within(read).getByText('Scanned text (raw)')
-    expect(raw.tagName).toBe('SUMMARY')
-    const disclosure = raw.closest('details')!
-    expect(disclosure.open).toBe(false)
-    expect(read.lastElementChild).toBe(disclosure)
-    const text = within(disclosure).getByRole('region', { name: 'Text read from the document', hidden: true })
-    expect(text.textContent).toBe('Amlodipine 5mg od')
-    expect(text.getAttribute('tabindex')).toBe('0')
-    // Only there: never as an open block among the items.
-    expect(within(read).getAllByRole('region', { name: 'Text read from the document', hidden: true })).toEqual([text])
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+    // The items are what staff check: the scanned text is not shown beside them, open or closed (owner, 10 November).
+    expect(within(read).queryByText('Scanned text (raw)')).toBeNull()
+    expect(within(read).queryByRole('region', { name: 'Text read from the document', hidden: true })).toBeNull()
+    expect(read.textContent).not.toContain('No text was read')
+    // Nor in the Extractions history: its summary line alone.
+    const summary = await screen.findByText('Extraction 1 · textract · confidence 92%')
+    expect(summary.tagName).toBe('P')
+    expect(screen.queryByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeNull()
+    expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
   })
 
-  it('shows no scanned text disclosure for a paper reading when no text was read', async () => {
+  it('says nothing about scanned text for a paper reading when no text was read', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: '  \n ', structuredPayload: paperReading() }] })
     await findJob(awaiting)
     const read = await readSection()
     expect(within(read).getByText('7 items read · 2 to check')).toBeTruthy()
     expect(within(read).queryByText('Scanned text (raw)')).toBeNull()
     expect(within(read).queryByRole('region', { name: 'Text read from the document', hidden: true })).toBeNull()
+    expect(read.textContent).not.toContain('No text was read')
+  })
+
+  it('still shows the scanned text, open, when a paper reading picked out no items', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: unreadPaper('ai_off') }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    const text = within(read).getByRole('region', { name: 'Text read from the document' })
+    expect(text.textContent).toBe('Haemoglobin 12.1')
+    expect(text.closest('details')).toBeNull()
+    expect(screen.getByRole('region', { name: 'Extracted text, version 1', hidden: true }).textContent).toBe('Haemoglobin 12.1')
+  })
+
+  it('still shows the scanned text when a paper reading was read but found no items, so staff have words to check', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading({ items: [],
+      reading: { ...paperReading().reading, itemCount: 0 } }) }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
+    expect(screen.getByRole('region', { name: 'Extracted text, version 1', hidden: true }).textContent).toBe('Haemoglobin 12.1')
   })
 
   it('warns first when the page may not be fully read, in one line above the count', async () => {
@@ -1160,7 +1400,8 @@ describe('Migrate: what was read from a paper record, item by item', () => {
     expect(within(read).queryByText('Items')).toBeNull()
     expect(within(read).getByRole('note').textContent).toBe('The items couldn’t be picked out automatically. Enter them by hand.')
     expect(within(read).getByRole('region', { name: 'Text read from the document' }).textContent).toBe('Haemoglobin 12.1')
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+    expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
   })
 
   it('keeps showing named fields for an extraction that is not a paper reading', async () => {
@@ -1183,7 +1424,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   it('shows each item as a card: one line as written, a Check mark with Why? when to check, careful ones first and undecided', async () => {
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     const shown = cards()
     expect(shown).toHaveLength(7)
     expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Metf?rmin 500 bd', 'Allergic to penicillin - rash',
@@ -1209,10 +1449,60 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     expect(screen.queryByLabelText('Reading')).toBeNull()
   })
 
+  it('shows a hard handwritten page with no reader\'s "?", and Keep saves the clean reading it shows', async () => {
+    withReading(hardHandwrittenPage())
+    await findJob(awaiting)
+    // Check and save is open on the page itself.
+    await screen.findByRole('form', { name: 'Check and save' })
+    const shown = cards()
+    expect(shown).toHaveLength(7)
+    // Unsure words are dotted and said as "not sure"; parts that couldn't be read are grey words; crossed-out words struck through.
+    expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual([
+      'IV (not sure) Ampiclox (not sure) 500mg (not sure) 8hrly (not sure)',
+      'IV (not sure) Gentamicin (not sure) 80mg (not sure) crossed out: Ceftriaxone 1g 12hrly (not sure)',
+      'IV (not sure) Omeprazole (not sure) 40mg (not sure) daily (not sure)',
+      'Dc Gentamicin (not sure) — Stopped',
+      'Paracetamol 1g frequency couldn’t be read ? on paper',
+      'Admit (not sure)',
+      '21/8 (not sure) word couldn’t be read - Transfer to the ward',
+    ])
+    expect(shown[0]!.querySelector('.hid-ehr-dept-migrate-unsure')?.getAttribute('title')).toBe('not sure')
+    expect(shown[1]!.querySelector('s')?.textContent).toBe('crossed out: Ceftriaxone 1g')
+    // Each card keeps its Check mark; other readings and the cut-off word wait under its closed Why?.
+    for (const card of shown) expect(within(card).getByText('Check')).toBeTruthy()
+    const why = within(shown[2]!).getByText('Why?').closest('details')!
+    expect(why.open).toBe(false)
+    expect(within(why).getByText('Other possible reading: Quinine')).toBeTruthy()
+    expect(within(within(shown[0]!).getByText('Why?').closest('details')!).getByText('Written as: Am…')).toBeTruthy()
+    // What Keep saves is said in the same clean words, only where it differs from the line.
+    expect(within(shown[1]!).getByText('Keep saves: Gentamicin 80mg 12hrly')).toBeTruthy()
+    expect(within(shown[3]!).getByText('Keep saves: Dc Gentamicin (stopped)')).toBeTruthy()
+    expect(within(shown[0]!).queryByText(/^Keep saves/)).toBeNull()
+    expect(within(form()).queryAllByText(/^Keep saves/).map(line => line.textContent).join(' ')).not.toContain('?')
+    // Outside Why? and words said only to a screen reader, the one "?" left is the one written on the paper.
+    const seen = shown.map(card => {
+      const copy = card.querySelector('strong')!.cloneNode(true) as HTMLElement
+      copy.querySelectorAll('.hid-ehr-sr-only').forEach(hidden => hidden.remove())
+      return copy.textContent
+    }).join(' ')
+    expect(seen.match(/\?/g)).toHaveLength(1)
+    for (const card of shown) await press(within(card).getByRole('button', { name: 'Keep' }))
+    fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(save())
+    await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
+    const input = api.validateOcrJob.mock.calls[0]![2]
+    expect((input.acceptedFields.items as Array<{ reading: string }>).map(item => item.reading)).toEqual([
+      'IV Ampiclox 500mg 8hrly', 'Gentamicin 80mg 12hrly', 'IV Omeprazole 40mg daily', 'Dc Gentamicin (stopped)', 'Paracetamol 1g (? on paper)',
+      'Admit', '21/8 - Transfer to the ward',
+    ])
+    expect(input.corrections).toEqual([])
+  })
+
   it('Keep, Change and Remove become what OCR is sent: accepted, corrected and rejected', async () => {
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     const [metformin, allergy] = cards()
     await press(within(metformin!).getByRole('button', { name: 'Change' }))
     const typed = within(metformin!).getByLabelText('What the paper says') as HTMLInputElement
@@ -1241,7 +1531,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     session.permissions = [...ALL, ...extra]
     withReading(payload)
     await findJob(awaiting)
-    await openAction('Check and save')
     expect(optionsOf(screen.getByLabelText('Save as'))).toEqual(offered)
   })
 
@@ -1251,7 +1540,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
       startedAt: '2026-03-02T09:00:00.000Z', chiefComplaint: 'Blood pressure review', rowVersion: 1 }], nextCursor: null })
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
     fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'EHR' } })
     const visit = await screen.findByLabelText(/^Visit to attach the note to/)
@@ -1273,7 +1561,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   it('Change on a lab result asks for the test and the result, and sends the typed test name', async () => {
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
     const haemoglobin = cards()[4]!
     await press(within(haemoglobin).getByRole('button', { name: 'Change' }))
@@ -1297,7 +1584,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   it('past medicines sends every medicine kept, each its own entry, and says plainly when more than 50 are kept', async () => {
     withReading(medicinesPaper(51))
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'PHARMACY' } })
     expect(within(form()).getByRole('note').textContent).toBe('Only 50 medicines can be added at once. The first 50 on the paper are added. The rest stay with the document; add them in a clinical note.')
     await press(within(cards()[0]!).getByRole('button', { name: 'Remove' }))
@@ -1311,7 +1597,7 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     expect(input).toMatchObject({ targetDomain: 'PHARMACY', candidateType: 'historical_medication_evidence' })
     expect(input.acceptedFields.medications).toHaveLength(50)
     expect(input.acceptedFields.medications[0]).toEqual({ itemId: 'it-0000000000000b01', page: 1, medicationText: 'Testamol 2', strengthText: '10 mg',
-      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. As written: Testamol 2 10mg od' })
+      frequencyText: 'once a day', historicalContext: 'From a paper record, page 1. Read as: Testamol 2 10mg od' })
     expect(input.acceptedFields).not.toHaveProperty('medicationText')
   })
 
@@ -1325,7 +1611,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     api.encounters.mockResolvedValueOnce({ items: [visit('c0000000-0000-4000-8000-000000000005', 'completed', 'Older visit')], nextCursor: null })
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'EHR' } })
     const picker = await screen.findByLabelText(/^Visit to attach the note to/)
     expect(optionsOf(picker).slice(1).map(text => text?.split(' · ').at(-1))).toEqual(['Open visit'])
@@ -1342,7 +1627,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
       startedAt: '2026-03-02T09:00:00.000Z', chiefComplaint: 'Cancelled visit', rowVersion: 1 }], nextCursor: null })
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'EHR' } })
     expect(await within(form()).findByText('This patient has no visits yet, so a clinical note can’t be attached. Choose another way to save it.')).toBeTruthy()
     expect(screen.queryByLabelText(/^Visit to attach the note to/)).toBeNull()
@@ -1351,18 +1635,16 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   it('a reading with no items offers only Keep the document only and Reject, without a Save as choice', async () => {
     withReading(unreadPaper('ai_failed'))
     await findJob(awaiting)
-    await openAction('Check and save')
     expect(cards()).toHaveLength(0)
     expect(screen.queryByLabelText('Save as')).toBeNull()
     expect(within(form()).getByText('Keep the document only')).toBeTruthy()
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toContain('Reject reading')
+    expect(detailsButtons()).toContain('Reject reading')
   })
 
   it('names readings plainly when there are several, and checks the newest first', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, id: 'extraction-1', version: 1 },
       { ...extraction, id: 'extraction-2', version: 2, structuredPayload: paperReading() }] })
     await findJob(awaiting)
-    await openAction('Check and save')
     const reading = screen.getByLabelText('Reading') as HTMLSelectElement
     expect(optionsOf(reading)).toEqual(['Reading 1 of 2', 'Reading 2 of 2 (newest)'])
     expect(reading.value).toBe('extraction-2')
@@ -1378,7 +1660,6 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
   ])('says plainly when OCR refuses %s, never its code or words', async (_, refusal, words) => {
     withReading()
     await findJob(awaiting)
-    await openAction('Check and save')
     for (const card of cards().slice(0, 2)) await press(within(card).getByRole('button', { name: 'Keep' }))
     fireEvent.change(screen.getByLabelText('Save as'), { target: { value: 'LAB' } })
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
@@ -1417,7 +1698,6 @@ describe('Migrate: a handwritten page with lines that couldn’t be read, shown 
 
   it('checks only the line that was read, and saves the unreadable lines as removed, never kept', async () => {
     await findJob(awaiting)
-    await openAction('Check and save')
     const shown = cards()
     expect(shown.map(card => card.querySelector('strong')?.textContent)).toEqual(['Ceftriaxone ? IV'])
     // What Keep saves is not the line as written, so the card shows it: nothing is saved that wasn't seen.
@@ -1449,7 +1729,6 @@ describe('Migrate: a handwritten page with lines that couldn’t be read, shown 
     await findJob(awaiting)
     const read = await readSection()
     expect(within(read).getByText('0 items read')).toBeTruthy()
-    await openAction('Check and save')
     expect(cards()).toHaveLength(0)
     expect(within(form()).getByText('No items were picked out to check one by one. You can keep the document only, or reject this reading.')).toBeTruthy()
     expect(within(form()).getByText('9 lines couldn’t be read. Check the paper.')).toBeTruthy()
@@ -1467,7 +1746,8 @@ describe('Migrate: Read again', () => {
     await screen.findByRole('heading', { name: 'What was read' })
     expect(readAgain()).toBeTruthy()
     // The actions card keeps its own buttons.
-    expect(within(actionsCard()).getAllByRole('button').map(control => control.textContent)).toEqual(['Refresh status', 'Check and save', 'Reject reading'])
+    expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
   })
 
   it.each([['validated', validated], ['confirmed for the patient', confirmed]])(
@@ -1493,6 +1773,35 @@ describe('Migrate: Read again', () => {
     expect(api.ocrExtractions).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, newer.id)
   })
 
+  it('after a refusal that names no job, says the reading is gone and sends a fresh key on the next press', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(new HidApiError(404, 'OCR job was not found', { code: 'OCR_JOB_NOT_FOUND' }))
+    await press(readAgain())
+    expect(await screen.findByText('This reading is no longer available to you. Press Read again to start a new one.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('OCR_JOB_NOT_FOUND')
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(2))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[0]).toEqual(expect.any(String))
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('keeps the same key after a failure that may have made the job (a 5xx), so a retry is not read twice', async () => {
+    await findJob(awaiting)
+    await screen.findByRole('heading', { name: 'What was read' })
+    api.createOcrJob.mockRejectedValueOnce(unavailable())
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(1))
+    await screen.findByRole('alert')
+    api.createOcrJob.mockResolvedValue({ ...awaiting, id: newer.id })
+    await press(readAgain())
+    await waitFor(() => expect(api.createOcrJob).toHaveBeenCalledTimes(2))
+    const keys = api.createOcrJob.mock.calls.map(call => call[3])
+    expect(keys[1]).toBe(keys[0])
+  })
+
   it('is not offered without OCR job write, nor while the document is still being read', async () => {
     session.permissions = ['ocr.job.read']
     const { unmount } = await findJob(awaiting)
@@ -1514,7 +1823,7 @@ describe('Migrate: Read again', () => {
     await waitFor(() => expect(statusRegion().textContent).toBe('Reading the document again. This page updates by itself when it’s ready.'))
     expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT, PATIENT, expect.stringMatching(/^[0-9a-f-]{36}$/))
     expect(api.findOcrJob).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(focused()).toBe(heading('Saved record')))
+    await waitFor(() => expect(focused()).toBe(heading('Progress')))
     expect(screen.getAllByText('Waiting to be read').length).toBeGreaterThan(0)
     expect(api.ocrExtractions).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, newer.id)
     // The new job is read again by itself, as after Create.
@@ -1558,6 +1867,6 @@ describe('Migrate: Read again', () => {
     api.createOcrJob.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'OCR_RECORDS_PROCESSING_CONSENT_REQUIRED' }))
     await press(readAgain())
     expect((await screen.findByRole('alert')).textContent).toBe(STAFF_PAPER_NEEDS_ACCESS)
-    expect(heading('Saved record')).toBeTruthy()
+    expect(heading('Progress')).toBeTruthy()
   })
 })

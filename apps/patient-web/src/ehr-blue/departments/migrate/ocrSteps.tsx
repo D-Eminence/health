@@ -13,7 +13,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
-import { ItemCheck, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
+import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
@@ -136,7 +136,7 @@ function ReviewItemCard({ item, index, decision, problem, onChange }: {
     <div id={cardId} role="group" tabIndex={-1} aria-labelledby={nameId} aria-describedby={cardError ? `${cardId}-error` : undefined}
       aria-invalid={cardError ? true : undefined}>
       <div className="hid-ehr-dept-migrate-check-head">
-        <strong id={nameId}>{line}</strong>
+        <strong id={nameId}><ItemLineText item={item} /></strong>
         <ItemCheck item={item} />
         <div className="hid-ehr-dept-migrate-check-choices">
           {(['keep', 'change', 'remove'] as const).map(choice => <EhrButton key={choice} size="sm" variant={decision.choice === choice ? 'primary' : 'secondary'}
@@ -431,6 +431,8 @@ function publicationRefusal(caught: unknown) {
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
   // The part of the record it was going to refused it for good: said as what it means for the person, not as a service.
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'This couldn’t be added to the patient’s record, and it can’t be tried again.'
+  // Publishing into the record needs direct-care access to the patient, which this member doesn't hold.
+  if (isHidApiError(caught) && caught.status === 403 && caught.code === 'OCR_PUBLISH_NEEDS_DIRECT_CARE') return 'Ask a clinician with access to this patient to publish it.'
   return errorText(caught, 'The validated evidence was not published.')
 }
 

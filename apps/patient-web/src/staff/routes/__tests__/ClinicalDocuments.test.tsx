@@ -86,6 +86,25 @@ describe('the document list', () => {
   })
 })
 
+describe('a source page deleted after 24 hours (hid-system 0110)', () => {
+  it('lists the document with that sentence, and offers no download or OCR', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...listed, status: 'source_deleted' }] })
+    const item = (await openDocuments()).closest<HTMLElement>('.staff-list-item')!
+    expect(item.textContent).toContain('Source page deleted after 24 hours')
+    expect(screen.queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
+  it('says the download’s answer in that sentence, and opens nothing', async () => {
+    api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
+    await openDocuments()
+    fireEvent.click(screen.getByRole('button', { name: 'Open file' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect(opened).not.toHaveBeenCalled()
+  })
+})
+
 describe('opening a document checks the link first', () => {
   it('opens an https storage link', async () => {
     const link = 'https://storage.example.test/bucket/document-1?X-Amz-Signature=abc'

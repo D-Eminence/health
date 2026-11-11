@@ -813,7 +813,7 @@
   gap: 8px 12px;
 }
 
-/* One line per item read: the words as written, then a small "?" and Why? when it needs a check. */
+/* One line per item read: the words as written, then a small Check mark and Why? when it needs a check. */
 .hid-ehr .hid-ehr-dept-rows > li.hid-ehr-dept-migrate-line {
   justify-content: flex-start;
   gap: 8px 12px;
@@ -843,12 +843,31 @@
   margin: 4px 0 0;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-raw {
-  margin-top: 16px;
+/* A word the reader is unsure of: dotted underline and a little muted, never a "?". */
+.hid-ehr .hid-ehr-dept-migrate-unsure {
+  color: var(--ehr-muted);
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-raw > pre {
-  margin: 8px 0 0;
+/* A part that couldn't be read ("dose"), or a "?" written on the paper: a small grey pill. */
+.hid-ehr .hid-ehr-dept-migrate-gap {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ehr-line);
+  color: var(--ehr-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  vertical-align: baseline;
+}
+
+/* Words crossed out on the paper. */
+.hid-ehr .hid-ehr-dept-migrate-crossed {
+  color: var(--ehr-muted);
+  font-weight: 400;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-review {
@@ -915,6 +934,39 @@
 
 .hid-ehr .hid-ehr-dept-migrate-upload h3 {
   margin: 0;
+}
+
+/* All the page says while a document is sent for reading; the region stays mounted, empty, the rest of the time. */
+.hid-ehr .hid-ehr-dept-migrate-starting > p {
+  margin: 24px 0;
+  color: var(--ehr-text);
+  font-size: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-state {
+  margin: 0;
+}
+
+/* Details, at the end of a record: closed until opened, its extractions without a card of their own. */
+.hid-ehr .hid-ehr-dept-migrate-more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin: -12px 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more[open] > summary {
+  margin-bottom: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-more > .hid-ehr-dept-history-card {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 .hid-ehr .hid-ehr-dept-migrate-quick {

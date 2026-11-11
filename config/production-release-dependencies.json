@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now. ocr-api and ocr-worker were redeployed from D-Eminence/hid-system staging-novu-ci-20261005 at 013c3eff for hid-system#205 (reader cleanups: one alternative per field, headings and duplicate stop notes dropped; PROMPT_VERSION 12), on top of #204 (last-resort read). Every other service stays at 14bac287. No browser-facing contract change. OCR train deploys approved by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\"); clean output requested 2026-11-06.",
+  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #214 visit-note fix, #212 reader cleanup, #209 record chat, #213 support Health ID check (0109, signed by the owner) with #224, #165 backend error reporting, #181 Outreach campaign fix (0110, signed by the owner). Each service is pinned to the commit its last deploy built. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
   "backend_commits": {
-    "gateway": "14bac28708251f639b726348fc5c03c080de96c1",
-    "identity-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "ehr-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "lab-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "pharmacy-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "ocr-api": "013c3eff0940795158cd0147a4cab3502a78d64d",
-    "outreach-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "support-api": "14bac28708251f639b726348fc5c03c080de96c1",
-    "notification-api": "14bac28708251f639b726348fc5c03c080de96c1"
+    "gateway": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "identity-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "ehr-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
+    "lab-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "pharmacy-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "ocr-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "outreach-api": "13d5b5188d3e998eb02c4bef1ecb9a10ee25d480",
+    "support-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d",
+    "notification-api": "9177d58755ed21ff0fed7f6032c117b924ff7a7d"
   }
 }

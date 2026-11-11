@@ -1,6 +1,8 @@
-import { useCallback, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
-import { adminApi, type AdminActor, type CursorPage, type PlatformOverview } from './api'
+import { adminApi, type ActivityDays, type AdminActor, type CursorPage, type PlatformActivity, type PlatformOverview } from './api'
+import { CareSection, MigrateAskSection, PeopleSection, PeriodSwitch, ProductAnalyticsSection, RecentSignupsSection, RecentUploadsSection,
+  SystemHealthSection, type Optional } from './Activity'
 import { canOpen, navigationItemFor } from './navigation'
 import { has, useResource, type Resource } from './ui'
 import { Blocks, Building2, ChevronRight, CircleCheck, ClipboardCheck, FileCheck2, Megaphone, RefreshCw, ScanFace, Stethoscope, TriangleAlert, Users } from 'lucide-react'
@@ -58,6 +60,35 @@ function overviewRead<T>(load: Promise<T>): Promise<T | Unavailable> {
   return load.catch((error: unknown) => isHidApiError(error) && error.status === 403 && !ACTIONABLE.has(error.code)
     ? UNAVAILABLE : plainFailure(error))
 }
+/**
+ * The activity figures are new (contract of 11 Nov 2026): an Identity build without them answers 404, and the overview
+ * then shows only the totals and waiting work, as before. A refusal of the area itself leaves it out the same way.
+ */
+const NOT_SERVED = { notServed: true } as const
+type NotServed = typeof NOT_SERVED
+const isNotServed = (value: unknown): value is NotServed => value === NOT_SERVED
+function activityRead<T>(load: Promise<T>): Promise<T | NotServed> {
+  return load.catch((error: unknown) => isHidApiError(error) && (error.status === 404 || (error.status === 403 && !ACTIONABLE.has(error.code)))
+    ? NOT_SERVED : plainFailure(error))
+}
+/** Service checks and error reporting answer 503 `not_configured` until they are set up (404 before they are deployed). */
+const NOT_SET_UP = { notSetUp: true } as const
+type NotSetUp = typeof NOT_SET_UP
+function operationsRead<T>(load: Promise<T>): Promise<T | NotSetUp | NotServed> {
+  return load.catch((error: unknown) => {
+    if (!isHidApiError(error)) return plainFailure(error)
+    if ((error.status === 503 && error.code.toLowerCase() === 'not_configured') || error.status === 404) return NOT_SET_UP
+    if (error.status === 403 && !ACTIONABLE.has(error.code)) return NOT_SERVED
+    return plainFailure(error)
+  })
+}
+function optional<T>(resource: Resource<T | NotSetUp | NotServed | null>): Optional<T> {
+  if (resource.error) return { state: 'failed' }
+  if (resource.data === null) return { state: 'loading' }
+  if (resource.data === NOT_SET_UP || isNotServed(resource.data)) return { state: 'not-set-up' }
+  return { state: 'ready', value: resource.data as T }
+}
+
 const plain = (what: string) => `Couldn’t check ${what} just now. Select Try again in a minute.`
 
 interface Waiting { key: string; title: string; to: string; icon: Icon; tone: Tone; count: number; badge: string; detail: string }
@@ -87,6 +118,20 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
   const mayApplications = has(actor, 'platform.identity-review.read')
   const mayDemos = has(actor, 'platform.demo.read')
   const mayIntegrations = has(actor, 'platform.integration.read')
+  // Super admin only: the activity figures, service checks and errors.
+  const mayActivity = has(actor, 'platform.dashboard.read')
+
+  const [days, setDays] = useState<ActivityDays>(30)
+  const activity = useResource(useCallback((signal?: AbortSignal) => mayActivity ? activityRead(adminApi.activity(days, signal)) : nothing(), [mayActivity, days]),
+    'The activity figures couldn’t be loaded just now. Select Try again in a minute.')
+  const health = useResource(useCallback((signal?: AbortSignal) => mayActivity ? operationsRead(adminApi.operationsHealth(signal)) : nothing(), [mayActivity]),
+    plain('the services'))
+  const errors = useResource(useCallback((signal?: AbortSignal) => mayActivity ? operationsRead(adminApi.operationsErrors(signal)) : nothing(), [mayActivity]),
+    plain('for errors'))
+  // A new period keeps the last figures on screen (dimmed) until the new ones arrive, so the page does not jump.
+  const [shown, setShown] = useState<PlatformActivity | null>(null)
+  useEffect(() => { if (activity.data && !isNotServed(activity.data)) setShown(activity.data) }, [activity.data])
+  const activityServed = mayActivity && !isNotServed(activity.data)
 
   const approvals = useResource(useCallback((signal?: AbortSignal) => mayApprovals ? overviewRead(adminApi.approvals('pending', {}, signal)) : nothing(), [mayApprovals]),
     plain('for approvals'))
@@ -122,7 +167,7 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
   const unavailable = reads.flatMap(read => read.unavailable ? [read.unavailable] : [])
   const stillLoading = reads.some(read => read.loading)
   const anyArea = mayApprovals || mayWrongPatient || mayApplications || mayDemos || mayIntegrations
-  const reloadAll = () => { totals.reload(); approvals.reload(); wrongPatient.reload(); applications.reload(); demos.reload(); integrations.reload() }
+  const reloadAll = () => { totals.reload(); if (mayActivity) { activity.reload(); health.reload(); errors.reload() } approvals.reload(); wrongPatient.reload(); applications.reload(); demos.reload(); integrations.reload() }
 
   let attention: ReactNode
   if (rows.length > 0) attention = <ul className="m-0 list-none divide-y divide-line p-0">{rows.map(row => <li key={row.key}>
@@ -135,8 +180,8 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
 
   const t = totals.data
   return <div className="flex flex-col gap-8">
-    <PageHeader title="Overview" description="Platform totals and the work waiting for you."
-      actions={<Button icon={RefreshCw} onClick={reloadAll} disabled={totals.loading}>Refresh</Button>} />
+    <PageHeader title="Overview" description={activityServed ? 'Platform totals, pilot activity and the work waiting for you.' : 'Platform totals and the work waiting for you.'}
+      actions={<>{activityServed && <PeriodSwitch value={days} onChange={setDays} />}<Button icon={RefreshCw} onClick={reloadAll} disabled={totals.loading}>Refresh</Button></>} />
     {totals.error && <Alert intent="error" title="Couldn’t load the totals" action={<Button size="sm" onClick={totals.reload}>Try again</Button>}>{totals.error}</Alert>}
     <section aria-labelledby="admin-totals-title" className="flex flex-col gap-3">
       <h2 id="admin-totals-title" className="sr-only">Platform totals</h2>
@@ -149,6 +194,19 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
           hint={t?.pendingIdentityReviews ? 'Waiting for a check' : 'Nothing to review'} />
       </StatGroup>
     </section>
+    {activityServed && activity.error && <Alert intent="error" title="Couldn’t load the activity figures"
+      action={<Button size="sm" onClick={activity.reload}>Try again</Button>}>{activity.error}</Alert>}
+    {activityServed && !activity.error && shown && <div className={activity.loading ? 'flex flex-col gap-8 opacity-60 transition-opacity' : 'flex flex-col gap-8'}
+      aria-busy={activity.loading || undefined}>
+      <PeopleSection activity={shown} />
+      <CareSection activity={shown} />
+      <MigrateAskSection activity={shown} />
+      <SystemHealthSection health={optional(health)} errors={optional(errors)} />
+      <ProductAnalyticsSection />
+      <RecentSignupsSection activity={shown} />
+      <RecentUploadsSection activity={shown} />
+    </div>}
+    {activityServed && !activity.error && !shown && activity.loading && <LoadingRows rows={3} label="Loading activity" />}
     {anyArea && <section aria-labelledby="admin-attention-title" className="flex flex-col gap-3">
       <SectionHeader id="admin-attention-title" title="Waiting for attention" count={rows.length || null} />
       {failures.map(message => <Alert key={message} intent="error" size="sm" action={<Button size="sm" onClick={reloadAll}>Try again</Button>}>{message}</Alert>)}

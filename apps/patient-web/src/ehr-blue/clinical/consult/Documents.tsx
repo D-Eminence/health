@@ -7,6 +7,7 @@ import {
   useDocumentTypesServed, type DocumentType,
 } from '../../../documentTypes'
 import { staffApi, type DocumentRecord } from '../../../staff/api'
+import { SOURCE_DELETED_WORDS, isSourceDeleted, sourceDeleted } from '../../../documentSource'
 import { getEnvironment } from '../../../staff/env'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import type { Chart } from '../parts/chart'
@@ -101,6 +102,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       const sentIn = staffSessionGeneration()
       await chart.verify()
       const result = await staffApi.documentDownload(facilityId, document.id)
+      // A source page deleted after 24 hours (hid-system 0110) has no file to open: said in its own sentence.
+      if (isSourceDeleted(result)) { setError(SOURCE_DELETED_WORDS); return }
       assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local', code: 'INVALID_DOWNLOAD_URL', message: 'Document could not be opened.' })
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
@@ -167,29 +170,32 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
         <p>No documents for this consultation.</p>
       ) : (
         <ul className="hid-ehr-clinical-history-list">
-          {list.items.map(document => (
-            <li key={document.id} className="hid-ehr-clinical-history-row">
+          {list.items.map(document => {
+            // A source page deleted after 24 hours (hid-system 0110) says so, and offers neither its file nor OCR.
+            const deleted = sourceDeleted(document)
+            return <li key={document.id} className="hid-ehr-clinical-history-row">
               <span>
                 <strong>{document.fileName}</strong>
                 <span className="hid-ehr-clinical-cell-sub">{documentLine(document, served)}</span>
                 {document.status === 'initiated' ? (
                   <span className="hid-ehr-clinical-cell-sub">Upload not completed; only the person who started it can finish it. Upload the file again.</span>
                 ) : null}
+                {deleted ? <span className="hid-ehr-clinical-cell-sub">{SOURCE_DELETED_WORDS}</span> : null}
               </span>
               <span className="hid-ehr-clinical-consult-document-actions">
-                {document.status ? <StatusBadge status={document.status} /> : null}
-                <EhrButton variant="secondary" size="sm" disabled={document.scanStatus !== 'clean'} busy={opening === document.id}
+                {document.status && !deleted ? <StatusBadge status={document.status} /> : null}
+                {deleted ? null : <EhrButton variant="secondary" size="sm" disabled={document.scanStatus !== 'clean'} busy={opening === document.id}
                   aria-label={`Open file ${document.fileName}`} onClick={() => open(document)}>
                   Open file
-                </EhrButton>
-                {canOcr && document.scanStatus === 'clean' ? (
+                </EhrButton>}
+                {canOcr && !deleted && document.scanStatus === 'clean' ? (
                   <Link className="hid-ehr-clinical-link" to={OCR_PATH} state={{ ocrDocumentId: document.id, ocrPatientId: patientId, actorId, facilityId }}>
                     {OCR_LABEL}
                   </Link>
                 ) : null}
               </span>
             </li>
-          ))}
+          })}
         </ul>
       )}
       {canWrite && !uploadsHere ? <p className="hid-ehr-clinical-note" role="status">{NO_UPLOAD_HERE}</p> : null}
