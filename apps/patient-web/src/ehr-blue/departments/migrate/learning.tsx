@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
 import { problemText, type FieldProblem } from '../../../staff/fieldProblem'
 import {
-  CHANGE_REASONS, REJECTION_REASONS, REMOVAL_REASONS, type ReasonChoice, type RejectionReason,
+  CHANGE_REASONS, MAX_MISSED_ITEMS, REJECTION_REASONS, REMOVAL_REASONS, type ReasonChoice, type RejectionReason,
 } from '../../../readingLearningContract'
 import type { PaperItem } from './paperReading'
 import {
@@ -46,7 +46,8 @@ export function useSeenItems() {
   }), [watch])
 }
 
-const REASON_HINT = 'Optional. Tap one if you like: it helps the reading get better. It isn’t saved in the patient’s record.'
+/** Said on every changed or removed card, so kept short; the longer why is said once, at the missed box. */
+const REASON_HINT = 'Optional.'
 
 /**
  * One optional choice from a short list, as one-tap buttons: the chosen one is pressed, and tapping it again clears it.
@@ -103,14 +104,20 @@ export function MedicineChange({ item, index, decision, problem, onChange }: {
   </div>
 }
 
+/** Digits only, and never more than the most the service takes, so the box can't hold a number that stops a save. */
+export function capMissed(typed: string): string {
+  const digits = typed.replace(/[^0-9]/g, '').slice(0, 3)
+  return digits && Number(digits) > MAX_MISSED_ITEMS ? String(MAX_MISSED_ITEMS) : digits
+}
+
 /** "The reading missed…": one optional number. Nothing about what was missed is asked or sent. */
 export function MissedItems({ missed, problem, onChange }: {
   readonly missed: string; readonly problem: FieldProblem | null; readonly onChange: (missed: string) => void
 }) {
   return <EhrField label="The reading missed…" controlId={MISSED_FIELD} error={problemText(problem, MISSED_FIELD)}
-    hint="Optional. If the paper has things the reading didn’t pick out, you can say how many. A number only: don’t write what they are.">
+    hint={`Optional. If the paper has things the reading didn’t pick out, you can say how many, up to ${MAX_MISSED_ITEMS}. A number only: don’t write what they are. This, and any reason you tap above, only helps the reading get better: none of it is saved in the patient’s record.`}>
     <EhrInput value={missed} inputMode="numeric" maxLength={3} autoComplete="off"
-      onChange={event => onChange(event.target.value.replace(/[^0-9]/g, ''))} />
+      onChange={event => onChange(capMissed(event.target.value))} />
   </EhrField>
 }
 

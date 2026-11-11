@@ -168,8 +168,6 @@ function ReviewItemCard({ item, index, decision, problem, onChange, learning = f
       </div>
       {showSaved && <span className="hid-ehr-dept-muted">{`Keep saves: ${saved}`}</span>}
       {cardError && <p id={`${cardId}-error`} className="hid-ehr-error">{cardError}</p>}
-      {learning && (decision.choice === 'remove' || decision.choice === 'change')
-        && <ItemReason index={index} decision={decision} onChange={onChange} />}
       {decision.choice === 'change' && (learning && item.kind === 'medicine'
         ? <MedicineChange item={item} index={index} decision={decision} problem={problem} onChange={onChange} />
         : item.kind === 'lab_result'
@@ -185,6 +183,9 @@ function ReviewItemCard({ item, index, decision, problem, onChange, learning = f
         : <EhrField label="What the paper says" controlId={itemTextId(index)} error={problemText(problem, itemTextId(index))}>
           <EhrInput value={decision.text} maxLength={2_000} autoComplete="off" onChange={event => onChange({ ...decision, text: event.target.value })} />
         </EhrField>)}
+      {/* The optional why comes after the change itself, so it never stands in front of the work. */}
+      {learning && (decision.choice === 'remove' || decision.choice === 'change')
+        && <ItemReason index={index} decision={decision} onChange={onChange} />}
     </div>
   </li>
 }

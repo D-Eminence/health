@@ -206,16 +206,16 @@ describe('Migrate learning, served', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByText(/I’ve checked this page/)).toBeNull()
     const box = screen.getByLabelText('The reading missed…') as HTMLInputElement
+    // The box never holds more than 200, so it can't stop a save.
     fireEvent.change(box, { target: { value: '250' } })
-    for (const element of Array.from(document.querySelectorAll('[data-item-id] > [role="group"]'))) show(element)
-    await keepAll()
-    await save()
-    await waitFor(() => expect(focused()).toBe(box))
-    expect(box.getAttribute('aria-invalid')).toBe('true')
+    expect(box.value).toBe('200')
     // Letters are never kept in the box.
     fireEvent.change(box, { target: { value: '3x' } })
     expect(box.value).toBe('3')
-    await press(form().getByRole('button', { name: 'Save' }))
+    expect(box.getAttribute('aria-invalid')).not.toBe('true')
+    for (const element of Array.from(document.querySelectorAll('[data-item-id] > [role="group"]'))) show(element)
+    await keepAll()
+    await save()
     await waitFor(() => expect(api.validateOcrJob).toHaveBeenCalled())
     const sent = api.validateOcrJob.mock.calls[0]![2] as Record<string, unknown>
     expect(sent).toMatchObject({ reviewConfirmed: true, missedItems: 3 })

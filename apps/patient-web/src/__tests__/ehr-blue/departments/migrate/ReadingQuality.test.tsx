@@ -156,14 +156,35 @@ describe('Reading quality, in Migrate', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reading quality' })))
   })
 
-  it('says “Too few to show” for a change reason the server left out, and counts nothing from an empty answer', async () => {
+  it('shows 0 for a change reason nobody gave, and counts nothing from an empty answer', async () => {
     expect(parseReadingQuality({ reviewGroups: [], itemGroups: [] })).toMatchObject({ anyShown: false, heldBack: 0, validated: 0 })
     answer = async () => ({ ...ANSWER, reviewGroups: [reviews('2026-W43', { reviews: 30, validated: 30, rejected: 0, reviewConfirmed: 0,
       missedItems: 0, rejectionReasons: {}, removalReasons: {}, changeReasons: { misread: 7 } })], itemGroups: [] })
     await openQuality()
     await screen.findByRole('heading', { name: 'Items read from paper' })
-    expect(within(tile('Changed because the paper was out of date')).getByText('Too few to show')).toBeTruthy()
+    expect(within(tile('Changed because the paper was out of date')).getByText('0')).toBeTruthy()
+    expect(screen.queryByText(/too few to show/i)).toBeNull()
     expect(screen.queryByRole('region', { name: 'What these figures leave out' })).toBeNull()
+  })
+
+  it('says “None, or too few to show” for a change reason absent only when the server held back small reason counts', async () => {
+    answer = async () => ({ ...ANSWER, reviewGroups: [reviews('2026-W43', { reviews: 30, validated: 30, rejected: 0, reviewConfirmed: 0,
+      missedItems: 0, rejectionReasons: {}, removalReasons: {}, changeReasons: { misread: 7 }, smallCellsHidden: 1 })], itemGroups: [] })
+    await openQuality()
+    await screen.findByRole('heading', { name: 'Items read from paper' })
+    expect(within(tile('Changed because the paper was out of date')).getByText('None, or too few to show')).toBeTruthy()
+    expect(within(tile('Changed because the AI misread the paper')).getByText('7')).toBeTruthy()
+  })
+
+  it('when every group was held back, says so in words instead of a page of zeros', async () => {
+    answer = async () => ({ ...ANSWER,
+      reviewGroups: [{ week: '2026-W44', facilityId: DEMO_HOSPITAL_ID, promptVersion: 'demo-prompt-1', suppressed: true }],
+      itemGroups: [{ week: '2026-W44', facilityId: DEMO_HOSPITAL_ID, kind: 'allergy', promptVersion: 'demo-prompt-1', suppressed: true }] })
+    await openQuality()
+    expect(await screen.findByRole('heading', { name: 'Too few checks to show' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Items read from paper' })).toBeNull()
+    expect(screen.queryByText('0 of 0')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/W44|demo-prompt|suppressed/)
   })
 
   it('while the backend does not serve it (404): says it isn’t available yet, calmly, and stops offering it', async () => {

@@ -5,6 +5,7 @@ import {
   type ReviewChoices, type ReviewLearning, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import { SERVED_FLAG, saysReviewLearning } from '../../../../readingLearningContract'
+import { capMissed } from '../../../../ehr-blue/departments/migrate/learning'
 import { paperReading, unreadablePage } from './paperReadingPayload'
 
 /*
@@ -178,6 +179,16 @@ describe('Migrate learning once served', () => {
     expect(missedTotal('   ')).toBeUndefined()
     expect(missedTotal(' 7 ')).toBe(7)
     expect(missedTotal('200')).toBe(200)
+  })
+
+  it('the missed box keeps digits only and never more than 200, so it can’t hold a number that stops a save', () => {
+    expect(capMissed('')).toBe('')
+    expect(capMissed('3a')).toBe('3')
+    expect(capMissed('-12')).toBe('12')
+    expect(capMissed('200')).toBe('200')
+    expect(capMissed('201')).toBe('200')
+    expect(capMissed('999')).toBe('200')
+    expect(capMissed('0')).toBe('0')
   })
 
   it('a rejection saves without a reason chosen, and sends the code only when one is', () => {

@@ -38,6 +38,8 @@ export interface ReadingQuality {
   readonly heldBack: number
   /** Reason counts left out inside groups that are shown. */
   readonly smallCellsHidden: number
+  /** Of those, the ones left out of review groups (rejection, removal and change reasons). */
+  readonly reviewCellsHidden: number
 }
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -60,6 +62,7 @@ export function parseReadingQuality(answer: unknown): ReadingQuality {
   const decisions: Record<string, number> = {}
   let heldBack = 0
   let smallCellsHidden = 0
+  let reviewCellsHidden = 0
   let anyShown = false
   for (const group of [...groups(value.reviewGroups), ...groups(value.itemGroups)]) {
     if (group.suppressed === true) { heldBack += 1; continue }
@@ -69,6 +72,7 @@ export function parseReadingQuality(answer: unknown): ReadingQuality {
   for (const group of groups(value.reviewGroups)) {
     if (group.suppressed === true) continue
     for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += whole(group[key])
+    reviewCellsHidden += whole(group.smallCellsHidden)
     addCounts(rejectionReasons, group.rejectionReasons)
     addCounts(removalReasons, group.removalReasons)
     addCounts(changeReasons, group.changeReasons)
@@ -79,14 +83,19 @@ export function parseReadingQuality(answer: unknown): ReadingQuality {
     to: typeof value.to === 'string' && DAY.test(value.to) ? value.to : null,
     truncated: value.truncated === true,
     ...totals, rejectionReasons, removalReasons, changeReasons, decisions, anyShown, heldBack, smallCellsHidden,
+    reviewCellsHidden,
   }
 }
 
 const NUMBER = new Intl.NumberFormat('en-NG')
 const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 const dayText = (day: string) => DATE.format(new Date(`${day}T00:00:00Z`))
-/** A reason count: absent means the server left it out (fewer than it shows) or there were none. */
-const reasonCount = (counts: Counts, code: string) => counts[code] === undefined ? 'Too few to show' : NUMBER.format(counts[code])
+/**
+ * A reason count. The server stores no zero, so an absent reason is none at all, unless it held back small reason counts in
+ * the weeks shown: then it may be a few, and the words say both.
+ */
+const reasonCount = (data: ReadingQuality, code: string) => data.changeReasons[code] !== undefined ? NUMBER.format(data.changeReasons[code])
+  : data.reviewCellsHidden > 0 ? 'None, or too few to show' : NUMBER.format(0)
 
 function Tile({ id, title, value, children }: { id: string; title: string; value: string; children?: ReactNode }) {
   return <article className="hid-ehr-dept-quality-tile" aria-labelledby={id}>
@@ -113,7 +122,8 @@ function Figures({ data }: { data: ReadingQuality }) {
       <div className="hid-ehr-dept-quality-tiles">
         <Tile id="rq-documents" title="Documents checked and saved" value={n(data.validated)} />
         <Tile id="rq-complete" title="Checks where every item was looked at" value={`${n(data.reviewConfirmed)} of ${n(data.validated)}`}>
-          <p className="hid-ehr-dept-muted">Counted from the items each check had on screen. Staff aren’t asked to tick anything.</p>
+          <p className="hid-ehr-dept-muted">Counted from the items each check had on screen. Staff aren’t asked to tick anything. Checks saved
+            before this was counted, and checks with no item to look at, count as not looked at.</p>
         </Tile>
         <Tile id="rq-rejected" title="Documents rejected, and why" value={n(data.rejected)}>
           <Breakdown label="Documents rejected, by reason" choices={REJECTION_REASONS} values={data.rejectionReasons} />
@@ -124,8 +134,8 @@ function Figures({ data }: { data: ReadingQuality }) {
       <div className="hid-ehr-dept-quality-tiles">
         <Tile id="rq-kept" title="Items kept as read" value={n(data.decisions.kept_unchanged ?? 0)} />
         <Tile id="rq-changed" title="Items changed" value={n(data.decisions.kept_changed ?? 0)} />
-        <Tile id="rq-misread" title="Changed because the AI misread the paper" value={reasonCount(data.changeReasons, 'misread')} />
-        <Tile id="rq-out-of-date" title="Changed because the paper was out of date" value={reasonCount(data.changeReasons, 'clinical_update')} />
+        <Tile id="rq-misread" title="Changed because the AI misread the paper" value={reasonCount(data, 'misread')} />
+        <Tile id="rq-out-of-date" title="Changed because the paper was out of date" value={reasonCount(data, 'clinical_update')} />
         <Tile id="rq-removed" title="Items removed, and why" value={n(data.decisions.removed ?? 0)}>
           <Breakdown label="Items removed, by reason" choices={REMOVAL_REASONS} values={data.removalReasons} />
         </Tile>
@@ -172,7 +182,7 @@ export function ReadingQualityView({ facilityId }: { readonly facilityId: string
     <EhrButton variant="secondary" busy={refreshing} onClick={load}>{refreshing ? 'Refreshing…' : 'Refresh'}</EhrButton>
   </div>
   return <div className="hid-ehr-dept-quality">
-    <p className="hid-ehr-dept-muted">How well paper records were read at this facility in the last four weeks, from what staff kept, changed,
+    <p className="hid-ehr-dept-muted">How well paper records were read at this facility in recent weeks, from what staff kept, changed,
       removed and found missing when they checked each reading.</p>
     <div id="reading-quality-status" role="status">{loaded.state === 'loading' ? <p className="hid-ehr-dept-muted">Loading reading quality…</p> : null}</div>
     {loaded.state === 'notServed' && <DeptSection title="Not available yet" headingId="reading-quality-not-yet">
@@ -183,7 +193,12 @@ export function ReadingQualityView({ facilityId }: { readonly facilityId: string
     {loaded.state === 'failed' && <div role="alert"><DeptNotice tone="critical">Reading quality could not be loaded. Try again.</DeptNotice>{refresh}</div>}
     {loaded.state === 'shown' && <>
       {refresh}
-      {loaded.data.anyShown || loaded.data.heldBack > 0 ? <Figures data={loaded.data} />
+      {loaded.data.anyShown ? <Figures data={loaded.data} />
+        : loaded.data.heldBack > 0 ? <DeptSection title="Too few checks to show" headingId="reading-quality-too-few">
+          <p className="hid-ehr-dept-muted">There were too few checks at this facility in these weeks to show figures without pointing at the
+            people who did them. Nothing needs doing.</p>
+          {loaded.data.truncated && <p className="hid-ehr-dept-muted">Only some of the checks in these weeks could be counted.</p>}
+        </DeptSection>
         : <DeptSection title="No checks yet" headingId="reading-quality-none">
           <p className="hid-ehr-dept-muted">No paper reading was checked at this facility in these weeks.</p>
         </DeptSection>}
