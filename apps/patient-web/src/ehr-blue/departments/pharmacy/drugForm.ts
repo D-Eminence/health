@@ -45,13 +45,16 @@ const STRENGTH = new RegExp(String.raw`(?<![\w.])${NUMBER}(?:\s*\/\s*${NUMBER})?
 /**
  * The medicine's name and its strength, split so the name can lead large and the strength sit with the form. Nothing
  * is changed but a missing leading zero (".5 mg" is "0.5 mg"); when no strength is written, the whole name is the name.
+ * A medicine with more than one strength written ("875 mg/125 mg", "10 mg and … 12.5 mg") is never split: taking one
+ * out would leave the other beside the wrong part ("Co-trimoxazole /160 mg"), so the whole name is the name.
  */
 export function nameAndStrength(display: string): { name: string; strength: string | null } {
   const match = STRENGTH.exec(display)
   if (!match) return { name: display, strength: null }
   const name = (display.slice(0, match.index) + display.slice(match.index + match[0].length)).replace(/\s{2,}/g, ' ').trim()
+  if (!name || STRENGTH.test(name)) return { name: display, strength: null }
   const strength = match[0].trim().replace(/(^|\/\s*)\./g, '$10.')
-  return name ? { name, strength } : { name: display, strength: null }
+  return { name, strength }
 }
 
 const compact = (text: string) => text.toLowerCase().replace(/\s+/g, '')
