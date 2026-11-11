@@ -430,6 +430,8 @@ function publicationRefusal(caught: unknown) {
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
   // The part of the record it was going to refused it for good: said as what it means for the person, not as a service.
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'This couldn’t be added to the patient’s record, and it can’t be tried again.'
+  // Publishing into the record needs direct-care access to the patient, which this member doesn't hold.
+  if (isHidApiError(caught) && caught.status === 403 && caught.code === 'OCR_PUBLISH_NEEDS_DIRECT_CARE') return 'Ask a clinician with access to this patient to publish it.'
   return errorText(caught, 'The validated evidence was not published.')
 }
 
