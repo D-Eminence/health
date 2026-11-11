@@ -802,9 +802,11 @@ export function Migrate() {
           entries={(extractions ?? []).map(extraction => ({
             key: extraction.id,
             summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
-            // An extraction with no text shows its summary line alone, never an empty block.
             // An extraction with no text, or a paper reading whose items were picked out, shows its summary line alone.
-            detail: hasText(extraction.rawText) && !showsItems(parsePaperReading(extraction.structuredPayload))
+            // A reading deleted after 24 hours says so and never shows text, even if the server still sent some.
+            detail: readingDeleted(extraction)
+              ? <p className="hid-ehr-dept-muted">{READING_DELETED}</p>
+              : hasText(extraction.rawText) && !showsItems(parsePaperReading(extraction.structuredPayload))
               // It scrolls, so it takes focus: a keyboard can then scroll it.
               ? <pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
               : undefined,

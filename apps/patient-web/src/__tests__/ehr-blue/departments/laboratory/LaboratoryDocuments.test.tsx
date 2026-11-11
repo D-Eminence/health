@@ -389,6 +389,17 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 
+  it('lists a document whose source page is being deleted the same way: that sentence, no download (hid-system#226)', async () => {
+    api.workItemDocuments.mockResolvedValue(page([{ ...document(), status: 'source_deleting' }]))
+    renderPage()
+    await openRecord()
+    const row = (await within(card()).findByText('full-blood-count.jpg')).closest('li') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source[ _]deleting/i)
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
   it('says a refused or failed open in plain words, never the backend’s or the browser’s', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     api.documentDownload.mockRejectedValueOnce(new HidApiError(403, 'Download denied: membership m-0001 lacks lab.document.read', { code: 'FORBIDDEN' }))

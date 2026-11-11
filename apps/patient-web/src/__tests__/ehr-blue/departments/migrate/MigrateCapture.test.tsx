@@ -323,6 +323,17 @@ describe('Patient documents: opening and extracting', () => {
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 
+  it('lists a document whose source page is being deleted the same way: that sentence, no download or OCR (hid-system#226)', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...clean, status: 'source_deleting' }], nextCursor: null })
+    await openDocuments()
+    const row = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(within(row).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source[ _]deleting/i)
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
   it('Extract with OCR sends the document for reading at once and opens it, with no form of IDs to fill in', async () => {
     await openDocuments()
     api.findOcrJob.mockResolvedValue({ job: null })

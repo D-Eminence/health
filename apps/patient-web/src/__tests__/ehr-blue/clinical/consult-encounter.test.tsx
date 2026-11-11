@@ -1107,6 +1107,17 @@ describe('Consultation record: documents', () => {
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 
+  it('lists a document whose source page is being deleted the same way: that sentence, no download or OCR (hid-system#226)', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...DOCUMENT, status: 'source_deleting' }], nextCursor: null })
+    await openEncounter()
+    const row = (await within(card('Documents')).findByText('referral-letter.pdf')).closest('li') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: /Open file/ })).toBeNull()
+    expect(within(row).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source[ _]delet(ed|ing)/i)
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
   it('checks the file, then uploads it after the access re-check', async () => {
     await openEncounter()
     const documents = within(card('Documents'))

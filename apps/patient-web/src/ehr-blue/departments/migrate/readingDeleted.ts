@@ -6,11 +6,22 @@ export const READING_DELETED = 'Reading deleted after 24 hours'
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * Whether OCR blanked this reading after 24 hours (hid-system 0110): its text is null and its structured payload an
+ * Whether OCR blanked this reading after 24 hours (hid-system 0110).
+ *
+ * When the server says so (hid-system#226 `contentDeleted`), its word decides. `true` is a deleted reading whatever its
+ * shape or age. `false` is a kept reading even if it looks blank: the server knows whether it blanked the content, and a
+ * reading that genuinely found nothing (null text, an empty payload) must not be told to the reader as deleted.
+ *
+ * Without the flag (an earlier backend), the shape and age decide: its text is null and its structured payload an
  * empty object. An extraction that says when it was made must be at least 24 hours old, so a fresh reading that found
  * nothing is never taken for a deleted one. Missing text ('', undefined) or any payload with a member is today's reading.
  */
-export function readingDeleted(extraction: OcrExtraction & { readonly createdAt?: string | null }, now = Date.now()): boolean {
+export function readingDeleted(
+  extraction: OcrExtraction & { readonly createdAt?: string | null; readonly contentDeleted?: boolean | null },
+  now = Date.now(),
+): boolean {
+  if (extraction.contentDeleted === true) return true
+  if (extraction.contentDeleted === false) return false
   if (extraction.rawText !== null) return false
   const payload = extraction.structuredPayload
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length > 0) return false

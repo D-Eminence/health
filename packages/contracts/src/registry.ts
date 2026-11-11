@@ -902,7 +902,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
     'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
-    + 'after 24 hours (no download is offered). An earlier backend never sends source_deleted.'),
+    + 'after 24 hours (no download is offered); since hid-system#226 source_deleting while that deletion is under way, '
+    + 'treated the same. An earlier backend sends neither.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),

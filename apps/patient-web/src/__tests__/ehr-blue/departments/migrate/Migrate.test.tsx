@@ -1283,6 +1283,30 @@ describe('Migrate: a reading blanked after 24 hours (hid-system 0110)', () => {
     expect(within(read).getByText('No text was read from this document.')).toBeTruthy()
     expect(read.textContent).not.toContain('Reading deleted after 24 hours')
   })
+
+  it('shows none of a reading the server marks deleted, under Details or in Check and save, even if it still sent text', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Amlodipine 5mg od', structuredPayload: paperReading(), contentDeleted: true }] })
+    await findJob(awaiting)
+    const read = await readSection()
+    expect(within(read).getByText('Reading deleted after 24 hours')).toBeTruthy()
+    // The Extractions history says the same words in place of the text.
+    const history = (await screen.findByText('Extraction 1 · textract · confidence 92%')).closest('details') ?? detailsCard()
+    expect(within(history).getAllByText('Reading deleted after 24 hours').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeNull()
+    expect(document.body.textContent).not.toContain('Amlodipine')
+    // Check and save offers none of its items to keep; nor does Reject reading.
+    const check = screen.getByRole('form', { name: 'Check and save' })
+    expect(within(check).queryByText(/Metf\?rmin/)).toBeNull()
+    await openAction('Reject reading')
+    expect(document.body.textContent).not.toContain('Metf?rmin')
+  })
+
+  it('still shows the text under Details for a reading the server keeps', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Seen in clinic', structuredPayload: {}, contentDeleted: false }] })
+    await findJob(awaiting)
+    await readSection()
+    expect(await screen.findByRole('region', { name: 'Extracted text, version 1', hidden: true })).toBeTruthy()
+  })
 })
 
 describe('Migrate: what was read from a paper record, item by item', () => {
