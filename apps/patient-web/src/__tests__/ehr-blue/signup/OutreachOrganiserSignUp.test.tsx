@@ -63,6 +63,8 @@ describe('Start running outreach', () => {
       groupName: 'Ajegunle Health Volunteers', kind: 'group', registrationNumber: 'IT123456', turnstileToken: expect.any(String) })
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Check your email' })).toBeTruthy()
+    // Identity answers the same whatever the email's account: someone with a login gets an email saying what to do.
+    expect(document.body.textContent).toContain('If this email already has a Health ID login, we sent an email that says what to do instead of a code.')
     type(/Code from the email/, '123456')
     await press('Confirm email')
     expect(api.verify).toHaveBeenCalledWith(CHALLENGE, '123456')
@@ -109,6 +111,48 @@ describe('Start running outreach', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('This email already has a Health ID login. Sign in with it, then choose “Start an outreach group”.')
     expect(alert.querySelector('a')?.getAttribute('href')).toBe('/provider/sign-in')
+  })
+
+  it('keeps the organiser’s name to 80 characters, as Identity’s database does', async () => {
+    open()
+    await screen.findByRole('heading', { level: 2, name: 'Your details' })
+    details()
+    expect(screen.getByRole('textbox', { name: /Your full name/ }).getAttribute('maxlength')).toBe('80')
+    type(/Your full name/, `Funke ${'A'.repeat(76)}`)
+    await press('Send me a code')
+    expect(screen.getByText('Use letters and simple punctuation, up to 80 characters.')).toBeTruthy()
+    expect(api.start).not.toHaveBeenCalled()
+  })
+
+  it('tells someone whose email is a patient’s login to use another email, not to try again later', async () => {
+    api.start.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_PATIENT_LOGIN' }))
+    open()
+    await screen.findByRole('heading', { level: 2, name: 'Your details' })
+    details()
+    await press('Send me a code')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('This email is a patient’s Health ID login. It can’t run or help an outreach group yet. Use a different email.')
+    expect(alert.textContent).not.toMatch(/try again later|isn’t open/)
+  })
+
+  it('asks for a reload, sending nothing more, when the terms changed before activation (409 OUTREACH_ORGANISER_TERMS_REQUIRED)', async () => {
+    api.activate.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_TERMS_REQUIRED' }))
+    open()
+    await screen.findByRole('heading', { level: 2, name: 'Your details' })
+    details()
+    await press('Send me a code')
+    type(/Code from the email/, '123456')
+    await press('Confirm email')
+    await screen.findByRole('heading', { level: 2, name: 'Organiser terms' })
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /accept the organiser terms/ })) })
+    await press('Accept and continue')
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'a long fictional passphrase' } })
+    fireEvent.change(screen.getByLabelText(/Type the password again/), { target: { value: 'a long fictional passphrase' } })
+    await press('Create my outreach group')
+    expect((await screen.findByRole('alert')).textContent).toBe('The organiser terms have changed. Reload the page to read the new terms.')
+    expect(screen.getByRole('button', { name: 'Reload the page' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Tick the box')
+    expect(api.activate).toHaveBeenCalledTimes(1)
   })
 
   it('says a reserved group name in plain words (Identity’s 422 OUTREACH_ORGANISER_NAME_NOT_ALLOWED)', async () => {
@@ -208,21 +252,36 @@ describe('an outreach invitation', () => {
   })
 
   it('lets a new helper join with a password, with the link, and takes the link out of the address', async () => {
-    api.acceptInvitation.mockResolvedValue({ accepted: true, facilityId: 'f-1', facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' })
+    // As identity-api answers: the group is not named.
+    api.acceptInvitation.mockResolvedValue({ accepted: true, facilityId: 'f-1', membershipId: 'm-1', roleCode: 'outreach_volunteer' })
     openLink()
     expect(window.location.hash).toBe('')
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'another long passphrase' } })
     fireEvent.change(screen.getByLabelText(/Type the password again/), { target: { value: 'another long passphrase' } })
     await press('Join the group')
     expect(api.acceptInvitation).toHaveBeenCalledWith({ invitationId: INVITATION, token: TOKEN }, 'another long passphrase', expect.any(String))
-    expect(await screen.findByRole('heading', { level: 1, name: 'You have joined Ajegunle Health Volunteers' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'You have joined the outreach group' })).toBeTruthy()
   })
 
   it('lets a signed-in login join with the link alone', async () => {
-    staff.acceptOutreachInvitationSignedIn.mockResolvedValue({ accepted: true, facilityId: 'f-1', facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' })
+    staff.acceptOutreachInvitationSignedIn.mockResolvedValue({ accepted: true, facilityId: 'f-1', membershipId: 'm-1', roleCode: 'outreach_volunteer' })
     openLink()
     await press('Join with my login')
     expect(staff.acceptOutreachInvitationSignedIn).toHaveBeenCalledWith({ invitationId: INVITATION, token: TOKEN })
+    expect(await screen.findByRole('heading', { level: 1, name: 'You have joined the outreach group' })).toBeTruthy()
+  })
+
+  it.each(['OUTREACH_INVITATION_PATIENT_LOGIN', 'OUTREACH_PATIENT_LOGIN'])('tells a patient’s login (%s) to ask for an invitation to another email', async code => {
+    api.acceptInvitation.mockRejectedValue(new HidApiError(409, 'x', { code }))
+    staff.acceptOutreachInvitationSignedIn.mockRejectedValue(new HidApiError(409, 'x', { code }))
+    openLink()
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'another long passphrase' } })
+    fireEvent.change(screen.getByLabelText(/Type the password again/), { target: { value: 'another long passphrase' } })
+    await press('Join the group')
+    const words = 'This email is a patient’s Health ID login. It can’t help an outreach group yet. Ask the organiser to invite a different email.'
+    expect((await screen.findByRole('alert')).textContent).toBe(words)
+    await press('Join with my login')
+    expect(screen.getByRole('alert').textContent).toBe(words)
   })
 
   it('tells someone with a login to accept with it', async () => {

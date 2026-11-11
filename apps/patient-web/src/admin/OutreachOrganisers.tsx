@@ -1,13 +1,14 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { FilterTabs } from '../kasuwa/ui'
-import { adminApi, type AdminActor, type OutreachOrganiser } from './api'
+import { adminApi, type AdminActor, type OutreachOrganiser, type OutreachRegistrationFound } from './api'
 import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useResource, useUrlFilters } from './ui'
 
 /**
  * Support's "Outreach organisers" (open sign-up on outreach., owner decisions of 11 November 2026). Anyone can sign up to
  * run outreach, and Health ID does not check a group before its campaigns go live (decision Q38): a new group can open a
  * campaign at once, and the people it registers are told it is an "Unverified organiser". Support can pause a group,
- * close a campaign whose only admin has gone, or make another member its admin. There are no limits to raise (decision 2)
+ * close a campaign whose only admin has gone, or make another member its admin, and delete one person's details sooner
+ * when they ask (as the registration notice and the organiser terms promise). There are no limits to raise (decision 2)
  * and nothing to bill (decision 6).
  */
 
@@ -27,6 +28,9 @@ const PROBLEMS: Readonly<Record<string, string>> = {
   ADMIN_OUTREACH_UNAVAILABLE: 'Outreach groups could not be loaded or changed right now. Please try again.',
   VALIDATION_FAILED: 'Check the details: a reason needs 8 to 500 characters, and references must be complete.',
   PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
+  OUTREACH_REGISTRATION_NOT_REDACTABLE: 'This person’s details can’t be deleted: they were deleted already, or the registration was not found. Search again.',
+  OUTREACH_REDACTION_INVALID: 'Write why the details are being deleted, in 8 to 500 characters.',
+  OUTREACH_REGISTRATION_LOOKUP_INVALID: 'Choose the group, then enter the temporary ID (it starts tmp_) or the phone number the person gives.',
 }
 
 const KIND_WORDS: Readonly<Record<string, string>> = { individual: 'A volunteer on their own', group: 'A group, NGO or community organisation' }
@@ -71,6 +75,7 @@ export function OutreachOrganisersPage({ actor }: { actor: AdminActor }) {
           canManage={canManage} onDone={done} />)}
       </Table>}</ResourceView>
     {canManage ? <CampaignRescue onDone={text => setNotice(text)} /> : null}
+    {canManage && resource.data ? <RegistrationDeletion organisers={resource.data.organisers} onDone={text => setNotice(text)} /> : null}
   </Page>
 }
 
@@ -186,4 +191,99 @@ function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
       {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
     </form>
   </section>
+}
+
+/**
+ * A person asks Health ID support to delete their details sooner than the yearly sweep (the registration notice and the
+ * organiser terms say they can). Support finds the registration from the group and the temporary ID or phone number the
+ * person gives, sees only where and when it was made, and deletes the person's details with a reason kept in the audit log.
+ */
+function RegistrationDeletion({ organisers, onDone }: { organisers: OutreachOrganiser[]; onDone: (text: string) => void }) {
+  const search = useGovernedSubmit()
+  const [organizationId, setOrganizationId] = useState('')
+  const [lookFor, setLookFor] = useState('')
+  const [found, setFound] = useState<OutreachRegistrationFound[] | null>(null)
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(new Set())
+
+  async function find(event: FormEvent) {
+    event.preventDefault()
+    const value = lookFor.trim()
+    if (!organizationId || value.length < 3) {
+      search.setError('Choose the group, then enter the temporary ID (it starts tmp_) or the phone number the person gives.')
+      return
+    }
+    setFound(null)
+    const lookup = /^tmp_/i.test(value) ? { organizationId, temporaryPatientId: value } : { organizationId, phone: value }
+    const answer = await search.submit(() => adminApi.searchOutreachRegistrations(lookup),
+      'The search did not work. Try again.', PROBLEMS, 'find an outreach registration')
+    if (answer) setFound(answer.registrations)
+  }
+
+  return <section className="admin-panel" aria-labelledby="outreach-delete-title">
+    <div className="admin-panel-head"><div><h2 id="outreach-delete-title">Someone asks for their details to be deleted</h2>
+      <p>People registered at an outreach group can ask Health ID to delete their details sooner than the yearly clear-out.
+        Find the registration, then delete it. You see only where and when it was made.</p></div></div>
+    <form className="admin-action-form" onSubmit={event => void find(event)}>
+      <label htmlFor="outreach-delete-group">Outreach group</label>
+      <select id="outreach-delete-group" value={organizationId} aria-describedby="outreach-delete-group-hint"
+        onChange={event => { setOrganizationId(event.target.value); setFound(null) }}>
+        <option value="">Choose the group</option>
+        {organisers.map(organiser => <option key={organiser.organizationId} value={organiser.organizationId}>
+          {organiser.displayName?.trim() || organiser.groupName}</option>)}
+      </select>
+      <small id="outreach-delete-group-hint" className="admin-note">The groups listed above. Choose “All” to include paused groups.</small>
+      <label htmlFor="outreach-delete-lookup">Temporary ID or phone number</label>
+      <input id="outreach-delete-lookup" autoComplete="off" spellCheck={false} maxLength={64} value={lookFor}
+        aria-describedby="outreach-delete-lookup-hint" onChange={event => { setLookFor(event.target.value); setFound(null) }} />
+      <small id="outreach-delete-lookup-hint" className="admin-note">The temporary ID starts tmp_ and is on the slip the group
+        gave them. Or the phone number the group took down.</small>
+      <button type="submit" className="admin-primary" disabled={search.busy}>{search.busy ? 'Searching…' : 'Find registration'}</button>
+      {search.error && <p role="alert" className="admin-error">{search.error}</p>}
+    </form>
+    {found === null ? null : found.length === 0
+      ? <p className="admin-state" role="status">No registration at this group matches. Check the temporary ID or phone number with the person.</p>
+      : <Table headings={['Registration', 'Campaign', 'Registered', 'Actions']}>
+        {found.map(registration => <tr key={registration.caseId}>
+          <td><strong>{registration.temporaryPatientId}</strong><small>{registration.groupName}</small></td>
+          <td>{registration.campaignName ?? 'No campaign'}</td>
+          <td>{date(registration.createdAt)}</td>
+          <td>{registration.redacted || deleted.has(registration.caseId) ? 'Details deleted'
+            : <DeleteAction registration={registration} onDone={() => {
+              setDeleted(previous => new Set(previous).add(registration.caseId))
+              onDone(`The details registered as ${registration.temporaryPatientId} are deleted.`)
+            }} />}</td>
+        </tr>)}
+      </Table>}
+  </section>
+}
+
+/** Deletes one person's details now, with a reason kept in the audit log. It can't be undone. */
+function DeleteAction({ registration, onDone }: { registration: OutreachRegistrationFound; onDone: () => void }) {
+  const governed = useGovernedSubmit()
+  const [reason, setReason] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const id = `outreach-delete-${registration.caseId}`
+  const length = reason.trim().length
+  const ready = length >= 8 && length <= 500 && confirmed
+
+  async function remove(event: FormEvent) {
+    event.preventDefault()
+    if (!ready) return
+    const done = await governed.submit(() => adminApi.redactOutreachRegistration(registration.caseId, reason.trim()),
+      'The details could not be deleted. Try again.', PROBLEMS, `delete the details registered as ${registration.temporaryPatientId}`)
+    if (done) onDone()
+  }
+
+  return <details className="admin-action">
+    <summary>Delete this person’s details</summary>
+    <form className="admin-action-form" onSubmit={event => void remove(event)}>
+      <label htmlFor={`${id}-reason`}>Why</label>
+      <textarea id={`${id}-reason`} rows={3} maxLength={500} value={reason} aria-describedby={`${id}-hint`} onChange={event => setReason(event.target.value)} />
+      <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log. For example: “The person asked by phone on 11 November.” Don’t write their name or phone number.</small>
+      <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> Delete
+        these details for good. This can’t be undone.</label>
+      <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>{governed.busy ? 'Deleting…' : 'Delete details'}</button>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+    </form>
+  </details>
 }

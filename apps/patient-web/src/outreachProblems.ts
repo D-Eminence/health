@@ -11,6 +11,10 @@ export const SIGNUP_CLOSED = 'Signing up to run outreach isn’t open at the mom
 export const TERMS_CHANGED = 'The organiser terms have changed. Reload the page to read the new terms.'
 /** The email already has a Health ID login: that login starts an outreach group itself (owner decision 5). */
 export const EMAIL_HAS_LOGIN = 'This email already has a Health ID login. Sign in with it, then choose “Start an outreach group”.'
+/** The email is a patient's Health ID login: it can't run or help an outreach group, and trying again never changes that. */
+export const PATIENT_LOGIN = 'This email is a patient’s Health ID login. It can’t run or help an outreach group yet. Use a different email.'
+/** As PATIENT_LOGIN, for someone invited: the organiser has to invite another email. */
+export const INVITED_PATIENT_LOGIN = 'This email is a patient’s Health ID login. It can’t help an outreach group yet. Ask the organiser to invite a different email.'
 
 const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE: SIGNUP_CLOSED,
@@ -22,9 +26,11 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID: 'This sign-up has expired. Start again from the beginning.',
   OUTREACH_ORGANISER_SIGNUP_EXPIRED: 'This sign-up has expired. Start again from the beginning.',
   OUTREACH_ORGANISER_SIGNUP_NOT_READY: 'Confirm your email with the code first, then try again.',
-  OUTREACH_ORGANISER_TERMS_REQUIRED: 'Tick the box to accept the organiser terms, then try again.',
+  // Identity's answer when the terms accepted are not the ones it holds now (the page sends acceptance only once ticked).
+  OUTREACH_ORGANISER_TERMS_REQUIRED: TERMS_CHANGED,
   OUTREACH_ORGANISER_NOT_VERIFIED: 'Confirm your email with the code first.',
-  OUTREACH_TERMS_VERSION_INVALID: 'The organiser terms have changed. Reload the page to read the current terms.',
+  OUTREACH_ORGANISER_PATIENT_LOGIN: PATIENT_LOGIN,
+  OUTREACH_PATIENT_LOGIN: PATIENT_LOGIN,
   OUTREACH_ORGANISER_ALREADY_RUNNING: 'Your login already runs an outreach group. Switch to it from Switch facility.',
   OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED: 'Sign in with a staff login to start an outreach group.',
   OUTREACH_ORGANISER_SIGNUP_DENIED: 'You can’t start an outreach group with this login. Contact Health ID support.',
@@ -56,6 +62,7 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_INVITATION_WRONG_ACCOUNT: 'This invitation was sent to another email. Sign in with the login for that email.',
   OUTREACH_INVITATION_LOCKED: 'Too many wrong tries. Wait a while, then open the link from the email again.',
   OUTREACH_INVITATION_RATE_LIMITED: 'Too many tries from this network. Please wait an hour and try again.',
+  OUTREACH_INVITATION_PATIENT_LOGIN: INVITED_PATIENT_LOGIN,
   OUTREACH_INVITATION_UNAVAILABLE: 'Invitations aren’t working right now. Please try again in a few minutes.',
   // Registering at an outreach group (outreach-api).
   OUTREACH_TENANT_NO_HEALTH_ID_LINK: 'Outreach groups can’t link people to a Health ID. The person can link their own Health ID later, from their own account.',

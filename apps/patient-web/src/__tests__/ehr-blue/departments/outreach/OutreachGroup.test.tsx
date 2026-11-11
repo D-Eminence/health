@@ -197,6 +197,36 @@ describe('registering someone at an outreach group', () => {
       method: 'guardian', guardianName: 'Ngozi Obi' })
   })
 
+  it('under 18, offers only “Their parent or guardian agreed for them”, so the record says who agreed', async () => {
+    api.createOutreachCase.mockResolvedValue(pending('case-4', 'Ada Child'))
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    fillPerson('12')
+    const self = screen.getByRole('radio', { name: /They read it themselves and agreed/ }) as HTMLInputElement
+    const readAloud = screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement
+    const guardian = screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement
+    expect(self.disabled).toBe(true)
+    expect(readAloud.disabled).toBe(true)
+    expect(guardian.checked).toBe(true)
+    expect(screen.getAllByText('Not for anyone under 18.')).toHaveLength(2)
+    fireEvent.change(textbox(/Parent or guardian’s name/), { target: { value: 'Ngozi Obi' } })
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toMatchObject({ method: 'guardian', guardianName: 'Ngozi Obi' })
+  })
+
+  it('keeps a parent or guardian’s name to 120 characters, as Outreach does', async () => {
+    await openNewRegistration()
+    const guardian = textbox(/Parent or guardian’s name/)
+    expect(guardian.maxLength).toBe(120)
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }))
+    fireEvent.change(guardian, { target: { value: 'N'.repeat(121) } })
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(screen.getByText('Keep the name to 120 characters.')).toBeTruthy()
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+
   it('keeps notes to 280 characters, with no diagnoses', async () => {
     await openNewRegistration()
     expect(document.body.textContent).toContain('No diagnoses, test results or other health details.')

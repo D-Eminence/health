@@ -71,7 +71,7 @@ const NOT_ON_MAIN = [
   'enrollment.outreachOrganiserActivate', 'identity.outreachGroupAvailability', 'identity.outreachGroupStart',
   'identity.outreachInvitations', 'enrollment.outreachInvitationAccept', 'identity.outreachInvitationSignedInAccept',
   'admin.outreachOrganisers', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
-  'admin.outreachCampaignAdmins',
+  'admin.outreachCampaignAdmins', 'admin.outreachRegistrationSearch', 'admin.outreachRegistrationRedact',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

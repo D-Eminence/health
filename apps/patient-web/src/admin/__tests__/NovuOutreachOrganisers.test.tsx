@@ -22,6 +22,10 @@ const GROUP = { organizationId: ORG, facilityId: '0e7c0000-0000-4000-8000-000000
   status: 'active', label: 'Unverified organiser', suspendedAt: null, suspensionReason: null, createdAt: '2026-11-11T08:00:00.000Z',
   termsVersion: '2026-11-01', campaigns: 1, activeCampaigns: 0, members: 2, pendingInvitations: 1 }
 
+const CASE = '0e7c0000-0000-4000-8000-0000000000dd'
+const FOUND = { caseId: CASE, groupName: 'Ajegunle Health Volunteers', campaignName: 'Ajegunle health week', temporaryPatientId: 'tmp_7f3a9c21',
+  createdAt: '2026-11-11T09:00:00.000Z', redacted: false }
+
 interface Call { path: string; search: string; method: string; body: unknown; ifMatch: string | null }
 const problem = (status: number, code: string, detail: string) => json({ status, code, detail }, status)
 
@@ -40,6 +44,8 @@ function serve(permissions: string[], organisers: unknown[] = [GROUP], answer?: 
     if (target.pathname.endsWith('/suspend')) return json({ organizationId: ORG, version: 5, status: 'suspended', label: 'Paused', revokedRoles: 2 })
     if (target.pathname.endsWith('/close')) return json({ campaignId: CAMPAIGN, status: 'closed', alreadyClosed: false })
     if (target.pathname.endsWith('/admins')) return json({ campaignId: CAMPAIGN, membershipId: MEMBER, role: 'admin' })
+    if (target.pathname === '/api/v1/admin/outreach-registrations/search') return json({ registrations: [FOUND] })
+    if (target.pathname === `/api/v1/admin/outreach-registrations/${CASE}/redact`) return json({ caseId: CASE, outcome: 'redacted' })
     return json({ status: 404, code: 'NOT_FOUND', detail: `Cannot ${String(init.method)} ${target.pathname}` }, 404)
   }))
   return calls
@@ -60,7 +66,7 @@ describe('Outreach organisers', () => {
   it('lists the running groups as unverified organisers, with the organiser’s phone, no check and no limits', async () => {
     const calls = serve(SUPPORT)
     await openAt('/admin/outreach-organisers')
-    const row = (await screen.findByText('Ajegunle Health Volunteers')).closest('tr')!
+    const row = (await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })).closest('tr')!
     expect(within(row).getByText('Funke Ade')).toBeTruthy()
     expect(within(row).getByText('+2348012345678')).toBeTruthy()
     expect(within(row).getByText('Unverified organiser')).toBeTruthy()
@@ -79,7 +85,7 @@ describe('Outreach organisers', () => {
     const calls = serve(SUPPORT, [{ ...GROUP, status: 'suspended', label: 'Paused', suspendedAt: '2026-11-11T09:00:00.000Z',
       suspensionReason: 'Collecting phone numbers for a raffle' }])
     await openAt('/admin/outreach-organisers?view=suspended')
-    const row = (await screen.findByText('Ajegunle Health Volunteers')).closest('tr')!
+    const row = (await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })).closest('tr')!
     expect(within(row).getByText('Paused')).toBeTruthy()
     expect(within(row).getByText('Collecting phone numbers for a raffle')).toBeTruthy()
     expect(within(row).queryByText('Pause group')).toBeNull()
@@ -90,9 +96,9 @@ describe('Outreach organisers', () => {
     serve(SUPPORT, [GROUP], path => path.endsWith('/suspend')
       ? problem(409, 'OUTREACH_ORGANISER_VERSION_CONFLICT', 'Someone else changed this outreach group just now.') : undefined)
     await openAt('/admin/outreach-organisers')
-    await screen.findByText('Ajegunle Health Volunteers')
+    await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })
     fireEvent.click(screen.getByText('Pause group', { selector: 'summary' }))
-    const row = screen.getByText('Ajegunle Health Volunteers').closest('tr')!
+    const row = screen.getByText('Ajegunle Health Volunteers', { selector: 'td strong' }).closest('tr')!
     fireEvent.change(within(row).getByLabelText('Why'), { target: { value: 'Collecting phone numbers for a raffle' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Pause Ajegunle Health Volunteers' }))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Pause group' })) })
@@ -102,7 +108,7 @@ describe('Outreach organisers', () => {
   it('offers no pause without both platform.facility.manage and platform.facility.unlock', async () => {
     serve(['platform.admin.access', 'platform.facility.read', 'platform.facility.unlock'])
     await openAt('/admin/outreach-organisers')
-    await screen.findByText('Ajegunle Health Volunteers')
+    await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })
     expect(screen.queryByText('Pause group')).toBeNull()
     expect(screen.getByText(/needs platform.facility.manage and platform.facility.unlock/)).toBeTruthy()
   })
@@ -110,11 +116,11 @@ describe('Outreach organisers', () => {
   it('pauses a group only with a reason of 8 characters or more and a confirmation', async () => {
     const calls = serve(SUPPORT)
     await openAt('/admin/outreach-organisers')
-    await screen.findByText('Ajegunle Health Volunteers')
+    await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })
     fireEvent.click(screen.getByText('Pause group', { selector: 'summary' }))
     const pause = screen.getByRole('button', { name: 'Pause group' }) as HTMLButtonElement
     expect(pause.disabled).toBe(true)
-    const row = screen.getByText('Ajegunle Health Volunteers').closest('tr')!
+    const row = screen.getByText('Ajegunle Health Volunteers', { selector: 'td strong' }).closest('tr')!
     fireEvent.change(within(row).getByLabelText('Why'), { target: { value: 'Collecting phone numbers for a raffle' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Pause Ajegunle Health Volunteers' }))
     await act(async () => { fireEvent.click(pause) })
@@ -144,6 +150,59 @@ describe('Outreach organisers', () => {
     await act(async () => { fireEvent.click(within(rescue).getByRole('button', { name: 'Make admin' })) })
     await waitFor(() => expect(calls.some(call => call.path === `/api/v1/admin/outreach-campaigns/${CAMPAIGN}/admins`)).toBe(true))
     expect(calls.find(call => call.path.endsWith('/admins'))!.body).toEqual({ membershipId: MEMBER, reason: 'The only admin left the group' })
+  })
+
+  it('finds a registration from the group and the person’s phone, and deletes their details with a reason', async () => {
+    const calls = serve(SUPPORT)
+    await openAt('/admin/outreach-organisers')
+    const panel = await screen.findByRole('region', { name: 'Someone asks for their details to be deleted' })
+    await act(async () => { fireEvent.click(within(panel).getByRole('button', { name: 'Find registration' })) })
+    expect(within(panel).getByRole('alert').textContent).toMatch(/Choose the group/)
+    expect(calls.some(call => call.path.endsWith('/search'))).toBe(false)
+    fireEvent.change(within(panel).getByLabelText('Outreach group'), { target: { value: ORG } })
+    fireEvent.change(within(panel).getByLabelText('Temporary ID or phone number'), { target: { value: '0803 123 4567' } })
+    await act(async () => { fireEvent.click(within(panel).getByRole('button', { name: 'Find registration' })) })
+    // A POST, so the phone number is not in the address.
+    const search = calls.find(call => call.path === '/api/v1/admin/outreach-registrations/search')!
+    expect(search.method).toBe('POST')
+    expect(search.search).toBe('')
+    expect(search.body).toEqual({ organizationId: ORG, phone: '0803 123 4567' })
+    const row = (await within(panel).findByText('tmp_7f3a9c21')).closest('tr')!
+    expect(within(row).getByText('Ajegunle health week')).toBeTruthy()
+    fireEvent.click(within(row).getByText('Delete this person’s details', { selector: 'summary' }))
+    const remove = within(row).getByRole('button', { name: 'Delete details' }) as HTMLButtonElement
+    expect(remove.disabled).toBe(true)
+    fireEvent.change(within(row).getByLabelText('Why'), { target: { value: 'The person asked by phone on 11 November' } })
+    fireEvent.click(within(row).getByRole('checkbox', { name: /Delete these details for good/ }))
+    await act(async () => { fireEvent.click(remove) })
+    await waitFor(() => expect(calls.some(call => call.path === `/api/v1/admin/outreach-registrations/${CASE}/redact`)).toBe(true))
+    expect(calls.find(call => call.path.endsWith('/redact'))!.body).toEqual({ reason: 'The person asked by phone on 11 November' })
+    expect(await screen.findByText('The details registered as tmp_7f3a9c21 are deleted.')).toBeTruthy()
+    expect(within(row).getByText('Details deleted')).toBeTruthy()
+  })
+
+  it('searches by temporary ID, and says plainly when the details were already deleted (409)', async () => {
+    const calls = serve(SUPPORT, [GROUP], path => path.endsWith('/redact')
+      ? problem(409, 'OUTREACH_REGISTRATION_NOT_REDACTABLE', 'Already deleted.') : undefined)
+    await openAt('/admin/outreach-organisers')
+    const panel = await screen.findByRole('region', { name: 'Someone asks for their details to be deleted' })
+    fireEvent.change(within(panel).getByLabelText('Outreach group'), { target: { value: ORG } })
+    fireEvent.change(within(panel).getByLabelText('Temporary ID or phone number'), { target: { value: 'tmp_7f3a9c21' } })
+    await act(async () => { fireEvent.click(within(panel).getByRole('button', { name: 'Find registration' })) })
+    expect(calls.find(call => call.path.endsWith('/search'))!.body).toEqual({ organizationId: ORG, temporaryPatientId: 'tmp_7f3a9c21' })
+    const row = (await within(panel).findByText('tmp_7f3a9c21')).closest('tr')!
+    fireEvent.click(within(row).getByText('Delete this person’s details', { selector: 'summary' }))
+    fireEvent.change(within(row).getByLabelText('Why'), { target: { value: 'The person asked by phone on 11 November' } })
+    fireEvent.click(within(row).getByRole('checkbox', { name: /Delete these details for good/ }))
+    await act(async () => { fireEvent.click(within(row).getByRole('button', { name: 'Delete details' })) })
+    expect((await within(row).findByRole('alert')).textContent).toMatch(/deleted already, or the registration was not found/)
+  })
+
+  it('offers no deletion without both platform.facility.manage and platform.facility.unlock', async () => {
+    serve(['platform.admin.access', 'platform.facility.read', 'platform.facility.unlock'])
+    await openAt('/admin/outreach-organisers')
+    await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })
+    expect(screen.queryByRole('region', { name: 'Someone asks for their details to be deleted' })).toBeNull()
   })
 
   it('says plainly when this Identity has no outreach groups yet (404)', async () => {

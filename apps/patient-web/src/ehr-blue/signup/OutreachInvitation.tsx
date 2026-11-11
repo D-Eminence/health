@@ -7,7 +7,7 @@ import { useDocumentTitle } from '../../authSteps'
 import { STAFF_SIGN_IN_PATH, staffSignInHref } from '../../productHostname'
 import { outreachOrganiserApi, staffApi } from '../../staff/api'
 import { Turnstile } from '../../Turnstile'
-import { outreachProblemText } from '../../outreachProblems'
+import { INVITED_PATIENT_LOGIN, isOutreachProblem, outreachProblemText } from '../../outreachProblems'
 import { PasswordField } from './PasswordField'
 import { Required, ScreenHeading } from './parts'
 import { SignupShell } from './SignupShell'
@@ -24,7 +24,10 @@ export function readOutreachInvitationLink(hash: string): { invitationId: string
   return match ? { invitationId: match[1]!.toLowerCase(), token: match[2]! } : null
 }
 
-type Done = { facilityName?: string; signedIn: boolean }
+/** A refusal in plain words: a patient's login is told to ask for another email, whichever code Identity names it with. */
+function invitationProblemText(caught: unknown): string {
+  return isOutreachProblem(caught, 'OUTREACH_PATIENT_LOGIN') ? INVITED_PATIENT_LOGIN : outreachProblemText(caught, FALLBACK)
+}
 
 /**
  * An outreach invitation (open sign-up on outreach.): a helper the organiser invited joins the group as an outreach
@@ -47,7 +50,8 @@ export function OutreachInvitation() {
   const [busy, setBusy] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
-  const [done, setDone] = useState<Done | null>(null)
+  // Identity's answer does not name the group, so the page says "the outreach group".
+  const [done, setDone] = useState(false)
   const signIn = staffSignInHref(window.location.hostname) ?? STAFF_SIGN_IN_PATH
 
   async function acceptNew(event: FormEvent) {
@@ -62,12 +66,12 @@ export function OutreachInvitation() {
     if (!turnstileToken) { setError('Complete the security check, then try again.'); return }
     setBusy(true)
     try {
-      const accepted = await outreachOrganiserApi.acceptInvitation(link, password, turnstileToken)
+      await outreachOrganiserApi.acceptInvitation(link, password, turnstileToken)
       setPassword('')
       setConfirm('')
-      setDone({ facilityName: accepted.facilityName, signedIn: true })
+      setDone(true)
     } catch (caught) {
-      setError(outreachProblemText(caught, FALLBACK))
+      setError(invitationProblemText(caught))
     } finally {
       setBusy(false)
       setTurnstileToken(null)
@@ -81,12 +85,12 @@ export function OutreachInvitation() {
     setProblems({})
     setBusy(true)
     try {
-      const accepted = await staffApi.acceptOutreachInvitationSignedIn(link)
-      setDone({ facilityName: accepted.facilityName, signedIn: true })
+      await staffApi.acceptOutreachInvitationSignedIn(link)
+      setDone(true)
     } catch (caught) {
       setError(isHidApiError(caught) && caught.status === 401
         ? 'Sign in with your Health ID login first, then open the invitation link again.'
-        : outreachProblemText(caught, FALLBACK))
+        : invitationProblemText(caught))
     } finally { setBusy(false) }
   }
 
@@ -95,7 +99,7 @@ export function OutreachInvitation() {
   const footer = <p>Helpers register people at the group’s events. They can’t see any hospital’s records.</p>
   if (done) {
     return <SignupShell centered footer={footer} story={story}>
-      <ScreenHeading id="outreach-invitation-done">You have joined {done.facilityName || 'the outreach group'}</ScreenHeading>
+      <ScreenHeading id="outreach-invitation-done">You have joined the outreach group</ScreenHeading>
       <p className="hid-ehr-signup-intro">You can now register people at the group’s campaigns. If you also work at a hospital,
         use Switch facility to move between them.</p>
       <a className="hid-ehr-button hid-ehr-signup-wide" href="/provider/outreach">Open Outreach</a>

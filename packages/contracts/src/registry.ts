@@ -1025,17 +1025,20 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('enrollment.outreachOrganiserStart','enrollment','/api/v1/identity/outreach-organisers',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_ORGANISER_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
     + 'outreach-organiser-signup (outreach. hosts only). Body { organiserName, email, phone, groupName, kind (individual|group), '
-    + 'registrationNumber?, turnstileAction, turnstileToken }. 200 { accepted, challengeId, expiresInSeconds, resendAfterSeconds } '
-    + 'and the hid_outreach_signup cookie. 409 OUTREACH_ORGANISER_EMAIL_REGISTERED (sign in and use "Start an outreach group"), '
-    + '422 OUTREACH_ORGANISER_NAME_NOT_ALLOWED, 400 OUTREACH_PHONE_INVALID, 429 OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED or '
-    + 'OTP_RESEND_COOLDOWN, 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE.')),
+    + 'registrationNumber?, turnstileAction, turnstileToken }; organiserName 2 to 80 characters. 200 { accepted, challengeId, '
+    + 'expiresInSeconds, resendAfterSeconds } and the hid_outreach_signup cookie, the same answer whatever the email\'s account: '
+    + 'an email that already has a Health ID login (staff or patient) gets an email saying what to do instead of a code, and '
+    + 'no sign-up starts. 422 OUTREACH_ORGANISER_NAME_NOT_ALLOWED, 400 OUTREACH_PHONE_INVALID, 429 '
+    + 'OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED, 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE. The page also words 409 '
+    + 'OUTREACH_ORGANISER_EMAIL_REGISTERED and OUTREACH_ORGANISER_PATIENT_LOGIN if Identity names them.')),
   proposed(r('enrollment.outreachOrganiserVerify','enrollment','/api/v1/identity/outreach-organisers/verify-email',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { challengeId, code (6 digits) }. 200 { verified: true }; 400 `
     + 'OTP_INVALID, 410 OTP_EXPIRED, 429 OTP_ATTEMPTS_EXHAUSTED, 401 OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID.')),
   proposed(r('enrollment.outreachOrganiserActivate','enrollment','/api/v1/identity/outreach-organisers/activate',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { termsVersion: '2026-11-01', acceptTerms: true, password (12 `
     + 'to 256) }. Signs the organiser in as a staff sign-in does: 200 { activated, organizationId, facilityId, accountId, '
-    + 'organiserStatus: \'active\', label: \'Unverified organiser\', actor, expiresAt }. 409 OUTREACH_TERMS_VERSION_INVALID. '
+    + 'organiserStatus: \'active\', label: \'Unverified organiser\', actor, expiresAt }. 409 OUTREACH_ORGANISER_TERMS_REQUIRED '
+    + 'when the terms accepted are not the ones Identity holds now (the page asks for a reload). '
     + 'No Health ID check follows: the group\'s campaigns can go live at once (owner decision Q38).')),
   proposed(r('identity.outreachGroupAvailability','identity','/api/v1/identity/outreach-organisers/for-my-account/availability',G,false,undefined,
     `${OUTREACH_SIGNUP} A staff session, no X-Facility-ID: 200 { open, termsVersion }.`)),
@@ -1043,7 +1046,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${OUTREACH_SIGNUP} "Start an outreach group" (owner decision 5): a staff session with CSRF, no X-Facility-ID. Body { `
     + 'groupName, kind, registrationNumber?, phone, termsVersion, acceptTerms: true }. 201 { started, organizationId, '
     + 'facilityId, membershipId, organiserStatus: \'active\', label: \'Unverified organiser\' }: the account becomes the new '
-    + 'group\'s organiser beside its hospital roles. 403 OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED, 409 OUTREACH_ORGANISER_ALREADY_RUNNING.')),
+    + 'group\'s organiser beside its hospital roles. 403 OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED, 409 OUTREACH_ORGANISER_ALREADY_RUNNING, '
+    + '409 OUTREACH_ORGANISER_TERMS_REQUIRED (terms changed), 409 OUTREACH_ORGANISER_PATIENT_LOGIN (a patient\'s login).')),
   proposed(r('identity.outreachInvitations','identity','/api/v1/identity/outreach-invitations',GP,false,
     { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
     `${OUTREACH_SIGNUP} The organiser at the X-Facility-ID outreach group only (403 OUTREACH_ORGANISER_REQUIRED). GET: { `
@@ -1055,11 +1059,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('enrollment.outreachInvitationAccept','enrollment','/api/v1/identity/outreach-invitations/accept',P,true,undefined,
     `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_INVITATION_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
     + 'outreach-invitation. Body { invitationId, token } (the link only: the email has no code), with password, turnstileAction and '
-    + 'turnstileToken. Signs the helper in: 200 { accepted, facilityId, facilityName, roleCode, actor, expiresAt }. 409 '
-    + 'OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login.')),
+    + 'turnstileToken. Signs the helper in: 200 { accepted, facilityId, membershipId, roleCode, actor, expiresAt } (no group '
+    + 'name). 409 OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login, 409 '
+    + 'OUTREACH_INVITATION_PATIENT_LOGIN for a patient\'s login.')),
   proposed(r('identity.outreachInvitationSignedInAccept','identity','/api/v1/identity/outreach-invitations/signed-in/accept',P,false,undefined,
     `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } (the link only). 200 { accepted, `
-    + 'facilityId, facilityName, roleCode }. 403 OUTREACH_INVITATION_WRONG_ACCOUNT.')),
+    + 'facilityId, membershipId, roleCode } (no group name). 403 OUTREACH_INVITATION_WRONG_ACCOUNT, 409 '
+    + 'OUTREACH_INVITATION_PATIENT_LOGIN for a patient\'s login.')),
 
   r('commercial.pricing','commercial','/api/v1/commercial/pricing',G,true),
   r('commercial.demo','commercial','/api/v1/commercial/demo-requests',P,true),
@@ -1319,6 +1325,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('POST','platform.facility.manage','platform.facility.unlock'),
     `${OUTREACH_SIGNUP} Body { membershipId, reason (8 to 500) }. 200 { campaignId, membershipId, role: 'admin' }. 422 `
     + 'OUTREACH_CAMPAIGN_ADMIN_NOT_ELIGIBLE when the person is not an active member of the group.')),
+  // Deleting one registered person's details sooner, at their request (the registration notice and organiser terms say
+  // they can): find the registration, then delete it (0115 identity.admin_redact_outreach_registration).
+  proposed(r('admin.outreachRegistrationSearch','admin','/api/v1/admin/outreach-registrations/search',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} A read sent as POST, so a phone number stays out of addresses. Body { organizationId, and `
+    + 'temporaryPatientId or phone }. 200 { registrations: [{ caseId, groupName, campaignName, temporaryPatientId, createdAt, '
+    + 'redacted }] }: where and when only, never the person\'s name, phone or notes; audited without the phone number. 400 '
+    + 'OUTREACH_REGISTRATION_LOOKUP_INVALID.')),
+  proposed(r('admin.outreachRegistrationRedact','admin','/api/v1/admin/outreach-registrations/:caseId/redact',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} Body { reason (8 to 500) }. 200 { caseId, outcome: 'redacted' }. 409 `
+    + 'OUTREACH_REGISTRATION_NOT_REDACTABLE (already deleted, or not found), 422 OUTREACH_REDACTION_INVALID.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),

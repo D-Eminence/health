@@ -55,6 +55,27 @@ describe('Start an outreach group', () => {
     expect(document.body.textContent).not.toMatch(/limit|₦|price/i)
   })
 
+  async function startWith(refusal: HidApiError) {
+    api.startOutreachGroup.mockRejectedValue(refusal)
+    open()
+    fireEvent.change(await screen.findByRole('textbox', { name: /Group name/ }), { target: { value: 'Yaba Health Volunteers' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Phone number/ }), { target: { value: '08012345678' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /accept the organiser terms/ }))
+    await press('Start my outreach group')
+  }
+
+  it('asks for a reload when the terms changed (409 OUTREACH_ORGANISER_TERMS_REQUIRED), not to tick the box again', async () => {
+    await startWith(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_TERMS_REQUIRED' }))
+    expect(await screen.findByText('The organiser terms have changed. Reload the page to read the new terms.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Reload the page' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Tick the box')
+  })
+
+  it('tells a patient’s login it can’t run a group, not to try again later', async () => {
+    await startWith(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_PATIENT_LOGIN' }))
+    expect(await screen.findByText('This email is a patient’s Health ID login. It can’t run or help an outreach group yet. Use a different email.')).toBeTruthy()
+  })
+
   it('says when the login already runs a group, in plain words', async () => {
     api.startOutreachGroup.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_ORGANISER_ALREADY_RUNNING' }))
     open()

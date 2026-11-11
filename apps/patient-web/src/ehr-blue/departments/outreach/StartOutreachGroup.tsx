@@ -71,7 +71,7 @@ export function StartOutreachGroup() {
       else setStarted(details.groupName.trim())
     } catch (caught) {
       if (signupClosed(caught)) setOpen(false)
-      else if (isOutreachProblem(caught, 'OUTREACH_TERMS_VERSION_INVALID')) { setAccepted(false); setTermsChanged(true) }
+      else if (isOutreachProblem(caught, 'OUTREACH_ORGANISER_TERMS_REQUIRED')) { setAccepted(false); setTermsChanged(true) }
       else setError(outreachProblemText(caught, FAILED))
     } finally {
       setBusy(false)

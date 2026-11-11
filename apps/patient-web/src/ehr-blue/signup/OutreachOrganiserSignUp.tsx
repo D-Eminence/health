@@ -116,7 +116,8 @@ function SignUpSteps() {
     const found: Record<string, string> = { ...groupDetailsProblems(details) }
     const name = details.organiserName.trim()
     if (name.length < 2) found.organiserName = 'Enter your full name.'
-    else if (name.length > 120 || !NAME.test(name)) found.organiserName = 'Use letters and simple punctuation in your name.'
+    // As Identity's database checks it: 2 to 80 characters.
+    else if (name.length > 80 || !NAME.test(name)) found.organiserName = 'Use letters and simple punctuation, up to 80 characters.'
     if (!EMAIL.test(details.email.trim())) found.email = 'Enter an email address you can open now, like name@example.com.'
     setProblems(found)
     if (Object.keys(found).length > 0) return
@@ -176,8 +177,9 @@ function SignUpSteps() {
       setConfirm('')
       setStage('done')
     } catch (caught) {
-      // Terms changed since this page was loaded: the new text needs a reload, so nothing more is sent from here.
-      if (isOutreachProblem(caught, 'OUTREACH_TERMS_VERSION_INVALID')) { setAccepted(false); setPassword(''); setConfirm(''); setStage('terms-changed'); return }
+      // Terms changed since this page was loaded (Identity, or its database, no longer takes this version, and the box was
+      // ticked): the new text needs a reload, so nothing more is sent from here.
+      if (isOutreachProblem(caught, 'OUTREACH_ORGANISER_TERMS_REQUIRED')) { setAccepted(false); setPassword(''); setConfirm(''); setStage('terms-changed'); return }
       refused(caught)
     } finally { setBusy(false) }
   }
@@ -206,7 +208,7 @@ function SignUpSteps() {
         <h2 id="outreach-signup-step" ref={stepHeading} tabIndex={-1} className="hid-ehr-signup-step-title">{STEPS[0]}</h2>
         <div className="hid-ehr-signup-grid">
           <EhrField label={<Required>Your full name</Required>} controlId="outreach-signup-name" error={field('organiserName')}>
-            <EhrInput required maxLength={120} autoComplete="name" value={details.organiserName}
+            <EhrInput required maxLength={80} autoComplete="name" value={details.organiserName}
               onChange={event => setDetails(previous => ({ ...previous, organiserName: event.target.value }))} />
           </EhrField>
           <EhrField label={<Required>Email</Required>} controlId="outreach-signup-email" error={field('email')}
@@ -248,7 +250,8 @@ function SignUpSteps() {
 
       {stage === 1 && <form className="hid-ehr-signup-form" noValidate onSubmit={event => void verify(event)} aria-labelledby="outreach-signup-step">
         <h2 id="outreach-signup-step" ref={stepHeading} tabIndex={-1} className="hid-ehr-signup-step-title">{STEPS[1]}</h2>
-        <p className="hid-ehr-signup-muted">We sent a 6-digit code to {details.email.trim()}. It may take a minute to arrive.</p>
+        <p className="hid-ehr-signup-muted">We sent a 6-digit code to {details.email.trim()}. It may take a minute to arrive.
+          If this email already has a Health ID login, we sent an email that says what to do instead of a code.</p>
         <EhrField label={<Required>Code from the email</Required>} controlId="outreach-signup-code" error={field('code')}>
           <EhrInput inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
             onChange={event => setCode(event.target.value.replace(/\D/g, ''))} />

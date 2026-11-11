@@ -290,6 +290,8 @@ const outreachTeamMembers = [
   { membershipId: 'member-demo-1', name: 'Funke Ade', email: 'funke@example.test', roleCode: 'outreach_organiser', status: 'active', joinedAt: iso(-5 * 60 * MIN) },
   { membershipId: 'b2000000-0000-4000-8000-000000000001', name: 'Bisi Adeyemi', email: 'bisi@example.test', roleCode: 'outreach_volunteer', status: 'active', joinedAt: iso(-1 * DAY) },
 ]
+/** Registrations whose person's details support deleted at their request. */
+const outreachRedacted = new Set()
 const outreachOrganiserStore = [
   { organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, version: 1, displayName: null, groupName: 'Ajegunle Health Volunteers', kind: 'group',
     registrationNumber: 'IT123456', organiserName: 'Funke Ade', organiserEmail: 'funke@example.test', phone: '+2348012345678', termsVersion: OUTREACH_TERMS,
@@ -311,10 +313,12 @@ function outreachSignupRoute(method, path, { body } = {}) {
   }
   if (method === 'POST' && path === signup) {
     if (!body?.email || !body?.groupName) return outreachProblem(400, 'VALIDATION_FAILED', 'Complete every field.')
-    if (/@demo-hospital\.example$/i.test(body.email)) return outreachProblem(409, 'OUTREACH_ORGANISER_EMAIL_REGISTERED', 'This email already has a Health ID login.')
     if (/hospital|ministry/i.test(body.groupName)) return outreachProblem(422, 'OUTREACH_ORGANISER_NAME_NOT_ALLOWED', 'Choose another group name.')
     const challengeId = 'c0de0000-0000-4000-8000-000000000001'
-    outreachSignups.set(challengeId, { ...body, verified: false })
+    // As Identity: the same answer whatever the email's account, so it says nothing about who has a login. An email with
+    // a login (here @demo-hospital.example, staff, or @patient.example, a patient) gets an email saying what to do and
+    // no code, so no sign-up starts.
+    if (!/@(demo-hospital|patient)\.example$/i.test(body.email)) outreachSignups.set(challengeId, { ...body, verified: false })
     return [200, { accepted: true, challengeId, expiresInSeconds: 600, resendAfterSeconds: 60 }]
   }
   if (method === 'POST' && path === `${signup}/verify-email`) {
@@ -325,11 +329,12 @@ function outreachSignupRoute(method, path, { body } = {}) {
     return [200, { verified: true }]
   }
   if (method === 'POST' && path === `${signup}/activate`) {
-    if (body?.termsVersion !== OUTREACH_TERMS || body?.acceptTerms !== true) return outreachProblem(409, 'OUTREACH_TERMS_VERSION_INVALID', 'Reload the terms.')
+    if (body?.termsVersion !== OUTREACH_TERMS || body?.acceptTerms !== true) return outreachProblem(409, 'OUTREACH_ORGANISER_TERMS_REQUIRED', 'The organiser terms have changed. Reload.')
     return [200, { activated: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, accountId: 'staff-demo-1', organiserStatus: 'active', label: 'Unverified organiser',
       actor: staffSession().actor, expiresAt: iso(15 * MIN) }]
   }
   if (method === 'POST' && path === `${signup}/for-my-account`) {
+    if (body?.termsVersion !== OUTREACH_TERMS || body?.acceptTerms !== true) return outreachProblem(409, 'OUTREACH_ORGANISER_TERMS_REQUIRED', 'The organiser terms have changed. Reload.')
     return [201, { started: true, organizationId: 'org-outreach-demo', facilityId: OUTREACH_GROUP_ID, membershipId: 'member-outreach-1', organiserStatus: 'active',
       label: 'Unverified organiser' }]
   }
@@ -353,7 +358,10 @@ function outreachSignupRoute(method, path, { body } = {}) {
   if (method === 'POST' && (path === `${invitations}/accept` || path === `${invitations}/signed-in/accept`)) {
     // By link only: the email carries no code.
     if (!body?.invitationId || !body?.token || 'code' in body || 'email' in body) return outreachProblem(400, 'VALIDATION_FAILED', 'Open the link from the email again.')
-    return [200, { accepted: true, facilityId: OUTREACH_GROUP_ID, facilityName: 'Ajegunle Health Volunteers', roleCode: 'outreach_volunteer' }]
+    // An invitation sent to a patient's Health ID login (here, an invitation id ending ...0009): it can't help a group.
+    if (String(body.invitationId).endsWith('000000000009')) return outreachProblem(409, 'OUTREACH_INVITATION_PATIENT_LOGIN', 'This email is a patient’s Health ID login.')
+    // As Identity: the answer does not name the group.
+    return [200, { accepted: true, facilityId: OUTREACH_GROUP_ID, membershipId: 'b2000000-0000-4000-8000-000000000002', roleCode: 'outreach_volunteer' }]
   }
   return null
 }
@@ -381,6 +389,28 @@ function adminOutreachRoute(method, path, { body, headers, query } = {}) {
     row.suspensionReason = body?.reason ?? null
     if (row.organizationId === 'org-outreach-demo') outreachGroupState.status = 'suspended'
     return [200, { organizationId: row.organizationId, version: row.version, status: 'suspended', label: 'Paused', revokedRoles: row.members }]
+  }
+  // Finding a registration when someone asks for their details to be deleted: where and when only.
+  if (method === 'POST' && path === '/admin/outreach-registrations/search') {
+    if (!body?.organizationId || (!body.temporaryPatientId && !body.phone)) {
+      return outreachProblem(400, 'OUTREACH_REGISTRATION_LOOKUP_INVALID', 'Choose the group, then give a temporary ID or a phone number.')
+    }
+    const group = outreachOrganiserStore.find(entry => entry.organizationId === body.organizationId)
+    const matches = group ? outreachCases().filter(item => item.campaignId && (body.temporaryPatientId
+      ? item.temporaryPatientId === body.temporaryPatientId : String(item.phone ?? '').replace(/\D/g, '').endsWith(String(body.phone).replace(/\D/g, '').slice(-10)))) : []
+    return [200, { registrations: matches.map(item => ({ caseId: item.id, groupName: group.groupName, campaignName: 'Ajegunle market health day',
+      temporaryPatientId: item.temporaryPatientId, createdAt: item.createdAt, redacted: outreachRedacted.has(item.id) })) }]
+  }
+  const redact = method === 'POST' && /^\/admin\/outreach-registrations\/([^/]+)\/redact$/.exec(path)
+  if (redact) {
+    const caseId = decodeURIComponent(redact[1])
+    const reason = String(body?.reason ?? '').trim()
+    if (reason.length < 8 || reason.length > 500) return outreachProblem(422, 'OUTREACH_REDACTION_INVALID', 'Give a reason of 8 to 500 characters.')
+    if (outreachRedacted.has(caseId) || !outreachCases().some(item => item.id === caseId)) {
+      return outreachProblem(409, 'OUTREACH_REGISTRATION_NOT_REDACTABLE', 'Already deleted, or not found.')
+    }
+    outreachRedacted.add(caseId)
+    return [200, { caseId, outcome: 'redacted' }]
   }
   const campaign = method === 'POST' && /^\/admin\/outreach-campaigns\/([^/]+)\/(close|admins)$/.exec(path)
   if (campaign) {

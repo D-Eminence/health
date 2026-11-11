@@ -1823,7 +1823,7 @@ export interface OutreachOrganiserActivation {
 export interface OutreachInvitationAccepted {
   accepted: true
   facilityId: string
-  facilityName?: string
+  membershipId?: string
   roleCode: string
   actor?: StaffSession['actor']
   expiresAt?: string

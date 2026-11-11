@@ -22,6 +22,12 @@ import {
  */
 export type CaseAttempt = { signature: string; command: { localCommandId: string; temporaryPatientId: string } } | null
 
+/** A parent or guardian's name, as Outreach and the database take it: 2 to 120 characters. */
+const GUARDIAN_NAME_LIMIT = 120
+const UNDER_18_METHOD = 'This person is under 18. Choose “Their parent or guardian agreed for them”.'
+/** An age entered as a whole number under 18. */
+const isMinorAge = (age: string) => age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) < 18
+
 type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'campaign' | 'notes'
 const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'campaign', 'notes']
 const FIELD_ID: Record<CaseField, string> = {
@@ -70,6 +76,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
   const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
   const [method, setMethod] = useState<OutreachConsentMethod | ''>('')
+  // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
+  const [minorAge, setMinorAge] = useState(false)
   const [notesLength, setNotesLength] = useState(0)
   const focus = useFocusById()
   const notesLimit = group ? OUTREACH_NOTES_LIMIT : 2000
@@ -100,12 +108,14 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     if (group) {
       // At an outreach group, as Outreach and the database check: how the person agreed, a guardian for anyone under 18
       // (or when a guardian agreed), a campaign, and notes of 280 characters at most.
+      const minor = isMinorAge(age)
       if (!method) errors.method = 'Choose how the person agreed.'
-      const minor = age !== '' && Number.isInteger(ageYears) && ageYears < 18
+      else if (minor && method !== 'guardian') errors.method = UNDER_18_METHOD
       if (!guardianName && (minor || method === 'guardian')) errors.guardian = minor
         ? 'This person is under 18. Enter the name of the parent or guardian who agreed.'
         : 'Enter the name of the parent or guardian who agreed.'
       else if (guardianName && guardianName.length < 2) errors.guardian = 'Enter at least 2 characters.'
+      else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
         : 'You can register people only in a running registration campaign you belong to.'
       if (operationalNotes !== undefined && operationalNotes.length > OUTREACH_NOTES_LIMIT) {
@@ -157,6 +167,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   function resetConsent() {
     setLanguage('en')
     setMethod('')
+    setMinorAge(false)
     setNotesLength(0)
   }
 
@@ -172,7 +183,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={event => void createCase(event)}>
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
-        {group ? <ConsentStep group={group.name} language={language} method={method} onLanguage={setLanguage} onMethod={setMethod}
+        {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage} onMethod={setMethod}
           methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
         <Step n={group ? 2 : 1} title="Who they are" hint={group ? 'As they say it.' : 'As they say it. You can correct it when you link their Health ID.'}>
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
@@ -188,7 +199,12 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
               </EhrSelect>
             </OutreachField>
             <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
-              <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)} />
+              <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
+                onChange={group ? event => {
+                  const minor = isMinorAge(event.target.value.trim())
+                  setMinorAge(minor)
+                  if (minor) setMethod('guardian')
+                } : undefined} />
             </OutreachField>
           </div>
         </Step>
@@ -239,10 +255,12 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
  * was read aloud in that language), how they agreed, and the name of the parent or guardian who agreed for anyone under
  * 18.
  */
-function ConsentStep({ group, language, method, onLanguage, onMethod, methodError, methodAlert, guardian }: {
+function ConsentStep({ group, language, method, minor, onLanguage, onMethod, methodError, methodAlert, guardian }: {
   readonly group: string
   readonly language: OutreachConsentLanguage
   readonly method: OutreachConsentMethod | ''
+  /** The age entered is under 18: only a parent or guardian can agree. */
+  readonly minor: boolean
   readonly onLanguage: (language: OutreachConsentLanguage) => void
   readonly onMethod: (method: OutreachConsentMethod) => void
   readonly methodError: string | undefined
@@ -266,17 +284,18 @@ function ConsentStep({ group, language, method, onLanguage, onMethod, methodErro
       <fieldset className="hid-ehr-field m-0 border-0 p-0" aria-describedby={methodError ? 'outreach-consent-method-error' : undefined}
         aria-invalid={methodError ? true : undefined}>
         <legend className="hid-ehr-label">How they agreed<span aria-hidden="true"> *</span></legend>
-        {CONSENT_METHODS.map(option => (
-          <label key={option.value} className="flex items-start gap-2 py-1" htmlFor={`outreach-consent-method-${option.value}`}>
-            <input id={`outreach-consent-method-${option.value}`} type="radio" name="consentMethod" value={option.value}
+        {CONSENT_METHODS.map(option => {
+          const closed = minor && option.value !== 'guardian'
+          return <label key={option.value} className="flex items-start gap-2 py-1" htmlFor={`outreach-consent-method-${option.value}`}>
+            <input id={`outreach-consent-method-${option.value}`} type="radio" name="consentMethod" value={option.value} disabled={closed}
               checked={method === option.value} onChange={() => onMethod(option.value)} />
-            <span>{option.label}<span className="block text-caption text-ink-3">{option.hint}</span></span>
+            <span>{option.label}<span className="block text-caption text-ink-3">{closed ? 'Not for anyone under 18.' : option.hint}</span></span>
           </label>
-        ))}
+        })}
         {methodError ? <p id="outreach-consent-method-error" className="hid-ehr-error">{methodAlert ? <span role="alert">{methodError}</span> : methodError}</p> : null}
       </fieldset>
       <OutreachField id="outreach-consent-guardian" label="Parent or guardian’s name" hint="Required for anyone under 18." {...guardian}>
-        <EhrInput name="guardianName" maxLength={200} autoComplete="off" {...controlProps('outreach-consent-guardian', guardian.error, true)} />
+        <EhrInput name="guardianName" maxLength={GUARDIAN_NAME_LIMIT} autoComplete="off" {...controlProps('outreach-consent-guardian', guardian.error, true)} />
       </OutreachField>
       <p className="m-0 text-caption text-ink-3">If they say no, don’t register them.</p>
     </Step>

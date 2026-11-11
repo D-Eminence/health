@@ -111,6 +111,23 @@ export interface OutreachOrganiserChanged {
   revokedRoles?: number
 }
 
+/**
+ * A registration at an outreach group as support's lookup shows it: where and when, never the person's name, phone or
+ * notes. Support finds it from the group and the temporary ID or phone number the person gives.
+ */
+export interface OutreachRegistrationFound {
+  caseId: string
+  groupName: string
+  campaignName: string | null
+  temporaryPatientId: string
+  createdAt: string
+  /** Already deleted: nothing more to do. */
+  redacted?: boolean
+}
+
+/** What a lookup matches on: the group, and the temporary ID or the phone number the person gives. */
+export type OutreachRegistrationLookup = { organizationId: string } & ({ temporaryPatientId: string } | { phone: string })
+
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
 export interface CommercialProduct extends Versioned { slug: string; name: string; status: 'active' | 'coming_soon' | 'draft' | 'retired' }
 export interface CommercialPrice extends Versioned { product_slug: string; context: string; visibility: 'fixed' | 'starting_from' | 'contact_sales' | 'custom_quote' | 'hidden'; amount_minor: number | null; currency: string; billing_period: string | null; unit: string | null; active: boolean }
@@ -1093,6 +1110,24 @@ export const adminApi = {
   closeOutreachCampaign(campaign: { campaignId: string; version: number }, reason: string) {
     return outreachRead(adminApi.command<{ campaignId: string; status: string; alreadyClosed?: boolean }>(
       at('/api/v1/admin/outreach-campaigns', campaign.campaignId, 'close'), { reason }, { version: campaign.version }))
+  },
+  /**
+   * Finds a registration at an outreach group when the person asks for their details to be deleted sooner: by the group
+   * and the temporary ID or phone number they give. Identity answers only where and when (never their details) and
+   * records the search in the audit log without the phone number. A POST, so the phone number stays out of addresses
+   * and their logs.
+   */
+  searchOutreachRegistrations(lookup: OutreachRegistrationLookup, signal?: AbortSignal) {
+    return outreachRead(request<{ registrations: OutreachRegistrationFound[] }>('/api/v1/admin/outreach-registrations/search',
+      { method: 'POST', body: lookup, signal }))
+  },
+  /**
+   * Deletes one person's details from an outreach registration now, at their request, instead of at the yearly sweep
+   * (identity.admin_redact_outreach_registration). The reason (8 to 500 characters) is kept in the audit log.
+   */
+  redactOutreachRegistration(caseId: string, reason: string) {
+    return outreachRead(adminApi.command<{ caseId: string; outcome: 'redacted' }>(
+      at('/api/v1/admin/outreach-registrations', caseId, 'redact'), { reason }))
   },
   /** Makes an active member of the group a campaign's admin, when its only admin has gone. */
   appointOutreachCampaignAdmin(campaignId: string, membershipId: string, reason: string) {
