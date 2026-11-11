@@ -18,8 +18,8 @@ import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignVie
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
-  ageText, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, nextStepText, PENDING, servicesText, sexText, statusLabel, type MembersRead,
+  ageText, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
+  NO_FACILITY, nextStepText, servicesText, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -210,14 +210,6 @@ export function Outreach() {
       </div>
     </div>
   )
-}
-
-/** What the create form's answer said: the case made, and where its identity stands. */
-function createdText(created: OutreachCase | undefined) {
-  if (!created?.status) return 'Registration case created.'
-  return created.status === PENDING
-    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
-    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** The design's view of a record the list no longer holds. */

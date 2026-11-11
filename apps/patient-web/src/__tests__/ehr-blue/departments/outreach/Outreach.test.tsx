@@ -291,6 +291,9 @@ describe('the list', () => {
     fireEvent.change(search, { target: { value: 'nobody' } })
     expect(screen.getByText('No matching registrations')).toBeTruthy()
     expect(screen.getByText('Check the spelling, or search by another name.')).toBeTruthy()
+    // Nor does it find a case by its temporary patient ID, which no screen shows.
+    fireEvent.change(search, { target: { value: 'tmp_c0000000' } })
+    expect(screen.getByText('No matching registrations')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Clear search' }))
     expect((search as HTMLInputElement).value).toBe('')
     // The button removed itself: focus is back on the search.
@@ -342,8 +345,9 @@ describe('the list', () => {
     expect(heading().textContent).toBe('Patient One')
     expect(document.activeElement).toBe(heading())
     const saved = cardOf(screen.getByRole('heading', { name: 'Registration' }))
-    expect(within(saved).getByText('Temporary patient ID')).toBeTruthy()
-    expect(within(saved).getByText('tmp_c0000000-0000-4000-8000-000000000001')).toBeTruthy()
+    // Its temporary patient ID (tmp_ and a UUID) is no number anyone uses, so no screen shows it (owner's answer on IDs).
+    expect(within(saved).queryByText('Temporary patient ID')).toBeNull()
+    expect(document.body.textContent).not.toContain('c0000000-0000-4000-8000-000000000001')
     // The campaign the case was registered under, by name.
     expect(within(saved).getByText('Demo screening week')).toBeTruthy()
   })
@@ -723,7 +727,7 @@ describe('a registration case', () => {
     // When it was registered, never its ID.
     expect(screen.getByText(/^Registered \d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/)).toBeTruthy()
     expect(screen.queryByText(/c0a5e000/)).toBeNull()
-    expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary patient ID', 'Campaign', 'Created'])
+    expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Campaign', 'Created'])
     expect(within(registration()).getByText('34 years')).toBeTruthy()
     expect(within(registration()).getByText('Demo screening week')).toBeTruthy()
     expect(screen.getAllByText('Waiting to link').length).toBeGreaterThan(0)
@@ -953,7 +957,7 @@ describe('a case\'s phone number and notes', () => {
     renderPage()
     await openCase()
     expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(
-      ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Temporary patient ID', 'Campaign', 'Created', 'Notes for the team'])
+      ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Campaign', 'Created', 'Notes for the team'])
     expect(within(registration()).getByText(PHONE)).toBeTruthy()
     expect(within(registration()).queryByText(/••••/)).toBeNull()
     const notes = within(registration()).getByText(/^Met at the market stall\./)
