@@ -2477,3 +2477,104 @@ describe('Visit rehearsal (11 Nov): a dose is shown as it was entered', () => {
     act(() => { window.dispatchEvent(new Event('afterprint')) })
   })
 })
+
+describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent and offers no second send for that version', () => {
+  const ACCEPTED_AT = '2026-11-11T12:40:00.000Z'
+  const SENT_TO_PHARMACY = /^Sent to Pharmacy\. Accepted by the pharmacy on 11 Nov 2026, \d{2}:\d{2}\.$/
+  const SENT_TO_LAB = /^Sent to Lab\. Accepted by the lab on 11 Nov 2026, \d{2}:\d{2}\.$/
+
+  function sendButtons(name: string) {
+    return screen.queryAllByRole('button', { name })
+  }
+
+  async function changeStatus(action: string, reason: string, done: string) {
+    fireEvent.click(screen.getByRole('button', { name: action }))
+    change('Reason for change', reason)
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    expect(await screen.findByText(done)).toBeTruthy()
+  }
+
+  it('Send to Pharmacy: says when the pharmacy accepted it, offers no second send, and offers it again for a new version', async () => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    // Pharmacy's work item, as the EHR passes it on (pharmacy-api projectWorkItem).
+    api.acceptPrescription.mockResolvedValue({ id: 'pw-1', sourceEhrPrescriptionVersion: 3, status: 'accepted', acceptedAt: ACCEPTED_AT, dispensing: null })
+    await openOrder('pharmacy', RX)
+    expect(screen.queryByText(SENT_TO_PHARMACY)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', 'Patient collecting today')
+    fireEvent.submit(field('Reason').closest('form')!)
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(screen.getByText(SENT_TO_PHARMACY)).toBeTruthy()
+    expect(sendButtons('Send to Pharmacy')).toHaveLength(0)
+
+    // Held, then resumed: a new version, which the pharmacy does not hold, so it may be sent again.
+    setLists([prescription({ status: 'on_hold', rowVersion: 4 })], [])
+    await changeStatus('Put on hold', 'Waiting for results', 'Prescription status updated.')
+    setLists([prescription({ status: 'active', rowVersion: 5 })], [])
+    await changeStatus('Resume', 'Results back', 'Prescription status updated.')
+    await waitFor(() => expect(sendButtons('Send to Pharmacy')).toHaveLength(1))
+    expect(screen.queryByText(SENT_TO_PHARMACY)).toBeNull()
+  })
+
+  it('Send to Pharmacy: a send that failed shows nothing sent and keeps the send', async () => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    api.acceptPrescription.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'IDEMPOTENCY_CONFLICT' }))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', 'Patient collecting today')
+    fireEvent.submit(field('Reason').closest('form')!)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/^Pharmacy already holds work for this prescription/)
+    expect(screen.queryByText(/^Sent to Pharmacy/)).toBeNull()
+    expect(sendButtons('Send to Pharmacy').length).toBeGreaterThan(0)
+  })
+
+  it('Send to Lab: says when the lab accepted it and offers no second send; a failed send keeps it', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    setLists([], [labRequest({ status: 'active', rowVersion: 3 })])
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Lab' }))
+    api.sendLabRequestToLab.mockRejectedValueOnce(new HidApiError(502, 'Bad gateway', { code: 'LAB_HANDOFF_UNCONFIRMED' }))
+    fireEvent.click(sendButtons('Send to Lab')[1]!)
+    expect((await screen.findByRole('alert')).textContent).toBe('Lab did not confirm that it accepted this request, so the Laboratory may not have it: send again.')
+    expect(screen.queryByText(/^Sent to Lab/)).toBeNull()
+    expect(sendButtons('Send to Lab')).toHaveLength(2)
+    // Lab's work item (lab-api project).
+    api.sendLabRequestToLab.mockResolvedValueOnce({ id: 'lw-1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 3, status: 'accepted', acceptedAt: ACCEPTED_AT })
+    fireEvent.click(sendButtons('Send to Lab')[1]!)
+    expect(await screen.findByText('Lab accepted this lab request at its current version.')).toBeTruthy()
+    expect(screen.getByText(SENT_TO_LAB)).toBeTruthy()
+    expect(sendButtons('Send to Lab')).toHaveLength(0)
+  })
+
+  it('Create active request and send to Lab: the saved request’s page shows it sent, with no Send to Lab', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    setLists([], [labRequest({ status: 'active', rowVersion: 1 })])
+    api.createRecord.mockResolvedValue({ ...labRequest({ status: 'active', rowVersion: 1 }), labHandoff: { state: 'accepted' },
+      labWorkItem: { id: 'lw-1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 1, status: 'accepted', acceptedAt: ACCEPTED_AT } })
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const create = await screen.findByRole('button', { name: 'Create lab request' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    fireEvent.change(field('Request handling'), { target: { value: 'active' } })
+    fireEvent.click(create)
+    await confirmPatient(SEND_LAB(), 'Send lab request')
+    expect(await screen.findByText('Active lab request created and accepted by Lab.')).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
+    expect(screen.getByText(SENT_TO_LAB)).toBeTruthy()
+    expect(sendButtons('Send to Lab')).toHaveLength(0)
+  })
+
+  it('Activate and send to Lab: once Lab accepted the activated version, it shows it sent, with no Send to Lab', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    api.updateRecord.mockResolvedValue({ ...labRequest({ status: 'active', rowVersion: 2 }), labHandoff: { state: 'accepted' },
+      labWorkItem: { id: 'lw-1', sourceEhrOrderId: LAB, sourceEhrOrderVersion: 2, status: 'accepted', acceptedAt: ACCEPTED_AT } })
+    await openOrder('laboratory', LAB)
+    setLists([], [labRequest({ status: 'active', rowVersion: 2 })])
+    await changeStatus('Activate and send to Lab', 'Results needed today', 'Lab request activated and accepted by Lab.')
+    expect(await screen.findByText(SENT_TO_LAB)).toBeTruthy()
+    expect(sendButtons('Send to Lab')).toHaveLength(0)
+  })
+})
