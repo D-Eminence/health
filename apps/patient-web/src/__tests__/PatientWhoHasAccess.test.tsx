@@ -209,7 +209,7 @@ describe('ending one access among several at a facility', () => {
       items = items.map(item => ({ ...item, status: 'revoked', patientRevocable: false }))
       return json({ consentGrantId: items[0]!.consentGrantId, status: 'revoked', replayed: false })
     })
-    await press(await screen.findByRole('button', { name: /^End access for Demo Hospital/ }))
+    await press(await screen.findByRole('button', { name: /^End access for A staff member at Demo Hospital/ }))
     const drawer = within(screen.getByRole('dialog', { name: 'End access' }))
     fireEvent.change(drawer.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'No longer needed' } })
     await press(drawer.getByRole('button', { name: 'End access' }))

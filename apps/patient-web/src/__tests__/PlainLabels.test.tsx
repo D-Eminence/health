@@ -104,7 +104,7 @@ describe('the patient’s Access page', () => {
     expect(screen.queryByText(/^Write\b/)).toBeNull()
     expect(screen.queryByText(/^Read\b/)).toBeNull()
     expect(screen.queryByText(/admin.override/i)).toBeNull()
-    expect(screen.getAllByRole('button', { name: /^End access for Lagos General, Can view and add records, / })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /^End access for A staff member at Lagos General, Can view and add records, / })).toHaveLength(1)
 
   })
 })

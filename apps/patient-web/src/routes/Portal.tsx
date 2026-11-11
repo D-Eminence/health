@@ -861,7 +861,7 @@ export function AccessPage() {
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
-              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dayAndTime(item.startsAt)} until {dayAndTime(item.expiresAt)}{theirReason(item) ? `, reason given: ${theirReason(item)}` : ''}</ItemName></Button>}
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {holderAt(item)}, {accessLevelLabel(item.scope)}, from {dayAndTime(item.startsAt)} until {dayAndTime(item.expiresAt)}{theirReason(item) ? `, reason given: ${theirReason(item)}` : ''}</ItemName></Button>}
             </div>
           </li>)}
           </ul>
