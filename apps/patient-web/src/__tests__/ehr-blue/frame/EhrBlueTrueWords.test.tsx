@@ -59,7 +59,7 @@ describe('emergency access says only what is true', () => {
       expect(words).not.toMatch(/[\u2013\u2014]/)
     }
     expect(ACKNOWLEDGE).toBe('I understand this is recorded with my name and my reason, the patient can see it, and access ends by itself after 30 minutes.')
-    expect(NOTICE_BEFORE).toBe('Emergency access opens this patient’s record without their approval. It is recorded with your name, this '
+    expect(NOTICE_BEFORE).toBe('Emergency access opens part of this patient’s record without their approval. It is recorded with your name, this '
       + 'facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.')
     // A message to the patient goes only where those alerts are on, so the box the staff member ticks does not promise one.
     expect(ACKNOWLEDGE).not.toMatch(/patient is told/)

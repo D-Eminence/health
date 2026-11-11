@@ -31,7 +31,7 @@ export const NOTICE_WHEN = 'Only when the patient can’t consent and care can�
  * list shows each emergency access with its facility, its times and the reason (identity.patient_self_access_history);
  * and the grant stops being honoured at its expiry (Identity's lookup reads only grants not yet expired).
  */
-export const NOTICE_BEFORE = 'Emergency access opens this patient’s record without their approval. It is recorded with your name, this '
+export const NOTICE_BEFORE = 'Emergency access opens part of this patient’s record without their approval. It is recorded with your name, this '
   + 'facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.'
 /** Patients.tsx:47: only verified contacts the patient chose to notify are told, and only while the alerts are on. */
 export const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
