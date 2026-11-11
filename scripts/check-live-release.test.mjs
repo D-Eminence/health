@@ -172,6 +172,20 @@ test('exits 2, naming the site, when a site cannot be read; a redirect to anothe
   }
 })
 
+test('exits 2, and passes nothing, when the app page loads no script of its own', async () => {
+  const bare = await site({ '/provider/sign-in': '<!doctype html><html><body><p>Back soon.</p></body></html>' })
+  try {
+    const list = await expectationsFile('bare.json', LIST.filter(e => e.id === 'old-absent'))
+    const result = await run(['--expectations', list, '--base-url-override', `ehr=${bare.origin}`])
+    assert.equal(result.code, 2, result.output)
+    assert.match(result.output, /^SKIP {2}ehr +#2 old words gone: not checked, the site could not be read$/m)
+    assert.match(result.output, /served no script of its own, so it is not the app page/)
+    assert.doesNotMatch(result.output, /^PASS/m)
+  } finally {
+    await bare.close()
+  }
+})
+
 test('--enable turns on an expectation that is off; --list shows which are on', async () => {
   const other = await site({})
   const ehr = await site(build(other.origin))

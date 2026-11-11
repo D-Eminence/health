@@ -374,6 +374,13 @@ export async function main(argv, out = line => process.stdout.write(`${line}\n`)
         if (where === 'app') {
           out(`read  ${site.padEnd(9)} ${r.scripts} script(s) from ${origins[site]}${r.otherSites ? `, ${r.otherSites} on other sites not read` : ''}`)
         }
+        if (where === 'app' && r.scripts === 0) {
+          // A page with none of its own scripts is not the app page (a maintenance or challenge page, say).
+          // Without this, every absent check on it would pass while checking nothing.
+          unreadable.push(`${site}: ${SITES[site].page} served no script of its own, so it is not the app page`)
+          reads[where] = null
+          continue
+        }
         if (r.truncated) {
           unreadable.push(`${site}: stopped after ${MAX_FILES_PER_SITE} scripts, so words may be in a script not read`)
           reads[where] = { ...r, partial: true }
