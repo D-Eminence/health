@@ -886,10 +886,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
-  r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read')),
+  r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
+    'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
+    + 'after 24 hours (no download is offered). An earlier backend never sends source_deleted.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
-  r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read')),
+  r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),
+    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 24 hours") '
+    + 'for a document whose source page was deleted; staffApi.documentDownload answers it as its own outcome, not an error.'),
   // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
   // price-list pictures (imageFileId). Proposed; 404 until served.
   // Any one of pharmacy.walk-in.create, lab.walk-in.create or billing.catalogue.manage (permissions here are all-required).

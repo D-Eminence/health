@@ -220,3 +220,42 @@ describe('a document list', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 })
+
+describe('a document download (documentDownload, hid-system 0110)', () => {
+  const DOWNLOAD = '/api/v1/ehr/documents/document-1/download'
+  const answering = (response: () => Response) => {
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      new URL(String(input)).pathname === DOWNLOAD ? response() : new Response(null, { status: 404 }))
+    vi.stubGlobal('fetch', fetch)
+    return fetch
+  }
+  const problem = (status: number, body: Record<string, unknown>) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+  it('answers the signed link as today', async () => {
+    answering(() => json({ url: STORAGE, expiresInSeconds: 60 }))
+    const { staffApi } = await signedInStaffApi()
+    await expect(staffApi.documentDownload(FACILITY, 'document-1')).resolves.toEqual({ url: STORAGE, expiresInSeconds: 60 })
+  })
+
+  it('answers 410 DOCUMENT_SOURCE_DELETED as its own outcome, not an error', async () => {
+    const fetch = answering(() => problem(410, { code: 'DOCUMENT_SOURCE_DELETED', message: 'Source page deleted after 24 hours' }))
+    const { staffApi } = await signedInStaffApi()
+    const { isSourceDeleted } = await import('../documentSource')
+    const result = await staffApi.documentDownload(FACILITY, 'document-1')
+    expect(result).toEqual({ outcome: 'source_deleted' })
+    expect(isSourceDeleted(result)).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['another 410', 410, { code: 'GONE', message: 'Gone' }],
+    ['the code on another status', 404, { code: 'DOCUMENT_SOURCE_DELETED', message: 'Not found' }],
+    ['a refusal', 403, { code: 'FORBIDDEN', message: 'Forbidden' }],
+  ])('still throws %s', async (_said, status, body) => {
+    answering(() => problem(status, body))
+    const { staffApi } = await signedInStaffApi()
+    const { HidApiError } = await import('@hid/http')
+    await expect(staffApi.documentDownload(FACILITY, 'document-1')).rejects.toBeInstanceOf(HidApiError)
+  })
+})
