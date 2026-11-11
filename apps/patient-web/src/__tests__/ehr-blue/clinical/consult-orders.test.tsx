@@ -3429,7 +3429,7 @@ describe('Allergies on sending a draft prescription to another pharmacy (hid-sys
 describe('Reasons given to go ahead over an allergy warning, on a prescription’s page (hid-system#218 at 7fbb04aa)', () => {
   const PENICILLIN_ID = 'a1240000-0000-4000-8000-000000000021'
   const LATEX_ID = 'a1240000-0000-4000-8000-000000000022'
-  /** A recorded allergy since marked entered in error: no longer on the patient's list. */
+  /** A recorded allergy no longer on the patient's list (marked entered in error since, most likely). */
   const GONE_ID = 'a1240000-0000-4000-8000-000000000029'
   const PENICILLIN = { id: PENICILLIN_ID, substance: 'Penicillin', reaction: 'Anaphylaxis', severity: 'severe' as const, status: 'active' as const,
     rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: false }
@@ -3484,7 +3484,7 @@ describe('Reasons given to go ahead over an allergy warning, on a prescription�
     for (const id of [MY_ACCOUNT, MY_MEMBERSHIP, PENICILLIN_ID, 'e1240000-0000-4000-8000-000000000001']) expect(document.body.textContent).not.toContain(id)
   })
 
-  it('shows several oldest first, as served, each with who and its step, and says plainly of an allergy since marked entered in error', async () => {
+  it('shows several oldest first, as served, each with who and its step, and says plainly of an allergy no longer on the patient’s list', async () => {
     setLists([prescription({ status: 'active', rowVersion: 5, allergyAcknowledgements: [
       override({ id: 'e1240000-0000-4000-8000-000000000011', createdBy: COLLEAGUE, createdByMembershipId: COLLEAGUE_MEMBERSHIP, createdAt: '2026-11-08T08:00:00.000Z',
         matchedRecordedAllergyIds: [PENICILLIN_ID, GONE_ID] }),
@@ -3499,7 +3499,7 @@ describe('Reasons given to go ahead over an allergy warning, on a prescription�
     await waitFor(() => expect(entries(panel)).toEqual([
       [`By a clinician at this facility on ${formatWhen('2026-11-08T08:00:00.000Z')}, when it was prescribed.`,
         'Reason given: “Has taken amoxicillin since 2024 with no reaction”.',
-        'Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy, since marked entered in error.'],
+        'Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy no longer on the patient’s list (it may have been marked entered in error).'],
       [`By you on ${formatWhen('2026-11-09T10:30:00.000Z')}, when it was activated.`,
         'Reason given: “Checked the latex allergy with the patient; no latex in this medicine”.',
         'Recorded allergy it covered: Latex (severity not known).'],
@@ -3543,7 +3543,31 @@ describe('Reasons given to go ahead over an allergy warning, on a prescription�
     await openOrder('pharmacy', RX)
     const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
     await waitFor(() => expect(entries(panel)[0]).toEqual([`By you on ${formatWhen(WHEN)}, ${words}.`,
-      'Reason given: “Has taken amoxicillin since 2024 with no reaction”.', 'Recorded allergy it covered: one since marked entered in error.']))
+      'Reason given: “Has taken amoxicillin since 2024 with no reaction”.',
+      'Recorded allergy it covered: one no longer on the patient’s list (it may have been marked entered in error).']))
+  })
+
+  it.each([
+    [[{ id: 'e1240000-0000-4000-8000-000000000031' }], 'Allergy warning overridden', 'An allergy warning override on this prescription can’t be shown here.'],
+    [['x', { reason: 'Has taken amoxicillin since 2024 with no reaction' }], 'Allergy warnings overridden', '2 allergy warning overrides on this prescription can’t be shown here.'],
+  ])('when no stored reason can be read, says one exists and can’t be shown, never “more”', async (stored, title, said) => {
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: stored })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: title })
+    expect(within(panel).queryAllByRole('listitem')).toEqual([])
+    expect([...panel.querySelectorAll('p')].map(line => line.textContent)).toEqual([said])
+    expect(document.body.textContent).not.toMatch(/\bmore allergy warning/)
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it('after the reasons it can show, counts those it can’t as “more”', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [
+      override({ matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }), { id: 'e1240000-0000-4000-8000-000000000032' },
+    ] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warnings overridden' })
+    expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(panel).getByText('1 more allergy warning override can’t be shown here.')).toBeTruthy()
   })
 
   it('shows the reason as text, never as markup, with its own line breaks', async () => {

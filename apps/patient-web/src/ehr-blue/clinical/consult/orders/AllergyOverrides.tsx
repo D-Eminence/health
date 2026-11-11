@@ -71,9 +71,11 @@ const allergies = (count: number) => count === 1 ? 'allergy' : 'allergies'
 
 /**
  * The recorded allergies a reason covered, named from the patient's allergy list (the active ones, every facility's):
- * "Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy, since marked entered in
- * error." An id no longer on the list was marked entered in error since. Where the list can't be read, the count only,
- * and why the names are missing; never a name guessed.
+ * "Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy no longer on the patient’s
+ * list (it may have been marked entered in error)." Only an allergy the list itself says was entered in error is said to
+ * be; an id missing from the list is said to be missing, since it may also be an entry the page could not read or one
+ * past the list's 200. Where the list can't be read, the count only, and why the names are missing; never a name
+ * guessed.
  */
 export function coveredLine(ids: readonly string[], state: AllergiesState): string {
   const head = `Recorded ${allergies(ids.length)} it covered: `
@@ -89,8 +91,8 @@ export function coveredLine(ids: readonly string[], state: AllergiesState): stri
     else named.push(item.status === 'active' ? recordedAllergyLine(item) : `${recordedAllergyLine(item)}, since marked entered in error`)
   }
   if (gone > 0) {
-    named.push(named.length > 0 ? `${gone} more recorded ${allergies(gone)}, since marked entered in error`
-      : `${gone === 1 ? 'one' : gone} since marked entered in error`)
+    const missing = `no longer on the patient’s list (${gone === 1 ? 'it' : 'they'} may have been marked entered in error)`
+    named.push(named.length > 0 ? `${gone} more recorded ${allergies(gone)} ${missing}` : `${gone === 1 ? 'one' : gone} ${missing}`)
   }
   return `${head}${named.join('; ')}.`
 }
@@ -102,9 +104,14 @@ export function patientWordsLine(terms: readonly string[]): string {
     : 'It covered allergies the patient entered in their Health ID portal.'
 }
 
-/** "1 more allergy warning override can’t be shown here." */
-export function unreadLine(count: number): string {
-  return `${count} more allergy warning ${count === 1 ? 'override' : 'overrides'} can’t be shown here.`
+/**
+ * The stored reasons that could not be read: "1 more allergy warning override can’t be shown here." after those shown;
+ * with none shown, "An allergy warning override on this prescription can’t be shown here."
+ */
+export function unreadLine(count: number, anyShown: boolean): string {
+  const overrides = count === 1 ? 'override' : 'overrides'
+  if (anyShown) return `${count} more allergy warning ${overrides} can’t be shown here.`
+  return `${count === 1 ? 'An' : count} allergy warning ${overrides} on this prescription can’t be shown here.`
 }
 
 export function AllergyOverrides({ chart, overrides, membershipId }: {
@@ -150,7 +157,7 @@ function OverrideList({ overrides, membershipId, allergies: state }: {
           ))}
         </ul>
       ) : null}
-      {overrides.unread > 0 ? <p>{unreadLine(overrides.unread)}</p> : null}
+      {overrides.unread > 0 ? <p>{unreadLine(overrides.unread, overrides.items.length > 0)}</p> : null}
       {state?.status === 'failed' ? (
         <p><button type="button" className="hid-ehr-clinical-link hid-ehr-clinical-link-button" onClick={state.retry}>Try again</button></p>
       ) : null}

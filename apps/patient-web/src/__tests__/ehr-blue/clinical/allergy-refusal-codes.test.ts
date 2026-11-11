@@ -156,10 +156,15 @@ describe('the words of a stored reason', () => {
   it('names the allergies it covered from the list, says plainly of one no longer on it, and never guesses a name it can’t read', () => {
     const list = shown([recorded(PENICILLIN_ID, 'Penicillin'), recorded(LATEX_ID, 'Latex', 'entered_in_error')])
     expect(coveredLine([PENICILLIN_ID], list)).toBe('Recorded allergy it covered: Penicillin (moderate).')
+    // Marked entered in error only where the list says so; an id missing from the list (marked since, an entry the page
+    // could not read, or past the list's 200) is said to be missing, and only "may" have been marked.
     expect(coveredLine([PENICILLIN_ID, LATEX_ID, 'gone-1', 'gone-2'], list))
-      .toBe('Recorded allergies it covered: Penicillin (moderate); Latex (moderate), since marked entered in error; 2 more recorded allergies, since marked entered in error.')
-    expect(coveredLine(['gone-1'], list)).toBe('Recorded allergy it covered: one since marked entered in error.')
-    expect(coveredLine(['gone-1', 'gone-2'], list)).toBe('Recorded allergies it covered: 2 since marked entered in error.')
+      .toBe('Recorded allergies it covered: Penicillin (moderate); Latex (moderate), since marked entered in error; '
+        + '2 more recorded allergies no longer on the patient’s list (they may have been marked entered in error).')
+    expect(coveredLine([PENICILLIN_ID, 'gone-1'], list))
+      .toBe('Recorded allergies it covered: Penicillin (moderate); 1 more recorded allergy no longer on the patient’s list (it may have been marked entered in error).')
+    expect(coveredLine(['gone-1'], list)).toBe('Recorded allergy it covered: one no longer on the patient’s list (it may have been marked entered in error).')
+    expect(coveredLine(['gone-1', 'gone-2'], list)).toBe('Recorded allergies it covered: 2 no longer on the patient’s list (they may have been marked entered in error).')
     expect(coveredLine([PENICILLIN_ID, LATEX_ID], { status: 'loading' })).toBe('Recorded allergies it covered: 2.')
     expect(coveredLine([PENICILLIN_ID], { status: 'hidden' })).toBe('Recorded allergy it covered: 1 (their names can’t be shown here).')
     expect(coveredLine([PENICILLIN_ID], { status: 'failed', recordedOffered: true, retry: () => undefined }))
@@ -169,7 +174,10 @@ describe('the words of a stored reason', () => {
   it('labels the patient’s own words as theirs', () => {
     expect(patientWordsLine(['augmentin', 'amoxil'])).toBe('The patient’s own words it covered, from their Health ID portal: “augmentin”, “amoxil”.')
     expect(patientWordsLine([])).toBe('It covered allergies the patient entered in their Health ID portal.')
-    expect(unreadLine(1)).toBe('1 more allergy warning override can’t be shown here.')
-    expect(unreadLine(2)).toBe('2 more allergy warning overrides can’t be shown here.')
+    expect(unreadLine(1, true)).toBe('1 more allergy warning override can’t be shown here.')
+    expect(unreadLine(2, true)).toBe('2 more allergy warning overrides can’t be shown here.')
+    // With none shown above it, nothing is "more".
+    expect(unreadLine(1, false)).toBe('An allergy warning override on this prescription can’t be shown here.')
+    expect(unreadLine(2, false)).toBe('2 allergy warning overrides on this prescription can’t be shown here.')
   })
 })
