@@ -191,10 +191,76 @@ const pharmacyStock = {
 // Outreach: one active registration campaign this membership belongs to, and the cases registered in the field. Each
 // case carries `phone` and `operationalNotes` (null when none was given), as production's Outreach sends them.
 const outreachLinked = new Set(['oc-3'])
-const outreachCampaigns = () => [
-  { id: 'camp-1', name: 'Ajegunle health week', status: 'active', services: ['registration', 'screening'], startsAt: iso(-3 * DAY), rowVersion: 2 },
-  { id: 'camp-2', name: 'Makoko school screening', status: 'draft', services: ['screening'], startsAt: iso(10 * DAY), rowVersion: 1 },
+// Campaign management (hid-system#222, 0122): the demo membership is camp-1's admin. What is created, opened, closed or
+// added lasts until the mock restarts.
+const outreachCampaignStore = [
+  { id: 'camp-1', name: 'Ajegunle health week', status: 'active', services: ['registration', 'vitals'], startsAt: iso(-3 * DAY), endsAt: iso(4 * DAY), rowVersion: 2 },
+  { id: 'camp-2', name: 'Makoko school screening', status: 'planned', services: ['vitals', 'referral'], startsAt: iso(10 * DAY), endsAt: null, rowVersion: 1 },
 ]
+const outreachCampaigns = () => outreachCampaignStore.map(campaign => ({ ...campaign }))
+const outreachMemberStore = new Map([
+  ['camp-1', [
+    { id: 'cm-1', campaignId: 'camp-1', membershipId: 'member-demo-1', role: 'admin', createdAt: iso(-4 * DAY) },
+    { id: 'cm-2', campaignId: 'camp-1', membershipId: 'member-demo-7', role: 'enumerator', createdAt: iso(-4 * DAY) },
+  ]],
+  ['camp-2', [{ id: 'cm-3', campaignId: 'camp-2', membershipId: 'member-demo-7', role: 'admin', createdAt: iso(-1 * DAY) }]],
+])
+// The facility's active staff, by name, as 0122's outreach.campaign_staff names them.
+const outreachFacilityStaff = [
+  { membershipId: 'member-demo-1', name: 'Dr Tunde Bello' },
+  { membershipId: 'member-demo-7', name: 'Nurse Bisi Adeyemi' },
+  { membershipId: 'member-demo-8', name: 'Musa Ibrahim' },
+  { membershipId: 'member-demo-9', name: 'Funmi Adeyemi' },
+]
+const outreachProblem = (status, code, detail) => [status, { type: 'about:blank', title: code, status, code, detail }]
+/** Outreach campaign management as hid-system#222 serves it, for the demo membership. */
+function outreachCampaignRoute(method, path, { body, headers } = {}) {
+  const base = '/outreach/registration-cases/campaigns'
+  if (method === 'GET' && path === `${base}/governance`) return [200, { rule: 'campaign_admins' }]
+  const match = new RegExp(`^${base}/([^/]+)/(staff|status|members)$`).exec(path)
+  const campaign = match ? outreachCampaignStore.find(entry => entry.id === decodeURIComponent(match[1])) : undefined
+  if (match && !campaign) return outreachProblem(404, 'OUTREACH_CAMPAIGN_NOT_FOUND', 'The Outreach campaign was not found')
+  const members = campaign ? outreachMemberStore.get(campaign.id) ?? [] : []
+  const role = members.find(member => member.membershipId === 'member-demo-1')?.role ?? null
+  if (method === 'GET' && match?.[2] === 'staff') {
+    const people = !role ? [] : outreachFacilityStaff
+      .map(person => ({ ...person, campaignRole: members.find(member => member.membershipId === person.membershipId)?.role ?? null }))
+      .filter(person => role === 'admin' || person.campaignRole)
+    return [200, { yourRole: role, people }]
+  }
+  if (method === 'GET' && match?.[2] === 'members') return [200, members]
+  if (method !== 'POST') return null
+  if (path === base) {
+    if (!body) return NO_BODY()
+    if (body.endsAt && Date.parse(body.endsAt) <= Date.parse(body.startsAt)) return outreachProblem(400, 'OUTREACH_CAMPAIGN_DATES_INVALID', 'An Outreach campaign must end after it starts')
+    const created = { id: `camp-${outreachCampaignStore.length + 1}-${Date.now().toString(36)}`, name: String(body.name).trim(), status: 'planned',
+      services: [...new Set(body.services ?? [])], startsAt: body.startsAt, endsAt: body.endsAt ?? null, rowVersion: 1 }
+    outreachCampaignStore.unshift(created)
+    outreachMemberStore.set(created.id, [{ id: `cm-${created.id}`, campaignId: created.id, membershipId: 'member-demo-1', role: 'admin', createdAt: iso() }])
+    return [201, { ...created }]
+  }
+  if (!match) return null
+  if (role !== 'admin') return outreachProblem(403, 'OUTREACH_CAMPAIGN_ADMIN_REQUIRED', 'Only this Outreach campaign\'s admins can change it')
+  if (!body) return NO_BODY()
+  if (match[2] === 'status') {
+    const expected = Number(String(headers?.get?.('if-match') ?? '').replace(/^W\//, '').replace(/"/g, ''))
+    if (expected !== campaign.rowVersion) return outreachProblem(412, 'VERSION_CONFLICT', 'The Outreach campaign changed; reload before retrying')
+    if (campaign.status === 'closed') return outreachProblem(409, 'OUTREACH_CAMPAIGN_CLOSED', 'A closed Outreach campaign cannot be reopened')
+    if (body.status === 'active' && Date.parse(campaign.startsAt) > Date.now()) return outreachProblem(409, 'OUTREACH_CAMPAIGN_NOT_STARTED', 'The Outreach campaign cannot become active before its start time')
+    campaign.status = body.status
+    campaign.rowVersion += 1
+    return [200, { ...campaign }]
+  }
+  if (match[2] === 'members') {
+    const person = outreachFacilityStaff.find(entry => entry.membershipId === body.membershipId)
+    if (!person) return outreachProblem(422, 'OUTREACH_STAFF_NOT_AVAILABLE', 'That person is not an active staff member at this facility')
+    if (members.some(member => member.membershipId === person.membershipId)) return outreachProblem(409, 'OUTREACH_CAMPAIGN_MEMBER_EXISTS', 'The staff member is already in this Outreach campaign')
+    const added = { id: `cm-${campaign.id}-${members.length + 1}`, campaignId: campaign.id, membershipId: person.membershipId, role: body.role, createdAt: iso() }
+    outreachMemberStore.set(campaign.id, [...members, added])
+    return [201, added]
+  }
+  return null
+}
 const outreachCases = () => [
   { id: 'oc-1', campaignId: 'camp-1', fullName: 'Kemi Balogun', ageYears: 34, sex: 'female', temporaryPatientId: 'tmp_7f3a9c21', phone: '+2348031234567', operationalNotes: 'Met at the market. Wants a blood pressure check next week.', createdAt: iso(-40 * MIN), rowVersion: 1 },
   { id: 'oc-2', campaignId: 'camp-1', fullName: 'Ibrahim Musa', ageYears: 61, sex: 'male', temporaryPatientId: 'tmp_2b8e4d10', phone: '08029876543', operationalNotes: null, createdAt: iso(-2 * 60 * MIN), rowVersion: 1 },
@@ -236,11 +302,6 @@ function staffRoute(method, path) {
     const entry = [...pharmacyDispensed.values()].find(done => done.id === decodeURIComponent(dispensing[1]))
     return entry ? [200, { id: entry.id, version: entry.version, reversed: entry.reversed }] : null
   }
-  const members = /^\/outreach\/registration-cases\/campaigns\/([^/]+)\/members$/.exec(path)
-  if (members) return [200, decodeURIComponent(members[1]) === 'camp-1' ? [
-    { id: 'cm-1', campaignId: 'camp-1', membershipId: 'member-demo-1', role: 'health_worker', createdAt: iso(-4 * DAY) },
-    { id: 'cm-2', campaignId: 'camp-1', membershipId: 'member-demo-7', role: 'enumerator', createdAt: iso(-4 * DAY) },
-  ] : []]
   if (/^\/ehr\/patients\/[^/]+\/encounters(\/[^/]+\/[a-z-]+)?$/.test(path) || path === '/ehr/documents') return [200, { items: [], nextCursor: null }]
   switch (path) {
     case '/identity/access-requests': return [200, [
@@ -1067,7 +1128,8 @@ export function respond(method, path, workspace, request = {}) {
   }
   const handler = workspace === 'admin' ? adminRoute : workspace === 'provider' ? staffRoute : patientRoute
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
-  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
+  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request)
+    ?? outreachCampaignRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null
 }
 

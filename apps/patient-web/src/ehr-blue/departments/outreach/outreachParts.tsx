@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
-import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../../../staff/api'
+import { isHidApiError } from '@hid/http'
+import type { OutreachCampaign, OutreachCampaignMember, OutreachCampaignRole, OutreachCase } from '../../../staff/api'
 import type { Tone } from '../../../kasuwa/ui'
 import type { DeptFact } from '../parts/DeptRecord'
+import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 
 /*
@@ -34,6 +36,85 @@ export const CREATE_FAILED = 'The registration case could not be saved. Please r
 export const LINK_FAILED = 'The patient could not be linked. Check your access to this patient, then refresh the case.'
 
 export const PENDING = 'identity_resolution_pending'
+
+/*
+ * Campaign management (hid-system#222, 0122): a campaign's own admins open, close and staff it. Every refusal Outreach
+ * gives it is said in words that tell the person what to do next, never its code.
+ */
+export const STAFF_NOT_LOADED = 'Who is in this campaign could not be checked. Try again.'
+export const CAMPAIGN_CREATE_FAILED = 'The campaign could not be saved. Please retry.'
+/** A create whose answer never came: the campaign may be saved, and Outreach would make a second one if it were sent again. */
+export const CAMPAIGN_CREATE_UNSURE = 'The campaign list has been read again. Check it for this campaign before you retry: if the answer was lost, it may already be saved.'
+export const CAMPAIGN_STATUS_FAILED = 'The campaign could not be changed. Please retry.'
+export const MEMBER_ADD_FAILED = 'The person could not be added. Please retry.'
+/** Outreach takes a campaign name of 2 to 200 characters (CreateCampaignDto). */
+export const NAME_LENGTH = 'Enter at least 2 characters.'
+export const CHOOSE_SERVICE = 'Choose at least one service.'
+export const END_AFTER_START = 'Choose an end date on or after the start date.'
+
+const CAMPAIGN_REFUSALS: Readonly<Record<string, string>> = {
+  OUTREACH_CAMPAIGN_ADMIN_REQUIRED: 'Only this campaign’s admins can do this. Ask one of them.',
+  VERSION_CONFLICT: 'This campaign changed since you opened it. It has been read again: check it, then try again.',
+  OUTREACH_CAMPAIGN_STATE_CONFLICT: 'This campaign has already changed. It has been read again: check it, then try again.',
+  OUTREACH_CAMPAIGN_NOT_STARTED: 'This campaign can’t be opened before its start date.',
+  OUTREACH_CAMPAIGN_CLOSED: 'This campaign is finished. A finished campaign can’t be opened again.',
+  OUTREACH_STAFF_NOT_AVAILABLE: 'That person isn’t active staff at this facility now. Choose someone else.',
+  OUTREACH_CAMPAIGN_MEMBER_EXISTS: 'That person is already in this campaign.',
+  OUTREACH_CAMPAIGN_DATES_INVALID: END_AFTER_START,
+}
+/** The refusals after which the campaign is read again, since what the page shows is out of date. */
+export const CAMPAIGN_STALE: ReadonlySet<string> = new Set(['VERSION_CONFLICT', 'OUTREACH_CAMPAIGN_STATE_CONFLICT', 'OUTREACH_CAMPAIGN_CLOSED',
+  'OUTREACH_CAMPAIGN_NOT_STARTED', 'OUTREACH_CAMPAIGN_ADMIN_REQUIRED'])
+
+/** A campaign write's refusal in plain words. */
+export function campaignErrorText(error: unknown, fallback: string): string {
+  if (isHidApiError(error) && Object.hasOwn(CAMPAIGN_REFUSALS, error.code)) return CAMPAIGN_REFUSALS[error.code]!
+  return errorText(error, fallback)
+}
+
+/** The services Outreach takes on a campaign (CreateCampaignDto), in the order the form offers them, with their words. */
+export const CAMPAIGN_SERVICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hint?: string }> = [
+  { value: 'registration', label: 'Registration', hint: 'Members can register people they meet into this campaign.' },
+  { value: 'vitals', label: 'Vital signs' },
+  { value: 'vaccination', label: 'Vaccination' },
+  { value: 'lab_sample', label: 'Lab samples' },
+  { value: 'referral', label: 'Referrals' },
+]
+const SERVICE_WORDS: Readonly<Record<string, string>> = Object.fromEntries(CAMPAIGN_SERVICES.map(service => [service.value, service.label]))
+
+/** A campaign's services in words: "Registration, Lab samples". One with no word here is said as written, never with underscores. */
+export function servicesText(services: readonly string[], none = 'No services listed') {
+  if (!services.length) return none
+  return services.map(service => (Object.hasOwn(SERVICE_WORDS, service) ? SERVICE_WORDS[service] : undefined)
+    ?? service.replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())).join(', ')
+}
+
+/** A campaign role's words, as the form offers them. */
+export const CAMPAIGN_ROLES: ReadonlyArray<{ readonly value: OutreachCampaignRole; readonly label: string }> = [
+  { value: 'enumerator', label: 'Enumerator' },
+  { value: 'health_worker', label: 'Health worker' },
+  { value: 'admin', label: 'Campaign admin' },
+]
+const ROLE_WORDS: Readonly<Record<string, string>> = Object.fromEntries(CAMPAIGN_ROLES.map(role => [role.value, role.label]))
+
+/** A campaign member's role in words: "Member" for one the page has no word for, never its code (parity report 3.1 #16). */
+export function memberRoleLabel(role: string): string {
+  return (Object.hasOwn(ROLE_WORDS, role) ? ROLE_WORDS[role] : undefined) ?? 'Member'
+}
+
+/**
+ * A date picked on a form as the instant Outreach takes: the start of that day, or (`end`) its last second, in Nigerian
+ * time (WAT, UTC+1 all year), so a campaign ending on a day runs to the end of it.
+ */
+export function lagosDayInstant(day: string, end = false): string {
+  return new Date(`${day}T${end ? '23:59:59' : '00:00:00'}+01:00`).toISOString()
+}
+
+/** Whether a campaign may be opened now: Outreach refuses before its start time (OUTREACH_CAMPAIGN_NOT_STARTED). */
+export function campaignStarted(campaign: OutreachCampaign, now = Date.now()) {
+  const starts = Date.parse(campaign.startsAt)
+  return Number.isNaN(starts) || starts <= now
+}
 
 /**
  * A campaign's status in plain words. Outreach sends planned, active or closed (campaign.types.ts CampaignStatus); the
@@ -75,7 +156,7 @@ export function caseSearchText(item: OutreachCase) {
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {
-  return [campaign.name, campaignStatusLabel(campaign.status), campaign.services.join(' '), dateText(campaign.startsAt)]
+  return [campaign.name, campaignStatusLabel(campaign.status), servicesText(campaign.services), dateText(campaign.startsAt)]
 }
 
 /**
@@ -114,8 +195,10 @@ export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
   return [
     { label: 'Name', value: campaign.name },
     { label: 'Status', value: campaignStatusLabel(campaign.status) },
-    { label: 'Services', value: campaign.services.length ? campaign.services.join(', ') : 'None listed' },
+    { label: 'Services', value: servicesText(campaign.services, 'None listed') },
     { label: 'Starts', value: dateText(campaign.startsAt) },
+    // Outreach sends its end on every campaign (null: none set); an older answer leaves it out, and so does this.
+    ...(campaign.endsAt !== undefined ? [{ label: 'Ends', value: campaign.endsAt ? dateText(campaign.endsAt) : 'No end date' }] : []),
   ]
 }
 

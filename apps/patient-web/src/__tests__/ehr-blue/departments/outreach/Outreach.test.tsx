@@ -29,6 +29,9 @@ vi.mock('../../../../staff/App', async () => {
 const api = vi.hoisted(() => ({
   outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(),
+  // Campaign management (hid-system#222): asked of a membership that may write campaigns. Today's Outreach answers 404,
+  // so these tests keep campaigns read only (OutreachCampaignAdmins.test.tsx has it served).
+  outreachCampaignGovernance: vi.fn(),
 }))
 // Every staff API member the page reaches for that this test does not provide, such as a campaign write.
 const unprovided = vi.hoisted(() => new Set<string>())
@@ -79,6 +82,7 @@ beforeEach(() => {
   session.selfService = undefined
   api.outreachCampaigns.mockResolvedValue(CAMPAIGNS)
   api.outreachCases.mockResolvedValue([pendingCase, resolvedCase])
+  api.outreachCampaignGovernance.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
   api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) => MEMBER_OF.has(campaignId)
     ? [{ id: `${campaignId}-member`, campaignId, membershipId: MEMBERSHIP, role: 'health_worker', createdAt: '2026-01-02T00:00:00.000Z' }]
     : [{ id: `${campaignId}-other`, campaignId, membershipId: 'membership-demo-9', role: 'enumerator', createdAt: '2026-01-02T00:00:00.000Z' }])
@@ -363,7 +367,7 @@ describe('the list', () => {
  * answer 400. The page offers none of them; campaigns and members can be read.
  */
 describe('campaigns, read only', () => {
-  it('offers no campaign create, status or member control, even with outreach.campaign.write', async () => {
+  it('offers no campaign create, status or member control on an Outreach without campaign management, even with outreach.campaign.write', async () => {
     renderPage()
     const list = await campaignsList()
     expect(card(list, 'Demo screening week')).toBeTruthy()
@@ -375,6 +379,8 @@ describe('campaigns, read only', () => {
     for (const name of [/create campaign/i, /activate/i, /close campaign/i, /add member/i, /new campaign/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }
+    // Outreach was asked whether it serves campaign management (404: not yet), once.
+    expect(api.outreachCampaignGovernance.mock.calls).toEqual([[DEMO_HOSPITAL_ID]])
     // Every campaign's members are read as it is listed, and nothing else is reached for.
     await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(4))
     for (const id of ['campaign-1', 'campaign-2', 'campaign-3', 'campaign-4']) expect(api.outreachCampaignMembers).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, id)
