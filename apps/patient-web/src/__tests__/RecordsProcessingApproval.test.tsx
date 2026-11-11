@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { createRegisteredBrowserClient } from '@hid/api'
@@ -6,7 +6,7 @@ import { createApiClient } from '@hid/http'
 import { createPatientApi, type AccessRequest } from '../api'
 import { createTestSessionValue, SessionContext } from '../session'
 import { AccessPage } from '../routes/Portal'
-import { durationInWords, isRecordsProcessingRequest, paperRecordsOnRecordsProcessingApproval } from '../paperRecordsWording'
+import { durationInWords, isRecordsProcessingRequest, paperRecordsOnRecordsProcessingApproval, RECORDS_PROCESSING_GRANT } from '../paperRecordsWording'
 import { ToastProvider } from '../kasuwa/toast'
 
 /**
@@ -55,7 +55,20 @@ async function profileAnswered(fetched: ReturnType<typeof renderAccess>) {
 const sentence = (duration: string) => `If you approve, staff at Lagos General can add your paper records to your Health ID record for the next ${duration}. Each one is saved as a draft, and you will only see it after a clinician checks and signs it.`
 const TODAY = 'Approving also lets Lagos General add your old paper records to your Health ID while their access lasts.'
 
-describe('a records-processing request, as the patient reads it', () => {
+describe('a records-processing request before its grant is live (hid-system #229, 0113, not yet deployed)', () => {
+  it('keeps today’s line, as approving cannot yet keep paper records as drafts', async () => {
+    expect(RECORDS_PROCESSING_GRANT.live).toBe(false)
+    renderAccess(recordsProcessing, '1991-03-04')
+    const drawer = await review()
+    expect(await drawer.findByText(TODAY)).toBeTruthy()
+    expect(drawer.queryByText(/saved as a draft/)).toBeNull()
+  })
+})
+
+describe('a records-processing request, as the patient reads it once its grant is live', () => {
+  beforeEach(() => { RECORDS_PROCESSING_GRANT.live = true })
+  afterEach(() => { RECORDS_PROCESSING_GRANT.live = false })
+
   it('is the given sentence, word for word', () => {
     expect(paperRecordsOnRecordsProcessingApproval('Lagos General', '24 hours')).toBe(sentence('24 hours'))
   })

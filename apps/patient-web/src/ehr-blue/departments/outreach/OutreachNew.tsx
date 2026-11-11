@@ -14,8 +14,10 @@ import {
 
 /**
  * Outreach's refusals of the campaign a case names (outreach.service.ts assertCampaignAcceptsRegistration and the
- * campaign routes), by status and code. Before backend 0110 (hid-system#181, first numbered 0120), every campaign-linked registration failed with 500 (the
- * campaign trigger's unmapped 42501), so a 500 for a case with a campaign is taken as the campaign's refusal too.
+ * campaign routes), by status and code. A 500 is never one of them: since backend 0110 (hid-system#181), live in production,
+ * a 500 is a real fault (the case may have been saved and only its answer lost), so it is said as any other failure and
+ * retried as the same command; saving again without the campaign would send a new command and could register the
+ * same person twice.
  */
 const CAMPAIGN_REFUSALS: ReadonlyArray<readonly [number, string]> = [
   [403, 'OUTREACH_CAMPAIGN_ACCESS_DENIED'],
@@ -26,9 +28,7 @@ const CAMPAIGN_REFUSALS: ReadonlyArray<readonly [number, string]> = [
 ]
 function campaignRefused(caught: unknown): boolean {
   if (!isHidApiError(caught)) return false
-  // TODO(0110): remove this 500 rule. Backend 0110 (hid-system#181, first numbered 0120) is live in production since 11 Nov. After it, a 500 is a real fault (the case may have been
-  // saved and only its answer lost), and saving again without the campaign would register the same person twice.
-  return caught.status === 500 || CAMPAIGN_REFUSALS.some(([status, code]) => caught.status === status && caught.code === code)
+  return CAMPAIGN_REFUSALS.some(([status, code]) => caught.status === status && caught.code === code)
 }
 
 const CAMPAIGN_FIELD = 'outreach-case-campaign'

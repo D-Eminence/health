@@ -1189,8 +1189,8 @@ describe('linking a registration by Health ID', () => {
 
 /*
  * A campaign that refuses the registration (launch blocker F2): 403 OUTREACH_CAMPAIGN_ACCESS_DENIED, 409
- * OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS, and the 500 today's backend answers for every campaign-linked case
- * until 0110 (first numbered 0120). The officer is told plainly and offered one way on: the same person saved without the campaign.
+ * OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS. The officer is told plainly and offered one way on: the same person saved
+ * without the campaign. Since backend 0110 a 500 is a real fault, never taken as the campaign's refusal.
  */
 describe('a campaign that refuses the registration', () => {
   async function openWithCampaign() {
@@ -1206,7 +1206,6 @@ describe('a campaign that refuses the registration', () => {
   it.each([
     ['refused to this membership', new HidApiError(403, 'Campaign access is denied', { code: 'OUTREACH_CAMPAIGN_ACCESS_DENIED' })],
     ['not taking registrations', new HidApiError(409, 'Campaign is not accepting registrations', { code: 'OUTREACH_CAMPAIGN_NOT_ACCEPTING_REGISTRATIONS' })],
-    ['failing on it (before backend 0110)', new HidApiError(500, 'permission denied for table campaign_members', { code: 'INTERNAL_ERROR' })],
   ])('says a campaign %s plainly, focus on it, with one way on and no retry note', async (_name, error) => {
     api.createOutreachCase.mockRejectedValueOnce(error)
     const form = await openWithCampaign()
@@ -1264,6 +1263,20 @@ describe('a campaign that refuses the registration', () => {
     await press(within(form).getByRole('button', { name: 'Save registration' }))
     await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(3))
     expect(commands()[2]).toEqual(commands()[1])
+  })
+
+  it('says a 500 for a case with a campaign as a plain failure, retried as the same command, with no way to save without the campaign', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(500, 'Internal error', { code: 'INTERNAL_ERROR' }))
+    api.createOutreachCase.mockResolvedValueOnce(createdCase)
+    const form = await openWithCampaign()
+    await press(fill(form, typed))
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(screen.queryByRole('button', { name: 'Save without the campaign' })).toBeNull()
+    expect(screen.queryByText(REFUSED)).toBeNull()
+    await press(within(form).getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(2))
+    expect(api.createOutreachCase.mock.calls[1]![1]).toEqual(api.createOutreachCase.mock.calls[0]![1])
+    expect(commands()[1]).toEqual(commands()[0])
   })
 
   it('says a failure of a case with no campaign as it does today', async () => {

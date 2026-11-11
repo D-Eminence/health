@@ -153,7 +153,7 @@ export function campaignOpenNow(campaign: OutreachCampaign, now = Date.now()): b
   return true
 }
 
-/** A campaign refused this registration (or, before backend 0110, failed on it): the person can be saved without it. */
+/** A campaign refused this registration: the person can be saved without it. */
 export function campaignRefusedText(name: string | undefined) {
   return `${name ? `“${name}”` : 'This campaign'} isn’t taking this registration right now. You can save this person without the campaign. Everything you typed is kept.`
 }

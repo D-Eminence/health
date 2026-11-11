@@ -43,12 +43,21 @@ export function paperRecordsOnRecordsProcessingApproval(facilityName: string, du
 }
 
 /**
+ * Whether the records-processing grant (hid-system #229, 0113) is deployed in production. Off until it is: production
+ * since 0104 already sends a request's purpose, so a healthcare-operations write_records request can reach a patient
+ * today, but approving it cannot yet keep paper records as drafts that a clinician signs, and the records-processing
+ * sentence would not be true. Turn it on in the website release that follows #229's deploy. Tests may switch it.
+ */
+export const RECORDS_PROCESSING_GRANT = { live: false }
+
+/**
  * The paper records line for a pending request in the patient's access-request drawer: the records-processing sentence
- * for a records-processing request whose length is known, and today's line for every other request.
+ * for a records-processing request whose length is known, once that grant is live (RECORDS_PROCESSING_GRANT), and
+ * today's line for every other request.
  */
 export function paperRecordsLineForRequest(request: { purpose?: string | null; scope: string; facilityName: string; requestedDurationMinutes: number | null }): string {
   const duration = durationInWords(request.requestedDurationMinutes)
-  return isRecordsProcessingRequest(request) && duration
+  return RECORDS_PROCESSING_GRANT.live && isRecordsProcessingRequest(request) && duration
     ? paperRecordsOnRecordsProcessingApproval(request.facilityName, duration)
     : paperRecordsOnApproval(request.facilityName)
 }
