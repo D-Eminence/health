@@ -321,7 +321,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setSuccess('Pharmacy accepted this exact prescription version.')
     setSent(sentFrom('pharmacy', answer, expectedRowVersion))
     setSelected(null)
-    setFocusIds([actionId('pharmacy'), ACTIONS_ID])
+    // The send is no longer offered (taken), so focus goes to the actions.
+    setFocusIds([ACTIONS_ID])
   }
 
   async function sendLabRequest(key: string) {
@@ -344,7 +345,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setSuccess('Lab accepted this lab request at its current version.')
     setSent(sentFrom('lab', answer, expectedRowVersion))
     setSelected(null)
-    setFocusIds([actionId('lab'), ACTIONS_ID])
+    // The send is no longer offered (taken), so focus goes to the actions.
+    setFocusIds([ACTIONS_ID])
   }
 
   async function sendOrder(destination: OrderDestination, attestationTextVersion: string, key: string) {
