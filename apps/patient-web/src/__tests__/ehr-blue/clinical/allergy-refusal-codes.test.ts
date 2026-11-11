@@ -1,7 +1,7 @@
 import { HidApiError } from '@hid/http'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  BY_A_CLINICIAN, coveredLine, overrideLine, overridesTitle, patientWordsLine, reasonLine, unreadLine,
+  BY_A_CLINICIAN, coveredLine, membershipAt, overrideLine, overridesTitle, patientWordsLine, reasonLine, unreadLine,
 } from '../../../ehr-blue/clinical/consult/orders/AllergyOverrides'
 import { readAllergyRefusal } from '../../../ehr-blue/clinical/parts/allergyWarning'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
@@ -76,13 +76,17 @@ describe('the refused parts of a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (7fbb04aa)
   })
 })
 
-const ME = 'staff-1'
+/** The session's actor.id (the sign-in's subject), the account id the EHR stores, and the membership here: all apart. */
+const SESSION_ID = 'staff-1'
+const MY_ACCOUNT = 'e0000000-0000-4000-8000-0000000000a4'
+const MY_MEMBERSHIP = 'e0000000-0000-4000-8000-0000000000f4'
+const OTHER_MEMBERSHIP = 'e0000000-0000-4000-8000-0000000000f5'
 const PENICILLIN_ID = 'a1240000-0000-4000-8000-000000000041'
 const LATEX_ID = 'a1240000-0000-4000-8000-000000000042'
 
 const STORED = {
   id: 'e1240000-0000-4000-8000-000000000041', stage: 'activate', reason: 'Has taken amoxicillin since 2024 with no reaction',
-  createdBy: ME, createdByMembershipId: 'e0000000-0000-4000-8000-0000000000f4', createdAt: '2026-11-10T09:00:00.000Z',
+  createdBy: MY_ACCOUNT, createdByMembershipId: MY_MEMBERSHIP, createdAt: '2026-11-10T09:00:00.000Z',
   matchedRecordedAllergyIds: [PENICILLIN_ID, PENICILLIN_ID, LATEX_ID], patientReportedMatched: true, patientReportedTerms: ['penicillin'],
 }
 
@@ -96,7 +100,7 @@ describe('a prescription’s stored reasons (allergyAcknowledgements, 7fbb04aa)'
   it('reads [] as none, and an item whole, the ids once each', () => {
     expect(parsePrescriptionAllergyAcknowledgements([])).toEqual({ items: [], unread: 0 })
     expect(parsePrescriptionAllergyAcknowledgements([STORED])).toEqual({ unread: 0, items: [{
-      id: STORED.id, stage: 'activate', reason: STORED.reason, createdBy: ME, createdAt: STORED.createdAt,
+      id: STORED.id, stage: 'activate', reason: STORED.reason, createdBy: MY_ACCOUNT, createdByMembershipId: MY_MEMBERSHIP, createdAt: STORED.createdAt,
       matchedRecordedAllergyIds: [PENICILLIN_ID, LATEX_ID], patientReportedMatched: true, patientReportedTerms: ['penicillin'],
     }] })
   })
@@ -122,12 +126,27 @@ function shown(list: RecordedAllergy[]): AllergiesState {
 
 describe('the words of a stored reason', () => {
   it('says who, when and at which step; never an id', () => {
-    expect(overrideLine(item(), ME)).toBe(`By you on ${formatWhen(STORED.createdAt)}, when it was activated.`)
-    expect(overrideLine(item(), 'someone-else')).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
-    expect(overrideLine(item({ createdBy: null }), null)).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
-    expect(overrideLine(item({ createdAt: null, stage: null }), ME)).toBe('By you.')
+    expect(overrideLine(item(), MY_MEMBERSHIP)).toBe(`By you on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item(), OTHER_MEMBERSHIP)).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item(), null)).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item({ createdByMembershipId: null }), MY_MEMBERSHIP)).toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    // The account id is never compared with the session's id, even when they happen to be equal.
+    expect(overrideLine(item({ createdBy: SESSION_ID, createdByMembershipId: OTHER_MEMBERSHIP }), MY_MEMBERSHIP))
+      .toBe(`By ${BY_A_CLINICIAN} on ${formatWhen(STORED.createdAt)}, when it was activated.`)
+    expect(overrideLine(item({ createdAt: null, stage: null }), MY_MEMBERSHIP)).toBe('By you.')
     expect(overridesTitle(1)).toBe('Allergy warning overridden')
     expect(overridesTitle(2)).toBe('Allergy warnings overridden')
+  })
+
+  it('takes the membership at the chart’s facility from the session’s facilities, else its selected facility; none elsewhere', () => {
+    const facility = (id: string, membershipId: string) => ({ id, membershipId, organizationId: 'org-1', name: 'Demo', roles: [], permissions: [], isPrimary: false })
+    const HERE = 'f0000000-0000-4000-8000-000000000001'
+    const THERE = 'f0000000-0000-4000-8000-000000000002'
+    expect(membershipAt({ facilities: [facility(THERE, OTHER_MEMBERSHIP), facility(HERE, MY_MEMBERSHIP)] }, HERE)).toBe(MY_MEMBERSHIP)
+    expect(membershipAt({ facilities: [], facility: facility(HERE, MY_MEMBERSHIP) }, HERE)).toBe(MY_MEMBERSHIP)
+    expect(membershipAt({ facilities: [], facility: facility(THERE, OTHER_MEMBERSHIP) }, HERE)).toBeNull()
+    expect(membershipAt({ facilities: [facility(HERE, ' ')] }, HERE)).toBeNull()
+    expect(membershipAt(null, HERE)).toBeNull()
   })
 
   it('quotes the reason as written', () => {

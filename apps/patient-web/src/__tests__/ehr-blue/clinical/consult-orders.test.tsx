@@ -3435,16 +3435,22 @@ describe('Reasons given to go ahead over an allergy warning, on a prescriptionâ€
     rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: false }
   const LATEX = { id: LATEX_ID, substance: 'Latex', reaction: null, severity: 'unknown' as const, status: 'active' as const,
     rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: true }
-  /** The signed-in account (the harness's actor), and another clinician at this facility. */
-  const ME = 'staff-1'
+  /**
+   * Who gave a reason, as the EHR stores it: the account id (createdBy) and the membership at this facility
+   * (createdByMembershipId). The signed-in member is the harness's actor: its session id ('staff-1') is the sign-in's
+   * subject, not an account id, and its membership here is 'member-1'. "You" is said from the membership alone.
+   */
+  const SESSION_ID = 'staff-1'
+  const MY_ACCOUNT = 'e0000000-0000-4000-8000-0000000000a1'
+  const MY_MEMBERSHIP = 'member-1'
   const COLLEAGUE = 'e0000000-0000-4000-8000-0000000000c2'
-  const MEMBERSHIP = 'e0000000-0000-4000-8000-0000000000f2'
+  const COLLEAGUE_MEMBERSHIP = 'e0000000-0000-4000-8000-0000000000f2'
   const WHEN = '2026-11-10T09:00:00.000Z'
 
   function override(overrides: Record<string, unknown> = {}) {
     return {
       id: 'e1240000-0000-4000-8000-000000000001', stage: 'create', reason: 'Has taken amoxicillin since 2024 with no reaction',
-      createdBy: ME, createdByMembershipId: MEMBERSHIP, createdAt: WHEN, matchedRecordedAllergyIds: [PENICILLIN_ID],
+      createdBy: MY_ACCOUNT, createdByMembershipId: MY_MEMBERSHIP, createdAt: WHEN, matchedRecordedAllergyIds: [PENICILLIN_ID],
       patientReportedMatched: false, patientReportedTerms: [], ...overrides,
     }
   }
@@ -3475,16 +3481,16 @@ describe('Reasons given to go ahead over an allergy warning, on a prescriptionâ€
     expect(panel.compareDocumentPosition(screen.getByRole('button', { name: 'Put on hold' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(api.allergies).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     // Ids are never shown.
-    for (const id of [ME, MEMBERSHIP, PENICILLIN_ID, 'e1240000-0000-4000-8000-000000000001']) expect(document.body.textContent).not.toContain(id)
+    for (const id of [MY_ACCOUNT, MY_MEMBERSHIP, PENICILLIN_ID, 'e1240000-0000-4000-8000-000000000001']) expect(document.body.textContent).not.toContain(id)
   })
 
   it('shows several oldest first, as served, each with who and its step, and says plainly of an allergy since marked entered in error', async () => {
     setLists([prescription({ status: 'active', rowVersion: 5, allergyAcknowledgements: [
-      override({ id: 'e1240000-0000-4000-8000-000000000011', createdBy: COLLEAGUE, createdAt: '2026-11-08T08:00:00.000Z',
+      override({ id: 'e1240000-0000-4000-8000-000000000011', createdBy: COLLEAGUE, createdByMembershipId: COLLEAGUE_MEMBERSHIP, createdAt: '2026-11-08T08:00:00.000Z',
         matchedRecordedAllergyIds: [PENICILLIN_ID, GONE_ID] }),
       override({ id: 'e1240000-0000-4000-8000-000000000012', stage: 'activate', createdAt: '2026-11-09T10:30:00.000Z',
         reason: 'Checked the latex allergy with the patient; no latex in this medicine', matchedRecordedAllergyIds: [LATEX_ID] }),
-      override({ id: 'e1240000-0000-4000-8000-000000000013', stage: 'resume', createdBy: COLLEAGUE, createdAt: '2026-11-10T07:15:00.000Z',
+      override({ id: 'e1240000-0000-4000-8000-000000000013', stage: 'resume', createdBy: COLLEAGUE, createdByMembershipId: COLLEAGUE_MEMBERSHIP, createdAt: '2026-11-10T07:15:00.000Z',
         reason: 'Patient took Augmentin last month with no reaction', matchedRecordedAllergyIds: [], patientReportedMatched: true,
         patientReportedTerms: ['augmentin', 'amoxil'] }),
     ] })], [])
@@ -3504,6 +3510,27 @@ describe('Reasons given to go ahead over an allergy warning, on a prescriptionâ€
     // One read of the allergies names them all.
     expect(api.allergies).toHaveBeenCalledTimes(1)
     expect(document.body.textContent).not.toContain(COLLEAGUE)
+  })
+
+  it('says â€œyouâ€ only for the signed-in memberâ€™s membership at this facility, never from the account or session id', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 4, allergyAcknowledgements: [
+      // Given with this membership: you, whatever the account id.
+      override({ id: 'e1240000-0000-4000-8000-000000000021', matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }),
+      // An account id that happens to equal the session's id, with another membership: someone else.
+      override({ id: 'e1240000-0000-4000-8000-000000000022', createdBy: SESSION_ID, createdByMembershipId: COLLEAGUE_MEMBERSHIP,
+        matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }),
+      // No membership said: never "you".
+      override({ id: 'e1240000-0000-4000-8000-000000000023', createdByMembershipId: undefined,
+        matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }),
+    ] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warnings overridden' })
+    expect(entries(panel).map(lines => lines[0])).toEqual([
+      `By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      `By a clinician at this facility on ${formatWhen(WHEN)}, when it was prescribed.`,
+      `By a clinician at this facility on ${formatWhen(WHEN)}, when it was prescribed.`,
+    ])
+    for (const id of [MY_ACCOUNT, MY_MEMBERSHIP, COLLEAGUE_MEMBERSHIP]) expect(document.body.textContent).not.toContain(id)
   })
 
   it.each([
@@ -3600,6 +3627,43 @@ describe('Reasons given to go ahead over an allergy warning, on a prescriptionâ€
     expect(screen.queryByText(NO_WARNING_NOT_SAFE)).toBeNull()
     expect(document.body.textContent).not.toMatch(/overrid/i)
     expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a draft, above Activate', { status: 'draft' }, 'Activate', {}],
+    ['one on hold, above Resume', { status: 'on_hold' }, 'Resume', {}],
+    ['a draft, above its send to another pharmacy', { status: 'draft', orderRoute: null }, 'Send to a pharmacy', { crossFacilityOrders: true }],
+  ])('shows a reason already given on %s, with the reason and the allergy it covered, before the button is pressed', async (_label, fields, action, extra) => {
+    // The EHR may let the step go ahead with no new warning when this reason covers the allergies: whoever presses sees it first.
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.note.read', 'ehr.order-route.send']
+    setLists([prescription({ ...fields, allergyAcknowledgements: [override()] })], [], extra)
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(panel)).toEqual([[`By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      'Reason given: â€œHas taken amoxicillin since 2024 with no reactionâ€.', 'Recorded allergy it covered: Penicillin (severe: Anaphylaxis).']]))
+    expect(panel.compareDocumentPosition(screen.getByRole('button', { name: action })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('Activate that the EHR lets go ahead with no new warning (a reason given already covers it): the reason stays shown above the actions', async () => {
+    setLists([prescription({ allergyAcknowledgements: [override()] })], [])
+    await openOrder('pharmacy', RX)
+    const before = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    expect(before.compareDocumentPosition(screen.getByRole('button', { name: 'Activate' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override()] })], [])
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    // No 409, so no warning, no check, and nothing acknowledged: the EHR's stored reason covered it.
+    expect(screen.queryByRole('region', { name: /allergy warning for/i })).toBeNull()
+    expect(api.allergyCheck).not.toHaveBeenCalled()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+    expect(api.updateRecord.mock.calls[0]![5]).toEqual({ expectedRowVersion: 1, changeReason: 'Treatment starts today', status: 'active' })
+    const after = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(after)).toEqual([[`By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      'Reason given: â€œHas taken amoxicillin since 2024 with no reactionâ€.', 'Recorded allergy it covered: Penicillin (severe: Anaphylaxis).']]))
+    expect(after.compareDocumentPosition(screen.getByRole('button', { name: 'Put on hold' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('after Activate with a reason, the prescription read again shows it, by you, when it was activated', async () => {

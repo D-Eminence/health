@@ -1,6 +1,7 @@
 import type {
   AcknowledgementStage, PrescriptionAllergyAcknowledgement, PrescriptionAllergyAcknowledgements, RecordedAllergy,
 } from '../../../../staff/allergies'
+import type { Actor } from '../../../../staff/api'
 import type { Chart } from '../../parts/chart'
 import { formatWhen } from '../../parts/format'
 import { ClinicalIcon } from '../../parts/icons'
@@ -33,17 +34,30 @@ export const STAGE_WORDS: Readonly<Record<AcknowledgementStage, string>> = {
   send: 'when it was sent to a pharmacy',
 }
 
-/** Who gave it: the account signed in, or anyone else (the EHR gives an id, never a name, and serves only this facility's). */
+/**
+ * Who gave it: the member signed in, or anyone else (the EHR gives ids, never a name, and serves only this facility's).
+ * "You" is said only when the reason's membership (createdByMembershipId) is the signed-in member's membership at the
+ * chart's facility: the reason's createdBy is an account id, and the session's actor.id is the sign-in's subject, so
+ * those two are never compared.
+ */
 export const BY_YOU = 'you'
 export const BY_A_CLINICIAN = 'a clinician at this facility'
+
+/** The signed-in member's membership at this facility, from the session's facilities; null when it has none there. */
+export function membershipAt(actor: Pick<Actor, 'facilities' | 'facility'> | null, facilityId: string): string | null {
+  if (!actor) return null
+  const membershipId = actor.facilities.find(facility => facility.id === facilityId)?.membershipId
+    ?? (actor.facility?.id === facilityId ? actor.facility.membershipId : undefined)
+  return membershipId?.trim() ? membershipId : null
+}
 
 export function overridesTitle(count: number): string {
   return count === 1 ? 'Allergy warning overridden' : 'Allergy warnings overridden'
 }
 
 /** "By you on 10 Nov 2026, 10:00, when it was prescribed." */
-export function overrideLine(item: PrescriptionAllergyAcknowledgement, actorId: string | null): string {
-  const who = actorId !== null && item.createdBy === actorId ? BY_YOU : BY_A_CLINICIAN
+export function overrideLine(item: PrescriptionAllergyAcknowledgement, membershipId: string | null): string {
+  const who = membershipId !== null && item.createdByMembershipId === membershipId ? BY_YOU : BY_A_CLINICIAN
   const when = formatWhen(item.createdAt)
   return `By ${who}${when ? ` on ${when}` : ''}${item.stage ? `, ${STAGE_WORDS[item.stage]}` : ''}.`
 }
@@ -93,28 +107,28 @@ export function unreadLine(count: number): string {
   return `${count} more allergy warning ${count === 1 ? 'override' : 'overrides'} can’t be shown here.`
 }
 
-export function AllergyOverrides({ chart, overrides, actorId }: {
+export function AllergyOverrides({ chart, overrides, membershipId }: {
   chart: Chart
   overrides: PrescriptionAllergyAcknowledgements
-  /** The signed-in account, said as "you". */
-  actorId: string | null
+  /** The signed-in member's membership at this facility (membershipAt), said as "you". */
+  membershipId: string | null
 }) {
   const ids = [...new Set(overrides.items.flatMap(item => item.matchedRecordedAllergyIds))]
   // The allergy list is read only when there is an allergy to name, and afresh whenever the allergies to name change
   // (a reason given since on this page may cover an allergy recorded since the list was read).
   return ids.length > 0
-    ? <NamedOverrides key={ids.join(',')} chart={chart} overrides={overrides} actorId={actorId} />
-    : <OverrideList overrides={overrides} actorId={actorId} allergies={null} />
+    ? <NamedOverrides key={ids.join(',')} chart={chart} overrides={overrides} membershipId={membershipId} />
+    : <OverrideList overrides={overrides} membershipId={membershipId} allergies={null} />
 }
 
-function NamedOverrides({ chart, overrides, actorId }: { chart: Chart; overrides: PrescriptionAllergyAcknowledgements; actorId: string | null }) {
+function NamedOverrides({ chart, overrides, membershipId }: { chart: Chart; overrides: PrescriptionAllergyAcknowledgements; membershipId: string | null }) {
   const { state } = useAllergies(chart)
-  return <OverrideList overrides={overrides} actorId={actorId} allergies={state} />
+  return <OverrideList overrides={overrides} membershipId={membershipId} allergies={state} />
 }
 
-function OverrideList({ overrides, actorId, allergies: state }: {
+function OverrideList({ overrides, membershipId, allergies: state }: {
   overrides: PrescriptionAllergyAcknowledgements
-  actorId: string | null
+  membershipId: string | null
   allergies: AllergiesState | null
 }) {
   const count = overrides.items.length + overrides.unread
@@ -128,7 +142,7 @@ function OverrideList({ overrides, actorId, allergies: state }: {
         <ul className="hid-ehr-clinical-allergy-warning-lines">
           {overrides.items.map(item => (
             <li key={item.id}>
-              <p>{overrideLine(item, actorId)}</p>
+              <p>{overrideLine(item, membershipId)}</p>
               <p className="hid-ehr-clinical-allergy-override-reason">{reasonLine(item.reason)}</p>
               {state && item.matchedRecordedAllergyIds.length > 0 ? <p>{coveredLine(item.matchedRecordedAllergyIds, state)}</p> : null}
               {item.patientReportedMatched ? <p>{patientWordsLine(item.patientReportedTerms)}</p> : null}

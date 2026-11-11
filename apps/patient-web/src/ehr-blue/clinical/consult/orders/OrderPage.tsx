@@ -27,7 +27,7 @@ import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } fro
 import { useClinical, useWorkspaceHref } from '../../parts/Workspace'
 import { RELOAD_FAILED } from '../encounters'
 import { KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, text, useFlash, type OrderKind } from './orders'
-import { AllergyOverrides, OVERRIDES_NOT_SHOWN } from './AllergyOverrides'
+import { AllergyOverrides, OVERRIDES_NOT_SHOWN, membershipAt } from './AllergyOverrides'
 import { ACK_REFUSED_ERROR, storedMedicine, warnAfterRefusal } from './prescribingAllergies'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
@@ -510,7 +510,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
           {lab ? null : !overrides ? <p className="hid-ehr-clinical-orders-muted hid-ehr-clinical-allergy-override-unknown">{OVERRIDES_NOT_SHOWN}</p>
             : overrides.items.length > 0 || overrides.unread > 0
-              ? <AllergyOverrides chart={chart} overrides={overrides} actorId={actor?.id ?? null} /> : null}
+              ? <AllergyOverrides chart={chart} overrides={overrides} membershipId={membershipAt(actor, chart.facilityId)} /> : null}
           {actions.length > 0 ? (
             <div className="hid-ehr-clinical-orders-actions">
               <ActionList>

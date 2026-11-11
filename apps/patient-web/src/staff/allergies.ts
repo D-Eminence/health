@@ -258,8 +258,16 @@ export interface PrescriptionAllergyAcknowledgement {
   /** Null for a stage this page does not know. */
   stage: AcknowledgementStage | null
   reason: string
-  /** The account that gave it (an id, never shown); null when unread. */
+  /**
+   * The account that gave it: an account id, never shown, and never the session's actor.id (that is the sign-in's
+   * subject). Null when unread.
+   */
   createdBy: string | null
+  /**
+   * The staff membership at this facility that gave it: what says "you", compared with the session's membership at the
+   * chart's facility. Null when unread: then never "you".
+   */
+  createdByMembershipId: string | null
   createdAt: string | null
   /** The recorded allergies it covered: name them from the patient's allergy list. */
   matchedRecordedAllergyIds: string[]
@@ -288,7 +296,7 @@ function parsePrescriptionAllergyAcknowledgement(value: unknown): PrescriptionAl
   return {
     id: ackId,
     stage: typeof value.stage === 'string' && (ACKNOWLEDGEMENT_STAGES as readonly string[]).includes(value.stage) ? value.stage as AcknowledgementStage : null,
-    reason, createdBy: id(value.createdBy), createdAt: time(value.createdAt),
+    reason, createdBy: id(value.createdBy), createdByMembershipId: id(value.createdByMembershipId), createdAt: time(value.createdAt),
     matchedRecordedAllergyIds: strings(value.matchedRecordedAllergyIds, 100),
     patientReportedMatched: value.patientReportedMatched === true,
     patientReportedTerms: strings(value.patientReportedTerms, MESSAGE_LIMIT),
