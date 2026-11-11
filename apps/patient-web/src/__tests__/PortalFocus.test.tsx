@@ -208,7 +208,7 @@ describe('access and consent', () => {
     await whoHasAccess()
     await press(await screen.findByRole('button', { name: 'Try again' }))
     await screen.findByText('Lagos General')
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: '1 facility has access now' })))
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Lagos General has access now' })))
   })
 })
 
@@ -223,7 +223,7 @@ describe('Try again pressed as soon as it is shown', () => {
       let reads = 0
       access(path => path === '/identity/me/access-requests' ? json([]) : ++reads === 1 ? unavailable() : json({ items: [grant] }))
       await whoHasAccess()
-      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: '1 facility has access now' }) }
+      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: 'Lagos General has access now' }) }
     }],
     ['the overview', async () => {
       let reads = 0

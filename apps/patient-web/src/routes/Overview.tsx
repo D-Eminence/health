@@ -48,10 +48,14 @@ function when(value: string | null | undefined, withTime: boolean) {
   return new Intl.DateTimeFormat('en-NG', withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' }).format(parsed)
 }
 
-/** Grants that give a facility access now: active and not yet ended. */
-export function activeAccesses(history: AccessHistory | null | undefined, now = Date.now()): number {
-  return list<AccessHistory['items'][number]>(history?.items).filter(item =>
-    item?.status === 'active' && !(stamp(item.expiresAt) <= now)).length
+/**
+ * Facilities with access now: those holding an access that is active and not yet ended, each counted once. A facility
+ * holds one access per staff member let in (a doctor, two lab scientists and a pharmacist are four), and the tile says
+ * facilities.
+ */
+export function facilitiesWithAccessNow(history: AccessHistory | null | undefined, now = Date.now()): number {
+  return new Set(list<AccessHistory['items'][number]>(history?.items).filter(item =>
+    item?.status === 'active' && !(stamp(item.expiresAt) <= now)).map(item => String(item.facilityName).trim())).size
 }
 
 /** Requests still waiting for the patient's decision. */
@@ -161,7 +165,7 @@ export function Overview() {
   const others = attention.filter(item => item.id !== 'requests' && item.id !== 'completion')
   const steps = completion ? COMPLETION_ITEMS.filter(item => completion.done.some(d => d.key === item.key) || completion.missing.some(m => m.key === item.key)) : []
   const checklist = completion && completion.percent < 100 ? CHECKLIST.filter(c => steps.some(item => item.key === c.key)) : []
-  const active = history.data && !history.error ? activeAccesses(history.data) : null
+  const active = history.data && !history.error ? facilitiesWithAccessNow(history.data) : null
   const counts = records.data && !records.error ? recordCounts(records.data) : null
   // A tile only for a section the backend sends (recordSections.ts): production sends no documents or prescriptions, and
   // a tile there could only ever say 0. Each comes back by itself once the backend sends it.

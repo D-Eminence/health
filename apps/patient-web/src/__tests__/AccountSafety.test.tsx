@@ -230,7 +230,7 @@ describe('patient access revocation', () => {
     })
     // Who has access: its own tab since the redesign.
     fireEvent.click(await screen.findByRole('button', { name: /^Who has access/ }))
-    expect(await screen.findByText(/^Emergency access · until /)).toBeTruthy()
+    expect(await screen.findByText('Emergency access')).toBeTruthy()
     expect(screen.getByText(/you can’t end it here/)).toBeTruthy()
     const revokeButtons = screen.getAllByRole('button', { name: /^End access for / })
     expect(revokeButtons).toHaveLength(1)

@@ -4,7 +4,7 @@ import { Route, Routes } from 'react-router-dom'
 import type { AccessHistory, AccessRequest, PatientNotification, PatientProfile, PatientRecords } from '../api'
 import type { AccessLogPage } from '../accessLog'
 import {
-  Overview, RECENT_ROWS, activeAccesses, attentionItems, pendingRequests, providerContributions, recentActivity,
+  Overview, RECENT_ROWS, attentionItems, facilitiesWithAccessNow, pendingRequests, providerContributions, recentActivity,
 } from '../routes/Overview'
 import { ProfilePage } from '../routes/Portal'
 import { json, press, problem, profile, renderPortal, sectionCard, sectionToggle, shownText, type Handler } from './portalHarness'
@@ -234,10 +234,17 @@ describe('the overview on today\'s backend', () => {
 
 describe('what the overview counts', () => {
   it('counts only active grants that have not ended', () => {
-    expect(activeAccesses({ items: [grant('a', 'active', at(-1)), grant('b', 'active', at(1)), grant('c', 'expired', at(-1)),
+    expect(facilitiesWithAccessNow({ items: [grant('a', 'active', at(-1)), grant('b', 'active', at(1)), grant('c', 'expired', at(-1)),
       grant('d', 'revoked', at(-1))] }, NOW)).toBe(1)
-    expect(activeAccesses(null)).toBe(0)
-    expect(activeAccesses({ items: 'none' } as unknown as AccessHistory)).toBe(0)
+    expect(facilitiesWithAccessNow(null)).toBe(0)
+    expect(facilitiesWithAccessNow({ items: 'none' } as unknown as AccessHistory)).toBe(0)
+  })
+
+  // Full-visit rehearsal, 11 Nov 2026: a doctor, two lab scientists and a pharmacist at one hospital made "4 Facilities with access".
+  it('counts each facility once, however many of its staff have access', () => {
+    expect(facilitiesWithAccessNow({ items: [grant('a', 'active', at(-1), 'Demo Hospital'), grant('b', 'active', at(-1), 'Demo Hospital'),
+      grant('c', 'active', at(-1), 'Demo Hospital'), grant('d', 'active', at(-1), 'Demo Hospital'), grant('e', 'active', at(-1), 'Yaba Clinic'),
+      grant('f', 'revoked', at(-1), 'Ikeja Clinic')] }, NOW)).toBe(2)
   })
 
   it('counts pending requests whatever their case', () => {

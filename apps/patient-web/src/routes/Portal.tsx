@@ -53,6 +53,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { countryName } from '../profileParity'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -683,7 +684,8 @@ type HistoryItem = AccessHistory['items'][number]
 
 /** Who holds a grant: the clinician at their facility for the patient's own share (hid-system 0095), else the facility. */
 function grantee(item: HistoryItem) {
-  return typeof item.clinicianName === 'string' && item.clinicianName.trim() ? `${item.clinicianName.trim()} at ${item.facilityName}` : item.facilityName
+  const name = staffName(item)
+  return name ? `${name} at ${item.facilityName}` : item.facilityName
 }
 
 /** "Shared by you · View Only · 7 days" for the patient's own share; nothing for any other grant, or from an older backend. */
@@ -752,12 +754,16 @@ export function AccessPage() {
   const revoke = async (grantId: string) => {
     if (revokeBusy || revokeReason.trim().length < 3) return
     const who = history.data?.items.find(item => item.consentGrantId === grantId)
+    // Another access at the same facility stays open: the facility can still see the records, and the notice says so.
+    const othersThere = who && history.data ? stillOpenThere(history.data.items, who) : 0
     setRevokeBusy(true)
     try {
       await api.revokeAccess(grantId, revokeReason.trim())
       await history.reload()
       setRevoking(null); setRevokeReason('')
-      toast.success({ title: 'Access ended', message: `${who ? grantee(who) : 'They'} can no longer see your records.` })
+      toast.success({ title: 'Access ended', message: who && othersThere > 0
+        ? `${staffName(who) ? `${staffName(who)}’s access` : 'This access'} at ${who.facilityName} has ended. Other access there is still open, listed below.`
+        : `${who ? grantee(who) : 'They'} can no longer see your records.` })
       focusAfter(() => historyHeading.current)
     } catch (cause) {
       toast.error({ title: 'Couldn’t end access', message: plainErrorText(cause, SAY.tryAgain, { codes: PATIENT_REFUSALS }) })
@@ -776,7 +782,9 @@ export function AccessPage() {
   const openRevocation = (id: string) => { if (revoking !== id) setRevokeReason(''); setRevoking(id) }
 
   const pendingCount = (requests.data && !requests.error ? requests.data : []).filter(item => item.status.toLowerCase() === 'pending').length
-  const activeCount = (history.data && !history.error ? history.data.items : []).filter(item => item.status === 'active').length
+  const historyItems = history.data && !history.error ? history.data.items : []
+  // Rows open now, for the tab; the heading counts facilities, as one facility can hold several (one per staff member).
+  const activeCount = historyItems.filter(isOpen).length
   const requestList = requests.data && !requests.error
     ? [...requests.data].sort((x, y) => Number(y.status.toLowerCase() === 'pending') - Number(x.status.toLowerCase() === 'pending')) : null
   const open = requestList?.find(item => item.accessRequestId === reviewing) ?? null
@@ -800,15 +808,19 @@ export function AccessPage() {
       {requestList && (requestList.length === 0
         ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">When a facility asks to see your records, you decide here.</p>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending'
+        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason)
           return <li key={item.accessRequestId}>
             <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
               className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
               <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
-                {/* The status is said once: the Review button while it waits, the badge after. */}
-                <span className="block text-[13px] text-ink-3">{pending ? `Wants to see your records${forHowLong(item.requestedDurationMinutes)} · ` : ''}{timeAgo(item.requestedAt)}</span>
+                {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
+                    as Who has access says it: the list names no staff member, so several from one facility differ by these.
+                    An Access PIN request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
+                <span className="block text-[13px] text-ink-2">{pin ? `A staff member used your Access PIN to ${askedTo(item.scope)}` : pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                  : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
+                {!pin && item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
                 : <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>}{' '}
@@ -822,27 +834,38 @@ export function AccessPage() {
       {/* Novu (P4c): orders a clinician sent to another facility, with Stop until it is accepted. Main has no such list. */}
       {usesNovuBackend() && <SentOrdersCard />}
       <Card aria-busy={(history.loading && history.data !== null) || undefined}>
-        <AccessHeading headingRef={historyHeading} icon={Building2}
-          title={activeCount ? `${activeCount === 1 ? '1 facility has' : `${activeCount} facilities have`} access now` : 'No one has access now'}
-          hint={activeCount ? undefined : 'Past access stays listed, with when it ended.'} />
+        <AccessHeading headingRef={historyHeading} icon={Building2} title={whoHasAccessTitle(historyItems)}
+          hint={activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed.'} />
         <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
           onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
         {history.data && !history.error && (history.data.items.length === 0
           ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">Facilities you approve or share with appear here, with when their access ends.</p>
-          : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-          {history.data.items.map(item => <li key={item.consentGrantId} className="flex items-start gap-3 px-5 py-4">
+          // One heading per facility, so the same facility is named once over its rows (hid-system lists each access).
+          : groupByFacility(history.data.items).map(group => <div key={group.facility} className="border-t border-line">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 bg-subtle px-5 py-2">
+            <h3 className="m-0 text-[13px] font-semibold [overflow-wrap:anywhere] text-ink">{group.facility}</h3>
+            <p className="m-0 text-[12px] text-ink-3">{groupCounts(group)}</p>
+          </div>
+          <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
+          {/* On a phone the status and End access go under the words, which keep the row's width. */}
+          {group.items.map(item => <li key={item.consentGrantId} className="flex flex-wrap items-start gap-x-3 gap-y-2 px-5 py-4">
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
-            <div className="min-w-0 flex-1">
-              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
+            <div className="min-w-0 flex-[1_1_14rem]">
+              {/* Under its facility's heading: the staff member, by name only where the list gives one (a share). */}
+              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{holder(item)}</p>
+              {/* What they can do, when it runs (with the time), and the reason they gave: what tells rows apart. */}
+              <p className="m-0 mt-0.5 text-[13px] text-ink-2">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? (byAccessPin(item.reason) ? `${accessLevelLabel(item.scope)} · With your Access PIN` : accessLevelLabel(item.scope))}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">From <Nowrap>{dayAndTime(item.startsAt)}</Nowrap>{endedEarly(item) ? ' · ended before ' : ' until '}<Nowrap>{dayAndTime(item.expiresAt)}</Nowrap></p>
+              {theirReason(item) && <p className="m-0 mt-0.5 line-clamp-3 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{theirReason(item)}”</p>}
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
-            <div className="flex shrink-0 flex-col items-end gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
-              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {holderAt(item)}, {accessLevelLabel(item.scope)}, from {dayAndTime(item.startsAt)} until {dayAndTime(item.expiresAt)}{theirReason(item) ? `, reason given: ${theirReason(item)}` : ''}</ItemName></Button>}
             </div>
           </li>)}
-        </ul>)}
+          </ul>
+        </div>))}
       </Card>
       {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
       <ShareInvitationsCard onShared={history.reload} />
@@ -862,7 +885,7 @@ export function AccessPage() {
             <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
         : <Button onClick={closeReview}>Close</Button>}>
       {open && <div className="flex flex-col gap-5">
-        {open.reason && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
+        {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
@@ -893,16 +916,18 @@ export function AccessPage() {
 
     {/* Ending a grant: who, until when, and why, with what an Access PIN still allows. */}
     <Drawer open={ending !== null} onClose={() => { const id = revoking; setRevoking(null); setRevokeReason(''); if (id) focusAfter(byId(`revoke-${id}`)) }}
-      title={WORDS.endAccess} icon={<IconChip icon={ShieldCheck} tone="danger" />} description={ending ? grantee(ending) : undefined}
+      title={WORDS.endAccess} icon={<IconChip icon={ShieldCheck} tone="danger" />} description={ending ? holderAt(ending) : undefined}
       footer={ending && <><Button disabled={revokeBusy} onClick={() => { const id = revoking; setRevoking(null); setRevokeReason(''); if (id) focusAfter(byId(`revoke-${id}`)) }}>Cancel</Button>
         <Button variant="destructive" type="submit" form="revoke-form" loading={revokeBusy} disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>{WORDS.endAccess}</Button></>}>
       {ending && <div className="flex flex-col gap-5">
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
-          <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{ending.purpose}</dd></div>
-          <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.startsAt)}</dd></div>
-          <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.expiresAt)}</dd></div>
+          {purposeLabel(ending.purpose) && <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{purposeLabel(ending.purpose)}</dd></div>}
+          {/* The same times and reason as its row, so the patient ends the access they chose. */}
+          <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.startsAt)}</dd></div>
+          <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.expiresAt)}</dd></div>
           {sharedAs(ending) && <div className="col-span-2"><dt className="text-ink-3">How</dt><dd className="m-0 mt-0.5 font-medium text-ink">{sharedAs(ending)}</dd></div>}
+          {theirReason(ending) && <div className="col-span-2"><dt className="text-ink-3">Reason given</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{theirReason(ending)}</dd></div>}
         </dl>
         <form id="revoke-form" className="flex flex-col gap-2" onSubmit={event => { event.preventDefault(); void revoke(ending.consentGrantId) }}>
           {/* data-autofocus: the drawer gives it focus as it opens (React's autoFocus would be taken back by the drawer). */}
@@ -917,6 +942,9 @@ export function AccessPage() {
     </Drawer>
   </div>
 }
+
+/** A day and time kept on one line ("11 Nov 2026, 14:41"), so a phone breaks the line between two of them, not inside one. */
+const Nowrap = ({ children }: { children: ReactNode }) => <span className="whitespace-nowrap">{children}</span>
 
 /** One-tap reasons to deny a request; each is long enough for the API (3 characters at least). */
 type QuickReason = 'unknown' | 'not-now' | 'other'
