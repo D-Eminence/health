@@ -8,7 +8,9 @@ import { useReloadAccessRequests } from '../frame/attention'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
 import { pageAllowed } from '../frame/pageAccess'
-import { inProduct, opensInProduct, productHere } from '../frame/product'
+import { inProduct, opensInProduct, pageListedInProduct, pageOpensInProduct, productHere } from '../frame/product'
+import { useListedChanges } from '../frame/listedChanges'
+import { servedHere } from '../../productSites'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
 import { IncomingOrdersCard, loadLab, loadPharmacy, useIncomingServices, useWork, WrongPatientOrdersCard } from './liveCards'
@@ -56,6 +58,9 @@ export function BlueHome() {
   useEffect(() => { reloadRequests() }, [reloadRequests])
   // Read once here (each read is audited) and shared by the stat tray and Today's work; before any early return.
   const access = useAccessRequests()
+  // Home draws again when a page that can say so says its `listed` changed (EhrBluePage.listedChanges), as the frame's
+  // sidebar does, so a shortcut leaves Home when its page stops being listed and comes back when it is listed again.
+  useListedChanges(pages, session)
   const demo = isDemoFacility(facility?.id)
   // Home offers this workspace's pages only, as the frame's menu and search do (product.ts). In a single product (a lab
   // or an outreach team on its own) Home opens when the product's own page is not open to this session, and it offers
@@ -69,8 +74,13 @@ export function BlueHome() {
   if (role.viewing && demo) return <RoleDashboard key={role.viewing} role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
+  // The pages the sidebar lists here (BlueFrame.tsx): a page on every product's site (EhrBluePage.everyProduct) is a
+  // shortcut wherever this host serves its address, and each still under its own permission, `visible` and `listed`.
   const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
-    && inProduct(product, page.path) && (page.listed?.(session) ?? true))
+    && pageListedInProduct(product, page, servedHere) && pageOpensInProduct(product, page, servedHere)
+    && (page.listed?.(session) ?? true))
+  // A chosen shortcut whose page is not listed now is left out, and kept in memory: it comes back when listed again.
+  // Editing the shortcuts while it is out keeps only those shown.
   const shortcuts = candidates.filter(page => (chosen ?? []).includes(page.path))
 
   const pending = access.state === 'ready' ? access.pending : 0
