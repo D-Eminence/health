@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DEMO_HOSPITAL, SESSION, openStaffApp, serve, where, type Sent } from '../frame/blueHarness'
+import { DEMO_HOSPITAL, SESSION, json, openStaffApp, problem, serve, where, type Sent } from '../frame/blueHarness'
 import {
-  RIVERSIDE, STAFF, eyebrow, heading, many, membership, nav, sessionWith, staffAnswer, stepButton, stepper, withOnboardingPages,
-  type Review,
+  PROFILE, RIVERSIDE, SAVED_PROFILE, SAVE_PROFILE, STAFF, eyebrow, heading, many, membership, nav, profileAnswer, profileKept,
+  sessionWith, staffAnswer, stepButton, stepper, withOnboardingPages, type Review,
 } from './onboardingHarness'
 
 /*
  * Facility setup, the design's nine-step wizard (screens 14-22), for the administrator of a fictional facility that
  * signed itself up, with the clinic switch on: its stepper, each step's heading and where focus goes, the live parts
- * (the facility's name and check from the session, Staff & access through its own reads) and the sample steps, which
- * send nothing. The sample steps (Type, Departments, Branches, Billing) are the demo facilities' alone (parity report
+ * (the facility's name and check from the session, its details read and saved through Identity (hid-system 0114),
+ * Staff & access through its own reads) and the sample steps, which send nothing. The sample steps (Type, Departments, Branches, Billing) are the demo facilities' alone (parity report
  * 3.2), and so is Launch, which sends nothing: a real facility has the four others, counted as four, and its last step,
  * Review, ends by going to Home.
  */
@@ -27,7 +27,11 @@ const STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 
 const REAL_STEPS = ['Facility', 'Staff', 'Roles', 'Review']
 const DEMO = 'Demo Hospital'
 const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
-const NOT_COLLECTED = 'Not collected by Health ID yet'
+/** Someone else saved the details first: what was typed is kept. */
+const CONFLICT = 'Someone else saved these details first. Your changes are still below and are not saved yet. '
+  + 'Check them against theirs, then save again.'
+/** Where Identity keeps the facility's details itself (a demo facility here). */
+const KEPT = 'Health ID support keeps this facility’s details. Contact them to change any of them.'
 const OPTIONAL_AT_DEMO = 'Optional after launch: staff invitations, service pricing, wards and beds, inventory and professional credential records.'
 /** The Roles step's line at a real facility, where the design's role templates are left out. */
 const ROLES_LINE = 'Each person’s role is set in Staff & access below. Administrative ownership never grants clinical signing, '
@@ -40,8 +44,10 @@ const ALREADY_OPEN = 'Your EHR is already open. Inviting staff is optional, from
 const STAFF_WAITS = `You can add staff from Staff & access once Health ID support has checked ${RIVERSIDE}.`
 const DONE = `Health ID support has checked ${RIVERSIDE}, and it now has full access.`
 
-async function openSetup(path = '/provider/onboarding', review: Review = 'reviewed', current = membership({ review })) {
-  const sent = serve({ [SESSION]: [sessionWith(current)], [STAFF]: many(staffAnswer(current.name, current.id, review)) })
+async function openSetup(path = '/provider/onboarding', review: Review = 'reviewed', current = membership({ review }),
+  profile: Array<() => Response | Promise<Response>> = many(current.id === DEMO_HOSPITAL ? profileKept : profileAnswer())) {
+  const sent = serve({ [SESSION]: [sessionWith(current)], [STAFF]: many(staffAnswer(current.name, current.id, review)),
+    [PROFILE]: profile })
   await openStaffApp(path)
   await screen.findByRole('navigation', { name: 'Onboarding steps' })
   return sent
@@ -92,6 +98,7 @@ describe('the stepper and each step\'s heading', () => {
 
   it('moves focus to the heading when the step\'s own button takes it on, or Back takes it back', async () => {
     await openDemoSetup()
+    await screen.findByText(KEPT)
     press('Continue')
     expect(eyebrow()).toBe('Step 2 of 9 · Type')
     expect(document.activeElement).toBe(heading())
@@ -174,12 +181,22 @@ describe('at a real facility, the sample steps and Launch are left out', () => {
     expect(eyebrow()).toBe('Step 3 of 4 · Roles')
   })
 
-  it('reviews only what Health ID holds: the facility\'s name, and what it does not collect', async () => {
-    await openSetup('/provider/onboarding/review')
+  it('reviews what Health ID holds: the facility\'s registered name and every detail saved, with its real value', async () => {
+    await openSetup('/provider/onboarding/review', 'reviewed', membership(), many(profileAnswer(SAVED_PROFILE)))
     const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
+    await waitFor(() => expect(reviewFacts()['Facility phone']).toBe('+2348000000001'))
     expect(reviewFacts()).toEqual({
-      Name: RIVERSIDE, Phone: NOT_COLLECTED, Email: NOT_COLLECTED, Address: NOT_COLLECTED, City: NOT_COLLECTED, State: NOT_COLLECTED,
+      'Registered name': RIVERSIDE, 'Facility name (the name people use)': 'Riverside Hospital', Ownership: 'Private',
+      'Level of care': 'Tertiary', Address: '2 Fiction Close', 'City or town': 'Ikeja', State: 'Lagos', 'Local government area': 'Ikeja',
+      'GPS latitude': '6.6', 'GPS longitude': '3.35', 'Facility phone': '+2348000000001', 'Facility email': 'desk@riverside.example.test',
+      'Bed count': '120', 'Operating hours': 'Mon-Sun 24 hours', '24-hour emergency': 'Yes', Departments: 'General Outpatient, Emergency',
+      'Services offered': 'Outpatient and emergency care', 'State Ministry of Health licence number': 'LA/SMOH/0001',
+      'Does the facility have a national facility registry ID?': 'Yes', 'National facility registry ID': 'NHFR-0001',
+      'Is the facility accredited by the NHIA?': 'No', 'Medical Director’s full name': 'Dr Fiction Director',
+      'Medical Director’s MDCN number': 'MDCN/00001', 'Expected number of staff': '80',
+      'Will you bring records from an older system?': 'Yes', 'Do you need to exchange records with other systems?': 'No',
     })
+    expect(review.textContent).not.toContain('Not collected by Health ID yet')
     // No sample notice and no sample settings: no type, departments, branches or billing, chosen or by default.
     expect(within(review).queryByText(SAMPLE)).toBeNull()
     expect(within(review).queryByRole('heading', { name: 'Branches' })).toBeNull()
@@ -210,26 +227,165 @@ describe('at a real facility, the sample steps and Launch are left out', () => {
     expect(sent.slice(before).every(request => request.route.startsWith('GET '))).toBe(true)
     expect(sent.some(request => /onboarding|launch|setup/i.test(request.route))).toBe(false)
   })
+
+  it('says when the details are not given yet', async () => {
+    await openSetup('/provider/onboarding/review')
+    await waitFor(() => expect(reviewFacts()['Facility details']).toBe('Not given yet'))
+  })
 })
 
 describe('step 1, Facility', () => {
-  it('shows the facility\'s name from the session, read-only, and the design\'s other fields disabled and marked', async () => {
+  it('shows the registered name read-only and every detail as a required input, and no logo', async () => {
     const sent = await openSetup()
-    const name = screen.getByRole('textbox', { name: 'Facility name' }) as HTMLInputElement
+    const name = screen.getByRole('textbox', { name: 'Registered name' }) as HTMLInputElement
     expect(name.value).toBe(RIVERSIDE)
     expect(name.readOnly).toBe(true)
-    for (const label of ['Main phone', 'Main email', 'Address', 'City', 'State', 'Optional registration number', 'Optional facility logo']) {
-      const field = screen.getByLabelText(label) as HTMLInputElement
-      expect(field.disabled, label).toBe(true)
-      expect(field.value, label).toBe('')
-      expect(field.getAttribute('name'), label).toBeNull()
-      expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent, label).toBe(NOT_COLLECTED)
+    const phone = await screen.findByRole('textbox', { name: 'Facility phone' }) as HTMLInputElement
+    expect(phone.required).toBe(true)
+    expect(phone.disabled).toBe(false)
+    for (const label of ['Facility name (the name people use)', 'Address', 'City or town', 'Facility email',
+      'State Ministry of Health licence number', 'Medical Director’s MDCN number', 'Expected number of staff']) {
+      expect((screen.getByRole('textbox', { name: label }) as HTMLInputElement).required, label).toBe(true)
     }
+    expect((screen.getByRole('combobox', { name: 'State' }) as HTMLSelectElement).required).toBe(true)
+    // The logo waits for the document store and its virus scanner: not shown at all.
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0)
+    expect(screen.queryByText(/logo/i)).toBeNull()
+    expect(document.body.textContent).not.toContain('Not collected by Health ID yet')
     expect(screen.getByText(DONE)).toBeDefined()
     expect(bannerUnderHeading()).toBeNull()
-    expect(routes(sent)).toEqual([SESSION])
-    // At a real facility the step after it is Staff: the sample steps are the demo facilities'.
+    expect(routes(sent)).toEqual([SESSION, PROFILE])
+    expect(sent[1]?.headers.get('X-Facility-ID')).toBe(membership().id)
+  })
+
+  it('refuses a save with missing details in plain words, then saves every detail with If-Match and a key, and goes on', async () => {
+    const sent = serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer()),
+      [SAVE_PROFILE]: [() => json({ facilityId: membership().id, version: 1, changedFields: ['tradingName'], replayed: false })] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Facility phone' })
+    press('Save and continue')
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Facility name (the name people use)' }))
+    expect(screen.getByText('Choose the state.')).toBeDefined()
+    expect(routes(sent)).not.toContain(SAVE_PROFILE)
+
+    const type = (label: string, value: string) => fireEvent.change(screen.getByRole('textbox', { name: label }), { target: { value } })
+    const choose = (label: string, value: string) => fireEvent.change(screen.getByRole('combobox', { name: label }), { target: { value } })
+    type('Facility name (the name people use)', 'Riverside Hospital')
+    choose('Ownership', 'private'); choose('Level of care', 'tertiary')
+    type('Address', '2 Fiction Close'); type('City or town', 'Ikeja'); choose('State', 'LA'); type('Local government area', 'Ikeja')
+    type('GPS latitude', '6.6'); type('GPS longitude', '3.35'); type('Facility phone', '0800 000 0001')
+    type('Facility email', 'Desk@Riverside.example.test'); type('Bed count', '120'); type('Operating hours', 'Mon-Sun 24 hours')
+    choose('24-hour emergency', 'yes')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'General Outpatient' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Emergency' }))
+    type('Services offered', 'Outpatient and emergency care'); type('State Ministry of Health licence number', 'LA/SMOH/0001')
+    choose('Does the facility have a national facility registry ID?', 'yes'); type('National facility registry ID', 'NHFR-0001')
+    choose('Is the facility accredited by the NHIA?', 'no'); type('Medical Director’s full name', 'Dr Fiction Director')
+    type('Medical Director’s MDCN number', 'mdcn/00001'); type('Expected number of staff', '80')
+    choose('Will you bring records from an older system?', 'yes')
+    choose('Do you need to exchange records with other systems?', 'no')
+    press('Save and continue')
+    await waitFor(() => expect(eyebrow()).toBe('Step 2 of 4 · Staff'))
+    const save = sent.find(request => request.route === SAVE_PROFILE)!
+    expect(save.body).toEqual({ ...SAVED_PROFILE, phone: '+2348000000001' })
+    expect(save.headers.get('If-Match')).toBe('"0"')
+    expect(save.headers.get('Idempotency-Key')).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
+    expect(save.headers.get('X-Facility-ID')).toBe(membership().id)
+    // Review lists what was saved.
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()['Facility phone']).toBe('+2348000000001')
+  })
+
+  it('opens with the saved details; when someone else saved first, keeps what was typed, lists theirs, and saves at their version', async () => {
+    const sent = serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()),
+      [PROFILE]: [profileAnswer(SAVED_PROFILE, 3), profileAnswer({ ...SAVED_PROFILE, bedCount: 150 }, 4)],
+      [SAVE_PROFILE]: [() => problem(412, 'VERSION_CONFLICT', 'Someone saved first.'),
+        () => json({ facilityId: membership().id, version: 5, changedFields: ['bedCount'], replayed: false })] })
+    await openStaffApp('/provider/onboarding')
+    const beds = await screen.findByRole('textbox', { name: 'Bed count' }) as HTMLInputElement
+    expect(beds.value).toBe('120')
+    fireEvent.change(beds, { target: { value: '130' } })
+    press('Save and continue')
+    const alert = (await screen.findByText(CONFLICT)).closest('[role="alert"]') as HTMLElement
+    // What was typed stays; theirs are listed beside it, only where they differ.
+    expect((screen.getByRole('textbox', { name: 'Bed count' }) as HTMLInputElement).value).toBe('130')
+    expect(within(alert).getByText('Their saved details that differ from yours')).toBeDefined()
+    const theirs = Object.fromEntries([...alert.querySelectorAll('dt')].map(term => [term.textContent, term.nextElementSibling?.textContent]))
+    expect(theirs).toEqual({ 'Bed count': '150' })
+    expect(sent.filter(request => request.route === SAVE_PROFILE)[0]?.headers.get('If-Match')).toBe('"3"')
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    press('Save and continue')
+    await waitFor(() => expect(eyebrow()).toBe('Step 2 of 4 · Staff'))
+    const second = sent.filter(request => request.route === SAVE_PROFILE)[1]!
+    expect(second.headers.get('If-Match')).toBe('"4"')
+    expect(second.body).toMatchObject({ bedCount: 130 })
+    expect(second.headers.get('Idempotency-Key')).not.toBe(sent.filter(request => request.route === SAVE_PROFILE)[0]?.headers.get('Idempotency-Key'))
+  })
+
+  it('stays on the step when a save is refused for permission, says so plainly, and goes on only when asked', async () => {
+    serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer(SAVED_PROFILE, 3)),
+      [SAVE_PROFILE]: [() => problem(403, 'PERMISSION_DENIED', 'Not allowed.')] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Bed count' })
+    press('Save and continue')
+    expect(await screen.findByText('Only the facility administrator can change these details.')).toBeDefined()
+    expect(screen.getByText('The details you entered were not saved.')).toBeDefined()
+    expect(screen.queryByText(KEPT)).toBeNull()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    // Review says the same, not that support keeps the details.
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()['Facility details']).toBe('Only the facility administrator can change these details.')
+    fireEvent.click(stepButton('Facility'))
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('stays on the step when a save is refused because the facility is a sealed demo, and says the details were not saved', async () => {
+    serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer(SAVED_PROFILE, 3)),
+      [SAVE_PROFILE]: [() => problem(409, 'FACILITY_PROFILE_SEALED', 'Sealed.')] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Bed count' })
+    press('Save and continue')
+    expect(await screen.findByText(KEPT)).toBeDefined()
+    expect(screen.getByText('The details you entered were not saved.')).toBeDefined()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('says only the administrator can change the details when the read is refused for permission', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), many(() => problem(403, 'PERMISSION_DENIED', 'Not allowed.')))
+    expect(await screen.findByText('Only the facility administrator can change these details.')).toBeDefined()
+    expect(screen.queryByText(KEPT)).toBeNull()
     press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('says where Health ID support keeps the details, and goes on with Continue', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), many(profileKept))
+    expect(await screen.findByText(KEPT)).toBeDefined()
+    expect(screen.queryByRole('textbox', { name: 'Facility phone' })).toBeNull()
+    press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('offers nothing to press while the details are read, so the step cannot be passed without them', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), [() => new Promise<Response>(() => undefined)])
+    expect(await screen.findByText('Getting your facility’s details…')).toBeDefined()
+    expect(screen.queryByRole('button', { name: /^Continue/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull()
+  })
+
+  it('after a failed read says the details are not saved, tries again, and only then lets the administrator go on', async () => {
+    const sent = await openSetup('/provider/onboarding', 'reviewed', membership(),
+      [() => problem(503, 'FACILITY_PROFILE_UNAVAILABLE', 'Unavailable.'), () => problem(503, 'FACILITY_PROFILE_UNAVAILABLE', 'Unavailable.')])
+    expect(await screen.findByText('We couldn’t get your facility’s details just now.')).toBeDefined()
+    expect(screen.getByText(/are not saved yet/)).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    press('Try again')
+    await waitFor(() => expect(routes(sent).filter(route => route === PROFILE)).toHaveLength(2))
+    await screen.findByRole('button', { name: 'Continue without saving' })
+    press('Continue without saving')
     expect(eyebrow()).toBe('Step 2 of 4 · Staff')
   })
 
@@ -306,18 +462,19 @@ describe('the sample steps send nothing', () => {
     press('Next (sample)')
     expect(eyebrow()).toBe('Step 8 of 9 · Review')
 
-    // Review: the facility's name from Health ID, what this visit chose, and what Health ID does not collect.
+    // Review: the facility's name from Health ID, what this visit chose, and that Health ID support keeps a demo
+    // facility's details.
     expect(reviewFacts()).toEqual({
-      Name: DEMO, Type: 'Diagnostic Centre', Phone: NOT_COLLECTED, Email: NOT_COLLECTED, Address: NOT_COLLECTED,
-      City: NOT_COLLECTED, State: NOT_COLLECTED, Departments: 'General Outpatient, Laboratory', Currency: 'NGN',
+      'Registered name': DEMO, Type: 'Diagnostic Centre', 'Facility details': KEPT, Departments: 'General Outpatient, Laboratory', Currency: 'NGN',
       'Payment Methods': 'Cash, Transfer', 'Payment Timing': 'Before service', Insurance: 'Yes',
     })
     expect(screen.getByText('Main · 1 Fiction Lane · General Outpatient, Laboratory')).toBeDefined()
     expect(screen.getByText(/^Optional after launch/).textContent).toBe(OPTIONAL_AT_DEMO)
     expect(screen.queryByText(PENDING)).toBeNull()
 
-    // Not one request: the session alone (the Staff step was passed through the stepper before it read).
-    expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION])
+    // Not one request of the samples: the session and the facility's details alone (the Staff step was passed through
+    // the stepper before it read).
+    expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION, PROFILE])
     expect(sent.every(request => request.route.startsWith('GET '))).toBe(true)
   })
 
@@ -377,12 +534,12 @@ describe('the sample steps send nothing', () => {
 describe('steps 5 and 6, Staff and Roles', () => {
   it('reads the staff through Staff & access alone, once on each step, and nothing else', async () => {
     const sent = await openDemoSetup()
-    expect(routes(sent)).toEqual([SESSION])
+    await waitFor(() => expect(routes(sent)).toEqual([SESSION, PROFILE]))
     fireEvent.click(stepButton('Staff'))
     expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
     expect(screen.getByRole('heading', { level: 1, name: 'Staff & access' })).toBeDefined()
     expect(screen.getByText('Hospital memberships')).toBeDefined()
-    expect(routes(sent)).toEqual([SESSION, STAFF])
+    expect(routes(sent)).toEqual([SESSION, PROFILE, STAFF])
     expect(bannerUnderHeading()).toBeNull()
 
     press('Continue to roles')
@@ -402,10 +559,10 @@ describe('steps 5 and 6, Staff and Roles', () => {
       'Pharmacist', 'Billing Officer', 'Cashier', 'Radiology Reporter'])
     expect(rows[0]?.querySelector('p')?.textContent).toMatch(/^dashboard\.view, notifications\.view, profile\.view, subscription\.view/)
     expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
-    await waitFor(() => expect(routes(sent)).toEqual([SESSION, STAFF, STAFF]))
+    await waitFor(() => expect(routes(sent)).toEqual([SESSION, PROFILE, STAFF, STAFF]))
     press('Continue to billing')
     expect(eyebrow()).toBe('Step 7 of 9 · Billing')
-    expect(routes(sent)).toEqual([SESSION, STAFF, STAFF])
+    expect(routes(sent)).toEqual([SESSION, PROFILE, STAFF, STAFF])
   })
 })
 
@@ -418,8 +575,8 @@ describe('step 8, Review', () => {
     expect(eyebrow()).toBe('Step 9 of 9 · Launch')
     expect(screen.getByRole('heading', { level: 2, name: 'Ready to launch?' })).toBeDefined()
     expect(within(document.querySelector('.hid-ehr-onboarding-step') as HTMLElement).getByText(PENDING_AT_DEMO)).toBeDefined()
-    // The frame's own review banner reads the staff for its licence hint; the wizard reads nothing.
-    expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION])
+    // The frame's own review banner reads the staff for its licence hint; the wizard reads the facility's details alone.
+    expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION, PROFILE])
   })
 
   it('lists the pending check at a real facility too, says adding staff waits for it, and Go to Home still opens Home', async () => {

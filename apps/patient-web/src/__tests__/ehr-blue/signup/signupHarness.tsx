@@ -49,20 +49,86 @@ export async function toForm(entry?: string) {
   await step('Your account')
 }
 
+const type = (label: string, value: string) => fireEvent.change(textbox(label), { target: { value } })
+const choose = (label: string, value: string) => fireEvent.change(combobox(label), { target: { value } })
+
+/** Step 1's fields besides the name and email (hid-system 0114): the applicant's phone and role. */
+export function fillAccountExtras() {
+  type('Your phone', '0803 123 4567')
+  choose('Role at the facility', 'owner')
+}
+
+/** Step 2's facility details (hid-system 0114), every one required. */
+export function fillFacilityDetails() {
+  type('Facility name (the name people use)', '  Demo Hospital ')
+  choose('Ownership', 'private')
+  choose('Level of care', 'secondary')
+  type('Address', '1 Example Road')
+  type('City or town', 'Ikeja')
+  choose('State', 'LA')
+  type('Local government area', 'Ikeja')
+  type('GPS latitude', '6.601234')
+  type('GPS longitude', '3.351234')
+  type('Facility phone', '+234 1 234 5678')
+  type('Facility email', 'Desk@Demo-Hospital.Example.TEST')
+  type('Bed count', '40')
+  type('Operating hours', 'Mon-Sun 24 hours')
+  choose('24-hour emergency', 'yes')
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Laboratory' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'General Outpatient' }))
+  type('Services offered', 'Outpatient care and laboratory tests')
+}
+
+/** Step 3's regulatory details besides the CAC number (hid-system 0114). */
+export function fillRegulatory() {
+  type('State Ministry of Health licence number', 'LA/SMOH/1234')
+  choose('Does the facility have a national facility registry ID?', 'no')
+  type('Medical Director’s full name', 'Dr Demo Director')
+  type('Medical Director’s MDCN number', 'mdcn/12345')
+  choose('Is the facility accredited by the NHIA?', 'yes')
+  type('NHIA accreditation number', 'NHIA-1234')
+}
+
+/** Step 4's questions besides the product (hid-system 0114). */
+export function fillPlatform() {
+  type('Expected number of staff', '25')
+  choose('Will you bring records from an older system?', 'no')
+  choose('Do you need to exchange records with other systems?', 'yes')
+}
+
+/** What the fills above send with the start, as Identity takes it (hid-system docs/INTERFACE_CONTRACT.md section 43.2). */
+export const COLLECTED = {
+  administratorRole: 'owner',
+  administratorPhone: '+2348031234567',
+  facilityProfile: {
+    tradingName: 'Demo Hospital', ownership: 'private', careLevel: 'secondary', addressLine: '1 Example Road', city: 'Ikeja',
+    stateCode: 'LA', lga: 'Ikeja', gpsLatitude: 6.601234, gpsLongitude: 3.351234, phone: '+23412345678',
+    email: 'desk@demo-hospital.example.test', bedCount: 40, operatingHours: 'Mon-Sun 24 hours', emergency24h: true,
+    departments: ['general_outpatient', 'laboratory'], servicesOffered: 'Outpatient care and laboratory tests',
+    smohLicenceNumber: 'LA/SMOH/1234', hasRegistryId: false, registryId: null, hasNhiaAccreditation: true,
+    nhiaAccreditationNumber: 'NHIA-1234', medicalDirectorName: 'Dr Demo Director', medicalDirectorMdcn: 'MDCN/12345',
+    expectedStaff: 25, migratingRecords: false, needsInteroperability: true,
+  },
+} as const
+
 /** Every step filled as an administrator would, ending on Check and send. */
-export async function toReview({ entry, type, product }: { entry?: string; type?: string; product?: string } = {}) {
+export async function toReview({ entry, type: facilityType, product }: { entry?: string; type?: string; product?: string } = {}) {
   await toForm(entry)
   fireEvent.change(textbox('Full name'), { target: { value: `  ${NAME} ` } })
   fireEvent.change(textbox('Email'), { target: { value: ' Admin@Demo-Hospital.Example.TEST ' } })
+  fillAccountExtras()
   next()
   await step('Facility details')
-  if (type) fireEvent.change(combobox('Facility type'), { target: { value: type } })
+  if (facilityType) fireEvent.change(combobox('Facility type'), { target: { value: facilityType } })
+  fillFacilityDetails()
   next()
   await step('Regulatory identity')
   fireEvent.change(textbox('CAC registration number'), { target: { value: 'rc 123 456' } })
+  fillRegulatory()
   next()
   await step('Platform setup')
   if (product) fireEvent.change(combobox('Product to start with'), { target: { value: product } })
+  fillPlatform()
   next()
   await step('Check and send')
 }

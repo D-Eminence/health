@@ -564,9 +564,11 @@ const _RESOURCES_MENU: NavMenuEntry = {
 }
 
 /** Navigation for the provider side of the site. */
-export function ProviderNav({ preserveDemoAction = false, applicationProduct, signInHref = APP_ENTRY.staffSignIn }: {
+export function ProviderNav({ preserveDemoAction = false, applicationProduct, signInHref = APP_ENTRY.staffSignIn, primaryAction }: {
   preserveDemoAction?: boolean
   applicationProduct?: ApplicationProductCode
+  /** A product page's own main action (outreach: its organiser sign-up), in place of the demo or facility sign-up. */
+  primaryAction?: { readonly label: string; readonly href: string }
   /** Where Sign in goes: a product page's own product site (productSignInHref), else the portal's staff sign-in. */
   signInHref?: string
 } = {}) {
@@ -582,9 +584,9 @@ export function ProviderNav({ preserveDemoAction = false, applicationProduct, si
       ]}
       signInHref={signInHref}
       signInLabel="Sign in"
-      action={preserveDemoAction
+      action={primaryAction ?? (preserveDemoAction
         ? { label: 'Book a demo', href: '#demo' }
-        : { label: 'Setup Your Facility', href: providerApplicationHref(applicationProduct) }}
+        : { label: 'Setup Your Facility', href: providerApplicationHref(applicationProduct) })}
       audience="provider"
     />
   )

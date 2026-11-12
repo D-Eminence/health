@@ -3,7 +3,8 @@ import { FlaskConical, Hospital, Pill, ScanText, Users } from 'lucide-react'
 import { resolveStaffProductHostname } from '../../productHostname'
 import { PUBLIC_ENVIRONMENT } from '../../publicEnvironment'
 import type { StaffSession } from '../../staff/api'
-import { basePath } from './pageHref'
+import type { EhrBluePage } from './types'
+import { basePath, pageHrefOf } from './pageHref'
 
 /**
  * Which Health ID product this workspace is (the owner's decision of 2026-10-31). A hospital may run everything: the
@@ -119,4 +120,25 @@ const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 export function opensInProduct(product: Product, path: string): boolean {
   const base = basePath(path)
   return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base) || (TILLS.has(product) && COUNTER_PAGES.has(base))
+}
+
+/**
+ * Whether this product's workspace lists a page: productLists for its address, or any page but Home that says it is on
+ * every product's site (EhrBluePage.everyProduct) and whose address this host serves (`served`, productSites.ts
+ * servedHere). A product site sends an address another product's site owns there before the frame loads (App.tsx
+ * ProductHostnameGate), so a link to it would leave the site: such a page is listed only where its address stays.
+ * Its own permission and `visible` are the caller's, as before.
+ */
+export function pageListedInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>,
+  served: (href: string) => boolean): boolean {
+  return (page.everyProduct === true && basePath(page.path) !== '' && served(pageHrefOf(page))) || productLists(product, page.path)
+}
+
+/**
+ * Whether this product's workspace opens a page: opensInProduct for its address, or a page on every product's site
+ * whose address this host serves (`served`, as pageListedInProduct).
+ */
+export function pageOpensInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>,
+  served: (href: string) => boolean): boolean {
+  return (page.everyProduct === true && served(pageHrefOf(page))) || opensInProduct(product, page.path)
 }

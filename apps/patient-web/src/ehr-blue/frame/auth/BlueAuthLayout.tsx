@@ -70,7 +70,8 @@ export function authHrefs(hostname = window.location.hostname) {
 /** What registering is called on this site: the laboratory's or the pharmacy's on its own site, a hospital's elsewhere. */
 export function registerLabel(hostname = window.location.hostname): string {
   const product = resolveStaffProductHostname(hostname)?.key
-  return product === 'lab' ? 'Register a laboratory' : product === 'pharmacy' ? 'Register a pharmacy' : 'Register a hospital'
+  return product === 'lab' ? 'Register a laboratory' : product === 'pharmacy' ? 'Register a pharmacy'
+    : product === 'outreach' ? 'Start running outreach' : 'Register a hospital'
 }
 
 /** The other ways in: Register a hospital (a laboratory, a pharmacy) · Sign in · Recover access · Accept invitation. */

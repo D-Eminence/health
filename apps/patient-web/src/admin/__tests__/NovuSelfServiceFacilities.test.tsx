@@ -63,10 +63,11 @@ describe('New facility sign-ups in the Novu console', () => {
     const organizations = (permissions: string[]) => visibleNavigation(actor(permissions))
       .find(section => section.title === 'Organizations')?.items.map(item => item.title) ?? []
     // Item 3: support's wrong-patient reports are listed for platform.facility.read too.
-    expect(organizations([...READER, 'platform.facility.read'])).toEqual(['Applications', 'New facility sign-ups', 'Facilities',
-      'Wrong-patient reports'])
-    expect(organizations(['platform.admin.access', 'platform.facility.read', 'platform.facility.manage'])).toEqual(['Facilities',
-      'Wrong-patient reports'])
+    // Open sign-up on outreach.: support's "Outreach organisers" is listed for platform.facility.read too.
+    expect(organizations([...READER, 'platform.facility.read'])).toEqual(['Applications', 'New facility sign-ups',
+      'Outreach organisers', 'Facilities', 'Wrong-patient reports'])
+    expect(organizations(['platform.admin.access', 'platform.facility.read', 'platform.facility.manage'])).toEqual([
+      'Outreach organisers', 'Facilities', 'Wrong-patient reports'])
   })
 
   it('lists the ones to review, named in the tab, through the registered route', async () => {

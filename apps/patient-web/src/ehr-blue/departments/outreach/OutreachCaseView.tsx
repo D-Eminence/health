@@ -16,6 +16,7 @@ import {
   HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
   OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
+import { LINKS_LATER } from './outreachGroup'
 
 type LinkField = 'patient' | 'reason'
 
@@ -47,8 +48,13 @@ function personName(patient: PatientSummary) {
  * step is today's one action (link a verified existing patient, for a membership that may write registrations); once
  * linked, a done state with the way on.
  */
-export function OutreachCaseView({ facilityId, item, campaign, canLink, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
+export function OutreachCaseView({ facilityId, item, campaign, canLink, group = false, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
   readonly facilityId: string
+  /**
+   * At an outreach group, which can't link anyone to a Health ID (Identity and Outreach refuse it): no "Link existing
+   * patient" and no link preview, and a plain sentence that the person links their own Health ID later.
+   */
+  readonly group?: boolean
   readonly item: OutreachCase
   readonly campaign: OutreachCampaign | undefined
   readonly canLink: boolean
@@ -77,7 +83,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
   const reasonId = `outreach-reason-${item.id}`
   const formId = `outreach-link-${item.id}`
   const pending = item.status === PENDING
-  const offered = canLink && pending
+  const offered = canLink && pending && !group
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
   const doneId = `outreach-case-${item.id}-done`
@@ -216,6 +222,10 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
         </div>
       </Card>
     )
+  } else if (group) {
+    nextStep = (
+      <Alert intent="info" title="Their Health ID comes later">{LINKS_LATER}</Alert>
+    )
   } else {
     nextStep = (
       <Alert intent="info" title="Waiting to be linked">
@@ -243,7 +253,12 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
         {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
         {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}
         {created && !linked
-          ? <Alert intent="success" title="Registration saved">{pending ? 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
+          ? <Alert intent="success" title="Registration saved">{pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
+            : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
+          : null}
+        {created && item.possibleDuplicate
+          ? <Alert intent="warning" title="This may be someone already registered">Another registration in this campaign has the same
+            phone number, or the same name and age. Check with the person before registering them again.</Alert>
           : null}
         <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
           <div className="flex min-w-0 flex-col gap-4">{nextStep}</div>

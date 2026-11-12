@@ -65,6 +65,13 @@ const NOT_ON_MAIN = [
   'identity.facilitySettings', 'identity.facilityOnePersonLab',
   // Single sign-on on auth. (ADR-070, proposed): the product's sign-out answering the provider's end-session address.
   'auth.ssoLogout',
+  // Open sign-up on outreach. (owner decisions of 11 November 2026): the sign-up, "Start an outreach group", the team's
+  // invitations and accepting one, and support's queue and tools.
+  'enrollment.outreachOrganiserAvailability', 'enrollment.outreachOrganiserStart', 'enrollment.outreachOrganiserVerify',
+  'enrollment.outreachOrganiserActivate', 'identity.outreachGroupAvailability', 'identity.outreachGroupStart',
+  'identity.outreachInvitations', 'enrollment.outreachInvitationAccept', 'identity.outreachInvitationSignedInAccept',
+  'admin.outreachOrganisers', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
+  'admin.outreachCampaignAdmins', 'admin.outreachRegistrationSearch', 'admin.outreachRegistrationRedact',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

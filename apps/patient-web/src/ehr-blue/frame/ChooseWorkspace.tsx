@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
 import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
@@ -104,6 +104,9 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
         })}
       </ul>
       {error ? <Alert intent="error" title="That facility couldn’t be opened">{error}</Alert> : null}
+      {/* Owner decision 5 of 11 November 2026: the same login can also run its own outreach group. */}
+      {reason === 'switch' ? <p className="m-0 text-sm text-ink-2">Run outreach events with your own volunteer group?{' '}
+        <Link className="font-medium text-brand-ink underline" to="/provider/start-outreach-group">Start an outreach group</Link></p> : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {reason === 'switch' ? <Button icon={ArrowLeft} onClick={() => navigate('/provider')}>Back to Home</Button> : <span />}
         <Button variant="ghost" icon={LogOut} onClick={() => void leave()}>Sign out</Button>
