@@ -1290,10 +1290,13 @@ export interface OcrPublication {
 /** Lab evidence imported from a document (GET /api/v1/lab/imports/:importId), such as an OCR publication made. */
 export interface LabImport {
   id: string
+  /** Sent on the patient's list (GET /api/v1/lab/imports?patientId=). */
+  patientId?: string
   /** accepted, entered_in_error or amended (hid-system lab migration 0017). */
   status: string
   externalLabName?: string | null
   reportedAt?: string | null
+  receivedAt?: string | null
   observations: Array<{
     id: string
     ordinal: number
@@ -1310,11 +1313,38 @@ export interface LabImport {
 /** Historical medication evidence imported from a document (GET /api/v1/pharmacy/imports/:importId). */
 export interface PharmacyImport {
   id: string
+  /** Sent on the patient's list (GET /api/v1/pharmacy/imports?patientId=). */
+  patientId?: string
   medicationText: string
   strengthText?: string | null
   doseText?: string | null
   frequencyText?: string | null
   historicalContext?: string | null
+  createdAt?: string | null
+}
+/** One page of a patient's imports, newest first; `nextCursor` reads the next page, null at the end. */
+export interface ImportsPage<T> { items: T[]; nextCursor: string | null }
+/** Imports shown a page at a time. */
+export const IMPORTS_PAGE_SIZE = 20
+
+/**
+ * A patient's imports list as Lab ({ records, nextCursor }) or Pharmacy ({ items, nextCursor }) answers it, as one page.
+ * Only the patient asked about is shown: a record naming anyone else makes the whole answer unreadable.
+ */
+function importsPage<T extends { id: string; patientId?: string }>(answer: unknown, patientId: string): ImportsPage<T> {
+  const value = answer as { items?: unknown; records?: unknown; nextCursor?: unknown } | null
+  const list = Array.isArray(value?.records) ? value.records : Array.isArray(value?.items) ? value.items : null
+  const cursor = value?.nextCursor
+  if (!list || (cursor !== undefined && cursor !== null && typeof cursor !== 'string')
+    || list.some(item => !item || typeof item !== 'object' || typeof (item as T).id !== 'string'
+      || ((item as T).patientId !== undefined && (item as T).patientId !== patientId))) {
+    throw new Error('The imported records answered in a shape this page does not read.')
+  }
+  return { items: list as T[], nextCursor: typeof cursor === 'string' && cursor ? cursor : null }
+}
+
+function importsQuery(patientId: string, cursor?: string) {
+  return { patientId, limit: String(IMPORTS_PAGE_SIZE), ...(cursor ? { cursor } : {}) }
 }
 export interface OcrValidationInput {
   extractionId: string
@@ -2548,6 +2578,14 @@ export const staffApi = {
     client.get<LabImport>(`/api/v1/lab/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
   pharmacyImport: (facilityId: string, importId: string) =>
     client.get<PharmacyImport>(`/api/v1/pharmacy/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
+  // A patient's imports from paper, newest first, a page at a time (lab.import.read, pharmacy.import.read). Each page
+  // read is audited by its service, so a read is never merged with one in flight.
+  labImports: (facilityId: string, patientId: string, cursor?: string, signal?: AbortSignal) =>
+    client.get<unknown>('/api/v1/lab/imports', { query: importsQuery(patientId, cursor), headers: facilityHeaders(facilityId), signal, dedupe: false })
+      .then(answer => importsPage<LabImport>(answer, patientId)),
+  pharmacyImports: (facilityId: string, patientId: string, cursor?: string, signal?: AbortSignal) =>
+    client.get<unknown>('/api/v1/pharmacy/imports', { query: importsQuery(patientId, cursor), headers: facilityHeaders(facilityId), signal, dedupe: false })
+      .then(answer => importsPage<PharmacyImport>(answer, patientId)),
 
   outreachCampaigns: (facilityId: string) =>
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
