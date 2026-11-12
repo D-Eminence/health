@@ -4,6 +4,9 @@ import { HidApiError } from '@hid/http'
 import { SAID_NOT_FOUND, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
+import {
+  DRAFT_NOTE_WHERE, IMPORTED_NOT_IN_CHART, IMPORTED_WHERE, PUBLISH_UNREACHED, PUBLISH_UNREACHED_RECORDED, PUBLISH_UNREACHED_UNKNOWN, draftNoteOnVisit,
+} from '../../../../ehr-blue/departments/migrate/ocrSteps'
 
 /**
  * Publishing validated OCR evidence from the blue Migrate page, and reading what a Lab or Pharmacy publication
@@ -17,7 +20,7 @@ import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
  */
 const api = vi.hoisted(() => ({
   findOcrJob: vi.fn(), ocrExtractions: vi.fn(), ocrValidations: vi.fn(), ocrPublications: vi.fn(), publishOcrValidation: vi.fn(),
-  labImport: vi.fn(), pharmacyImport: vi.fn(), createOcrJob: vi.fn(), retryOcrJob: vi.fn(), validateOcrJob: vi.fn(), confirmOcrPatient: vi.fn(),
+  labImport: vi.fn(), pharmacyImport: vi.fn(), encounter: vi.fn(), createOcrJob: vi.fn(), retryOcrJob: vi.fn(), validateOcrJob: vi.fn(), confirmOcrPatient: vi.fn(),
 }))
 const session = vi.hoisted(() => ({ permissions: [] as string[], actorId: 'staff-demo-1' }))
 
@@ -103,6 +106,7 @@ function letTimePass(ms: number) {
 
 /** OCR's wait after a failed attempt (hid-system ocr.service.ts executePublication sets next_attempt_at 15 seconds on). */
 const OCR_RETRY_WAIT = 15_000
+const unavailable503 = () => new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' })
 const lostAnswer = () => new HidApiError(0, 'We could not reach the service. Check your connection and try again.', { code: 'NETWORK_ERROR' })
 
 describe('publishing validated OCR evidence', () => {
@@ -125,7 +129,9 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
     await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
-    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    // A server that could not answer, said neutrally; the publication's own line says what it means for the record.
+    expect((await screen.findByRole('alert')).textContent).toBe(PUBLISH_UNREACHED_RECORDED)
+    expect(document.body.textContent).not.toContain(SAID_UNAVAILABLE)
     expect(document.body.textContent).not.toContain('EHR service is unavailable')
 
     const retry = await screen.findByRole('button', { name: 'Retry publication' })
@@ -147,6 +153,51 @@ describe('publishing validated OCR evidence', () => {
     expect(await screen.findByText('Publication recorded.')).toBeTruthy()
     expect(keys()).toHaveLength(2)
     expect(keys()[1]).toBe(keys()[0])
+  })
+
+  // Rehearsal finding 11: a 503 while the database was down showed "Health ID isn't available" twice.
+  it('one failed publish with no publication recorded says one neutral message', async () => {
+    api.publishOcrValidation.mockRejectedValueOnce(unavailable503())
+    await openJob()
+    api.ocrPublications.mockResolvedValue({ items: [] })
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([PUBLISH_UNREACHED]))
+    expect(PUBLISH_UNREACHED).toBe('The record couldn’t be reached. Nothing was added. Try again in a few minutes.')
+    expect(document.body.textContent).not.toContain('Health ID isn’t available')
+  })
+
+  // Review finding: after a lost answer with the history unreadable, the page can't know nothing was added.
+  it('one failed publish whose history then cannot be read says one message, and never that nothing was added', async () => {
+    api.publishOcrValidation.mockRejectedValueOnce(unavailable503())
+    await openJob()
+    api.ocrPublications.mockRejectedValue(unavailable503())
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([PUBLISH_UNREACHED_UNKNOWN]))
+    expect(document.body.textContent).not.toMatch(/Nothing was added|Health ID isn’t available/)
+  })
+
+  // Review finding: a retry during the same outage, with a failed publication recorded, blamed Health ID.
+  it('a retry refused while the record can\'t be reached says it neutrally, never as Health ID', async () => {
+    api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
+    await openJob()
+    api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
+    const retry = await screen.findByRole('button', { name: 'Retry publication' })
+    letTimePass(OCR_RETRY_WAIT)
+    api.publishOcrValidation.mockRejectedValueOnce(unavailable503())
+    api.ocrPublications.mockResolvedValue({ items: [unavailableAt(2)] })
+    await press(retry)
+    await waitFor(() => expect(api.publishOcrValidation).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([PUBLISH_UNREACHED_RECORDED]))
+    expect(document.body.textContent).not.toContain(SAID_UNAVAILABLE)
+    expect(keys()[1]).toBe(keys()[0])
+  })
+
+  it('a lost answer (no connection) with no publication recorded says the same', async () => {
+    api.publishOcrValidation.mockRejectedValueOnce(lostAnswer())
+    await openJob()
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([PUBLISH_UNREACHED]))
   })
 
   it('keeps the key when the job is read again, so the retry still resumes the same publication', async () => {
@@ -321,7 +372,9 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     api.ocrPublications.mockRejectedValueOnce(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
     await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
-    await screen.findByText(SAID_UNAVAILABLE)
+    // One failed press, one message: the record not reached, not the history's own refusal beside it (finding 11);
+    // with the history unread, nothing is claimed about the record.
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([PUBLISH_UNREACHED_UNKNOWN]))
 
     api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(409, 'Publication failed terminally and requires corrected validation evidence',
       { code: 'OCR_PUBLICATION_TERMINAL' }))
@@ -491,7 +544,10 @@ describe('OCR-04: what a publication produced', () => {
       { id: 'observation-2', ordinal: 2, testName: 'Platelets', value: '95', unit: '10^9/L', abnormalFlag: 'low' },
     ] })
     await openJob()
-    expect(await screen.findByText('Published as imported lab evidence in the patient\'s record.')).toBeTruthy()
+    // Not in the chart, which doesn't show them yet: added as imported records, seen here (rehearsal finding 1).
+    expect(await screen.findByText('Lab results added as imported records from this paper.')).toBeTruthy()
+    expect(screen.getByText(IMPORTED_WHERE)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/in the patient's record|in the patient’s chart\./)
     expect(api.labImport).not.toHaveBeenCalled()
 
     // A disclosure: its name stays, and aria-expanded says whether it is open.
@@ -584,7 +640,7 @@ describe('OCR-04: what a publication produced', () => {
   it('names imported lab evidence without reading it when the role may not read Lab imports', async () => {
     lab()
     await openJob()
-    expect(await screen.findByText('Published as imported lab evidence in the patient\'s record.')).toBeTruthy()
+    expect(await screen.findByText('Lab results added as imported records from this paper.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /imported lab evidence/ })).toBeNull()
     expect(document.body.textContent).not.toContain(IMPORT)
   })
@@ -595,7 +651,8 @@ describe('OCR-04: what a publication produced', () => {
     api.pharmacyImport.mockResolvedValue({ id: IMPORT, activityStatus: 'unknown', medicationText: 'Amoxicillin capsules',
       strengthText: '500 mg', doseText: 'One capsule', frequencyText: 'Three times a day', historicalContext: 'Course finished in March' })
     await openJob()
-    expect(await screen.findByText('Published as imported medication evidence in the patient\'s record.')).toBeTruthy()
+    expect(await screen.findByText('Medicines added as imported records from this paper.')).toBeTruthy()
+    expect(screen.getByText(IMPORTED_WHERE)).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Imported medication evidence' }))
     expect(await screen.findByText('Amoxicillin capsules')).toBeTruthy()
     expect(screen.getByText('500 mg · One capsule · Three times a day')).toBeTruthy()
@@ -628,13 +685,133 @@ describe('OCR-04: what a publication produced', () => {
   })
 
   it.each([
-    ['EHR', 'create_imported_clinical_note', 'clinical-note', 'Published as a clinical note in the patient\'s record.'],
+    // The coordinator's decision: the note is a draft until a clinician signs it (rehearsal finding 4).
+    ['EHR', 'create_imported_clinical_note', 'clinical-note', 'Saved as a draft note. A clinician must sign it'],
     ['DOCUMENT_ONLY', 'retain_validated_document', 'document', 'Kept as a validated document in the patient\'s record.'],
   ])('names what a %s publication made, without its ID', async (domain, operation, type, label) => {
     producedBy(domain, operation, type, IMPORT)
     await openJob()
     expect(await screen.findByText(label)).toBeTruthy()
     expect(document.body.textContent).not.toContain(IMPORT)
+  })
+})
+
+/** Rehearsal findings 1, 3 and 4: what a publication says it made, and where to see it. Fictional data only. */
+describe('what a publication says it added', () => {
+  const MEDICINES = ['b0000000-0000-4000-8000-0000000000a1', 'b0000000-0000-4000-8000-0000000000a2', 'b0000000-0000-4000-8000-0000000000a3']
+  const sent = (count: number) => ({ medications: Array.from({ length: count }, (_, at) => ({ itemId: `item-${at}`, page: 1, medicationText: `Medicine ${at}` })) })
+  const medicines = (ids: Partial<{ targetResourceId: string; targetResourceIds: string[] }>, count = 3) => {
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, targetDomain: 'PHARMACY', acceptedFields: sent(count) }] })
+    api.ocrPublications.mockResolvedValue({ items: [{ ...publication, targetDomain: 'PHARMACY', targetOperation: 'create_imported_medication_evidence',
+      status: 'published', attemptCount: 1, maxAttempts: 3, targetResourceType: 'pharmacy-imported-medication-evidence', ...ids }] })
+  }
+
+  it('counts the medicines sent while OCR names only the first, shows that one, and says all were added', async () => {
+    session.permissions = ['ocr.job.read', 'pharmacy.import.read']
+    medicines({ targetResourceId: MEDICINES[0] })
+    await openJob()
+    expect(await screen.findByText('3 medicines added as imported records from this paper.')).toBeTruthy()
+    expect(screen.getByText('The first is shown here. All 3 were added.')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: /^Imported medic/ }).map(button => button.textContent)).toEqual(['Imported medication evidence'])
+    expect(document.body.textContent).not.toMatch(/lost|not added/i)
+  })
+
+  it('lists every medicine when OCR names them all', async () => {
+    session.permissions = ['ocr.job.read', 'pharmacy.import.read']
+    medicines({ targetResourceId: MEDICINES[0], targetResourceIds: MEDICINES })
+    api.pharmacyImport.mockImplementation((_facility: string, id: string) => Promise.resolve({ id, medicationText: `Medicine ${MEDICINES.indexOf(id) + 1}` }))
+    await openJob()
+    expect(await screen.findByText('3 medicines added as imported records from this paper.')).toBeTruthy()
+    expect(screen.queryByText(/The first is shown here/)).toBeNull()
+    const buttons = screen.getAllByRole('button', { name: /^Imported medicine/ })
+    expect(buttons.map(button => button.textContent)).toEqual(['Imported medicine 1 of 3', 'Imported medicine 2 of 3', 'Imported medicine 3 of 3'])
+    await press(buttons[2]!)
+    expect(await screen.findByText('Medicine 3')).toBeTruthy()
+    expect(api.pharmacyImport).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, MEDICINES[2])
+    for (const id of MEDICINES) expect(document.body.textContent).not.toContain(id)
+  })
+
+  it('says one medicine as one', async () => {
+    medicines({ targetResourceId: MEDICINES[0] }, 1)
+    await openJob()
+    expect(await screen.findByText('1 medicine added as imported records from this paper.')).toBeTruthy()
+    expect(screen.queryByText(/The first is shown here/)).toBeNull()
+  })
+
+  it('counts lab results from what was sent', async () => {
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, targetDomain: 'LAB', acceptedFields: { observations: [{ testName: 'A' }, { testName: 'B' }] } }] })
+    api.ocrPublications.mockResolvedValue({ items: [{ ...publication, targetDomain: 'LAB', status: 'published', targetResourceType: 'lab-imported-evidence',
+      targetResourceId: MEDICINES[0] }] })
+    await openJob()
+    expect(await screen.findByText('2 lab results added as imported records from this paper.')).toBeTruthy()
+    // This role can't read Lab's imported records, so it is never told to see them here.
+    expect(screen.getByText(IMPORTED_NOT_IN_CHART)).toBeTruthy()
+    expect(screen.queryByText(IMPORTED_WHERE)).toBeNull()
+  })
+
+  // Review finding: a publisher who can't read Pharmacy's imports was told the first is shown here, with nothing shown.
+  it('says nothing is shown here to a role that can\'t read the imported medicines', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.publication.write']
+    medicines({ targetResourceId: MEDICINES[0] })
+    await openJob()
+    expect(await screen.findByText('3 medicines added as imported records from this paper.')).toBeTruthy()
+    expect(screen.getByText(IMPORTED_NOT_IN_CHART)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/See them here|The first is shown here/)
+    expect(screen.queryByRole('button', { name: /^Imported medic/ })).toBeNull()
+  })
+
+  it('a clinical note says it is a draft a clinician must sign, and where it is', async () => {
+    api.ocrPublications.mockResolvedValue({ items: [published] })
+    await openJob()
+    expect(await screen.findByText('Saved as a draft note. A clinician must sign it')).toBeTruthy()
+    expect(screen.getByText(DRAFT_NOTE_WHERE)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Published as a clinical note')
+  })
+
+  // Review finding 4: the visit the note was saved on is known from the review, so it is named.
+  it('names the visit a draft note is on, when the role may read visits', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.publication.write', 'ehr.encounter.read']
+    const ENCOUNTER = 'e0000000-0000-4000-8000-000000000001'
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, acceptedFields: { encounterId: ENCOUNTER, noteText: 'Seen in clinic' } }] })
+    api.ocrPublications.mockResolvedValue({ items: [published] })
+    api.encounter.mockResolvedValue({ id: ENCOUNTER, patientId: PATIENT, encounterType: 'outpatient', status: 'finished',
+      startedAt: '2026-10-12T09:00:00.000Z', chiefComplaint: 'Cough' })
+    await openJob()
+    expect(await screen.findByText('Saved as a draft note. A clinician must sign it')).toBeTruthy()
+    const where = await screen.findByText(/^It’s on the visit Outpatient visit · .+ · Cough: open that visit’s notes to read and sign it\.$/)
+    expect(where.textContent).toContain(draftNoteOnVisit('Outpatient visit').slice(0, 'It’s on the visit Outpatient visit'.length))
+    expect(api.encounter).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT, ENCOUNTER)
+    expect(screen.queryByText(DRAFT_NOTE_WHERE)).toBeNull()
+    expect(document.body.textContent).not.toContain(ENCOUNTER)
+  })
+
+  it('keeps the general wording when the visit can\'t be read, or the role may not read visits', async () => {
+    const ENCOUNTER = 'e0000000-0000-4000-8000-000000000001'
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, acceptedFields: { encounterId: ENCOUNTER } }] })
+    api.ocrPublications.mockResolvedValue({ items: [published] })
+    await openJob()
+    expect(await screen.findByText(DRAFT_NOTE_WHERE)).toBeTruthy()
+    expect(api.encounter).not.toHaveBeenCalled()
+  })
+
+  it('keeps the general wording when the visit read is refused', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.publication.write', 'ehr.encounter.read']
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, acceptedFields: { encounterId: 'e0000000-0000-4000-8000-000000000001' } }] })
+    api.ocrPublications.mockResolvedValue({ items: [published] })
+    api.encounter.mockRejectedValue(unavailable503())
+    await openJob()
+    await waitFor(() => expect(api.encounter).toHaveBeenCalled())
+    expect(await screen.findByText(DRAFT_NOTE_WHERE)).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('Progress says Published once the review is published, and Patient confirmed before then', async () => {
+    await openJob()
+    const progress = () => screen.getByRole('heading', { name: 'Progress' }).closest('section') as HTMLElement
+    expect(within(progress()).getByText('Patient confirmed')).toBeTruthy()
+    api.ocrPublications.mockResolvedValue({ items: [published] })
+    await refreshStatus()
+    await waitFor(() => expect(within(progress()).getByText('Published')).toBeTruthy())
   })
 })
 
