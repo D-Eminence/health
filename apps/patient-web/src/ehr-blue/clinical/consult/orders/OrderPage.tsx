@@ -9,12 +9,14 @@ import { refusalText } from '../../../../staff/fieldProblem'
 import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../../../../staff/orderRoutes'
 import { sendLabel, type RouteContext } from '../../../../staff/routes/OrderRoutes'
 import { useLateCorrectionServed } from '../../../../lateCorrectionServed'
+import { routeLabel } from '../../../../plainLabels'
 import { useWrongPatientServed } from '../../../../wrongPatientServed'
 import type { Chart } from '../../parts/chart'
 import { LabResultPaper, PrescriptionPaper, drugLine, isPrintable, paperPatient, prescriberName, usePaperPrint } from '../../parts/clinicalPrint'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
 import { decimalText, formatWhen } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
+import { codeText, MoreDetails } from '../../parts/MoreDetails'
 import { Value } from '../../../../kasuwa/parts'
 import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
 import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
@@ -33,6 +35,38 @@ import {
 
 const TITLE_ID = 'order-title'
 const ACTIONS_ID = 'order-actions-title'
+/**
+ * The test by its name, with its code under More details (owner decision 33.4): "Haemoglobin", then "Code: LOINC 718-7"
+ * behind the disclosure. No code, the name alone; no name, the code alone (it is all that says which test).
+ */
+function TestValue({ name: written, code }: { readonly name: string; readonly code: string }) {
+  const name = written.trim()
+  if (!code || !name) return <>{name || code || 'Not recorded'}</>
+  return (
+    <span className="flex flex-col gap-1">
+      <span>{name}</span>
+      <MoreDetails about={name}><span>Code: {code}</span></MoreDetails>
+    </span>
+  )
+}
+
+/**
+ * How the medicine is taken, in plain words first ("By mouth"), with the route code as written under More details
+ * (owner decision 33.4). A route code with no plain words is shown as written, so nothing is lost.
+ */
+function RouteValue({ code: written }: { readonly code: string }) {
+  const code = written.trim()
+  const plain = routeLabel(code)
+  if (!code) return <>Not recorded</>
+  if (!plain) return <>{code}</>
+  return (
+    <span className="flex flex-col gap-1">
+      <span>{plain.charAt(0).toUpperCase() + plain.slice(1)}</span>
+      {code.toLowerCase() !== plain ? <MoreDetails about="Route"><span>Route code: {code}</span></MoreDetails> : null}
+    </span>
+  )
+}
+
 const ROUTE_TITLE_ID = 'order-route-title'
 const actionId = (id: string) => `order-action-${id}`
 
@@ -267,7 +301,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const printedAt = () => formatWhen(new Date().toISOString())
   const printPrescription = () => print('prescription', (
     <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={[drugLine(record)]}
-      prescriber={prescriberName([record], actor)} printedAt={printedAt()} />
+      prescriber={prescriberName([record], actor, chart.facilityId)} printedAt={printedAt()} />
   ))
   const printResult = (test: string, lines: Parameters<typeof LabResultPaper>[0]['lines']) => print('lab-result', (
     <LabResultPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} test={test} lines={lines} printedAt={printedAt()} />
@@ -490,8 +524,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   const dose = decimalText(record.doseQuantity)
   const items: KeyValue[] = lab ? [
-    { label: 'Test', value: text(record.testDisplay) },
-    { label: 'Code', value: [text(record.testCodeSystem), text(record.testCode)].filter(Boolean).join(' ') },
+    { label: 'Test', value: <TestValue name={text(record.testDisplay)} code={codeText(text(record.testCodeSystem), text(record.testCode))} /> },
     { label: 'Priority', value: priorityText(record.priority) },
     { label: 'Specimen type', value: text(record.specimenTypeCode) },
     { label: 'Clinical information', value: text(record.clinicalInformation) },
@@ -500,7 +533,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     { label: 'Medicine', value: text(record.medicationDisplay) },
     // The dose always with its unit, as entered (decimalText: no trailing zeros, a leading zero).
     { label: 'Dose', value: dose ? <Value value={dose} unit={text(record.doseUnit) || null} /> : '' },
-    { label: 'Route', value: text(record.routeCode) },
+    { label: 'Route', value: <RouteValue code={text(record.routeCode)} /> },
     { label: 'How often', value: text(record.frequency) },
     { label: 'Instructions', value: text(record.instructions) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },

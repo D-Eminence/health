@@ -6,10 +6,10 @@ import { cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { HealthIcon } from '@/components/shared/HealthIcon'
 import type { ProductDetail } from '@/content/product-details'
+import { OUTREACH_SIGN_UP_CTA, outreachSignUpHref } from '@/content/site'
 import { isApplicationProduct, providerApplicationHref, PROVIDER_SETUP_CTA } from '@/lib/provider-application'
 
 const CTA: Record<string, string> = {
-  outreach: 'Plan an outreach programme',
   api: 'Explore integration options',
 }
 
@@ -140,9 +140,11 @@ export function WorkflowBento({ product }: { product: ProductDetail }) {
           </ol>
           <div className="hidden lg:sticky lg:top-24 lg:block"><Preview product={product} index={current} /></div>
         </div>
-        {isApplicationProduct(product.slug)
-          ? <HeroDemoButton href={providerApplicationHref(product.slug)} size="sm" className="mt-6">{PROVIDER_SETUP_CTA}</HeroDemoButton>
-          : <HeroDemoButton href="#demo" size="sm" className="mt-6">{CTA[product.slug] ?? product.cta}</HeroDemoButton>}
+        {product.slug === 'outreach'
+          ? <HeroDemoButton href={outreachSignUpHref()} size="sm" className="mt-6">{OUTREACH_SIGN_UP_CTA}</HeroDemoButton>
+          : isApplicationProduct(product.slug)
+            ? <HeroDemoButton href={providerApplicationHref(product.slug)} size="sm" className="mt-6">{PROVIDER_SETUP_CTA}</HeroDemoButton>
+            : <HeroDemoButton href="#demo" size="sm" className="mt-6">{CTA[product.slug] ?? product.cta}</HeroDemoButton>}
       </div>
     </section>
   )

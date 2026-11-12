@@ -5,14 +5,14 @@ import { ORGANIZATION_TYPE_NOTES, organizationTypeNote } from '../../../staff/ro
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, answer, button, combobox, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
-  stepHeading, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
+  actAgain, answer, button, COLLECTED, combobox, deferred, EMAIL, expectFocusOnStep, fillAccountExtras, fillFacilityDetails,
+  NAME, next, open, step, stepHeading, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
 } from './signupHarness'
 
 /**
- * The blue facility registration (design screens 02-07) as today's live sign-up: the design's five steps over today's
- * details form, the confirm dialog, and today's start with exactly today's payload and refusals. Every person, facility
- * and address here is fictional.
+ * The blue facility registration (design screens 02-07) as today's live sign-up: the design's five steps, every field
+ * collected and required (hid-system 0114), the confirm dialog, and today's start with today's payload and the collected
+ * fields, and today's refusals. Every person, facility and address here is fictional.
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
   withdraw: vi.fn() }))
@@ -41,15 +41,17 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); actAgain() })
 
-const NOT_COLLECTED = 'Not collected by Health ID yet'
 /** The hint a field's aria-describedby names. */
 const hintOf = (control: HTMLElement) => (control.getAttribute('aria-describedby') ?? '').split(' ')
   .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
 const progress = () => screen.getByRole('group', { name: 'Registration progress' })
 
-/** Today's start body (staff/routes/ProviderEnrollment.tsx:615-623, api.ts:1486-1494): the six fields, nothing more. */
+/**
+ * Today's start body (staff/routes/ProviderEnrollment.tsx:615-623, api.ts:1486-1494), and the applicant's role and phone
+ * and the facility's details that hid-system 0114 requires with it: nothing more.
+ */
 const PAYLOAD = { productCode: 'ehr', organizationType: 'hospital', cacRegistrationNumber: 'RC123456', administratorName: NAME,
-  administratorEmail: EMAIL, turnstileToken: 'token-0' }
+  administratorEmail: EMAIL, turnstileToken: 'token-0', ...COLLECTED }
 
 describe('the registration opens as today’s page does', () => {
   it('asks once whether sign-up is open, then shows step 1 of 5 with the design’s progress', async () => {
@@ -94,15 +96,17 @@ describe('step 1, Your account', () => {
     expect(email.getAttribute('autocomplete')).toBe('email')
   })
 
-  it('shows Phone and Role disabled, not collected, and the password as chosen after the email is confirmed', async () => {
+  it('takes the applicant’s phone and role, required, and the password as chosen after the email is confirmed', async () => {
     await toForm()
-    for (const control of [textbox('Phone'), combobox('Role at the facility')]) {
-      expect(control.disabled).toBe(true)
-      expect(control.getAttribute('name')).toBeNull()
-      expect(hintOf(control)).toBe(NOT_COLLECTED)
+    for (const control of [textbox('Your phone'), combobox('Role at the facility')]) {
+      expect(control.disabled).toBe(false)
+      expect(control.required).toBe(true)
     }
-    expect([...combobox('Role at the facility').options].map(option => option.text)).toEqual(['Select…', 'Owner',
-      'Medical Director', 'Administrator', 'Other authorised representative'])
+    expect(textbox('Your phone').type).toBe('tel')
+    expect(document.body.textContent).not.toContain('Not collected by Health ID yet')
+    expect([...combobox('Role at the facility').options].map(option => [option.value, option.text])).toEqual([['', 'Select…'],
+      ['owner', 'Owner'], ['medical_director', 'Medical Director'], ['administrator', 'Administrator'],
+      ['other_authorised_representative', 'Other authorised representative']])
     for (const label of ['Password', 'Confirm password']) {
       const field = screen.getByLabelText(label) as HTMLInputElement
       expect(field.disabled).toBe(true)
@@ -114,17 +118,21 @@ describe('step 1, Your account', () => {
   it('stops Continue at a missing or wrong value with the design’s words, and focuses the field', async () => {
     await toForm()
     next()
-    expect(screen.getAllByText('This field is required.')).toHaveLength(2)
+    expect(screen.getAllByText('This field is required.')).toHaveLength(3)
+    expect(screen.getByText('Choose your role at the facility.')).toBeTruthy()
     expect(document.activeElement).toBe(textbox('Full name'))
     expect(textbox('Full name').getAttribute('aria-invalid')).toBe('true')
     fireEvent.change(textbox('Full name'), { target: { value: NAME } })
+    fireEvent.change(textbox('Your phone'), { target: { value: '12345' } })
     fireEvent.change(textbox('Email'), { target: { value: 'not-an-email' } })
     next()
+    expect(screen.getByText('Enter a phone number, for example 0803 123 4567 or +234 803 123 4567.')).toBeTruthy()
     expect(screen.getByText('Enter a valid email address.')).toBeTruthy()
-    expect(document.activeElement).toBe(textbox('Email'))
+    expect(document.activeElement).toBe(textbox('Your phone'))
     expect(stepHeading().textContent).toBe('Your account')
     fireEvent.change(textbox('Full name'), { target: { value: ' D ' } })
     fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
+    fillAccountExtras()
     next()
     expect(screen.getByText('Enter at least two characters.')).toBeTruthy()
     expect(api.start).not.toHaveBeenCalled()
@@ -144,9 +152,11 @@ describe('moving between steps', () => {
     await toForm()
     fireEvent.change(textbox('Full name'), { target: { value: NAME } })
     fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
+    fillAccountExtras()
     next()
     await expectFocusOnStep('Facility details')
     expect(within(progress()).getByText('Step 2 of 5 · Facility details')).toBeTruthy()
+    fillFacilityDetails()
     next()
     await expectFocusOnStep('Regulatory identity')
     fireEvent.click(button('Back'))
@@ -160,7 +170,7 @@ describe('moving between steps', () => {
 })
 
 describe('step 2, Facility details', () => {
-  it('takes today’s five facility types, Hospital first, and shows every other design field disabled', async () => {
+  it('takes today’s five facility types, Hospital first, and every other design field as a required input', async () => {
     await toReview()
     fireEvent.click(button('Edit facility details'))
     await step('Facility details')
@@ -168,20 +178,47 @@ describe('step 2, Facility details', () => {
     expect([...type.options].map(option => [option.value, option.text])).toEqual([['hospital', 'Hospital'],
       ['clinic', 'Clinic'], ['laboratory', 'Laboratory'], ['pharmacy', 'Pharmacy'], ['other', 'Other healthcare provider']])
     expect(type.value).toBe('hospital')
-    expect(hintOf(textbox('Facility name'))).toBe(`${NOT_COLLECTED}: your facility’s registered name comes from its CAC record.`)
-    for (const name of ['Address', 'GPS pin (latitude, longitude)', 'Facility phone', 'Facility email', 'Operating hours',
-      'Services offered']) {
-      expect(textbox(name).disabled).toBe(true)
-      expect(hintOf(textbox(name))).toBe(NOT_COLLECTED)
+    expect(hintOf(textbox('Facility name (the name people use)'))).toBe('Your registered name comes from your CAC record. '
+      + 'Enter the name patients know you by, even if it is the same.')
+    for (const name of ['Facility name (the name people use)', 'Address', 'City or town', 'Local government area',
+      'GPS latitude', 'GPS longitude', 'Facility phone', 'Facility email', 'Bed count', 'Operating hours', 'Services offered']) {
+      expect(textbox(name).disabled).toBe(false)
+      expect(textbox(name).required).toBe(true)
+      expect(textbox(name).value).not.toBe('')
     }
-    for (const name of ['Ownership', 'Level of care', 'State', 'Local government area', '24-hour emergency']) {
-      expect(combobox(name).disabled).toBe(true)
-      expect(hintOf(combobox(name))).toBe(NOT_COLLECTED)
+    for (const name of ['Ownership', 'Level of care', 'State', '24-hour emergency']) {
+      expect(combobox(name).required).toBe(true)
     }
-    const departments = screen.getByRole('listbox', { name: 'Departments' }) as HTMLSelectElement
-    expect(departments.disabled).toBe(true)
-    expect(departments.multiple).toBe(true)
-    expect((screen.getByRole('spinbutton', { name: 'Bed count' }) as HTMLInputElement).disabled).toBe(true)
+    // The 37 states as Identity keeps them, the FCT by its full and short names, sent as FC.
+    const states = [...combobox('State').options].slice(1)
+    expect(states).toHaveLength(37)
+    expect(states.find(option => option.value === 'FC')?.text).toBe('Federal Capital Territory (FCT)')
+    const departments = screen.getByRole('group', { name: 'Departments' })
+    expect(within(departments).getAllByRole('checkbox')).toHaveLength(15)
+    expect((within(departments).getByRole('checkbox', { name: 'Laboratory' }) as HTMLInputElement).checked).toBe(true)
+    // Nothing on the step is shown disabled or said not to be collected.
+    expect(document.body.textContent).not.toContain('Not collected by Health ID yet')
+  })
+
+  it('stops Continue at each missing or wrong facility detail, in plain words, and focuses the first', async () => {
+    await toForm()
+    fireEvent.change(textbox('Full name'), { target: { value: NAME } })
+    fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
+    fillAccountExtras()
+    next()
+    await step('Facility details')
+    next()
+    expect(document.activeElement).toBe(textbox('Facility name (the name people use)'))
+    expect(screen.getByText('Choose who owns the facility.')).toBeTruthy()
+    expect(screen.getByText('Choose at least one department.')).toBeTruthy()
+    fillFacilityDetails()
+    fireEvent.change(textbox('GPS latitude'), { target: { value: '20' } })
+    fireEvent.change(textbox('Facility email'), { target: { value: 'not-an-email' } })
+    next()
+    expect(screen.getByText('Enter a latitude between 4 and 14, with up to six decimal places.')).toBeTruthy()
+    expect(screen.getByText('Enter a valid email address.')).toBeTruthy()
+    expect(document.activeElement).toBe(textbox('GPS latitude'))
+    expect(stepHeading().textContent).toBe('Facility details')
   })
 
   it('preselects ?type= and ?product= as today’s page does, keeping only a product the type allows', async () => {
@@ -198,7 +235,7 @@ describe('step 2, Facility details', () => {
 })
 
 describe('step 3, Regulatory identity', () => {
-  it('takes the CAC number as today’s field does, with today’s fine print, and shows the rest disabled', async () => {
+  it('takes the CAC number as today’s field does, with today’s fine print, the rest as required inputs, and no uploads', async () => {
     await toReview()
     fireEvent.click(button('Edit regulatory identity'))
     await step('Regulatory identity')
@@ -211,18 +248,45 @@ describe('step 3, Regulatory identity', () => {
     expect(cac.getAttribute('autocomplete')).toBe('off')
     expect(hintOf(cac)).toBe('We check your CAC against the official registry, and Health ID support checks every new facility '
       + 'within one working day.')
-    for (const name of ['State Ministry of Health licence number', 'National facility registry ID (optional)',
-      'Medical Director’s full name', 'MDCN number', 'NHIA accreditation (optional)']) {
-      expect(textbox(name).disabled).toBe(true)
-      expect(hintOf(textbox(name))).toBe(NOT_COLLECTED)
+    for (const name of ['State Ministry of Health licence number', 'Medical Director’s full name',
+      'Medical Director’s MDCN number', 'NHIA accreditation number']) {
+      expect(textbox(name).required).toBe(true)
+      expect(textbox(name).disabled).toBe(false)
     }
-    for (const label of ['Operating licence (image/PDF, max 2 MB)', 'CAC certificate (image/PDF, max 2 MB)',
-      'Proof of address (image/PDF, max 2 MB)']) {
-      const file = screen.getByLabelText(label) as HTMLInputElement
-      expect(file.type).toBe('file')
-      expect(file.disabled).toBe(true)
-      expect(hintOf(file)).toBe(NOT_COLLECTED)
-    }
+    // A registry ID is asked for only once the facility says it has one.
+    expect(screen.queryByRole('textbox', { name: 'National facility registry ID' })).toBeNull()
+    fireEvent.change(combobox('Does the facility have a national facility registry ID?'), { target: { value: 'yes' } })
+    expect(textbox('National facility registry ID').required).toBe(true)
+    // The uploads wait for the document store and its virus scanner: not shown at all, not even disabled.
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0)
+    expect(screen.queryByText(/Operating licence|CAC certificate|Proof of address/)).toBeNull()
+  })
+
+  it('needs the registry ID once the facility says it has one, and an MDCN number in the licence format', async () => {
+    await toReview()
+    fireEvent.click(button('Edit regulatory identity'))
+    await step('Regulatory identity')
+    fireEvent.change(combobox('Does the facility have a national facility registry ID?'), { target: { value: 'yes' } })
+    fireEvent.change(textbox('Medical Director’s MDCN number'), { target: { value: '#' } })
+    next()
+    expect(document.activeElement).toBe(textbox('National facility registry ID'))
+    expect(screen.getByText('Enter the MDCN number as it is written, using letters, digits, /, . or -, for example MDCN/12345.'))
+      .toBeTruthy()
+    expect(stepHeading().textContent).toBe('Regulatory identity')
+  })
+
+  it('offers a Medical Director signing up their own name as the Medical Director’s', async () => {
+    await toForm()
+    fireEvent.change(textbox('Full name'), { target: { value: NAME } })
+    fireEvent.change(combobox('Role at the facility'), { target: { value: 'medical_director' } })
+    fireEvent.change(textbox('Your phone'), { target: { value: '08031234567' } })
+    fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
+    next()
+    await step('Facility details')
+    fillFacilityDetails()
+    next()
+    await step('Regulatory identity')
+    expect(textbox('Medical Director’s full name').value).toBe(NAME)
   })
 
   it('needs a CAC number in today’s pattern before Continue', async () => {
@@ -256,11 +320,11 @@ describe('step 4, Platform setup', () => {
     expect(hintOf(product)).toBe(ORGANIZATION_TYPE_NOTES[type as keyof typeof ORGANIZATION_TYPE_NOTES])
     expect([...combobox('Product to start with').options].map(option => option.text)[0])
       .toBe(type === 'laboratory' ? 'Health ID Laboratory' : type === 'pharmacy' ? 'Health ID Pharmacy' : 'Health ID EHR')
-    for (const name of ['Migrating existing records?', 'Need interoperability with other facilities?']) {
-      expect(combobox(name).disabled).toBe(true)
-      expect(hintOf(combobox(name))).toBe(NOT_COLLECTED)
+    for (const name of ['Will you bring records from an older system?', 'Do you need to exchange records with other systems?']) {
+      expect(combobox(name).required).toBe(true)
+      expect(combobox(name).value).not.toBe('')
     }
-    expect((screen.getByRole('spinbutton', { name: 'Expected number of staff' }) as HTMLInputElement).disabled).toBe(true)
+    expect(textbox('Expected number of staff').value).toBe('25')
   })
 
   it('says what a laboratory’s note says when orders between facilities are on (P4c)', async () => {
@@ -274,12 +338,22 @@ describe('step 4, Platform setup', () => {
 })
 
 describe('step 5, Check and send', () => {
-  it('reviews each section with its Edit, and lists only what Health ID takes', async () => {
+  it('reviews each section with its Edit, and lists every value given', async () => {
     await toReview({ product: 'migrate' })
     expect(within(progress()).getByText('Step 5 of 5 · Check and send')).toBeTruthy()
     const facts = [...document.querySelectorAll('.hid-ehr-signup-facts > div')].map(row => row.textContent)
-    expect(facts).toEqual([`Full name${NAME}`, `Email${EMAIL}`, 'Facility typeHospital', 'CAC registration numberRC123456',
-      'ProductHealth ID Migrate'])
+    expect(facts).toEqual([`Full name${NAME}`, 'Your phone+2348031234567', `Email${EMAIL}`, 'Role at the facilityOwner',
+      'Facility name (the name people use)Demo Hospital', 'Facility typeHospital', 'OwnershipPrivate', 'Level of careSecondary',
+      'Address1 Example Road', 'City or townIkeja', 'StateLagos', 'Local government areaIkeja', 'GPS latitude6.601234',
+      'GPS longitude3.351234', 'Facility phone+23412345678', 'Facility emaildesk@demo-hospital.example.test', 'Bed count40',
+      'Operating hoursMon-Sun 24 hours', '24-hour emergencyYes', 'DepartmentsGeneral Outpatient, Laboratory',
+      'Services offeredOutpatient care and laboratory tests',
+      'State Ministry of Health licence numberLA/SMOH/1234', 'Does the facility have a national facility registry ID?No',
+      'CAC registration numberRC123456', 'Medical Director’s full nameDr Demo Director',
+      'Medical Director’s MDCN numberMDCN/12345', 'Is the facility accredited by the NHIA?Yes',
+      'NHIA accreditation numberNHIA-1234',
+      'Expected number of staff25', 'ProductHealth ID Migrate', 'Will you bring records from an older system?No',
+      'Do you need to exchange records with other systems?Yes'])
     fireEvent.click(button('Edit your account'))
     await expectFocusOnStep('Your account')
   })
@@ -313,7 +387,7 @@ describe('step 5, Check and send', () => {
     expect(document.body.textContent).not.toMatch(/Data Processing Agreement/)
   })
 
-  it('no longer waits for any box: Submit is ready with the security check, and sends today’s payload alone', async () => {
+  it('no longer waits for any box: Submit is ready with the security check, and sends today’s payload and the collected fields', async () => {
     await toReview()
     expect(submitButton().disabled).toBe(false)
     expect(api.start).not.toHaveBeenCalled()
@@ -344,7 +418,7 @@ describe('submitting', () => {
     expect(stepHeading().textContent).toBe('Check and send')
   })
 
-  it('runs today’s start once with exactly today’s payload, then says the registration is submitted', async () => {
+  it('runs today’s start once with today’s payload and the collected fields, then says the registration is submitted', async () => {
     await toReview()
     await submitRegistration()
     const heading = await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
@@ -356,18 +430,18 @@ describe('submitting', () => {
       + 'Full access begins once Health ID support has checked your facility, usually within one working day.')).toBeTruthy()
   })
 
-  it('sends the type and product chosen, and never a field Health ID does not take', async () => {
+  it('sends the type, product and changed phone chosen, and never an upload or logo', async () => {
     await toReview({ type: 'clinic', product: 'pharmacy' })
-    // Even a value forced into a disabled design field stays on the page.
     fireEvent.click(button('Edit your account'))
     await step('Your account')
-    fireEvent.change(textbox('Phone'), { target: { value: '08012345678' } })
+    fireEvent.change(textbox('Your phone'), { target: { value: '0801 234 5678' } })
     for (let index = 0; index < 4; index++) next()
     await step('Check and send')
     await submitRegistration()
     await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
-    expect(api.start).toHaveBeenCalledWith({ ...PAYLOAD, organizationType: 'clinic', productCode: 'pharmacy' })
-    expect(JSON.stringify(api.start.mock.calls)).not.toContain('08012345678')
+    expect(api.start).toHaveBeenCalledWith({ ...PAYLOAD, organizationType: 'clinic', productCode: 'pharmacy',
+      administratorPhone: '+2348012345678' })
+    expect(JSON.stringify(api.start.mock.calls)).not.toMatch(/logo|licence"|certificate|proofOfAddress|allerg/i)
   })
 
   it('sends nothing without the security check, which sits beside the submit', async () => {
@@ -531,8 +605,8 @@ describe('a refusal of the start, in today’s words', () => {
 })
 
 /**
- * A changed facility type or administrator name goes only with a new code (R6): when Identity sends none (codeSent
- * false) and the code in force carries the earlier ones, today's page holds the change and offers that code
+ * A changed facility type or administrator name, or changed collected details (hid-system 0114), go only with a new code
+ * (R6): when Identity sends none (codeSent false) and the code in force carries the earlier ones, today's page holds the change and offers that code
  * (ProviderEnrollment.tsx:726-735, 1058-1064). The blue registration shows it on Check and send.
  */
 describe('a changed facility type that Identity sent no code for', () => {
@@ -548,7 +622,7 @@ describe('a changed facility type that Identity sent no code for', () => {
     await step('Facility details')
     fireEvent.change(combobox('Facility type'), { target: { value: 'clinic' } })
     for (const name of ['Regulatory identity', 'Platform setup', 'Check and send']) { next(); await step(name) }
-    expect(screen.queryByText(/^A new facility type or administrator name/)).toBeNull()
+    expect(screen.queryByText(/^Changed details take effect/)).toBeNull()
 
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 590,
       resendAfterSeconds: 45 })
@@ -559,9 +633,9 @@ describe('a changed facility type that Identity sent no code for', () => {
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, organizationType: 'clinic', turnstileToken: 'token-1' })
     // Not the code: its code would register a hospital.
     expect(stepHeading().textContent).toBe('Check and send')
-    expect(screen.getByText(/^A new facility type or administrator name/).textContent).toBe('A new facility type or '
-      + `administrator name takes effect only with a new code. The code already sent is for the facility type Hospital, with ${NAME} `
-      + 'as administrator.')
+    expect(screen.getByText(/^Changed details take effect/).textContent).toBe('Changed details take effect only with a new '
+      + 'code. The code already sent is for the details you gave before: the facility type Hospital, with '
+      + `${NAME} as administrator.`)
     expect(screen.getByText(/^You can continue with your changes in (45|44) seconds\.$/)).toBeTruthy()
     expect(submitButton().disabled).toBe(true)
     fireEvent.submit(submitButton().closest('form')!)
@@ -605,5 +679,36 @@ describe('another email for a sign-up that is open', () => {
     fireEvent.click(button('Use the email I first gave'))
     expect(screen.queryByText(/only that email can finish it/)).toBeNull()
     expect(document.querySelector('.hid-ehr-signup-facts')?.textContent).toContain(EMAIL)
+  })
+})
+
+describe('changed facility details that Identity sent no code for (hid-system 0114)', () => {
+  it('holds them as a changed type is held, and the code already sent brings back the details it carries', async () => {
+    api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', expiresInSeconds: 600,
+      resendAfterSeconds: 0 })
+    await toReview()
+    await submitRegistration()
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Change unverified email' }))
+    await step('Your account')
+    next()
+    await step('Facility details')
+    fireEvent.change(textbox('Bed count'), { target: { value: '55' } })
+    for (const name of ['Regulatory identity', 'Platform setup', 'Check and send']) { next(); await step(name) }
+
+    api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 590,
+      resendAfterSeconds: 45 })
+    await submitRegistration()
+    expect((await screen.findByRole('alert')).textContent).toContain('so your changes haven’t been applied.')
+    expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, turnstileToken: 'token-1',
+      facilityProfile: { ...COLLECTED.facilityProfile, bedCount: 55 } })
+    expect(screen.getByText(/^Changed details take effect/)).toBeTruthy()
+    fireEvent.click(button('Use the details I gave before'))
+    await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
+    fireEvent.click(button('Change unverified email'))
+    await step('Your account')
+    next()
+    await step('Facility details')
+    expect(textbox('Bed count').value).toBe('40')
   })
 })

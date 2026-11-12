@@ -9,6 +9,8 @@ import { useStaff } from '../App'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { REGISTRATION_COMPLETED, REGISTRATION_GENDERS, registrationErrorText, useCommandKey } from '../registrationFlow'
+import { DESK_FIELDS, DESK_HINTS, DESK_LABELS, deskFormFrom, deskProblems, deskValues } from '../../ehr-blue/collected/deskFields'
+import { NIGERIA_STATES } from '../../ehr-blue/collected/places'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const completed = REGISTRATION_COMPLETED
@@ -46,6 +48,8 @@ export function Registration() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  // Whether the patient says they already have a Health ID: its field shows only then.
+  const [hasHealthId, setHasHealthId] = useState('')
   // A case decision removes the form that made it: focus goes to the case.
   const focus = useFocusById()
   // A value refused before sending is reported at its field (PEHR-04). Each form keeps
@@ -131,12 +135,17 @@ export function Registration() {
     if (!firstName || !lastName || !dateOfBirth) {
       ninProblems.refuse(!firstName ? 'registration-first' : !lastName ? 'registration-last' : 'registration-dob', 'Enter the patient’s name and date of birth.'); return
     }
+    // hid-system 0114: the desk's contact and the stated Health ID, required with the NIN check (DeskForm).
+    const desk = deskFormFrom(data)
+    const deskProblem = deskProblems(desk)[0]
+    if (deskProblem) { ninProblems.refuse(`registration-${deskProblem[0]}`, deskProblem[1]); return }
     setBusy(true)
     try {
       const result = await staffApi.resolveNin(facilityId,
-        { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}) }, resolveKey.current)
+        { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}), ...deskValues(desk) }, resolveKey.current)
       if (currentFacility.current !== facilityId) return
       form.reset()
+      setHasHealthId('')
       resolveKey.current = crypto.randomUUID()
       setCaseIdInput(result.caseId)
       showNoCase()
@@ -228,6 +237,20 @@ export function Registration() {
               <Field label="NIN (11 digits)" htmlFor="registration-nin" error={ninProblems.error('registration-nin')} required><Input {...ninProblems.control('registration-nin')} id="registration-nin" name="nin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" minLength={11} maxLength={11} readOnly={busy} required /></Field>
               <div className="staff-form-row"><Field label="First name" htmlFor="registration-first" error={ninProblems.error('registration-first')} required><Input {...ninProblems.control('registration-first')} id="registration-first" name="firstName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field><Field label="Last name" htmlFor="registration-last" error={ninProblems.error('registration-last')} required><Input {...ninProblems.control('registration-last')} id="registration-last" name="lastName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field></div>
               <div className="staff-form-row"><Field label="Date of birth" htmlFor="registration-dob" error={ninProblems.error('registration-dob')} required><Input {...ninProblems.control('registration-dob')} id="registration-dob" name="dateOfBirth" type="date" readOnly={busy} required /></Field><Field label="Gender (optional)" htmlFor="registration-gender"><Select id="registration-gender" name="gender"><option value="">Not given</option>{REGISTRATION_GENDERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div>
+              {DESK_FIELDS.filter(field => field !== 'existingHealthId' || hasHealthId === 'yes').map(field => {
+                const id = `registration-${field}`
+                return <Field key={field} label={DESK_LABELS[field]} htmlFor={id} hint={DESK_HINTS[field]} error={ninProblems.error(id)} required>
+                  {field === 'stateCode' || field === 'hasExistingHealthId'
+                    ? <Select {...ninProblems.control(id)} id={id} name={field} required
+                      {...(field === 'hasExistingHealthId' ? { value: hasHealthId, onChange: (event: React.ChangeEvent<HTMLSelectElement>) => setHasHealthId(event.target.value) } : { defaultValue: '' })}>
+                      <option value="">Select…</option>
+                      {field === 'stateCode' ? NIGERIA_STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)
+                        : <><option value="yes">Yes</option><option value="no">No</option></>}
+                    </Select>
+                    : <Input {...ninProblems.control(id)} id={id} name={field} type={field === 'phone' ? 'tel' : 'text'} autoComplete="off" readOnly={busy} required
+                      maxLength={field === 'addressLine' ? 300 : field === 'phone' ? 32 : field === 'existingHealthId' ? 36 : 100} />}
+                </Field>
+              })}
               <FormActions sticky={false}><KButton type="submit" variant="primary" icon={Search} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : 'Check NIN'}</KButton></FormActions>
             </fieldset>
           </form>

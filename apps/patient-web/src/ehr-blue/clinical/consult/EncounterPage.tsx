@@ -499,7 +499,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const printedAt = () => formatWhen(new Date().toISOString())
   const printPrescriptions = () => print('prescription', (
     <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={printableDrugs(toPrint)}
-      prescriber={prescriberName(toPrint, actor)} printedAt={printedAt()} more={prescriptions.more} />
+      prescriber={prescriberName(toPrint, actor, chart.facilityId)} printedAt={printedAt()} more={prescriptions.more} />
   ))
   const section = <T,>(allowed: boolean, list: { readonly first: unknown; readonly loading: boolean; readonly error: string; readonly more: boolean }, value: () => T): Section<T> => {
     if (!allowed) return { state: 'no-right' }
@@ -531,7 +531,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     tests: section(reads.labs, labs, () => (labs.first ?? []).filter(isListedTest).map(record => field(record, 'testDisplay') || 'Lab request')),
     drugs: section(reads.prescriptions, prescriptions, () => printableDrugs(prescriptions.first)),
     held: reads.prescriptions ? heldDrugs(prescriptions.first) : [],
-    clinician: noteLive ? clinicianName(note, actor) : null,
+    clinician: noteLive ? clinicianName(note, actor, chart.facilityId) : null,
   }
   // The summary prints once every part the user may read has been read without error, so the paper never stands in
   // for a part still loading or that failed.

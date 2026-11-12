@@ -1033,6 +1033,46 @@
   margin: 0 0 18px;
 }
 
+.hid-ehr .hid-ehr-dept-migrate-paper {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper h3,
+.hid-ehr .hid-ehr-dept-migrate-paper h4 {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-part {
+  display: grid;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-record {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-paper-record p {
+  margin: 0;
+}
+
 .hid-ehr .hid-ehr-dept-migrate-upload {
   margin-top: 20px;
   padding-top: 20px;
@@ -1589,4 +1629,107 @@
 /* A create form starts 16px into its card, as the design's new-record screens. */
 .hid-ehr .hid-ehr-dept-section > .hid-ehr-dept-form:first-child {
   margin-top: 16px;
+}
+
+/* A reading's way back to Patient documents, above its progress. */
+.hid-ehr .hid-ehr-dept-migrate-back {
+  margin: 0 0 8px;
+}
+
+/* Refresh list under Patient documents, with what it says while a document is being checked. */
+.hid-ehr .hid-ehr-dept-migrate-refresh {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-refresh > p {
+  flex: 1 1 200px;
+  margin: 0;
+}
+
+/* Migrate learning (dormant until served): optional one-tap reasons, the missed box and a medicine's Change, field by field. */
+.hid-ehr .hid-ehr-dept-migrate-reason {
+  display: grid;
+  gap: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reason-label {
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reason-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-reason-choices > button {
+  min-height: 44px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-medicine {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 8px 12px;
+}
+
+/* Migrate learning: the facility's Reading quality, plain-word tiles each with its breakdown by reason. */
+.hid-ehr .hid-ehr-dept-quality {
+  display: grid;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-quality-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-quality-tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-quality-tile h3 {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.hid-ehr .hid-ehr-dept-quality-value {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hid-ehr .hid-ehr-dept-quality-breakdown {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-quality-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-dept-quality-breakdown strong {
+  color: var(--ehr-ink);
+  font-variant-numeric: tabular-nums;
 }

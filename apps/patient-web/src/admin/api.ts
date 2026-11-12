@@ -73,6 +73,61 @@ export interface AuditFilters {
   /** The audited target, for example `facility`; `resourceId` needs it. */
   resourceType?: string; resourceId?: string
 }
+/**
+ * An outreach group on support's list (open sign-up on outreach., owner decisions of 11 November 2026, and decision Q38:
+ * Health ID does not check a group before its campaigns go live): the group, its organiser with the phone they gave,
+ * whether it is paused, and what it has done. Its label is "Unverified organiser", or "Paused".
+ */
+export interface OutreachOrganiser {
+  organizationId: string
+  facilityId: string
+  /** The group's row version: pausing it sends it back as If-Match. */
+  version: number
+  displayName: string | null
+  groupName: string
+  kind: 'individual' | 'group' | string
+  registrationNumber: string | null
+  organiserName: string | null
+  organiserEmail: string | null
+  phone: string | null
+  status: 'active' | 'suspended' | string
+  label?: string
+  suspendedAt: string | null
+  createdAt: string | null
+  termsVersion: string | null
+  suspensionReason?: string | null
+  campaigns: number
+  activeCampaigns: number
+  members: number
+  pendingInvitations: number
+}
+
+/** The answer to a pause: the group's new version and status, and how many roles were taken away. */
+export interface OutreachOrganiserChanged {
+  organizationId: string
+  version: number
+  status: string
+  label?: string
+  revokedRoles?: number
+}
+
+/**
+ * A registration at an outreach group as support's lookup shows it: where and when, never the person's name, phone or
+ * notes. Support finds it from the group and the temporary ID or phone number the person gives.
+ */
+export interface OutreachRegistrationFound {
+  caseId: string
+  groupName: string
+  campaignName: string | null
+  temporaryPatientId: string
+  createdAt: string
+  /** Already deleted: nothing more to do. */
+  redacted?: boolean
+}
+
+/** What a lookup matches on: the group, and the temporary ID or the phone number the person gives. */
+export type OutreachRegistrationLookup = { organizationId: string } & ({ temporaryPatientId: string } | { phone: string })
+
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
 export interface CommercialProduct extends Versioned { slug: string; name: string; status: 'active' | 'coming_soon' | 'draft' | 'retired' }
 export interface CommercialPrice extends Versioned { product_slug: string; context: string; visibility: 'fixed' | 'starting_from' | 'contact_sales' | 'custom_quote' | 'hidden'; amount_minor: number | null; currency: string; billing_period: string | null; unit: string | null; active: boolean }
@@ -661,6 +716,19 @@ async function wrongPatientRead<T>(read: Promise<T>, message: string): Promise<T
   }
 }
 
+/** An Identity without open sign-up on outreach. has no such route: its 404 is said as that, never as a missing group. */
+async function outreachRead<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
+      throw new HidApiError(404, 'Outreach groups are not available from this Identity yet.',
+        { code: 'OUTREACH_ORGANISERS_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 /**
  * An Identity without orders between facilities (hid-system main, or Novu before P4c) has no such route: its 404 names
  * no code of its own. It is said as that, never as a missing facility or order.
@@ -1057,6 +1125,52 @@ export const adminApi = {
     idempotencyKey: string) {
     return adminApi.command<ClinicianRejected>(at('/api/v1/admin/clinician-applications', application.applicationId, 'reject'),
       { decisionCode, reason }, { version: application.version, idempotencyKey })
+  },
+  /**
+   * Support's "Outreach organisers" (open sign-up on outreach.): the groups that are running (`active`, the default here),
+   * paused, or all. An Identity without the route answers 404, said as OUTREACH_ORGANISERS_UNAVAILABLE.
+   */
+  outreachOrganisers(status: 'active' | 'suspended' | 'all', signal?: AbortSignal) {
+    return outreachRead(request<{ organisers: OutreachOrganiser[] }>('/api/v1/admin/outreach-organisers', { signal, query: { status } }))
+  },
+  /**
+   * Pauses the group: nobody in it can register people or change campaigns. Identity needs the version the list gave
+   * (If-Match), else it answers 428 OUTREACH_ADMIN_VERSION_REQUIRED.
+   */
+  suspendOutreachOrganiser(organiser: Pick<OutreachOrganiser, 'organizationId' | 'version'>, reason: string) {
+    return outreachRead(adminApi.command<OutreachOrganiserChanged>(
+      at('/api/v1/admin/outreach-organisers', organiser.organizationId, 'suspend'), { reason }, { version: organiser.version }))
+  },
+  /**
+   * Closes a campaign whose only admin has gone, for good. Identity needs the campaign's version (If-Match), which the
+   * campaign's page shows its members with its reference.
+   */
+  closeOutreachCampaign(campaign: { campaignId: string; version: number }, reason: string) {
+    return outreachRead(adminApi.command<{ campaignId: string; status: string; alreadyClosed?: boolean }>(
+      at('/api/v1/admin/outreach-campaigns', campaign.campaignId, 'close'), { reason }, { version: campaign.version }))
+  },
+  /**
+   * Finds a registration at an outreach group when the person asks for their details to be deleted sooner: by the group
+   * and the temporary ID or phone number they give. Identity answers only where and when (never their details) and
+   * records the search in the audit log without the phone number. A POST, so the phone number stays out of addresses
+   * and their logs.
+   */
+  searchOutreachRegistrations(lookup: OutreachRegistrationLookup, signal?: AbortSignal) {
+    return outreachRead(request<{ registrations: OutreachRegistrationFound[] }>('/api/v1/admin/outreach-registrations/search',
+      { method: 'POST', body: lookup, signal }))
+  },
+  /**
+   * Deletes one person's details from an outreach registration now, at their request, instead of at the yearly sweep
+   * (identity.admin_redact_outreach_registration). The reason (8 to 500 characters) is kept in the audit log.
+   */
+  redactOutreachRegistration(caseId: string, reason: string) {
+    return outreachRead(adminApi.command<{ caseId: string; outcome: 'redacted' }>(
+      at('/api/v1/admin/outreach-registrations', caseId, 'redact'), { reason }))
+  },
+  /** Makes an active member of the group a campaign's admin, when its only admin has gone. */
+  appointOutreachCampaignAdmin(campaignId: string, membershipId: string, reason: string) {
+    return outreachRead(adminApi.command<{ campaignId: string; membershipId: string; role: string }>(
+      at('/api/v1/admin/outreach-campaigns', campaignId, 'admins'), { membershipId, reason }))
   },
   /**
    * A governed admin command. Pass the submission's idempotency key so a retry
