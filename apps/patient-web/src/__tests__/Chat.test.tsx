@@ -358,6 +358,20 @@ it('Enter sends, Shift+Enter does not, and a question over the service limit doe
   expect(asked().maxLength).toBe(1000)
 })
 
+it('formats block text with the shared renderer and cleans dashes', async () => {
+  const text = '### Summary\nYour note says **anaemia** \u2014 seen 2025\u20132026.\n1. Repeat the blood count'
+  const api = apiFor({ chat: vi.fn().mockResolvedValue(answer({ blocks: [{ kind: 'record', text, references: [1] }],
+    sources: [{ ...source, title: 'FBC \u2013 21 Sep' }] })) })
+  render(<ChatConversation api={api} />)
+  await ready()
+  ask('Question')
+  expect(await screen.findByRole('heading', { level: 4, name: 'Summary' })).toBeTruthy()
+  expect(screen.getByText('FBC, 21 Sep').tagName).toBe('STRONG')
+  expect(screen.getByText('anaemia').tagName).toBe('STRONG')
+  expect(screen.getByText('Repeat the blood count').tagName).toBe('LI')
+  expect(screen.getByRole('log').textContent).not.toMatch(/[\u2013\u2014]/)
+})
+
 it('RN-16: asks before deleting the saved conversation, and Cancel keeps it with focus back on New conversation', async () => {
   const api = apiFor({ chatHistory: vi.fn().mockResolvedValue({ conversationId: id(2), limit: 50, exchanges: [exchange(3, 'Saved question', 'Saved answer')] }) })
   render(<ChatConversation api={api} />)

@@ -268,6 +268,43 @@ it('says to a clinician where each source came from, about the patient', async (
   expect(sourceRow('Your profile').textContent).toContain('From the patient’s Health ID profile')
 })
 
+it('formats answers with the shared renderer, cleans dashes and explains missing documents plainly, for patient and staff', async () => {
+  const answer = '## First diagnosis\nThe earliest diagnosis is **anaemia** \u2014 recorded 2025\u20132026.\n- Seen at a clinic'
+  for (const staff of [undefined, { patientName: 'Synthetic Patient', hid: 'HID-AAAAAA', facilityName: 'Synthetic Hospital' }]) {
+    const chat = vi.fn().mockResolvedValue({ status: 'ready', answer, sources: [],
+      coverage: { complete: false, unavailable: ['Lab results \u2014 not released.'], pendingDocuments: 1, recordCount: 3, selectedCount: 2 } })
+    const view = render(<StagingChatConversation api={apiFor(chat)} staff={staff} />)
+    await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+    fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'First diagnosis \u2014 please' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    expect(await screen.findByRole('heading', { level: 3, name: 'First diagnosis' })).toBeTruthy()
+    expect(screen.getByText('anaemia').tagName).toBe('STRONG')
+    expect(screen.getByText('Seen at a clinic').tagName).toBe('LI')
+    // The person's own words are shown as typed; only the assistant's text is cleaned.
+    expect(screen.getByText('First diagnosis \u2014 please')).toBeTruthy()
+    const log = screen.getByRole('log').querySelector('.record-chat-reply')?.textContent ?? ''
+    expect(log).not.toMatch(/[\u2013\u2014]/)
+    expect(log).toContain('recorded 2025 to 2026.')
+    expect(log).toContain('This answer may be incomplete. 1 document was left out because it is still being processed, could not be opened, or was not included. Lab results, not released.')
+    view.unmount()
+  }
+})
+
+it('shows source titles and source details without long dashes', async () => {
+  const dashed = { status: 'ready' as const, answer: 'Here is what your records say [1].', sources: [typed(1, 'FBC \u2014 21 Sep', 'health_worker')] }
+  const chatSource = vi.fn().mockResolvedValue({ version: '1', fields: { result: 'Low \u2013 see note', range: '12\u201316' } })
+  const api = { ...apiFor(vi.fn().mockResolvedValue(dashed)), chatSource } as unknown as StagingChatConversationApi
+  render(<StagingChatConversation api={api} />)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Where is this from?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+  await screen.findByText(dashed.answer)
+  fireEvent.click(sourceRow('FBC, 21 Sep').querySelector('button') as HTMLButtonElement)
+  expect(await screen.findByText('Low, see note')).toBeTruthy()
+  expect(screen.getByText('12 to 16')).toBeTruthy()
+  expect(screen.getByRole('log').textContent).not.toMatch(/[\u2013\u2014]/)
+})
+
 it('RN-16: offers no deletion while there is nothing saved, and asks before deleting a saved conversation', async () => {
   const api = apiFor(vi.fn())
   render(<SessionContext.Provider value={createTestSessionValue(patient, api as never)}><PatientChat /></SessionContext.Provider>)

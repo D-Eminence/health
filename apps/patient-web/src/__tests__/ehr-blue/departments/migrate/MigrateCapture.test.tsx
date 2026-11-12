@@ -304,12 +304,12 @@ describe('Patient documents: opening and extracting', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
-  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+  it('says a source page deleted after 7 days in its own sentence, and opens nothing (hid-system 0110)', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
     await openDocuments()
     await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Open file' }))
-    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 7 days')
     expect(open).not.toHaveBeenCalled()
   })
 
@@ -317,9 +317,20 @@ describe('Patient documents: opening and extracting', () => {
     api.documents.mockResolvedValue({ items: [{ ...clean, status: 'source_deleted' }], nextCursor: null })
     await openDocuments()
     const row = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
-    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
     expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
     expect(within(row).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page is being deleted the same way: that sentence, no download or OCR (hid-system#226)', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...clean, status: 'source_deleting' }], nextCursor: null })
+    await openDocuments()
+    const row = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(within(row).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source[ _]deleting/i)
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 
@@ -331,7 +342,8 @@ describe('Patient documents: opening and extracting', () => {
     await screen.findByRole('heading', { name: 'Progress' })
     await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
     await waitFor(() => expect(document.getElementById('ocr-status')?.textContent).toBe('Reading the document. This page updates by itself when it’s ready.'))
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000001'])
+    // The document's file name, as uploaded, never the end of its ID (rehearsal finding 12).
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['discharge-summary.pdf'])
     expect(screen.queryByRole('heading', { name: 'New document job' })).toBeNull()
     expect(screen.queryByLabelText(/^Patient ID/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
@@ -415,7 +427,7 @@ describe('Patient documents: opening and extracting', () => {
     expect(screen.queryByText('Reading the page…')).toBeNull()
     await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
     await press(screen.getByRole('button', { name: 'Back to list' }))
-    expect(screen.getByRole('button', { name: 'Document ••••000001' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'discharge-summary.pdf' })).toBeTruthy()
   })
 
   it('Extract with OCR refused comes back to the list as it was: the encounter kept, nothing read again', async () => {
@@ -509,3 +521,86 @@ describe('Patient documents: opening and extracting', () => {
     finally { vi.useRealTimers() }
   })
 })
+
+/** Rehearsal findings 9 and 10: a scan that finishes while the list is open, and the way back from a reading. */
+describe('Patient documents: following a virus check, and coming back from a reading', () => {
+  it('reads the list again every few seconds while a document is being checked, and stops once none is', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      api.documents.mockResolvedValue({ items: [clean, pending], nextCursor: null })
+      await openDocuments()
+      expect(within(card()).getByText('A document is being checked for viruses. This list updates by itself every few seconds.')).toBeTruthy()
+      const first = api.documents.mock.calls.length
+      api.documents.mockResolvedValue({ items: [clean, { ...pending, scanStatus: 'clean' }], nextCursor: null })
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      expect(api.documents.mock.calls.length).toBe(first + 1)
+      const row = screen.getByText('lab-report.png').closest('tr') as HTMLElement
+      await waitFor(() => expect(within(row).getByText('Checked')).toBeTruthy())
+      expect(within(row).getByRole('button', { name: 'Extract with OCR' })).toBeTruthy()
+      expect(within(card()).queryByText(/This list updates by itself/)).toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+      expect(api.documents.mock.calls.length).toBe(first + 1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('stops reading the list when the page is left', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      api.documents.mockResolvedValue({ items: [pending], nextCursor: null })
+      const view = await renderDept(<Migrate />)
+      await screen.findByText('lab-report.png')
+      const first = api.documents.mock.calls.length
+      view.unmount()
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+      expect(api.documents.mock.calls.length).toBe(first)
+    } finally { vi.useRealTimers() }
+  })
+
+  // Review finding: a poll read answering after the read an upload made put back a list without the new document.
+  it('keeps a just-uploaded document when an older poll read answers last', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      api.documents.mockResolvedValue({ items: [clean, pending], nextCursor: null })
+      await openDocuments()
+      let answerPoll: (value: unknown) => void = () => {}
+      api.documents.mockImplementationOnce(() => new Promise(resolve => { answerPoll = resolve }))
+      const first = api.documents.mock.calls.length
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+      expect(api.documents.mock.calls.length).toBe(first + 1)
+      const uploaded = { ...clean, id: 'd0000000-0000-4000-8000-000000000004', fileName: 'scan.pdf' }
+      api.documents.mockResolvedValue({ items: [clean, { ...pending, scanStatus: 'clean' }, uploaded], nextCursor: null })
+      api.uploadDocument.mockResolvedValue(uploaded.id)
+      fireEvent.change(screen.getByLabelText(/^Clinical document/), { target: { files: [pdf()] } })
+      await press(screen.getByRole('button', { name: 'Upload document' }))
+      expect(await within(card()).findByText('scan.pdf')).toBeTruthy()
+      // The poll read started before the upload answers now, with the list as it was then.
+      await act(async () => { answerPoll({ items: [clean, pending], nextCursor: null }); await vi.advanceTimersByTimeAsync(0) })
+      expect(within(card()).getByText('scan.pdf')).toBeTruthy()
+      const row = within(card()).getByText('lab-report.png').closest('tr') as HTMLElement
+      expect(within(row).getByText('Checked')).toBeTruthy()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('Refresh list reads the documents again', async () => {
+    await openDocuments()
+    const first = api.documents.mock.calls.length
+    await press(within(card()).getByRole('button', { name: 'Refresh list' }))
+    await waitFor(() => expect(api.documents.mock.calls.length).toBe(first + 1))
+  })
+
+  it('Back to documents on a reading returns to Patient documents, with focus on it', async () => {
+    await openDocuments()
+    api.findOcrJob.mockResolvedValue({ job: { ...queuedJob, status: 'awaiting_validation', version: 3 } })
+    await extract()
+    await screen.findByRole('heading', { name: 'Progress' })
+    // The context line names no version or reader (rehearsal finding 12).
+    expect(document.querySelector('.hid-ehr-dept-context')?.textContent).toBe('Patient (name not shown)')
+    const reads = api.documents.mock.calls.length
+    await press(screen.getByRole('button', { name: /Back to documents/ }))
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Patient documents' })))
+    expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
+    // The list kept while the reading was open is shown again, not read again.
+    expect(api.documents.mock.calls.length).toBe(reads)
+  })
+})
+

@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005, after the 11 Nov releases: #221 OCR publication 403 (ocr-api), #228 gateway libxslt pin (every service rebuilt at cd58285c), then #222 Outreach campaign admins (0111, signed by the owner; identity-api, ehr-api and outreach-api rebuilt at 54ef1d59). Each service is pinned to the commit its last deploy built. Production database migrations 0001 to 0111. Deploy approvals by the owner, D-Eminence, in chat on 2026-11-05 (\"i approved everything thta needs my approval\").",
+  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005 after tonight's chain (#236, #239, #235, #241 = 0114 #223 + #206 + #162 + #240). Website batch approved by the owner in chat on 2026-11-11 (\"Q51 release #223 and the website batch\", \"Q52 add #206 #162 #160 #228 and merge #240\").",
   "backend_commits": {
-    "gateway": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
-    "identity-api": "54ef1d59b344753f552485779c7a9125f4ef1eb2",
-    "ehr-api": "54ef1d59b344753f552485779c7a9125f4ef1eb2",
-    "lab-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
-    "pharmacy-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
-    "ocr-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
-    "outreach-api": "54ef1d59b344753f552485779c7a9125f4ef1eb2",
-    "support-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df",
-    "notification-api": "cd58285c03dc9c1c4c61ff31b2ffb156a37d15df"
+    "gateway": "36530c642406fbd25f9172fc4493ed05d3afc340",
+    "identity-api": "51d6937a38365b483f2b1f78d7fc6919c2fca16a",
+    "ehr-api": "51d6937a38365b483f2b1f78d7fc6919c2fca16a",
+    "lab-api": "51d6937a38365b483f2b1f78d7fc6919c2fca16a",
+    "pharmacy-api": "36530c642406fbd25f9172fc4493ed05d3afc340",
+    "ocr-api": "f4ee1d6944ba9692c57885d108317f87b25cee16",
+    "outreach-api": "36530c642406fbd25f9172fc4493ed05d3afc340",
+    "support-api": "36530c642406fbd25f9172fc4493ed05d3afc340",
+    "notification-api": "36530c642406fbd25f9172fc4493ed05d3afc340"
   }
 }
