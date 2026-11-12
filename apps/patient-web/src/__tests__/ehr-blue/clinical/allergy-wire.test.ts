@@ -18,7 +18,7 @@ afterEach(() => {
 interface Sent { url: URL; method: string; body: unknown; headers: Headers }
 
 async function staffClient(answer: unknown = {}, status = 200) {
-  // The allergy routes are served by Novu (hid-system 0124): the client calls them only under that contract.
+  // The allergy routes are served by Novu (hid-system 0117): the client calls them only under that contract.
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
   document.cookie = 'hid_access_csrf=csrf-1'
   const sent: Sent[] = []

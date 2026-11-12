@@ -170,7 +170,7 @@ function noteContent(values: FormValues): string {
 /**
  * The design's "Patient context": the patient and their allergies, the chart's (useAllergies, read for direct care with
  * ehr.note.read): those clinicians recorded, most serious first, and what the patient entered in their Health ID portal,
- * each labelled; on a backend before 0124, the patient's text alone. Nothing while it loads; then always a line, so a
+ * each labelled; on a backend before 0117, the patient's text alone. Nothing while it loads; then always a line, so a
  * read that failed, was refused or is not served is never silence a reader could take for "no allergies". "None" is
  * said only after a read that found none.
  */

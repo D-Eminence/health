@@ -920,7 +920,7 @@ describe('application boundaries', () => {
     expect(() => assertRegisteredBrowserRequest('PUT', '/api/v1/ehr/patients/patient-1/reported-health-profile')).toThrow(BrowserRouteError)
   })
 
-  it('lets the chart read and record allergies and check a medicine against them (hid-system 0124), and nothing else reach them', () => {
+  it('lets the chart read and record allergies and check a medicine against them (hid-system 0117), and nothing else reach them', () => {
     for (const [name, method, path] of [
       ['ehr.allergies', 'GET', '/api/v1/ehr/patients/patient-1/allergies'],
       ['ehr.allergies', 'POST', '/api/v1/ehr/patients/patient-1/allergies'],

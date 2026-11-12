@@ -83,7 +83,7 @@ beforeEach(() => {
   api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => ({ items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null }))
   api.vitalCorrections.mockResolvedValue([])
   api.reportedHealthProfile.mockResolvedValue(null)
-  // A backend before 0124 by default: the allergy list is not served, so the patient's own text is read instead.
+  // A backend before 0117 by default: the allergy list is not served, so the patient's own text is read instead.
   api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
   api.correctVital.mockResolvedValue({ id: 'correction-9', vitalId: VITAL_ID, correctionNo: 1 })
   api.createRecord.mockImplementation(async (_f: string, _p: string, encounterId: string, _kind: string, body: object) => {
@@ -281,13 +281,13 @@ describe('New triage & vitals', () => {
     expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     const context = screen.getByRole('region', { name: 'Allergies and earlier vitals' })
-    // Before 0124: the patient's own words, labelled as theirs; nothing is said about recorded allergies.
+    // Before 0117: the patient's own words, labelled as theirs; nothing is said about recorded allergies.
     expect(await within(context).findByText('Allergies reported by the patient: Penicillin (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
     expect(within(context).queryByText(/recorded by clinicians/)).toBeNull()
     expect(within(context).getByText(/^Vitals · Final · /)).toBeTruthy()
   })
 
-  describe('allergies (hid-system 0124)', () => {
+  describe('allergies (hid-system 0117)', () => {
     const context = () => screen.getByRole('region', { name: 'Allergies and earlier vitals' })
     const allergy = (id: string, substance: string, severity: string, reaction: string | null, status = 'active') => ({
       id, substance, reaction, severity, status, rowVersion: 1, createdAt: '2026-10-01T09:00:00.000Z', enteredInErrorReason: null, recordedHere: true,
@@ -326,7 +326,7 @@ describe('New triage & vitals', () => {
       expect(within(context()).getByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
       view.unmount()
 
-      // Before 0124 only the patient's text is read: nothing is said about allergies clinicians recorded.
+      // Before 0117 only the patient's text is read: nothing is said about allergies clinicians recorded.
       api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
       for (const answer of [null, { allergies: null, bloodGroup: 'O+', genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }]) {
         api.reportedHealthProfile.mockResolvedValue(answer)
@@ -346,7 +346,7 @@ describe('New triage & vitals', () => {
         // One recorded allergy that can't be read fails the whole list (the real parser): never the rest as if complete.
         ['one recorded allergy could not be read', () => { api.allergies.mockImplementation(async () => parseAllergyList({ recorded: [{ id: 'a1240000-0000-4000-8000-000000000051', substance: 'Penicillin', reaction: null, severity: 'severe', status: 'active', rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }, { id: 'a1240000-0000-4000-8000-000000000052', substance: '', severity: 'mild', status: 'active', rowVersion: 1 }], patientReported: { allergies: null, updatedAt: null } })) }, ALLERGIES_UNREAD],
         ['neither read is served', () => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })) }, ALLERGIES_NOT_SHOWN],
-        ['the patient’s text failed before 0124', () => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
+        ['the patient’s text failed before 0117', () => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
       ]
       for (const [, arrange, words] of cases) {
         api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))

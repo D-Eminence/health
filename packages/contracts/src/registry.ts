@@ -97,14 +97,14 @@ const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 
 const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not served by hid-system main, and a backend before 0095 '
   + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
 /** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
-/** Allergies (EHR clinical safety): served from hid-system 0124; a backend before it answers 404, which the chart takes as not offered. */
-const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
+/** Allergies (EHR clinical safety): served from hid-system 0117; a backend before it answers 404, which the chart takes as not offered. */
+const ALLERGIES_0117 = 'Novu: hid-system 0117 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
   + 'Direct care only (X-Purpose-Of-Use: direct-care) at the selected facility.'
 /**
  * The reasons given to go ahead over an allergy warning, stored with a prescription (hid-system#218 at 7fbb04aa). The
  * website reads them from the existing answers; an EHR before 7fbb04aa sends no such member.
  */
-const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (0124) each prescription read (every list item, and the '
+const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (0117) each prescription read (every list item, and the '
   + 'one-prescription GET; never a write answer) also carries allergyAcknowledgements: the reasons given to go ahead over an '
   + 'allergy warning, oldest first, [] when none, each { id, stage (create, activate, resume, send, or handoff: given when '
   + 'handing an active prescription to this facility\'s Pharmacy), reason, createdBy (an account id), createdByMembershipId '
@@ -824,18 +824,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
   proposed(r('ehr.allergies','ehr','/api/v1/ehr/patients/:patientId/allergies',GP,false,
     {GET:['ehr.note.read'],POST:['ehr.note.write']},
-    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[] (each with recordedHere), patientReported: { allergies, updatedAt } }, `
+    `${ALLERGIES_0117} GET { recorded: RecordedAllergy[] (each with recordedHere), patientReported: { allergies, updatedAt } }, `
     + 'in the EHR\'s order: active first, the most serious first (severe, not known, moderate, mild), then newest; at most 200. '
     + 'POST { substance, reaction?, severity } with Idempotency-Key, 201 the recorded allergy; "NKDA", "No known allergies", '
     + '"none" and the like are refused with 400 ALLERGY_NOT_A_SUBSTANCE (no errors member).')),
   proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
     one('POST','ehr.note.write'),
-    `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
+    `${ALLERGIES_0117} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
     + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 409 ALLERGY_ALREADY_ENTERED_IN_ERROR when it already is; 412 '
     + 'VERSION_CONFLICT. On either of the last two the chart reads the list again and says so: on the 409 that the allergy '
     + 'is already marked entered in error, on the 412 that it changed since it was shown.')),
   proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
-    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
+    `${ALLERGIES_0117} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
     + '(warningToken: 64 lower-case hex, on every answer; kept only when acknowledgementRequired). A prescription create (a '
     + 'draft too), Activate or Resume (PATCH status active) and a send to another facility (of a draft or an active '
     + 'prescription alike) that match are refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one '
@@ -848,7 +848,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'lower-case hex) and ALLERGY_WARNING_TOKEN_STALE (another warning\'s: the warning changed); a reason and a token can be '
     + 'refused together. A reason or token that breaks those rules now gets this 409 with its code instead of a 400; a 400 is '
     + 'left for a body that is not well formed. An EHR before 7fbb04aa names no refused part. Sent only after a warning: a '
-    + 'backend before 0124 refuses the property (400).')),
+    + 'backend before 0117 refuses the property (400).')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),
@@ -915,7 +915,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.importedAttachment','ehr','/api/v1/ehr/patients/:patientId/imported-attachments/:fileId/download',G,false,one('GET','ehr.note.read','ehr.document.read'),
     `${NOT_ON_MAIN} The chart asks only when VITE_HID_IMPORTED_RECORDS_ENABLED is true.`)),
   r('ehr.emergencyRecords','ehr','/api/v1/ehr/patients/:patientId/emergency-records',G,false,one('GET','ehr.encounter.read','ehr.note.read'),
-    'From hid-system#218 at 7fbb04aa (0124) the answer also carries allergies { recorded, patientReported }: the active allergies '
+    'From hid-system#218 at 7fbb04aa (0117) the answer also carries allergies { recorded, patientReported }: the active allergies '
     + 'recorded at every facility, most serious first, each { source, id, substance, reaction, severity, recordedHere, recordedOn }, '
     + 'and the patient\'s own words { source, allergies, updatedAt } (updatedAt: when the patient last changed any part of their '
     + 'health profile). Read only, under the same emergency purpose and break-glass check. The member absent (an EHR before '

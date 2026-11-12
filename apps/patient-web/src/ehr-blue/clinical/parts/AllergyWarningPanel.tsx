@@ -8,7 +8,7 @@ import {
 import { ClinicalIcon } from './icons'
 
 /**
- * The allergy warning (hid-system 0124) wherever a prescription may go ahead over one: a new prescription, Activate,
+ * The allergy warning (hid-system 0117) wherever a prescription may go ahead over one: a new prescription, Activate,
  * Resume, and sending a prescription (a draft or an active one) to another facility's pharmacy. Each line is the EHR's
  * own sentence, whole (it already names the allergy, its severity and reaction, and where and when it was recorded); a
  * grouped line is one line. The prescriber ticks the box and says why it is safe to go ahead; each has its own error.

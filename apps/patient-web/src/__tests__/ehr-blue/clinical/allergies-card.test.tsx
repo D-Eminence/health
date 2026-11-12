@@ -11,7 +11,7 @@ import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { parseAllergyCheck, parseAllergyList, warningMessages } from '../../../staff/allergies'
 
-/** The chart's Allergies card (hid-system 0124) and its parsers. Everything is fictional. */
+/** The chart's Allergies card (hid-system 0117) and its parsers. Everything is fictional. */
 
 const api = vi.hoisted(() => ({
   allergies: vi.fn(), reportedHealthProfile: vi.fn(), addAllergy: vi.fn(), markAllergyEnteredInError: vi.fn(),
@@ -72,7 +72,7 @@ describe('Allergies card', () => {
     expect(document.body.textContent).not.toContain('Last updated')
   })
 
-  it('before 0124 (404) shows what the patient reported only, with no add button', async () => {
+  it('before 0117 (404) shows what the patient reported only, with no add button', async () => {
     api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
     render(<AllergiesCard chart={chartWith(['ehr.note.read', 'ehr.note.write'])} />)
     expect(await screen.findByText('Reported by the patient')).toBeTruthy()
@@ -333,7 +333,7 @@ describe('Allergies card', () => {
       parseAllergyList({ recorded: [here, { ...elsewhere, rowVersion: 'two' }], patientReported: { allergies: 'Peanuts', updatedAt: null } }))],
     ['no answer at all', () => api.allergies.mockResolvedValueOnce(null)],
     ['a failure that is not the EHR’s (a parse error)', () => api.allergies.mockRejectedValueOnce(new TypeError('The answer could not be read.'))],
-    ['the patient’s text before 0124 not read', () => {
+    ['the patient’s text before 0117 not read', () => {
       api.allergies.mockRejectedValueOnce(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
       api.reportedHealthProfile.mockRejectedValueOnce(new TypeError('The answer could not be read.'))
     }],

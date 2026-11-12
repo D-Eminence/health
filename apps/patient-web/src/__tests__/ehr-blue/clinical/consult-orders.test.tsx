@@ -109,7 +109,7 @@ beforeEach(() => {
   api.createRecord.mockResolvedValue(prescription())
   api.updateRecord.mockResolvedValue(prescription())
   api.reportedHealthProfile.mockResolvedValue(null)
-  // A backend before hid-system 0124 (allergies): both allergy routes answer 404.
+  // A backend before hid-system 0117 (allergies): both allergy routes answer 404.
   api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
   api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
   routes.attestation.mockImplementation(async (_facility: string, kind: string) => kind === 'lab_request'
@@ -2036,7 +2036,7 @@ function options(label: string) {
   return Array.from((field(label) as unknown as HTMLSelectElement).options).map(option => option.textContent)
 }
 
-// The prescribing form's allergy lines are triage's and a new consultation's (AllergyLines). Before 0124 (the allergy
+// The prescribing form's allergy lines are triage's and a new consultation's (AllergyLines). Before 0117 (the allergy
 // list answers 404, as in beforeEach) only the patient's own text is read, labelled as theirs, never "None recorded".
 const ALLERGIES = 'Allergies reported by the patient: Penicillin (entered by the patient in their Health ID portal, not clinically verified).'
 const NONE_REPORTED = `${NOTHING_REPORTED} Confirm allergies with the patient.`
@@ -2593,7 +2593,7 @@ function noServerWords() {
   for (const sentence of Object.values(REJECTED_SENTENCES)) expect(document.body.textContent).not.toContain(sentence)
 }
 
-describe('Allergies on a new prescription (hid-system 0124)', () => {
+describe('Allergies on a new prescription (hid-system 0117)', () => {
   const recordedPenicillin = { id: 'a1240000-0000-4000-8000-000000000011', substance: 'Penicillin', reaction: 'Hives',
     severity: 'severe' as const, status: 'active' as const, rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: true }
   const recordedLatex = { id: 'a1240000-0000-4000-8000-000000000012', substance: 'Latex', reaction: null,
@@ -2859,7 +2859,7 @@ describe('Allergies on a new prescription (hid-system 0124)', () => {
     expect(document.body.textContent).not.toContain('request fields are invalid')
   })
 
-  it('saves as before when the EHR has no allergy check (404, before 0124), sending no acknowledgement', async () => {
+  it('saves as before when the EHR has no allergy check (404, before 0117), sending no acknowledgement', async () => {
     api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
     api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
     const save = await form()
@@ -3108,7 +3108,7 @@ describe('Allergies on a new prescription (hid-system 0124)', () => {
   })
 })
 
-describe('Allergies on Activate and Resume (hid-system 0124)', () => {
+describe('Allergies on Activate and Resume (hid-system 0117)', () => {
   const CHANGE = { expectedRowVersion: 1, changeReason: 'Treatment starts today', status: 'active' }
 
   function submitStatus() {
@@ -3384,7 +3384,7 @@ describe('Allergies on Activate and Resume (hid-system 0124)', () => {
   })
 })
 
-describe('Allergies on sending a prescription, a draft or an active one, to another pharmacy (hid-system 0124)', () => {
+describe('Allergies on sending a prescription, a draft or an active one, to another pharmacy (hid-system 0117)', () => {
   const SENT = { expectedRowVersion: 1, receivingFacilityId: PHARMACY_ID, attestationTextVersion: 'order-route-prescription-attestation-v1' }
 
   beforeEach(() => {

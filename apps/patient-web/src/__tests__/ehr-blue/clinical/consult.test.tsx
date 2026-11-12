@@ -67,7 +67,7 @@ beforeEach(() => {
   api.documents.mockResolvedValue({ items: [], nextCursor: null })
   api.noteRevisions.mockResolvedValue([])
   api.reportedHealthProfile.mockResolvedValue(null)
-  // A backend before 0124 by default: the allergy list is not served, so the patient's own text is read instead.
+  // A backend before 0117 by default: the allergy list is not served, so the patient's own text is read instead.
   api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
   api.createEncounter.mockResolvedValue({ ...ENCOUNTER, id: NEW_ID, chiefComplaint: 'Cough' })
   api.createRecord.mockImplementation(async (_f: string, _p: string, encounterId: string, kind: string) => ({ id: `${kind}-1`, patientId: PATIENT_ID, encounterId, createdAt: '2026-10-30T09:00:00.000Z' }))
@@ -430,7 +430,7 @@ describe('New consultation', () => {
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(patientBanner()).getByText(PATIENT_HID)).toBeTruthy()
     const context = await screen.findByRole('region', { name: 'Allergies' })
-    // Before 0124 (the allergy list answers 404): the patient's own words, labelled as theirs.
+    // Before 0117 (the allergy list answers 404): the patient's own words, labelled as theirs.
     expect(within(context).getByText('Allergies reported by the patient: Penicillin (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
     expect(within(context).queryByText(/recorded by clinicians/)).toBeNull()
     expect(api.allergies).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
@@ -445,7 +445,7 @@ describe('New consultation', () => {
     expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
   })
 
-  describe('allergies (hid-system 0124)', () => {
+  describe('allergies (hid-system 0117)', () => {
     const allergy = (id: string, substance: string, severity: string, reaction: string | null, status = 'active') => ({
       id, substance, reaction, severity, status, rowVersion: 1, createdAt: '2026-10-01T09:00:00.000Z', enteredInErrorReason: null, recordedHere: false,
     })
@@ -482,7 +482,7 @@ describe('New consultation', () => {
       expect(within(context).getByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
       view.unmount()
 
-      // Before 0124 only the patient's text is read: nothing is said about allergies clinicians recorded.
+      // Before 0117 only the patient's text is read: nothing is said about allergies clinicians recorded.
       api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
       open('/new')
       context = await screen.findByRole('region', { name: 'Allergies' })

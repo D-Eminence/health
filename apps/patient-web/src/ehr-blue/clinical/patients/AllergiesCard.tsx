@@ -58,15 +58,15 @@ export function allergyChangedText(substance: string, alreadyEnteredInError = fa
     + 'The allergies have been loaded again: check them before you try again.'
 }
 
-/** What the card shows: recorded allergies only when the EHR serves them (hid-system 0124; 404 before). */
+/** What the card shows: recorded allergies only when the EHR serves them (hid-system 0117; 404 before). */
 export type AllergiesState =
   | { readonly status: 'loading' }
   | { readonly status: 'hidden' }
-  /** `recordedOffered` false: the read before 0124 (the patient-reported text) failed. */
+  /** `recordedOffered` false: the read before 0117 (the patient-reported text) failed. */
   | { readonly status: 'failed'; readonly retry: () => void; readonly recordedOffered: boolean }
   | {
     readonly status: 'shown'
-    /** False on a backend before 0124: the patient-reported text only, and nothing can be added. */
+    /** False on a backend before 0117: the patient-reported text only, and nothing can be added. */
     readonly recordedOffered: boolean
     readonly recorded: readonly RecordedAllergy[]
     readonly patientReported: string | null
@@ -75,7 +75,7 @@ export type AllergiesState =
 
 /**
  * The patient's allergies for the chart, read afresh for each patient and facility: the recorded allergies with the
- * patient's own text (GET allergies, hid-system 0124); on a backend before 0124 (404), the patient's own text alone from
+ * patient's own text (GET allergies, hid-system 0117); on a backend before 0117 (404), the patient's own text alone from
  * the reported health profile (0094). Direct care only, with ehr.note.read; 'hidden' without that permission, or when
  * the EHR refuses (403) or serves neither read (404). Any other failure, an answer that cannot be read included, is
  * 'failed', with Try again: never hidden, and never "no allergies".
@@ -110,7 +110,7 @@ export function useAllergies(chart: Chart): { state: AllergiesState; reload: () 
       (caught: unknown) => {
         if (controller.signal.aborted) return
         if (!isHidApiError(caught) || caught.status !== 404) return failed(true)(caught)
-        // Before 0124: the patient's own text only.
+        // Before 0117: the patient's own text only.
         void Promise.resolve().then(() => staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)).then(
           profile => {
             if (controller.signal.aborted) return
@@ -137,7 +137,7 @@ export function recordedAllergyLine(item: RecordedAllergy): string {
 /**
  * The patient's allergies in a line or two, for a page where a clinician acts on them (triage, a new consultation): the
  * active allergies clinicians recorded, in the EHR's order (most serious first, never sorted again here), then what the
- * patient entered in their Health ID portal, labelled as theirs. On a backend before 0124 only the patient's text is
+ * patient entered in their Health ID portal, labelled as theirs. On a backend before 0117 only the patient's text is
  * read, so nothing is said about recorded allergies. Nothing while it loads; otherwise always a line. A read that failed,
  * was refused or is not served says so and asks to confirm with the patient: an empty answer is the only "none".
  * `allergies` is useAllergies(chart).state.

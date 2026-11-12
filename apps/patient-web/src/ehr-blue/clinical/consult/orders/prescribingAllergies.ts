@@ -8,11 +8,11 @@ import type { Chart } from '../../parts/chart'
 import { text } from './orders'
 
 /**
- * The allergy warning where a prescription may go ahead over one (hid-system 0124, #218 at 7fbb04aa): a new
+ * The allergy warning where a prescription may go ahead over one (hid-system 0117, #218 at 7fbb04aa): a new
  * prescription, Activate, Resume, and sending a prescription (a draft or an active one) to another facility's pharmacy.
  * The pieces each form shares: the check, the stored medicine, and what a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED shows.
  * The form holds the warning (useAllergyAcknowledgement) and sends an acknowledgement only after one was shown and
- * ticked: an EHR before 0124 refuses the property.
+ * ticked: an EHR before 0117 refuses the property.
  */
 
 /** The form's error when the EHR refused a reason because the warning changed since it was read (the panel says so too). */
@@ -32,7 +32,7 @@ export const MEDICINE_CHANGED_ERROR = 'The medicine was changed while it was bei
 
 /**
  * The allergy check for a medicine: the EHR's answer, or null when it fails, cannot be read, or is not offered (404
- * from a backend before 0124). Never throws: the save itself is checked by the EHR, which answers 409 with the warning.
+ * from a backend before 0117). Never throws: the save itself is checked by the EHR, which answers 409 with the warning.
  */
 export function checkAllergies(chart: Chart, medicine: WarnedMedicine): Promise<AllergyCheck | null> {
   return Promise.resolve()

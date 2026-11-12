@@ -138,9 +138,9 @@ function usePatientCheck(chart: Chart) {
  * page shows the reasons given to go ahead over a warning instead, AllergyOverrides), in the same lines as triage and a
  * new consultation (AllergyLines, Ola's W4):
  * the allergies clinicians recorded, in the EHR's order (the most serious first), and what the patient reported in their
- * Health ID portal, each labelled (hid-system 0124); on a backend before 0124, what the patient reported only. Nothing
+ * Health ID portal, each labelled (hid-system 0117); on a backend before 0117, what the patient reported only. Nothing
  * while it loads; a read that failed, was refused or is not served says so, never "none". Where the EHR checks the
- * medicine (0124), it says too that no warning does not mean the medicine is safe (Ola, wording #10), warning or not.
+ * medicine (0117), it says too that no warning does not mean the medicine is safe (Ola, wording #10), warning or not.
  * `allergies` is useAllergies(chart).state, read again by the form whenever it shows an allergy warning.
  */
 function RecordedAllergies({ allergies }: { allergies: AllergiesState }) {
@@ -179,7 +179,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   const [crossFacilityOrders, setCrossFacilityOrders] = useState(false)
   const rights = orderRights(chart, crossFacilityOrders)
   useCrossFacility(chart, encounterId, 'pharmacy', setCrossFacilityOrders)
-  // The allergy warning (hid-system 0124): shown for one medicine, with its token; the prescriber ticks and gives a
+  // The allergy warning (hid-system 0117): shown for one medicine, with its token; the prescriber ticks and gives a
   // reason to go ahead. Any edit of the medicine drops it at once (the warning, the tick, the reason and the token).
   const ack = useAllergyAcknowledgement()
   // The patient's allergies above the form, read again whenever a warning is shown (from the check or the EHR's 409):
@@ -245,7 +245,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       await chart.verify()
       if (!shown) {
         // The EHR's allergy check before saving: for this medicine each time, so a changed medicine is checked afresh.
-        // A backend before 0124 answers 404 (no check: saved as before, with no acknowledgement); any other failure
+        // A backend before 0117 answers 404 (no check: saved as before, with no acknowledgement); any other failure
         // leaves it to the save, which the EHR refuses itself (409) when the medicine matches an allergy.
         const check = await checkAllergies(chart, medicine)
         if (!current()) return { formError: MEDICINE_CHANGED_ERROR }

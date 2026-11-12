@@ -220,7 +220,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.orderRoutesWrongPatient',
       // The health information the patient entered, on the chart as reported by the patient (hid-system 0094; 404 until served).
       'ehr.patientReportedHealthProfile',
-      // Allergies on the chart and the allergy check at prescribing (hid-system 0124; 404 until served, which the chart
+      // Allergies on the chart and the allergy check at prescribing (hid-system 0117; 404 until served, which the chart
       // takes as not offered). Without these the staff client refuses the calls before they are sent.
       'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.

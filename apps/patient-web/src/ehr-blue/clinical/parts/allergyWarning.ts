@@ -7,14 +7,14 @@ import {
 } from '../../../staff/allergies'
 
 /**
- * The allergy warning at prescribing (hid-system 0124, #218 at 7fbb04aa), as the blue EHR shows it and the prescriber
+ * The allergy warning at prescribing (hid-system 0117, #218 at 7fbb04aa), as the blue EHR shows it and the prescriber
  * acknowledges it: on a new prescription, on Activate and Resume, and on sending a prescription (a draft or an active
  * one) to another facility's pharmacy.
  *
  * - A warning comes from the allergy check (with every line's severity, reaction and how it matched) or from the save's
  *   409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (the EHR's sentences and the token only). Its token names exactly that warning.
  *   The 409 also names, by code, which part of a sent acknowledgement was refused (an EHR at 76283f57 does not).
- * - The acknowledgement ({ reason, warningToken }) is sent only after a warning was shown and ticked: an EHR before 0124
+ * - The acknowledgement ({ reason, warningToken }) is sent only after a warning was shown and ticked: an EHR before 0117
  *   refuses the property.
  * - Any edit to the medicine drops the warning, the tick and the token; the medicine is then checked afresh.
  * Pure helpers and one state hook; nothing here reads or writes the network or the browser's storage.

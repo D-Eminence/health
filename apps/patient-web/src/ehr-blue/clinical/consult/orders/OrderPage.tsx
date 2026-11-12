@@ -327,7 +327,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   }
 
   /**
-   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume or a send to another facility (0124; a
+   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume or a send to another facility (0117; a
    * draft's send or an active prescription's alike): the warning for the medicine the prescription holds, shown in the
    * form that was sent, which answers what to say.
    */
@@ -408,7 +408,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   /**
    * Sends the order to another facility. A prescription's send, a draft's or an active one's, is checked against the
-   * patient's allergies (0124): it carries `allergyAcknowledgement` only when sent again after the EHR's warning, under
+   * patient's allergies (0117): it carries `allergyAcknowledgement` only when sent again after the EHR's warning, under
    * the same key (nothing was written on the 409, and the send's digest leaves the acknowledgement out). A lab request
    * never carries one.
    */
@@ -462,7 +462,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     <StatusChange key={`status-${option.value}-${version}`} option={option} lab={lab} notice={warning} disabled={reloading}
       // "Cancel order?" says the form's warning (Pharmacy not told, or the other facility's change), when it has one.
       confirmCancel={() => confirm(statusLabel(option), warning)} onChange={changeStatus}
-      // A prescription's Activate and Resume are checked against the patient's allergies by the EHR (0124).
+      // A prescription's Activate and Resume are checked against the patient's allergies by the EHR (0117).
       warnAboutAllergies={!lab && option.value === 'active' ? warnAboutAllergies : undefined} />
   )
 
@@ -624,7 +624,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
  * again.
  *
  * A prescription's Activate or Resume (`warnAboutAllergies`) is checked against the patient's allergies by the EHR
- * (0124), which knows the reasons already given for this prescription: it is sent first with no acknowledgement (never
+ * (0117), which knows the reasons already given for this prescription: it is sent first with no acknowledgement (never
  * one without a warning shown), and on the EHR's 409 the allergy warning appears here, with the tick and "Why is it
  * safe to go ahead?", apart from the reason for the change. Sent again with both, it carries the same reason for the
  * change and version. Closing the form leaves the order as it was, and drops the warning.

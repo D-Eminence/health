@@ -1,8 +1,8 @@
 /**
- * Allergies (hid-system 0124). Two sources, always kept apart and labelled on screens:
+ * Allergies (hid-system 0117). Two sources, always kept apart and labelled on screens:
  * - recorded: what a clinician recorded at a facility (`GET ehr/patients/:id/allergies`);
  * - reported by the patient: the text the patient typed in their Health ID portal (0094).
- * A backend before 0124 answers 404 to the allergy routes: screens then show the patient-reported text only and offer
+ * A backend before 0117 answers 404 to the allergy routes: screens then show the patient-reported text only and offer
  * no way to add an allergy, and the prescribing form sends no allergy acknowledgement.
  * Shapes as hid-system#218 serves them at 7fbb04aa (docs/INTERFACE_CONTRACT.md, "Allergies and the allergy check at
  * prescribing"); what a backend at 76283f57 lacks (the rejected parts of a 409, a prescription's stored reasons) is read
