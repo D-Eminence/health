@@ -46,3 +46,6 @@ export const ClockIcon = () => <Icon><circle cx="12" cy="12" r="9" /><path d="M1
 export const TruckIcon = () => <Icon><path d="M2 6h11v10H2zM13 9h4l4 4v3h-8" /><circle cx="6.5" cy="17.5" r="1.8" /><circle cx="17" cy="17.5" r="1.8" /></Icon>
 /** Vehicle configuration (vehicle with settings). */
 export const VehicleIcon = () => <Icon><path d="M3 15V9l2-4h10l2 4v6z" /><circle cx="7" cy="16.5" r="1.6" /><circle cx="13" cy="16.5" r="1.6" /><circle cx="19" cy="18" r="2" /><path d="M19 14.5v1.5M19 20v1.5M15.5 18H17M21 18h1.5" /></Icon>
+
+/** Reading quality (bar chart). */
+export const ChartIcon = () => <Icon><path d="M4 20h16" /><path d="M7 16v-5M12 16V7M17 16v-8" /></Icon>

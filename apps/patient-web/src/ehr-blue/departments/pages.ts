@@ -1,8 +1,8 @@
 import type { EhrBluePage } from './types'
 import { labPages, laboratoryPage } from './laboratory/page'
 import { pharmacyPages } from './pharmacy/page'
-import { migratePage } from './migrate/page'
-import { outreachPage } from './outreach/page'
+import { migratePage, readingQualityPage } from './migrate/page'
+import { outreachPage, startOutreachGroupPage } from './outreach/page'
 import { staffAccessPage } from './staff/page'
 import { auditPage } from './audit/page'
 import { facilityPage } from './facility/page'
@@ -23,7 +23,9 @@ export const pages: EhrBluePage[] = [
   ...labPages,
   ...pharmacyPages,
   migratePage,
+  readingQualityPage,
   outreachPage,
+  startOutreachGroupPage,
   staffAccessPage,
   auditPage,
   facilityPage,

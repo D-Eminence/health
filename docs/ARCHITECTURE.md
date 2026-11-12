@@ -910,7 +910,21 @@ through a property or by destructuring (`eslint.config.js`:
 `NO_BROWSER_STORAGE`, `NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`);
 computed or aliased access is left to review. `NO_SERVICE_WORKER` is lifted for
 exactly two files, `apps/patient-web/src/pushDevice.ts` and
-`apps/patient-web/public/sw.js`; every other rule stays on in both. The portal's pages keep each read's last answer
+`apps/patient-web/public/sw.js`; every other rule stays on in both. `NO_INDEXED_DB` is lifted
+for exactly one file, `apps/patient-web/src/ehr-blue/departments/outreach/offlineQueue.ts`
+(open sign-up on outreach., plan PR-5): at an outreach group only, a registration
+that could not be sent (no network, a timeout, or Health ID briefly unavailable)
+is kept in IndexedDB with its command, keyed by its `localCommandId` (also its
+Idempotency-Key, so sending it again registers the person once), for the account
+and facility that saved it, and sent again when the network is back (or, after a
+session ended, once the person signs in again). It is deleted as soon as Health
+ID takes it, when the person removes a refused one, when the account that saved
+it signs out on that browser, and after 14 days in any case: the staff app
+sweeps entries older than 14 days as it starts and on every session change,
+whatever page is open, and only opens the database where one already exists.
+Hospitals' outreach teams keep today's behaviour:
+nothing is kept. This is a reviewed exception for field work with patchy
+networks; it needs the owner's sign-off before release. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
 patient signs out or another account signs in, and is never written to browser

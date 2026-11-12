@@ -9,9 +9,13 @@ import {
 import {
   availabilityOf, CAC_REFUSALS, cacProductKey, carriesOtherThan, DAY_MS, DEFAULT_RESEND_SECONDS,
   MAX_CODE_WAIT_SECONDS, nextCodeAt, OPEN_SIGN_UP_MS, refusalOf, registeringOf, secondsUntil, signUpKey,
-  type CodeCarries, type OrganizationType, type Product, type Registering, type StartDetails, type StartOutcome, type Step,
+  type CodeCarries, type CollectedDetails, type OrganizationType, type Product, type Registering, type StartDetails, type StartOutcome, type Step,
   type Support, type Unapplied,
 } from './enrollmentRules'
+import {
+  emptyProfileForm, profileValues, type AdministratorRole, type FacilityProfileForm, type ProfileField,
+} from '../collected/facilityProfile'
+import { phoneE164 } from '../collected/places'
 
 /**
  * The blue registration is Novu only (novu-v1, the backend production and staging build with): BlueProviderEnrollment
@@ -67,6 +71,12 @@ export function useEnrollment() {
   const [cac, setCacValue] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  // hid-system 0114: the applicant's role and phone and the facility's details, all required (owner: "all fields
+  // required"). React state only, as every other value here; sent with each start, and kept by Identity with the code
+  // that start sends.
+  const [administratorRole, setAdministratorRoleValue] = useState<AdministratorRole | ''>('')
+  const [administratorPhone, setAdministratorPhone] = useState('')
+  const [profile, setProfile] = useState<FacilityProfileForm>(emptyProfileForm)
   const [challengeId, setChallengeId] = useState('')
   const [code, setCodeValue] = useState('')
   const [password, setPassword] = useState('')
@@ -145,6 +155,32 @@ export function useEnrollment() {
     setOrganizationType(value)
     const allowed = facilityProductChoices(value, window.location.hostname)
     if (!allowed.includes(productCode)) setProductCode(allowed[0]!)
+  }
+
+  function setProfileField<K extends ProfileField>(field: K, value: FacilityProfileForm[K]) {
+    setProfile(current => ({ ...current, [field]: value }))
+  }
+
+  /** A Medical Director signing up is, unless they say otherwise, the facility's Medical Director: their name is offered. */
+  function setAdministratorRole(value: AdministratorRole | '') {
+    setAdministratorRoleValue(value)
+    if (value === 'medical_director') {
+      setProfile(current => (current.medicalDirectorName.trim() ? current : { ...current, medicalDirectorName: name.trim() }))
+    }
+  }
+
+  /** What this sign-up collects besides the details Identity keys it on, as the page holds it (CodeCarries). */
+  function collected(): CollectedDetails {
+    return { administratorRole, administratorPhone: administratorPhone.trim(), profile }
+  }
+
+  /** The same, as Identity takes it in the start's body (hid-system docs/INTERFACE_CONTRACT.md section 43.2). */
+  function collectedBody() {
+    return {
+      administratorRole,
+      administratorPhone: phoneE164(administratorPhone) ?? administratorPhone.trim(),
+      facilityProfile: profileValues(profile),
+    }
   }
 
   /** On input, whitespace is stripped and the text put in capitals (ProviderEnrollment.tsx:1036). */
@@ -249,7 +285,7 @@ export function useEnrollment() {
    * and Identity would not send one before `until` (Unapplied).
    */
   function changesHeld(details: StartDetails, at: number): Unapplied | null {
-    return unapplied && unapplied.key === signUpKey(details) && carriesOtherThan(details, unapplied.carries)
+    return unapplied && unapplied.key === signUpKey(details) && carriesOtherThan(details, unapplied.carries, collected())
       && unapplied.until > at ? unapplied : null
   }
 
@@ -277,7 +313,7 @@ export function useEnrollment() {
     // A code sent carries this start's facility type and administrator name (R6); one in force keeps its own.
     if (outcome === 'sent' && result.challengeId) {
       codeCarries.current.set(result.challengeId, { organizationType: details.organizationType,
-        administratorName: details.administratorName })
+        administratorName: details.administratorName, collected: collected() })
     }
     setUnapplied(null)
     // An answer that does not say whether it sent a code: the page counts the codes it asked for (CODE_LIMITS).
@@ -318,7 +354,7 @@ export function useEnrollment() {
     setBusy(true)
     setError(null)
     try {
-      const result = await providerEnrollmentApi.start({ ...details, turnstileToken })
+      const result = await providerEnrollmentApi.start({ ...details, ...collectedBody(), turnstileToken })
       const { outcome, until } = accepted(result, details)
       setResent(null)
       const unsentBecause = until - Date.now() > DEFAULT_RESEND_SECONDS * 1000 ? 'limit' : 'recent'
@@ -330,7 +366,7 @@ export function useEnrollment() {
           ? 'We’ve sent as many codes for these details as we can for now.'
           : 'We can’t send a new code for these details yet.' })
         holdFor(key, until)
-      } else if (carries && carriesOtherThan(details, carries)) {
+      } else if (carries && carriesOtherThan(details, carries, collected())) {
         // Novu sent no code, and the code in force carries the type and name it was sent with, which the account would
         // keep: the changes wait for a code that carries them, or the code in force is entered with the earlier ones.
         const expires = typeof result.expiresInSeconds === 'number' && Number.isFinite(result.expiresInSeconds)
@@ -369,7 +405,7 @@ export function useEnrollment() {
     setResent(null)
     setUnsent(null)
     try {
-      const { outcome } = accepted(await providerEnrollmentApi.start({ ...details, turnstileToken }), details)
+      const { outcome } = accepted(await providerEnrollmentApi.start({ ...details, ...collectedBody(), turnstileToken }), details)
       if (outcome === 'sent') setCodeValue('')
       setResent(outcome)
     } catch (reason) {
@@ -531,6 +567,11 @@ export function useEnrollment() {
   function enterCodeInForce(previous: Unapplied) {
     setName(previous.carries.administratorName)
     setType(previous.carries.organizationType)
+    if (previous.carries.collected) {
+      setAdministratorRoleValue(previous.carries.collected.administratorRole as AdministratorRole | '')
+      setAdministratorPhone(previous.carries.collected.administratorPhone)
+      setProfile(previous.carries.collected.profile)
+    }
     setChallengeId(previous.challengeId)
     setCodeValue(''); setError(null); setResent(null)
     setUnsent(previous.unsent)
@@ -587,6 +628,7 @@ export function useEnrollment() {
 
   return {
     stage, availability, closed, ordersOn, help, organizationType, productCode, cac, name, email, code, password, busy, error,
+    administratorRole, administratorPhone, profile, setAdministratorRole, setAdministratorPhone, setProfileField,
     resent, unsent, codesReported, codeInForce, turnstileToken, resetKey, registering, registeringFailed, regStep, submitted,
     headingFocus, carried, retryIn, resendIn, codeLimitIn, kept, productNote, typeChoices, productChoices, administratorEmail, accountEmail, cacNumber, now,
     setType, setProductCode, setCac, setName, setEmail, setCode, setPassword, setTurnstileToken, setError, setSubmitted,

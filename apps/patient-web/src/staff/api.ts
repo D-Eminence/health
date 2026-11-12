@@ -145,12 +145,90 @@ export interface RegistrationEnrollment {
   replayed: boolean
 }
 
+export type Ownership = 'public' | 'private' | 'faith_based' | 'ngo'
+export type CareLevel = 'primary' | 'secondary' | 'tertiary'
+export type DepartmentCode = 'general_outpatient' | 'emergency' | 'inpatient' | 'laboratory' | 'pharmacy' | 'maternity'
+  | 'pediatrics' | 'radiology' | 'dental' | 'physiotherapy' | 'dialysis' | 'oncology' | 'cardiology' | 'icu' | 'theatre'
+export type AdministratorRole = 'owner' | 'medical_director' | 'administrator' | 'other_authorised_representative'
+
+/**
+ * A facility's details as Health ID collects them (hid-system 0114, hid-system docs/INTERFACE_CONTRACT.md section 43.1): sent with
+ * facility sign-up as `facilityProfile`, and read and saved by Facility setup after activation (facilityProfile). Every field is
+ * required (owner: "allow trading name, all fields required"). The operating licence, CAC certificate, proof of address
+ * and logo are not collected until the document store and its virus scanner exist, and are not shown at all.
+ */
+export interface FacilityProfileValues {
+  tradingName: string
+  ownership: Ownership
+  careLevel: CareLevel
+  addressLine: string
+  city: string
+  stateCode: string
+  lga: string
+  gpsLatitude: number
+  gpsLongitude: number
+  phone: string
+  email: string
+  bedCount: number
+  operatingHours: string
+  emergency24h: boolean
+  departments: DepartmentCode[]
+  servicesOffered: string
+  smohLicenceNumber: string
+  hasRegistryId: boolean
+  registryId: string | null
+  hasNhiaAccreditation: boolean
+  nhiaAccreditationNumber: string | null
+  medicalDirectorName: string
+  medicalDirectorMdcn: string
+  expectedStaff: number
+  migratingRecords: boolean
+  needsInteroperability: boolean
+}
+
+/** GET /api/v1/identity/facility-profile (hid-system 0114): the facility's details, null until first given. */
+export interface FacilityProfileRead {
+  facility: { id: string; name: string; reviewState: string }
+  /** 0 while the facility has no profile; the If-Match of the next save. */
+  version: number
+  profile: (FacilityProfileValues & {
+    source: 'self_service_signup' | 'facility_administrator'
+    submitterRole: AdministratorRole | null
+    submitterPhoneOnRecord: boolean
+    /** Null when Identity has no time for it (FacilityProfileView.updatedAt). */
+    updatedAt: string | null
+    version: number
+  }) | null
+}
+
+/** POST /api/v1/identity/facility-profile: the new version and the fields that changed (names only, never values). */
+export interface FacilityProfileSaved {
+  facilityId: string
+  version: number
+  changedFields: string[]
+  replayed: boolean
+}
+
 export interface ResolveNinInput {
   nin: string
   firstName: string
   lastName: string
   dateOfBirth: string
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  /**
+   * hid-system 0114 (Novu): the desk's contact for the patient, kept by the facility, unverified, never used for sign-in
+   * or recovery, and the Health ID the patient says they already have (hid-system docs/INTERFACE_CONTRACT.md section 43.3). The 0114 backend
+   * takes them all or none (a partial set is refused) until a follow-up release makes them required; this website
+   * always sends every one.
+   */
+  phone: string
+  addressLine: string
+  city: string
+  stateCode: string
+  lga: string
+  hasExistingHealthId: boolean
+  /** Exactly when hasExistingHealthId: HID- and 6 to 32 of A-H, J-N, P-Z, 2-9. */
+  existingHealthId?: string | null
 }
 
 /**
@@ -1291,6 +1369,96 @@ export interface OutreachCase {
   phone?: string | null
   operationalNotes?: string | null
   rowVersion: number
+  /**
+   * On the answer to a new registration in a campaign (open sign-up, outreach-api): true when another registration in
+   * the same campaign has the same phone number, or the same name and age. A hint only: the registration is saved.
+   */
+  possibleDuplicate?: boolean
+}
+
+/** The languages the registration notice is given in; any but English means it was read aloud in that language. */
+export type OutreachConsentLanguage = 'en' | 'yo' | 'ha' | 'ig' | 'pcm'
+/** How the person agreed: read aloud to them, ticked by them, or agreed by their parent or guardian. */
+export type OutreachConsentMethod = 'verbal_read_aloud' | 'self_ticked' | 'guardian'
+
+/**
+ * The person's agreement to be registered, sent with a registration at an outreach group (open sign-up; outreach-api
+ * CreateRegistrationCaseDto.consent): which notice they were given, in which language, how they agreed, and the
+ * guardian's name for anyone under 18. Outreach and the database refuse a registration at an outreach group without it.
+ */
+export interface OutreachConsent {
+  textVersion: string
+  language: OutreachConsentLanguage
+  method: OutreachConsentMethod
+  guardianName?: string
+}
+
+/** What a new registration sends, with its consent at an outreach group. */
+export interface OutreachCaseInput {
+  campaignId?: string
+  fullName: string
+  sex: string
+  ageYears: number
+  phone?: string
+  operationalNotes?: string
+  consent?: OutreachConsent
+}
+
+/**
+ * An outreach group's standing with Health ID, from the governance read (open sign-up, outreach-api): 'unverified' for
+ * any group that is not paused (Health ID never verifies one, and its campaigns can go live at once: owner decision Q38),
+ * 'suspended' (paused by Health ID), 'not_outreach_group' at a hospital's facility, or 'unknown' when it could not be read.
+ */
+export type OutreachOrganiserStatus = 'not_outreach_group' | 'unverified' | 'suspended' | 'unknown'
+
+/** One of an organiser's team invitations (GET identity/outreach-invitations), newest first. */
+export interface OutreachInvitation {
+  invitationId: string
+  name: string
+  email: string
+  status: string
+  expiresAt: string | null
+  createdAt: string | null
+  acceptedAt: string | null
+}
+
+/** Someone who has joined an organiser's team (GET identity/outreach-invitations `members`). */
+export interface OutreachTeamMember {
+  membershipId: string
+  name: string | null
+  email: string | null
+  roleCode: string
+  status: string
+  joinedAt: string | null
+}
+
+/**
+ * The answer to an invitation sent (201). Identity does not replay: the same person invited again while one waits is
+ * refused with 409 OUTREACH_INVITATION_ALREADY_SENT, so no second email goes.
+ */
+export interface OutreachInvitationCreated {
+  invitationId: string
+  expiresAt: string | null
+  deliveryOutcome: 'accepted' | 'definitive_failure' | 'unknown'
+  replayed: boolean
+}
+
+/** "Start an outreach group" for a signed-in account: the new group, whose campaigns can go live at once. */
+export interface OutreachGroupStarted {
+  started: true
+  organizationId: string
+  facilityId: string
+  membershipId: string
+  organiserStatus: 'active'
+  label: 'Unverified organiser' | string
+}
+
+/** The group details both ways of starting an outreach group send. */
+export interface OutreachGroupDetails {
+  groupName: string
+  kind: 'individual' | 'group'
+  registrationNumber?: string
+  phone: string
 }
 
 export interface OutreachCampaignMember {
@@ -1670,6 +1838,15 @@ export const providerEnrollmentApi = {
     administratorName: string
     administratorEmail: string
     turnstileToken: string
+    /**
+     * hid-system 0114 (Novu): the applicant's role and phone and the facility's details (hid-system
+     * docs/INTERFACE_CONTRACT.md section 43.2), taken all or none there until a follow-up release makes them required;
+     * the sign-up page always sends all
+     * three. hid-system main refuses them as unknown fields.
+     */
+    administratorRole?: string
+    administratorPhone?: string
+    facilityProfile?: FacilityProfileValues
   }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
     { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none', timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
 
@@ -1704,6 +1881,70 @@ export const providerEnrollmentApi = {
    */
   withdraw: () => client.post<{ withdrawn: true }>('/api/v1/identity/provider-enrollments/withdraw', undefined,
     { auth: 'none', retry: NO_RETRY }),
+}
+
+/**
+ * Whether open sign-up on outreach. is on (identity-api, the control outreach_organiser_signup_enabled, seeded off), and
+ * the organiser terms' version the sign-up accepts. Never an error: anything but `{ open: true }` means not open.
+ */
+export interface OutreachOrganiserAvailability {
+  open: boolean
+  termsVersion?: string
+}
+
+/** The start's answer: the 6-digit code was emailed. Start also sets the sign-up's own cookie, which verify and activate read. */
+export interface OutreachOrganiserStart {
+  accepted: true
+  challengeId: string
+  expiresInSeconds?: number
+  resendAfterSeconds?: number
+}
+
+/** Activation creates the organiser's account and outreach group, and signs them in as a staff sign-in does. */
+export interface OutreachOrganiserActivation {
+  activated: true
+  organizationId: string
+  facilityId: string
+  accountId: string
+  organiserStatus: 'active'
+  label: 'Unverified organiser' | string
+  actor?: StaffSession['actor']
+  expiresAt: string
+}
+
+/** A helper accepted an outreach invitation: the group, and, for a new helper, the session they are signed in with. */
+export interface OutreachInvitationAccepted {
+  accepted: true
+  facilityId: string
+  membershipId?: string
+  roleCode: string
+  actor?: StaffSession['actor']
+  expiresAt?: string
+}
+
+/**
+ * Open sign-up to run outreach on outreach. (identity-api, owner decisions of 11 November 2026): the organiser's
+ * details and phone, a 6-digit code by email, the organiser terms, then a password. Every route answers 423
+ * OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE while the control is off, and an Identity without them 404: the page then
+ * says sign-up is not open, and offers nothing else. No retries: a lost answer is not sent again by itself.
+ */
+export const outreachOrganiserApi = {
+  availability: (signal?: AbortSignal) => client.get<OutreachOrganiserAvailability>('/api/v1/identity/outreach-organisers/availability',
+    { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000, ...(signal ? { signal } : {}) }),
+  start: (input: OutreachGroupDetails & { organiserName: string; email: string; turnstileToken?: string }) =>
+    client.post<OutreachOrganiserStart>('/api/v1/identity/outreach-organisers',
+      { ...input, turnstileAction: 'outreach-organiser-signup' }, { auth: 'none', retry: NO_RETRY, timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
+  verify: (challengeId: string, code: string) => client.post<{ verified: true }>('/api/v1/identity/outreach-organisers/verify-email',
+    { challengeId, code }, { auth: 'none', retry: NO_RETRY }),
+  // Activation signs the new organiser in, so it takes the session turn as sign-ins do.
+  activate: (input: { termsVersion: string; password: string }) => inRefreshTurn(() =>
+    client.post<OutreachOrganiserActivation>('/api/v1/identity/outreach-organisers/activate',
+      { termsVersion: input.termsVersion, acceptTerms: true, password: input.password }, { auth: 'none', retry: NO_RETRY })),
+  /** A helper without a Health ID login accepts an outreach invitation with its link, sets a password and is signed in. */
+  acceptInvitation: (proof: { invitationId: string; token: string }, password: string,
+    turnstileToken?: string) => inRefreshTurn(() => client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/accept',
+    { ...proof, password, turnstileAction: 'outreach-invitation', ...(turnstileToken ? { turnstileToken } : {}) },
+    { auth: 'none', retry: NO_RETRY })),
 }
 
 /** What an invitation email's delivery came to: sent, refused by the address, or not confirmed (P4b). */
@@ -1935,6 +2176,13 @@ export const staffApi = {
   facilitySettings: (facilityId: string) =>
     client.get<FacilitySettings>('/api/v1/identity/facility-settings',
       { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  // The facility's details (hid-system 0114): its administrator (workforce.manage) at a self-signed-up facility only.
+  facilityProfile: (facilityId: string) =>
+    client.get<FacilityProfileRead>('/api/v1/identity/facility-profile',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }),
+  saveFacilityProfile: (facilityId: string, profile: FacilityProfileValues, version: number, idempotencyKey: string) =>
+    client.post<FacilityProfileSaved>('/api/v1/identity/facility-profile', profile,
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), 'If-Match': `"${version}"`, ...keyHeaders(idempotencyKey) } }),
   setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
     client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -2309,10 +2557,11 @@ export const staffApi = {
       { headers: facilityHeaders(facilityId) }),
   /**
    * How campaigns are managed: from 0111 (hid-system#222) `{ rule: 'campaign_admins' }`, a campaign's own admins open,
-   * close and staff it. An older Outreach answers 404, and the page then offers no campaign management.
+   * close and staff it. An older Outreach answers 404, and the page then offers no campaign management. With open
+   * sign-up it also says where an outreach group stands with Health ID (`organiserStatus`); an earlier one says nothing.
    */
   outreachCampaignGovernance: (facilityId: string) =>
-    client.get<{ rule: string }>('/api/v1/outreach/registration-cases/campaigns/governance', { headers: facilityHeaders(facilityId) }),
+    client.get<{ rule: string; organiserStatus?: OutreachOrganiserStatus }>('/api/v1/outreach/registration-cases/campaigns/governance', { headers: facilityHeaders(facilityId) }),
   outreachCampaignStaff: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignStaff>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/staff`,
       { headers: facilityHeaders(facilityId) }),
@@ -2335,10 +2584,39 @@ export const staffApi = {
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
   // Outreach answers a command sent again (its localCommandId is also its Idempotency-Key)
   // with the case it made, so the caller names the command and resends it for the same case.
-  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string },
+  createOutreachCase: (facilityId: string, input: OutreachCaseInput,
     command: { localCommandId: string; temporaryPatientId: string }) =>
     client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
+
+  /*
+   * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach
+   * volunteer. Identity answers only the organiser at the group (403
+   * OUTREACH_ORGANISER_REQUIRED otherwise); an Identity without the routes answers 404.
+   */
+  outreachInvitations: (facilityId: string) =>
+    client.get<{ members?: OutreachTeamMember[]; invitations: OutreachInvitation[] }>('/api/v1/identity/outreach-invitations', { headers: facilityHeaders(facilityId) }),
+  /**
+   * Never sent again by itself (NO_RETRY). Identity does not replay an invitation: the same person sent again while one
+   * waits (say, after a lost answer) is refused with 409 OUTREACH_INVITATION_ALREADY_SENT and no second email goes.
+   * Identity ignores the Idempotency-Key header this sends on this route.
+   */
+  createOutreachInvitation: (facilityId: string, input: { name: string; email: string }, idempotencyKey: string) =>
+    client.post<OutreachInvitationCreated>('/api/v1/identity/outreach-invitations', input,
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+
+  /**
+   * "Start an outreach group" (owner decision 5 of 11 November 2026): the signed-in account starts its own outreach group
+   * with the same login and becomes its organiser, keeping every role it has at a hospital. No facility: the account
+   * does not belong to the new group yet. Whether it is open: `{ open, termsVersion }`, never an error.
+   */
+  outreachGroupAvailability: () =>
+    client.get<OutreachOrganiserAvailability>('/api/v1/identity/outreach-organisers/for-my-account/availability', { retry: NO_RETRY, timeoutMs: 10_000 }),
+  startOutreachGroup: (input: OutreachGroupDetails & { termsVersion: string; acceptTerms: true }) =>
+    client.post<OutreachGroupStarted>('/api/v1/identity/outreach-organisers/for-my-account', input, { retry: NO_RETRY }),
+  /** A signed-in account accepts an outreach invitation with its link (the email carries no code). */
+  acceptOutreachInvitationSignedIn: (proof: { invitationId: string; token: string }) =>
+    client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/signed-in/accept', proof, { retry: NO_RETRY }),
 }
 
 /** The EHR path of an order's routes. */

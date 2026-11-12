@@ -50,6 +50,22 @@ export interface EhrBluePage {
    */
   readonly listed?: (session: StaffSession) => boolean
   /**
+   * Where `listed` reads something besides the session (an answer the page has learned from the backend), a way to hear
+   * that it changed: called with a function to call on each change, it returns the function that stops listening (as
+   * useSyncExternalStore's subscribe). The sidebar and search then ask `listed` again at once, with no new session.
+   * Left out, `listed` is asked again only when the session changes. With it, the frame asks `listed` on each change
+   * for every session, also one the page is not shown to, so `listed` must stay quick and change nothing.
+   */
+  readonly listedChanges?: (onChange: () => void) => () => void
+  /**
+   * true: a page every staff product's site lists and opens (EHR, Lab, Pharmacy, Outreach, Migrate), as each keeps its
+   * facility's own pages (product.ts), wherever the product is decided from, its address or the permissions. Its own
+   * permission and `visible` still decide who sees it. A product site lists it only where the site serves its address
+   * (productSites.ts servedHere): an address another product's site owns is sent there before the frame loads, so a
+   * page under it stays off that site. Left out, the product decides (product.ts productLists).
+   */
+  readonly everyProduct?: boolean
+  /**
    * The path of the page whose tabs this page joins, as the design draws Insurance & Claims (Claims | Policies) and
    * Supply (Stock | Procurement): it has no sidebar entry of its own, the frame draws the tabs above the heading, and the
    * sidebar marks the page it joins as current.

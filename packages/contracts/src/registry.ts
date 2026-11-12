@@ -33,9 +33,11 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * and can't complete), which no hid-system release serves yet; and phone and
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
- * the push keys as well; and Outreach campaign management's governance and
- * campaign staff reads (hid-system#222, migration 0111): callers treat a 404 as
- * "not available yet" and show nothing.
+ * the push keys as well; Outreach campaign management's governance and
+ * campaign staff reads (hid-system#222, migration 0111); and Migrate learning's
+ * "Reading quality" counts, Session B's per-facility OCR quality summary, on a
+ * hid-system branch and not on main yet: callers treat a 404 as "not available
+ * yet" and show nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -118,6 +120,15 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
+/**
+ * Collected sign-up fields (hid-system 0114, owner: "allow trading name, all fields required"): facility sign-up's role,
+ * phone and facility details, Facility setup's facility profile, and patient registration's desk fields. Novu only.
+ * Released in three steps (hid-system docs/INTERFACE_CONTRACT.md section 43.0): the 0114 backend, which takes the new sign-up and desk fields all or none (a
+ * partial set is refused) so the live website keeps working; then this website, which always sends every one; then a
+ * follow-up backend that makes them required in the API. Before 0114 Identity refuses them as unknown fields.
+ */
+const COLLECTED_FIELDS = 'hid-system 0114 (claude/collect-signup-fields-be): Novu only; not served by hid-system main. '
+  + 'The new sign-up and desk fields are all or none until the follow-up release makes them required.'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 /**
  * Outreach campaigns managed by their own admins (ADR-045 option B, hid-system#222, migration 0111): from then Identity
@@ -125,6 +136,14 @@ const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on
  * OUTREACH_CAMPAIGN_ADMIN_REQUIRED otherwise). Not served before (404): the page then offers no campaign management.
  */
 const OUTREACH_CAMPAIGN_ADMINS = 'Outreach campaign admins (hid-system#222, 0111); 404 before, and the page then offers no campaign management.'
+/**
+ * Open sign-up to run outreach on outreach. (owner decisions of 11 November 2026; hid-system identity-api
+ * OutreachOrganiserController, OutreachInvitationsController and OutreachOrganisersAdminController, with the database's
+ * "outreach organisers" migration): proposed, not served by any hid-system release yet. Callers treat a 404 as "not
+ * open" and show nothing else; every sign-up route also answers 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE while the
+ * control outreach_organiser_signup_enabled (seeded off) is off.
+ */
+const OUTREACH_SIGNUP = 'Open sign-up on outreach. (proposed: identity-api outreach organisers); not served by hid-system main (404).'
 /**
  * The same POST on a Novu build (hid-system staging-novu-ci-20261005, "Patient chat safety PR 1", #167): the staging
  * contract, no notice or idempotency key.
@@ -575,7 +594,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'replayed }; the patient then confirms. 404 SHARE_INVITATION_NOT_FOUND, 403 SHARE_PROVIDER_NOT_ELIGIBLE, 409 '
     + 'SHARE_INVITATION_NOT_PENDING.')),
   r('identity.registrationCapabilities','identity','/api/v1/identity/registration-capabilities',G,false,one('GET','identity.registration.write')),
-  r('identity.resolveNin','identity','/api/v1/identity/nin/resolve',P,false,one('POST','identity.registration.write')),
+  r('identity.resolveNin','identity','/api/v1/identity/nin/resolve',P,false,one('POST','identity.registration.write'),
+    `${COLLECTED_FIELDS} Body { nin, firstName, lastName, dateOfBirth, gender?, purpose } and, all or none from 0114 (required `
+    + 'after the follow-up release; the website always sends them), the desk fields { phone, addressLine, city, stateCode, lga, hasExistingHealthId, existingHealthId (exactly when '
+    + 'hasExistingHealthId) }; the answer adds contactRecorded. Allergies are refused as an unknown field.'),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
@@ -596,6 +618,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
     + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
     + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
+  // The facility's details (hid-system 0114, hid-system docs/INTERFACE_CONTRACT.md section 43.4): read and saved by Facility setup.
+  proposed(r('identity.facilityProfile','identity','/api/v1/identity/facility-profile',GP,false,
+    { GET: ['workforce.manage'], POST: ['workforce.manage'] },
+    `${COLLECTED_FIELDS} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, CSRF on POST; only `
+    + 'at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise; 403 PERMISSION_DENIED). GET 200 with '
+    + 'ETag: { facility { id, name, reviewState }, version (0 with no profile), profile | null }. POST (not PUT: the API\'s '
+    + 'CORS allows GET and POST) takes If-Match "<version>" and an Idempotency-Key, body FacilityProfile, every field '
+    + 'required: 200 { facilityId, version, changedFields, replayed }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
+    + 'IDEMPOTENCY_KEY_REUSED or FACILITY_PROFILE_SEALED, 400 VALIDATION_FAILED or FACILITY_PROFILE_INVALID, 503 '
+    + 'FACILITY_PROFILE_UNAVAILABLE.')),
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
     `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `
@@ -659,7 +691,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment (on Novu, '
     + 'app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }; on Novu also '
     + 'codeSent: false when no code was sent, with challengeId and expiresInSeconds naming the code still in force (absent '
-    + `when none can be entered) and resendAfterSeconds the real wait, up to about a day. ${SELF_SIGN_UP_CLOSED}`),
+    + `when none can be entered) and resendAfterSeconds the real wait, up to about a day. ${SELF_SIGN_UP_CLOSED} `
+    + `${COLLECTED_FIELDS} The body also takes administratorRole, administratorPhone and facilityProfile there, all `
+    + 'or none (required after the follow-up release; the website always sends them); 400 FACILITY_PROFILE_INVALID, 503 COLLECTED_FIELDS_UNAVAILABLE.'),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
     `Accountless; verifies the emailed code and sets the enrollment cookie. ${SELF_SIGN_UP_CLOSED}`),
   // P4 round 2 (R13): the applicant sees the organization a CAC number names before its account is made.
@@ -1076,10 +1110,22 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ocr.validations','ocr','/api/v1/ocr/jobs/:jobId/validations',GP,false,{GET:['ocr.job.read'],POST:['ocr.validation.write']}),
   r('ocr.patientConfirmation','ocr','/api/v1/ocr/jobs/:jobId/patient-confirmation',P,false,one('POST','ocr.patient.confirm')),
   r('ocr.publications','ocr','/api/v1/ocr/validations/:validationId/publications',GP,false,{GET:['ocr.job.read'],POST:['ocr.publication.write']}),
+  // Session B's review-outcome summary (hid-system claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, #236), not on
+  // main yet, for the one facility named by X-Facility-ID. Either a platform administrator (platform.admin.access and
+  // platform.operations.read) or that facility's manager (workforce.manage there), so no permission list is recorded
+  // (permissions here are all-required); the note names both. Migrate's "Reading quality" view reads it
+  // (ehr-blue/departments/migrate/readingQualityApi.ts); 404 until served.
+  proposed(r('ocr.qualitySummary','ocr','/api/v1/ocr/quality/summary',G,false,undefined,
+    'On a hid-system branch, not main. Requires platform.admin.access and platform.operations.read (platform '
+    + 'administrators), or workforce.manage at the X-Facility-ID facility, which must be the current one and not awaiting '
+    + 'support review (its manager); otherwise 403. from/to optional YYYY-MM-DD (default the last 28 days, at most 92); '
+    + 'widened to ISO weeks. A manager gets finished weeks only, groups fewer than 3 reviewers checked suppressed, and '
+    + '{ available: false, reason: "too_few_reviewers" } when fewer than 3 reviewers contributed.')),
 
   r('outreach.campaigns','outreach','/api/v1/outreach/registration-cases/campaigns',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   proposed(r('outreach.campaignGovernance','outreach','/api/v1/outreach/registration-cases/campaigns/governance',G,false,one('GET','outreach.campaign.read'),
-    `${OUTREACH_CAMPAIGN_ADMINS} Answers { rule: 'campaign_admins' }.`)),
+    `${OUTREACH_CAMPAIGN_ADMINS} Answers { rule: 'campaign_admins' }. With open sign-up on outreach. it adds organiserStatus `
+    + '(not_outreach_group|unverified|suspended|unknown): unverified is any outreach group not paused; nothing waits for a check.')),
   proposed(r('outreach.campaignStaff','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/staff',G,false,one('GET','outreach.campaign.read'),
     `${OUTREACH_CAMPAIGN_ADMINS} Answers { yourRole, people: [{ membershipId, name, campaignRole }] }: a campaign's members by name, `
     + 'and to its admins the facility\'s active staff who could be added (campaignRole null); a non-member is sent no one.')),
@@ -1088,6 +1134,54 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
+  // Open sign-up on outreach. (owner decisions of 11 November 2026): the public sign-up, a signed-in account's "Start an
+  // outreach group", the organiser's team invitations and accepting one.
+  proposed(r('enrollment.outreachOrganiserAvailability','enrollment','/api/v1/identity/outreach-organisers/availability',G,true,undefined,
+    `${OUTREACH_SIGNUP} Public, never an error: 200 { open, termsVersion }; anything but open: true means not open.`)),
+  proposed(r('enrollment.outreachOrganiserStart','enrollment','/api/v1/identity/outreach-organisers',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_ORGANISER_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
+    + 'outreach-organiser-signup (outreach. hosts only). Body { organiserName, email, phone, groupName, kind (individual|group), '
+    + 'registrationNumber?, turnstileAction, turnstileToken }; organiserName 2 to 80 characters. 200 { accepted, challengeId, '
+    + 'expiresInSeconds, resendAfterSeconds } and the hid_outreach_signup cookie, the same answer whatever the email\'s account: '
+    + 'an email that already has a Health ID login (staff or patient) gets an email saying what to do instead of a code, and '
+    + 'no sign-up starts. 422 OUTREACH_ORGANISER_NAME_NOT_ALLOWED, 400 OUTREACH_PHONE_INVALID, 429 '
+    + 'OUTREACH_ORGANISER_SIGNUP_RATE_LIMITED, 423 OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE. The page also words 409 '
+    + 'OUTREACH_ORGANISER_EMAIL_REGISTERED and OUTREACH_ORGANISER_PATIENT_LOGIN if Identity names them.')),
+  proposed(r('enrollment.outreachOrganiserVerify','enrollment','/api/v1/identity/outreach-organisers/verify-email',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { challengeId, code (6 digits) }. 200 { verified: true }; 400 `
+    + 'OTP_INVALID, 410 OTP_EXPIRED, 429 OTP_ATTEMPTS_EXHAUSTED, 401 OUTREACH_ORGANISER_SIGNUP_SESSION_INVALID.')),
+  proposed(r('enrollment.outreachOrganiserActivate','enrollment','/api/v1/identity/outreach-organisers/activate',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless; the sign-up cookie. Body { termsVersion: '2026-11-01', acceptTerms: true, password (12 `
+    + 'to 256) }. Signs the organiser in as a staff sign-in does: 200 { activated, organizationId, facilityId, accountId, '
+    + 'organiserStatus: \'active\', label: \'Unverified organiser\', actor, expiresAt }. 409 OUTREACH_ORGANISER_TERMS_REQUIRED '
+    + 'when the terms accepted are not the ones Identity holds now (the page asks for a reload). '
+    + 'No Health ID check follows: the group\'s campaigns can go live at once (owner decision Q38).')),
+  proposed(r('identity.outreachGroupAvailability','identity','/api/v1/identity/outreach-organisers/for-my-account/availability',G,false,undefined,
+    `${OUTREACH_SIGNUP} A staff session, no X-Facility-ID: 200 { open, termsVersion }.`)),
+  proposed(r('identity.outreachGroupStart','identity','/api/v1/identity/outreach-organisers/for-my-account',P,false,undefined,
+    `${OUTREACH_SIGNUP} "Start an outreach group" (owner decision 5): a staff session with CSRF, no X-Facility-ID. Body { `
+    + 'groupName, kind, registrationNumber?, phone, termsVersion, acceptTerms: true }. 201 { started, organizationId, '
+    + 'facilityId, membershipId, organiserStatus: \'active\', label: \'Unverified organiser\' }: the account becomes the new '
+    + 'group\'s organiser beside its hospital roles. 403 OUTREACH_ORGANISER_STAFF_ACCOUNT_REQUIRED, 409 OUTREACH_ORGANISER_ALREADY_RUNNING, '
+    + '409 OUTREACH_ORGANISER_TERMS_REQUIRED (terms changed), 409 OUTREACH_ORGANISER_PATIENT_LOGIN (a patient\'s login).')),
+  proposed(r('identity.outreachInvitations','identity','/api/v1/identity/outreach-invitations',GP,false,
+    { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
+    `${OUTREACH_SIGNUP} The organiser at the X-Facility-ID outreach group only (403 OUTREACH_ORGANISER_REQUIRED). GET: { `
+    + 'members: [{ membershipId, name, email, roleCode, status, joinedAt }], invitations: [{ invitationId, name, email, status, '
+    + 'expiresAt, createdAt, acceptedAt }] } (pending invitations only). POST: body { name, email }; 201 { invitationId, '
+    + 'expiresAt, deliveryOutcome, replayed: false }. Not replayed: the same person again answers 409 '
+    + 'OUTREACH_INVITATION_ALREADY_SENT. 429 OUTREACH_INVITATION_PENDING_LIMIT, 409 OUTREACH_INVITEE_ALREADY_MEMBER, 423 '
+    + 'OUTREACH_ORGANISER_SUSPENDED.')),
+  proposed(r('enrollment.outreachInvitationAccept','enrollment','/api/v1/identity/outreach-invitations/accept',P,true,undefined,
+    `${OUTREACH_SIGNUP} Accountless (409 OUTREACH_INVITATION_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action `
+    + 'outreach-invitation. Body { invitationId, token } (the link only: the email has no code), with password, turnstileAction and '
+    + 'turnstileToken. Signs the helper in: 200 { accepted, facilityId, membershipId, roleCode, actor, expiresAt } (no group '
+    + 'name). 409 OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login, 409 '
+    + 'OUTREACH_INVITATION_PATIENT_LOGIN for a patient\'s login.')),
+  proposed(r('identity.outreachInvitationSignedInAccept','identity','/api/v1/identity/outreach-invitations/signed-in/accept',P,false,undefined,
+    `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } (the link only). 200 { accepted, `
+    + 'facilityId, membershipId, roleCode } (no group name). 403 OUTREACH_INVITATION_WRONG_ACCOUNT, 409 '
+    + 'OUTREACH_INVITATION_PATIENT_LOGIN for a patient\'s login.')),
 
   r('commercial.pricing','commercial','/api/v1/commercial/pricing',G,true),
   r('commercial.demo','commercial','/api/v1/commercial/demo-requests',P,true),
@@ -1336,6 +1430,39 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'no Idempotency-Key or step-up. Answers { applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, '
     + '409 VERSION_CONFLICT. Unless allowRetry, its email and network then can\'t start a sign-up for the CAC number and '
     + 'product for 7 days.')),
+  // Open sign-up on outreach.: support's "Outreach organisers" list, pausing a group, and rescuing a campaign whose only
+  // admin has gone. There is no review route: Health ID does not check a group before its campaigns go live (Q38).
+  proposed(r('admin.outreachOrganisers','admin','/api/v1/admin/outreach-organisers',G,false,one('GET','platform.facility.read'),
+    `${OUTREACH_SIGNUP} Query status (active|suspended|all), all by default. 200 { organisers: [{ organizationId, `
+    + 'facilityId, version, displayName, groupName, kind, registrationNumber, origin, organiserAccountId, organiserName, '
+    + 'organiserEmail, phone, status (active|suspended), label (Unverified organiser|Paused), suspendedAt, suspensionReason, '
+    + 'createdAt, termsVersion, members, pendingInvitations, campaigns, activeCampaigns }] }.')),
+  proposed(r('admin.outreachOrganiserSuspend','admin','/api/v1/admin/outreach-organisers/:organizationId/suspend',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} If-Match with the list's version, else 428 OUTREACH_ADMIN_VERSION_REQUIRED. Body { reason (8 to 500) `
+    + '}. 200 { organizationId, version, status: \'suspended\', label: \'Paused\', revokedRoles }; the group\'s roles are '
+    + 'revoked. 409 OUTREACH_ORGANISER_ALREADY_SUSPENDED or OUTREACH_ORGANISER_VERSION_CONFLICT, 404 OUTREACH_ORGANISER_NOT_FOUND.')),
+  proposed(r('admin.outreachCampaignClose','admin','/api/v1/admin/outreach-campaigns/:campaignId/close',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} If-Match with the campaign's version (its rowVersion), else 428 OUTREACH_ADMIN_VERSION_REQUIRED. Body `
+    + '{ reason (8 to 500) }. 200 { campaignId, status: \'closed\', alreadyClosed }. 404 OUTREACH_CAMPAIGN_NOT_FOUND, 409 '
+    + 'OUTREACH_CAMPAIGN_VERSION_CONFLICT.')),
+  proposed(r('admin.outreachCampaignAdmins','admin','/api/v1/admin/outreach-campaigns/:campaignId/admins',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} Body { membershipId, reason (8 to 500) }. 200 { campaignId, membershipId, role: 'admin' }. 422 `
+    + 'OUTREACH_CAMPAIGN_ADMIN_NOT_ELIGIBLE when the person is not an active member of the group.')),
+  // Deleting one registered person's details sooner, at their request (the registration notice and organiser terms say
+  // they can): find the registration, then delete it (0116 identity.admin_redact_outreach_registration, found with identity.admin_find_outreach_registrations).
+  proposed(r('admin.outreachRegistrationSearch','admin','/api/v1/admin/outreach-registrations/search',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} A read sent as POST, so a phone number stays out of addresses. Body { organizationId, and `
+    + 'temporaryPatientId or phone }. 200 { registrations: [{ caseId, groupName, campaignName, temporaryPatientId, createdAt, '
+    + 'redacted }] }: where and when only, never the person\'s name, phone or notes; audited without the phone number. 400 '
+    + 'OUTREACH_REGISTRATION_LOOKUP_INVALID.')),
+  proposed(r('admin.outreachRegistrationRedact','admin','/api/v1/admin/outreach-registrations/:caseId/redact',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${OUTREACH_SIGNUP} Body { reason (8 to 500) }. 200 { caseId, outcome: 'redacted' }. 409 `
+    + 'OUTREACH_REGISTRATION_NOT_REDACTABLE (already deleted, or not found), 422 OUTREACH_REDACTION_INVALID.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),
