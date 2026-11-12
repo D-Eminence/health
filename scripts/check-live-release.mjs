@@ -11,7 +11,7 @@
  *   npm run check:live-release                        production (the default)
  *   npm run check:live-release -- --env staging       staging
  *   npm run check:live-release -- --only ehr          one site (repeat, or comma-separate, for more)
- *   npm run check:live-release -- --enable 221-book-a-demo-gone
+ *   npm run check:live-release -- --disable 221-book-a-demo-gone
  *   npm run check:live-release -- --list              the expectations, and which are on
  *   node scripts/check-live-release.mjs --base-url-override ehr=http://127.0.0.1:4173
  *                                                     a local build instead of the live site (only the overridden
@@ -108,16 +108,16 @@ export const EXPECTATIONS = Object.freeze([
     switch: { name: 'RECORDS_PROCESSING_GRANT.live', within: 300, pattern: /\{\s*live\s*:\s*(!0|!1|true|false)\s*\}/,
       on: ['!0', 'true'] } },
 
-  // #223: Reading quality in Migrate. Not live tonight: absent until #223 ships, then flip expect to 'present'.
-  { id: '223-finished-weeks', label: '#223 Reading quality "finished weeks" note (not shipped yet)', sites: ['migrate'],
-    text: 'Figures cover finished weeks only.', expect: 'absent', enabled: true },
+  // #223: Reading quality, live since health #237 (2026-11-12).
+  { id: '223-finished-weeks', label: '#223 Reading quality "finished weeks" note', sites: ['migrate'],
+    text: 'Figures cover finished weeks only.', expect: 'present', enabled: true },
 
-  // #221: outreach.'s front page offers organiser sign-up, not a demo. Off until #221 is live. Read on the front page's
+  // #221: outreach.'s front page offers organiser sign-up, not a demo. Live (checked 2026-11-12). Read on the front page's
   // HTML only: the public site's shared scripts still say "Book a demo" for the pages that keep it.
   { id: '221-book-a-demo-gone', label: '#221 "Book a demo" gone from the outreach front page', sites: ['outreach'],
-    text: 'Book a demo', expect: 'absent', enabled: false, where: 'front' },
+    text: 'Book a demo', expect: 'absent', enabled: true, where: 'front' },
   { id: '221-start-outreach', label: '#221 "Start running outreach" on the outreach front page', sites: ['outreach'],
-    text: 'Start running outreach', expect: 'present', enabled: false, where: 'front' },
+    text: 'Start running outreach', expect: 'present', enabled: true, where: 'front' },
 ])
 
 /** At most this many JavaScript files are read from one site. */
