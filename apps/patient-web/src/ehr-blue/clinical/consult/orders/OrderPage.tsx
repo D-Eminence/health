@@ -327,9 +327,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   }
 
   /**
-   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume or a send to another facility (0117; a
-   * draft's send or an active prescription's alike): the warning for the medicine the prescription holds, shown in the
-   * form that was sent, which answers what to say.
+   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume, a send to another facility (0117; a
+   * draft's send or an active prescription's alike) or Send to Pharmacy (hid-system#218): the warning for the medicine
+   * the prescription holds, shown in the form that was sent, which answers what to say.
    */
   const warnAboutAllergies = (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) =>
     warnAfterRefusal({ ack, refusal, medicine: storedMedicine(record), chart })
@@ -356,16 +356,25 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setFocusIds([ACTIONS_ID])
   }
 
-  async function handoffPrescription(why: string, key: string) {
+  /**
+   * Send to Pharmacy: the active prescription handed to this facility's Pharmacy at the version shown. Checked against
+   * the patient's allergies by the EHR (hid-system#218), as Activate is: it carries `allergyAcknowledgement` only when
+   * sent again after the EHR's warning, under the same key (nothing was written on the 409).
+   */
+  async function handoffPrescription(why: string, key: string, allergyAcknowledgement: AllergyAcknowledgement | null = null) {
     const expectedRowVersion = rowVersion(record.rowVersion)
     if (!expectedRowVersion) throw new PlainError('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await chart.verify()
     let answer: unknown
     try {
-      answer = await staffApi.acceptPrescription(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key)
+      // The acknowledgement goes only when there is one: the first hand-off is sent exactly as before.
+      const handoff = [chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key] as const
+      answer = await (allergyAcknowledgement ? staffApi.acceptPrescription(...handoff, allergyAcknowledgement) : staffApi.acceptPrescription(...handoff))
     } catch (caught) {
       if (!isHidApiError(caught)) throw caught
+      // The allergy warning, and a reason the EHR did not accept, are the form's to show: the order is as it was.
+      if (readAllergyRefusal(caught, false) || (allergyAcknowledgement && acknowledgementRefused(caught))) throw caught
       if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new PlainError(PHARMACY_ALREADY_HOLDS)
       const changed = prescriptionChanged(caught)
       if (!changed) throw caught
@@ -467,27 +476,14 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   )
 
   const pharmacyForm = (
-    <div className="hid-ehr-clinical-orders-action-form">
-      <p className="hid-ehr-clinical-orders-lead"><strong>Send active prescription to Pharmacy</strong></p>
-      <RecordForm
-        key={`pharmacy-${version}`}
-        fields={[{ key: 'reason', label: 'Reason', required: true, maxLength: 500 }]}
-        validate={values => minimum(values, 8)}
-        submitLabel="Send to Pharmacy"
-        busyLabel="Working…"
-        disabled={reloading}
-        onSubmit={async values => {
-          const why = reason(values)
-          if (pharmacyAttempt.current?.reason !== why) pharmacyAttempt.current = { reason: why, key: crypto.randomUUID() }
-          try {
-            await handoffPrescription(why, pharmacyAttempt.current.key)
-            pharmacyAttempt.current = null
-          } catch (caught) {
-            return { formError: refusalText(caught, 'Send to Pharmacy could not be completed.') }
-          }
-        }}
-      />
-    </div>
+    <PharmacyHandoff key={`pharmacy-${version}`} disabled={reloading} warnAboutAllergies={warnAboutAllergies}
+      onSend={async (why, allergyAcknowledgement) => {
+        // One key per reason: sent again after no answer, or with the reason to go ahead after the allergy warning, it is
+        // the same hand-off.
+        if (pharmacyAttempt.current?.reason !== why) pharmacyAttempt.current = { reason: why, key: crypto.randomUUID() }
+        await handoffPrescription(why, pharmacyAttempt.current.key, allergyAcknowledgement)
+        pharmacyAttempt.current = null
+      }} />
   )
 
   const labForm = (
@@ -677,6 +673,59 @@ function StatusChange({ option, lab, notice, disabled, confirmCancel, onChange, 
       >
         {notice ? <div id={noticeId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{notice}</div> : null}
         {ack.warning ? <AllergyWarningPanel idPrefix="rx-status" headingLevel={3} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
+          errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+      </RecordForm>
+    </div>
+  )
+}
+
+/**
+ * Send to Pharmacy: today's form (a reason of at least 8 characters, "Send to Pharmacy"), handing the active
+ * prescription to this facility's Pharmacy.
+ *
+ * The EHR checks the hand-off against the patient's allergies (hid-system#218), as it checks Activate and Resume: it is
+ * sent first with no acknowledgement (never one without a warning shown), and on the EHR's 409 the allergy warning
+ * appears here, with the tick and "Why is it safe to go ahead?", apart from the reason for the hand-off. Sent again with
+ * both, it carries the same reason and version under the same key. Closing the form leaves the order as it was, and
+ * drops the warning.
+ */
+function PharmacyHandoff({ disabled, onSend, warnAboutAllergies }: {
+  disabled: boolean
+  onSend: (why: string, allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<void>
+  warnAboutAllergies: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
+}) {
+  const ack = useAllergyAcknowledgement()
+
+  const submit = async (values: FormValues): Promise<SubmitOutcome> => {
+    // A warning shown: the tick and the reason first, each with its own error; nothing is sent without both.
+    const shown = ack.warning !== null
+    const acknowledgement = shown ? ack.acknowledgement() : null
+    if (shown && !acknowledgement) return { formError: ALLERGY_GO_AHEAD_ERROR }
+    try {
+      await onSend(reason(values), acknowledgement)
+    } catch (caught) {
+      const refusal = readAllergyRefusal(caught, acknowledgement !== null)
+      if (refusal) return { formError: await warnAboutAllergies(ack, refusal) }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        return { formError: ACK_REFUSED_ERROR }
+      }
+      return { formError: refusalText(caught, 'Send to Pharmacy could not be completed.') }
+    }
+  }
+
+  return (
+    <div className="hid-ehr-clinical-orders-action-form">
+      <p className="hid-ehr-clinical-orders-lead"><strong>Send active prescription to Pharmacy</strong></p>
+      <RecordForm
+        fields={[{ key: 'reason', label: 'Reason', required: true, maxLength: 500 }]}
+        validate={values => minimum(values, 8)}
+        submitLabel="Send to Pharmacy"
+        busyLabel="Working…"
+        disabled={disabled}
+        onSubmit={submit}
+      >
+        {ack.warning ? <AllergyWarningPanel idPrefix="rx-pharmacy" headingLevel={3} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
           errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       </RecordForm>
     </div>

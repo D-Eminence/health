@@ -71,6 +71,35 @@ describe('the allergy acknowledgement on the wire', () => {
     expect(sent[2]!.body).toEqual(plain)
   })
 
+  it('Send to Pharmacy (the hand-off) carries it only when given, under the same key (hid-system#218)', async () => {
+    const { sent, staffApi } = await staffClient({ id: 'pw-1' })
+    await staffApi.acceptPrescription(FACILITY, PATIENT, ENCOUNTER, ORDER, 3, 'Patient collecting today', 'handoff-key-0001')
+    await staffApi.acceptPrescription(FACILITY, PATIENT, ENCOUNTER, ORDER, 3, 'Patient collecting today', 'handoff-key-0001', ACK)
+    const path = `${BASE}/prescriptions/${ORDER}/pharmacy-work-item`
+    expect(sent.map(request => [request.method, request.url.pathname])).toEqual([['POST', path], ['POST', path]])
+    expect(sent[0]!.body).toEqual({ expectedRowVersion: 3, reason: 'Patient collecting today' })
+    expect(Object.keys(sent[0]!.body as object)).not.toContain('allergyAcknowledgement')
+    expect(sent[1]!.body).toEqual({ expectedRowVersion: 3, reason: 'Patient collecting today', allergyAcknowledgement: ACK })
+    expect(sent.map(request => request.headers.get('idempotency-key'))).toEqual(['handoff-key-0001', 'handoff-key-0001'])
+  })
+
+  it('reads the hand-off’s 409 as Activate’s: its warnings, its token and each refused part by code', async () => {
+    const problem = {
+      type: 'https://problems.example.test/allergy-acknowledgement-required', title: 'CONFLICT', status: 409,
+      detail: 'The allergy warning changed since it was shown. Check the allergies again and give a reason to go ahead.',
+      correlationId: 'req-3', code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED',
+      errors: [
+        { field: 'allergyAcknowledgement', messages: [MESSAGE] },
+        { field: 'allergyAcknowledgement.warningToken', messages: [TOKEN] },
+        { field: 'allergyAcknowledgement.rejected', code: 'ALLERGY_WARNING_TOKEN_STALE', messages: ['The allergy warning changed since it was shown.'] },
+      ],
+    }
+    const { staffApi, allergy } = await staffClient(problem, 409)
+    const caught = await staffApi.acceptPrescription(FACILITY, PATIENT, ENCOUNTER, ORDER, 3, 'Patient collecting today', 'handoff-key-0002', ACK)
+      .then(() => null, (error: unknown) => error)
+    expect(allergy.readAllergyRefusal(caught, true)).toEqual({ messages: [MESSAGE], warningToken: TOKEN, changedSinceShown: true })
+  })
+
   it('a create carries it only when given, never as an empty member', async () => {
     const { sent, staffApi, allergy: { withAllergyAcknowledgement } } = await staffClient({ id: ORDER })
     const body = { medicationDisplay: 'Amoxicillin 500 mg capsules', frequency: 'Three times daily', instructions: 'After meals', status: 'draft' }
@@ -182,6 +211,18 @@ describe('the contract registry describes what this page reads at hid-system#218
     const note = findEndpoint('ehr.allergyCheck')?.note ?? ''
     expect(note).toContain('a send to another facility (of a draft or an active prescription alike)')
     expect(note).not.toContain('a send of a draft')
+  })
+
+  it('Send to Pharmacy: the hand-off’s allergy 409 and its optional allergyAcknowledgement, sent again under the same key', () => {
+    const note = findEndpoint('ehr.prescriptionPharmacy')?.note ?? ''
+    for (const words of ['409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED', 'allergyAcknowledgement.warningToken', 'allergyAcknowledgement.rejected',
+      'optional allergyAcknowledgement { reason, warningToken }', 'same Idempotency-Key', 'stage handoff']) {
+      expect(note).toContain(words)
+    }
+    // The notes before it are kept.
+    expect(note).toContain('409 PRESCRIPTION_ROUTED')
+    expect(note).toContain('422 PRESCRIPTION_SOURCE_MISMATCH')
+    expect(findEndpoint('ehr.allergyCheck')?.note).toContain('the hand-off of an active prescription to this facility\'s Pharmacy')
   })
 
   it('entered in error: each refusal the chart reads, 409 ALLERGY_ALREADY_ENTERED_IN_ERROR included (L10)', () => {

@@ -77,8 +77,9 @@ export interface AllergyCheck {
 }
 
 /**
- * What a prescription create, Activate or Resume (PATCH), or a send of a prescription to another facility (a draft or an
- * active one alike), carries after an allergy warning.
+ * What a prescription create, Activate or Resume (PATCH), a send of a prescription to another facility (a draft or an
+ * active one alike), or the hand-off of an active prescription to this facility's Pharmacy (Send to Pharmacy, POST
+ * pharmacy-work-item, hid-system#218) carries after an allergy warning.
  */
 export interface AllergyAcknowledgement {
   reason: string

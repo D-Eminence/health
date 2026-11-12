@@ -9,8 +9,8 @@ import { text } from './orders'
 
 /**
  * The allergy warning where a prescription may go ahead over one (hid-system 0117, #218 at 7fbb04aa): a new
- * prescription, Activate, Resume, and sending a prescription (a draft or an active one) to another facility's pharmacy.
- * The pieces each form shares: the check, the stored medicine, and what a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED shows.
+ * prescription, Activate, Resume, sending a prescription (a draft or an active one) to another facility's pharmacy, and
+ * Send to Pharmacy (the hand-off to this facility's own, hid-system#218). The pieces each form shares: the check, the stored medicine, and what a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED shows.
  * The form holds the warning (useAllergyAcknowledgement) and sends an acknowledgement only after one was shown and
  * ticked: an EHR before 0117 refuses the property.
  */
@@ -40,14 +40,18 @@ export function checkAllergies(chart: Chart, medicine: WarnedMedicine): Promise<
     .catch(() => null)
 }
 
-/** The medicine a saved prescription holds, as the EHR checks it on Activate, Resume and send (its display and code). */
+/**
+ * The medicine a saved prescription holds, as the EHR checks it on Activate, Resume, a send and Send to Pharmacy (its
+ * display and code).
+ */
 export function storedMedicine(record: ClinicalRecord): WarnedMedicine {
   const code = text(record.medicationCode).trim()
   return { display: text(record.medicationDisplay), ...(code ? { code } : {}) }
 }
 
 /**
- * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED, on a new prescription, Activate, Resume and send alike. Answers
+ * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED, on a new prescription, Activate, Resume, a send and Send to
+ * Pharmacy alike. Answers
  * the form's error.
  *
  * - The reason alone refused (7fbb04aa: REASON_MISSING or REASON_INVALID, the token accepted): the warning did not

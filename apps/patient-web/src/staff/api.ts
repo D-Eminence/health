@@ -2373,9 +2373,11 @@ export const staffApi = {
   // or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. Both callers (Clinical.tsx and the blue
   // OrderPage.tsx, through words.ts prescriptionChanged) read the prescription again and say these in words.
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
-    prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
+    prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string, allergyAcknowledgement?: AllergyAcknowledgement) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
-      { expectedRowVersion, reason }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+      { expectedRowVersion, reason, ...(allergyAcknowledgement
+        ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   // Sends (or sends again) a saved active lab request to Lab at the version read
   // (hid-system #56). The body is exactly SendLabRequestToLabDto; the caller keeps
   // one key per attempt, so pressing again after no answer is the same send.

@@ -837,8 +837,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
     `${ALLERGIES_0117} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
     + '(warningToken: 64 lower-case hex, on every answer; kept only when acknowledgementRequired). A prescription create (a '
-    + 'draft too), Activate or Resume (PATCH status active) and a send to another facility (of a draft or an active '
-    + 'prescription alike) that match are refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one '
+    + 'draft too), Activate or Resume (PATCH status active), a send to another facility (of a draft or an active '
+    + 'prescription alike) and the hand-off of an active prescription to this facility\'s Pharmacy (ehr.prescriptionPharmacy) '
+    + 'that match are refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one '
     + 'allergyAcknowledgement entry per match, then '
     + 'allergyAcknowledgement.warningToken with the current token) until the body carries allergyAcknowledgement { reason '
     + '(10-500, a word of three letters), warningToken }; a token that is not the current warning\'s gets the same 409. From '
@@ -937,7 +938,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept'),
     'On Novu since P4c, 409 PRESCRIPTION_ROUTED while the prescription is sent to (or was accepted by) a pharmacy at another facility. '
     + "From hid-system 0100 (#139), Pharmacy's own check of the prescription, passed on by the EHR: 404 PRESCRIPTION_SOURCE_NOT_FOUND, "
-    + '409 PRESCRIPTION_SOURCE_NOT_ACTIVE or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH.'),
+    + '409 PRESCRIPTION_SOURCE_NOT_ACTIVE or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. '
+    + 'From hid-system#218 (0117) the hand-off is checked against the patient\'s allergies as Activate, Resume and a send '
+    + 'are: a match is refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (the same errors: one allergyAcknowledgement entry '
+    + 'per match, allergyAcknowledgement.warningToken with the current token, and allergyAcknowledgement.rejected entries '
+    + 'read by code) until the body carries the optional allergyAcknowledgement { reason, warningToken }. It is sent only '
+    + 'after a warning, and again under the same Idempotency-Key (nothing is written on the 409); the reason is stored '
+    + 'with the prescription as stage handoff.'),
   r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
     ORDER_LISTS_P4C),
   r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},

@@ -8,8 +8,9 @@ import {
 
 /**
  * The allergy warning at prescribing (hid-system 0117, #218 at 7fbb04aa), as the blue EHR shows it and the prescriber
- * acknowledges it: on a new prescription, on Activate and Resume, and on sending a prescription (a draft or an active
- * one) to another facility's pharmacy.
+ * acknowledges it: on a new prescription, on Activate and Resume, on sending a prescription (a draft or an active one)
+ * to another facility's pharmacy, and on Send to Pharmacy (the hand-off of an active prescription to this facility's
+ * Pharmacy, hid-system#218).
  *
  * - A warning comes from the allergy check (with every line's severity, reaction and how it matched) or from the save's
  *   409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (the EHR's sentences and the token only). Its token names exactly that warning.
@@ -227,7 +228,8 @@ export function warningFromCheck(check: AllergyCheck, medicine: WarnedMedicine, 
 }
 
 /**
- * A refused save, Activate, Resume or send read as the allergy 409; null for any other refusal. The detail is never
+ * A refused save, Activate, Resume, send or Send to Pharmacy read as the allergy 409; null for any other refusal. The
+ * detail is never
  * read or shown.
  *
  * At 7fbb04aa the 409 names each refused part by its code (allergyAcknowledgement.rejected): TOKEN_STALE is "changed
