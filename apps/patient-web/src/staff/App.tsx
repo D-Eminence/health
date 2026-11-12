@@ -32,6 +32,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
@@ -151,6 +152,10 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     }
     setStaffSessionReady(next.status === 'ready' && lockRef.current === null)
   }, [setLock])
+  // An outreach group's registrations kept on this device never wait longer than 14 days, whatever page is open: swept
+  // as the app starts and on every session change (ehr-blue/departments/outreach/offlineQueue.ts).
+  const sessionActorId = state.status === 'ready' ? state.session.actor.id : null
+  useEffect(() => { void purgeExpiredOutreachQueue() }, [state.status, sessionActorId])
   // In the commit that opens the workspace, not an effect a task later: a check made as soon as it opens finds the focus given back.
   useLayoutEffect(() => {
     if (lock !== null) return
@@ -387,7 +392,10 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // No next session can start meanwhile: signing in waits for a sign-out in progress.
     // So a sign-out answered while the session-ended screen shows also completes, as asked.
     // From a workspace locked for a check, the server is asked first whose session the browser holds.
+    const signedOut = currentSession.current?.actor.id ?? null
     await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
+    // Registrations this login kept on this device and never sent go with it: the queue's page says so before.
+    if (signedOut) await removeOutreachQueueEntriesFor(signedOut)
     startStaffSessionGeneration()
     startPeriod()
     away.current = null

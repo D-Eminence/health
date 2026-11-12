@@ -6,7 +6,7 @@ import { dateText } from '../parts/format'
 /*
  * Today's Patient registration page (staff/routes/Registration.tsx), its rules and every word it says, ported here
  * word for word: that page is not exported in reusable pieces. Each constant names the line it comes from. The words
- * the design adds (its headings, "Create record", "Back to list", "Not collected by Health ID yet") are marked so.
+ * the design adds (its headings, "Create record", "Back to list") are marked so.
  * Screens use plain words (the owner's rule): no server terms, no case id or version on screen, except the case's
  * reference under "More details", kept so a registration can be reopened on a later visit.
  */
@@ -170,14 +170,11 @@ export const NO_ACTIONS = 'Nothing else to do here.'
 export const NEXT_STEPS = 'Next steps'
 /** Goes to Patients with the patient's Health ID filled in, as classic registration's "Find … and open their chart". */
 export const OPEN_IN_PATIENTS = 'Open in Patients'
-/** Owner decision: a design field Health ID does not take is shown, disabled, with this hint. Never sent or kept. */
-export const NOT_COLLECTED = 'Not collected by Health ID yet'
-/** catalog.ts patients: the fields Health ID does not take. */
-export const PHONE_LABEL = 'Phone'
-export const ADDRESS_LABEL = 'Address'
-export const ALLERGIES_LABEL = 'Recorded allergies'
-export const PROVISIONAL_LABEL = 'Provisional local identity'
-export const EXISTING_HID_LABEL = 'Existing Health ID (optional)'
+/**
+ * The desk's contact for the patient and the Health ID they say they have (hid-system 0114): named, required fields,
+ * whose labels are collected/deskFields.ts DESK_LABELS. The design's allergies are left to clinical records and its
+ * "provisional local identity" is off (owner decisions D11, D12), so neither is shown.
+ */
 /** workflows.tsx 251-276: a design action Health ID cannot do, shown disabled with today's reason (NO_OVERRIDE). */
 export const DISTINCT_PERSON = 'Register reviewed duplicate as distinct person'
 /** catalog.ts patients actions: shown disabled with a one-line reason. */

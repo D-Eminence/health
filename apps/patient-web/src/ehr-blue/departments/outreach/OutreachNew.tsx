@@ -4,7 +4,10 @@ import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { ArrowLeft } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
 import { Button } from '../../../kasuwa/ui'
-import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../staff/api'
+import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
+import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
+import { outreachProblemText } from '../../../outreachProblems'
+import { waitsForNetwork, type PendingRegistration } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
 import {
@@ -44,10 +47,29 @@ const SAVE_ID = 'outreach-case-save'
  */
 export type CaseAttempt = { signature: string; command: { localCommandId: string; temporaryPatientId: string } } | null
 
-type CaseField = 'name' | 'age' | 'phone' | 'notes'
-const FIELD_ORDER: readonly CaseField[] = ['name', 'age', 'phone', 'notes']
+/** A parent or guardian's name, as Outreach and the database take it: 2 to 120 characters. */
+const GUARDIAN_NAME_LIMIT = 120
+const UNDER_18_METHOD = 'This person is under 18. Choose “Their parent or guardian agreed for them”.'
+/** An age entered as a whole number under 18. */
+const isMinorAge = (age: string) => age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) < 18
+
+type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'campaign' | 'notes'
+const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'campaign', 'notes']
 const FIELD_ID: Record<CaseField, string> = {
-  name: 'outreach-case-name', age: 'outreach-case-age', phone: 'outreach-case-phone', notes: 'outreach-case-notes',
+  method: 'outreach-consent-method-verbal_read_aloud', guardian: 'outreach-consent-guardian',
+  name: 'outreach-case-name', age: 'outreach-case-age', phone: 'outreach-case-phone', campaign: 'outreach-case-campaign',
+  notes: 'outreach-case-notes',
+}
+
+/**
+ * At an outreach group (open sign-up on outreach.): the group's name for the notice, and the device's queue, which keeps
+ * a registration that could not be sent. A hospital's outreach team has neither.
+ */
+export interface OutreachGroupForm {
+  readonly name: string
+  readonly queue: (entry: Pick<PendingRegistration, 'localCommandId' | 'temporaryPatientId' | 'input'>) => Promise<void>
+  /** A registration was kept on this device: the form is cleared for the next person. */
+  readonly onQueued: (fullName: string) => void
 }
 
 /**
@@ -56,13 +78,19 @@ const FIELD_ID: Record<CaseField, string> = {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, group, onBack, onSending, onCreated }: {
   readonly facilityId: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
   /** The campaigns a case may be registered under: active registration campaigns this membership belongs to. */
   readonly campaigns: readonly OutreachCampaign[]
   readonly attempt: MutableRefObject<CaseAttempt>
+  /**
+   * At an outreach group: the person's agreement comes first (the notice, its language, how they agreed, and a guardian
+   * for anyone under 18), a campaign is required, notes are kept short with no diagnoses, and a registration that could
+   * not be sent waits on this device. Absent at a hospital, where the form is today's.
+   */
+  readonly group?: OutreachGroupForm
   readonly onBack: () => void
   /** A case is being sent: what the last one said no longer applies. */
   readonly onSending: () => void
@@ -74,7 +102,13 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
   const [refusedBy, setRefusedBy] = useState<{ readonly name: string | undefined } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
+  const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
+  const [method, setMethod] = useState<OutreachConsentMethod | ''>('')
+  // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
+  const [minorAge, setMinorAge] = useState(false)
+  const [notesLength, setNotesLength] = useState(0)
   const focus = useFocusById()
+  const notesLimit = group ? OUTREACH_NOTES_LIMIT : 2000
 
   function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -105,6 +139,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
     const ageYears = Number(age)
     const phone = String(form.get('phone') ?? '').trim() || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
+    const guardianName = String(form.get('guardianName') ?? '').trim().replace(/\s+/g, ' ') || undefined
     // The last answer no longer applies.
     setError('')
     setRefusedBy(null)
@@ -116,6 +151,23 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
     else if (!Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) errors.age = AGE_RANGE
     if (phone !== undefined && phone.length < 3) errors.phone = AT_LEAST_THREE
     if (operationalNotes !== undefined && operationalNotes.length < 3) errors.notes = AT_LEAST_THREE
+    if (group) {
+      // At an outreach group, as Outreach and the database check: how the person agreed, a guardian for anyone under 18
+      // (or when a guardian agreed), a campaign, and notes of 280 characters at most.
+      const minor = isMinorAge(age)
+      if (!method) errors.method = 'Choose how the person agreed.'
+      else if (minor && method !== 'guardian') errors.method = UNDER_18_METHOD
+      if (!guardianName && (minor || method === 'guardian')) errors.guardian = minor
+        ? 'This person is under 18. Enter the name of the parent or guardian who agreed.'
+        : 'Enter the name of the parent or guardian who agreed.'
+      else if (guardianName && guardianName.length < 2) errors.guardian = 'Enter at least 2 characters.'
+      else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
+      if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
+        : 'You can register people only in a running registration campaign you belong to.'
+      if (operationalNotes !== undefined && operationalNotes.length > OUTREACH_NOTES_LIMIT) {
+        errors.notes = `Keep notes to ${OUTREACH_NOTES_LIMIT} characters, and do not write diagnoses.`
+      }
+    }
     const first = FIELD_ORDER.find(field => errors[field])
     if (first) {
       const here = document.activeElement?.id === FIELD_ID[first]
@@ -124,29 +176,52 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
       return
     }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    const input = { campaignId, fullName, sex, ageYears, phone, operationalNotes }
+    const input: OutreachCaseInput = { campaignId, fullName, sex, ageYears, phone, operationalNotes,
+      ...(group && method ? { consent: { textVersion: REGISTRATION_NOTICE_VERSION, language, method, ...(guardianName ? { guardianName } : {}) } } : {}) }
     const signature = JSON.stringify([facilityId, input])
     if (attempt.current?.signature !== signature) {
       attempt.current = { signature, command: { localCommandId: crypto.randomUUID(), temporaryPatientId: `tmp_${crypto.randomUUID()}` } }
     }
+    const { command } = attempt.current
     onSending()
     setBusy(true)
     try {
-      const created = await staffApi.createOutreachCase(facilityId, input, attempt.current.command)
+      const created = await staffApi.createOutreachCase(facilityId, input, command)
       attempt.current = null
       element.reset()
+      resetConsent()
       onCreated(created)
     } catch (caught) {
-      if (campaignId && campaignRefused(caught)) {
-        // Said in plain words with the one way on, and focus on it: no retry with the same button helps here.
+      if (group && waitsForNetwork(caught)) {
+        // Not reached Health ID, or it could not take it just now: kept on this device with its command, and sent again
+        // when the network is back. The same command is sent, so it is registered once.
+        try {
+          await group.queue({ ...command, input })
+          attempt.current = null
+          element.reset()
+          resetConsent()
+          group.onQueued(fullName)
+          return
+        } catch { /* the device could not keep it: said as the refusal below */ }
+      }
+      if (!group && campaignId && campaignRefused(caught)) {
+        // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
+        // outreach group, whose registrations always need their campaign.
         setRefusedBy({ name: campaigns.find(campaign => campaign.id === campaignId)?.name })
         focus(CAMPAIGN_REFUSED_ID)
       } else {
-        setError(errorText(caught, CREATE_FAILED))
+        setError(group ? outreachProblemText(caught, CREATE_FAILED) : errorText(caught, CREATE_FAILED))
       }
     } finally {
       setBusy(false)
     }
+  }
+
+  function resetConsent() {
+    setLanguage('en')
+    setMethod('')
+    setMinorAge(false)
+    setNotesLength(0)
   }
 
   const fieldError = (field: CaseField) => problems.errors[field]
@@ -156,11 +231,14 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
   const back = () => { if (!busy) onBack() }
   return (
     <FormPage title="New registration"
-      description="Register someone you meet in the field. They get a temporary record now, and you link it to their Health ID later."
+      description={group ? 'Register someone you meet at your event, once they agree. They can link their own Health ID to it later.'
+        : 'Register someone you meet in the field. They get a temporary record now, and you link it to their Health ID later.'}
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
       <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}>
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
-        <Step n={1} title="Who they are" hint="As they say it. You can correct it when you link their Health ID.">
+        {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage} onMethod={setMethod}
+          methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
+        <Step n={group ? 2 : 1} title="Who they are" hint={group ? 'As they say it.' : 'As they say it. You can correct it when you link their Health ID.'}>
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
             <EhrInput name="fullName" maxLength={200} required autoComplete="off" {...controlProps(FIELD_ID.name, fieldError('name'))} />
           </OutreachField>
@@ -174,17 +252,30 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
               </EhrSelect>
             </OutreachField>
             <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
-              <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)} />
+              <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
+                onChange={group ? event => {
+                  const minor = isMinorAge(event.target.value.trim())
+                  setMinorAge(minor)
+                  if (minor) setMethod('guardian')
+                } : undefined} />
             </OutreachField>
           </div>
         </Step>
-        <Step n={2} title="How to reach them" hint="Optional. Used to follow up.">
+        <Step n={group ? 3 : 2} title="How to reach them" hint="Optional. Used to follow up.">
           <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
             <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
           </OutreachField>
         </Step>
-        <Step n={3} title="Campaign and notes">
-          {showCampaign && (
+        <Step n={group ? 4 : 3} title="Campaign and notes">
+          {group ? (
+            <OutreachField id={FIELD_ID.campaign} label="Campaign" required {...field('campaign')}
+              hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.' : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
+              <EhrSelect name="campaignId" required {...controlProps(FIELD_ID.campaign, fieldError('campaign'), true)}>
+                {campaigns.length !== 1 ? <option value="">Choose a campaign</option> : null}
+                {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
+              </EhrSelect>
+            </OutreachField>
+          ) : showCampaign && (
             <OutreachField id={CAMPAIGN_FIELD} label="Campaign (optional)"
               hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.' : 'You aren’t in an active registration campaign. You can save without one.'}>
               <EhrSelect name="campaignId" {...controlProps(CAMPAIGN_FIELD, undefined, true)}>
@@ -193,8 +284,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
               </EhrSelect>
             </OutreachField>
           )}
-          <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" hint="Where you met them, what they need next. Not a clinical note." {...field('notes')}>
-            <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={2000} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)} />
+          <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
+            hint={group ? `Where you met them, what they need next. No diagnoses, test results or other health details. ${notesLength} of ${OUTREACH_NOTES_LIMIT} characters.`
+              : 'Where you met them, what they need next. Not a clinical note.'}>
+            <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
+              onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />
           </OutreachField>
         </Step>
         {refusedBy ? (
@@ -212,5 +306,58 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
         </FormActions>
       </form>
     </FormPage>
+  )
+}
+
+/**
+ * The person's agreement, before anything about them is written down (open sign-up on outreach.): that the group is an
+ * unverified organiser, and the notice, read to them or read by them, in the language chosen (any but English means it
+ * was read aloud in that language), how they agreed, and the name of the parent or guardian who agreed for anyone under
+ * 18.
+ */
+function ConsentStep({ group, language, method, minor, onLanguage, onMethod, methodError, methodAlert, guardian }: {
+  readonly group: string
+  readonly language: OutreachConsentLanguage
+  readonly method: OutreachConsentMethod | ''
+  /** The age entered is under 18: only a parent or guardian can agree. */
+  readonly minor: boolean
+  readonly onLanguage: (language: OutreachConsentLanguage) => void
+  readonly onMethod: (method: OutreachConsentMethod) => void
+  readonly methodError: string | undefined
+  readonly methodAlert: boolean
+  readonly guardian: { error: string | undefined; alert: boolean; seq: number }
+}) {
+  return (
+    <Step n={1} title="Their agreement" hint="Before you write anything down, give them this notice and ask if they agree.">
+      <div className="rounded-xl bg-subtle p-4 text-body text-ink" aria-label="Registration notice" role="note">
+        {/* Health ID never verifies an outreach group (owner decision Q38), and the person is told so before agreeing. */}
+        <p className="m-0 mb-2"><strong>Unverified organiser.</strong> Health ID has not checked who runs {group.trim() || 'this outreach group'}.</p>
+        {registrationNotice(group).map(line => <p key={line} className="m-0 mb-2 last:mb-0">{line}</p>)}
+      </div>
+      <OutreachField id="outreach-consent-language" label="Language the notice was given in" required
+        hint={language === 'en' ? 'Choose another language if you read it aloud in that language.' : 'You read the notice aloud in this language.'}>
+        <EhrSelect name="consentLanguage" value={language} onChange={event => onLanguage(event.target.value as OutreachConsentLanguage)}
+          {...controlProps('outreach-consent-language', undefined, true)}>
+          {CONSENT_LANGUAGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </EhrSelect>
+      </OutreachField>
+      <fieldset className="hid-ehr-field m-0 border-0 p-0" aria-describedby={methodError ? 'outreach-consent-method-error' : undefined}
+        aria-invalid={methodError ? true : undefined}>
+        <legend className="hid-ehr-label">How they agreed<span aria-hidden="true"> *</span></legend>
+        {CONSENT_METHODS.map(option => {
+          const closed = minor && option.value !== 'guardian'
+          return <label key={option.value} className="flex items-start gap-2 py-1" htmlFor={`outreach-consent-method-${option.value}`}>
+            <input id={`outreach-consent-method-${option.value}`} type="radio" name="consentMethod" value={option.value} disabled={closed}
+              checked={method === option.value} onChange={() => onMethod(option.value)} />
+            <span>{option.label}<span className="block text-caption text-ink-3">{closed ? 'Not for anyone under 18.' : option.hint}</span></span>
+          </label>
+        })}
+        {methodError ? <p id="outreach-consent-method-error" className="hid-ehr-error">{methodAlert ? <span role="alert">{methodError}</span> : methodError}</p> : null}
+      </fieldset>
+      <OutreachField id="outreach-consent-guardian" label="Parent or guardian’s name" hint="Required for anyone under 18." {...guardian}>
+        <EhrInput name="guardianName" maxLength={GUARDIAN_NAME_LIMIT} autoComplete="off" {...controlProps('outreach-consent-guardian', guardian.error, true)} />
+      </OutreachField>
+      <p className="m-0 text-caption text-ink-3">If they say no, don’t register them.</p>
+    </Step>
   )
 }

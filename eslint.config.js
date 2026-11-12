@@ -166,6 +166,13 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
+    // Open sign-up on outreach. (plan PR-5, the field critique): the one module allowed IndexedDB, for an outreach group's
+    // registrations that could not be sent yet, keyed by their command and kept for the account and facility that saved
+    // them, at most 14 days, until Health ID takes them (docs/ARCHITECTURE.md). Every other restriction stays.
+    files: ['apps/patient-web/src/ehr-blue/departments/outreach/offlineQueue.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
     // The portal's push-only worker (B6), a classic worker script: it shows a fixed notification and opens
     // Notifications. No fetch, Cache API, storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
     files: ['apps/patient-web/public/sw.js'],

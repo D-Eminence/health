@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { EhrBadge, EhrCard, EhrDataTable, EhrPageHeading, EhrStatCard, type EhrBadgeTone } from '@hid/ui/ehr'
+import { servedHere } from '../../productSites'
 import { useStaff } from '../../staff/App'
 import { useBluePages } from './pageContext'
 import { pageHrefOf } from './pageHref'
-import { PRODUCTS, productHere, productLists, type Product } from './product'
+import { PRODUCTS, pageListedInProduct, productHere, type Product } from './product'
 import type { EhrBluePageStatus } from './types'
 
 /** How each status reads, with its badge tone: never colour alone. */
@@ -50,12 +51,12 @@ export function framePartsOf(product: Product): typeof FRAME_PARTS {
  * What's left: every page the blue EHR has, from every pages.ts, with its status, and the frame's own parts. The owner's
  * checklist: as pages go live, their entries change here on their own. It names no permission: screens show no codes.
  * On a lab's, pharmacy's, outreach team's or migration site it lists only the pages that site offers, by the frame's own
- * rule (productLists), for the product the frame decides the same way (productHere), and its frame notes match that site.
+ * rule (pageListedInProduct), for the product the frame decides the same way (productHere), and its frame notes match that site.
  */
 export function WhatsLeft() {
   const { state } = useStaff()
   const product = productHere(state.status === 'ready' ? state.session : null)
-  const pages = useBluePages().filter(page => productLists(product, page.path))
+  const pages = useBluePages().filter(page => pageListedInProduct(product, page, servedHere))
   const counts = (['live', 'partial', 'sample'] as const).map(status => ({ status, count: pages.filter(page => page.status === status).length }))
   return <>
     <EhrPageHeading title="What’s left" description={product === 'ehr'

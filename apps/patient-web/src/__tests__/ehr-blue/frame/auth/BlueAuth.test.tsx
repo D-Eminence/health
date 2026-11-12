@@ -123,7 +123,8 @@ describe('BlueSignIn', () => {
     ['lab.healthidentitydirectory.com', 'Register a laboratory'],
     ['pharmacy.healthidentitydirectory.com', 'Register a pharmacy'],
     ['migrate.healthidentitydirectory.com', 'Register a hospital'],
-    ['outreach.staging.healthidentitydirectory.com', 'Register a hospital'],
+    // Open sign-up on outreach. (owner decisions of 11 November 2026): outreach.'s way in is the organiser sign-up.
+    ['outreach.staging.healthidentitydirectory.com', 'Start running outreach'],
     ['lab.staging.healthidentitydirectory.com', 'Register a laboratory'],
   ])('on %s, every way in stays on the site itself: %s, Forgot password? and Accept invitation', (hostname, register) => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })

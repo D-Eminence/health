@@ -116,12 +116,26 @@ async function openNew() {
   fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
   return screen.findByLabelText(/^National Identity Number/) as Promise<HTMLInputElement>
 }
-function fillNin({ nin = NIN, first = 'Patient', last = 'One', dob = '1990-01-02' } = {}) {
+function fillNin({ nin = NIN, first = 'Patient', last = 'One', dob = '1990-01-02', desk = true } = {}) {
   fireEvent.input(screen.getByLabelText(/^National Identity Number/), { target: { value: nin } })
   fireEvent.input(screen.getByLabelText(/^First name/), { target: { value: first } })
   fireEvent.input(screen.getByLabelText(/^Last name/), { target: { value: last } })
   fireEvent.input(screen.getByLabelText(/^Date of birth/), { target: { value: dob } })
+  if (desk) fillDesk()
 }
+/** The desk's contact for the patient and whether they have a Health ID (hid-system 0114): fictional. */
+function fillDesk({ hid = '' } = {}) {
+  fireEvent.input(screen.getByLabelText(/^Phone/), { target: { value: '0803 123 4567' } })
+  fireEvent.input(screen.getByLabelText(/^Address/), { target: { value: '3 Example Street' } })
+  fireEvent.input(screen.getByLabelText(/^City or town/), { target: { value: 'Ikeja' } })
+  fireEvent.change(screen.getByLabelText(/^State/), { target: { value: 'LA' } })
+  fireEvent.input(screen.getByLabelText(/^Local government area/), { target: { value: 'Ikeja' } })
+  fireEvent.change(screen.getByLabelText(/^Does the patient already have a Health ID/), { target: { value: hid ? 'yes' : 'no' } })
+  if (hid) fireEvent.input(screen.getByLabelText(/^Existing Health ID/), { target: { value: hid } })
+}
+/** What fillDesk sends with the NIN check (hid-system docs/INTERFACE_CONTRACT.md section 43.3). */
+const DESK = { phone: '+2348031234567', addressLine: '3 Example Street', city: 'Ikeja', stateCode: 'LA', lga: 'Ikeja',
+  hasExistingHealthId: false, existingHealthId: null }
 async function findCase(caseId = CASE) {
   renderDept(<PatientRegistration />)
   fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: caseId } })
@@ -322,7 +336,7 @@ describe('the list view', () => {
 })
 
 describe('the new record form', () => {
-  it('opens on its heading with today\'s live fields and the design\'s others shown, disabled, not collected', async () => {
+  it('opens on its heading with today\'s live fields, the desk\'s contact and existing Health ID required, and no allergies', async () => {
     const nin = await openNew()
     expect(heading().textContent).toBe('New patient registration')
     expect(document.activeElement).toBe(heading())
@@ -337,12 +351,22 @@ describe('the new record form', () => {
     const gender = screen.getByRole('combobox', { name: 'Gender (optional)' }) as HTMLSelectElement
     expect([...gender.options].map(option => [option.value, option.textContent]))
       .toEqual([['', 'Not supplied'], ['female', 'Female'], ['male', 'Male'], ['intersex', 'Intersex'], ['other', 'Other'], ['unknown', 'Unknown']])
-    for (const label of ['Phone', 'Address', 'Recorded allergies', 'Existing Health ID (optional)', 'Provisional local identity']) {
+    for (const [label, name] of [[/^Phone/, 'phone'], [/^Address/, 'addressLine'], [/^City or town/, 'city'], [/^State/, 'stateCode'],
+      [/^Local government area/, 'lga'], [/^Does the patient already have a Health ID/, 'hasExistingHealthId']] as const) {
       const control = screen.getByLabelText(label) as HTMLInputElement
-      expect(control.disabled).toBe(true)
-      expect(control.getAttribute('name')).toBeNull()
-      expect(described(control)).toBe('Not collected by Health ID yet')
+      expect(control.disabled, name).toBe(false)
+      expect(control.required, name).toBe(true)
+      expect(control.getAttribute('name')).toBe(name)
     }
+    expect(described(screen.getByLabelText(/^Phone/))).toBe('Kept by this facility to reach the patient. It is not used to sign in.')
+    // The existing Health ID only once the patient says they have one; allergies and "provisional local identity" are
+    // not asked here (owner decisions D11, D12), not even disabled.
+    expect(screen.queryByLabelText(/^Existing Health ID/)).toBeNull()
+    fireEvent.change(screen.getByLabelText(/^Does the patient already have a Health ID/), { target: { value: 'yes' } })
+    expect((screen.getByLabelText(/^Existing Health ID/) as HTMLInputElement).required).toBe(true)
+    expect(screen.queryByLabelText(/allerg/i)).toBeNull()
+    expect(screen.queryByText(/Provisional local identity/)).toBeNull()
+    expect(document.body.textContent).not.toContain('Not collected by Health ID yet')
     expect(screen.getByText('Enter the patient’s NIN, with their name and date of birth as they give them. The NIN is only used for the check, and is cleared from this form once the check is done.')).toBeTruthy()
     const distinct = screen.getByRole('button', { name: 'Register reviewed duplicate as distinct person' }) as HTMLButtonElement
     expect(distinct.disabled).toBe(true)
@@ -425,6 +449,35 @@ describe('the new record form', () => {
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Start with verified identity' }))
   })
 
+  it('refuses a missing or wrong desk field in plain words, at the field, and sends nothing', async () => {
+    await openNew()
+    fillNin({ desk: false })
+    fireEvent.input(screen.getByLabelText(/^Phone/), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText(/^Does the patient already have a Health ID/), { target: { value: 'yes' } })
+    fireEvent.input(screen.getByLabelText(/^Existing Health ID/), { target: { value: 'HID-OOOOOO' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
+    const phone = screen.getByLabelText(/^Phone/)
+    await waitFor(() => expectRefused(phone, 'Enter a phone number, for example 0803 123 4567 or +234 803 123 4567. '
+      + 'Kept by this facility to reach the patient. It is not used to sign in.'))
+    expectRefused(screen.getByLabelText(/^State/), 'Choose the state.')
+    expectRefused(screen.getByLabelText(/^Existing Health ID/),
+      'Enter the Health ID as written: HID-, then 6 to 32 letters and digits. Starts with HID-, for example HID-ABC234. Health IDs never use 0, 1, I or O.')
+    expect(document.activeElement).toBe(phone)
+    expect(api.resolveNin).not.toHaveBeenCalled()
+  })
+
+  it('sends the Health ID the patient says they have, in capitals', async () => {
+    api.resolveNin.mockResolvedValueOnce(pending())
+    api.registrationCase.mockResolvedValue(pending())
+    await openNew()
+    fillNin({ desk: false })
+    fillDesk({ hid: ' hid-abc234 ' })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
+    await waitFor(() => expect(api.resolveNin).toHaveBeenCalledTimes(1))
+    expect(api.resolveNin.mock.calls[0]?.[1]).toEqual({ nin: NIN, firstName: 'Patient', lastName: 'One', dateOfBirth: '1990-01-02',
+      ...DESK, hasExistingHealthId: true, existingHealthId: 'HID-ABC234' })
+  })
+
   it('refused from Enter in the field itself, says so as an alert there', async () => {
     const nin = await openNew()
     fillNin({ nin: '1234567890' })
@@ -445,7 +498,7 @@ describe('the new record form', () => {
     await waitFor(() => expect(api.resolveNin).toHaveBeenCalledTimes(2))
     const [first, second] = api.resolveNin.mock.calls
     expect(first?.[0]).toBe(DEMO_HOSPITAL_ID)
-    expect(first?.[1]).toEqual({ nin: NIN, firstName: 'Patient', lastName: 'One', dateOfBirth: '1990-01-02' })
+    expect(first?.[1]).toEqual({ nin: NIN, firstName: 'Patient', lastName: 'One', dateOfBirth: '1990-01-02', ...DESK })
     expect(first?.[2]).toBeTruthy()
     expect(second?.[2]).toBe(first?.[2])
     expect(nin.value).toBe('')
@@ -492,7 +545,7 @@ describe('the new record form', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
     await waitFor(() => expect(api.resolveNin).toHaveBeenCalledTimes(2))
     const [first, second] = api.resolveNin.mock.calls
-    expect(second?.[1]).toEqual({ nin: NIN, firstName: 'Patient A', lastName: 'One', dateOfBirth: '1990-01-02', gender: 'female' })
+    expect(second?.[1]).toEqual({ nin: NIN, firstName: 'Patient A', lastName: 'One', dateOfBirth: '1990-01-02', gender: 'female', ...DESK })
     expect(second?.[2]).not.toBe(first?.[2])
   })
 
