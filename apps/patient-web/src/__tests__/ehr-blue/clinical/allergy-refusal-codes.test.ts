@@ -167,8 +167,8 @@ describe('the words of a stored reason', () => {
   it('names the allergies it covered from the list, says plainly of one no longer on it, and never guesses a name it can’t read', () => {
     const list = shown([recorded(PENICILLIN_ID, 'Penicillin'), recorded(LATEX_ID, 'Latex', 'entered_in_error')])
     expect(coveredLine([PENICILLIN_ID], list)).toBe('Recorded allergy it covered: Penicillin (moderate).')
-    // Marked entered in error only where the list says so; an id missing from the list (marked since, an entry the page
-    // could not read, or past the list's 200) is said to be missing, and only "may" have been marked.
+    // Marked entered in error only where the list says so; an id missing from the list (marked since, or past the list's
+    // 200) is said to be missing, and only "may" have been marked.
     expect(coveredLine([PENICILLIN_ID, LATEX_ID, 'gone-1', 'gone-2'], list))
       .toBe('Recorded allergies it covered: Penicillin (moderate); Latex (moderate), since marked entered in error; '
         + '2 more recorded allergies no longer on the patient’s list (they may have been marked entered in error).')

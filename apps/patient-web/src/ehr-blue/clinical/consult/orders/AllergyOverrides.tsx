@@ -80,9 +80,9 @@ const allergies = (count: number) => count === 1 ? 'allergy' : 'allergies'
  * The recorded allergies a reason covered, named from the patient's allergy list (the active ones, every facility's):
  * "Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy no longer on the patient’s
  * list (it may have been marked entered in error)." Only an allergy the list itself says was entered in error is said to
- * be; an id missing from the list is said to be missing, since it may also be an entry the page could not read or one
- * past the list's 200. Where the list can't be read, the count only, and why the names are missing; never a name
- * guessed.
+ * be; an id missing from the list is said to be missing, since it may also be one past the list's 200. Where the list
+ * can't be read (one entry that can't be read makes the whole list unread), the count only, and why the names are
+ * missing; never a name guessed.
  */
 export function coveredLine(ids: readonly string[], state: AllergiesState): string {
   const head = `Recorded ${allergies(ids.length)} it covered: `

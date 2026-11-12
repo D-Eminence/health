@@ -832,8 +832,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('POST','ehr.note.write'),
     `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
     + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 409 ALLERGY_ALREADY_ENTERED_IN_ERROR when it already is; 412 '
-    + 'VERSION_CONFLICT. On either of the last two the chart reads the list again and says the allergy changed since it '
-    + 'was shown.')),
+    + 'VERSION_CONFLICT. On either of the last two the chart reads the list again and says so: on the 409 that the allergy '
+    + 'is already marked entered in error, on the 412 that it changed since it was shown.')),
   proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
     `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
     + '(warningToken: 64 lower-case hex, on every answer; kept only when acknowledgementRequired). A prescription create (a '

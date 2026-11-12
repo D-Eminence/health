@@ -38,11 +38,22 @@ const CONFIRM_ALLERGIES = 'Confirm allergies with the patient.'
 export function allergyChangedSinceShown(caught: unknown): boolean {
   if (!isHidApiError(caught)) return false
   return (caught.code === 'VERSION_CONFLICT' && (caught.status === 412 || caught.status === 409))
-    || (caught.status === 409 && caught.code === ALLERGY_ALREADY_ENTERED_IN_ERROR)
+    || allergyAlreadyEnteredInError(caught)
 }
 
-/** What the card says then, naming the allergy (its row may be gone once the list is read again). */
-export function allergyChangedText(substance: string): string {
+/** 409 ALLERGY_ALREADY_ENTERED_IN_ERROR: the allergy is marked entered in error already, by this request or another. */
+export function allergyAlreadyEnteredInError(caught: unknown): boolean {
+  return isHidApiError(caught) && caught.status === 409 && caught.code === ALLERGY_ALREADY_ENTERED_IN_ERROR
+}
+
+/**
+ * What the card says then, naming the allergy (its row may be gone once the list is read again). One already marked
+ * entered in error is said to be so, never as one that "was not marked", which could read as still active.
+ */
+export function allergyChangedText(substance: string, alreadyEnteredInError = false): string {
+  if (alreadyEnteredInError) {
+    return `The allergy to ${substance} has already been marked as entered in error. The allergies have been loaded again.`
+  }
   return `The allergy to ${substance} changed since it was shown, so it was not marked as entered in error. `
     + 'The allergies have been loaded again: check them before you try again.'
 }
@@ -303,9 +314,9 @@ function RecordedRow({ chart, item, canMark, onChanged }: {
       if (allergyChangedSinceShown(caught)) {
         // Not the allergy shown any more: the same version sent again would be refused every time. The form closes (what
         // was written stays, should it still be needed), the list is read again with each allergy's current version,
-        // and the card says why above it.
+        // and the card says why above it: changed since it was shown, or already marked entered in error.
         setMarking(false)
-        onChanged(allergyChangedText(item.substance))
+        onChanged(allergyChangedText(item.substance, allergyAlreadyEnteredInError(caught)))
         return
       }
       setError(refusalText(caught, 'The allergy could not be marked as entered in error. Please try again.'))

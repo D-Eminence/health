@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  AllergiesCard, NOTHING_REPORTED, SEVERITY_HINT, SEVERITY_TONES, allergyChangedSinceShown, allergyChangedText,
+  AllergiesCard, NOTHING_REPORTED, SEVERITY_HINT, SEVERITY_TONES, allergyAlreadyEnteredInError, allergyChangedSinceShown,
+  allergyChangedText,
 } from '../../../ehr-blue/clinical/patients/AllergiesCard'
 import { NOT_A_SUBSTANCE } from '../../../ehr-blue/clinical/parts/allergyWarning'
 import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
@@ -160,14 +161,19 @@ describe('Allergies card', () => {
     expect(screen.queryByText(allergyChangedText('Penicillin'))).toBeNull()
   })
 
-  it('409 ALLERGY_ALREADY_ENTERED_IN_ERROR: reads the list again and says so above it, though the allergy’s row is gone', async () => {
+  it('409 ALLERGY_ALREADY_ENTERED_IN_ERROR: reads the list again and says above it that the allergy is already marked, though its row is gone', async () => {
     api.markAllergyEnteredInError.mockRejectedValueOnce(new HidApiError(409, 'Allergy is already entered in error', { code: 'ALLERGY_ALREADY_ENTERED_IN_ERROR' }))
     api.allergies
       .mockResolvedValueOnce({ recorded: [here, elsewhere], patientReported: { allergies: 'Peanuts', updatedAt: null } })
       .mockResolvedValueOnce({ recorded: [elsewhere, { ...here, status: 'entered_in_error', rowVersion: 2 }], patientReported: { allergies: 'Peanuts', updatedAt: null } })
     render(<AllergiesCard chart={chartWith(['ehr.note.read', 'ehr.note.write'])} />)
     await markHere()
-    const said = await screen.findByText(allergyChangedText('Penicillin'))
+    const said = await screen.findByText(allergyChangedText('Penicillin', true))
+    // Said as done, never as "changed" or "not marked", which could read as an allergy still active.
+    expect(said.textContent).toBe('The allergy to Penicillin has already been marked as entered in error. The allergies have been loaded again.')
+    expect(document.activeElement).toBe(said)
+    expect(screen.queryByText(allergyChangedText('Penicillin'))).toBeNull()
+    expect(document.body.textContent).not.toMatch(/changed since it was shown|not marked as entered in error/)
     await waitFor(() => expect(api.allergies).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText('Penicillin')).toBeNull())
     // Still said, in the card, above the list it is about.
@@ -209,6 +215,8 @@ describe('Allergies card', () => {
     ['a failure that is not the EHR’s', new TypeError('x'), false],
   ])('reads %s as “changed since it was shown”: %s', (_label, caught, changed) => {
     expect(allergyChangedSinceShown(caught)).toBe(changed)
+    // Of those, only 409 ALLERGY_ALREADY_ENTERED_IN_ERROR is said as already marked.
+    expect(allergyAlreadyEnteredInError(caught)).toBe(caught instanceof HidApiError && caught.code === 'ALLERGY_ALREADY_ENTERED_IN_ERROR')
   })
 
   it('keeps the EHR’s order (most serious first), never sorting again, and shows where and when each was recorded', async () => {
