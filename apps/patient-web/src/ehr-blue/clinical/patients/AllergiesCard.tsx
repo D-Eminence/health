@@ -4,8 +4,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } f
 import { Badge, Button, Card, CardHeader, Field, Input, Select, type Tone } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
 import {
-  ALLERGY_SEVERITIES, REACTION_LIMIT, REASON_LIMIT, REASON_MIN, SEVERITY_LABELS, SUBSTANCE_LIMIT, isNoKnownAllergy,
-  type AllergySeverity, type RecordedAllergy,
+  ALLERGY_ALREADY_ENTERED_IN_ERROR, ALLERGY_SEVERITIES, REACTION_LIMIT, REASON_LIMIT, REASON_MIN, SEVERITY_LABELS, SUBSTANCE_LIMIT,
+  isNoKnownAllergy, type AllergySeverity, type RecordedAllergy,
 } from '../../../staff/allergies'
 import { refusalText } from '../../../staff/fieldProblem'
 import { NOT_A_SUBSTANCE, isNotASubstanceRefusal } from '../parts/allergyWarning'
@@ -29,6 +29,23 @@ export const NOTHING_REPORTED = 'The patient has not entered any allergies in th
 export const ALLERGIES_NOT_SHOWN = 'The patient’s allergies can’t be shown here. Confirm allergies with the patient.'
 export const ALLERGIES_UNREAD = 'The patient’s allergies could not be loaded. Confirm allergies with the patient.'
 const CONFIRM_ALLERGIES = 'Confirm allergies with the patient.'
+
+/**
+ * Marking an allergy entered in error was refused because it is no longer the allergy shown: 412 VERSION_CONFLICT (it
+ * changed since the list was read) or 409 ALLERGY_ALREADY_ENTERED_IN_ERROR (someone marked it already). Sending the same
+ * version again can never succeed, so the list is read again instead.
+ */
+export function allergyChangedSinceShown(caught: unknown): boolean {
+  if (!isHidApiError(caught)) return false
+  return (caught.code === 'VERSION_CONFLICT' && (caught.status === 412 || caught.status === 409))
+    || (caught.status === 409 && caught.code === ALLERGY_ALREADY_ENTERED_IN_ERROR)
+}
+
+/** What the card says then, naming the allergy (its row may be gone once the list is read again). */
+export function allergyChangedText(substance: string): string {
+  return `The allergy to ${substance} changed since it was shown, so it was not marked as entered in error. `
+    + 'The allergies have been loaded again: check them before you try again.'
+}
 
 /** What the card shows: recorded allergies only when the EHR serves them (hid-system 0124; 404 before). */
 export type AllergiesState =
@@ -145,10 +162,25 @@ export function AllergyLines({ allergies, lineClassName }: { allergies: Allergie
 /** The patient's allergies on the chart: recorded by clinicians, then reported by the patient, each labelled. */
 export function AllergiesCard({ chart }: { chart: Chart }) {
   const { state: allergies, reload } = useAllergies(chart)
+  // Said when a change was refused because the allergy changed since it was shown: above the list, since the row it is
+  // about may be gone once the list is read again, and only for the patient and facility it was said for. It takes focus
+  // (the form it came from has closed), each time it is said.
+  const scope = JSON.stringify([chart.facilityId, chart.patientId])
+  const [changed, setChanged] = useState<{ text: string; scope: string; seq: number } | null>(null)
+  const changedRef = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => { if (changed) changedRef.current?.focus() }, [changed])
+  /** After a change: the list read again; `said`, the allergy changed since it was shown, else nothing to say. */
+  const onChanged = (said?: string) => {
+    setChanged(current => said ? { text: said, scope, seq: (current?.seq ?? 0) + 1 } : null)
+    reload()
+  }
   if (allergies.status === 'hidden' || allergies.status === 'loading') return null
   return (
     <Card aria-labelledby="allergies-card-title">
       <CardHeader as="h2" titleId="allergies-card-title" title="Allergies" icon={AlertTriangle} iconTone="danger" />
+      {changed && changed.scope === scope ? (
+        <p key={changed.seq} ref={changedRef} tabIndex={-1} className="m-0 px-5 pb-3 text-sm font-medium text-danger-ink">{changed.text}</p>
+      ) : null}
       {allergies.status === 'failed' ? (
         <p className="m-0 px-5 pb-4 text-sm text-ink">
           The patient’s allergies could not be loaded. Confirm allergies with the patient.{' '}
@@ -156,13 +188,13 @@ export function AllergiesCard({ chart }: { chart: Chart }) {
             Try again
           </button>
         </p>
-      ) : <AllergyLists chart={chart} allergies={allergies} reload={reload} />}
+      ) : <AllergyLists chart={chart} allergies={allergies} onChanged={onChanged} />}
     </Card>
   )
 }
 
-function AllergyLists({ chart, allergies, reload }: {
-  chart: Chart; allergies: Extract<AllergiesState, { status: 'shown' }>; reload: () => void
+function AllergyLists({ chart, allergies, onChanged }: {
+  chart: Chart; allergies: Extract<AllergiesState, { status: 'shown' }>; onChanged: (said?: string) => void
 }) {
   // Adding and marking are offered only where the EHR serves them, to a role that records notes, with access to add.
   const records = allergies.recordedOffered && chart.canWrite && chart.can('ehr.note.write')
@@ -176,7 +208,7 @@ function AllergyLists({ chart, allergies, reload }: {
           {active.length === 0
             ? <p className="m-0 mt-1 text-sm text-ink-3">No allergies recorded by clinicians.</p>
             : <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
-              {active.map(item => <RecordedRow key={item.id} chart={chart} item={item} canMark={records && item.recordedHere} onChanged={reload} />)}
+              {active.map(item => <RecordedRow key={item.id} chart={chart} item={item} canMark={records && item.recordedHere} onChanged={onChanged} />)}
             </ul>}
         </section>
       ) : null}
@@ -185,7 +217,7 @@ function AllergyLists({ chart, allergies, reload }: {
         <p className="m-0 mt-1 text-[12px] text-ink-3">Entered by the patient in their Health ID portal, not clinically verified.{profileUpdated(allergies.reportedAt)}</p>
         <p className="m-0 mt-1 text-sm break-words whitespace-pre-line text-ink">{allergies.patientReported ?? NOTHING_REPORTED}</p>
       </section>
-      {records ? <AddAllergy chart={chart} onAdded={reload} /> : null}
+      {records ? <AddAllergy chart={chart} onAdded={() => onChanged()} /> : null}
     </div>
   )
 }
@@ -242,7 +274,9 @@ export function RecordedAllergyFacts({ item }: {
   )
 }
 
-function RecordedRow({ chart, item, canMark, onChanged }: { chart: Chart; item: RecordedAllergy; canMark: boolean; onChanged: () => void }) {
+function RecordedRow({ chart, item, canMark, onChanged }: {
+  chart: Chart; item: RecordedAllergy; canMark: boolean; onChanged: (said?: string) => void
+}) {
   const [marking, setMarking] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -266,6 +300,14 @@ function RecordedRow({ chart, item, canMark, onChanged }: { chart: Chart; item: 
       setMarking(false)
       onChanged()
     } catch (caught) {
+      if (allergyChangedSinceShown(caught)) {
+        // Not the allergy shown any more: the same version sent again would be refused every time. The form closes (what
+        // was written stays, should it still be needed), the list is read again with each allergy's current version,
+        // and the card says why above it.
+        setMarking(false)
+        onChanged(allergyChangedText(item.substance))
+        return
+      }
       setError(refusalText(caught, 'The allergy could not be marked as entered in error. Please try again.'))
     } finally {
       setBusy(false)

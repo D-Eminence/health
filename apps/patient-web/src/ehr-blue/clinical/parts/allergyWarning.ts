@@ -8,7 +8,8 @@ import {
 
 /**
  * The allergy warning at prescribing (hid-system 0124, #218 at 7fbb04aa), as the blue EHR shows it and the prescriber
- * acknowledges it: on a new prescription, on Activate and Resume, and on sending a draft to another pharmacy.
+ * acknowledges it: on a new prescription, on Activate and Resume, and on sending a prescription (a draft or an active
+ * one) to another facility's pharmacy.
  *
  * - A warning comes from the allergy check (with every line's severity, reaction and how it matched) or from the save's
  *   409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (the EHR's sentences and the token only). Its token names exactly that warning.

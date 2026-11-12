@@ -11,7 +11,8 @@ import { recordedAllergyLine, useAllergies, type AllergiesState } from '../../pa
  * The reasons given on this prescription to go ahead over an allergy warning (hid-system#218 at 7fbb04aa: the
  * prescription's allergyAcknowledgements), shown on its page above the actions, oldest first as the EHR serves them:
  * when, at which step, who, the reason in the prescriber's own words, and what it covered. The EHR may let Activate,
- * Resume or Send go ahead with no new warning when a reason here covers the allergies, so whoever presses sees it.
+ * Resume, a send to another facility or Send to Pharmacy go ahead with no new warning when a reason here covers the
+ * allergies, so whoever presses sees it.
  *
  * Shown only when there is one: `[]` is "none". An EHR before 7fbb04aa does not say: the page then says plainly that
  * this can't be shown (OVERRIDES_NOT_SHOWN), never that there is none. Read only: nothing here writes, and the reason
@@ -28,12 +29,16 @@ const TITLE_ID = 'order-allergy-overrides-title'
  */
 export const OVERRIDES_NOT_SHOWN = 'Whether an allergy warning was overridden on this prescription can’t be shown here.'
 
-/** The step the reason was given at, as the prescriber knows it. */
+/**
+ * The step the reason was given at, as the prescriber knows it: `send` is "Send to a pharmacy" (another facility's),
+ * `handoff` is "Send to Pharmacy" (this facility's own).
+ */
 export const STAGE_WORDS: Readonly<Record<AcknowledgementStage, string>> = {
   create: 'when it was prescribed',
   activate: 'when it was activated',
   resume: 'when it was resumed',
   send: 'when it was sent to a pharmacy',
+  handoff: 'when it was sent to this facility’s Pharmacy',
 }
 
 /**

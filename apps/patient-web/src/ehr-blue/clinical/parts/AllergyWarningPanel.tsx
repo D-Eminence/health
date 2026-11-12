@@ -9,9 +9,9 @@ import { ClinicalIcon } from './icons'
 
 /**
  * The allergy warning (hid-system 0124) wherever a prescription may go ahead over one: a new prescription, Activate,
- * Resume, and sending a draft to another pharmacy. Each line is the EHR's own sentence, whole (it already names the
- * allergy, its severity and reaction, and where and when it was recorded); a grouped line is one line. The prescriber
- * ticks the box and says why it is safe to go ahead; each has its own error.
+ * Resume, and sending a prescription (a draft or an active one) to another facility's pharmacy. Each line is the EHR's
+ * own sentence, whole (it already names the allergy, its severity and reaction, and where and when it was recorded); a
+ * grouped line is one line. The prescriber ticks the box and says why it is safe to go ahead; each has its own error.
  *
  * Controlled: the page holds the warning, the tick and the reason (useAllergyAcknowledgement), and checks them before
  * it sends. Not a live region, and it has none (Ola, W8): the page's error box is the one announcement. Focus moves to

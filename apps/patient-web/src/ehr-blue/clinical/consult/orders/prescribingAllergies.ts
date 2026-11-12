@@ -9,10 +9,10 @@ import { text } from './orders'
 
 /**
  * The allergy warning where a prescription may go ahead over one (hid-system 0124, #218 at 7fbb04aa): a new
- * prescription, Activate, Resume, and sending a draft to another pharmacy. The pieces each form shares: the check, the
- * stored medicine, and what a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED shows. The form holds the warning
- * (useAllergyAcknowledgement) and sends an acknowledgement only after one was shown and ticked: an EHR before 0124
- * refuses the property.
+ * prescription, Activate, Resume, and sending a prescription (a draft or an active one) to another facility's pharmacy.
+ * The pieces each form shares: the check, the stored medicine, and what a 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED shows.
+ * The form holds the warning (useAllergyAcknowledgement) and sends an acknowledgement only after one was shown and
+ * ticked: an EHR before 0124 refuses the property.
  */
 
 /** The form's error when the EHR refused a reason because the warning changed since it was read (the panel says so too). */

@@ -105,6 +105,17 @@ describe('a prescription’s stored reasons (allergyAcknowledgements, 7fbb04aa)'
     }] })
   })
 
+  it('reads every step the EHR stores, the hand-off to this facility’s Pharmacy (handoff, #218) included, and says it in plain words', () => {
+    const steps = ['create', 'activate', 'resume', 'send', 'handoff'] as const
+    const read = parsePrescriptionAllergyAcknowledgements(steps.map((stage, index) => ({ ...STORED, id: `${STORED.id}-${index}`, stage })))!
+    expect(read.unread).toBe(0)
+    expect(read.items.map(stored => stored.stage)).toEqual([...steps])
+    expect(read.items.map(stored => overrideLine(stored, MY_MEMBERSHIP))).toEqual([
+      'when it was prescribed', 'when it was activated', 'when it was resumed', 'when it was sent to a pharmacy',
+      'when it was sent to this facility’s Pharmacy',
+    ].map(words => `By you on ${formatWhen(STORED.createdAt)}, ${words}.`))
+  })
+
   it('counts an item it cannot read (no id or no reason) rather than dropping it in silence, and keeps a step it does not know as none', () => {
     const read = parsePrescriptionAllergyAcknowledgements([{ ...STORED, reason: ' ' }, { ...STORED, id: undefined }, 'x', { ...STORED, stage: 'later' }])!
     expect(read.unread).toBe(3)

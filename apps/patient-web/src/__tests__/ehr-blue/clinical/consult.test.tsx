@@ -6,6 +6,7 @@ import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/cons
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { consultationLabel } from '../../../plainLabels'
 import { ALLERGIES_NOT_SHOWN, ALLERGIES_UNREAD, NOTHING_REPORTED } from '../../../ehr-blue/clinical/patients/AllergiesCard'
+import { parseAllergyList } from '../../../staff/allergies'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -495,6 +496,8 @@ describe('New consultation', () => {
         [() => { api.allergies.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })) }, ALLERGIES_NOT_SHOWN],
         [() => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_UNREAD],
         [() => { api.allergies.mockResolvedValue({ recorded: 'not a list' }) }, ALLERGIES_UNREAD],
+        // One recorded allergy that can't be read fails the whole list (the real parser): never the rest as if complete.
+        [() => { api.allergies.mockImplementation(async () => parseAllergyList({ recorded: [{ id: 'a1240000-0000-4000-8000-000000000051', substance: 'Penicillin', reaction: null, severity: 'severe', status: 'active', rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }, { id: 'a1240000-0000-4000-8000-000000000052', substance: '', severity: 'mild', status: 'active', rowVersion: 1 }], patientReported: { allergies: null, updatedAt: null } })) }, ALLERGIES_UNREAD],
         [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })) }, ALLERGIES_NOT_SHOWN],
         [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
       ]

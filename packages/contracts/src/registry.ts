@@ -106,9 +106,10 @@ const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the 
  */
 const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (0124) each prescription read (every list item, and the '
   + 'one-prescription GET; never a write answer) also carries allergyAcknowledgements: the reasons given to go ahead over an '
-  + 'allergy warning, oldest first, [] when none, each { id, stage (create, activate, resume or send), reason, createdBy (an '
-  + 'account id), createdByMembershipId (the membership at this facility: "you" when it is the session\'s membership here), '
-  + 'createdAt, matchedRecordedAllergyIds, patientReportedMatched, patientReportedTerms }. The member absent comes from an '
+  + 'allergy warning, oldest first, [] when none, each { id, stage (create, activate, resume, send, or handoff: given when '
+  + 'handing an active prescription to this facility\'s Pharmacy), reason, createdBy (an account id), createdByMembershipId '
+  + '(the membership at this facility: "you" when it is the session\'s membership here), createdAt, '
+  + 'matchedRecordedAllergyIds, patientReportedMatched, patientReportedTerms }. The member absent comes from an '
   + 'EHR without the allergy check, where no warning can have been overridden, so the page says nothing about overrides; '
   + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
 /** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
@@ -830,12 +831,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
     one('POST','ehr.note.write'),
     `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
-    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 412 VERSION_CONFLICT.')),
+    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 409 ALLERGY_ALREADY_ENTERED_IN_ERROR when it already is; 412 '
+    + 'VERSION_CONFLICT. On either of the last two the chart reads the list again and says the allergy changed since it '
+    + 'was shown.')),
   proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
     `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
     + '(warningToken: 64 lower-case hex, on every answer; kept only when acknowledgementRequired). A prescription create (a '
-    + 'draft too), Activate or Resume (PATCH status active) and a send of a draft to another facility that match are refused '
-    + 'with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one allergyAcknowledgement entry per match, then '
+    + 'draft too), Activate or Resume (PATCH status active) and a send to another facility (of a draft or an active '
+    + 'prescription alike) that match are refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one '
+    + 'allergyAcknowledgement entry per match, then '
     + 'allergyAcknowledgement.warningToken with the current token) until the body carries allergyAcknowledgement { reason '
     + '(10-500, a word of three letters), warningToken }; a token that is not the current warning\'s gets the same 409. From '
     + 'hid-system#218 at 7fbb04aa the 409 also names each refused part in an allergyAcknowledgement.rejected entry, read by code '

@@ -76,7 +76,10 @@ export interface AllergyCheck {
   warningToken: string
 }
 
-/** What a prescription create, Activate or Resume (PATCH) or a send of a draft carries after an allergy warning. */
+/**
+ * What a prescription create, Activate or Resume (PATCH), or a send of a prescription to another facility (a draft or an
+ * active one alike), carries after an allergy warning.
+ */
 export interface AllergyAcknowledgement {
   reason: string
   warningToken: string
@@ -125,7 +128,7 @@ const isMatchKind = (value: unknown): value is AllergyMatchKind =>
   typeof value === 'string' && (ALLERGY_MATCH_KINDS as readonly string[]).includes(value)
 const id = (value: unknown): string | null => typeof value === 'string' && value.trim() !== '' ? value : null
 
-/** One recorded allergy; one that is not one is dropped, never shown half-read. */
+/** One recorded allergy; null when it is not one, never shown half-read. */
 export function parseRecordedAllergy(value: unknown): RecordedAllergy | null {
   if (!record(value) || typeof value.id !== 'string') return null
   const substance = text(value.substance, SUBSTANCE_LIMIT)
@@ -141,13 +144,22 @@ export function parseRecordedAllergy(value: unknown): RecordedAllergy | null {
   }
 }
 
+/**
+ * The patient's allergy list. One that is not one throws, as a failed read does, and so does a list with any recorded
+ * allergy that can't be read (as parseAllergyCheck and the emergency read do): an allergy is never dropped in silence, so
+ * the rest is never shown as if it were the whole list. Every screen then says the allergies could not be loaded.
+ */
 export function parseAllergyList(value: unknown): AllergyList {
-  if (!record(value) || !Array.isArray(value.recorded)) throw new Error('The allergies could not be read.')
-  const reported = record(value.patientReported) ? value.patientReported : {}
-  return {
-    recorded: value.recorded.flatMap(item => parseRecordedAllergy(item) ?? []),
-    patientReported: { allergies: text(reported.allergies, 1000), updatedAt: time(reported.updatedAt) },
+  const unread = () => new Error('The allergies could not be read.')
+  if (!record(value) || !Array.isArray(value.recorded)) throw unread()
+  const recorded: RecordedAllergy[] = []
+  for (const item of value.recorded) {
+    const allergy = parseRecordedAllergy(item)
+    if (!allergy) throw unread()
+    recorded.push(allergy)
   }
+  const reported = record(value.patientReported) ? value.patientReported : {}
+  return { recorded, patientReported: { allergies: text(reported.allergies, 1000), updatedAt: time(reported.updatedAt) } }
 }
 
 /** One line of the check; null when it is not one (the whole answer is then unread, never shown in part). */
@@ -245,8 +257,12 @@ export function refusalRejections(details: unknown): AllergyRejectionCode[] | nu
   return codes.length > 0 ? codes : null
 }
 
-/** When a reason to go ahead over an allergy warning was given: on create, Activate, Resume, or sending a draft elsewhere. */
-export const ACKNOWLEDGEMENT_STAGES = ['create', 'activate', 'resume', 'send'] as const
+/**
+ * When a reason to go ahead over an allergy warning was given: on create, Activate, Resume, sending the prescription to
+ * another facility (a draft or an active one), or handing an active prescription to this facility's Pharmacy (handoff,
+ * hid-system#218).
+ */
+export const ACKNOWLEDGEMENT_STAGES = ['create', 'activate', 'resume', 'send', 'handoff'] as const
 export type AcknowledgementStage = typeof ACKNOWLEDGEMENT_STAGES[number]
 
 /**
@@ -315,5 +331,7 @@ export function parsePrescriptionAllergyAcknowledgements(value: unknown): Prescr
 }
 
 export const ALLERGY_ACKNOWLEDGEMENT_REQUIRED = 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED'
+/** 409 from marking a recorded allergy entered in error when it already is (someone marked it since it was read). */
+export const ALLERGY_ALREADY_ENTERED_IN_ERROR = 'ALLERGY_ALREADY_ENTERED_IN_ERROR'
 /** 400 from recording an allergy that is "NKDA", "No known allergies", "none" and the like (no errors member). */
 export const ALLERGY_NOT_A_SUBSTANCE = 'ALLERGY_NOT_A_SUBSTANCE'

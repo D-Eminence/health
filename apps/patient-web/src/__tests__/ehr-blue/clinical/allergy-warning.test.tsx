@@ -121,10 +121,18 @@ describe('the allergy check’s answer (7fbb04aa)', () => {
     expect(read.matches[1]!.message).toBe(long)
   })
 
-  it('reads the class names as the EHR writes them, carbapenems included', () => {
+  it('reads the class names as the EHR writes them, carbapenems, fluoroquinolones and macrolides included', () => {
+    // The page keeps no list of classes: a class the EHR adds (#218: fluoroquinolones, macrolides) is read and shown as written.
     const carbapenem = { ...MODERATE_ELSEWHERE, className: 'carbapenems' }
-    expect(check([SULFA_TERM, MILD_NSAID, carbapenem]).matches.map(match => match.className))
-      .toEqual(['sulfonamides (“sulfa” medicines)', 'NSAIDs, the anti-inflammatory painkillers', 'carbapenems'])
+    const fluoroquinolone = { ...SEVERE_HERE, substance: 'Ciprofloxacin', className: 'fluoroquinolones',
+      message: 'Ciprofloxacin allergy: SEVERE (Anaphylaxis). This medicine is one of the fluoroquinolones, the same group. Recorded by a clinician at this facility on 3 Mar 2026.' }
+    const macrolide = { ...MILD_NSAID, allergyId: ID_3, allergyIds: [ID_3], substance: 'Erythromycin', className: 'macrolides',
+      message: 'Erythromycin allergy: mild (Rash). This medicine is one of the macrolides, the same group. Recorded by a clinician at another facility on 5 Jan 2026.' }
+    const read = check([SULFA_TERM, MILD_NSAID, carbapenem, fluoroquinolone, macrolide])
+    expect(read.matches.map(match => match.className))
+      .toEqual(['sulfonamides (“sulfa” medicines)', 'NSAIDs, the anti-inflammatory painkillers', 'carbapenems', 'fluoroquinolones', 'macrolides'])
+    expect(warningLines(read.matches).map(line => line.message)).toContain(fluoroquinolone.message)
+    expect(warningLines(read.matches).map(line => line.message)).toContain(macrolide.message)
   })
 })
 

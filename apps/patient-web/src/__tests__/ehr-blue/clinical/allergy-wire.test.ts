@@ -136,6 +136,20 @@ describe('the allergy check and its refusals on the wire', () => {
       reasonRefused: 'invalid', tokenRefused: true })
   })
 
+  it('reads the allergy list whole, and refuses it whole when one recorded allergy can’t be read (L9)', async () => {
+    const allergy = (id: string, substance: string) => ({ id, substance, reaction: null, severity: 'moderate', status: 'active', rowVersion: 1,
+      createdAt: '2026-11-01T09:00:00.000Z', enteredInErrorReason: null, recordedHere: true })
+    const good = { recorded: [allergy('a1240000-0000-4000-8000-000000000061', 'Penicillin'), allergy('a1240000-0000-4000-8000-000000000062', 'Latex')],
+      patientReported: { allergies: 'Peanuts', updatedAt: null } }
+    const first = await staffClient(good)
+    expect((await first.staffApi.allergies(FACILITY, PATIENT)).recorded.map(item => item.substance)).toEqual(['Penicillin', 'Latex'])
+    expect(first.sent[0]!.url.pathname).toBe(`/api/v1/ehr/patients/${PATIENT}/allergies`)
+
+    vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetModules()
+    const second = await staffClient({ ...good, recorded: [good.recorded[0], { ...good.recorded[1], status: 'superseded' }] })
+    await expect(second.staffApi.allergies(FACILITY, PATIENT)).rejects.toThrow('The allergies could not be read.')
+  })
+
   it('reads 400 ALLERGY_NOT_A_SUBSTANCE when "NKDA" is recorded as an allergy', async () => {
     const { staffApi, allergy } = await staffClient({ title: 'BAD_REQUEST', status: 400, code: 'ALLERGY_NOT_A_SUBSTANCE',
       detail: 'Record the medicine or substance the patient reacts to. "No known allergies" is not recorded as an allergy.' }, 400)
@@ -154,13 +168,25 @@ describe('the contract registry describes what this page reads at hid-system#218
     }
   })
 
-  it('the prescription reads: allergyAcknowledgements on each, where absent means it can’t be shown', () => {
+  it('the prescription reads: allergyAcknowledgements on each, where absent means it can’t be shown, and each step, handoff included', () => {
     for (const name of ['ehr.prescriptions', 'ehr.prescription']) {
       const note = findEndpoint(name)?.note ?? ''
       expect(note).toContain('allergyAcknowledgements')
       expect(note).toContain('createdByMembershipId')
       expect(note).toContain('absent')
+      expect(note).toContain('stage (create, activate, resume, send, or handoff')
     }
+  })
+
+  it('the allergy check: a send to another facility is checked for a draft and an active prescription alike', () => {
+    const note = findEndpoint('ehr.allergyCheck')?.note ?? ''
+    expect(note).toContain('a send to another facility (of a draft or an active prescription alike)')
+    expect(note).not.toContain('a send of a draft')
+  })
+
+  it('entered in error: each refusal the chart reads, 409 ALLERGY_ALREADY_ENTERED_IN_ERROR included (L10)', () => {
+    const note = findEndpoint('ehr.allergyEnteredInError')?.note ?? ''
+    for (const words of ['409 ALLERGY_RECORDED_ELSEWHERE', '409 ALLERGY_ALREADY_ENTERED_IN_ERROR', '412 VERSION_CONFLICT']) expect(note).toContain(words)
   })
 
   it('the emergency read: allergies { recorded, patientReported }, where absent means they can’t be shown', () => {

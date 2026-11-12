@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AllergiesCard, NOTHING_REPORTED, SEVERITY_HINT, SEVERITY_TONES } from '../../../ehr-blue/clinical/patients/AllergiesCard'
+import {
+  AllergiesCard, NOTHING_REPORTED, SEVERITY_HINT, SEVERITY_TONES, allergyChangedSinceShown, allergyChangedText,
+} from '../../../ehr-blue/clinical/patients/AllergiesCard'
 import { NOT_A_SUBSTANCE } from '../../../ehr-blue/clinical/parts/allergyWarning'
 import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
@@ -122,6 +124,93 @@ describe('Allergies card', () => {
       { expectedRowVersion: 1, reason: 'Recorded for the wrong patient' }))
   })
 
+  /** Opens the mark form on the allergy recorded here, gives a reason and sends it. */
+  async function markHere(reason = 'Recorded for the wrong patient') {
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as entered in error' }))
+    fireEvent.change(screen.getByLabelText('Why was this recorded in error?'), { target: { value: reason } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Mark as entered in error' })[0]!)
+  }
+
+  it('412 VERSION_CONFLICT on marking: reads the list again, says plainly the allergy changed, and a second try sends its new version', async () => {
+    api.markAllergyEnteredInError
+      .mockRejectedValueOnce(new HidApiError(412, 'Allergy changed since it was loaded', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ ...here, status: 'entered_in_error', rowVersion: 3 })
+    api.allergies
+      .mockResolvedValueOnce({ recorded: [here, elsewhere], patientReported: { allergies: 'Peanuts', updatedAt: null } })
+      .mockResolvedValueOnce({ recorded: [{ ...here, rowVersion: 2 }, elsewhere], patientReported: { allergies: 'Peanuts', updatedAt: null } })
+    render(<AllergiesCard chart={chartWith(['ehr.note.read', 'ehr.note.write'])} />)
+    await markHere()
+    const said = await screen.findByText(allergyChangedText('Penicillin'))
+    expect(said.textContent).toBe('The allergy to Penicillin changed since it was shown, so it was not marked as entered in error. '
+      + 'The allergies have been loaded again: check them before you try again.')
+    // Said where the closed form was, so it is read out; never "Please try again", and never the EHR's own words.
+    expect(document.activeElement).toBe(said)
+    expect(screen.queryByLabelText('Why was this recorded in error?')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Please try again|changed since it was loaded|VERSION_CONFLICT/)
+    await waitFor(() => expect(api.allergies).toHaveBeenCalledTimes(2))
+    // Tried again, it sends the version the list now holds, with what was written.
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as entered in error' }))
+    expect((screen.getByLabelText('Why was this recorded in error?') as HTMLInputElement).value).toBe('Recorded for the wrong patient')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Mark as entered in error' })[0]!)
+    await waitFor(() => expect(api.markAllergyEnteredInError).toHaveBeenCalledTimes(2))
+    expect(api.markAllergyEnteredInError).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, here.id,
+      { expectedRowVersion: 2, reason: 'Recorded for the wrong patient' })
+    // Done: the list is read again, and the card no longer says it changed.
+    await waitFor(() => expect(api.allergies).toHaveBeenCalledTimes(3))
+    expect(screen.queryByText(allergyChangedText('Penicillin'))).toBeNull()
+  })
+
+  it('409 ALLERGY_ALREADY_ENTERED_IN_ERROR: reads the list again and says so above it, though the allergy’s row is gone', async () => {
+    api.markAllergyEnteredInError.mockRejectedValueOnce(new HidApiError(409, 'Allergy is already entered in error', { code: 'ALLERGY_ALREADY_ENTERED_IN_ERROR' }))
+    api.allergies
+      .mockResolvedValueOnce({ recorded: [here, elsewhere], patientReported: { allergies: 'Peanuts', updatedAt: null } })
+      .mockResolvedValueOnce({ recorded: [elsewhere, { ...here, status: 'entered_in_error', rowVersion: 2 }], patientReported: { allergies: 'Peanuts', updatedAt: null } })
+    render(<AllergiesCard chart={chartWith(['ehr.note.read', 'ehr.note.write'])} />)
+    await markHere()
+    const said = await screen.findByText(allergyChangedText('Penicillin'))
+    await waitFor(() => expect(api.allergies).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('Penicillin')).toBeNull())
+    // Still said, in the card, above the list it is about.
+    expect(said.isConnected).toBe(true)
+    const recorded = screen.getByRole('heading', { level: 3, name: 'Recorded by clinicians' })
+    expect(said.compareDocumentPosition(recorded) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Mark as entered in error' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Please try again|already entered in error|ALLERGY_ALREADY/)
+  })
+
+  it('keeps saying it when the list read after it fails, beside the read’s own failure', async () => {
+    api.markAllergyEnteredInError.mockRejectedValueOnce(new HidApiError(412, 'Changed', { code: 'VERSION_CONFLICT' }))
+    api.allergies
+      .mockResolvedValueOnce({ recorded: [here], patientReported: { allergies: null, updatedAt: null } })
+      .mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' }))
+    render(<AllergiesCard chart={chartWith(['ehr.note.read', 'ehr.note.write'])} />)
+    await markHere()
+    expect(await screen.findByText(/could not be loaded\. Confirm allergies with the patient\./)).toBeTruthy()
+    expect(screen.getByText(allergyChangedText('Penicillin'))).toBeTruthy()
+  })
+
+  it('any other refusal stays in the form, as before, and reads nothing again', async () => {
+    api.markAllergyEnteredInError.mockRejectedValueOnce(new HidApiError(409, 'Recorded elsewhere', { code: 'ALLERGY_RECORDED_ELSEWHERE' }))
+    render(<AllergiesCard chart={chartWith(['ehr.note.read', 'ehr.note.write'])} />)
+    await markHere()
+    await waitFor(() => expect(api.markAllergyEnteredInError).toHaveBeenCalledTimes(1))
+    await act(async () => {})
+    expect(screen.getByLabelText('Why was this recorded in error?')).toBeTruthy()
+    expect(screen.queryByText(allergyChangedText('Penicillin'))).toBeNull()
+    expect(api.allergies).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['412 VERSION_CONFLICT', new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }), true],
+    ['409 VERSION_CONFLICT', new HidApiError(409, 'x', { code: 'VERSION_CONFLICT' }), true],
+    ['409 ALLERGY_ALREADY_ENTERED_IN_ERROR', new HidApiError(409, 'x', { code: 'ALLERGY_ALREADY_ENTERED_IN_ERROR' }), true],
+    ['409 ALLERGY_RECORDED_ELSEWHERE', new HidApiError(409, 'x', { code: 'ALLERGY_RECORDED_ELSEWHERE' }), false],
+    ['412 with another code', new HidApiError(412, 'x', { code: 'PRECONDITION_FAILED' }), false],
+    ['a failure that is not the EHR’s', new TypeError('x'), false],
+  ])('reads %s as “changed since it was shown”: %s', (_label, caught, changed) => {
+    expect(allergyChangedSinceShown(caught)).toBe(changed)
+  })
+
   it('keeps the EHR’s order (most serious first), never sorting again, and shows where and when each was recorded', async () => {
     // As the EHR answers: severe, not known, moderate, mild. Neither by name nor by date, so a sort here would show.
     const row = (n: number, substance: string, severity: string, createdAt: string, recordedHere: boolean) =>
@@ -232,6 +321,8 @@ describe('Allergies card', () => {
 
   it.each([
     ['an answer it cannot read', () => api.allergies.mockResolvedValueOnce({ recorded: 'not a list' })],
+    ['a list with one recorded allergy it cannot read (L9)', () => api.allergies.mockImplementationOnce(async () =>
+      parseAllergyList({ recorded: [here, { ...elsewhere, rowVersion: 'two' }], patientReported: { allergies: 'Peanuts', updatedAt: null } }))],
     ['no answer at all', () => api.allergies.mockResolvedValueOnce(null)],
     ['a failure that is not the EHR’s (a parse error)', () => api.allergies.mockRejectedValueOnce(new TypeError('The answer could not be read.'))],
     ['the patient’s text before 0124 not read', () => {
@@ -264,12 +355,24 @@ describe('Allergies card', () => {
 })
 
 describe('allergy parsers', () => {
-  it('reads the list, dropping a row that is not one', () => {
-    const list = parseAllergyList({ recorded: [here, { id: 'x' }, { ...here, id: 'y', severity: 'odd' }], patientReported: { allergies: '  ', updatedAt: 'nope' } })
+  it('reads the list, an odd severity as not known', () => {
+    const list = parseAllergyList({ recorded: [here, { ...here, id: 'y', severity: 'odd' }], patientReported: { allergies: '  ', updatedAt: 'nope' } })
     expect(list.recorded.map(item => item.id)).toEqual([here.id, 'y'])
     expect(list.recorded[1]!.severity).toBe('unknown')
     expect(list.patientReported).toEqual({ allergies: null, updatedAt: null })
+    expect(parseAllergyList({ recorded: [], patientReported: null })).toEqual({ recorded: [], patientReported: { allergies: null, updatedAt: null } })
     expect(() => parseAllergyList({})).toThrow()
+  })
+
+  it.each([
+    ['with no substance', { ...here, substance: ' ' }],
+    ['with no id', { ...here, id: undefined }],
+    ['with no version', { ...here, rowVersion: null }],
+    ['with a status it does not know', { ...here, status: 'refuted' }],
+    ['that is not an object', 'Penicillin'],
+  ])('fails the whole list for one recorded allergy %s, never dropping it in silence (L9)', (_label, odd) => {
+    expect(() => parseAllergyList({ recorded: [here, odd, elsewhere], patientReported: { allergies: 'Peanuts', updatedAt: null } }))
+      .toThrow('The allergies could not be read.')
   })
 
   it('reads the check and a refusal’s warning messages; a line it cannot read fails the whole answer', () => {

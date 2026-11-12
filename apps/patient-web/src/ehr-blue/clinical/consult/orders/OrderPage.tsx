@@ -327,8 +327,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   }
 
   /**
-   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume or a send of this draft (0124): the warning
-   * for the medicine the prescription holds, shown in the form that was sent, which answers what to say.
+   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume or a send to another facility (0124; a
+   * draft's send or an active prescription's alike): the warning for the medicine the prescription holds, shown in the
+   * form that was sent, which answers what to say.
    */
   const warnAboutAllergies = (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) =>
     warnAfterRefusal({ ack, refusal, medicine: storedMedicine(record), chart })
@@ -406,9 +407,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   }
 
   /**
-   * Sends the order to another facility. A draft prescription's send is checked against the patient's allergies (0124):
-   * it carries `allergyAcknowledgement` only when sent again after the EHR's warning, under the same key (nothing was
-   * written on the 409, and the send's digest leaves the acknowledgement out). A lab request never carries one.
+   * Sends the order to another facility. A prescription's send, a draft's or an active one's, is checked against the
+   * patient's allergies (0124): it carries `allergyAcknowledgement` only when sent again after the EHR's warning, under
+   * the same key (nothing was written on the 409, and the send's digest leaves the acknowledgement out). A lab request
+   * never carries one.
    */
   async function sendOrder(destination: OrderDestination, attestationTextVersion: string, key: string,
     allergyAcknowledgement: AllergyAcknowledgement | null = null) {

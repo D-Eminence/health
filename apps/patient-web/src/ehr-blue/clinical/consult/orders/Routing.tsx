@@ -198,10 +198,11 @@ export function DestinationFields({ context, kind, priority, value, onChange, re
  * Today's SendToFacility, opened from its action button: the facility, the attestation, then "Send to {facility}".
  * `onSend` sends at the order's version; a refusal that means the wording changed reloads it, cleared.
  *
- * A draft prescription's send is checked against the patient's allergies by the EHR (0124; `warnAboutAllergies`): it
- * is sent first with no acknowledgement (never one without a warning shown), and on the EHR's 409 the allergy warning
- * appears here with the tick and "Why is it safe to go ahead?". Sent again with both, it is the same send under the
- * same key. Cancel leaves the order as it was, and drops the warning. A lab request is never checked.
+ * A prescription's send, a draft's or an active one's, is checked against the patient's allergies by the EHR (0124;
+ * `warnAboutAllergies`): it is sent first with no acknowledgement (never one without a warning shown), and on the
+ * EHR's 409 the allergy warning appears here with the tick and "Why is it safe to go ahead?". Sent again with both, it
+ * is the same send under the same key. Cancel leaves the order as it was, and drops the warning. A lab request is never
+ * checked.
  */
 export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnAboutAllergies }: {
   kind: OrderRouteKind
