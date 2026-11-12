@@ -33,9 +33,11 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * and can't complete), which no hid-system release serves yet; and phone and
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
- * the push keys as well; and Outreach campaign management's governance and
- * campaign staff reads (hid-system#222, migration 0111): callers treat a 404 as
- * "not available yet" and show nothing.
+ * the push keys as well; Outreach campaign management's governance and
+ * campaign staff reads (hid-system#222, migration 0111); and Migrate learning's
+ * "Reading quality" counts, Session B's per-facility OCR quality summary, on a
+ * hid-system branch and not on main yet: callers treat a 404 as "not available
+ * yet" and show nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -1078,6 +1080,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ocr.validations','ocr','/api/v1/ocr/jobs/:jobId/validations',GP,false,{GET:['ocr.job.read'],POST:['ocr.validation.write']}),
   r('ocr.patientConfirmation','ocr','/api/v1/ocr/jobs/:jobId/patient-confirmation',P,false,one('POST','ocr.patient.confirm')),
   r('ocr.publications','ocr','/api/v1/ocr/validations/:validationId/publications',GP,false,{GET:['ocr.job.read'],POST:['ocr.publication.write']}),
+  // Session B's review-outcome summary (hid-system claude/ecstatic-ramanujan-q4i1eo-ocr-review-outcomes, #236), not on
+  // main yet, for the one facility named by X-Facility-ID. Either a platform administrator (platform.admin.access and
+  // platform.operations.read) or that facility's manager (workforce.manage there), so no permission list is recorded
+  // (permissions here are all-required); the note names both. Migrate's "Reading quality" view reads it
+  // (ehr-blue/departments/migrate/readingQualityApi.ts); 404 until served.
+  proposed(r('ocr.qualitySummary','ocr','/api/v1/ocr/quality/summary',G,false,undefined,
+    'On a hid-system branch, not main. Requires platform.admin.access and platform.operations.read (platform '
+    + 'administrators), or workforce.manage at the X-Facility-ID facility, which must be the current one and not awaiting '
+    + 'support review (its manager); otherwise 403. from/to optional YYYY-MM-DD (default the last 28 days, at most 92); '
+    + 'widened to ISO weeks. A manager gets finished weeks only, groups fewer than 3 reviewers checked suppressed, and '
+    + '{ available: false, reason: "too_few_reviewers" } when fewer than 3 reviewers contributed.')),
 
   r('outreach.campaigns','outreach','/api/v1/outreach/registration-cases/campaigns',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   proposed(r('outreach.campaignGovernance','outreach','/api/v1/outreach/registration-cases/campaigns/governance',G,false,one('GET','outreach.campaign.read'),

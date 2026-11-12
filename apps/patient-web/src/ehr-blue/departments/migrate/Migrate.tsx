@@ -23,6 +23,10 @@ import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
 import { NewJobPick, type NewJobPicked } from './NewJobPick'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
+import { learnReviewLearningServed, useReadingQualityServed } from '../../../readingLearningServed'
+import { ReadingQualityView } from './ReadingQuality'
+import { qualityReader } from './readingQualityApi'
+import { saysReviewLearning } from '../../../readingLearningContract'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
   type PaperReading,
@@ -88,7 +92,7 @@ function PatientAccessLinks({ permissions }: { readonly permissions: readonly st
 /** A job this page has read, and when. */
 interface OpenedJob { readonly job: OcrJob; readonly readAt: string }
 
-type View = 'list' | 'new' | 'detail'
+type View = 'list' | 'new' | 'detail' | 'quality'
 /** The steps opened with a button of their own; Check and save and Confirm the patient are on the page as they come due. */
 type ActionId = 'retry' | 'reject'
 
@@ -209,7 +213,13 @@ function ViewTitle({ children }: { readonly children: ReactNode }) {
 
 export function Migrate() {
   const { facilityId, permissions, actorId } = useDeptAccess()
-  const { lock } = useStaff()
+  const { lock, state: staffState } = useStaff()
+  // Migrate learning's "Reading quality": for a platform administrator, or for this facility's own manager (the facility
+  // its read sends as X-Facility-ID), as Session B decides it, and offered until its read answers 404 (readingQualityApi.ts).
+  const reader = qualityReader(staffState.status === 'ready' ? staffState.session.actor : undefined, facilityId)
+  const readsQuality = reader !== null
+  const qualityServed = useReadingQualityServed()
+  const qualityOffered = readsQuality && qualityServed !== false
   // OCR's parts need OCR job read (so does the page); Patient documents needs document read, as the clinical record's
   // Documents tab does, and checks it itself.
   const canRead = permissions.includes('ocr.job.read')
@@ -332,7 +342,11 @@ export function Migrate() {
     if (!facilityId || !visibleJob?.id || !canRead) return
     let active = true
     void Promise.all([staffApi.ocrExtractions(facilityId, visibleJob.id), staffApi.ocrValidations(facilityId, visibleJob.id)])
-      .then(([extractionResult, validationResult]) => { if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) } })
+      .then(([extractionResult, validationResult]) => {
+        // Migrate learning stays dormant until an extraction says the backend takes it (each carries reviewLearning: true).
+        if (extractionResult.items.some(saysReviewLearning)) learnReviewLearningServed(true)
+        if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) }
+      })
       .catch(caught => { if (active) setError(errorText(caught, 'The OCR review evidence could not be loaded.')) })
     return () => { active = false }
   }, [facilityId, visibleJob?.id, canRead, lookupRevision])
@@ -436,6 +450,18 @@ export function Migrate() {
     openRequest.current += 1
     setView('list'); setAction(null); setProblem(null); setCreateError('')
     focus(['migrate-documents-title', 'ocr-find-title'])
+  }
+
+  /** Migrate learning: the facility's reading quality, opened from the list. */
+  function openQuality() {
+    openRequest.current += 1
+    setView('quality'); setQuick(null); setAction(null); setProblem(null); setNotice('')
+    focus('migrate-view-title')
+  }
+
+  function backFromQuality() {
+    setView('list')
+    focus(['ocr-quality-open', 'ocr-find-title'])
   }
 
   function startNew(documentId = '') {
@@ -602,7 +628,8 @@ export function Migrate() {
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
   const creating = view === 'new' && canWrite
-  const title = detail ? jobName(detail, fileNames) : creating ? 'New document job' : 'Document OCR'
+  const quality = view === 'quality' && readsQuality
+  const title = detail ? jobName(detail, fileNames) : creating ? 'New document job' : quality ? 'Reading quality' : 'Document OCR'
   // Mounted throughout, in the same place in every view, so a message put in it is announced.
   const status = <div key="status" id="ocr-status" role="status" className="hid-ehr-dept-migrate-status">{notice && <DeptNotice tone="positive">{notice}</DeptNotice>}</div>
   return <>
@@ -611,10 +638,13 @@ export function Migrate() {
     <div key="reading" id="ocr-reading" role="status" className="hid-ehr-dept hid-ehr-dept-migrate-starting">
       {reading && <p>{READING_THE_PAGE}</p>}
     </div>
-    {!reading && <DeptPage key="page" title={<ViewTitle>{title}</ViewTitle>} onBack={detail || creating ? backToList : undefined}
-      primaryAction={!detail && !creating && canWrite ? <EhrButton onClick={() => startNew()}>Create record</EhrButton> : undefined}>
+    {!reading && <DeptPage key="page" title={<ViewTitle>{title}</ViewTitle>} onBack={detail || creating ? backToList : quality ? backFromQuality : undefined}
+      primaryAction={!detail && !creating && !quality && canWrite ? <EhrButton onClick={() => startNew()}>Create record</EhrButton> : undefined}
+      secondaryActions={!detail && !creating && !quality && qualityOffered
+        ? <EhrButton id="ocr-quality-open" variant="secondary" onClick={openQuality}>Reading quality</EhrButton> : undefined}>
       {status}
-      {detail ? <Fragment key="detail">{jobRecord(detail)}</Fragment> : creating ? <Fragment key="new">{newJob()}</Fragment> : <Fragment key="list">{jobList()}</Fragment>}
+      {detail ? <Fragment key="detail">{jobRecord(detail)}</Fragment> : creating ? <Fragment key="new">{newJob()}</Fragment>
+        : quality ? <Fragment key="quality"><ReadingQualityView facilityId={facilityId} finishedWeeksOnly={reader === 'facility_manager'} /></Fragment> : <Fragment key="list">{jobList()}</Fragment>}
       <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
         {quick && <div className="hid-ehr-dept-migrate-quick">
           <h3>{jobName(quick.job, fileNames)}</h3>
@@ -627,9 +657,9 @@ export function Migrate() {
     {/* Mounted in every view and hidden outside the list (and while a document is sent for reading), so going back to
         the list does not read the patient, the consent, the encounters and the documents again (each read is audited),
         and keeps the encounter and page chosen. */}
-    <div key="capture" hidden={Boolean(detail || creating || reading)}>
+    <div key="capture" hidden={Boolean(detail || creating || quality || reading)}>
       <div className="hid-ehr-dept">
-        <DocumentCapture facilityId={facilityId} permissions={permissions} onExtract={extract} paused={Boolean(detail || creating || reading)} />
+        <DocumentCapture facilityId={facilityId} permissions={permissions} onExtract={extract} paused={Boolean(detail || creating || quality || reading)} />
       </div>
     </div>
   </>
