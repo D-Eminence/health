@@ -158,6 +158,21 @@ export function productSignInHref(slug: string): string {
   return site ? new URL('provider/sign-in', site).href : APP_ENTRY.staffSignIn
 }
 
+/** The outreach product's main way in: an organiser signs up to run outreach (health#221). */
+export const OUTREACH_SIGN_UP_CTA = 'Start running outreach'
+
+/**
+ * Where an outreach organiser signs up: /provider/enroll on the outreach product site of this build's deployment, the
+ * address that site gives the organiser sign-up (health#221, productHostname.ts outreachSignUpHref), and absolute for
+ * the same reason as productSignInHref. In local development, where there is no product site, the local portal's
+ * organiser sign-up (/provider/start-outreach). Outreach is not a facility product, so this is never facility sign-up
+ * (productSignUpHref, /provider/apply).
+ */
+export function outreachSignUpHref(): string {
+  const site = productSiteHref('outreach')
+  return site ? new URL('provider/enroll', site).href : `${PORTAL_ORIGIN}/provider/start-outreach`
+}
+
 export interface Audience {
   readonly id: 'patient' | 'provider'
   readonly title: string

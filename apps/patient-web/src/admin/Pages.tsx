@@ -229,6 +229,7 @@ const CONTROL_NAMES: Readonly<Record<string, string>> = {
   clinician_signup_enabled: 'Clinician sign-up',
   cross_facility_orders_enabled: 'Orders between facilities',
   cross_facility_route_access_enabled: 'Work on orders from other facilities',
+  outreach_organiser_signup_enabled: 'Sign-up to run outreach',
 }
 const controlName = (key: string) => CONTROL_NAMES[key] ?? label(key.replace(/_enabled$/, ''))
 
@@ -243,6 +244,10 @@ const CONTROL_NOTES: Readonly<Record<string, string>> = {
   // P4c (Novu), seeded on: off only to stop all work on accepted orders at once if something goes wrong.
   cross_facility_route_access_enabled: 'Lets labs and pharmacies work on accepted orders from other facilities. Turn it off only '
     + 'to stop all of that work at once.',
+  // Open sign-up on outreach. (owner decisions of 11 November 2026), seeded off.
+  outreach_organiser_signup_enabled: 'Lets volunteers, NGOs and community groups sign up on Health ID Outreach, and lets a staff '
+    + 'login start its own outreach group. Health ID does not check a new group before its campaigns start, so someone should '
+    + 'watch “Outreach organisers” and pause any group that misuses it. Turning it off stops new sign-ups; existing groups carry on.',
 }
 
 function ControlAction({ control, reload }: { control: PlatformControl; reload: () => void }) {

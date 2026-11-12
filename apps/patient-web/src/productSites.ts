@@ -112,7 +112,10 @@ function siteIn(deployment: Deployment, key: SiteKey): Site {
  * a staff invitation and clinician sign-up. Every staff site serves its own (owner, 2026-11-02); where each page's own
  * links lead is the page's (productHostname.ts), not this table's.
  */
-const PUBLIC_STAFF_PAGES: ReadonlySet<string> = new Set(['sign-in', 'recover', 'enroll', 'invitation', 'join'])
+// With open sign-up on outreach. (owner decisions of 11 November 2026): the organiser sign-up, its terms and an outreach
+// invitation, public pages outside the workspace too.
+const PUBLIC_STAFF_PAGES: ReadonlySet<string> = new Set(['sign-in', 'recover', 'enroll', 'invitation', 'join', 'start-outreach',
+  'outreach-terms', 'outreach-invitation'])
 
 type SingleProduct = Exclude<StaffProductKey, 'ehr'>
 const SINGLE_PRODUCTS: readonly SingleProduct[] = ['lab', 'pharmacy', 'migrate', 'outreach']
