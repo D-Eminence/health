@@ -1406,6 +1406,22 @@ describe('Migrate: a reading blanked after 7 days (hid-system 0110)', () => {
     expect(document.body.textContent).not.toContain('Metf?rmin')
   })
 
+  it('says the reading was deleted in Check and save, not that nothing was picked out', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, contentDeleted: true }] })
+    await findJob(awaiting)
+    const check = await screen.findByRole('form', { name: 'Check and save' })
+    expect(within(check).getByText('Reading deleted after 7 days. You can keep the document only, or reject this reading.')).toBeTruthy()
+    expect(check.textContent).not.toContain('No items were picked out')
+  })
+
+  it('keeps today’s words in Check and save for a fresh reading that picked out nothing', async () => {
+    api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: null, structuredPayload: {}, createdAt: new Date().toISOString() }] })
+    await findJob(awaiting)
+    const check = await screen.findByRole('form', { name: 'Check and save' })
+    expect(within(check).getByText('No items were picked out to check one by one. You can keep the document only, or reject this reading.')).toBeTruthy()
+    expect(check.textContent).not.toContain('Reading deleted')
+  })
+
   it('still shows the text under Details for a reading the server keeps', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, rawText: 'Seen in clinic', structuredPayload: {}, contentDeleted: false }] })
     await findJob(awaiting)

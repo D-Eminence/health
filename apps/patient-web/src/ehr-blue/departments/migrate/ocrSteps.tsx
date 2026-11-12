@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea, type EhrBadgeTone } from '@hid/ui/ehr'
 import {
@@ -14,12 +14,15 @@ import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
-import { readingDeleted } from './readingDeleted'
+import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, REPORT_DATE_FIELD, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
+import { MissedItems, RejectionReasonField, ItemReason, MedicineChange, useSeenItems } from './learning'
+import { useReviewLearningServed } from '../../../readingLearningServed'
+import type { RejectionReason } from '../../../readingLearningContract'
 import { usePaperListsServed } from './paperRecordsApi'
 
 /*
@@ -131,10 +134,15 @@ function sameWords(words: string): string {
  * One item read from the paper, on one line as it is written, with Keep, Change and Remove; a Check mark and Why? when
  * to check. When what Keep saves is not the line as written, it is shown under it, so nothing is saved unseen.
  */
-function ReviewItemCard({ item, index, decision, problem, onChange }: {
+function ReviewItemCard({ item, index, decision, problem, onChange, learning = false, onSeen }: {
   readonly item: PaperItem; readonly index: number; readonly decision: ItemDecision; readonly problem: FieldProblem | null
   readonly onChange: (decision: ItemDecision) => void
+  /** Migrate learning, only while the backend serves it: reasons, the medicine form, and saying the card was seen. */
+  readonly learning?: boolean; readonly onSeen?: (itemId: string, element: HTMLElement | null) => (() => void) | undefined
 }) {
+  const groupRef = useRef<HTMLDivElement>(null)
+  // Migrate learning: the card counts as seen once it is on screen, or once it is touched or focused.
+  useEffect(() => onSeen?.(item.id, groupRef.current), [onSeen, item.id])
   const cardId = itemCardId(index)
   const nameId = `${cardId}-name`
   const line = itemLine(item)
@@ -145,8 +153,9 @@ function ReviewItemCard({ item, index, decision, problem, onChange }: {
   const stateSeen = decision.choice === 'remove' || decision.choice === 'change'
   const saved = keptText(item)
   const showSaved = decision.choice !== 'change' && decision.choice !== 'remove' && sameWords(saved) !== sameWords(line)
-  return <li className="hid-ehr-dept-migrate-check-item" data-item-id={item.id}>
-    <div id={cardId} role="group" tabIndex={-1} aria-labelledby={nameId} aria-describedby={cardError ? `${cardId}-error` : undefined}
+  const touched = onSeen ? () => { onSeen(item.id, null) } : undefined
+  return <li className="hid-ehr-dept-migrate-check-item" data-item-id={item.id} onFocusCapture={touched} onPointerDown={touched}>
+    <div ref={groupRef} id={cardId} role="group" tabIndex={-1} aria-labelledby={nameId} aria-describedby={cardError ? `${cardId}-error` : undefined}
       aria-invalid={cardError ? true : undefined}>
       <div className="hid-ehr-dept-migrate-check-head">
         <strong id={nameId}><ItemLineText item={item} /></strong>
@@ -159,7 +168,9 @@ function ReviewItemCard({ item, index, decision, problem, onChange }: {
       </div>
       {showSaved && <span className="hid-ehr-dept-muted">{`Keep saves: ${saved}`}</span>}
       {cardError && <p id={`${cardId}-error`} className="hid-ehr-error">{cardError}</p>}
-      {decision.choice === 'change' && (item.kind === 'lab_result'
+      {decision.choice === 'change' && (learning && item.kind === 'medicine'
+        ? <MedicineChange item={item} index={index} decision={decision} problem={problem} onChange={onChange} />
+        : item.kind === 'lab_result'
         // A lab result is changed as its test and its result, so a corrected value is filed under the right test.
         ? <>
           <EhrField label="Test" controlId={itemTestId(index)} error={problemText(problem, itemTestId(index))}>
@@ -172,6 +183,9 @@ function ReviewItemCard({ item, index, decision, problem, onChange }: {
         : <EhrField label="What the paper says" controlId={itemTextId(index)} error={problemText(problem, itemTextId(index))}>
           <EhrInput value={decision.text} maxLength={2_000} autoComplete="off" onChange={event => onChange({ ...decision, text: event.target.value })} />
         </EhrField>)}
+      {/* The optional why comes after the change itself, so it never stands in front of the work. */}
+      {learning && (decision.choice === 'remove' || decision.choice === 'change')
+        && <ItemReason index={index} decision={decision} onChange={onChange} />}
     </div>
   </li>
 }
@@ -237,6 +251,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [extractionId, setExtractionId] = useState(newestOf(extractions)?.id ?? '')
   const selected = extractions.find(item => item.id === extractionId) ?? newestOf(extractions)
   const reading = readingOf(selected)
+  const deleted = !!selected && readingDeleted(selected)
   const items = reviewItems(reading)
   const canAttachNote = !!job.patientId && permissions.includes('ehr.encounter.read')
   const offered = offeredDomains(reading, canAttachNote)
@@ -251,6 +266,12 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const focus = useFocusById()
   const validating = disposition === 'validated'
+  // Migrate learning, dormant until the backend says it takes it: with it off, the form is today's, and sends today's.
+  const learning = useReviewLearningServed() === true
+  const seen = useSeenItems()
+  const [missed, setMissed] = useState('')
+  const [rejectionReason, setRejectionReason] = useState<RejectionReason | ''>('')
+  const clearProblem = useCallback(() => setProblem(null), [])
   const { visits, retry, more } = useVisits(facilityId, job.patientId, validating && saveAs === 'EHR')
   const noteVisits = visitsForNote(visits?.items ?? [], facilityId)
 
@@ -259,6 +280,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     setExtractionId(id)
     setDecisions(initialDecisions(reviewItems(readingOf(next))))
     setProblem(null)
+    seen.forget(); setMissed(''); setRejectionReason('')
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -269,8 +291,9 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     if (!selected) { setProblem(refusal({ field: 'ocr-review-reason', message: 'There is no reading to check yet.' })); return }
     const built = validating
       ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason,
-        ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}) })
-      : buildRejection(selected.id, reason)
+        ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}),
+        ...(learning ? { learning: { itemsSeen: seen.ids(), missed } } : {}) })
+      : buildRejection(selected.id, reason, learning ? { rejectionReason } : undefined)
     if ('problem' in built) {
       // With no visit to choose from, the choice to change is Save as.
       const shown = built.problem.field === 'ocr-review-visit' && noteVisits.length === 0
@@ -297,6 +320,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   </>
   if (!validating) return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label={label} onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">Nothing read from this document is kept. The document itself stays where it is.</p>
+    {learning && <RejectionReasonField value={rejectionReason} onChange={setRejectionReason} />}
     {reasonField}
     {actions}
   </form>
@@ -319,11 +343,16 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
           {/* Each card keeps its place among all the items read, the place buildValidation names it by. */}
           {items.map((item, index) => isUnreadable(item) ? null : <ReviewItemCard key={`${selected?.id}-${item.id}`} item={item} index={index}
             decision={decisions[item.id] ?? { choice: null, text: readingLine(item) }} problem={problem}
-            onChange={decision => { setDecisions(current => ({ ...current, [item.id]: decision })); setProblem(null) }} />)}
+            onChange={decision => { setDecisions(current => ({ ...current, [item.id]: decision })); setProblem(null) }}
+            {...(learning ? { learning, onSeen: seen.watch } : {})} />)}
         </ul>
       </>
-      : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
+      : deleted
+        // A reading blanked after 7 days has nothing to check: say so, not that nothing was picked out.
+        ? <p className="hid-ehr-dept-muted">{`${READING_DELETED}. You can keep the document only, or reject this reading.`}</p>
+        : <p className="hid-ehr-dept-muted">No items were picked out to check one by one. You can keep the document only, or reject this reading.</p>}
     <UnreadableLines items={items} />
+    {learning && reading && <MissedItems missed={missed} problem={problem} onChange={next => { setMissed(next); clearProblem() }} />}
     {offered.length > 1
       ? <EhrField label="Save as" controlId="ocr-review-domain" hint={SAVE_AS_HINTS[saveAs]} error={problemText(problem, 'ocr-review-domain')}>
         <EhrSelect value={saveAs} onChange={event => { setSaveAs(event.target.value as SaveAs); setProblem(null) }}>
