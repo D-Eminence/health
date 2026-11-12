@@ -5,7 +5,7 @@ import { learnLateCorrectionFrom } from '../../../../lateCorrectionServed'
 import { learnWrongPatientServed } from '../../../../wrongPatientServed'
 import { priorityLabel } from '../../../../staff/orderRoutes'
 import type { Chart } from '../../parts/chart'
-import { readOrderRoute } from './words'
+import { readOrderRoute, rowVersion } from './words'
 
 /** The two kinds of order raised from an encounter, as the design's workspaces name them. */
 export type OrderKind = 'pharmacy' | 'laboratory'
@@ -120,11 +120,34 @@ export interface CreateWarning {
   readonly listChanged: boolean
 }
 
+/**
+ * This facility's Lab or Pharmacy took the order: the version it holds and, when its answer says, when it accepted it.
+ * Read from the answer to Send to Lab, Send to Pharmacy, or an active create or activation Lab accepted (Lab's and
+ * Pharmacy's work item: sourceEhrOrderVersion or sourceEhrPrescriptionVersion, acceptedAt). Held in the page's memory
+ * only: the EHR's read of an order does not say whether this facility's Lab or Pharmacy holds it.
+ */
+export interface Sent {
+  readonly to: 'lab' | 'pharmacy'
+  readonly version: number
+  readonly acceptedAt: string | null
+}
+
+/** What a send's answer says was taken, or null when neither it nor the send names a version. */
+export function sentFrom(to: Sent['to'], answer: unknown, sentVersion: number | null): Sent | null {
+  const item = typeof answer === 'object' && answer !== null ? answer as Record<string, unknown> : {}
+  const version = rowVersion(item[to === 'lab' ? 'sourceEhrOrderVersion' : 'sourceEhrPrescriptionVersion']) ?? sentVersion
+  if (version === null) return null
+  const accepted = typeof item.acceptedAt === 'string' && !Number.isNaN(Date.parse(item.acceptedAt)) ? item.acceptedAt : null
+  return { to, version, acceptedAt: accepted }
+}
+
 /** A message one order page leaves for the next (after a create): held in memory only, never in the URL or router state. */
 export interface Flash {
   readonly orderId: string
   readonly success?: string
   readonly warning?: CreateWarning
+  /** The created request Lab accepted, so its page offers no Send to Lab. */
+  readonly sent?: Sent | null
 }
 
 export const FlashContext = createContext<{ flash: Flash | null; setFlash: (flash: Flash | null) => void }>({

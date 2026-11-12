@@ -9,18 +9,22 @@ import { refusalText } from '../../../../staff/fieldProblem'
 import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../../../../staff/orderRoutes'
 import { sendLabel, type RouteContext } from '../../../../staff/routes/OrderRoutes'
 import { useLateCorrectionServed } from '../../../../lateCorrectionServed'
+import { routeLabel } from '../../../../plainLabels'
 import { useWrongPatientServed } from '../../../../wrongPatientServed'
 import type { Chart } from '../../parts/chart'
 import { LabResultPaper, PrescriptionPaper, drugLine, isPrintable, paperPatient, prescriberName, usePaperPrint } from '../../parts/clinicalPrint'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
-import { formatWhen } from '../../parts/format'
+import { decimalText, formatWhen } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
+import { codeText, MoreDetails } from '../../parts/MoreDetails'
 import { Value } from '../../../../kasuwa/parts'
 import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
 import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useClinical, useWorkspaceHref } from '../../parts/Workspace'
 import { RELOAD_FAILED } from '../encounters'
-import { KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, text, useFlash, type OrderKind } from './orders'
+import {
+  KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, sentFrom, text, useFlash, type OrderKind, type Sent,
+} from './orders'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
 import {
@@ -31,6 +35,38 @@ import {
 
 const TITLE_ID = 'order-title'
 const ACTIONS_ID = 'order-actions-title'
+/**
+ * The test by its name, with its code under More details (owner decision 33.4): "Haemoglobin", then "Code: LOINC 718-7"
+ * behind the disclosure. No code, the name alone; no name, the code alone (it is all that says which test).
+ */
+function TestValue({ name: written, code }: { readonly name: string; readonly code: string }) {
+  const name = written.trim()
+  if (!code || !name) return <>{name || code || 'Not recorded'}</>
+  return (
+    <span className="flex flex-col gap-1">
+      <span>{name}</span>
+      <MoreDetails about={name}><span>Code: {code}</span></MoreDetails>
+    </span>
+  )
+}
+
+/**
+ * How the medicine is taken, in plain words first ("By mouth"), with the route code as written under More details
+ * (owner decision 33.4). A route code with no plain words is shown as written, so nothing is lost.
+ */
+function RouteValue({ code: written }: { readonly code: string }) {
+  const code = written.trim()
+  const plain = routeLabel(code)
+  if (!code) return <>Not recorded</>
+  if (!plain) return <>{code}</>
+  return (
+    <span className="flex flex-col gap-1">
+      <span>{plain.charAt(0).toUpperCase() + plain.slice(1)}</span>
+      {code.toLowerCase() !== plain ? <MoreDetails about="Route"><span>Route code: {code}</span></MoreDetails> : null}
+    </span>
+  )
+}
+
 const ROUTE_TITLE_ID = 'order-route-title'
 const actionId = (id: string) => `order-action-${id}`
 
@@ -98,6 +134,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const [created] = useState(() => flash?.orderId === orderId ? flash : null)
   const afterCreate = created !== null
   const [success, setSuccess] = useState(() => created?.success ?? '')
+  // What this facility's Lab or Pharmacy took, from the answer to a send (or to the create before this page): no send is
+  // offered again, at that version or a later one, since Lab and Pharmacy each hold one work item per order, ever, and
+  // refuse any other version. A send that failed leaves none.
+  const [sent, setSent] = useState<Sent | null>(() => created?.sent ?? null)
   const [pageError, showPageError] = useState<PageError>(NO_ERROR)
   const setPageError = (text: string) => showPageError(text ? { text, again: false } : NO_ERROR)
   // The order is being read again after a change: no change may start from the version shown (today's recordsLoading).
@@ -242,8 +282,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       : PRESCRIPTION_TRANSITIONS[status] ?? []
   const warning = routed ? routedChangeWarning(route, patient, wrongPatientServed, lateCorrectionServed)
     : !lab && (status === 'active' || status === 'on_hold') ? PHARMACY_NOT_TOLD : undefined
-  const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed
-  const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed
+  const taken = sent !== null && sent.to === (lab ? 'lab' : 'pharmacy') ? sent : null
+  const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken
+  const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed && !taken
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed
   const sendElsewhere = rights.canRoute(kind) && mayBeSent(record)
   const labNotes = lab && canWrite && !routed
@@ -260,7 +301,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const printedAt = () => formatWhen(new Date().toISOString())
   const printPrescription = () => print('prescription', (
     <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={[drugLine(record)]}
-      prescriber={prescriberName([record], actor)} printedAt={printedAt()} />
+      prescriber={prescriberName([record], actor, chart.facilityId)} printedAt={printedAt()} />
   ))
   const printResult = (test: string, lines: Parameters<typeof LabResultPaper>[0]['lines']) => print('lab-result', (
     <LabResultPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} test={test} lines={lines} printedAt={printedAt()} />
@@ -284,6 +325,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     const saved = await staffApi.updateRecord(chart.facilityId, chart.patientId, encounterId, info.record, record.id,
       { expectedRowVersion, changeReason: why, status: next })
     const outcome = toLab ? labHandoffOutcome(saved?.labHandoff ?? null, record.status === 'on_hold' ? 'resumed' : 'activated', rights.canSendToLab) : null
+    if (toLab && saved?.labHandoff?.state === 'accepted') setSent(sentFrom('lab', saved.labWorkItem, rowVersion(saved.rowVersion)))
     if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? (lab ? 'Lab request status updated.' : 'Prescription status updated.'))
     setSelected(null)
     const reloaded = await reload()
@@ -296,8 +338,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     if (!expectedRowVersion) throw new PlainError('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await chart.verify()
+    let answer: unknown
     try {
-      await staffApi.acceptPrescription(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key)
+      answer = await staffApi.acceptPrescription(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key)
     } catch (caught) {
       if (!isHidApiError(caught)) throw caught
       if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new PlainError(PHARMACY_ALREADY_HOLDS)
@@ -310,8 +353,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       return
     }
     setSuccess('Pharmacy accepted this exact prescription version.')
+    setSent(sentFrom('pharmacy', answer, expectedRowVersion))
     setSelected(null)
-    setFocusIds([actionId('pharmacy'), ACTIONS_ID])
+    // The send is no longer offered (taken), so focus goes to the actions.
+    setFocusIds([ACTIONS_ID])
   }
 
   async function sendLabRequest(key: string) {
@@ -320,8 +365,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setSuccess('')
     setPageError('')
     await chart.verify()
+    let answer: unknown
     try {
-      await staffApi.sendLabRequestToLab(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, key)
+      answer = await staffApi.sendLabRequestToLab(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, key)
     } catch (caught) {
       const refusal = labSendRefusal(caught)
       if (!refusal.reload) throw new LabSendError(refusal.text, refusal.retry === true)
@@ -331,8 +377,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       return
     }
     setSuccess('Lab accepted this lab request at its current version.')
+    setSent(sentFrom('lab', answer, expectedRowVersion))
     setSelected(null)
-    setFocusIds([actionId('lab'), ACTIONS_ID])
+    // The send is no longer offered (taken), so focus goes to the actions.
+    setFocusIds([ACTIONS_ID])
   }
 
   async function sendOrder(destination: OrderDestination, attestationTextVersion: string, key: string) {
@@ -474,19 +522,18 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     return null
   })()
 
-  const dose = text(record.doseQuantity)
+  const dose = decimalText(record.doseQuantity)
   const items: KeyValue[] = lab ? [
-    { label: 'Test', value: text(record.testDisplay) },
-    { label: 'Code', value: [text(record.testCodeSystem), text(record.testCode)].filter(Boolean).join(' ') },
+    { label: 'Test', value: <TestValue name={text(record.testDisplay)} code={codeText(text(record.testCodeSystem), text(record.testCode))} /> },
     { label: 'Priority', value: priorityText(record.priority) },
     { label: 'Specimen type', value: text(record.specimenTypeCode) },
     { label: 'Clinical information', value: text(record.clinicalInformation) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ] : [
     { label: 'Medicine', value: text(record.medicationDisplay) },
-    // The dose always with its unit; a decimal with its leading zero (Value).
-    { label: 'Dose', value: dose ? <Value value={dose.replace(/^\./, '0.')} unit={text(record.doseUnit) || null} /> : '' },
-    { label: 'Route', value: text(record.routeCode) },
+    // The dose always with its unit, as entered (decimalText: no trailing zeros, a leading zero).
+    { label: 'Dose', value: dose ? <Value value={dose} unit={text(record.doseUnit) || null} /> : '' },
+    { label: 'Route', value: <RouteValue code={text(record.routeCode)} /> },
     { label: 'How often', value: text(record.frequency) },
     { label: 'Instructions', value: text(record.instructions) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
@@ -527,6 +574,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
               </ActionList>
             </div>
           ) : <NoActions />}
+          {taken ? <p className="hid-ehr-clinical-orders-route-status hid-ehr-clinical-orders-tone-positive">{sentText(taken, rowVersion(record.rowVersion))}</p> : null}
           {form}
           {labNotes.map(note => <p key={note} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-gap">{note}</p>)}
         </EhrCard>
@@ -557,6 +605,18 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       {printArea}
     </>
   )
+}
+
+/**
+ * The sent state, from what Lab or Pharmacy answered: "Sent to Pharmacy. Accepted by the pharmacy on 11 Nov 2026, 02:40."
+ * Once the order has a later version, the version held is named, and that the change did not reach it.
+ */
+function sentText(sent: Sent, current: number | null): string {
+  const [where, who] = sent.to === 'lab' ? ['Lab', 'the lab'] : ['Pharmacy', 'the pharmacy']
+  const when = formatWhen(sent.acceptedAt)
+  const held = current !== null && sent.version !== current
+  const accepted = when ? `Accepted by ${who} on ${when}.` : `Accepted by ${who}.`
+  return held ? `Sent to ${where} at version ${sent.version}. ${accepted} Later changes are not passed on.` : `Sent to ${where}. ${accepted}`
 }
 
 function RecordHeadingOnly({ title, back }: { title: string; back: string }) {

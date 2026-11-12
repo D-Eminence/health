@@ -1256,7 +1256,22 @@ export interface OutreachCampaign {
   status: string
   services: string[]
   startsAt: string
+  /** When it ends, null when no end was given. Outreach sends it on every campaign; an older answer may leave it out. */
+  endsAt?: string | null
   rowVersion: number
+}
+
+/** A role in an Outreach campaign, as Outreach takes it (hid-system AddCampaignMemberDto). */
+export type OutreachCampaignRole = 'enumerator' | 'health_worker' | 'admin'
+
+/**
+ * A campaign's people as Outreach answers them from 0111 (hid-system#222): its members by name, and, to its admins,
+ * the facility's active staff who could be added (campaignRole null), with the caller's own role. A non-member is
+ * sent no one.
+ */
+export interface OutreachCampaignStaff {
+  yourRole: OutreachCampaignRole | null
+  people: { membershipId: string; name: string; campaignRole: OutreachCampaignRole | null }[]
 }
 
 export interface OutreachCase {
@@ -2290,6 +2305,26 @@ export const staffApi = {
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
   outreachCampaignMembers: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignMember[]>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
+      { headers: facilityHeaders(facilityId) }),
+  /**
+   * How campaigns are managed: from 0111 (hid-system#222) `{ rule: 'campaign_admins' }`, a campaign's own admins open,
+   * close and staff it. An older Outreach answers 404, and the page then offers no campaign management.
+   */
+  outreachCampaignGovernance: (facilityId: string) =>
+    client.get<{ rule: string }>('/api/v1/outreach/registration-cases/campaigns/governance', { headers: facilityHeaders(facilityId) }),
+  outreachCampaignStaff: (facilityId: string, campaignId: string) =>
+    client.get<OutreachCampaignStaff>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/staff`,
+      { headers: facilityHeaders(facilityId) }),
+  // Campaign writes take no Idempotency-Key, so the client never sends one again by itself: a lost answer is read back
+  // from the list. The creator becomes the campaign's first admin.
+  createOutreachCampaign: (facilityId: string, input: { name: string; services: string[]; startsAt: string; endsAt?: string }) =>
+    client.post<OutreachCampaign>('/api/v1/outreach/registration-cases/campaigns', input, { headers: facilityHeaders(facilityId) }),
+  /** Opens or closes a campaign, against the version it was read at (412 VERSION_CONFLICT when it changed since). */
+  setOutreachCampaignStatus: (facilityId: string, campaign: Pick<OutreachCampaign, 'id' | 'rowVersion'>, status: 'active' | 'closed', reason: string) =>
+    client.post<OutreachCampaign>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaign.id)}/status`, { status, reason },
+      { headers: { ...facilityHeaders(facilityId), 'If-Match': `"${campaign.rowVersion}"` } }),
+  addOutreachCampaignMember: (facilityId: string, campaignId: string, input: { membershipId: string; role: OutreachCampaignRole }) =>
+    client.post<OutreachCampaignMember>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`, input,
       { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),

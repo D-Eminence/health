@@ -7,7 +7,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { StagingPatientChatReply } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import './chat.css'
-import { RecordAnswer } from '../RecordAnswer'
+import { RecordAnswer, cleanAssistantText } from '../RecordAnswer'
+import { ConfirmSheet } from '../kasuwa/parts'
 import type { StagingPatientChatHistory } from '@hid/contracts'
 import { ChatSourceContent } from '../ChatSource'
 
@@ -43,6 +44,18 @@ function failure(reason: unknown): string {
   if (reason.status === 503) return UNAVAILABLE_503
   return 'Record chat is unavailable. Please try later.'
 }
+type ChatCoverage = NonNullable<StagingPatientChatReply['coverage']>
+/** Says plainly that the answer may be missing something, and why. */
+function CoverageNote({ coverage }: { coverage: ChatCoverage }) {
+  const pending = coverage.pendingDocuments
+  return <p className="record-chat-preparing"><strong>This answer may be incomplete.</strong>{' '}
+    {pending > 0
+      ? `${pending} ${pending === 1 ? 'document was' : 'documents were'} left out because ${pending === 1 ? 'it is' : 'they are'} still being processed, could not be opened, or ${pending === 1 ? 'was' : 'were'} not included.`
+      : 'Not every matching record could be read for this answer.'}
+    {coverage.unavailable.length > 0 && <> {cleanAssistantText(coverage.unavailable.join(' '))}</>}
+  </p>
+}
+
 function NoteIcon() {
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>
 }
@@ -60,6 +73,9 @@ export function StagingChatConversation({api,staff}:{api:StagingChatConversation
   const [historyAttempt, setHistoryAttempt] = useState(0)
   const [historyError, setHistoryError] = useState('')
   const [resetting, setResetting] = useState(false)
+  // New conversation deletes the saved one for good, so it is asked first (RN-16).
+  const [confirming, setConfirming] = useState(false)
+  const resetButton = useRef<HTMLButtonElement>(null)
   const flight = useRef<AbortController | null>(null)
   const nextId = useRef(0)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -131,8 +147,13 @@ export function StagingChatConversation({api,staff}:{api:StagingChatConversation
   return <section className="patient-section record-chat-page" aria-labelledby="record-chat-title">
     <header className="record-chat-page-header">
       <div><p className="patient-eyebrow">{staff ? 'Clinical record assistant' : 'Your record assistant'}</p><PageHeading id="record-chat-title" className="patient-page-title">{staff ? 'Ask about this patient' : 'Ask about your records'}</PageHeading><p className="patient-page-copy">{staff ? 'Answers from this patient’s available records, within your current access.' : 'A little clarity, from your clinical notes.'}</p></div>
-      <button type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading'} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
+      {/* Nothing to delete while nothing is shown, unless the saved conversation could not be loaded (it may still be there). */}
+      <button ref={resetButton} type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading' || (historyStatus === 'ready' && exchanges.length === 0 && !busy)}
+        onClick={() => setConfirming(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
     </header>
+    <ConfirmSheet open={confirming} onClose={() => { setConfirming(false); resetButton.current?.focus() }} title="Delete this conversation?"
+      effect={staff ? 'Your saved questions and answers about this patient are deleted, and a new conversation starts.' : 'Your saved questions and answers are deleted, and a new conversation starts.'}
+      undo="This can’t be undone." confirmLabel="Delete" destructive onConfirm={() => { setConfirming(false); void reset() }} />
     <div className="record-chat-panel">
       <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>{staff ? `${staff.patientName} · ${staff.hid} · ${staff.facilityName}` : 'Uses your available authorized patient records'}</p></div><span className="record-chat-private">{staff ? 'Separate for this patient and your facility membership' : 'Private to your account'}</span></header>
       <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Ask about medical history, prescriptions, conditions, observations, investigations and released lab results. Readable documents can be included; unclear or pending scans are identified. Patient-reported history stays labelled. Your care team guides diagnosis and treatment.</p></details>
@@ -154,7 +175,7 @@ export function StagingChatConversation({api,staff}:{api:StagingChatConversation
             <div className="record-chat-user"><span className="record-chat-message-label">You</span><p>{exchange.question}</p></div>
             <div className="record-chat-assistant"><span className="record-chat-avatar"><NoteIcon /></span><div className="record-chat-reply"><span className="record-chat-message-label">Health ID record assistant</span>
               {exchange.reply ? <><RecordAnswer text={exchange.reply.answer} />
-                {exchange.reply.coverage && !exchange.reply.coverage.complete && <p className="record-chat-preparing">This answer uses the available matching evidence. Coverage is incomplete{exchange.reply.coverage.pendingDocuments ? `; ${exchange.reply.coverage.pendingDocuments} document(s) are pending, unreadable or not included` : ''}. {exchange.reply.coverage.unavailable.join(' ')}</p>}
+                {exchange.reply.coverage && !exchange.reply.coverage.complete && <CoverageNote coverage={exchange.reply.coverage} />}
                 {exchange.reply.status === 'preparing' && <p className="record-chat-preparing">Your records are being prepared. Please ask again shortly.</p>}
                 {exchange.reply.sources.length > 0 && <details className="record-chat-sources" open><summary>{exchange.reply.sources.length} record {exchange.reply.sources.length === 1 ? 'reference' : 'references'}</summary><ul>{exchange.reply.sources.map(source => <ChatSourceContent key={source.number} source={source} loadSource={api.chatSource} staff={Boolean(staff)} />)}</ul></details>}
               </> : exchange.error ? <p role="alert" className="record-chat-error">{exchange.error}</p>

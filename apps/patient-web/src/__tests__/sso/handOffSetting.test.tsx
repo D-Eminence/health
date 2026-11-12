@@ -42,7 +42,7 @@ describe('VITE_HID_SSO', () => {
 
     const patient = await openPortalOn(APP, '/records')
     expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
-    expect(address()).toBe('/sign-in')
+    expect(address()).toBe('/sign-in?next=%2Frecords')
     expect(patient.filter(request => request.route.includes('/auth/sso/'))).toEqual([])
     expect(left).not.toHaveBeenCalled()
   })

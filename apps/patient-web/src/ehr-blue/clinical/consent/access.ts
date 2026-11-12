@@ -1,5 +1,5 @@
 import { findEndpoint, isBlankHealthIdInput, isCompleteHealthId, type EndpointMethod } from '@hid/contracts'
-import { isHidApiError, PlainError } from '@hid/http'
+import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi, type Facility } from '../../../staff/api'
@@ -76,6 +76,36 @@ export function healthIdProblem(normalized: string): string | null {
   if (isBlankHealthIdInput(normalized)) return 'Enter the patient’s Health ID.'
   return isCompleteHealthId(normalized) ? null
     : 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
+}
+
+/**
+ * Whether a lookup's 403 means Health ID holds no grant for this member to read the patient: Identity refuses it with
+ * ACCESS_DENIED (identity.service lookupPatient's ForbiddenException, coded by its problem filter); PATIENT_ACCESS_DENIED
+ * is the same refusal by name. A missing permission (PERMISSION_DENIED), a membership not active here or a failed
+ * security check is not about this patient, and keeps today's "ask your facility administrator".
+ */
+export function isNoGrant(caught: unknown): boolean {
+  return isHidApiError(caught) && caught.status === 403 && (caught.code === 'ACCESS_DENIED' || caught.code === 'PATIENT_ACCESS_DENIED')
+}
+
+/**
+ * Said to a laboratory scientist or pharmacist whose lookup answered 404: Identity shows such a role a patient's record
+ * only once the patient has given them access, so "not found" would mislead; the Health ID may also be wrong.
+ */
+export const NOT_OPEN_TO_ROLE = 'This patient’s record isn’t open to your role here. Check the Health ID, then ask the patient for access.'
+
+/** The facility roles (Identity's role codes) that work only in the laboratory or the pharmacy. */
+const DEPARTMENT_ROLES: ReadonlySet<string> = new Set(['lab', 'pharmacist'])
+
+/**
+ * What a refused lookup says: NOT_GRANTED (shown as "Choose how to get it.", beside Ask the patient and the Access PIN)
+ * when Health ID holds no grant; NOT_OPEN_TO_ROLE for a lab or pharmacy role's 404; otherwise today's words, so "ask
+ * your facility administrator" is said only for a refusal that is about the role, not the patient.
+ */
+export function lookupRefusal(caught: unknown, roles: readonly string[]): string {
+  if ((caught instanceof Error && caught.message === NOT_GRANTED) || isNoGrant(caught)) return NOT_GRANTED
+  if (isHidApiError(caught) && caught.status === 404 && roles.length > 0 && roles.every(role => DEPARTMENT_ROLES.has(role))) return NOT_OPEN_TO_ROLE
+  return plainErrorText(caught, 'Patient access could not be verified.', { audience: 'facility' })
 }
 
 /** Whether a failed lookup is the patient refusing or being unknown to this facility (403, 404), not an outage. */

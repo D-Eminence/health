@@ -20,6 +20,20 @@ export function formatDate(value: string | null | undefined): string {
   return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', DAY)
 }
 
+/**
+ * A number as it was entered. The EHR keeps a dose to four decimal places and answers it as text ("4.0000", "0.5000"):
+ * the zeros after the last digit go ("4", "0.5", "2.5", "1000"), and a decimal keeps its leading zero (".5" is "0.5").
+ * Worked on the text, never through a float, so a value is never rounded. Anything else is shown as it came.
+ */
+export function decimalText(value: unknown): string {
+  const written = typeof value === 'number' ? (Number.isFinite(value) ? String(value) : '') : typeof value === 'string' ? value.trim() : ''
+  const match = /^(-?)(\d*)(?:\.(\d*))?$/.exec(written)
+  if (!match || (!match[2] && !match[3])) return written
+  const whole = match[2]!.replace(/^0+(?=\d)/, '') || '0'
+  const fraction = (match[3] ?? '').replace(/0+$/, '')
+  return `${match[1]}${whole}${fraction ? `.${fraction}` : ''}`
+}
+
 /** A status as the design's badges print it: lower case words; underscores become spaces. */
 export function statusLabel(status: string): string {
   return status.replaceAll('_', ' ')

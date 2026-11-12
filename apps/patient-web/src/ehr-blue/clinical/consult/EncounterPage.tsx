@@ -499,7 +499,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const printedAt = () => formatWhen(new Date().toISOString())
   const printPrescriptions = () => print('prescription', (
     <PrescriptionPaper facility={chart.facilityName} patient={paperPatient(chart.facts)} drugs={printableDrugs(toPrint)}
-      prescriber={prescriberName(toPrint, actor)} printedAt={printedAt()} more={prescriptions.more} />
+      prescriber={prescriberName(toPrint, actor, chart.facilityId)} printedAt={printedAt()} more={prescriptions.more} />
   ))
   const section = <T,>(allowed: boolean, list: { readonly first: unknown; readonly loading: boolean; readonly error: string; readonly more: boolean }, value: () => T): Section<T> => {
     if (!allowed) return { state: 'no-right' }
@@ -531,7 +531,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     tests: section(reads.labs, labs, () => (labs.first ?? []).filter(isListedTest).map(record => field(record, 'testDisplay') || 'Lab request')),
     drugs: section(reads.prescriptions, prescriptions, () => printableDrugs(prescriptions.first)),
     held: reads.prescriptions ? heldDrugs(prescriptions.first) : [],
-    clinician: noteLive ? clinicianName(note, actor) : null,
+    clinician: noteLive ? clinicianName(note, actor, chart.facilityId) : null,
   }
   // The summary prints once every part the user may read has been read without error, so the paper never stands in
   // for a part still loading or that failed.
@@ -716,7 +716,9 @@ function timeOf(value: string): number {
 /**
  * "Preserved versions & amendments", oldest first: every revision of the consultation note once it has more than one
  * ("{time} · Version n · {status} · {reason}", the status it was saved under), and, for a signed note, the version it
- * was signed as, so a signed note shows the card even with one revision.
+ * was signed as, so a signed note shows the card even with one revision ("{time} · Version n · Signed": the status the
+ * note has after signing). The signer's reason is kept in the EHR's record versions, which no read sends, so it is not
+ * shown; the action's label ("Sign note") is not a reason and is not shown in its place.
  */
 function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevision[] | null): VersionItem[] {
   if (!note || !revisions || revisions.length === 0) return []
@@ -741,7 +743,7 @@ function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevis
       at: signedAt,
       item: {
         key: `signed-${note.id}`,
-        summary: `${formatWhen(signedAt)} · Version ${current.revisionNo} · ${statusWords('draft')} · ${SIGN_LABEL}`,
+        summary: `${formatWhen(signedAt)} · Version ${current.revisionNo} · ${statusWords('signed')}`,
         items: [{ label: 'Content', value: current.content }, { label: 'Recorded', value: formatWhen(current.createdAt) }],
       },
     })

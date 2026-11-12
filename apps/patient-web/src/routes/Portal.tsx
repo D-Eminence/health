@@ -5,24 +5,25 @@ import { getEnvironment } from '../env'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
+import { PasswordInput } from '@hid/ui'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage, RotateCcw } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
-import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
-import { PageState } from '../kasuwa/parts'
+import { Alert, Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
+import { ConfirmSheet, PageState } from '../kasuwa/parts'
 import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
-import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
+import { Actions, ButtonR, Hint, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
-import { isAdult, paperRecordsOnApproval, PIN_COVERS } from '../paperRecordsWording'
+import { isAdult, paperRecordsLineForRequest, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
-import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import { IMPORTED_NOTIFICATIONS_PAGE, NOTIFICATIONS_LIMIT, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
-import { usePatientEntriesServed } from '../patientEntriesServed'
+import { usePatientEntriesServed, usePatientEntryFilesServed } from '../patientEntriesServed'
 import { sectionsShown } from './recordSections'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
@@ -35,15 +36,17 @@ import { useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
 import { NinVerificationCard, ninVerifiedOf } from './NinVerificationCard'
 import { dayWords, groupByDay, matchesQuery } from './recordSearch'
-import { NOTIFICATION_SUBJECTS, notificationTitle } from './notificationTitles'
+import { NOTIFICATION_SUBJECTS, notificationAction, notificationTitle } from './notificationTitles'
 import { AccessLogCard } from './AccessLog'
 import { NotificationBell, UnreadNotificationsProvider, useOnNotificationChange, useUnreadNotifications } from '../notificationBadge'
 import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
 import { useFocusSectionFromHash, useOpenSections } from './sectionFocus'
 import { OpenSectionsContext, ProfileSection } from './ProfileSection'
 import { completionOf, useProfileSources } from './profileSources'
-import { ProfileCompletionCard } from './ProfileCompletion'
+import { ProfileCompletionCard, ProfileCompletionPending } from './ProfileCompletion'
+import { completionServed } from './profileCompletion'
 import { ContactDetails } from './ProfileContact'
+import { needsRecentSignIn, SignInAgain } from './SignInAgain'
 import { usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
 import { HealthInformationCard } from './HealthInformation'
@@ -51,8 +54,10 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, fileSizeLabel, fileTypeLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
-import { countryName } from '../profileParity'
+import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { SignInAgainButton } from './RecentSignIn'
+import { supportHref } from '../supportContact'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -135,6 +140,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   const shareTo = share === true ? '/access/share' : '/access'
   // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
   const adds = usePatientEntriesServed() === true
+  // Its hint promises a photo only when photos and files are taken too (patientEntryFilesServed).
+  const addsFiles = usePatientEntryFilesServed()
   const name = shown?.fullName ?? 'Your Health ID'
   const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
   const nav: NavGroup[] = [
@@ -161,7 +168,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     headerActions={<NotificationBell />}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
-      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true }] : []),
+      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: addsFiles ? 'A visit, result or medicine, with a photo' : 'A visit, result or medicine', icon: FilePlus2, main: true }] : []),
       { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
       { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
       { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
@@ -235,7 +242,7 @@ export function ProfilePage() {
   if (moreVisit !== key) { setMoreVisit(key); if (hash === '#account-deletion') setMoreOpen(true) }
 
   return <div className="flex flex-col gap-6">
-    <PageHeader titleRef={heading} title="Profile" description="What a hospital sees when you share your records." />
+    <PageHeader titleRef={heading} title="Profile" description="Your details, how you sign in, and your Access PIN." />
     <PageState what="your profile" loading={profile.loading} error={profile.error} hasData={profile.data !== null}
       onRetry={() => retryFocus.retry(profile.reload)} retryRef={retryFocus.button}>{null}</PageState>
     {shown && <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
@@ -244,22 +251,24 @@ export function ProfilePage() {
         <HealthIdCard profile={shown} onChanged={profile.reload} verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
           bloodGroup={health.error ? null : health.data?.bloodGroup} genotype={health.error ? null : health.data?.genotype}
           allergies={health.error ? null : health.data?.allergies} shareTo="/access" links={[]} />
-        {completion && <ProfileCompletionCard completion={completion} />}
+        {/* Its place is held while the reads it counts are out, so the sections under it on a phone do not jump. */}
+        {completion ? <ProfileCompletionCard completion={completion} /> : completionServed(shown) && <ProfileCompletionPending />}
       </div>
       <div className="flex min-w-0 flex-col gap-4">
         <OpenSectionsContext.Provider value={sections}>
           {/* Not the whole section busy while the profile reloads: the contact's and PIN's notices are in it. */}
           <ProfileSection id="bio-data" title={WORDS.aboutYou}>
             <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3" aria-busy={profile.loading || undefined}>
-              {([['Full name', shown.fullName], ['Date of birth', date(shown.dateOfBirth)], ['Gender', shown.gender || 'Not given'],
-                ['State', shown.state || 'Not given'], ['Country', shown.country?.trim() ? countryName(shown.country) : 'Not given']] as const).map(([term, value]) =>
+              {/* In words, and one wording for every detail not there. */}
+              {([['Full name', shown.fullName], ['Date of birth', shown.dateOfBirth ? date(shown.dateOfBirth) : 'Not given'], ['Gender', genderLabel(shown.gender)],
+                ['State', shown.state || 'Not given'], ['Country', countryLabel(shown.country)]] as const).map(([term, value]) =>
                 <div key={term} className={term === 'Full name' ? 'col-span-2' : undefined}><dt className="text-[13px] text-ink-3">{term}</dt>
                   <dd className="m-0 mt-0.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}
             </dl>
             <ContactDetails profile={shown} onChanged={profile.reload} />
             <AccessPinSettings profile={shown} loading={profile.loading} onChanged={profile.reload} />
           </ProfileSection>
-          <CoverageCard resource={details} />
+          <CoverageCard resource={details} expected={completionServed(shown)} />
           {/* The emergency contacts, in Health information (alone in it where the health information is not served). Both
               backends: main's patient-safety routes, and hid-system #109's on Novu. They read availability first, and
               show nothing where the routes are not served (Novu's 404), or while delivery is off for a patient without
@@ -280,7 +289,8 @@ export function ProfilePage() {
         {/* Delete account, out of the way under More (both backends: main's 0064, Novu's 0096; a 404 shows nothing). */}
         <details className="group" hidden={deletion === false} open={moreOpen} onToggle={event => setMoreOpen(event.currentTarget.open)}>
           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
-            More<ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
+            {/* Named for what it holds: a closed <details> hides Delete account's heading from a search by heading. */}
+            More<ItemName>: delete your account</ItemName><ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
           <div className="mt-3"><AccountDeletionCard /></div>
         </details>
       </div>
@@ -307,8 +317,8 @@ const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
   const shown = sectionsShown()
-  // The older records (records kept from before) are shown whenever the answer carries them, so they are named too.
-  const older = data.importedRecords !== undefined ? ['older records'] : []
+  // The older records (records kept from before) are shown only when the answer carries some, so only then are they named.
+  const older = (data.importedRecords?.length ?? 0) > 0 ? ['older records'] : []
   const names = [...(data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section]), ...older]
   if (names.length === 0) return 'Nothing in your record is shared with you yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
@@ -321,13 +331,29 @@ function emptyText(data: PatientRecords, section: RecordSection, none: string) {
   return data.withheld?.includes(section) ? WITHHELD : none
 }
 
-/** Said only when EHR reports that the section holds more than it sent. */
+/**
+ * Said when EHR reports that the section holds more than it sent, or, where it sends no such report (production's
+ * Novu answer), when the section came back full: then older ones may well be left out (RN-08).
+ */
 function Truncated({ data, section }: { data: PatientRecords; section: RecordSection }) {
-  if (data.truncated?.[section] !== true) return null
-  const limit = data.limits?.[section]
+  const limit = data.limits?.[section] ?? data.limit
+  const sent = (data[section] as unknown[] | undefined)?.length ?? 0
+  const cut = data.truncated?.[section] ?? (data.truncated === undefined && Number.isInteger(limit) && limit > 0 && sent >= limit)
+  if (cut !== true) return null
   return <p className="m-0 text-[13px] text-ink-3">{limit
     ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown.`
     : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown.`}</p>
+}
+
+/** A word the search finds in each section's rows (SEARCHED), to suggest when a search finds nothing (RN-19). */
+const SEARCH_EXAMPLES: Readonly<Record<RecordSection, string>> = {
+  encounters: 'visit', notes: 'note', vitals: 'vitals', diagnoses: 'diagnosis', prescriptions: 'prescription', labRequests: 'lab', documents: 'document',
+}
+
+/** "Try a date like “March 2024”, a type like “visit” or “note”, or a word from a note.", from the sections shown only. */
+function searchHint() {
+  const kinds = sectionsShown().slice(0, 2).map(section => `“${SEARCH_EXAMPLES[section]}”`)
+  return `Try a date like “March 2024”${kinds.length ? `, a type like ${kinds.join(' or ')}` : ''}, or a word from a note.`
 }
 
 type Row<S extends RecordSection> = PatientRecords[S][number]
@@ -379,14 +405,18 @@ function RecordRow({ record, onOpen }: { record: OpenRecord; onOpen: (record: Op
       <span className="block text-sm font-medium [overflow-wrap:anywhere] text-ink">{record.title}</span>
       {record.meta && <span className="mt-0.5 block text-[13px] [overflow-wrap:anywhere] text-ink-3">{record.meta}</span>}
       {record.detail && <span className="mt-1.5 line-clamp-2 block text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{record.detail}</span>}
+      {/* The day is in the heading above; said in the name too, so two alike can be told apart (RN-17). */}
+      {record.when && <ItemName>, {date(record.when)}</ItemName>}
     </span>
     <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
   </button></li>
 }
 
 /** A section's card: its rows under their day, newest first, or why there are none. */
-function SectionCard<S extends RecordSection>({ data, section, none, query, row }: {
+function SectionCard<S extends RecordSection>({ data, section, none, query, row, quietNoMatch = false }: {
   data: PatientRecords; section: S; none: string; query: string; row: (item: Row<S>) => ReactNode
+  /** The page already says nothing matches the search, with Clear search (RN-19): no second line here. */
+  quietNoMatch?: boolean
 }) {
   const all = data[section] as Array<Row<S>>
   const shown = sectionMatches(data, section, query)
@@ -395,7 +425,7 @@ function SectionCard<S extends RecordSection>({ data, section, none, query, row 
     <CardHeader as="h2" title={ui.title} icon={ui.icon} iconTone="brand"
       description={query.trim() && all.length > 0 ? `${shown.length} of ${all.length} match` : undefined} />
     {all.length === 0 ? <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">{emptyText(data, section, none)}</p>
-      : shown.length === 0 ? <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">None match your search.</p>
+      : shown.length === 0 ? (quietNoMatch ? null : <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">None match your search.</p>)
       : groupByDay(shown, DATED[section]).map(group => <div key={group.day ?? 'undated'} className="border-t border-line">
         <h3 className="m-0 bg-subtle px-5 py-2 text-overline text-ink-3">{group.label}</h3>
         <ul className="m-0 list-none divide-y divide-line p-0">{group.items.map(row)}</ul></div>)}
@@ -582,6 +612,8 @@ export function RecordsPage() {
   const heading = useRef<HTMLHeadingElement>(null)
   const recordsRetry = useRetryFocus(heading)
   const [query, setQuery] = useState('')
+  const searchField = useRef<HTMLInputElement>(null)
+  const clearSearch = () => { setQuery(''); searchField.current?.focus() }
   // "Add a record" opens here, from this page's button or the ➕ (/records?add=record), and the address is cleared after.
   // The tab is in the address too (/records?tab=documents, from Home's tiles), so Back and a shared link keep it.
   const [params, setParams] = useSearchParams()
@@ -599,10 +631,16 @@ export function RecordsPage() {
   // which also says whether they are served (api.records). Nothing is read for them alone: the page reads its records
   // again after "Add a record" saves one and after a removal. Without the key (today's backend) nothing more shows.
   const ownServed = usePatientEntriesServed()
+  // Photos and files are offered on their own switch (patientEntryFilesServed), so the page mentions them only then.
+  const ownFiles = usePatientEntryFilesServed()
   const ownEntries = ready?.patientEntries ?? []
   const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
   const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
     matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
+  // What the open tab's search finds: on one record type, only that type (RN-19). The rest match on other tabs.
+  const tabMatched = tab === 'all' ? matched : ready && searching ? sectionMatches(ready, tab, query).length : 0
+  const elsewhere = tab === 'all' ? 0 : matched - tabMatched
+  const noMatch = searching && tabMatched === 0
   // On All, a section with nothing in it (or nothing that matches) is left out: its tab still says 0.
   const visible = ready ? sectionsShown().filter(section => tab === section
     || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
@@ -634,7 +672,7 @@ export function RecordsPage() {
     {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
     {ready && <div className="flex flex-wrap items-start justify-between gap-3">
       <div role="search" className="min-w-0 max-w-sm flex-[1_1_16rem]">
-        <Input type="search" icon={Search} autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
+        <Input ref={searchField} type="search" icon={Search} autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
           placeholder="Search by date, type or words" aria-label="Search your records" aria-describedby="record-search-status" />
         {/* Mounted with the field, so each new count is announced. */}
         <p id="record-search-status" role="status" className="m-0 mt-1.5 text-[12px] text-ink-3 empty:hidden">{searching
@@ -643,12 +681,13 @@ export function RecordsPage() {
       {sectionsShown().length > 1 && <FilterTabs label="Record type" value={tab} onChange={setTab}
         options={[{ value: 'all' as const, label: 'All' }, ...sectionsShown().map(section => ({ value: section, label: SECTION_UI[section].tab, count: count(section) }))]} />}
     </div>}
-    {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} />}
+    {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} quietNoMatch={noMatch} />}
     {ready && <>
-      {tab === 'all' && ready.importedRecords !== undefined && <ImportedHistory records={ready.importedRecords} query={query} groupedByDay
-        limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
+      {/* Only for a patient who has older records: one who never had an old account is not told of it (RN-07). */}
+      {tab === 'all' && (ready.importedRecords?.length ?? 0) > 0 && <ImportedHistory records={ready.importedRecords ?? []} query={query} groupedByDay
+        limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} quietNoMatch={noMatch} />}
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
-      {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
+      {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query} quietNoMatch={noMatch}
         row={rows[section] as (item: Row<typeof section>) => ReactNode} />)}
     </>}
     {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
@@ -656,11 +695,15 @@ export function RecordsPage() {
     {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
       loading={records.loading} reload={records.reload} pageHeading={heading} />}
     {ready && <>
-      {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
-        title={searching ? 'Nothing matches' : 'No records yet'}
-        description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
-          : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
-        action={searching || ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
+      {/* A search that finds nothing anywhere, older records included, says so with a way back (RN-19). */}
+      {/* On one record type, only that type counts; when others match, it says so and offers them (RN-19). */}
+      {(searching ? noMatch : visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0) && <EmptyState icon={searching ? Search : FolderHeart}
+        title={searching ? (elsewhere > 0 ? 'Nothing matches here' : 'Nothing matches') : 'No records yet'}
+        description={searching ? (elsewhere > 0 ? `${elsewhere === 1 ? '1 record' : `${elsewhere} records`} of another type ${elsewhere === 1 ? 'matches' : 'match'} your search.` : searchHint())
+          : `Records from your providers appear here.${ownServed === true ? ` You can add your own too, from any hospital${ownFiles ? ', with a photo of the paper' : ''}.` : ''}`}
+        action={searching ? <div className="flex flex-wrap gap-2">{elsewhere > 0 && <Button variant="primary" onClick={() => { setTab('all'); searchField.current?.focus() }}>Show all record types</Button>}
+          <Button onClick={clearSearch}>Clear search</Button></div>
+          : ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
     <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
@@ -683,7 +726,8 @@ type HistoryItem = AccessHistory['items'][number]
 
 /** Who holds a grant: the clinician at their facility for the patient's own share (hid-system 0095), else the facility. */
 function grantee(item: HistoryItem) {
-  return typeof item.clinicianName === 'string' && item.clinicianName.trim() ? `${item.clinicianName.trim()} at ${item.facilityName}` : item.facilityName
+  const name = staffName(item)
+  return name ? `${name} at ${item.facilityName}` : item.facilityName
 }
 
 /** "Shared by you · View Only · 7 days" for the patient's own share; nothing for any other grant, or from an older backend. */
@@ -698,7 +742,7 @@ export function AccessPage() {
   // Only to say the paper records rule to an adult: the profile's date of birth. Nothing shows until it is known.
   const profile = usePatientResource(api.profile)
   const adult = isAdult(profile.data?.dateOfBirth)
-  useDocumentTitle('Access and consent · Health ID')
+  useDocumentTitle(`${WORDS.accessPage} · Health ID`)
   const toast = useToast()
   const requests = usePatientResource(api.accessRequests)
   const history = usePatientResource(api.accessHistory)
@@ -718,8 +762,17 @@ export function AccessPage() {
   const [revoking, setRevoking] = useState<string | null>(null)
   const [revokeBusy, setRevokeBusy] = useState(false)
   const [revokeReason, setRevokeReason] = useState('')
-  // Which part shows: what waits for a decision first (Hick's law: one list at a time).
-  const [tab, setTab] = useState<'requests' | 'granted' | 'activity'>('requests')
+  // Which part shows: what waits for a decision first (Hick's law: one list at a time). Kept in the address (?tab=), as
+  // Records keeps its own, so a link, Back or a reload opens the same part.
+  const [params, setParams] = useSearchParams()
+  const tab = accessTabOf(params.get('tab'))
+  const setTab = (next: AccessTab) => setParams(current => {
+    const out = new URLSearchParams(current)
+    if (next === 'requests') out.delete('tab'); else out.set('tab', next)
+    return out
+  }, { replace: true })
+  // A refusal for an old sign-in on Approve, said in the drawer with the way through, until the next action.
+  const [signInFor, setSignInFor] = useState<string | null>(null)
   const requestsHeading = useRef<HTMLHeadingElement>(null)
   const historyHeading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
@@ -732,7 +785,7 @@ export function AccessPage() {
   const decide = async (id: string, decision: 'approve' | 'deny') => {
     if (working) return
     const facility = requests.data?.find(item => item.accessRequestId === id)?.facilityName ?? 'The facility'
-    setWorking(id)
+    setWorking(id); setSignInFor(null)
     try {
       if (decision === 'approve') await api.approveAccess(id)
       else await api.denyAccess(id, denialReason)
@@ -743,6 +796,20 @@ export function AccessPage() {
       else toast.success({ title: 'Denied', message: `Nothing was shared with ${facility}.` })
       focusAfter(() => requestsHeading.current)
     } catch (cause) {
+      if (needsRecentSignIn(cause)) {
+        // Said in the drawer, with the way through, and kept until the next action: a toast would be gone in seconds.
+        setSignInFor(id)
+        focusAfter(() => document.getElementById(`sign-in-again-${id}`))
+        return
+      }
+      if (changedElsewhere(cause)) {
+        // Decided or ended elsewhere (another device, or it ran out): the lists are read again, and say where it stands.
+        await Promise.all([requests.reload(), history.reload()])
+        closeReview()
+        toast.info({ title: 'Already changed', message: 'This request was already decided or has ended. The list is up to date.' })
+        focusAfter(() => requestsHeading.current)
+        return
+      }
       toast.error({ title: 'That didn’t go through', message: plainErrorText(cause, 'The request could not be updated.', { codes: PATIENT_REFUSALS }) })
       focusAfter(() => document.getElementById(decision === 'approve' ? `approve-${id}` : `deny-reason-${id}`)
         ?? document.querySelector<HTMLElement>('input[name="deny-reason-choice"]:checked'))
@@ -752,31 +819,50 @@ export function AccessPage() {
   const revoke = async (grantId: string) => {
     if (revokeBusy || revokeReason.trim().length < 3) return
     const who = history.data?.items.find(item => item.consentGrantId === grantId)
+    // Another access at the same facility stays open: the facility can still see the records, and the notice says so.
+    const othersThere = who && history.data ? stillOpenThere(history.data.items, who) : 0
     setRevokeBusy(true)
     try {
       await api.revokeAccess(grantId, revokeReason.trim())
       await history.reload()
       setRevoking(null); setRevokeReason('')
-      toast.success({ title: 'Access ended', message: `${who ? grantee(who) : 'They'} can no longer see your records.` })
+      toast.success({ title: 'Access ended', message: who && othersThere > 0
+        ? `${staffName(who) ? `${staffName(who)}’s access` : 'This access'} at ${who.facilityName} has ended. Other access there is still open, listed below.`
+        : `${who ? grantee(who) : 'They'} can no longer see your records.` })
       focusAfter(() => historyHeading.current)
     } catch (cause) {
+      if (changedElsewhere(cause)) {
+        await history.reload()
+        setRevoking(null); setRevokeReason('')
+        toast.info({ title: 'Already ended', message: 'This access has already ended. The list is up to date.' })
+        focusAfter(() => historyHeading.current)
+        return
+      }
       toast.error({ title: 'Couldn’t end access', message: plainErrorText(cause, SAY.tryAgain, { codes: PATIENT_REFUSALS }) })
       focusAfter(byId(`revoke-reason-${grantId}`))
     } finally { setRevokeBusy(false) }
   }
 
   // A reason typed for one item is never carried to another.
-  const openReview = (id: string) => { if (reviewing !== id) { setReason(''); setQuick('unknown'); setReasonProblem(false); setDenying(false) } setReviewing(id) }
-  function closeReview() { setReviewing(null); setDenying(false); setReason(''); setQuick('unknown'); setReasonProblem(false) }
+  const openReview = (id: string) => { if (reviewing !== id) { setReason(''); setQuick('unknown'); setReasonProblem(false); setDenying(false); setSignInFor(null) } setReviewing(id) }
+  function closeReview() { setReviewing(null); setDenying(false); setReason(''); setQuick('unknown'); setReasonProblem(false); setSignInFor(null) }
   // The API needs a reason of at least 3 characters: a quick reason is one; "Other" needs a few words.
   const confirmDenial = (id: string) => {
-    if (denialReason.length < 3) { setReasonProblem(true); focusAfter(byId(`deny-reason-${id}`)); return }
+    // Focus goes to the box, so its problem is read with it, even from the Deny button, which keeps focus.
+    if (denialReason.length < 3) { setReasonProblem(true); document.getElementById(`deny-reason-${id}`)?.focus(); return }
     void decide(id, 'deny')
   }
   const openRevocation = (id: string) => { if (revoking !== id) setRevokeReason(''); setRevoking(id) }
 
-  const pendingCount = (requests.data && !requests.error ? requests.data : []).filter(item => item.status.toLowerCase() === 'pending').length
-  const activeCount = (history.data && !history.error ? history.data.items : []).filter(item => item.status === 'active').length
+  // A count is said only of a list read: while it loads, or after it failed, the heading names the section.
+  const requestsReady = requests.data !== null && !requests.error
+  const historyReady = history.data !== null && !history.error
+  const pendingCount = (requestsReady ? requests.data! : []).filter(item => item.status.toLowerCase() === 'pending').length
+  const historyItems = historyReady ? history.data!.items : []
+  // Rows open now, for the tab; the heading counts facilities, as one facility can hold several (one per staff member).
+  const activeCount = historyItems.filter(isOpen).length
+  // Invitations confirmed: whether the share each made still gives access, once who has access is known.
+  const activeGrants = historyReady ? new Set(historyItems.filter(item => item.status === 'active').map(item => item.consentGrantId)) : null
   const requestList = requests.data && !requests.error
     ? [...requests.data].sort((x, y) => Number(y.status.toLowerCase() === 'pending') - Number(x.status.toLowerCase() === 'pending')) : null
   const open = requestList?.find(item => item.accessRequestId === reviewing) ?? null
@@ -793,22 +879,26 @@ export function AccessPage() {
 
     {tab === 'requests' && <Card aria-busy={(requests.loading && requests.data !== null) || undefined}>
       <AccessHeading headingRef={requestsHeading} icon={ShieldCheck}
-        title={pendingCount ? `${pendingCount === 1 ? '1 request needs' : `${pendingCount} requests need`} your decision` : 'Nothing waiting for you'}
-        hint={pendingCount ? 'Nothing is shared until you approve.' : undefined} />
+        title={!requestsReady ? 'Requests' : pendingCount ? `${pendingCount === 1 ? '1 request needs' : `${pendingCount} requests need`} your decision` : 'Nothing waiting for you'}
+        hint={requestsReady && pendingCount ? 'Nothing is shared until you approve.' : undefined} />
       <div className="px-5 pb-4 empty:hidden"><PageState what="requests" loading={requests.loading} error={requests.error} hasData={requests.data !== null}
         onRetry={() => requestsRetry.retry(requests.reload)} retryRef={requestsRetry.button}>{null}</PageState></div>
       {requestList && (requestList.length === 0
-        ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">When a facility asks to see your records, you decide here.</p>
+        ? <div className="border-t border-line"><EmptyState compact icon={ShieldCheck} title="No requests yet" description="When a facility asks to see your records, you decide here." /></div>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending'
+        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason)
           return <li key={item.accessRequestId}>
             <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
               className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
               <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
-                {/* The status is said once: the Review button while it waits, the badge after. */}
-                <span className="block text-[13px] text-ink-3">{pending ? `Wants to see your records${forHowLong(item.requestedDurationMinutes)} · ` : ''}{timeAgo(item.requestedAt)}</span>
+                {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
+                    as Who has access says it: the list names no staff member, so several from one facility differ by these.
+                    An Access PIN request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
+                <span className="block text-[13px] text-ink-2">{pin ? `A staff member used your Access PIN to ${askedTo(item.scope)}` : pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                  : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
+                {!pin && item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
                 : <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>}{' '}
@@ -822,30 +912,52 @@ export function AccessPage() {
       {/* Novu (P4c): orders a clinician sent to another facility, with Stop until it is accepted. Main has no such list. */}
       {usesNovuBackend() && <SentOrdersCard />}
       <Card aria-busy={(history.loading && history.data !== null) || undefined}>
-        <AccessHeading headingRef={historyHeading} icon={Building2}
-          title={activeCount ? `${activeCount === 1 ? '1 facility has' : `${activeCount} facilities have`} access now` : 'No one has access now'}
-          hint={activeCount ? undefined : 'Past access stays listed, with when it ended.'} />
+        <AccessHeading headingRef={historyHeading} icon={Building2} title={historyReady ? whoHasAccessTitle(historyItems) : 'Who has access'}
+          hint={!historyReady ? undefined : activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed.'} />
         <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
           onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
         {history.data && !history.error && (history.data.items.length === 0
-          ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">Facilities you approve or share with appear here, with when their access ends.</p>
-          : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-          {history.data.items.map(item => <li key={item.consentGrantId} className="flex items-start gap-3 px-5 py-4">
+          ? <div className="border-t border-line"><EmptyState compact icon={Building2} title="No one has had access yet"
+              description="Facilities you approve or share with appear here, with when their access ends."
+              action={shareServed === true ? <Button to="/access/share" size="sm" icon={Share2}>Share records</Button> : undefined} /></div>
+          // One heading per facility, so the same facility is named once over its rows (hid-system lists each access).
+          : groupByFacility(history.data.items).map(group => <div key={group.facility} className="border-t border-line">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 bg-subtle px-5 py-2">
+            <h3 className="m-0 text-[13px] font-semibold [overflow-wrap:anywhere] text-ink">{group.facility}</h3>
+            <p className="m-0 text-[12px] text-ink-3">{groupCounts(group)}</p>
+          </div>
+          <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
+          {/* On a phone the status and End access go under the words, which keep the row's width. */}
+          {group.items.map(item => <li key={item.consentGrantId} className="flex flex-wrap items-start gap-x-3 gap-y-2 px-5 py-4">
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
-            <div className="min-w-0 flex-1">
-              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
-              {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
+            <div className="min-w-0 flex-[1_1_14rem]">
+              {/* Under its facility's heading: the staff member, by name only where the list gives one (a share). */}
+              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{holder(item)}</p>
+              {/* What they can do, when it runs (with the time), and the reason they gave: what tells rows apart. */}
+              <p className="m-0 mt-0.5 text-[13px] text-ink-2">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? (byAccessPin(item.reason) ? `${accessLevelLabel(item.scope)} · With your Access PIN` : accessLevelLabel(item.scope))}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">From <Nowrap>{dayAndTime(item.startsAt)}</Nowrap>{endedEarly(item) ? ' · ended before ' : ' until '}<Nowrap>{dayAndTime(item.expiresAt)}</Nowrap></p>
+              {theirReason(item) && <p className="m-0 mt-0.5 line-clamp-3 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{theirReason(item)}”</p>}
+              {item.breakGlass && (item.status === 'active'
+                ? <div className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">
+                  <p className="m-0">Used in an emergency. It ends by itself on {dateTime(item.expiresAt)}, and you can’t end it here.</p>
+                  <UnexpectedAccess />
+                </div>
+                : <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>)}
+              {item.status === 'active' && !item.breakGlass && item.patientRevocable === false && <div className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">
+                <p className="m-0">Given by {item.facilityName}. It ends by itself on {date(item.expiresAt)}, and you can’t end it here.</p>
+                <UnexpectedAccess />
+              </div>}
             </div>
-            <div className="flex shrink-0 flex-col items-end gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
-              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {holderAt(item)}, {accessLevelLabel(item.scope)}, from {dayAndTime(item.startsAt)} until {dayAndTime(item.expiresAt)}{theirReason(item) ? `, reason given: ${theirReason(item)}` : ''}</ItemName></Button>}
             </div>
           </li>)}
-        </ul>)}
+          </ul>
+        </div>))}
       </Card>
       {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
-      <ShareInvitationsCard onShared={history.reload} />
+      <ShareInvitationsCard onShared={history.reload} activeGrants={activeGrants} />
     </>}
 
     {/* hid-system 0093: who viewed or changed the record. An Identity before it answers 404, and the section is not shown. */}
@@ -862,7 +974,9 @@ export function AccessPage() {
             <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
         : <Button onClick={closeReview}>Close</Button>}>
       {open && <div className="flex flex-col gap-5">
-        {open.reason && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
+        {signInFor === open.accessRequestId && <Alert intent="error" size="sm">{SAY.signInAgain}
+          <div className="mt-2"><SignInAgainButton back="/access" id={`sign-in-again-${open.accessRequestId}`} /></div></Alert>}
+        {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
@@ -870,8 +984,9 @@ export function AccessPage() {
         </dl>
         {open.status.toLowerCase() === 'pending' && !denying && <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />{SAY.everyViewRecorded} You can end access at any time.</p>}
         {/* The paper records rule (records processing, 0104): the OK also covers bringing in paper records while the
-            access lasts. Said only to an adult, as under-18s are refused paper records; not said while the age is unknown. */}
-        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsOnApproval(open.facilityName)}</p>}
+            access lasts; a records-processing request (hid-system #229) says what its own grant allows instead. Said only to an
+            adult, as under-18s are refused paper records; not said while the age is unknown. */}
+        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsLineForRequest(open)}</p>}
         {denying && <form id="deny-form" className="flex flex-col gap-3" onSubmit={event => { event.preventDefault(); confirmDenial(open.accessRequestId) }}>
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
             <legend className="mb-1 p-0 text-sm font-medium text-ink">Why are you saying no? <span className="font-normal text-ink-3">They see this.</span></legend>
@@ -893,16 +1008,18 @@ export function AccessPage() {
 
     {/* Ending a grant: who, until when, and why, with what an Access PIN still allows. */}
     <Drawer open={ending !== null} onClose={() => { const id = revoking; setRevoking(null); setRevokeReason(''); if (id) focusAfter(byId(`revoke-${id}`)) }}
-      title={WORDS.endAccess} icon={<IconChip icon={ShieldCheck} tone="danger" />} description={ending ? grantee(ending) : undefined}
+      title={WORDS.endAccess} icon={<IconChip icon={ShieldCheck} tone="danger" />} description={ending ? holderAt(ending) : undefined}
       footer={ending && <><Button disabled={revokeBusy} onClick={() => { const id = revoking; setRevoking(null); setRevokeReason(''); if (id) focusAfter(byId(`revoke-${id}`)) }}>Cancel</Button>
         <Button variant="destructive" type="submit" form="revoke-form" loading={revokeBusy} disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>{WORDS.endAccess}</Button></>}>
       {ending && <div className="flex flex-col gap-5">
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
-          <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{ending.purpose}</dd></div>
-          <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.startsAt)}</dd></div>
-          <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.expiresAt)}</dd></div>
+          {purposeLabel(ending.purpose) && <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{purposeLabel(ending.purpose)}</dd></div>}
+          {/* The same times and reason as its row, so the patient ends the access they chose. */}
+          <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.startsAt)}</dd></div>
+          <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.expiresAt)}</dd></div>
           {sharedAs(ending) && <div className="col-span-2"><dt className="text-ink-3">How</dt><dd className="m-0 mt-0.5 font-medium text-ink">{sharedAs(ending)}</dd></div>}
+          {theirReason(ending) && <div className="col-span-2"><dt className="text-ink-3">Reason given</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{theirReason(ending)}</dd></div>}
         </dl>
         <form id="revoke-form" className="flex flex-col gap-2" onSubmit={event => { event.preventDefault(); void revoke(ending.consentGrantId) }}>
           {/* data-autofocus: the drawer gives it focus as it opens (React's autoFocus would be taken back by the drawer). */}
@@ -911,16 +1028,32 @@ export function AccessPage() {
               aria-describedby={`revoke-reason-hint-${ending.consentGrantId} revoke-pin-${ending.consentGrantId}`} />
           </Field>
           {/* Ending access leaves the Access PIN as it is: read with the field, so it is heard before the reason is sent. */}
-          <Hint id={`revoke-pin-${ending.consentGrantId}`}>If they have your Access PIN, they can use it to get access again. Change it in your profile too.</Hint>
+          <Hint id={`revoke-pin-${ending.consentGrantId}`}>If they have your Access PIN, they can use it to get access again. <Link to="/profile#access-pin" className="font-medium text-brand-ink">Change it in your profile</Link> too.</Hint>
         </form>
       </div>}
     </Drawer>
   </div>
 }
 
+/** A day and time kept on one line ("11 Nov 2026, 14:41"), so a phone breaks the line between two of them, not inside one. */
+const Nowrap = ({ children }: { children: ReactNode }) => <span className="whitespace-nowrap">{children}</span>
+
 /** One-tap reasons to deny a request; each is long enough for the API (3 characters at least). */
 type QuickReason = 'unknown' | 'not-now' | 'other'
 const QUICK_REASONS: Readonly<Record<QuickReason, string>> = { unknown: 'I don’t know them', 'not-now': 'Not now', other: 'Other' }
+
+/** The parts of Access & sharing, as the address names them (?tab=): Requests when none, or one not known. */
+type AccessTab = 'requests' | 'granted' | 'activity'
+const accessTabOf = (value: string | null): AccessTab => value === 'granted' || value === 'activity' ? value : 'requests'
+
+/** A command refused because the request or access changed elsewhere first (gone, decided, ended or out of date). */
+const changedElsewhere = (cause: unknown) => isHidApiError(cause) && (cause.status === 404 || cause.status === 409 || cause.status === 412)
+  && cause.code !== 'PATIENT_RECENT_AUTH_REQUIRED'
+
+/** Access the patient may not recognise: whom to tell. */
+function UnexpectedAccess() {
+  return <p className="m-0">Don’t recognise this? <a href={supportHref()} className="font-medium text-brand-ink">Contact Health ID support</a>.</p>
+}
 
 /** A card's own heading on Access: the icon, the title (where focus returns after a decision) and a short state. */
 function AccessHeading({ headingRef, icon: I, title, hint }: { headingRef: RefObject<HTMLHeadingElement | null>; icon: Icon; title: string; hint?: string }) {
@@ -936,22 +1069,32 @@ export function NotificationsPage() {
   const notifications = usePatientResource(api.notifications)
   const { settle } = useUnreadNotifications()
   const [working, setWorking] = useState<string | null>(null)
+  // Said politely once a notice is marked read (RN-09); mounted with the page, so each change is announced.
+  const [said, setSaid] = useState('')
   const toast = useToast()
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
   const noticesRetry = useRetryFocus(heading)
   // A notice came, or one was read in another window (the bell's count changed): the list is read again by itself.
   useOnNotificationChange(() => { void notifications.reload() })
+  const items = notifications.data && !notifications.error ? notifications.data : null
   const markRead = async (id: string) => {
-    setWorking(id)
+    // One at a time (RN-18): the buttons stay where the keyboard is while one runs, and say they are waiting.
+    if (working !== null || notifications.loading) return
+    // The unread ones after this one, in the order shown: focus goes to the first still unread once it is read.
+    const unread = (items ?? []).filter(item => !item.readAt).map(item => item.id)
+    const after = unread.slice(unread.indexOf(id) + 1)
+    setWorking(id); setSaid('')
     // The row changes from unread to read: that is the result, so no toast says it again.
-    try { await api.markNotificationRead(id); await notifications.reload(); void settle(); focusAfter(() => heading.current) }
-    catch (cause) {
+    try {
+      await api.markNotificationRead(id); await notifications.reload(); void settle()
+      setSaid('Marked as read.')
+      focusAfter(() => after.map(next => document.getElementById(`mark-read-${next}`)).find(Boolean) ?? heading.current)
+    } catch (cause) {
       toast.error({ title: 'Couldn’t mark it as read', message: plainErrorText(cause, 'Notification could not be updated.') })
       focusAfter(() => document.getElementById(`mark-read-${id}`))
     } finally { setWorking(null) }
   }
-  const items = notifications.data && !notifications.error ? notifications.data : null
   const unreadCount = items ? items.filter(item => !item.readAt).length : 0
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} title="Notifications" description={items ? (unreadCount ? `${unreadCount} unread` : 'You’re all caught up.') : undefined} />
@@ -967,9 +1110,22 @@ export function NotificationsPage() {
             <p className={cx('m-0 text-sm break-words text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>
             <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], timeAgo(item.createdAt)].filter(Boolean).join(' · ')}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
           </div>
-          {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" disabled={working === item.id || notifications.loading} onClick={() => void markRead(item.id)}>Mark as read<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+          {(() => {
+            const action = notificationAction(item)
+            return action || !item.readAt ? <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+              {action && <Button to={action.to} size="sm">{action.label}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+              {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" aria-busy={working === item.id || undefined}
+                aria-disabled={working !== null || notifications.loading || undefined} onClick={() => void markRead(item.id)}>
+                {working === item.id ? 'Marking…' : 'Mark as read'}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+            </div> : null
+          })()}
         </li>)}
-      </ul></Card>)}
+      </ul>
+        {/* The list holds the newest only (RN-11): Identity sends at most NOTIFICATIONS_LIMIT. */}
+        {items.length >= NOTIFICATIONS_LIMIT && <p className="m-0 border-t border-line px-4 py-3 text-[13px] text-ink-3 sm:px-5">
+          Showing your {NOTIFICATIONS_LIMIT} most recent notifications. Older ones aren’t shown here.</p>}
+      </Card>)}
+    <p role="status" className="patient-visually-hidden">{said}</p>
     <ImportedNotificationsCard />
   </div>
 }
@@ -994,58 +1150,83 @@ function ImportedNotificationsCard() {
   const [olderEnd, setOlderEnd] = useState(false)
   const [readHere, setReadHere] = useState<Readonly<Record<string, string>>>({})
   const [working, setWorking] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Each problem beside the control that failed (RN-12): `at` is a row's id, or 'older' for Show older.
+  const [error, setError] = useState<{ at: string; text: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // After Try again finds no old account, the card is gone: a quiet line takes the keyboard instead (RN-22).
+  const noneLine = useRef<HTMLParagraphElement>(null)
+  const [retried, setRetried] = useState(false)
   const focusAfter = useActionFocus()
-  const retryFocus = useRetryFocus(heading)
+  const retryTarget = useMemo(() => ({ get current(): HTMLElement | null { return heading.current ?? noneLine.current } }), [])
+  const retryFocus = useRetryFocus(retryTarget)
 
   const seen = new Set<string>()
   const items = [...first.data ?? [], ...older].filter(item => !seen.has(item.id) && (seen.add(item.id), true))
     .map(item => readHere[item.id] && !item.readAt ? { ...item, readAt: readHere[item.id] ?? null } : item)
-  if (first.error === null && items.length === 0) return null
+  // Until a read has listed some, nothing says the patient had an old account (RN-22): a first read that fails is said
+  // as "if you had one", with Try again, and no card.
+  if (first.error && first.data === null) return <Alert intent="error" size="sm" title="If you had an old Health ID account, its notifications couldn’t be loaded."
+    action={<button ref={retryFocus.button} type="button" onClick={() => { setRetried(true); retryFocus.retry(first.reload) }} className={buttonClass({ size: 'sm' })}>
+      <RotateCcw className="size-3.5" aria-hidden />Try again</button>}>{first.error}</Alert>
+  if (first.error === null && items.length === 0) return retried && first.data !== null
+    ? <p ref={noneLine} tabIndex={-1} role="status" className="m-0 text-[13px] text-ink-3">No notifications from an old account.</p> : null
   // A full page may have more after it.
   const more = !olderEnd && (older.length > 0 ? older.length % IMPORTED_NOTIFICATIONS_PAGE === 0
     : (first.data?.length ?? 0) === IMPORTED_NOTIFICATIONS_PAGE)
 
   const markRead = async (id: string) => {
+    if (working !== null) return
     setWorking(id); setError(null)
     try {
       const answer = await api.markImportedNotificationRead(id)
       setReadHere(current => ({ ...current, [id]: answer?.readAt ?? new Date().toISOString() }))
       void settle()
-      focusAfter(() => heading.current)
+      // The row stays, read: focus goes to the next one still unread, else to the heading.
+      const after = items.slice(items.findIndex(item => item.id === id) + 1).filter(item => !item.readAt)
+      focusAfter(() => after.map(item => document.getElementById(`mark-imported-read-${item.id}`)).find(Boolean) ?? heading.current)
     } catch (cause) {
-      setError(plainErrorText(cause, 'Couldn’t mark it as read. Try again.'))
+      setError({ at: id, text: plainErrorText(cause, 'Couldn’t mark it as read. Try again.') })
       focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
     } finally { setWorking(null) }
   }
   const showOlder = async () => {
+    if (working !== null) return
     setWorking('older'); setError(null)
+    let added: ImportedNotification | undefined
     try {
       const page = await api.importedNotifications(items.length)
+      added = page.find(item => !seen.has(item.id))
       setOlder(current => [...current, ...page])
       if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
     } catch (cause) {
-      setError(plainErrorText(cause, 'Couldn’t load older notifications. Try again.'))
-    } finally { setWorking(null); focusAfter(() => document.getElementById('imported-notifications-older') ?? heading.current) }
+      setError({ at: 'older', text: plainErrorText(cause, 'Couldn’t load older notifications. Try again.') })
+    } finally {
+      setWorking(null)
+      // After a page, to the first row it added; else back to the button.
+      focusAfter(() => (added && document.getElementById(`imported-notice-${added.id}`)) || document.getElementById('imported-notifications-older') || heading.current)
+    }
   }
+  const busyProps = (mine: boolean) => ({ 'aria-busy': mine || undefined, 'aria-disabled': working !== null || undefined })
 
   return <Card aria-labelledby="imported-notifications-heading">
     <div className="border-b border-line px-5 py-4">
       <h2 ref={heading} id="imported-notifications-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">From your old Health ID account</h2>
     </div>
     {first.error && <div className="p-5"><LoadProblem what="old notifications" error={first.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(first.reload)} /></div>}
-    {error && <div className="px-5 pt-4"><Problem>{error}</Problem></div>}
-    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
+    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} id={`imported-notice-${item.id}`} tabIndex={-1}
+      className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-brand sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
       <div className="min-w-0 flex-[1_1_12rem]">
         <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{item.title || 'A notification from your old account'}</p>
         {item.message && <p className="m-0 mt-1 text-[13px] whitespace-pre-wrap [overflow-wrap:anywhere] text-ink-2">{item.message}</p>}
         <p className="m-0 mt-0.5 text-[13px] text-ink-3">{dateTime(item.createdAt)}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
       </div>
-      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" disabled={working !== null} onClick={() => void markRead(item.id)}>
-        Mark as read<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></Button>}</li>)}</ul>}
-    {more && <div className="border-t border-line px-5 py-3"><Button id="imported-notifications-older" size="sm" loading={working === 'older'} disabled={working !== null}
-      onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</Button></div>}
+      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" {...busyProps(working === item.id)} onClick={() => void markRead(item.id)}>
+        {working === item.id ? 'Marking…' : 'Mark as read'}<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></Button>}
+      {error?.at === item.id && <div className="basis-full"><Problem>{error.text}</Problem></div>}</li>)}</ul>}
+    {more && <div className="flex flex-col items-start gap-3 border-t border-line px-5 py-3">
+      {error?.at === 'older' && <Problem>{error.text}</Problem>}
+      <Button id="imported-notifications-older" size="sm" {...busyProps(working === 'older')}
+        onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</Button></div>}
   </Card>
 }
 
@@ -1063,16 +1244,21 @@ function pinProblem(cause: unknown, fallback: string) {
 
 /**
  * The Access PIN, at the end of Bio-data (moved there from Settings, which is gone: the owner's decision of
- * 2026-10-28): its status, Set or Replace PIN, and Revoke. A refused PIN is tied to its field (PR-07), as a refused
- * NIN is.
+ * 2026-10-28): its status, Set or Replace PIN, and Remove. A refused PIN is tied to its field (PR-07), as a refused
+ * NIN is. The PIN has a Show PIN toggle, as every password field has, so a mistyped one can be checked before it is
+ * saved (PPS-08). Remove PIN asks first, in a sheet that says what removing it does, with Cancel as easy (PPS-07); only
+ * the button of what runs is busy. A refusal that needs a recent sign-in offers "Sign in again" (PPS-09).
  */
 function AccessPinSettings({ profile, loading, onChanged }: {
   profile: PatientProfile; loading: boolean; onChanged: () => Promise<unknown>
 }) {
   const { api } = useSession()
   const [pin, setPin] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [working, setWorking] = useState<'saving' | 'removing' | null>(null)
+  const busy = working !== null
+  const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [signInAgain, setSignInAgain] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [pinFieldError, setPinFieldError] = useState(false)
   const [errorAlert, setErrorAlert] = useState(true)
@@ -1085,22 +1271,27 @@ function AccessPinSettings({ profile, loading, onChanged }: {
   const configurePin = async (event: FormEvent) => {
     event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return
     const fromField = pinFocus.onTarget()
-    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
+    setWorking('saving'); setError(null); setSignInAgain(false); setNotice(null); setPinFieldError(false); setErrorAlert(true)
     try { await api.setAccessPin(pin); setPin(''); setNotice('PIN saved.'); await onChanged() }
     catch (cause) {
       const aboutField = isFieldProblem(cause)
-      setError(pinProblem(cause, 'Couldn’t save your PIN. Try again.'))
+      setError(pinProblem(cause, 'Couldn’t save your PIN. Try again.')); setSignInAgain(needsRecentSignIn(cause))
       setPinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
-    } finally { setBusy(false); pinFocus.focus() }
+    } finally { setWorking(null); pinFocus.focus() }
   }
+  const askToRemove = () => { if (!busy) { setAsking(true); setError(null); setSignInAgain(false); setNotice(null) } }
+  // Cancel: the sheet gives focus back to Remove PIN as it closes.
+  const keepPin = () => { if (working !== 'removing') setAsking(false) }
   const revokePin = async () => {
     if (busy) return
-    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.revokeAccessPin(); setNotice('PIN removed.'); await onChanged(); focusAfter(() => pinHeading.current) }
-    catch (cause) {
-      setError(pinProblem(cause, 'Couldn’t remove your PIN. Try again.'))
-      focusAfter(() => revokePinButton.current)
-    } finally { setBusy(false) }
+    setWorking('removing'); setError(null); setSignInAgain(false); setNotice(null); setPinFieldError(false); setErrorAlert(true)
+    try {
+      await api.revokeAccessPin(); setNotice('PIN removed.'); await onChanged()
+      setAsking(false); focusAfter(() => pinHeading.current)
+    } catch (cause) {
+      setError(pinProblem(cause, 'Couldn’t remove your PIN. Try again.')); setSignInAgain(needsRecentSignIn(cause))
+      setAsking(false); focusAfter(() => revokePinButton.current)
+    } finally { setWorking(null) }
   }
 
   const pinError = error && pinFieldError ? <span role={errorAlert ? 'alert' : undefined}>{error}</span> : undefined
@@ -1112,17 +1303,23 @@ function AccessPinSettings({ profile, loading, onChanged }: {
       {/* The paper records part only to an adult (under-18s are refused paper records). */}
       {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
     <Saved>{notice}</Saved>
-    <form onSubmit={event => void configurePin(event)} className="flex flex-wrap items-start gap-2">
-      <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
+    {/* On a phone, Save PIN goes under the field and its hint; wider, beside the field. */}
+    <form onSubmit={event => void configurePin(event)} className="flex flex-col items-start gap-3 sm:flex-row sm:gap-2">
+      {/* Wide enough for the Show PIN toggle beside eight digits, on a 320px phone too. */}
+      <Field className="w-full max-w-64 sm:w-60" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
         errorId="access-pin-error" error={pinError}>
-        <InputR id="access-pin-input" ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin}
+        <PasswordInput id="access-pin-input" ref={pinFocus.target} toggleLabel="Show PIN" required inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin}
           onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
           aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'access-pin-error')} />
       </Field>
-      <Button type="submit" variant="primary" className="mt-[25px]" loading={busy} disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</Button>
+      <Button type="submit" variant="primary" className="shrink-0 sm:mt-[25px]" loading={working === 'saving'} disabled={busy || !/^\d{4,8}$/.test(pin)}>{working === 'saving' ? 'Saving…' : 'Save PIN'}</Button>
     </form>
     {error && !pinFieldError && <Problem id="access-pin-error" alert={errorAlert}>{error}</Problem>}
-    {profile.accessPinConfigured && <ButtonR ref={revokePinButton} variant="danger" className="self-start" disabled={busy || loading} onClick={() => void revokePin()}>Remove PIN</ButtonR>}
+    {error && signInAgain && <SignInAgain at="access-pin" />}
+    {profile.accessPinConfigured && <ButtonR ref={revokePinButton} variant="danger" className="self-start" disabled={busy || loading} onClick={askToRemove}>Remove PIN</ButtonR>}
+    <ConfirmSheet open={asking} onClose={keepPin} title="Remove your Access PIN?" destructive busy={working === 'removing'}
+      effect="Hospitals you gave this PIN to won’t be able to use it to open your records."
+      undo="You can set a new PIN later." confirmLabel={working === 'removing' ? 'Removing…' : 'Remove PIN'} onConfirm={() => void revokePin()} />
   </div>
 }
 

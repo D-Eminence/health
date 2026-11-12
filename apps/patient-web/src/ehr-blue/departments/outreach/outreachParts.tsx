@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
-import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../../../staff/api'
+import { isHidApiError } from '@hid/http'
+import type { OutreachCampaign, OutreachCampaignMember, OutreachCampaignRole, OutreachCase } from '../../../staff/api'
 import type { Tone } from '../../../kasuwa/ui'
 import type { DeptFact } from '../parts/DeptRecord'
+import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 
 /*
@@ -34,6 +36,127 @@ export const CREATE_FAILED = 'The registration case could not be saved. Please r
 export const LINK_FAILED = 'The patient could not be linked. Check your access to this patient, then refresh the case.'
 
 export const PENDING = 'identity_resolution_pending'
+
+/*
+ * Campaign management (hid-system#222, 0111): a campaign's own admins open, close and staff it. Every refusal Outreach
+ * gives it is said in words that tell the person what to do next, never its code.
+ */
+export const STAFF_NOT_LOADED = 'Who is in this campaign could not be checked. Try again.'
+export const CAMPAIGN_CREATE_FAILED = 'The campaign could not be saved. Please retry.'
+/** A create whose answer never came: the campaign may be saved, and Outreach would make a second one if it were sent again. */
+export const CAMPAIGN_CREATE_UNSURE = 'The campaign list has been read again. Check it for this campaign before you retry: if the answer was lost, it may already be saved.'
+export const CAMPAIGN_STATUS_FAILED = 'The campaign could not be changed. Please retry.'
+export const MEMBER_ADD_FAILED = 'The person could not be added. Please retry.'
+/** Outreach takes a campaign name of 2 to 200 characters (CreateCampaignDto). */
+export const NAME_LENGTH = 'Enter at least 2 characters.'
+export const CHOOSE_SERVICE = 'Choose at least one service.'
+export const END_AFTER_START = 'Choose an end date on or after the start date.'
+
+const CAMPAIGN_REFUSALS: Readonly<Record<string, string>> = {
+  OUTREACH_CAMPAIGN_ADMIN_REQUIRED: 'Only this campaign’s admins can do this. Ask one of them.',
+  VERSION_CONFLICT: 'This campaign changed since you opened it. It has been read again: check it, then try again.',
+  OUTREACH_CAMPAIGN_STATE_CONFLICT: 'This campaign has already changed. It has been read again: check it, then try again.',
+  OUTREACH_CAMPAIGN_NOT_STARTED: 'This campaign can’t be opened before its start date.',
+  OUTREACH_CAMPAIGN_CLOSED: 'This campaign is finished. A finished campaign can’t be opened again.',
+  OUTREACH_STAFF_NOT_AVAILABLE: 'That person isn’t active staff at this facility now. Choose someone else.',
+  OUTREACH_CAMPAIGN_MEMBER_EXISTS: 'That person is already in this campaign.',
+  OUTREACH_CAMPAIGN_DATES_INVALID: END_AFTER_START,
+}
+/** The refusals after which the campaign is read again, since what the page shows is out of date. */
+export const CAMPAIGN_STALE: ReadonlySet<string> = new Set(['VERSION_CONFLICT', 'OUTREACH_CAMPAIGN_STATE_CONFLICT', 'OUTREACH_CAMPAIGN_CLOSED',
+  'OUTREACH_CAMPAIGN_NOT_STARTED', 'OUTREACH_CAMPAIGN_ADMIN_REQUIRED'])
+
+/** A campaign write's refusal in plain words. */
+export function campaignErrorText(error: unknown, fallback: string): string {
+  if (isHidApiError(error) && Object.hasOwn(CAMPAIGN_REFUSALS, error.code)) return CAMPAIGN_REFUSALS[error.code]!
+  return errorText(error, fallback)
+}
+
+/** The services Outreach takes on a campaign (CreateCampaignDto), in the order the form offers them, with their words. */
+export const CAMPAIGN_SERVICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hint?: string }> = [
+  { value: 'registration', label: 'Registration', hint: 'Members can register people they meet into this campaign.' },
+  { value: 'vitals', label: 'Vital signs' },
+  { value: 'vaccination', label: 'Vaccination' },
+  { value: 'lab_sample', label: 'Lab samples' },
+  { value: 'referral', label: 'Referrals' },
+]
+const SERVICE_WORDS: Readonly<Record<string, string>> = Object.fromEntries(CAMPAIGN_SERVICES.map(service => [service.value, service.label]))
+
+/** A campaign's services in words: "Registration, Lab samples". One with no word here is said as written, never with underscores. */
+export function servicesText(services: readonly string[], none = 'No services listed') {
+  if (!services.length) return none
+  return services.map(service => (Object.hasOwn(SERVICE_WORDS, service) ? SERVICE_WORDS[service] : undefined)
+    ?? service.replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())).join(', ')
+}
+
+/** A campaign role's words, as the form offers them. */
+export const CAMPAIGN_ROLES: ReadonlyArray<{ readonly value: OutreachCampaignRole; readonly label: string }> = [
+  { value: 'enumerator', label: 'Enumerator' },
+  { value: 'health_worker', label: 'Health worker' },
+  { value: 'admin', label: 'Campaign admin' },
+]
+const ROLE_WORDS: Readonly<Record<string, string>> = Object.fromEntries(CAMPAIGN_ROLES.map(role => [role.value, role.label]))
+
+/** A campaign member's role in words: "Member" for one the page has no word for, never its code (parity report 3.1 #16). */
+export function memberRoleLabel(role: string): string {
+  return (Object.hasOwn(ROLE_WORDS, role) ? ROLE_WORDS[role] : undefined) ?? 'Member'
+}
+
+/**
+ * A date picked on a form as the instant Outreach takes: the start of that day, or (`end`) its last second, in Nigerian
+ * time (WAT, UTC+1 all year), so a campaign ending on a day runs to the end of it.
+ */
+export function lagosDayInstant(day: string, end = false): string {
+  return new Date(`${day}T${end ? '23:59:59' : '00:00:00'}+01:00`).toISOString()
+}
+
+/** Whether a campaign may be opened now: Outreach refuses before its start time (OUTREACH_CAMPAIGN_NOT_STARTED). */
+export function campaignStarted(campaign: OutreachCampaign, now = Date.now()) {
+  const starts = Date.parse(campaign.startsAt)
+  return Number.isNaN(starts) || starts <= now
+}
+
+/*
+ * Linking by Health ID: the person is looked up first (Identity patient-lookup, which needs access to read their
+ * record), confirmed by name and date of birth, then linked (which needs access to write it). Each refusal is said at
+ * the Health ID field, in plain words.
+ */
+export const HEALTH_ID_HINT = 'The Health ID on their card or in their Health ID app. It starts with HID-.'
+export const HEALTH_ID_FORMAT = 'Enter the Health ID as it’s written on their card or app. It starts with HID-.'
+export const HEALTH_ID_NOT_FOUND = 'No one has this Health ID. Check it with them and try again.'
+export const HEALTH_ID_NO_ACCESS = 'You can’t open this person’s record yet. Ask them to share their record with you, or approve your access request.'
+export const HEALTH_ID_ROLE = 'Your role can’t look people up by Health ID. Ask your facility administrator to link this registration, or to change your role.'
+export const LINK_NEEDS_SHARE = 'To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'
+export const LOOKUP_FAILED = 'We couldn’t check this Health ID. Try again.'
+
+/** A Health ID as Identity takes it (patient-lookup.dto.ts): HID- and 6 to 32 letters and digits, no I, O, 0 or 1. */
+const HEALTH_ID = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
+
+/** The Health ID typed, spaces removed and upper-cased, with HID- added when only the rest was typed; '' when it isn't one. */
+export function healthIdFrom(typed: string): string {
+  const compact = typed.replace(/\s+/g, '').toUpperCase()
+  const hid = compact.startsWith('HID-') ? compact : compact.startsWith('HID') ? `HID-${compact.slice(3)}` : `HID-${compact}`
+  return HEALTH_ID.test(hid) ? hid : ''
+}
+
+/**
+ * A campaign takes registrations only inside its start and end times (outreach.service.ts
+ * assertCampaignAcceptsRegistration). The list may not carry them (staff/api.ts OutreachCampaign has no endsAt): a time
+ * not sent, or not readable, does not take a campaign off the list.
+ */
+export function campaignOpenNow(campaign: OutreachCampaign, now = Date.now()): boolean {
+  const time = (value: unknown) => (typeof value === 'string' ? new Date(value).getTime() : Number.NaN)
+  const startsAt = time((campaign as { startsAt?: unknown }).startsAt)
+  const endsAt = time((campaign as { endsAt?: unknown }).endsAt)
+  if (!Number.isNaN(startsAt) && now < startsAt) return false
+  if (!Number.isNaN(endsAt) && now >= endsAt) return false
+  return true
+}
+
+/** A campaign refused this registration: the person can be saved without it. */
+export function campaignRefusedText(name: string | undefined) {
+  return `${name ? `“${name}”` : 'This campaign'} isn’t taking this registration right now. You can save this person without the campaign. Everything you typed is kept.`
+}
 
 /**
  * A campaign's status in plain words. Outreach sends planned, active or closed (campaign.types.ts CampaignStatus); the
@@ -71,11 +194,11 @@ export function sexText(item: OutreachCase) {
 
 /** The words a list search looks in: what a row shows, and nothing that is not on screen. */
 export function caseSearchText(item: OutreachCase) {
-  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), item.temporaryPatientId, dateText(item.createdAt)]
+  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt)]
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {
-  return [campaign.name, campaignStatusLabel(campaign.status), campaign.services.join(' '), dateText(campaign.startsAt)]
+  return [campaign.name, campaignStatusLabel(campaign.status), servicesText(campaign.services), dateText(campaign.startsAt)]
 }
 
 /**
@@ -101,7 +224,6 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
-    { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined
@@ -114,8 +236,10 @@ export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
   return [
     { label: 'Name', value: campaign.name },
     { label: 'Status', value: campaignStatusLabel(campaign.status) },
-    { label: 'Services', value: campaign.services.length ? campaign.services.join(', ') : 'None listed' },
+    { label: 'Services', value: servicesText(campaign.services, 'None listed') },
     { label: 'Starts', value: dateText(campaign.startsAt) },
+    // Outreach sends its end on every campaign (null: none set); an older answer leaves it out, and so does this.
+    ...(campaign.endsAt !== undefined ? [{ label: 'Ends', value: campaign.endsAt ? dateText(campaign.endsAt) : 'No end date' }] : []),
   ]
 }
 
@@ -198,6 +322,14 @@ const LINKED_STATUSES: ReadonlySet<string> = new Set(['identity_resolved', 'reso
 
 export function statusLabel(status: string) {
   return (Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : undefined) ?? 'Status not known'
+}
+
+/** What the create form's answer said, on the blue page and today's: the case made, and where its identity stands. */
+export function createdText(created: OutreachCase | undefined) {
+  if (!created?.status) return 'Registration case created.'
+  return created.status === PENDING
+    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
+    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */
