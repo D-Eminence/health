@@ -1,6 +1,7 @@
 import { useEffect,useRef,useState } from 'react'
 import type { StagingPatientChatSource } from '@hid/contracts'
 import { useSession } from './session'
+import { cleanAssistantText } from './RecordAnswer'
 /**
  * Where a source's facts came from (the source's `origin`, parsed by @hid/contracts), in the screen's own words (the
  * owner's decision 25): to the patient, "You added this", "Recorded by a health worker" or "From a scanned paper record";
@@ -18,7 +19,7 @@ export function originText(origin:unknown,staff=false):string|null {
 }
 function fields(value:unknown,depth=0):React.ReactNode {
   if(value===null||value===undefined)return 'Not recorded'
-  if(typeof value!=='object')return String(value)
+  if(typeof value!=='object')return typeof value==='string'?cleanAssistantText(value):String(value)
   if(depth>=6)return 'Additional structured details are available in Records.'
   if(Array.isArray(value))return <ul>{value.map((v,i)=><li key={i}>{fields(v,depth+1)}</li>)}</ul>
   return <dl className="chat-source-fields">{Object.entries(value).map(([k,v])=><div key={k}><dt>{k.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ')}</dt><dd>{fields(v,depth+1)}</dd></div>)}</dl>
@@ -45,7 +46,7 @@ export function ChatSourceContent({source,loadSource,staff=false}:{source:Stagin
   const date='kind' in source?source.effectiveAt??source.recordedAt:source.signedAt
   // Said only when the service says where the facts came from; a service before the chat source labels shows as before.
   const origin='kind' in source&&'origin' in source?originText(source.origin,staff):null
-  return <li><span className="record-chat-source-number">[{source.number}]</span><div><strong>{source.title}</strong>
+  return <li><span className="record-chat-source-number">[{source.number}]</span><div><strong>{cleanAssistantText(source.title)}</strong>
     {origin&&<span className="record-chat-source-origin">{origin}</span>}
     <span>{'kind' in source?`${source.provenance} · ${source.quality}`:`Revision ${source.revisionNo} · Signed`}
       {date?' · '+new Date(date).toLocaleDateString('en-NG',{day:'numeric',month:'short',year:'numeric'}):' · Date not recorded'}</span>

@@ -109,6 +109,8 @@ const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (
   + 'createdAt, matchedRecordedAllergyIds, patientReportedMatched, patientReportedTerms }. The member absent comes from an '
   + 'EHR without the allergy check, where no warning can have been overridden, so the page says nothing about overrides; '
   + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
+/** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
+const PAPER_RECORD_LISTS = 'Not served by hid-system yet (404 until it is). Direct care at the working facility.'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -955,11 +957,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
     'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
-    + 'after 24 hours (no download is offered). An earlier backend never sends source_deleted.'),
+    + 'after 7 days (no download is offered); since hid-system#226 source_deleting while that deletion is under way, '
+    + 'treated the same. An earlier backend sends neither.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),
-    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 24 hours") '
+    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 7 days") '
     + 'for a document whose source page was deleted; staffApi.documentDownload answers it as its own outcome, not an error.'),
   // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
   // price-list pictures (imageFileId). Proposed; 404 until served.
@@ -976,6 +979,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${POINT_OF_CARE} Body { email }; answers { shareId, sentTo, expiresAt }.`)),
   r('lab.imports','lab','/api/v1/lab/imports',P,false,one('POST','lab.import.write')),
   r('lab.import','lab','/api/v1/lab/imports/:importId',G,false,one('GET','lab.import.read')),
+  // A patient's imported Lab evidence (hid-system Session B, branch claude/ecstatic-ramanujan-q4i1eo-lab-patient-imports;
+  // not on staging-novu-ci-20261005 yet). Migrate's "From paper records" hides it while it answers 404.
+  { ...proposed(r('lab.patientImports','lab','/api/v1/lab/imports',G,false,one('GET','lab.import.read'),PAPER_RECORD_LISTS
+    + ' Query patientId (Identity UUID), cursor (the last import id), limit 1-50 (20 by default). 200 { records, nextCursor }, '
+    + 'newest received first, each as GET /api/v1/lab/imports/:importId with its observations; 403 LAB_IMPORT_ACCESS_DENIED.')),
+  requiredQuery: { GET: ['patientId'] } },
   r('lab.createAccession','lab','/api/v1/lab/work-items/:workItemId/accession',P,false,one('POST','lab.accession.create')),
   r('lab.accession','lab','/api/v1/lab/accessions/:accessionId',G,false,one('GET','lab.accession.read')),
   r('lab.specimens','lab','/api/v1/lab/accessions/:accessionId/specimens',G,false,one('GET','lab.accession.read')),
@@ -1031,6 +1040,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${POINT_OF_CARE} Reason required.`)),
   proposed(r('pharmacy.stockMovements','pharmacy','/api/v1/pharmacy/stock/:catalogueItemId/movements',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
+  // A patient's imported medicines (hid-system Session B, branch claude/ecstatic-ramanujan-q4i1eo-pharmacy-patient-imports;
+  // not on staging-novu-ci-20261005 yet). Migrate's "From paper records" hides it while it answers 404.
+  { ...proposed(r('pharmacy.patientImports','pharmacy','/api/v1/pharmacy/imports',G,false,one('GET','pharmacy.import.read'),
+    PAPER_RECORD_LISTS + ' Query patientId (Identity UUID), limit 1-100 (50 by default), cursor (the last record id). 200 '
+    + '{ items, nextCursor }, newest first, each as GET /api/v1/pharmacy/imports/:importId; any other query is refused 400.')),
+  requiredQuery: { GET: ['patientId'] } },
   // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
   { ...proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),
     RECEIVE_ROUTE)), forbiddenQuery: { GET: ['healthId'] } },

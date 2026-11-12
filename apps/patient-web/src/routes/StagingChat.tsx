@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { StagingPatientChatReply } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import './chat.css'
-import { RecordAnswer } from '../RecordAnswer'
+import { RecordAnswer, cleanAssistantText } from '../RecordAnswer'
 import { ConfirmSheet } from '../kasuwa/parts'
 import type { StagingPatientChatHistory } from '@hid/contracts'
 import { ChatSourceContent } from '../ChatSource'
@@ -44,6 +44,18 @@ function failure(reason: unknown): string {
   if (reason.status === 503) return UNAVAILABLE_503
   return 'Record chat is unavailable. Please try later.'
 }
+type ChatCoverage = NonNullable<StagingPatientChatReply['coverage']>
+/** Says plainly that the answer may be missing something, and why. */
+function CoverageNote({ coverage }: { coverage: ChatCoverage }) {
+  const pending = coverage.pendingDocuments
+  return <p className="record-chat-preparing"><strong>This answer may be incomplete.</strong>{' '}
+    {pending > 0
+      ? `${pending} ${pending === 1 ? 'document was' : 'documents were'} left out because ${pending === 1 ? 'it is' : 'they are'} still being processed, could not be opened, or ${pending === 1 ? 'was' : 'were'} not included.`
+      : 'Not every matching record could be read for this answer.'}
+    {coverage.unavailable.length > 0 && <> {cleanAssistantText(coverage.unavailable.join(' '))}</>}
+  </p>
+}
+
 function NoteIcon() {
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>
 }
@@ -163,7 +175,7 @@ export function StagingChatConversation({api,staff}:{api:StagingChatConversation
             <div className="record-chat-user"><span className="record-chat-message-label">You</span><p>{exchange.question}</p></div>
             <div className="record-chat-assistant"><span className="record-chat-avatar"><NoteIcon /></span><div className="record-chat-reply"><span className="record-chat-message-label">Health ID record assistant</span>
               {exchange.reply ? <><RecordAnswer text={exchange.reply.answer} />
-                {exchange.reply.coverage && !exchange.reply.coverage.complete && <p className="record-chat-preparing">This answer uses the available matching evidence. Coverage is incomplete{exchange.reply.coverage.pendingDocuments ? `; ${exchange.reply.coverage.pendingDocuments} document(s) are pending, unreadable or not included` : ''}. {exchange.reply.coverage.unavailable.join(' ')}</p>}
+                {exchange.reply.coverage && !exchange.reply.coverage.complete && <CoverageNote coverage={exchange.reply.coverage} />}
                 {exchange.reply.status === 'preparing' && <p className="record-chat-preparing">Your records are being prepared. Please ask again shortly.</p>}
                 {exchange.reply.sources.length > 0 && <details className="record-chat-sources" open><summary>{exchange.reply.sources.length} record {exchange.reply.sources.length === 1 ? 'reference' : 'references'}</summary><ul>{exchange.reply.sources.map(source => <ChatSourceContent key={source.number} source={source} loadSource={api.chatSource} staff={Boolean(staff)} />)}</ul></details>}
               </> : exchange.error ? <p role="alert" className="record-chat-error">{exchange.error}</p>
