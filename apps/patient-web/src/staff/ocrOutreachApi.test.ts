@@ -80,14 +80,54 @@ describe('imported evidence reads', () => {
 })
 
 /**
- * GAP-L93, OUTREACH-01: Identity does not authorize outreach.campaign.write
- * (hid-system authorize-outreach.dto.ts, ADR-045), so the staff API reads
- * campaigns and their members and has no call that writes them.
+ * GAP-L93, OUTREACH-01: until hid-system#222 (0111, ADR-045 option B) Identity refused outreach.campaign.write. From it,
+ * a campaign's own admins open, close and staff it; the page asks first whether Outreach serves that (governance), and a
+ * 404 keeps it read only.
  */
 describe('Outreach campaign requests', () => {
-  it('only read campaigns', async () => {
+  it('reads campaigns, and writes them only through the calls campaign management uses', async () => {
     const { staffApi } = await signedInStaffApi()
-    expect(Object.keys(staffApi).filter(name => /campaign/i.test(name)).sort()).toEqual(['outreachCampaignMembers', 'outreachCampaigns'])
+    expect(Object.keys(staffApi).filter(name => /campaign/i.test(name)).sort()).toEqual([
+      'addOutreachCampaignMember', 'createOutreachCampaign', 'outreachCampaignGovernance', 'outreachCampaignMembers',
+      'outreachCampaignStaff', 'outreachCampaigns', 'setOutreachCampaignStatus',
+    ])
+  })
+
+  it('reads governance and a campaign\'s staff at the facility, for direct care', async () => {
+    const requests = recordFetch({ rule: 'campaign_admins' })
+    const { staffApi } = await signedInStaffApi()
+    await staffApi.outreachCampaignGovernance('facility-1')
+    await staffApi.outreachCampaignStaff('facility-1', 'c0a00000-0000-4000-8000-000000000001')
+    expect(requests.map(request => `${request.method} ${request.url.pathname}`)).toEqual([
+      'GET /api/v1/outreach/registration-cases/campaigns/governance',
+      'GET /api/v1/outreach/registration-cases/campaigns/c0a00000-0000-4000-8000-000000000001/staff',
+    ])
+    for (const request of requests) {
+      expect(request.headers.get('x-facility-id')).toBe('facility-1')
+      expect(request.headers.get('x-purpose-of-use')).toBe('direct-care')
+    }
+  })
+
+  it('opens or closes a campaign against the version it was read at, and sends each write once, with no Idempotency-Key', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    const requests = recordFetch({ id: 'c0a00000-0000-4000-8000-000000000001' })
+    const { staffApi } = await signedInStaffApi()
+    const campaign = { id: 'c0a00000-0000-4000-8000-000000000001', rowVersion: 4 }
+    await staffApi.createOutreachCampaign('facility-1', { name: 'Demo screening week', services: ['registration'], startsAt: '2026-11-19T23:00:00.000Z' })
+    await staffApi.setOutreachCampaignStatus('facility-1', campaign, 'closed', 'The work is done.')
+    await staffApi.addOutreachCampaignMember('facility-1', campaign.id, { membershipId: 'd0000000-0000-4000-8000-000000000002', role: 'enumerator' })
+    expect(requests.map(request => `${request.method} ${request.url.pathname}`)).toEqual([
+      'POST /api/v1/outreach/registration-cases/campaigns',
+      'POST /api/v1/outreach/registration-cases/campaigns/c0a00000-0000-4000-8000-000000000001/status',
+      'POST /api/v1/outreach/registration-cases/campaigns/c0a00000-0000-4000-8000-000000000001/members',
+    ])
+    expect(requests[1]!.headers.get('if-match')).toBe('"4"')
+    expect(requests[1]!.body).toEqual({ status: 'closed', reason: 'The work is done.' })
+    expect(requests[2]!.body).toEqual({ membershipId: 'd0000000-0000-4000-8000-000000000002', role: 'enumerator' })
+    for (const request of requests) {
+      expect(request.headers.get('idempotency-key')).toBeNull()
+      expect(request.headers.get('x-facility-id')).toBe('facility-1')
+    }
   })
 })
 

@@ -125,7 +125,7 @@ the UI says "This record has already been removed." and reads the records again.
 
 **What the UI says of a refusal.** Its own fixed words, chosen by the status and `code` alone. It never shows the
 server's `detail`, `title` or any other text from an answer to any of these routes. The Save: `404 NOT_FOUND`,
-"This isn't set up for your account. Contact support. What you entered is still here."; `413`, or the UI's own
+"Adding your own records isn't available yet. What you entered is still here."; `413`, or the UI's own
 `PATIENT_ENTRY_TOO_LARGE` (a body over 8000 bytes, refused before it is sent), "It's too long to send. Shorten the
 notes, then save again. What you entered is still here."; anything else, "Your record couldn't be saved. Please try
 again." A file's upload link, PUT and confirm: `429 PATIENT_DOCUMENT_DAILY_LIMIT`,
@@ -144,17 +144,39 @@ writes, at any share level.
 "Patient provided file; machine extracted, not clinician verified", and each entry's kind, title, place, date and notes
 as patient-reported.
 
-**Served or not.** The records answer carrying `patientEntries` (a list, empty or not), or a Save answering 201, means
+**Served or not.** Two separate signals, both kept in memory only, for the page's life
+(`apps/patient-web/src/patientEntriesServed.ts`); nothing is kept in the browser.
+
+*Entries.* The records answer carrying `patientEntries` (a list, empty or not), or a Save answering 201, means
 served. A records answer without the key (today's), or a Save's 404 `NOT_FOUND` (an unrouted path), means not served,
-but only while nothing has said otherwise; a `patientEntries` that is not a list is left out and says neither. The UI
-keeps this in memory only (`apps/patient-web/src/patientEntriesServed.ts`). Without the key the Records page sends
-exactly today's requests and looks exactly as today. Until served, the drawer's Save gets that 404 and says "This
-isn't set up for your account"; no file leaves the device until the Save and that file's upload link have both been
-answered. While patient uploads are off (before NDPA sign-off or migration 0110), the records answer leaves out
-`patientEntries`, and every patient-entry route answers exactly as if it were not built (`404 NOT_FOUND`): off must
-look the same as not built, never a code of its own (a `404 PATIENT_ENTRIES_DISABLED`, say, would only read "Your
-record couldn't be saved. Please try again."). The backend must not send `patientEntries` until uploads are cleared
-under the NDPA, because that one served signal turns on both the entries list and uploads.
+but only while nothing has said otherwise; a `patientEntries` that is not a list is left out and says neither. Once
+served, it stays served. Served turns on "Added by you" on the Records page and the "Add a record" drawer with its text
+fields (kind, name, place, date, notes). Without the key the Records page sends exactly today's requests and looks
+exactly as today. Until served, the drawer's Save gets that 404 and says "Adding your own records isn't available yet.
+What you entered is still here."
+
+*Photos and files* (the coordinator's decision, 4 Nov 2026). Uploads are offered only once a records answer
+(`GET /api/v1/ehr/me/records`) has carried the top-level key `patientEntryFiles` with the value `true`, exactly. Any
+other value (`false`, `"true"`, `1`) or no key says nothing; nothing turns it off again for the page's life, and a
+Save's 201 says nothing of it. So:
+
+- `patientEntries` with no `patientEntryFiles: true`: text entries work and are listed. The drawer shows no "Take a
+  photo" or "Upload a file", no file can be picked, and Save sends the entry alone: no upload link is asked for, no PUT
+  and no confirm are sent.
+- `patientEntries` and `patientEntryFiles: true`: the drawer also offers the photo and file pickers, and each picked
+  file goes up after the Save as steps 2 to 4 describe.
+- `patientEntryFiles: true` without `patientEntries`: the flag is remembered, but nothing is offered, since the drawer
+  only opens once entries are served.
+
+No file leaves the device until the Save and that file's upload link have both been answered.
+
+*Switched off.* While patient entries are off (before migration 0110), the records answer leaves out `patientEntries`,
+and every patient-entry route answers exactly as if it were not built (`404 NOT_FOUND`). While patient uploads are off
+(before NDPA sign-off), the records answer leaves out `patientEntryFiles` (or sends `false`), and the upload-link and
+confirm routes (steps 2 and 4) answer `404 NOT_FOUND`; the Save, the list and the removal may already be served. Off
+must look the same as not built, never a code of its own (a `404 PATIENT_ENTRIES_DISABLED`, say, would only read "Your
+record couldn't be saved. Please try again."). The backend must not send `patientEntryFiles: true` until uploads are
+cleared under the NDPA. It may send `patientEntries` before then: that turns on text entries only.
 
 Registered as `ehr.myPatientEntries` (POST), `ehr.myPatientEntryUploadIntent`, `ehr.myPatientEntryDocumentComplete`
 and `ehr.myPatientEntryWithdraw` (status `proposed`) in `packages/contracts/src/registry.ts`; the list is part of

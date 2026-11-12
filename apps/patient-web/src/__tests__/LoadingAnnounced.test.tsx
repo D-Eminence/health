@@ -61,7 +61,7 @@ describe('busy regions while content loads (PR-03)', () => {
       contacts.release(json([]))
       deletion.release(json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null }))
     })
-    expect(await screen.findByText('No emergency contacts yet.')).toBeTruthy()
+    expect(await screen.findByText('No emergency contacts yet')).toBeTruthy()
     expect(await screen.findByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -132,7 +132,7 @@ describe('an action\'s notice is not inside the region that reloads', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi Okafor' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), { target: { value: '+2348012345567' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    await noticeOutsideBusy('Contact added. Now send them a code to verify them.', 'No emergency contacts yet.')
+    await noticeOutsideBusy('Contact added. Now send them a code to verify them.', 'No emergency contacts yet')
   })
 
   it('Contact verified', async () => {
@@ -177,6 +177,7 @@ describe('an action\'s notice is not inside the region that reloads', () => {
   it('Access PIN revoked', async () => {
     pin(true)
     await press(await screen.findByRole('button', { name: 'Remove PIN' }))
+    await press(within(await screen.findByRole('dialog', { name: 'Remove your Access PIN?' })).getByRole('button', { name: 'Remove PIN' }))
     await noticeOutsideBusy('PIN removed.', 'Set')
   })
 

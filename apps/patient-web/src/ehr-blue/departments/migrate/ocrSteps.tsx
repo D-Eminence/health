@@ -2,23 +2,25 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea, type EhrBadgeTone } from '@hid/ui/ehr'
 import {
-  staffApi, type Encounter, type LabAbnormalFlag, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain,
+  isAllowedPatientLookup, staffApi, type Encounter, type PatientSummary, type LabAbnormalFlag, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain,
   type OcrValidation, type PharmacyImport,
 } from '../../../staff/api'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
+import { useStaff } from '../../../staff/App'
 import { visitClassLabel } from '../../../plainLabels'
 import { DeptNotice } from '../parts/DeptNotice'
 import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
-import { dateText } from '../parts/format'
+import { birthDateText, dateText } from '../parts/format'
 import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
   SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
-  keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
+  keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, REPORT_DATE_FIELD, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
   type ItemChoice, type ItemDecision, type SaveAs,
 } from './reviewPayload'
+import { usePaperListsServed } from './paperRecordsApi'
 
 /*
  * The steps of an OCR job as today's Document OCR page takes them (staff/routes/Operations.tsx Ocr): review an
@@ -47,6 +49,7 @@ const JOB_STATUS_WORDS: Readonly<Record<string, string>> = {
   rejected: 'Not accepted',
   failed: 'Couldn’t read this document',
   cancelled: 'Stopped',
+  published: 'Published',
 }
 
 /** A document's reading status as a clinician reads it; one OCR adds later is shown as its own words. */
@@ -72,6 +75,16 @@ export function FormRefusal({ error }: { readonly error: string }) {
     <p className="hid-ehr-dept-muted">Correct the issue or retry using the same button. No success is reported until saved.</p>
   </>
 }
+
+/** What a press of Publish says when the record could not be reached (a 5xx, or no answer). */
+export const PUBLISH_UNREACHED = 'The record couldn’t be reached. Nothing was added. Try again in a few minutes.'
+/** The same, when the history shows a publication OCR keeps: its own line says what it means for the record. */
+export const PUBLISH_UNREACHED_RECORDED = 'The record couldn’t be reached. Try again in a few minutes.'
+/**
+ * The same, when the history could not be read again: after a lost answer the page cannot know whether anything was
+ * added, so it never says nothing was. A press again sends the same request, which OCR resumes, never repeats.
+ */
+export const PUBLISH_UNREACHED_UNKNOWN = 'The record couldn’t be reached, so it isn’t known yet whether anything was added. Try again in a few minutes.'
 
 const publicationOperations = {
   EHR: 'create_imported_clinical_note', LAB: 'create_imported_lab_evidence',
@@ -232,6 +245,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [chosen, setSaveAs] = useState<SaveAs>('DOCUMENT_ONLY')
   const saveAs = offered.includes(chosen) ? chosen : 'DOCUMENT_ONLY'
   const [encounterId, setEncounterId] = useState('')
+  // The paper's report date, typed from the paper by the reviewer: never filled in from what was read.
+  const [reportDate, setReportDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
@@ -254,7 +269,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '')
     if (!selected) { setProblem(refusal({ field: 'ocr-review-reason', message: 'There is no reading to check yet.' })); return }
     const built = validating
-      ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason })
+      ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason,
+        ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}) })
       : buildRejection(selected.id, reason)
     if ('problem' in built) {
       // With no visit to choose from, the choice to change is Save as.
@@ -288,6 +304,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   // Lines that couldn't be read at all are never saved (buildValidation removes them): one line says how many, no card each.
   const unreadable = items.filter(isUnreadable).length
   const undecided = items.filter(item => !isUnreadable(item) && !decisions[item.id]?.choice).length
+  // Where the kept items of each kind go for the save chosen, beside the choice.
+  const keptGo = keptItemsGo(saveAs, items, decisions)
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label={label} onSubmit={event => void submit(event)}>
     {ordered.length > 1 && <EhrField label="Reading" controlId="ocr-review-extraction">
       <EhrSelect value={selected?.id ?? ''} onChange={event => chooseExtraction(event.target.value)}>
@@ -321,6 +339,11 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
         <p className="hid-ehr-hint">{SAVE_AS_HINTS.DOCUMENT_ONLY}</p>
         {problemText(problem, 'ocr-review-domain') && <p className="hid-ehr-error">{problemText(problem, 'ocr-review-domain')}</p>}
       </div>}
+    {keptGo && <p className="hid-ehr-dept-muted" role="note" id="ocr-review-where">{keptGo}</p>}
+    {saveAs === 'LAB' && <EhrField label="Report date, as written on the paper" controlId={REPORT_DATE_FIELD}
+      hint="Copy it exactly as written, for example 14/02/2024. Leave it blank if the paper has none." error={problemText(problem, REPORT_DATE_FIELD)}>
+      <EhrInput value={reportDate} autoComplete="off" onChange={event => { setReportDate(event.target.value); setProblem(null) }} />
+    </EhrField>}
     {saveAs === 'PHARMACY' && keptMedicines(items, decisions) > MAX_MEDICINES && <p className="hid-ehr-dept-muted" role="note">{TOO_MANY_MEDICINES}</p>}
     {saveAs === 'EHR' && (visits === null
       ? <p className="hid-ehr-dept-muted" role="status">Loading the patient’s visits…</p>
@@ -346,31 +369,135 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   </form>
 }
 
+/** A patient this step offers to pick: who they are, in words, and their record's ID, which is sent but never shown. */
+export interface PatientChoice {
+  readonly patientId: string
+  readonly name: string
+  readonly born: string
+  readonly hidEnding: string
+  /** Where the page got them: the patient this reading is for, or one found by Health ID. */
+  readonly from: 'reading' | 'search'
+}
+
+export function patientChoice(summary: PatientSummary, hid: string, from: PatientChoice['from']): PatientChoice {
+  const joined = [summary.firstName, summary.lastName].filter(Boolean).join(' ')
+  const health = (summary.hid || hid).trim()
+  return {
+    patientId: summary.patientId, from,
+    name: summary.fullName?.trim() || joined || 'Name not recorded',
+    born: birthDateText(summary.dateOfBirth),
+    hidEnding: health.replace(/^HID-?/i, '').slice(-4).toUpperCase(),
+  }
+}
+
+/** "Born 12 Mar 1980 · Health ID ending AAA2": enough to tell the person from the paper, and never their record ID. */
+export function choiceFacts(choice: PatientChoice) {
+  return [choice.born ? `Born ${choice.born}` : 'Date of birth not recorded', choice.hidEnding ? `Health ID ending ${choice.hidEnding}` : '']
+    .filter(Boolean).join(' · ')
+}
+
 /**
- * "Confirm source patient". OCR takes one patient confirmation per job version. A retry of the same confirmation
- * reuses its key, so OCR answers with the one it recorded; if the job was confirmed already, it is reloaded rather
- * than left with a dead form.
+ * How the patient was checked, as the confirmation's reason. OCR takes any reason of 8 to 500 characters
+ * (ConfirmPatientDto), so each choice is sent in these words; Other sends what is written.
  */
-export function ConfirmForm({ facilityId, job, onChanged }: {
-  readonly facilityId: string; readonly job: OcrJob; readonly onChanged: (notice?: string) => Promise<void>
+export const CONFIRM_REASONS = ['Name and date of birth match', 'Folder number matches', 'Confirmed with the patient'] as const
+const OTHER_REASON = 'Other'
+
+/**
+ * A Health ID as Identity takes it, from what was typed after the box's HID- ("zdem aaa2", "HID-ZDEMAAA2"). A pasted
+ * "HID-" is dropped only when a separator follows it, so a Health ID whose own letters begin with HID is kept whole.
+ */
+export function healthIdFrom(text: string) {
+  const upper = text.trim().toUpperCase()
+  const rest = /^HID[\s_-]/.test(upper) ? upper.slice(4) : upper
+  return `HID-${rest.replace(/[\s_-]+/g, '')}`
+}
+
+/**
+ * "Confirm the patient". OCR takes one patient confirmation per job version. Nobody types a patient's record ID (owner's
+ * no-typing rule for Migrate): the patient this reading is for, when the page knows who they are (the patient opened for
+ * this visit, from Patient documents or the clinical record's hand-off), is offered as a person, name, date of birth and
+ * the end of their Health ID, to pick with "This is the patient". Otherwise they are found by Health ID, as the
+ * department pages find a patient, and picked the same way. The picked patient's ID is sent exactly as before; OCR
+ * checks it is the job's patient (OCR_PATIENT_MISMATCH). A retry of the same confirmation reuses its key, so OCR answers
+ * with the one it recorded; if the job was confirmed already, it is reloaded rather than left with a dead form.
+ */
+export function ConfirmForm({ facilityId, job, permissions, onChanged }: {
+  readonly facilityId: string; readonly job: OcrJob; readonly permissions: readonly string[]
+  readonly onChanged: (notice?: string) => Promise<void>
 }) {
+  const { activePatient } = useStaff()
+  // The patient opened here, offered only when they are the one this reading is for: any other would be refused.
+  // A job that names no patient offers nobody here: the patient is then found by Health ID.
+  const visitPatient = activePatient && !!job.patientId && activePatient.lookup.patient.patientId === job.patientId
+    ? patientChoice(activePatient.lookup.patient, activePatient.hid, 'reading') : null
+  const canFind = permissions.includes('identity.patient.read')
+  const [found, setFound] = useState<PatientChoice | null>(null)
+  const choices = [visitPatient, found && found.patientId !== visitPatient?.patientId ? found : null].filter((choice): choice is PatientChoice => !!choice)
+  const [picked, setPicked] = useState('')
+  const pickedChoice = choices.find(choice => choice.patientId === picked) ?? null
+  const [reasonChoice, setReasonChoice] = useState('')
+  const [otherReason, setOtherReason] = useState('')
+  const [hid, setHid] = useState('')
+  const [finding, setFinding] = useState(false)
+  const [findError, setFindError] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const focus = useFocusById()
   const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // Each search, and each edit of the Health ID box, takes a new number; an answer for an older one is dropped.
+  const findRequest = useRef(0)
+
+  /** Forgets the last search's patient, and its pick, so Confirm can never send a patient the last search did not find. */
+  function forgetFound() {
+    findRequest.current += 1
+    setFound(null)
+    if (picked && picked !== visitPatient?.patientId) setPicked('')
+  }
+
+  async function find() {
+    if (finding) return
+    const value = healthIdFrom(hid)
+    forgetFound()
+    const request = findRequest.current
+    setFindError(''); setProblem(null)
+    if (!/^HID-[A-Z0-9]{4,}$/.test(value)) {
+      setProblem(refusal({ field: 'ocr-confirm-hid', message: 'Type the letters and numbers after HID- on their Health ID card.' }))
+      focus('ocr-confirm-hid'); return
+    }
+    setFinding(true)
+    try {
+      const lookup = await staffApi.lookupPatient(facilityId, value)
+      if (request !== findRequest.current) return
+      if (!isAllowedPatientLookup(lookup)) { setFindError(NOT_OPENED_HERE); focus('ocr-confirm-hid'); return }
+      const choice = patientChoice(lookup.patient, value, 'search')
+      // Shown to pick, never picked for them: the person still says it is the patient on the paper.
+      setFound(choice)
+      focus(`ocr-confirm-pick-${choice.from}`)
+    } catch (caught) {
+      if (request !== findRequest.current) return
+      setFindError(isHidApiError(caught) && caught.status === 404 ? 'No patient has this Health ID. Check the card and try again.'
+        : isHidApiError(caught) && caught.status === 403 ? NOT_OPENED_HERE
+          : errorText(caught, 'The patient could not be found.'))
+      focus('ocr-confirm-hid')
+    } finally { setFinding(false) }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    const form = new FormData(event.currentTarget)
-    const patientId = String(form.get('patientId') ?? '').trim()
-    const reason = String(form.get('reason') ?? '').trim()
+    const reason = reasonChoice === OTHER_REASON ? otherReason.trim() : reasonChoice
     setError(''); setProblem(null)
-    const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Complete this field.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
-      : !reason ? { field: 'ocr-confirm-reason', message: 'Complete this field.' }
-      : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
+    const refused = !pickedChoice
+      ? choices.length > 0 ? { field: `ocr-confirm-pick-${choices[0]!.from}`, message: 'Choose the patient on the paper.' }
+        : canFind ? { field: 'ocr-confirm-hid', message: 'Find the patient by their Health ID first.' }
+          : { field: 'ocr-confirm-patient', message: NO_PATIENT_HERE }
+      : !reasonChoice ? { field: 'ocr-confirm-reason', message: 'Choose how you checked.' }
+        : !reason ? { field: 'ocr-confirm-other', message: 'Complete this field.' }
+          : reason.length < 8 ? { field: 'ocr-confirm-other', message: 'Write at least 8 characters.' } : null
     if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
+    const patientId = pickedChoice!.patientId
     const signature = JSON.stringify([patientId, reason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
@@ -386,18 +513,64 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
     }
     finally { setBusy(false) }
   }
+
+  const patientError = problemText(problem, 'ocr-confirm-patient') ?? (choices.length > 0 ? problemText(problem, `ocr-confirm-pick-${choices[0]!.from}`) : undefined)
+  const reasonError = problemText(problem, 'ocr-confirm-reason')
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Confirm source patient" onSubmit={event => void submit(event)}>
-    <p className="hid-ehr-dept-muted">Check the patient against the source document before publishing. Health ID checks for an exact match and write access.</p>
-    <EhrField label={<>Canonical patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')}>
-      <EhrInput name="patientId" defaultValue={job.patientId ?? ''} required autoComplete="off" />
-    </EhrField>
-    <EhrField label={<>Confirmation reason<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')}>
-      <EhrTextarea name="reason" minLength={8} maxLength={500} required />
-    </EhrField>
+    <p className="hid-ehr-dept-muted">Check the name and date of birth on the paper against the patient below before publishing. Health ID checks that it is the same patient.</p>
+    <fieldset className="hid-ehr-dept-migrate-group" aria-describedby={patientError ? 'ocr-confirm-patient-error' : undefined}>
+      <legend className="hid-ehr-label">Who is on the paper?<span aria-hidden="true"> *</span></legend>
+      {choices.length > 0
+        ? <ul className="hid-ehr-dept-migrate-people">{choices.map(choice => <li key={choice.patientId}
+          className={choice.patientId === picked ? 'hid-ehr-dept-migrate-person hid-ehr-dept-migrate-person-picked' : 'hid-ehr-dept-migrate-person'}>
+          <div className="hid-ehr-dept-migrate-person-text" id={`ocr-confirm-person-${choice.from}`}>
+            <strong className="hid-ehr-dept-strong">{choice.name}</strong>
+            <span>{choiceFacts(choice)}</span>
+            <span className="hid-ehr-dept-muted">{choice.from === 'reading' ? 'The patient this reading is for' : 'Found by Health ID'}</span>
+          </div>
+          <label className="hid-ehr-dept-migrate-choice">
+            <input type="radio" name="ocr-confirm-patient" id={`ocr-confirm-pick-${choice.from}`} value={choice.from} checked={choice.patientId === picked}
+              aria-describedby={[patientError ? 'ocr-confirm-patient-error' : '', `ocr-confirm-person-${choice.from}`].filter(Boolean).join(' ')}
+              aria-invalid={patientError ? true : undefined}
+              onChange={() => { setPicked(choice.patientId); setProblem(null); setError('') }} />
+            <span>This is the patient</span>
+          </label>
+        </li>)}</ul>
+        : <p className="hid-ehr-dept-muted" id="ocr-confirm-patient" tabIndex={-1}>{canFind ? 'The patient this reading is for isn’t open on this page. Find them by their Health ID.' : NO_PATIENT_HERE}</p>}
+      {patientError && <p id="ocr-confirm-patient-error" className="hid-ehr-error">{patientError}</p>}
+    </fieldset>
+    {canFind && !visitPatient && <div className="hid-ehr-dept-migrate-find-patient">
+      <EhrField label="Health ID" controlId="ocr-confirm-hid" hint="The letters and numbers after HID- on their Health ID card."
+        error={problemText(problem, 'ocr-confirm-hid') ?? (findError || undefined)}>
+        <div className="hid-ehr-dept-migrate-hid">
+          <span aria-hidden="true">HID-</span>
+          <EhrInput value={hid} autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={40}
+            onChange={event => { setHid(event.target.value); forgetFound(); setFindError(''); setProblem(null) }}
+            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void find() } }} />
+        </div>
+      </EhrField>
+      <div><EhrButton id="ocr-confirm-find" variant="secondary" busy={finding} onClick={() => void find()}>{finding ? 'Finding…' : 'Find patient'}</EhrButton></div>
+    </div>}
+    <fieldset className="hid-ehr-dept-migrate-group" aria-describedby={reasonError ? 'ocr-confirm-reason-error' : undefined}>
+      <legend className="hid-ehr-label">How did you check?<span aria-hidden="true"> *</span></legend>
+      {[...CONFIRM_REASONS, OTHER_REASON].map((option, index) => <label key={option} className="hid-ehr-dept-migrate-choice">
+        <input type="radio" name="ocr-confirm-reason" id={index === 0 ? 'ocr-confirm-reason' : undefined} value={option} checked={reasonChoice === option}
+          aria-describedby={reasonError ? 'ocr-confirm-reason-error' : undefined} aria-invalid={reasonError ? true : undefined}
+          onChange={() => { setReasonChoice(option); setProblem(null) }} />
+        <span>{option}</span>
+      </label>)}
+      {reasonError && <p id="ocr-confirm-reason-error" className="hid-ehr-error">{reasonError}</p>}
+    </fieldset>
+    {reasonChoice === OTHER_REASON && <EhrField label={<>What you checked<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-other" error={problemText(problem, 'ocr-confirm-other')}>
+      <EhrTextarea value={otherReason} minLength={8} maxLength={500} required onChange={event => { setOtherReason(event.target.value); setProblem(null) }} />
+    </EhrField>}
     <FormRefusal error={error} />
     <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-confirm-submit" type="submit" busy={busy}>{busy ? 'Saving…' : 'Confirm source patient'}</EhrButton></div>
   </form>
 }
+
+export const NOT_OPENED_HERE = 'This patient’s record can’t be opened here. Open them through approved access first.'
+const NO_PATIENT_HERE = 'Open the patient this reading is for through approved access, then come back to confirm them.'
 
 /** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
 const RETRYABLE_PUBLICATION_FAILURES: readonly string[] = ['OWNING_SERVICE_UNAVAILABLE', 'REQUEST_IN_PROGRESS']
@@ -435,21 +608,75 @@ export interface PublicationAttempt { readonly key: string; retryAt: number }
 const PUBLICATION_FAILED = 'Nothing was added to the patient’s record.'
 const PUBLICATION_UNFINISHED = 'Publishing to the patient’s record didn’t finish: it may have been added even so. Check the patient’s record before adding anything by hand.'
 
-function publicationRefusal(caught: unknown) {
+/**
+ * Why a press of Publish was refused, in plain words. `items`: the history read again, null when it could not be read.
+ * A server that could not answer, or no answer at all, is said neutrally as the record not reached, never as Health ID
+ * or one service being down: "Nothing was added" only when the history shows no publication; when it shows one, its
+ * own line says what it means for the record; when it could not be read, the page claims nothing.
+ */
+function publicationRefusal(caught: unknown, items: readonly OcrPublication[] | null) {
   // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
   // The part of the record it was going to refused it for good: said as what it means for the person, not as a service.
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'This couldn’t be added to the patient’s record, and it can’t be tried again.'
   // Publishing into the record needs direct-care access to the patient, which this member doesn't hold.
   if (isHidApiError(caught) && caught.status === 403 && caught.code === 'OCR_PUBLISH_NEEDS_DIRECT_CARE') return 'Ask a clinician with access to this patient to publish it.'
+  // A server that could not answer, or no answer at all: said neutrally, never as one service being down.
+  // A connection between services that will be back in seconds keeps its own words, which say to wait a few seconds.
+  if (isHidApiError(caught) && SERVICE_AUTH_UNAVAILABLE.has(caught.code)) return errorText(caught, 'The validated evidence was not published.')
+  if (!isHidApiError(caught) || caught.status === 0 || caught.status >= 500) {
+    return items === null ? PUBLISH_UNREACHED_UNKNOWN : items.length > 0 ? PUBLISH_UNREACHED_RECORDED : PUBLISH_UNREACHED
+  }
   return errorText(caught, 'The validated evidence was not published.')
 }
 
 const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
-  EHR: 'Published as a clinical note in the patient\'s record.',
-  LAB: 'Published as imported lab evidence in the patient\'s record.',
-  PHARMACY: 'Published as imported medication evidence in the patient\'s record.',
+  EHR: 'Saved as a draft note. A clinician must sign it',
   DOCUMENT_ONLY: 'Kept as a validated document in the patient\'s record.',
+}
+/** Where a draft note made from a paper record is found, to read and sign it. */
+export const DRAFT_NOTE_WHERE = 'It’s on the visit chosen when the paper was checked: open that visit’s notes to read and sign it.'
+/** Imported medicines and lab results are not in the patient's chart yet: said where they can be seen until they are. */
+export const IMPORTED_WHERE = 'They aren’t shown in the patient’s chart yet. See them here, on this document’s publication.'
+/**
+ * Once Lab or Pharmacy lists a patient's imported records (paperRecordsApi.ts), where they are found instead: under From
+ * paper records on Patient documents, for the patient open there.
+ */
+export const IMPORTED_LISTED = 'They’re listed under From paper records, in Patient documents.'
+/** The same, for a member whose role can't read the imported records: nothing is shown here to see. */
+export const IMPORTED_NOT_IN_CHART = 'They aren’t shown in the patient’s chart yet.'
+/** Where a draft note is found, when the visit it was saved on is known: "Outpatient visit · 12 Oct 2026". */
+export const draftNoteOnVisit = (visit: string) => `It’s on the visit ${visit}: open that visit’s notes to read and sign it.`
+
+/**
+ * The visit a clinical note was saved on, from the review's own fields (reviewPayload.ts puts it there), read from EHR
+ * when the role may read visits; nothing (the general wording then) when it isn't known or can't be read.
+ */
+function useNoteVisit(facilityId: string, patientId: string | null | undefined, validation: OcrValidation | undefined, permissions: readonly string[]) {
+  const encounterId = validation?.targetDomain === 'EHR' ? validation.acceptedFields?.encounterId : undefined
+  const readable = typeof encounterId === 'string' && encounterId !== '' && !!patientId && permissions.includes('ehr.encounter.read')
+  const [visit, setVisit] = useState<string | null>(null)
+  useEffect(() => {
+    if (!readable || !patientId || typeof encounterId !== 'string') return
+    let active = true
+    setVisit(null)
+    void staffApi.encounter(facilityId, patientId, encounterId).then(found => { if (active) setVisit(visitWords(found)) })
+      .catch(() => { if (active) setVisit(null) })
+    return () => { active = false }
+  }, [facilityId, patientId, encounterId, readable])
+  return readable ? visit : null
+}
+
+/** How many entries a review sent to past medicines or past lab results; null when its fields don't say. */
+function sentCount(validation: OcrValidation | undefined, key: 'medications' | 'observations'): number | null {
+  const sent = validation?.acceptedFields?.[key]
+  return Array.isArray(sent) && sent.length > 0 ? sent.length : null
+}
+
+/** "3 medicines added as imported records from this paper." */
+function importedWords(count: number | null, one: string, many: string): string {
+  const what = count === null ? many[0]!.toUpperCase() + many.slice(1) : `${count} ${count === 1 ? one : many}`
+  return `${what} added as imported records from this paper.`
 }
 
 /**
@@ -484,7 +711,9 @@ function observationText(item: LabImport['observations'][number]) {
  * audited. What was imported does not change, so a read that succeeded is kept; one that failed is made again on the
  * next opening.
  */
-function ImportedEvidence({ facilityId, domain, importId }: { readonly facilityId: string; readonly domain: 'lab' | 'medication'; readonly importId: string }) {
+function ImportedEvidence({ facilityId, domain, importId, label }: {
+  readonly facilityId: string; readonly domain: 'lab' | 'medication'; readonly importId: string; readonly label?: string
+}) {
   const [open, setOpen] = useState(false)
   const [evidence, setEvidence] = useState<{ lab?: LabImport; medication?: PharmacyImport; error?: string } | null>(null)
   const [reads, setReads] = useState(0)
@@ -509,7 +738,7 @@ function ImportedEvidence({ facilityId, domain, importId }: { readonly facilityI
       : medication ? 'Imported medication evidence loaded.' : ''
   // A disclosure: its name stays the same, and aria-expanded says whether it is open.
   return <div className="hid-ehr-dept-migrate-evidence">
-    <div><EhrButton variant="secondary" size="sm" aria-expanded={open} onClick={toggle}>{`Imported ${domain} evidence`}</EhrButton>
+    <div><EhrButton variant="secondary" size="sm" aria-expanded={open} onClick={toggle}>{label ?? `Imported ${domain} evidence`}</EhrButton>
       {/* Mounted throughout, so what is put in it is announced; with the button, so it takes no space while empty. */}
       <div role="status">{status && <p className="hid-ehr-dept-muted">{status}</p>}</div></div>
     {open && evidence?.error && <DeptNotice tone="critical" role="alert">{evidence.error}</DeptNotice>}
@@ -526,14 +755,65 @@ function ImportedEvidence({ facilityId, domain, importId }: { readonly facilityI
   </div>
 }
 
-/** What a publication made: named, and readable where its owning domain lets this role read it. Never its raw ID. */
-function PublishedEvidence({ facilityId, publication, permissions }: { readonly facilityId: string; readonly publication: OcrPublication; readonly permissions: readonly string[] }) {
-  const importId = publication.targetResourceId
+/**
+ * The IDs of everything a publication made. OCR gives the first only (targetResourceId) while several medicines are
+ * published in one batch; a later OCR may give every one (targetResourceIds), and then all are listed.
+ */
+function madeIds(publication: OcrPublication): string[] {
+  const all = (publication as OcrPublication & { targetResourceIds?: unknown }).targetResourceIds
+  if (Array.isArray(all) && all.length > 0 && all.every(id => typeof id === 'string' && id)) return all as string[]
+  return publication.targetResourceId ? [publication.targetResourceId] : []
+}
+
+/**
+ * Whether a Lab or Pharmacy publication's records are listed under From paper records on Patient documents: that list is
+ * served (its own answer said so this page's life), this role reads it and Patient documents, and the patient open there,
+ * for direct care, is this publication's.
+ */
+function useListedOnDocuments(domain: OcrTargetDomain, patientId: string | null | undefined, permissions: readonly string[]): boolean {
+  const served = usePaperListsServed()
+  const { activePatient } = useStaff()
+  const list = domain === 'LAB' ? { served: served.lab, read: 'lab.import.read' } : domain === 'PHARMACY' ? { served: served.pharmacy, read: 'pharmacy.import.read' } : null
+  return !!list && list.served === true && permissions.includes(list.read) && permissions.includes('ehr.document.read')
+    && !!patientId && activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === patientId
+}
+
+/**
+ * What a publication made: named, and readable where its owning domain lets this role read it. Never its raw ID.
+ * Imported medicines and lab results are said as imported records from this paper, never as in the chart, which does
+ * not show them yet; several medicines are counted from what was sent, and each one OCR names is listed.
+ */
+function PublishedEvidence({ facilityId, patientId, publication, validation, permissions }: {
+  readonly facilityId: string; readonly patientId?: string | null; readonly publication: OcrPublication; readonly validation?: OcrValidation
+  readonly permissions: readonly string[]
+}) {
+  const ids = madeIds(publication)
+  const listed = useListedOnDocuments(publication.targetDomain, patientId, permissions)
+  const visit = useNoteVisit(facilityId, patientId, publication.targetDomain === 'EHR' ? validation : undefined, permissions)
   const domain = publication.targetResourceType === 'lab-imported-evidence' && permissions.includes('lab.import.read') ? 'lab'
     : publication.targetResourceType === 'pharmacy-imported-medication-evidence' && permissions.includes('pharmacy.import.read') ? 'medication' : null
+  if (publication.targetDomain === 'PHARMACY') {
+    const count = sentCount(validation, 'medications')
+    // Every medicine named: each listed. Only the first named of several sent: the first shown, the rest said to be added.
+    // A role that can't read them is shown none, so is never told to see them here.
+    const firstOnly = domain !== null && count !== null && count > 1 && ids.length === 1
+    return <>
+      <p>{importedWords(count ?? (ids.length > 1 ? ids.length : null), 'medicine', 'medicines')}</p>
+      <p className="hid-ehr-dept-muted">{domain ? listed ? IMPORTED_LISTED : IMPORTED_WHERE : IMPORTED_NOT_IN_CHART}</p>
+      {firstOnly && <p className="hid-ehr-dept-muted">{`The first is shown here. All ${count} were added.`}</p>}
+      {domain && ids.map((id, at) => <ImportedEvidence key={id} facilityId={facilityId} domain={domain} importId={id}
+        label={ids.length > 1 ? `Imported medicine ${at + 1} of ${ids.length}` : undefined} />)}
+    </>
+  }
+  if (publication.targetDomain === 'LAB') return <>
+    <p>{importedWords(sentCount(validation, 'observations'), 'lab result', 'lab results')}</p>
+    <p className="hid-ehr-dept-muted">{domain && ids[0] ? listed ? IMPORTED_LISTED : IMPORTED_WHERE : IMPORTED_NOT_IN_CHART}</p>
+    {domain && ids[0] && <ImportedEvidence facilityId={facilityId} domain={domain} importId={ids[0]} />}
+  </>
   return <>
     <p>{publishedAs[publication.targetDomain] ?? 'Published.'}</p>
-    {domain && importId && <ImportedEvidence facilityId={facilityId} domain={domain} importId={importId} />}
+    {publication.targetDomain === 'EHR' && <p className="hid-ehr-dept-muted">{visit ? draftNoteOnVisit(visit) : DRAFT_NOTE_WHERE}</p>}
+    {domain && ids[0] && <ImportedEvidence facilityId={facilityId} domain={domain} importId={ids[0]} />}
   </>
 }
 
@@ -542,8 +822,9 @@ function PublishedEvidence({ facilityId, publication, permissions }: { readonly 
  * (ocr.publication.write, with the job's current patient confirmation); `retryHere`: this page holds the key of the
  * request that made it, and offers Retry publication.
  */
-function PublicationStatus({ facilityId, publication, permissions, canPublish, retryHere }: {
-  readonly facilityId: string; readonly publication: OcrPublication; readonly permissions: readonly string[]; readonly canPublish: boolean; readonly retryHere: boolean
+function PublicationStatus({ facilityId, patientId, publication, validation, permissions, canPublish, retryHere }: {
+  readonly facilityId: string; readonly patientId?: string | null; readonly publication: OcrPublication; readonly validation?: OcrValidation; readonly permissions: readonly string[]
+  readonly canPublish: boolean; readonly retryHere: boolean
 }) {
   const failed = publication.status === 'failed'
   const retryable = RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '')
@@ -563,7 +844,7 @@ function PublicationStatus({ facilityId, publication, permissions, canPublish, r
     {failed && <p>{retryable ? PUBLICATION_UNFINISHED : PUBLICATION_FAILED}</p>}
     {failed && failedText && <p className="hid-ehr-dept-muted">{failedText}</p>}
     {(publication.status === 'pending' || publication.status === 'processing') && <p className="hid-ehr-dept-muted">{unfinishedText}</p>}
-    {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
+    {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} patientId={patientId} publication={publication} validation={validation} permissions={permissions} />}
   </div>
 }
 
@@ -574,9 +855,11 @@ function PublicationStatus({ facilityId, publication, permissions, canPublish, r
  * the history again: the page then offers only what OCR would take, and says a publication was recorded when the
  * history shows one, though its answer was lost.
  */
-export function ReviewPublication({ actorId, facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
-  readonly actorId: string | undefined; readonly facilityId: string; readonly validation: OcrValidation; readonly confirmationId: string | undefined
+export function ReviewPublication({ actorId, facilityId, patientId, validation, confirmationId, permissions, publicationAttempts, onChanged, onPublished }: {
+  readonly actorId: string | undefined; readonly facilityId: string; readonly patientId?: string | null; readonly validation: OcrValidation; readonly confirmationId: string | undefined
   readonly permissions: readonly string[]; readonly publicationAttempts: Map<string, PublicationAttempt>; readonly onChanged: () => Promise<void>
+  /** Told whether this review's publication is published, each time its history is read. */
+  readonly onPublished?: (validationId: string, published: boolean) => void
 }) {
   const [publications, setPublications] = useState<OcrPublication[] | null>(null)
   const [historyError, setHistoryError] = useState('')
@@ -618,10 +901,14 @@ export function ReviewPublication({ actorId, facilityId, validation, confirmatio
     setHeldKeys(value => value + 1)
   }
 
-  // Reads the history again, keeping what it showed until the answer arrives.
-  async function reload(): Promise<OcrPublication[] | null> {
+  const published = publications?.some(item => item.status === 'published') ?? false
+  useEffect(() => { if (publications) onPublished?.(validation.id, published) }, [publications, published, validation.id, onPublished])
+
+  // Reads the history again, keeping what it showed until the answer arrives. `quiet`: a read that fails says nothing,
+  // as the refusal it follows already says what happened (one failed publish, one message).
+  async function reload(quiet = false): Promise<OcrPublication[] | null> {
     try { const { items } = await staffApi.ocrPublications(facilityId, validation.id); setPublications(items); setHistoryError(''); return items }
-    catch (caught) { setHistoryError(errorText(caught, 'The publication history could not be loaded.')); return null }
+    catch (caught) { if (!quiet) setHistoryError(errorText(caught, 'The publication history could not be loaded.')); return null }
   }
 
   /** A publication the history read again shows, whatever answer was lost on the way: said, and the job read again. */
@@ -659,10 +946,12 @@ export function ReviewPublication({ actorId, facilityId, validation, confirmatio
       if (alreadyPublished) { hold(request, null); setPublications(null) }
       // A failed attempt has OCR wait before the next: counted from this answer, which came after the failure.
       else attempt.retryAt = Date.now() + PUBLICATION_RETRY_WAIT_MS
-      const items = await reload()
+      // Read quietly after a refusal, so one failed press says one thing; an answer that a publication exists already
+      // still says when its history can't be shown.
+      const items = await reload(!alreadyPublished)
       if (await recorded(items)) return
       // Said once the history has been read again, so one alert says what happened.
-      setError(alreadyPublished ? `This review already has a publication request${items ? ', shown below' : ''}.` : publicationRefusal(caught))
+      setError(alreadyPublished ? `This review already has a publication request${items ? ', shown below' : ''}.` : publicationRefusal(caught, items))
       // Any other history that could not be read again still shows as it was.
       focus(next(items ?? (alreadyPublished ? null : publications)) ?? 'ocr-history-title', true)
     }
@@ -677,7 +966,7 @@ export function ReviewPublication({ actorId, facilityId, validation, confirmatio
       {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
       {historyError && <DeptNotice tone="critical" role="alert">{historyError}</DeptNotice>}
       {publications === null && !historyError && <p className="hid-ehr-dept-muted" role="status">Loading publication history…</p>}
-      {publications?.map(publication => <PublicationStatus key={publication.id} facilityId={facilityId} publication={publication}
+      {publications?.map(publication => <PublicationStatus key={publication.id} facilityId={facilityId} patientId={patientId} publication={publication} validation={validation}
         permissions={permissions} canPublish={request !== undefined} retryHere={action === retryId} />)}
     </div>
     {(action === publishId || action === retryId) && <div className="hid-ehr-dept-row-actions">

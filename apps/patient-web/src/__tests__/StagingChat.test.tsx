@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { StagingChatConversation, type StagingChatConversationApi } from '../routes/StagingChat'
 import { SessionContext, createTestSessionValue, useSession } from '../session'
@@ -97,6 +97,7 @@ it('keeps history visible and reports failure if deletion is not confirmed', asy
   render(<SessionContext.Provider value={createTestSessionValue(patient, api as never)}><PatientChat /></SessionContext.Provider>)
   expect(await screen.findByText('Saved question')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete this conversation?' })).getByRole('button', { name: 'Delete' }))
   expect((await screen.findByRole('alert')).textContent).toContain('could not be deleted')
   expect(screen.getByText('Saved question')).toBeTruthy()
 })
@@ -137,6 +138,7 @@ it('new conversation cancels old work and ignores late replies without unlocking
   fireEvent.change(input, { target: { value: 'Old question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
   fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete this conversation?' })).getByRole('button', { name: 'Delete' }))
   expect(chat.mock.calls[0]?.[1].signal.aborted).toBe(true)
   await waitFor(() => expect(screen.queryByText('Old question')).toBeNull())
   expect(input.value).toBe('')
@@ -227,6 +229,7 @@ it('allows an explicit new conversation after saved-history loading fails, then 
  render(<SessionContext.Provider value={createTestSessionValue(patient,api as never)}><PatientChat /></SessionContext.Provider>)
  await screen.findByText('Your saved conversation could not be loaded. Please try again.')
  fireEvent.click(screen.getByRole('button',{name:'New conversation'}))
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Delete this conversation?'})).getByRole('button',{name:'Delete'}))
  await waitFor(()=>expect(screen.queryByText('Your saved conversation could not be loaded. Please try again.')).toBeNull())
  fireEvent.change(screen.getByLabelText('Your question'),{target:{value:'What can you do?'}})
  await waitFor(()=>expect((screen.getByRole('button',{name:'Send question'}) as HTMLButtonElement).disabled).toBe(false))
@@ -263,4 +266,69 @@ it('says to a clinician where each source came from, about the patient', async (
   expect(sourceRow('Malaria test you added').textContent).not.toContain('You added this')
   expect(sourceRow('Clinic visit').textContent).toContain('Recorded by a health worker')
   expect(sourceRow('Your profile').textContent).toContain('From the patient’s Health ID profile')
+})
+
+it('formats answers with the shared renderer, cleans dashes and explains missing documents plainly, for patient and staff', async () => {
+  const answer = '## First diagnosis\nThe earliest diagnosis is **anaemia** \u2014 recorded 2025\u20132026.\n- Seen at a clinic'
+  for (const staff of [undefined, { patientName: 'Synthetic Patient', hid: 'HID-AAAAAA', facilityName: 'Synthetic Hospital' }]) {
+    const chat = vi.fn().mockResolvedValue({ status: 'ready', answer, sources: [],
+      coverage: { complete: false, unavailable: ['Lab results \u2014 not released.'], pendingDocuments: 1, recordCount: 3, selectedCount: 2 } })
+    const view = render(<StagingChatConversation api={apiFor(chat)} staff={staff} />)
+    await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+    fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'First diagnosis \u2014 please' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    expect(await screen.findByRole('heading', { level: 3, name: 'First diagnosis' })).toBeTruthy()
+    expect(screen.getByText('anaemia').tagName).toBe('STRONG')
+    expect(screen.getByText('Seen at a clinic').tagName).toBe('LI')
+    // The person's own words are shown as typed; only the assistant's text is cleaned.
+    expect(screen.getByText('First diagnosis \u2014 please')).toBeTruthy()
+    const log = screen.getByRole('log').querySelector('.record-chat-reply')?.textContent ?? ''
+    expect(log).not.toMatch(/[\u2013\u2014]/)
+    expect(log).toContain('recorded 2025 to 2026.')
+    expect(log).toContain('This answer may be incomplete. 1 document was left out because it is still being processed, could not be opened, or was not included. Lab results, not released.')
+    view.unmount()
+  }
+})
+
+it('shows source titles and source details without long dashes', async () => {
+  const dashed = { status: 'ready' as const, answer: 'Here is what your records say [1].', sources: [typed(1, 'FBC \u2014 21 Sep', 'health_worker')] }
+  const chatSource = vi.fn().mockResolvedValue({ version: '1', fields: { result: 'Low \u2013 see note', range: '12\u201316' } })
+  const api = { ...apiFor(vi.fn().mockResolvedValue(dashed)), chatSource } as unknown as StagingChatConversationApi
+  render(<StagingChatConversation api={api} />)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Where is this from?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+  await screen.findByText(dashed.answer)
+  fireEvent.click(sourceRow('FBC, 21 Sep').querySelector('button') as HTMLButtonElement)
+  expect(await screen.findByText('Low, see note')).toBeTruthy()
+  expect(screen.getByText('12 to 16')).toBeTruthy()
+  expect(screen.getByRole('log').textContent).not.toMatch(/[\u2013\u2014]/)
+})
+
+it('RN-16: offers no deletion while there is nothing saved, and asks before deleting a saved conversation', async () => {
+  const api = apiFor(vi.fn())
+  render(<SessionContext.Provider value={createTestSessionValue(patient, api as never)}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+  expect((screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('RN-16: deletes a saved conversation only after Delete, and Cancel keeps it with focus back on New conversation', async () => {
+  const api = apiFor(vi.fn())
+  vi.mocked(api.chatHistory).mockResolvedValue({ exchanges: [{ id: '11111111-1111-4111-8111-111111111111', question: 'Saved question', reply: ready, createdAt: new Date().toISOString() }], retentionDays: 30, limit: 10 })
+  render(<SessionContext.Provider value={createTestSessionValue(patient, api as never)}><PatientChat /></SessionContext.Provider>)
+  expect(await screen.findByText('Saved question')).toBeTruthy()
+  const start = screen.getByRole('button', { name: 'New conversation' })
+  start.focus()
+  fireEvent.click(start)
+  const ask = screen.getByRole('dialog', { name: 'Delete this conversation?' })
+  expect(ask.textContent).toContain('can’t be undone')
+  expect(api.clearChatHistory).not.toHaveBeenCalled()
+  fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(start)
+  expect(screen.getByText('Saved question')).toBeTruthy()
+  fireEvent.click(start)
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete this conversation?' })).getByRole('button', { name: 'Delete' }))
+  await waitFor(() => expect(screen.queryByText('Saved question')).toBeNull())
+  expect(api.clearChatHistory).toHaveBeenCalledTimes(1)
 })

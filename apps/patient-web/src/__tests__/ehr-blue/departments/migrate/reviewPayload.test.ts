@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
-  CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
-  keptMedicines, keptText, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
+  CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, REPORT_DATE_FIELD, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
+  keptItemsGo, keptMedicines, keptText, labFlag, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
 import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
@@ -267,7 +267,7 @@ describe('the review built from the choices', () => {
 
   it('past lab results: a changed result carries only the words typed; a flag written another way is not sent', () => {
     const payload = paperReading()
-    payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: 'L' } } : item) as typeof payload.items
+    payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: 'see note' } } : item) as typeof payload.items
     const flagged = parsePaperReading(payload) as PaperReading
     const kept = built(buildValidation({ ...choices('LAB'), reading: flagged }))
     expect(kept.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', value: '11.2', unit: 'g/dL', referenceRange: '12-16', ...HB_SOURCE }])
@@ -277,6 +277,17 @@ describe('the review built from the choices', () => {
     expect(changed.acceptedFields.observations).toEqual([{ testName: 'Haemoglobin', valueText: '11.4 g/dL', ...HB_SOURCE }])
     expect(changed.corrections).toEqual([{ itemId: HAEMOGLOBIN, kind: 'lab_result', page: 2, field: 'result', oldValue: '11.2 g/dL', newValue: '11.4 g/dL' }])
   })
+
+  // Rehearsal finding 5: the paper's L was dropped. Papers write L, LOW, H, HIGH, * and !; Lab takes its own words.
+  it.each([['L', 'low'], ['low', 'low'], ['LOW', 'low'], ['H', 'high'], ['High', 'high'], ['*', 'abnormal'], ['!', 'abnormal'], ['critical', 'critical']])(
+    'past lab results: the paper\'s flag %s is sent as Lab\'s %s', (written, sent) => {
+      const payload = paperReading()
+      payload.items = payload.items.map(item => item.id === HAEMOGLOBIN ? { ...item, fields: { ...item.fields, flag: written } } : item) as typeof payload.items
+      const input = built(buildValidation({ ...choices('LAB'), reading: parsePaperReading(payload) as PaperReading }))
+      expect(() => assertAccepted(input)).not.toThrow()
+      expect((input.acceptedFields.observations as Array<{ abnormalFlag?: string }>)[0]!.abnormalFlag).toBe(sent)
+      expect(labFlag(written)).toBe(sent)
+    })
 
   it('past lab results: a changed test name is the test the result is filed under, and is listed as a correction', () => {
     const input = built(buildValidation(choices('LAB', { decisions: decided({
@@ -617,5 +628,73 @@ describe('a hard handwritten page: Keep saves the clean reading, with no reader\
     const input = built(buildValidation({ ...hardChoices('EHR', keepAll(withGaps)), reading: withGaps }))
     expect((input.acceptedFields.items as Array<{ itemId: string }>).map(item => item.itemId)).not.toContain('it-0000000000000908')
     expect(input.rejectedFields.map(item => (item as { itemId: string }).itemId)).toContain('it-0000000000000908')
+  })
+})
+
+/** Rehearsal finding 2: where the kept items of each kind go, said beside the save chosen. Fictional data only. */
+describe('where kept items go, by the save chosen', () => {
+  const items = reviewItems(parsePaperReading(paperReading()) as PaperReading)
+  const keepAll: Decisions = Object.fromEntries(items.map(item => [item.id, { choice: 'keep', text: '' }]))
+  const keepOnly = (...kinds: string[]): Decisions => Object.fromEntries(items.map(item => [item.id, { choice: kinds.includes(item.kind) ? 'keep' : 'remove', text: '' }]))
+
+  it('a clinical note says allergies, diagnoses and vitals are written into the note only, and where to record them', () => {
+    expect(keptItemsGo('EHR', items, keepAll)).toBe('Allergies, diagnoses and vitals are written into the note only. Record them in Allergies, Diagnoses or Vitals too.')
+    expect(keptItemsGo('EHR', items, keepOnly('allergy', 'diagnosis', 'medicine'))).toBe('Allergies and diagnoses are written into the note only. Record them in Allergies or Diagnoses too.')
+    expect(keptItemsGo('EHR', items, keepOnly('medicine', 'note'))).toBe('')
+  })
+
+  it('past medicines and past lab results say which kinds are saved nowhere but the document', () => {
+    expect(keptItemsGo('PHARMACY', items, keepAll)).toBe('Diagnoses, allergies, lab results, vitals and notes you keep are not saved anywhere but this document.')
+    expect(keptItemsGo('LAB', items, keepOnly('lab_result', 'allergy'))).toBe('Allergies you keep are not saved anywhere but this document.')
+    expect(keptItemsGo('PHARMACY', items, keepOnly('medicine'))).toBe('')
+  })
+
+  it('says nothing for the document only, nor for removed items', () => {
+    expect(keptItemsGo('DOCUMENT_ONLY', items, keepAll)).toBe('')
+    expect(keptItemsGo('EHR', items, keepOnly())).toBe('')
+  })
+})
+
+
+describe('the report date typed from the paper (past lab results)', () => {
+  it('is sent at the top level, trimmed, only as typed, and never in place of an item\'s own date', () => {
+    const input = built(buildValidation(choices('LAB', { reportedAtAsWritten: '  14/02/2024 ' })))
+    expect(() => assertAccepted(input)).not.toThrow()
+    expect(input.acceptedFields.reportedAtAsWritten).toBe('14/02/2024')
+    expect(input.acceptedFields).not.toHaveProperty('reportedAt')
+    expect(input.acceptedFields).not.toHaveProperty('collectedAtAsWritten')
+    // Each result keeps the date read beside it, unchanged.
+    expect(input.acceptedFields.observations).toEqual([expect.objectContaining(HB_SOURCE)])
+  })
+
+  it('is not sent when left blank or only spaces, and is never filled in from the items read', () => {
+    for (const typed of [undefined, '', '   ']) {
+      const input = built(buildValidation(choices('LAB', typed === undefined ? {} : { reportedAtAsWritten: typed })))
+      expect(input.acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+    }
+    // The reading has a result dated 01/03/2025: that date stays with its result, never the paper's.
+    const input = built(buildValidation(choices('LAB')))
+    expect(input.acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+  })
+
+  it('is sent as written, whatever its form: ocr-api keeps text it cannot read as a date', () => {
+    for (const typed of ['Mar 2025', '12th March 2025', '3/4/25', 'see page 2']) {
+      const input = built(buildValidation(choices('LAB', { reportedAtAsWritten: typed })))
+      expect(() => assertAccepted(input)).not.toThrow()
+      expect(input.acceptedFields.reportedAtAsWritten).toBe(typed)
+    }
+  })
+
+  it('is refused at its field only when longer than ocr-api keeps (120 characters)', () => {
+    expect(built(buildValidation(choices('LAB', { reportedAtAsWritten: 'x'.repeat(120) }))).acceptedFields.reportedAtAsWritten).toBe('x'.repeat(120))
+    expect(buildValidation(choices('LAB', { reportedAtAsWritten: 'x'.repeat(121) })))
+      .toEqual({ problem: { field: REPORT_DATE_FIELD, message: 'Write the date in 120 characters or fewer.' } })
+  })
+
+  it('is only for past lab results: no other save sends it', () => {
+    for (const saveAs of ['DOCUMENT_ONLY', 'PHARMACY'] as const) {
+      const input = built(buildValidation(choices(saveAs, { reportedAtAsWritten: '14/02/2024' })))
+      expect(input.acceptedFields).not.toHaveProperty('reportedAtAsWritten')
+    }
   })
 })
