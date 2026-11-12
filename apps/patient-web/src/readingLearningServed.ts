@@ -56,3 +56,5 @@ export function useReadingQualityServed(): Served {
   return useSyncExternalStore(quality.subscribe, quality.get, quality.get)
 }
 export const forgetReadingQualityServed = quality.forget
+/** Hears each change of what was learned (as useSyncExternalStore's subscribe): the page entry's listedChanges. */
+export const subscribeReadingQualityServed = quality.subscribe

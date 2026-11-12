@@ -1,7 +1,7 @@
 import type { EhrBluePage } from '../types'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { ChartIcon, UploadIcon } from '../parts/icons'
-import { readingQualityServed } from '../../../readingLearningServed'
+import { readingQualityServed, subscribeReadingQualityServed } from '../../../readingLearningServed'
 import { Migrate, NO_DOCUMENT_OCR } from './Migrate'
 import { qualityReader } from './readingQualityApi'
 import { ReadingQualityPage, ReadingQualityRefusal } from './ReadingQualityPage'
@@ -22,12 +22,15 @@ export const migratePage: EhrBluePage = {
 /**
  * Reading quality (Migrate learning), its own page, so a facility's manager without Document OCR reaches it too. No
  * permission of its own: hid-system #236 decides by workforce.manage at the X-Facility-ID facility (not while it awaits
- * support's review) or the platform permissions, which `visible` mirrors (readingQualityApi.ts qualityReader). Below
- * Migrate's address, so the Migrate site lists and opens it too. Once its read answers 404 (not served yet), the sidebar
- * stops listing it for the page's life, as Migrate stops offering its button; its address still opens and says so.
+ * support's review) or the platform permissions, which `visible` mirrors (readingQualityApi.ts qualityReader). At an
+ * address of its own that no product owns (/provider/reading-quality), so every product's site serves it
+ * (productSites.ts siteServing) and lists and opens it (everyProduct): an address under Migrate's /provider/ocr would be
+ * sent to the Migrate site from the Lab, Pharmacy and Outreach sites before the frame loads. Once its read answers 404
+ * (not served yet), the sidebar stops listing it at once (listedChanges) for the page's life, as Migrate stops offering
+ * its button; its address still opens and says so.
  */
 export const readingQualityPage: EhrBluePage = {
-  path: 'ocr/quality',
+  path: 'reading-quality',
   group: 'Network & Services',
   label: 'Reading quality',
   status: 'partial',
@@ -35,5 +38,7 @@ export const readingQualityPage: EhrBluePage = {
   element: <ReadingQualityPage />,
   visible: session => qualityReader(session.actor, session.actor.facility?.id) !== null,
   listed: () => readingQualityServed() !== false,
+  listedChanges: subscribeReadingQualityServed,
+  everyProduct: true,
   refusal: <ReadingQualityRefusal />,
 }

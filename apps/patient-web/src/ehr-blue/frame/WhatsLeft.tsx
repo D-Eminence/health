@@ -4,7 +4,8 @@ import { servedHere } from '../../productSites'
 import { useStaff } from '../../staff/App'
 import { useBluePages } from './pageContext'
 import { pageHrefOf } from './pageHref'
-import { PRODUCTS, pageListedInProduct, productHere, type Product } from './product'
+import { pageAllowed } from './pageAccess'
+import { PRODUCTS, pageListedInProduct, productHere, productLists, type Product } from './product'
 import type { EhrBluePageStatus } from './types'
 
 /** How each status reads, with its badge tone: never colour alone. */
@@ -52,11 +53,15 @@ export function framePartsOf(product: Product): typeof FRAME_PARTS {
  * checklist: as pages go live, their entries change here on their own. It names no permission: screens show no codes.
  * On a lab's, pharmacy's, outreach team's or migration site it lists only the pages that site offers, by the frame's own
  * rule (pageListedInProduct), for the product the frame decides the same way (productHere), and its frame notes match that site.
+ * A page there only because it is on every product's site (everyProduct) is listed only where this session may open it,
+ * as the sidebar does: it is no part of the product's own workspace.
  */
 export function WhatsLeft() {
   const { state } = useStaff()
-  const product = productHere(state.status === 'ready' ? state.session : null)
-  const pages = useBluePages().filter(page => pageListedInProduct(product, page, servedHere))
+  const session = state.status === 'ready' ? state.session : null
+  const product = productHere(session)
+  const pages = useBluePages().filter(page => pageListedInProduct(product, page, servedHere)
+    && (productLists(product, page.path) || pageAllowed(page, session)))
   const counts = (['live', 'partial', 'sample'] as const).map(status => ({ status, count: pages.filter(page => page.status === status).length }))
   return <>
     <EhrPageHeading title="What’s left" description={product === 'ehr'

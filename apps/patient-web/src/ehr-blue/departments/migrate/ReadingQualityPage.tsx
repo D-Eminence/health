@@ -5,7 +5,7 @@ import { ReadingQualityView } from './ReadingQuality'
 import { managesAwaitingReview, qualityReader } from './readingQualityApi'
 
 /*
- * Reading quality as a page of its own (/provider/ocr/quality), for a facility's own manager who has no Document OCR
+ * Reading quality as a page of its own (/provider/reading-quality), for a facility's own manager who has no Document OCR
  * (Migrate's page needs ocr.job.read, and the frame refuses it without), and for a platform administrator. The same
  * rule as hid-system #236 (readingQualityApi.ts qualityReader): workforce.manage on the membership at the working
  * facility, the one the read sends as X-Facility-ID, not while that facility awaits Health ID support's review; or the
