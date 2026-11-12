@@ -10,7 +10,7 @@ import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laborato
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
- * A lab request shows the patient's lab results imported from paper ("Imported from paper (unverified)"), read only
+ * A lab request shows the patient's lab results imported from paper ("Lab results imported from paper (unverified)"), read only
  * for a role holding lab.import.read. All data is fictional.
  */
 const api = vi.hoisted(() => ({ labWorkItems: vi.fn(), labAccession: vi.fn(), labExecutions: vi.fn(), labImports: vi.fn() }))
@@ -60,7 +60,7 @@ async function openRequest() {
   await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })
 }
 
-const imported = () => screen.getByRole('region', { name: /Imported from paper \(unverified\)/ })
+const imported = () => screen.getByRole('region', { name: 'Lab results imported from paper (unverified)' })
 
 beforeEach(() => {
   for (const key of Object.keys(commerceApi)) delete commerceApi[key]
@@ -83,7 +83,6 @@ describe('Laboratory: imported from paper', () => {
     await openRequest()
     expect(await within(imported()).findByText('Report date: 14 Feb 2024')).toBeTruthy()
     expect(within(imported()).getByText('Haemoglobin: 11.2 g/dL')).toBeTruthy()
-    expect(within(imported()).getByText('Lab results')).toBeTruthy()
     expect(api.labImports).toHaveBeenCalledWith(DEMO_LABORATORY_ID, PATIENT, undefined, expect.any(AbortSignal))
   })
 
@@ -97,7 +96,7 @@ describe('Laboratory: imported from paper', () => {
   it('is not shown, and nothing is read, without lab.import.read', async () => {
     as(WORK)
     await openRequest()
-    expect(screen.queryByRole('heading', { name: 'Imported from paper (unverified)' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Lab results imported from paper (unverified)' })).toBeNull()
     expect(api.labImports).not.toHaveBeenCalled()
   })
 

@@ -1,21 +1,29 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { isHidApiError } from '@hid/http'
-import { Alert, Button, Card, CardHeader } from '../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader } from '../../kasuwa/ui'
+import { routeNotServed } from '../../ehr-blue/departments/migrate/paperRecordsApi'
 import { CONSENT_REQUIRED_TEXT } from '../../ImportedHistoryPage'
 import { staffApi, type ImportsPage, type LabImport, type PharmacyImport } from '../api'
 
 /*
- * "Imported from paper (unverified)": a patient's Lab results or medicines read from paper records (Migrate's Check and
+ * "Lab results / Medicines imported from paper (unverified)": a patient's Lab results or medicines read from paper records (Migrate's Check and
  * save, then Publish), as Lab (GET /api/v1/lab/imports) and Pharmacy (GET /api/v1/pharmacy/imports) list them, newest
  * first, a page at a time. The caller mounts it only for a role holding the list's read (lab.import.read,
  * pharmacy.import.read). Each page read is audited, so a page is read once when shown and again only when asked (Show
- * more, Retry). Values are shown as they were stored, with plain labels.
+ * more, Retry). Values are shown as they were stored, with plain labels. A lab import marked entered in error is listed
+ * last, said so, and its values are not shown. A backend that does not serve a list (404 NOT_FOUND or
+ * API_ROUTE_NOT_FOUND, as paperRecordsApi.ts reads it) shows nothing at all, rather than "none".
  */
 
 export type ImportedFromPaperKind = 'lab' | 'pharmacy'
 
-export const IMPORTED_FROM_PAPER_TITLE = 'Imported from paper (unverified)'
+/** Each list's heading: the two can stand on one page (the EHR chart), so each names what it lists. */
+export const IMPORTED_FROM_PAPER_TITLE: Readonly<Record<'lab' | 'pharmacy', string>> = {
+  lab: 'Lab results imported from paper (unverified)',
+  pharmacy: 'Medicines imported from paper (unverified)',
+}
+export const ENTERED_IN_ERROR = 'Entered in error: do not use these values'
 export const NONE_IMPORTED = 'None imported from paper.'
 export const IMPORTS_NOT_FOUND = 'None found.'
 export const IMPORTS_FAILED = 'These records could not be loaded. Try again.'
@@ -26,8 +34,6 @@ export const IMPORTS_PERMISSION: Readonly<Record<ImportedFromPaperKind, string>>
   lab: 'lab.import.read',
   pharmacy: 'pharmacy.import.read',
 }
-
-const KIND_LABEL: Readonly<Record<ImportedFromPaperKind, string>> = { lab: 'Lab results', pharmacy: 'Medicines' }
 
 /** Lab's flags in words; normal and anything unknown call nothing out. */
 const FLAG_WORDS: Readonly<Record<string, string>> = {
@@ -43,9 +49,11 @@ export function writtenDay(value: string | null | undefined): string {
   return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: day ? 'UTC' : 'Africa/Lagos' })
 }
 
-type Failure = 'consent' | 'notFound' | 'failed'
+type Failure = 'consent' | 'notServed' | 'notFound' | 'failed'
 
 function failureOf(caught: unknown): Failure {
+  // Not served here (the gateway's API_ROUTE_NOT_FOUND, or the service's NOT_FOUND): no section, not "none".
+  if (routeNotServed(caught)) return 'notServed'
   if (isHidApiError(caught)) {
     // Lab says the same with its own code: the patient has not let this facility read their record.
     if (caught.status === 403 && (caught.code === 'CONSENT_REQUIRED' || caught.code === 'LAB_IMPORT_ACCESS_DENIED')) return 'consent'
@@ -64,15 +72,24 @@ function readPage(kind: ImportedFromPaperKind, facilityId: string, patientId: st
   return kind === 'lab' ? staffApi.labImports(facilityId, patientId, cursor, signal) : staffApi.pharmacyImports(facilityId, patientId, cursor, signal)
 }
 
+const enteredInError = (item: Item) => (item as LabImport).status === 'entered_in_error'
+
+/** Valid imports first, each group newest first as listed; those entered in error after them. */
+function inOrder(items: readonly Item[]): readonly Item[] {
+  return [...items.filter(item => !enteredInError(item)), ...items.filter(enteredInError)]
+}
+
 function LabRecord({ item }: { readonly item: LabImport }) {
   const day = writtenDay(item.reportedAt)
   const observations = (Array.isArray(item.observations) ? [...item.observations] : []).sort((a, b) => a.ordinal - b.ordinal)
+  const inError = item.status === 'entered_in_error'
   return <li className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+    {inError ? <div><Badge tone="danger" size="sm">{ENTERED_IN_ERROR}</Badge></div> : null}
     <p className="m-0 text-[15px] font-medium text-ink">{day ? `Report date: ${day}` : 'Report date not written'}</p>
     <p className="m-0 text-[13px] text-ink-3">{`Source: ${item.externalLabName?.trim() || 'paper record'}`}</p>
-    {item.status === 'entered_in_error' ? <p className="m-0 text-[13px] text-ink-3">Marked as entered in error</p> : null}
     {item.status === 'amended' ? <p className="m-0 text-[13px] text-ink-3">Amended</p> : null}
-    {observations.length > 0 ? <ul className="m-0 flex list-disc flex-col gap-0.5 pl-5 text-[14px] text-ink-2">
+    {/* Values entered in error are not shown, so none is read as a result. */}
+    {inError ? null : observations.length > 0 ? <ul className="m-0 flex list-disc flex-col gap-0.5 pl-5 text-[14px] text-ink-2">
       {observations.map(observation => {
         const result = [observation.value && `${observation.value}${observation.unit ? ` ${observation.unit}` : ''}`, observation.valueText]
           .filter(Boolean).join(' · ')
@@ -106,7 +123,6 @@ export function ImportedFromPaper({ kind, facilityId, patientId }: {
 }) {
   const id = useId()
   const titleId = `${id}-title`
-  const kindId = `${id}-kind`
   const [state, setState] = useState<State>({ status: 'loading' })
   const [reads, setReads] = useState(0)
   // Bumped on every first read, so a "Show more" answer for an earlier read is dropped.
@@ -148,12 +164,14 @@ export function ImportedFromPaper({ kind, facilityId, patientId }: {
       // Consent withdrawn since the first page: what was shown is taken away too.
       const failure = failureOf(caught)
       setState(current => current.status !== 'ok' || current.nextCursor !== cursor ? current
-        : failure === 'consent' ? { status: 'consent' } : { ...current, more: 'failed' })
+        : failure === 'consent' || failure === 'notServed' ? { status: failure } : { ...current, more: 'failed' })
     }).finally(() => { if (moreFlight.current === controller) moreFlight.current = null })
   }, [kind, facilityId, patientId])
 
-  return <Card aria-labelledby={`${titleId} ${kindId}`}>
-    <CardHeader as="h2" titleId={titleId} title={IMPORTED_FROM_PAPER_TITLE} description={<span id={kindId}>{KIND_LABEL[kind]}</span>} />
+  // Not served here: nothing is shown.
+  if (state.status === 'notServed') return null
+  return <Card className="imported-from-paper" aria-labelledby={titleId}>
+    <CardHeader as="h2" titleId={titleId} title={IMPORTED_FROM_PAPER_TITLE[kind]} />
     <div className="flex flex-col gap-3 p-5">
       {state.status === 'loading' ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
       {state.status === 'consent' ? <p className="m-0 text-[14px] text-ink-2">{CONSENT_REQUIRED_TEXT}</p> : null}
@@ -164,7 +182,7 @@ export function ImportedFromPaper({ kind, facilityId, patientId }: {
       {state.status === 'ok' && state.items.length > 0 ? <>
         <p className="m-0 text-[13px] text-ink-3">Read from paper records. Check against the paper before relying on them.</p>
         <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
-          {state.items.map(item => kind === 'lab'
+          {inOrder(state.items).map(item => kind === 'lab'
             ? <LabRecord key={item.id} item={item as LabImport} />
             : <MedicineRecord key={item.id} item={item as PharmacyImport} />)}
         </ul>

@@ -7,7 +7,7 @@ import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '.
 import { accepted, AMOXICILLIN, CREATE, PATIENT_A, pickCard, PRESCRIPTIONS, READ, showTab, Where } from './fixtures'
 
 /**
- * A prescription shows the medicines read from the patient's paper records ("Imported from paper (unverified)") before
+ * A prescription shows the medicines read from the patient's paper records ("Medicines imported from paper (unverified)") before
  * it is dispensed, read only for a role holding pharmacy.import.read. All data is fictional.
  */
 const session = vi.hoisted(() => ({ facility: undefined as FakeFacility | undefined }))
@@ -51,7 +51,7 @@ async function openRecord() {
   await screen.findByRole('heading', { name: 'Pick and hand over' })
 }
 
-const imported = () => screen.getByRole('region', { name: /Imported from paper \(unverified\)/ })
+const imported = () => screen.getByRole('region', { name: 'Medicines imported from paper (unverified)' })
 
 beforeEach(() => {
   for (const key of Object.keys(commerceApi)) delete commerceApi[key]
@@ -85,7 +85,7 @@ describe('Pharmacy: imported from paper', () => {
   it('is not shown, and nothing is read, without pharmacy.import.read', async () => {
     working([READ, CREATE])
     await openRecord()
-    expect(screen.queryByRole('heading', { name: 'Imported from paper (unverified)' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Medicines imported from paper (unverified)' })).toBeNull()
     expect(api.pharmacyImports).not.toHaveBeenCalled()
   })
 

@@ -208,7 +208,7 @@ describe('Consultation record: imported from paper', () => {
   const LAB_IMPORT = { id: 'lab-import-1', patientId: PATIENT_ID, status: 'accepted', externalLabName: 'Demo Diagnostics',
     reportedAt: '2024-02-14', observations: [{ id: 'obs-1', ordinal: 1, testName: 'Haemoglobin', value: '11.2', unit: 'g/dL' }] }
   const MEDICINE = { id: 'medicine-1', patientId: PATIENT_ID, medicationText: 'Metformin', strengthText: '500 mg' }
-  const part = (kind: 'Lab results' | 'Medicines') => screen.getByRole('region', { name: `Imported from paper (unverified) ${kind}` })
+  const part = (kind: 'Lab results' | 'Medicines') => screen.getByRole('region', { name: `${kind} imported from paper (unverified)` })
 
   it('lists both, each in the chart’s sections, with lab.import.read and pharmacy.import.read', async () => {
     staff.permissions = [...BASE, 'lab.import.read', 'pharmacy.import.read']
@@ -227,13 +227,13 @@ describe('Consultation record: imported from paper', () => {
     staff.permissions = [...BASE, 'pharmacy.import.read']
     await openEncounter()
     expect(await within(part('Medicines')).findByText('None imported from paper.')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Imported from paper (unverified) Lab results' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Lab results imported from paper (unverified)' })).toBeNull()
     expect(api.labImports).not.toHaveBeenCalled()
   })
 
   it('reads neither without their permissions', async () => {
     await openEncounter()
-    expect(screen.queryByRole('heading', { name: 'Imported from paper (unverified)' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /imported from paper/ })).toBeNull()
     expect(api.labImports).not.toHaveBeenCalled()
     expect(api.pharmacyImports).not.toHaveBeenCalled()
   })
