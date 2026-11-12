@@ -1,4 +1,8 @@
 import type { OcrCandidateType, OcrTargetDomain, OcrValidationInput } from '../../../staff/api'
+import {
+  MAX_MISSED_ITEMS, MAX_REMOVED_ITEMS, isCode, REJECTION_REASONS, type ChangeReason, type FieldClass, type RejectionReason, type RemovalReason,
+  type ReviewSignals,
+} from '../../../readingLearningContract'
 import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
 /*
@@ -42,7 +46,20 @@ export type ItemChoice = 'keep' | 'change' | 'remove'
  * One item's choice (null: not chosen yet) and, for Change, the words staff typed. A lab result is changed as its test
  * and its result, each its own text (`test`, `result`); any other item as one line (`text`).
  */
-export interface ItemDecision { readonly choice: ItemChoice | null; readonly text: string; readonly test?: string; readonly result?: string }
+export interface ItemDecision {
+  readonly choice: ItemChoice | null; readonly text: string; readonly test?: string; readonly result?: string
+  /** Migrate learning only (dormant until served): why it was removed, or why changed, if staff chose one (never required). */
+  readonly removalReason?: RemovalReason | ''; readonly changeReason?: ChangeReason | ''
+  /** Migrate learning only: a medicine's Change, field by field; a field not typed yet is as read (medicineAsRead). */
+  readonly medicine?: Partial<MedicineFields>
+}
+/** A medicine as the structured Change form holds it, in the words of past medicines' own fields. */
+export interface MedicineFields { readonly name: string; readonly strength: string; readonly dose: string; readonly frequency: string }
+export const MEDICINE_FIELDS = ['name', 'strength', 'dose', 'frequency'] as const
+/** Each field of a medicine as past medicines takes it (PHARMACY medications[]), for corrections. */
+const MEDICINE_FIELD_NAMES: Readonly<Record<keyof MedicineFields, string>> = {
+  name: 'medicationText', strength: 'strengthText', dose: 'doseText', frequency: 'frequencyText',
+}
 export type Decisions = Readonly<Record<string, ItemDecision>>
 
 /** The owning domains a check can be saved as. */
@@ -224,6 +241,38 @@ export const itemTextId = (index: number) => `ocr-item-${index}-text`
 /** A lab result's Change: its Test and Result texts. */
 export const itemTestId = (index: number) => `ocr-item-${index}-test`
 export const itemResultId = (index: number) => `ocr-item-${index}-result`
+/** Migrate learning: why an item was removed or changed, and a medicine's Change, field by field. */
+export const itemRemovalReasonId = (index: number) => `ocr-item-${index}-removal-reason`
+export const itemChangeReasonId = (index: number) => `ocr-item-${index}-change-reason`
+export const itemMedicineId = (index: number, field: keyof MedicineFields) => `ocr-item-${index}-medicine-${field}`
+/** Migrate learning: "The reading missed…" and why a whole reading is rejected. */
+export const MISSED_FIELD = 'ocr-missed'
+export const REJECTION_REASON_FIELD = 'ocr-review-rejection-reason'
+
+/** A medicine as read, as the structured Change form starts it. */
+export function medicineAsRead(item: PaperItem): MedicineFields {
+  const f = item.fields
+  return { name: itemName(item), strength: clean(f.strength), dose: clean(f.dose), frequency: clean(f.frequency) }
+}
+
+/**
+ * What Migrate learning has beyond each item's choice: the items the reviewer had on screen (counted in memory only) and
+ * the one optional "The reading missed…" box, as typed (blank: nothing said). Given only while the backend serves it;
+ * without it, buildValidation sends exactly what it sends today.
+ */
+export interface ReviewLearning {
+  readonly itemsSeen: readonly string[]
+  readonly missed: string
+}
+
+/** The missed box as typed: absent when blank (nothing is sent), a whole number from 0 to 200, or null when it is not one. */
+export function missedTotal(typed: string): number | undefined | null {
+  const value = typed.trim()
+  if (!value) return undefined
+  if (!/^\d{1,3}$/.test(value)) return null
+  const count = Number(value)
+  return count <= MAX_MISSED_ITEMS ? count : null
+}
 
 export interface ReviewChoices {
   readonly extractionId: string
@@ -235,7 +284,16 @@ export interface ReviewChoices {
   readonly reason: string
   /** The paper's report date, as the reviewer typed it from the paper; only for LAB, and sent only when not blank. */
   readonly reportedAtAsWritten?: string
+  /** Migrate learning, only while the backend serves it (readingLearningServed.ts). */
+  readonly learning?: ReviewLearning
 }
+
+/** A review as sent: OCR's validation, with Migrate learning's review signals beside it once the backend serves them. */
+export type ReviewInput = OcrValidationInput & ReviewSignals
+
+/** The field class (Session B's corrections[].fields) each changed field is counted under. */
+const MEDICINE_FIELD_CLASSES: Readonly<Record<keyof MedicineFields, FieldClass>> = { name: 'name', strength: 'strength', dose: 'dose', frequency: 'frequency' }
+const LAB_FIELD_CLASSES = { test: 'name', result: 'value' } as const satisfies Readonly<Record<string, FieldClass>>
 
 /** The report date's field, under Save as when it is Past lab results. */
 export const REPORT_DATE_FIELD = 'ocr-review-report-date'
@@ -249,6 +307,8 @@ interface CheckedItem {
   readonly item: PaperItem; readonly index: number; readonly decision: ItemDecision; readonly line: string; readonly final: string
   /** A lab result's test and result as saved: as read, or as typed on Change. */
   readonly lab?: { readonly test: string; readonly result: string; readonly changed: boolean }
+  /** Migrate learning: a medicine changed on the structured form, as typed. */
+  readonly med?: MedicineFields & { readonly changed: boolean }
 }
 
 function optional<T extends object>(value: T): T {
@@ -305,6 +365,13 @@ function medication(entry: CheckedItem) {
     item.prescription?.dateAsWritten?.trim() && `Prescribed on ${item.prescription.dateAsWritten.trim()}`,
     item.dateAsWritten?.trim() && `Dated ${item.dateAsWritten.trim()}`,
   ].filter(Boolean).join('. ')
+  // Migrate learning: a medicine changed field by field is sent as each field typed.
+  if (entry.med?.changed) {
+    return optional({
+      itemId: item.id, page: item.page, medicationText: entry.med.name, strengthText: upTo(entry.med.strength, 240),
+      doseText: upTo(entry.med.dose, 240), frequencyText: upTo(entry.med.frequency, 240), historicalContext: context.slice(0, 2_000),
+    })
+  }
   // A changed medicine is the words staff typed; the reading's strength and frequency are not sent beside them.
   return optional({
     itemId: item.id, page: item.page,
@@ -320,8 +387,8 @@ function medication(entry: CheckedItem) {
  * fields. Kept items are accepted as read; changed items are accepted with the new words and listed as corrections
  * (old and new); removed items are listed as rejected.
  */
-export function buildValidation(choices: ReviewChoices): { readonly input: OcrValidationInput } | { readonly problem: ReviewProblem } {
-  const { reading, decisions, saveAs } = choices
+export function buildValidation(choices: ReviewChoices): { readonly input: ReviewInput } | { readonly problem: ReviewProblem } {
+  const { reading, decisions, saveAs, learning } = choices
   const items = reviewItems(reading)
   const checked: CheckedItem[] = []
   for (const [index, item] of items.entries()) {
@@ -329,6 +396,19 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
     const decision: ItemDecision = isUnreadable(item) ? { choice: 'remove', text: readingLine(item) }
       : decisions[item.id] ?? { choice: null, text: readingLine(item) }
     if (!decision.choice) return { problem: { field: itemCardId(index), message: 'Choose Keep, Change or Remove for this item.' } }
+    if (learning && item.kind === 'medicine' && decision.choice === 'change') {
+      const read = medicineAsRead(item)
+      const typed = Object.fromEntries(MEDICINE_FIELDS.map(field => [field, (decision.medicine?.[field] ?? read[field]).trim()])) as unknown as MedicineFields
+      if (!typed.name) return { problem: { field: itemMedicineId(index, 'name'), message: 'Enter the medicine’s name, or choose Keep or Remove.' } }
+      if (typed.name.length > 500) return { problem: { field: itemMedicineId(index, 'name'), message: 'Shorten this to 500 characters or fewer.' } }
+      for (const field of ['strength', 'dose', 'frequency'] as const) {
+        if (typed[field].length > 240) return { problem: { field: itemMedicineId(index, field), message: 'Shorten this to 240 characters or fewer.' } }
+      }
+      const changed = MEDICINE_FIELDS.some(field => typed[field] !== read[field])
+      const final = changed ? MEDICINE_FIELDS.map(field => typed[field]).filter(Boolean).join(' ') : readingLine(item)
+      checked.push({ item, index, decision, line: readingLine(item), final, med: { ...typed, changed } })
+      continue
+    }
     if (item.kind === 'lab_result') {
       const read = { test: labTest(item), result: labResult(item) }
       const typed = decision.choice === 'change' ? { test: (decision.test ?? read.test).trim(), result: (decision.result ?? read.result).trim() } : read
@@ -346,19 +426,37 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
   }
   const kept = checked.filter(entry => entry.decision.choice !== 'remove')
   const accepted: AcceptedItem[] = kept.map(({ item, final }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: final }))
-  const rejectedFields = checked.filter(entry => entry.decision.choice === 'remove')
+  const removed = checked.filter(entry => entry.decision.choice === 'remove')
+  const rejectedFields = removed
     .map(({ item, line }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: line, decision: 'removed' }))
   const corrections = kept.filter(entry => entry.decision.choice === 'change').flatMap(entry => {
-    const { item, line, final, lab } = entry
-    const correction = (field: string, oldValue: string, newValue: string) => ({ itemId: item.id, kind: item.kind, page: item.page, field, oldValue, newValue })
-    if (lab) {
-      return [
-        ...(lab.test !== labTest(item) ? [correction('test', labTest(item), lab.test)] : []),
-        ...(lab.result !== labResult(item) ? [correction('result', labResult(item), lab.result)] : []),
-      ]
+    const { item, line, final, lab, med, decision } = entry
+    // Migrate learning: each correction names its field class; the change reason goes on the item's first correction
+    // only, as the server counts one change reason for each correction that carries one.
+    const correction = (field: string, oldValue: string, newValue: string, fieldClass?: FieldClass) => ({
+      itemId: item.id, kind: item.kind, page: item.page, field, oldValue, newValue,
+      ...(learning && fieldClass ? { fields: [fieldClass] } : {}),
+    })
+    const withReason = (entries: ReturnType<typeof correction>[]) => learning && decision.changeReason
+      ? entries.map((entry, at) => at === 0 ? { ...entry, changeReason: decision.changeReason as ChangeReason } : entry)
+      : entries
+    if (med) {
+      const read = medicineAsRead(item)
+      return withReason(MEDICINE_FIELDS.filter(field => med[field] !== read[field])
+        .map(field => correction(MEDICINE_FIELD_NAMES[field], read[field], med[field], MEDICINE_FIELD_CLASSES[field])))
     }
-    return final !== line ? [correction('reading', line, final)] : []
+    if (lab) {
+      return withReason([
+        ...(lab.test !== labTest(item) ? [correction('test', labTest(item), lab.test, learning ? LAB_FIELD_CLASSES.test : undefined)] : []),
+        ...(lab.result !== labResult(item) ? [correction('result', labResult(item), lab.result, learning ? LAB_FIELD_CLASSES.result : undefined)] : []),
+      ])
+    }
+    return withReason(final !== line ? [correction('reading', line, final)] : [])
   })
+
+  // Migrate learning: "The reading missed…", one optional total; blank sends nothing.
+  const missedItems = learning ? missedTotal(learning.missed) : undefined
+  if (missedItems === null) return { problem: { field: MISSED_FIELD, message: `Enter a number from 0 to ${MAX_MISSED_ITEMS}, or leave it blank.` } }
 
   let domainFields: Record<string, unknown> = {}
   const domainProblem = (message: string) => ({ problem: { field: 'ocr-review-domain', message } })
@@ -408,11 +506,34 @@ export function buildValidation(choices: ReviewChoices): { readonly input: OcrVa
   return { input: {
     extractionId: choices.extractionId, validatedPayload, acceptedFields, rejectedFields, corrections,
     disposition: 'validated', targetDomain: saveAs, candidateType: CANDIDATE_TYPES[saveAs], reason,
+    ...(learning ? reviewSignals(learning, items, removed, missedItems) : {}),
   } }
 }
 
+/**
+ * The review signals Migrate learning sends beside a check (Session B's names, readingLearningContract.ts), only what
+ * the reviewer actually did or said:
+ * - reviewConfirmed: every item the reviewer could check was on screen (Session B: "checked every item of the reading").
+ *   Only when the reading has an item to check; there is no page tick.
+ * - missedItems: only when the reviewer typed a number.
+ * - removedItems: each removed item whose reason the reviewer chose, up to the server's 200; nothing for one without.
+ */
+function reviewSignals(learning: ReviewLearning, items: readonly PaperItem[], removed: readonly CheckedItem[],
+  missedItems: number | undefined): ReviewSignals {
+  const checkable = items.filter(item => !isUnreadable(item))
+  const seen = new Set(learning.itemsSeen)
+  const removedItems = removed.flatMap(({ item, decision }) =>
+    !isUnreadable(item) && decision.removalReason ? [{ itemId: item.id, removalReason: decision.removalReason }] : []).slice(0, MAX_REMOVED_ITEMS)
+  return {
+    ...(checkable.length ? { reviewConfirmed: checkable.every(item => seen.has(item.id)) } : {}),
+    ...(missedItems !== undefined ? { missedItems } : {}),
+    ...(removedItems.length ? { removedItems } : {}),
+  }
+}
+
 /** A rejection: nothing read is kept, and OCR takes it as unclassified (ocr-publication-policy.ts:17-19 allows only that). */
-export function buildRejection(extractionId: string, reason: string): { readonly input: OcrValidationInput } | { readonly problem: ReviewProblem } {
+export function buildRejection(extractionId: string, reason: string, learning?: { readonly rejectionReason: RejectionReason | '' }):
+  { readonly input: ReviewInput } | { readonly problem: ReviewProblem } {
   const trimmed = reason.trim()
   if (!trimmed) return { problem: { field: 'ocr-review-reason', message: 'Complete this field.' } }
   if (trimmed.length < 8) return { problem: { field: 'ocr-review-reason', message: 'Write at least 8 characters.' } }
@@ -420,5 +541,6 @@ export function buildRejection(extractionId: string, reason: string): { readonly
   return { input: {
     extractionId, validatedPayload: {}, acceptedFields: {}, rejectedFields: [], corrections: [],
     disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified', reason: trimmed,
+    ...(learning && isCode(REJECTION_REASONS, learning.rejectionReason) ? { rejectionReasonCode: learning.rejectionReason } : {}),
   } }
 }
