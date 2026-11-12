@@ -8,6 +8,9 @@ export const FIELD = {
   enrollReason: 'registration-enroll-reason',
 } as const
 
+/** The prefix of the desk fields' control ids (registration-phone, …: collected/DeskFields.tsx deskControlId). */
+export const DESK_PREFIX = 'registration'
+
 /** The new form's heading ("Start with verified identity"), where focus goes when the form replaces Check again. */
 export const START_HEADING = 'registration-start-title'
 

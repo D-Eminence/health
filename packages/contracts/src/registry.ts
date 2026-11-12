@@ -107,6 +107,15 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
+/**
+ * Collected sign-up fields (hid-system 0114, owner: "allow trading name, all fields required"): facility sign-up's role,
+ * phone and facility details, Facility setup's facility profile, and patient registration's desk fields. Novu only.
+ * Released in three steps (hid-system docs/INTERFACE_CONTRACT.md section 43.0): the 0114 backend, which takes the new sign-up and desk fields all or none (a
+ * partial set is refused) so the live website keeps working; then this website, which always sends every one; then a
+ * follow-up backend that makes them required in the API. Before 0114 Identity refuses them as unknown fields.
+ */
+const COLLECTED_FIELDS = 'hid-system 0114 (claude/collect-signup-fields-be): Novu only; not served by hid-system main. '
+  + 'The new sign-up and desk fields are all or none until the follow-up release makes them required.'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 /**
  * Outreach campaigns managed by their own admins (ADR-045 option B, hid-system#222, migration 0111): from then Identity
@@ -572,7 +581,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'replayed }; the patient then confirms. 404 SHARE_INVITATION_NOT_FOUND, 403 SHARE_PROVIDER_NOT_ELIGIBLE, 409 '
     + 'SHARE_INVITATION_NOT_PENDING.')),
   r('identity.registrationCapabilities','identity','/api/v1/identity/registration-capabilities',G,false,one('GET','identity.registration.write')),
-  r('identity.resolveNin','identity','/api/v1/identity/nin/resolve',P,false,one('POST','identity.registration.write')),
+  r('identity.resolveNin','identity','/api/v1/identity/nin/resolve',P,false,one('POST','identity.registration.write'),
+    `${COLLECTED_FIELDS} Body { nin, firstName, lastName, dateOfBirth, gender?, purpose } and, all or none from 0114 (required `
+    + 'after the follow-up release; the website always sends them), the desk fields { phone, addressLine, city, stateCode, lga, hasExistingHealthId, existingHealthId (exactly when '
+    + 'hasExistingHealthId) }; the answer adds contactRecorded. Allergies are refused as an unknown field.'),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
@@ -593,6 +605,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
     + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
     + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
+  // The facility's details (hid-system 0114, hid-system docs/INTERFACE_CONTRACT.md section 43.4): read and saved by Facility setup.
+  proposed(r('identity.facilityProfile','identity','/api/v1/identity/facility-profile',GP,false,
+    { GET: ['workforce.manage'], POST: ['workforce.manage'] },
+    `${COLLECTED_FIELDS} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, CSRF on POST; only `
+    + 'at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise; 403 PERMISSION_DENIED). GET 200 with '
+    + 'ETag: { facility { id, name, reviewState }, version (0 with no profile), profile | null }. POST (not PUT: the API\'s '
+    + 'CORS allows GET and POST) takes If-Match "<version>" and an Idempotency-Key, body FacilityProfile, every field '
+    + 'required: 200 { facilityId, version, changedFields, replayed }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
+    + 'IDEMPOTENCY_KEY_REUSED or FACILITY_PROFILE_SEALED, 400 VALIDATION_FAILED or FACILITY_PROFILE_INVALID, 503 '
+    + 'FACILITY_PROFILE_UNAVAILABLE.')),
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
     `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `
@@ -656,7 +678,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment (on Novu, '
     + 'app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }; on Novu also '
     + 'codeSent: false when no code was sent, with challengeId and expiresInSeconds naming the code still in force (absent '
-    + `when none can be entered) and resendAfterSeconds the real wait, up to about a day. ${SELF_SIGN_UP_CLOSED}`),
+    + `when none can be entered) and resendAfterSeconds the real wait, up to about a day. ${SELF_SIGN_UP_CLOSED} `
+    + `${COLLECTED_FIELDS} The body also takes administratorRole, administratorPhone and facilityProfile there, all `
+    + 'or none (required after the follow-up release; the website always sends them); 400 FACILITY_PROFILE_INVALID, 503 COLLECTED_FIELDS_UNAVAILABLE.'),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
     `Accountless; verifies the emailed code and sets the enrollment cookie. ${SELF_SIGN_UP_CLOSED}`),
   // P4 round 2 (R13): the applicant sees the organization a CAC number names before its account is made.

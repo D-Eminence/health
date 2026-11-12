@@ -6,6 +6,8 @@ import { staffApi, type RegistrationCapabilities, type RegistrationCase, type Re
 import { useFocusById } from '../../../staff/focus'
 import { REGISTRATION_COMPLETED, REGISTRATION_GENDERS, registrationErrorText, useCommandKey } from '../../../staff/registrationFlow'
 import { useDeptAccess } from '../parts/access'
+import { DESK_FIELDS, DESK_HINTS, DESK_LABELS, deskFieldShown, deskProblems, deskValues, emptyDeskForm, type DeskForm } from '../../collected/deskFields'
+import { NIGERIA_STATES } from '../../collected/places'
 import type { MadeHealthId } from './walkIn'
 import '../commerce/commerce.css'
 
@@ -17,15 +19,18 @@ import '../commerce/commerce.css'
  * this screen's memory.
  */
 
-interface Draft {
+/** The NIN check's fields, and the desk's contact and stated Health ID it now requires (hid-system 0114, DeskForm). */
+interface Draft extends DeskForm {
   firstName: string; lastName: string; dateOfBirth: string; gender: '' | NonNullable<ResolveNinInput['gender']>
   nin: string; email: string; consent: boolean
 }
-const EMPTY: Draft = { firstName: '', lastName: '', dateOfBirth: '', gender: '', nin: '', email: '', consent: false }
+const EMPTY: Draft = { firstName: '', lastName: '', dateOfBirth: '', gender: '', nin: '', email: '', consent: false, ...emptyDeskForm() }
 type DraftErrors = Partial<Record<keyof Draft, string>>
-const ORDER: readonly (keyof Draft)[] = ['firstName', 'lastName', 'dateOfBirth', 'nin', 'email', 'consent']
+const ORDER: readonly (keyof Draft)[] = ['firstName', 'lastName', 'dateOfBirth', 'nin', 'email', ...DESK_FIELDS, 'consent']
 const FIELD_ID: Readonly<Record<keyof Draft, string>> = {
   firstName: 'first', lastName: 'last', dateOfBirth: 'dob', gender: 'sex', nin: 'nin', email: 'email', consent: 'consent',
+  phone: 'phone', addressLine: 'address', city: 'city', stateCode: 'state', lga: 'lga', hasExistingHealthId: 'has-hid',
+  existingHealthId: 'hid',
 }
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -49,6 +54,7 @@ function check(draft: Draft, ninNeeded: boolean, ninAsked: boolean, today: strin
   const nin = draft.nin.replace(/\s/g, '')
   if (ninAsked && (ninNeeded || nin) && !/^\d{11}$/.test(nin)) errors.nin = 'Type the 11 digit NIN.'
   if (!EMAIL.test(draft.email.trim())) errors.email = draft.email.trim() ? 'Type an email like ada@example.com.' : 'Type their email: their Health ID is sent there.'
+  for (const [field, problem] of deskProblems(draft)) errors[field] = problem
   if (!draft.consent) errors.consent = 'Ask them first. They must agree to get a Health ID.'
   return errors
 }
@@ -140,7 +146,7 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
     const nin = draft.nin.replace(/\s/g, '')
     const input: ResolveNinInput = {
       firstName: draft.firstName.trim(), lastName: draft.lastName.trim(), dateOfBirth: draft.dateOfBirth,
-      nin, ...(draft.gender ? { gender: draft.gender } : {}),
+      nin, ...(draft.gender ? { gender: draft.gender } : {}), ...deskValues(draft),
     }
     await run(async () => {
       const opened = await staffApi.resolveNin(facilityId, input, resolveKey.forInput(JSON.stringify([facilityId, input])))
@@ -225,6 +231,27 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
         onChange={event => set({ email: event.target.value })} />
     </Field>
     {otcFallback ? <p className="m-0 text-[14px] text-ink-2">No email? For over-the-counter items, pick No details.</p> : null}
+    <div className="grid gap-4 @md:grid-cols-2">
+      {DESK_FIELDS.filter(field => deskFieldShown(field, draft)).map(field => {
+        const hint = DESK_HINTS[field]
+        const common = { ...control(field, hint !== undefined), readOnly: busy }
+        return <Field key={field} label={DESK_LABELS[field]} htmlFor={id(field)} error={errors[field]} errorId={`${id(field)}-error`}
+          hint={hint} hintId={`${id(field)}-hint`} className={field === 'addressLine' ? '@md:col-span-2' : undefined}>
+          {field === 'stateCode' || field === 'hasExistingHealthId'
+            ? <Select id={id(field)} value={draft[field]} className="[&>select]:h-11" aria-invalid={errors[field] ? true : undefined}
+              aria-describedby={common['aria-describedby']}
+              onChange={event => { if (!busy) set({ [field]: event.target.value } as Partial<Draft>) }}>
+              <option value="">Select…</option>
+              {field === 'stateCode'
+                ? NIGERIA_STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)
+                : <><option value="yes">Yes</option><option value="no">No</option></>}
+            </Select>
+            : <Input {...common} type={field === 'phone' ? 'tel' : 'text'} autoComplete="off" className="h-11" value={draft[field]}
+              maxLength={field === 'addressLine' ? 300 : field === 'phone' ? 32 : field === 'existingHealthId' ? 36 : 100}
+              onChange={event => set({ [field]: event.target.value } as Partial<Draft>)} />}
+        </Field>
+      })}
+    </div>
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id('consent')} className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px] text-ink">
         <input id={id('consent')} type="checkbox" checked={draft.consent} className="size-5 shrink-0 accent-[var(--color-brand)]"
