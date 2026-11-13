@@ -6,7 +6,7 @@ import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
 import { Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
-import { outreachProblemText } from '../../../outreachProblems'
+import { isOutreachProblem, outreachProblemText } from '../../../outreachProblems'
 import { waitReason, waitsForNetwork, waitsForSignIn, type PendingRegistration, type WaitReason } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
@@ -279,7 +279,12 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
       // Health ID's answer (a refusal to correct here, with everything typed still on the form): not left waiting on the
       // device, where it would be sent again as it is.
       if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
-      if (!group && campaignId && campaignRefused(caught)) {
+      if (area !== undefined && isOutreachProblem(caught, 'OUTREACH_AREA_INVALID')) {
+        // Said on the area field, with focus there (or an alert, when focus is in it already), as the form's own checks are.
+        const here = document.activeElement?.id === FIELD_ID.area
+        setProblems(previous => ({ errors: { area: outreachProblemText(caught, CREATE_FAILED) }, alert: here ? 'area' : undefined, seq: previous.seq + 1 }))
+        if (!here) focus(FIELD_ID.area)
+      } else if (!group && campaignId && campaignRefused(caught)) {
         // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
         // outreach group, whose registrations always need their campaign.
         setRefusedBy({ name: campaigns.find(campaign => campaign.id === campaignId)?.name })

@@ -23,6 +23,7 @@ import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './Outreac
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
 import { claimSend, noConnection, useOutreachQueue, type QueueSyncResult } from './offlineQueue'
 import { outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
+import { noteOutreachRegistrations, outreachServed } from './outreachServed'
 import { offlineShellHere } from '../../../productHostname'
 import {
   campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
@@ -151,7 +152,11 @@ export function Outreach() {
 
   // Outreach with no signal (offlineStart.ts), on Health ID Outreach's own site, at an outreach group: the confirmed
   // session's few facts, kept for a reload or a start with no signal, with the campaigns this volunteer is in.
-  const healthChecksServed = Boolean(cases.value?.some(item => 'hasScreening' in item))
+  // What Outreach serves, as its registrations show it, remembered for the session (outreachServed.ts): the day's first
+  // registration, and a list that can't be read, keep what was seen before.
+  noteOutreachRegistrations(cases.value)
+  const served = outreachServed()
+  const healthChecksServed = served.healthChecks
   const memberCampaigns = (campaigns.value ?? []).filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
   const offlineFacts = group && facility && facilityId && actorId && state.status === 'ready' && campaigns.value !== null && offlineShellHere(window.location.hostname)
     ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: memberCampaigns })
@@ -196,12 +201,14 @@ export function Outreach() {
 
   // At an outreach group, a registration that could not be sent waits on this device and is sent again (offlineQueue.ts).
   const queue = useOutreachQueue(group ? actorId : undefined, facilityId ?? '', useCallback((created: OutreachCase) => {
+    noteOutreachRegistrations([created])
     if (facilityId) setCreatedNote({ facilityId, text: `${createdText(created)} It was sent from this device.` })
     void refreshCases()
   }, [facilityId, refreshCases]))
   const syncQueue = queue.sync
 
   const onCreated = useCallback((created: OutreachCase) => {
+    noteOutreachRegistrations([created])
     if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
     void refreshCases()
     // Health ID just took a registration: what waits on this device is sent too, without waiting for an online event.
@@ -267,7 +274,7 @@ export function Outreach() {
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
     content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} campaignsUnread={campaignsUnread}
-      attempt={caseAttempt} group={groupForm} healthChecksServed={Boolean(cases.value?.some(item => 'hasScreening' in item))}
+      attempt={caseAttempt} group={groupForm} healthChecksServed={healthChecksServed}
       onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null); setSendNote(null) }} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
@@ -315,7 +322,9 @@ export function Outreach() {
           {queuedShown ? <>
             <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
             {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
-            <GetHealthIdNow id="outreach-queued-health-id" queued ageYears={queuedNote.ageYears} />
+            {/* "Open it to create their Health ID", unless Outreach is known to make none (not from the list alone, which a
+                page opened with no signal has not read). */}
+            <GetHealthIdNow id="outreach-queued-health-id" queued={served.emailHealthId !== false} ageYears={queuedNote.ageYears} />
           </> : null}
           {sendShown && sendNote ? (
             <Alert intent={sendDone ? 'success' : 'warning'}

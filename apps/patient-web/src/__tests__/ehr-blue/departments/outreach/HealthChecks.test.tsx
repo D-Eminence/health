@@ -5,6 +5,7 @@ import { renderDept } from '../harness'
 import { CHECK_WEIGHT_HEIGHT, HealthChecks, leaveHealthChecks, SEE_CLINICIAN, SCREENING_CLASH, SCREENING_MERGED, SCREENING_NO_SIGNAL, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { REGISTRATION_NOTICE_VERSION, registrationNotice, registrationNotice20261101 } from '../../../../outreachTerms'
 
@@ -45,6 +46,8 @@ const saved = (version: number, values: Record<string, unknown>) => ({ ...NULLS,
   recordedAt: '2026-11-14T09:30:00.000Z', recordedByMembershipId: 'membership-demo-1', updatedAt: '2026-11-14T09:30:00.000Z' })
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
   // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
   api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
