@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { ChevronRight, CircleCheck, Megaphone, Plus, Search, UserPlus, Users } from 'lucide-react'
@@ -20,15 +20,37 @@ import { CaseCard, ShowMore, useOutreachCases, type CasesRead } from './Outreach
 import { GetHealthIdNow } from './GetHealthIdNow'
 import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
-import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
-import { useOutreachQueue } from './offlineQueue'
+import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
+import { noConnection, useOutreachQueue, type QueueSyncResult } from './offlineQueue'
 import {
   campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
-  NO_FACILITY, servicesText, type MembersRead,
+  NO_FACILITY, servicesText, type CampaignsUnread, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
 const PAGE_SIZE = 50
+
+/** How often the campaigns open now are judged again while the page is open. */
+const CAMPAIGN_CLOCK_MS = 60_000
+
+/**
+ * Renders the page again every minute, and as it is shown again, while `enabled`: whether a campaign is open now is
+ * judged against the clock, so one that starts (or ends) while the page is open is offered (or withdrawn) in time.
+ */
+function useMinuteClock(enabled: boolean) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    const tick = () => setTick(previous => previous + 1)
+    const shown = () => { if (document.visibilityState === 'visible') tick() }
+    const timer = window.setInterval(tick, CAMPAIGN_CLOCK_MS)
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', shown)
+    }
+  }, [enabled])
+}
 
 /**
  * Where the page is: its lists, the create form, or one record. In memory only: nothing about
@@ -117,11 +139,12 @@ export function Outreach() {
       return { facilityId: facilityId ?? '', ids }
     })
   }, [facilityId])
-  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a case.
-  const caseCampaigns = useMemo(() => (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
-    && campaign.services.includes('registration') && campaignOpenNow(campaign)
-    && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
-  [campaigns.value, eligibleCampaigns, facilityId])
+  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a
+  // case: judged at each render, and at least every minute.
+  useMinuteClock(canReadCampaigns)
+  const runningCampaigns = (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
+    && campaign.services.includes('registration') && campaignOpenNow(campaign))
+  const caseCampaigns = runningCampaigns.filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
 
   // The view belongs to the facility it was opened at; another facility opens on its lists.
   const [place, setPlace] = useState<{ facilityId: string | undefined; view: View }>({ facilityId, view: { kind: 'list' } })
@@ -153,24 +176,39 @@ export function Outreach() {
   const [createdNote, setCreatedNote] = useState<{ facilityId: string; text: string } | null>(null)
   const clearCreatedNote = useCallback(() => setCreatedNote(null), [])
   const refreshCases = cases.refresh
-  const onCreated = useCallback((created: OutreachCase) => {
-    if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
-    void refreshCases()
-    // Open the case made, as the design opens a saved record. The form keeps the user on it until the answer comes.
-    if (viewRef.current.kind === 'new' && created?.id) show({ kind: 'case', id: created.id, snapshot: created, created: true })
-  }, [facilityId, refreshCases, show])
 
   // At an outreach group, a registration that could not be sent waits on this device and is sent again (offlineQueue.ts).
   const queue = useOutreachQueue(group ? actorId : undefined, facilityId ?? '', useCallback((created: OutreachCase) => {
     if (facilityId) setCreatedNote({ facilityId, text: `${createdText(created)} It was sent from this device.` })
     void refreshCases()
   }, [facilityId, refreshCases]))
-  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; text: string } | null>(null)
+  const syncQueue = queue.sync
+
+  const onCreated = useCallback((created: OutreachCase) => {
+    if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
+    void refreshCases()
+    // Health ID just took a registration: what waits on this device is sent too, without waiting for an online event.
+    void syncQueue()
+    // Open the case made, as the design opens a saved record. The form keeps the user on it until the answer comes.
+    if (viewRef.current.kind === 'new' && created?.id) show({ kind: 'case', id: created.id, snapshot: created, created: true })
+  }, [facilityId, refreshCases, show, syncQueue])
+
+  // The registration just kept on this device, and why: said until it is sent (or refused, which the queue then shows).
+  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string } | null>(null)
+  const queuedShown = queuedNote !== null && queuedNote.facilityId === facilityId
+    && queue.entries.some(entry => entry.localCommandId === queuedNote.localCommandId && entry.state === 'waiting')
+  // What "Send now" did, until the next registration is sent. Anything but "all sent" goes once nothing is left on this device.
+  const [sendNote, setSendNote] = useState<{ facilityId: string; result: QueueSyncResult } | null>(null)
+  const sendDone = sendNote ? sendNote.result.waiting === 0 && sendNote.result.refused === 0 : false
+  const sendShown = sendNote?.facilityId === facilityId && (sendDone || queue.entries.length > 0)
+  const sendNow = () => {
+    void syncQueue().then(result => { if (result && facilityId) setSendNote({ facilityId, result }) })
+  }
   const groupForm: OutreachGroupForm | undefined = group && facility ? {
     name: facility.name,
     queue: entry => queue.add(entry),
-    onQueued: fullName => {
-      if (facilityId) setQueuedNote({ facilityId, text: `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.` })
+    onQueued: ({ fullName, localCommandId, reason }) => {
+      if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason) })
       show({ kind: 'list' })
     },
   } : undefined
@@ -193,11 +231,21 @@ export function Outreach() {
     return read?.facilityId === facilityId ? read : undefined
   }
   const campaignOf = (campaignId: string | undefined) => campaignId ? campaigns.value?.find(campaign => campaign.id === campaignId) : undefined
+  // Why the form lists no campaign, when it may not be that the person is in none: the campaigns, or a running campaign's
+  // members, are still being read, or couldn't be (opened with no signal, say).
+  const unread = (read: { readonly error: string; readonly caught?: unknown }): CampaignsUnread => read.error ? (noConnection(read.caught) ? 'offline' : 'failed') : 'loading'
+  const memberReads = runningCampaigns.map(campaign => membersOf(campaign.id))
+  const failedMembers = memberReads.find(read => read?.items === null && read.error)
+  const campaignsUnread: CampaignsUnread | undefined = !canReadCampaigns ? undefined
+    : campaigns.value === null ? unread(campaigns)
+      : failedMembers ? unread(failedMembers)
+        : memberReads.some(read => !read || read.items === null) ? 'loading' : undefined
 
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
-    content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} attempt={caseAttempt}
-      group={groupForm} healthChecksServed={Boolean(cases.value?.some(item => 'hasScreening' in item))} onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null) }} onCreated={onCreated} />
+    content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} campaignsUnread={campaignsUnread}
+      attempt={caseAttempt} group={groupForm} healthChecksServed={Boolean(cases.value?.some(item => 'hasScreening' in item))}
+      onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null); setSendNote(null) }} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
     // A record the list no longer holds is not shown from memory, unless the list cannot say (not read, being read,
@@ -241,12 +289,18 @@ export function Outreach() {
         group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
-          {queuedNote?.facilityId === facilityId ? <>
+          {queuedShown ? <>
             <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
             {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
             <GetHealthIdNow id="outreach-queued-health-id" />
           </> : null}
-          <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={() => void queue.sync()}
+          {sendShown && sendNote ? (
+            <Alert intent={sendDone ? 'success' : 'warning'}
+              title={sendNote.result.sent > 0 ? (sendDone ? 'Sent' : 'Not all sent') : (sendDone ? 'Nothing to send' : 'Not sent yet')}>
+              {queueSyncText(sendNote.result)}
+            </Alert>
+          ) : null}
+          <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={sendNow}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}
         bottom={organiser ? <OutreachTeam facilityId={facilityId} /> : undefined}

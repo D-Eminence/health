@@ -34,10 +34,10 @@ export function CampaignMembersRead({ facilityId, membershipId, campaign, onMemb
   useEffect(() => {
     if (members.value) onMembershipChange(campaign.id, members.value.some(member => member.membershipId === membershipId))
   }, [campaign.id, membershipId, members.value, onMembershipChange])
-  const { value, loading, error, refresh } = members
+  const { value, loading, error, caught, refresh } = members
   useEffect(() => {
-    onRead(campaign.id, { facilityId, items: value, loading, error, refresh })
-  }, [campaign.id, facilityId, value, loading, error, refresh, onRead])
+    onRead(campaign.id, { facilityId, items: value, loading, error, caught, refresh })
+  }, [campaign.id, facilityId, value, loading, error, caught, refresh, onRead])
   useEffect(() => () => onRead(campaign.id, null), [campaign.id, onRead])
   return null
 }

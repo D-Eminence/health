@@ -18,9 +18,38 @@ export const NO_ACTIONS = 'Nothing else to do here.'
 export const RETRY_NOTE = 'Correct the issue or retry using the same button. No success is reported until saved.'
 /** The design's word for a required field left empty. */
 export const COMPLETE_FIELD = 'Complete this field.'
-/** At least this many characters, as Outreach takes a phone number or notes (CreateRegistrationCaseDto). */
+/** At least this many characters, as Outreach takes notes for the team (CreateRegistrationCaseDto). */
 export const AT_LEAST_THREE = 'Enter at least 3 characters, or leave this blank.'
 export const AGE_RANGE = 'Enter an age in whole years, from 0 to 130.'
+/** The phone field's hint, and its refusal in the same words: what Outreach takes (normalizeOutreachPhone below). */
+export const PHONE_HINT = 'A mobile number: 11 digits starting with 0, or starting with +234.'
+export const PHONE_FORMAT = 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'
+
+/** A phone number as Outreach keeps it (create-registration-case.dto.ts E164_PHONE): + and 7 to 15 digits. */
+const E164_PHONE = /^\+[1-9]\d{6,14}$/
+
+/**
+ * A phone number as Outreach reads it before checking it (hid-system services/outreach-api create-registration-case.dto.ts
+ * normalizeOutreachPhone, ported exactly): a Nigerian local number (0 and 10 digits) is read as +234, a trunk 0 typed
+ * after +234 is dropped, and spaces, dots, dashes and brackets are ignored. Anything else is left as typed, so the E.164
+ * check refuses it. Nothing typed but those is no phone number at all.
+ */
+export function normalizeOutreachPhone(raw: string): string | undefined {
+  const compact = raw.trim().replace(/[\s().-]/g, '')
+  if (compact === '') return undefined
+  if (/^0\d{10}$/.test(compact)) return `+234${compact.slice(1)}`
+  if (/^234\d{10}$/.test(compact)) return `+${compact}`
+  const trunk = /^\+2340(\d{10})$/.exec(compact)
+  if (trunk) return `+234${trunk[1]}`
+  return E164_PHONE.test(compact) ? compact : raw.trim()
+}
+
+/** Whether Outreach takes a phone number as typed (CreateRegistrationCaseDto): none, or one that reads as E.164. */
+export function outreachPhoneAccepted(raw: string): boolean {
+  const phone = normalizeOutreachPhone(raw)
+  return phone === undefined || E164_PHONE.test(phone)
+}
+
 /** Outreach takes a resolution reason of 8 characters or more. */
 export const REASON_LENGTH = 'Enter at least 8 characters.'
 
@@ -31,6 +60,11 @@ export const LINK_RETRY_NOTE = 'The case has been read again, so a retry uses it
 
 export const CASES_NOT_LOADED = 'Registration cases could not be loaded. Refresh to try again.'
 export const CAMPAIGNS_NOT_LOADED = 'Campaigns could not be loaded. Refresh to try again.'
+/**
+ * Why the form can list no campaign when it is not that the person is in none: the campaigns, or a running campaign's
+ * members, are still being read, or couldn't be read (with no signal, or otherwise). Never said as "not in a campaign".
+ */
+export type CampaignsUnread = 'loading' | 'offline' | 'failed'
 export const MEMBERS_NOT_LOADED = 'Campaign members could not be loaded. Try again.'
 export const CREATE_FAILED = 'The registration case could not be saved. Please retry.'
 export const LINK_FAILED = 'The patient could not be linked. Check your access to this patient, then refresh the case.'
@@ -254,6 +288,8 @@ export interface MembersRead {
   readonly items: OutreachCampaignMember[] | null
   readonly loading: boolean
   readonly error: string
+  /** The refusal itself, when the read failed. */
+  readonly caught?: unknown
   readonly refresh: () => Promise<void>
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, isStoppedRequest } from '@hid/http'
 import { staffApi, type OutreachCase, type OutreachCaseInput } from '../../../staff/api'
 import { outreachProblemText } from '../../../outreachProblems'
 
@@ -8,6 +8,11 @@ import { outreachProblemText } from '../../../outreachProblems'
  * not be sent (no network, a timeout, or Health ID briefly unavailable) is kept on this device, with its command, and
  * sent again when the network comes back, or when the person asks. It survives a reload. Outreach is idempotent on the
  * command's localCommandId (also its Idempotency-Key), so sending the same entry twice makes one registration.
+ *
+ * What waits is sent again, oldest first: when the page opens, when the browser says it is back online, when the page is
+ * shown again, after a registration Health ID took, and every 30 seconds while anything waits (a phone on weak signal
+ * rarely says it went offline). No connection, a timeout, a send stopped as the session ended, or a sign-in needed stops
+ * the round; Health ID unavailable for one registration (a server fault, too many requests) moves on to the next.
  *
  * Kept in IndexedDB, keyed by localCommandId, and only for the account and facility that saved it: another person signed
  * in on the same browser sees none of it. Nothing waits longer than 14 days: the staff app sweeps expired entries when it
@@ -42,6 +47,9 @@ export interface OutreachQueueStore {
 
 /** How long a registration may wait on a device before it is deleted unsent (docs/ARCHITECTURE.md). */
 export const QUEUE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
+/** How often what waits is sent again while the page is open and shown. */
+export const QUEUE_RETRY_MS = 30_000
 
 const DATABASE = 'hid-outreach-offline'
 const STORE = 'pending-registrations'
@@ -146,14 +154,42 @@ export async function removeOutreachQueueEntriesFor(accountId: string): Promise<
   }
 }
 
+/** How many registrations the account saved that still wait to be sent, on any facility. Never throws: 0 when none can be read. */
+export async function waitingOutreachEntriesFor(accountId: string): Promise<number> {
+  try {
+    const store = await sweepStore()
+    if (!store) return 0
+    return (await store.list()).filter(entry => entry.accountId === accountId && entry.state === 'waiting').length
+  } catch {
+    return 0
+  }
+}
+
+/** Whether a failure means the registration never reached Health ID, or its answer never came: no network, or a timeout. */
+export function noConnection(error: unknown): boolean {
+  if (!isHidApiError(error)) return error instanceof TypeError
+  return error.code !== 'REQUEST_CANCELLED' && (error.code === 'NETWORK_ERROR' || error.code === 'REQUEST_TIMEOUT' || error.status === 0)
+}
+
+/** Whether Health ID answered that it can't take anything just now: a server fault, too many requests, or a 408 from the server. */
+export function healthIdUnavailable(error: unknown): boolean {
+  if (!isHidApiError(error) || noConnection(error)) return false
+  return error.status === 408 || error.status === 429 || error.status >= 500
+}
+
 /**
  * Whether a failure means the registration never reached Health ID, or Health ID could not take it just now, so it
  * waits in the queue: no network, a timeout, too many requests, or a server fault. Anything else is Health ID's answer.
  */
 export function waitsForNetwork(error: unknown): boolean {
-  if (!isHidApiError(error)) return error instanceof TypeError
-  if (error.code === 'NETWORK_ERROR' || error.code === 'REQUEST_TIMEOUT' || error.status === 0) return error.code !== 'REQUEST_CANCELLED'
-  return error.status === 408 || error.status === 429 || error.status >= 500
+  return noConnection(error) || healthIdUnavailable(error)
+}
+
+/** Why a registration still waits: no connection (or one too weak to answer in time), or Health ID unavailable just now. */
+export type WaitReason = 'connection' | 'unavailable'
+
+export function waitReason(error: unknown): WaitReason {
+  return healthIdUnavailable(error) ? 'unavailable' : 'connection'
 }
 
 /** The session answers that say nothing about the registration itself: refused before it was looked at. */
@@ -168,7 +204,21 @@ export function waitsForSignIn(error: unknown): boolean {
   return error.status === 401 || error.status === 403 && SESSION_REFUSALS.has(error.code)
 }
 
+/** Whether the browser may have a connection: it says so only when it knows it is offline. */
+function mayBeOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false
+}
+
 const REFUSED_FALLBACK = 'Health ID did not accept this registration. Check the details, then register the person again.'
+
+/** What one round of sending did, for "Send now" to say: how many Health ID took, how many still wait and why, how many it refused. */
+export interface QueueSyncResult {
+  readonly sent: number
+  readonly waiting: number
+  readonly refused: number
+  /** Why the last registration still waiting was not sent: 'session' when the person must sign in again, or the session ended meanwhile. */
+  readonly reason?: WaitReason | 'session'
+}
 
 /**
  * The queue for one account at one facility: what waits, sending it again, and adding to it. `onSynced` hears each
@@ -194,23 +244,42 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     setEntries(all.filter(entry => mine(entry) && !expired.includes(entry)).sort((a, b) => a.savedAt.localeCompare(b.savedAt)))
   }, [mine])
 
-  const sync = useCallback(async () => {
-    if (busy.current || !accountId) return
+  /** Sends what waits, oldest first, one at a time; null when a round is already running in this tab (or nothing is queued here). */
+  const sync = useCallback(async (): Promise<QueueSyncResult | null> => {
+    if (busy.current || !accountId) return null
     busy.current = true
     setSyncing(true)
+    let sent = 0
+    let waiting = 0
+    let refused = 0
+    let reason: QueueSyncResult['reason']
     try {
       const store = await outreachQueueStore()
-      const waiting = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
-      for (const entry of waiting) {
+      const queued = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
+        .sort((a, b) => a.savedAt.localeCompare(b.savedAt))
+      for (const [index, entry] of queued.entries()) {
         try {
           const created = await staffApi.createOutreachCase(entry.facilityId, entry.input,
             { localCommandId: entry.localCommandId, temporaryPatientId: entry.temporaryPatientId })
           await store.remove(entry.localCommandId)
+          sent += 1
           synced.current(created)
         } catch (caught) {
-          // Still offline, or signed out: stop, and try the rest when the network is back or after signing in again.
-          if (waitsForNetwork(caught) || waitsForSignIn(caught)) break
+          // Still offline, signed out, or stopped as the session ended (never judged by Health ID): stop, and try the
+          // rest when the network is back or after signing in again. Each stays waiting.
+          if (noConnection(caught) || waitsForSignIn(caught) || isStoppedRequest(caught)) {
+            waiting += queued.length - index
+            reason = noConnection(caught) ? 'connection' : 'session'
+            break
+          }
+          // Health ID couldn't take this one just now: it waits, and the next is tried.
+          if (healthIdUnavailable(caught)) {
+            waiting += 1
+            reason = 'unavailable'
+            continue
+          }
           await store.put({ ...entry, state: 'refused', refusal: outreachProblemText(caught, REFUSED_FALLBACK) })
+          refused += 1
         }
       }
     } finally {
@@ -218,6 +287,7 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
       setSyncing(false)
       await reload()
     }
+    return { sent, waiting, refused, reason }
   }, [accountId, mine, reload])
 
   const add = useCallback(async (entry: Omit<PendingRegistration, 'accountId' | 'facilityId' | 'savedAt' | 'state'>) => {
@@ -236,11 +306,27 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
   useEffect(() => {
     // Only where the queue is used (an outreach group): elsewhere nothing is opened.
     if (!accountId) return
-    void reload().then(() => { if (typeof navigator === 'undefined' || navigator.onLine !== false) void sync() })
+    void reload().then(() => { if (mayBeOnline()) void sync() })
     const online = () => { void sync() }
+    // Back on the page: a phone on weak signal rarely says it went offline, so what waits is tried as the person returns.
+    const shown = () => { if (document.visibilityState === 'visible' && mayBeOnline()) void sync() }
     window.addEventListener('online', online)
-    return () => window.removeEventListener('online', online)
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.removeEventListener('online', online)
+      document.removeEventListener('visibilitychange', shown)
+    }
   }, [accountId, reload, sync])
+
+  // While anything waits here, it is tried again every 30 seconds the page is shown, unless the browser knows it is offline.
+  const anyWaiting = entries.some(entry => entry.state === 'waiting')
+  useEffect(() => {
+    if (!accountId || !anyWaiting) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden' && mayBeOnline()) void sync()
+    }, QUEUE_RETRY_MS)
+    return () => window.clearInterval(timer)
+  }, [accountId, anyWaiting, sync])
 
   return { entries, durable, syncing, sync, add, discard }
 }

@@ -7,12 +7,12 @@ import { Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
 import { outreachProblemText } from '../../../outreachProblems'
-import { waitsForNetwork, type PendingRegistration } from './offlineQueue'
+import { waitReason, waitsForNetwork, type PendingRegistration, type WaitReason } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
 import {
-  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, RETRY_NOTE,
-  type FieldErrors,
+  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, outreachPhoneAccepted,
+  PHONE_FORMAT, PHONE_HINT, RETRY_NOTE, type CampaignsUnread, type FieldErrors,
 } from './outreachParts'
 
 /**
@@ -70,8 +70,15 @@ const FIELD_ID: Record<CaseField, string> = {
 export interface OutreachGroupForm {
   readonly name: string
   readonly queue: (entry: Pick<PendingRegistration, 'localCommandId' | 'temporaryPatientId' | 'input'>) => Promise<void>
-  /** A registration was kept on this device: the form is cleared for the next person. */
-  readonly onQueued: (fullName: string) => void
+  /** A registration was kept on this device, and why it could not be sent: the form is cleared for the next person. */
+  readonly onQueued: (queued: { readonly fullName: string; readonly localCommandId: string; readonly reason: WaitReason }) => void
+}
+
+/** Why no campaign is listed, at an outreach group, when it isn't that the person is in none. */
+const GROUP_CAMPAIGNS_UNREAD: Readonly<Record<CampaignsUnread, string>> = {
+  loading: 'Your campaigns are still loading.',
+  offline: 'Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, and keep it open to register people offline.',
+  failed: 'Your campaigns couldn’t be loaded. Go back to the list and press Refresh.',
 }
 
 /**
@@ -80,12 +87,14 @@ export interface OutreachGroupForm {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, group, healthChecksServed = false, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, onBack, onSending, onCreated }: {
   readonly facilityId: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
   /** The campaigns a case may be registered under: active registration campaigns this membership belongs to. */
   readonly campaigns: readonly OutreachCampaign[]
+  /** Set when the campaigns, or their members, are still being read or couldn't be: none listed then says why, never "not in one". */
+  readonly campaignsUnread?: CampaignsUnread
   readonly attempt: MutableRefObject<CaseAttempt>
   /**
    * At an outreach group: the person's agreement comes first (the notice, its language, how they agreed, and a guardian
@@ -152,13 +161,14 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     // The last answer no longer applies.
     setError('')
     setRefusedBy(null)
-    // The form checks its own fields as Outreach does (CreateRegistrationCaseDto). A phone number and operational
-    // notes are taken at 3 characters or more, or none, as sent: trimmed, which a native minLength does not check.
+    // The form checks its own fields as Outreach does (CreateRegistrationCaseDto): a phone number as Outreach reads it
+    // (normalizeOutreachPhone), and operational notes at 3 characters or more, or none, as sent: trimmed, which a native
+    // minLength does not check. A number Outreach would refuse is caught here, before it is sent or kept on this device.
     const errors: Partial<Record<CaseField, string>> = {}
     if (!fullName) errors.name = COMPLETE_FIELD
     if (!age) errors.age = COMPLETE_FIELD
     else if (!Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) errors.age = AGE_RANGE
-    if (phone !== undefined && phone.length < 3) errors.phone = AT_LEAST_THREE
+    if (phone !== undefined && !outreachPhoneAccepted(phone)) errors.phone = PHONE_FORMAT
     if (area !== undefined && area.length > AREA_LIMIT) errors.area = `Keep the area to ${AREA_LIMIT} characters.`
     if (operationalNotes !== undefined && operationalNotes.length < 3) errors.notes = AT_LEAST_THREE
     if (group) {
@@ -173,7 +183,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       else if (guardianName && guardianName.length < 2) errors.guardian = 'Enter at least 2 characters.'
       else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
-        : 'You can register people only in a running registration campaign you belong to.'
+        : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You can register people only in a running registration campaign you belong to.'
       if (operationalNotes !== undefined && operationalNotes.length > groupNotesLimit) {
         errors.notes = `Keep notes to ${groupNotesLimit} characters. Record health check results in Health checks, not in the notes.`
       }
@@ -210,7 +220,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
           attempt.current = null
           element.reset()
           resetConsent()
-          group.onQueued(fullName)
+          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: waitReason(caught) })
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
       }
@@ -272,7 +282,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
           </div>
         </Step>
         <Step n={group ? 3 : 2} title="How to reach them" hint="Optional. Used to follow up.">
-          <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
+          <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint={PHONE_HINT} {...field('phone')}>
             <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
           </OutreachField>
           {healthChecksServed ? (
@@ -284,7 +294,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
         <Step n={group ? 4 : 3} title="Campaign and notes">
           {group ? (
             <OutreachField id={FIELD_ID.campaign} label="Campaign" required {...field('campaign')}
-              hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.' : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
+              hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.'
+                : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
               <EhrSelect name="campaignId" required {...controlProps(FIELD_ID.campaign, fieldError('campaign'), true)}>
                 {campaigns.length !== 1 ? <option value="">Choose a campaign</option> : null}
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
@@ -292,7 +303,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
             </OutreachField>
           ) : showCampaign && (
             <OutreachField id={CAMPAIGN_FIELD} label="Campaign (optional)"
-              hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.' : 'You aren’t in an active registration campaign. You can save without one.'}>
+              hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.'
+                : campaignsUnread === 'loading' ? 'Campaigns are still loading. You can save without one.'
+                  : campaignsUnread ? 'Campaigns couldn’t be loaded. You can save without one.' : 'You aren’t in an active registration campaign. You can save without one.'}>
               <EhrSelect name="campaignId" {...controlProps(CAMPAIGN_FIELD, undefined, true)}>
                 <option value="">No campaign</option>
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
