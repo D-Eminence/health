@@ -313,3 +313,62 @@ describe('Send code after a code has ended', () => {
     expect(keyOf(1)).toBe(keyOf(0))
   })
 })
+
+/*
+ * Each refusal in its own words, fitting every variant Outreach answers it in (hid-system INTERFACE_CONTRACT §49, §50),
+ * never "Please retry" where a retry can't help, and never the API's own detail. Fictional data only.
+ */
+describe('Create Health ID refusals', () => {
+  async function confirmCode() {
+    await sendEmail()
+    fireEvent.change(within(region()).getByRole('textbox', { name: /6-digit code/ }), { target: { value: '123456' } })
+    await press(within(region()).getByRole('button', { name: 'Confirm' }))
+  }
+  async function createWithNoEmail() {
+    await want()
+    await press(within(region()).getAllByRole('radio')[1]!)
+    await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
+  }
+  const DETAIL = 'Internal: identity_outreach_health_id_start refused'
+
+  it.each([
+    ['start', 'OUTREACH_HEALTH_ID_PHONE_TAKEN', 409,
+      'This phone number is already on a Health ID. If it’s their own, ask them to sign in. If the phone is shared, they can’t get one here today. Give them their slip.'],
+    ['start', 'OUTREACH_HEALTH_ID_TOO_MANY_CODES', 429,
+      'Too many codes today. Try another email or choose “No email”. If neither works, give them their slip.'],
+    ['start', 'OUTREACH_ORGANISER_SUSPENDED', 423, 'Health ID has paused this group. Give them their slip.'],
+    ['confirm', 'OUTREACH_HEALTH_ID_EMAIL_TAKEN', 409,
+      'This email is already used by a Health ID or another account. If it’s their own Health ID, they already have one. If not, use another email or choose “No email”.'],
+    ['confirm', 'OUTREACH_HEALTH_ID_TOO_MANY_TRIES', 429,
+      'Too many wrong codes. Press Send a new code. If this shows again, use another email or choose “No email”.'],
+    ['confirm', 'OUTREACH_ORGANISER_SUSPENDED', 423, 'Health ID has paused this group. Give them their slip.'],
+    ['unverified', 'OUTREACH_HEALTH_ID_NAME_INVALID', 422,
+      'The name on this registration can’t be used for a Health ID. Check it with them, then register them again with their name written correctly.'],
+    ['unverified', 'OUTREACH_ORGANISER_SUSPENDED', 423, 'Health ID has paused this group. Give them their slip.'],
+    ['unverified', 'OUTREACH_HEALTH_ID_PHONE_TAKEN', 409,
+      'This phone number is already on a Health ID. If it’s their own, ask them to sign in. If the phone is shared, they can’t get one here today. Give them their slip.'],
+  ])('at %s, says %s in its own words, never the API’s detail', async (call, code, status, words) => {
+    const refusal = new HidApiError(status, DETAIL, { code, detail: DETAIL })
+    if (call === 'start') api.startOutreachHealthId.mockRejectedValue(refusal)
+    if (call === 'confirm') api.confirmOutreachHealthId.mockRejectedValue(refusal)
+    if (call === 'unverified') api.createUnverifiedOutreachHealthId.mockRejectedValue(refusal)
+    renderSection()
+    if (call === 'start') await sendEmail()
+    if (call === 'confirm') await confirmCode()
+    if (call === 'unverified') await createWithNoEmail()
+    expect(await within(region()).findByText(words)).toBeTruthy()
+    expect(region().textContent).not.toContain(DETAIL)
+    expect(region().textContent).not.toContain('Please retry')
+  })
+
+  it('after “Use a different email”, holds Send code for the same wait as Send a new code', async () => {
+    renderSection()
+    await sendEmail()
+    await press(within(region()).getByRole('button', { name: 'Use a different email' }))
+    fireEvent.change(within(region()).getByRole('textbox', { name: /Their email address/ }), { target: { value: 'kemi.b@example.test' } })
+    const send = within(region()).getByRole('button', { name: /^Send code in \d+ s$/ })
+    expect(send.getAttribute('aria-disabled')).toBe('true')
+    await press(send)
+    expect(api.startOutreachHealthId).toHaveBeenCalledTimes(1)
+  })
+})

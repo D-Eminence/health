@@ -30,21 +30,30 @@ type Method = 'email' | 'unverified' | 'sms'
 /** The 404 codes that mean Outreach does not serve the route (not that the registration is missing). */
 const ROUTE_NOT_SERVED: ReadonlySet<string> = new Set(['NOT_FOUND', 'API_ROUTE_NOT_FOUND'])
 
-/** Outreach's refusals, each in words that say what to do next (never whose Health ID a phone or email already has). */
+/**
+ * Outreach's refusals, each in words that say what to do next and fit every variant it is answered in (never whose
+ * Health ID a phone or email already has, never "Please retry" where a retry can't help, never the API's own detail).
+ */
 export const HEALTH_ID_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_REGISTRATION_NOT_FOUND: 'This registration can’t be found. It may have been deleted. Go back to the list.',
   OUTREACH_REGISTRATION_REDACTED: 'This person’s details were deleted, so a Health ID can’t be made from them.',
   OUTREACH_HEALTH_ID_NO_PHONE: 'Add the person’s phone number to create a Health ID.',
   OUTREACH_HEALTH_ID_UNDER_18: 'Health IDs for under-18s can’t be created at outreach yet. A parent or guardian can do it later in the app.',
   OUTREACH_HEALTH_ID_NOT_AVAILABLE: 'Health IDs can’t be created for this group.',
-  OUTREACH_HEALTH_ID_PHONE_TAKEN: 'This phone number already has a Health ID. Ask them to sign in with it.',
-  OUTREACH_HEALTH_ID_EMAIL_TAKEN: 'This email already has a Health ID. Ask them to sign in with it.',
+  // Any Health ID with that phone, the person's own or a shared family phone's.
+  OUTREACH_HEALTH_ID_PHONE_TAKEN: 'This phone number is already on a Health ID. If it’s their own, ask them to sign in. If the phone is shared, they can’t get one here today. Give them their slip.',
+  // Any sign-in with that email: theirs, a relative's Health ID or a staff login.
+  OUTREACH_HEALTH_ID_EMAIL_TAKEN: 'This email is already used by a Health ID or another account. If it’s their own Health ID, they already have one. If not, use another email or choose “No email”.',
   OUTREACH_HEALTH_ID_EMAIL_INVALID: 'Check the email address.',
-  OUTREACH_HEALTH_ID_TOO_MANY_CODES: 'Too many codes for this person today. Try again tomorrow.',
+  // With no wait to say: the daily limits, per person, per email (shared by a family) or per volunteer.
+  OUTREACH_HEALTH_ID_TOO_MANY_CODES: 'Too many codes today. Try another email or choose “No email”. If neither works, give them their slip.',
   OUTREACH_HEALTH_ID_UNAVAILABLE: 'Health IDs can’t be created right now. Give them the slip; they can get one later.',
   OUTREACH_HEALTH_ID_CODE_INVALID: 'That code isn’t right. Check the email and try again.',
   OUTREACH_HEALTH_ID_CODE_EXPIRED: 'That code has expired. Send a new one.',
-  OUTREACH_HEALTH_ID_TOO_MANY_TRIES: 'Too many wrong codes. Send a new one.',
+  // The code's 5 wrong tries (a new code helps), or the day's tries for this email (another email helps).
+  OUTREACH_HEALTH_ID_TOO_MANY_TRIES: 'Too many wrong codes. Press Send a new code. If this shows again, use another email or choose “No email”.',
+  OUTREACH_HEALTH_ID_NAME_INVALID: 'The name on this registration can’t be used for a Health ID. Check it with them, then register them again with their name written correctly.',
+  OUTREACH_ORGANISER_SUSPENDED: 'Health ID has paused this group. Give them their slip.',
 }
 const SMS_UNAVAILABLE = 'Text messages aren’t working right now. Use their email, or give them the slip.'
 /** 409 OUTREACH_HEALTH_ID_REQUEST_USED: the code of that request has ended (its email failed, or it expired), so its key is refused for good. */
@@ -197,9 +206,10 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     }
     if (problem === 'OUTREACH_HEALTH_ID_TOO_MANY_CODES') {
       const after = retryAfterSeconds(caught)
-      if (after) setWait(after)
-      // A short wait is a cooldown between codes, not the daily limit.
+      // A short wait is a cooldown between codes, not the daily limit (which another email may get past, so the
+      // buttons are not held for it).
       if (after && after < 3600) {
+        setWait(after)
         setError(after <= 90 ? `Wait ${after} seconds, then send the code again.` : `Wait ${Math.ceil(after / 60)} minutes, then send the code again.`)
         return
       }
@@ -352,8 +362,9 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
               <EhrInput type="email" autoComplete="off" name="person-email-at-outreach" inputMode="email" maxLength={254} value={email} onChange={event => { setEmail(event.target.value); setEmailError('') }}
                 {...controlProps(id('email'), emailError || undefined, true)} />
             </OutreachField>
-            <Button variant="primary" size="lg" className="self-start hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}
-              onClick={() => void start()}>{busy ? 'Sending…' : 'Send code'}</Button>
+            {/* Held by the same wait as "Send a new code": after "Use a different email" the wait between codes still holds. */}
+            <Button variant="primary" size="lg" className="self-start hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || wait > 0 || undefined}
+              onClick={() => { if (wait <= 0) void start() }}>{busy ? 'Sending…' : wait > 0 ? `Send code in ${wait} s` : 'Send code'}</Button>
           </> : null}
           {method === 'unverified' ? (
             <Button variant="primary" size="lg" className="self-start hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}
