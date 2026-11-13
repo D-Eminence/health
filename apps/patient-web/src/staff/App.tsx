@@ -31,9 +31,9 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
-import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { blueForAll, demoFacilitySiteFrom, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import { purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
-import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
+import { offeredHere, otherStaffSites, siteElsewhere, siteHref, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -701,11 +701,11 @@ function Shell() {
   const { actor } = state.session
   const currentFacility = actor.facility
   // Each product on its own site (productSites.ts): the sidebar lists what this site's product opens, and links to the
-  // other products' sites for their own pages the facility may open. A demo facility works on its own site.
+  // other products' sites for their own pages the facility may open. A demo facility works on its own sites.
   const permitted = visibleNavigation(currentFacility)
   const visible = permitted.filter(item => offeredHere(item.to))
   const otherSites = otherStaffSites(permitted.map(item => item.to))
-  const demoSite = demoFacilitySite(currentFacility?.id)
+  const demoSite = demoFacilitySiteFrom(currentFacility?.id, siteOf(window.location.hostname)?.key)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null
   const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
   const chosenId = choice?.from === choosingFrom ? choice.to : currentFacility?.id ?? ''

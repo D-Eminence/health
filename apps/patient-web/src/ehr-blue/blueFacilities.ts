@@ -22,17 +22,41 @@ export const BLUE_FACILITIES = [
 
 const BLUE_IDS: ReadonlySet<string> = new Set(BLUE_FACILITIES.map(facility => facility.id))
 
-/** The staff site each demo facility works on (owner, 2026-10-31: each product on its own site, productSites.ts). */
-const DEMO_FACILITY_SITES: ReadonlyMap<string, StaffProductKey> = new Map([
-  ['98d00002-0000-4000-8000-000000000001', 'ehr'],
-  ['98d00002-0000-4000-8000-000000000002', 'lab'],
-  ['98d00002-0000-4000-8000-000000000003', 'pharmacy'],
-  ['98d00002-0000-4000-8000-000000000004', 'outreach'],
+/**
+ * The staff sites each demo facility works on, its primary site first (owner, 2026-10-31: each product on its own
+ * site, productSites.ts). Demo Hospital also works on the Migrate site (owner: the demo staff login works on every
+ * product site, Migrate included); every other demo facility works on its one site only.
+ */
+const DEMO_FACILITY_SITES: ReadonlyMap<string, ReadonlySet<StaffProductKey>> = new Map([
+  ['98d00002-0000-4000-8000-000000000001', new Set<StaffProductKey>(['ehr', 'migrate'])],
+  ['98d00002-0000-4000-8000-000000000002', new Set<StaffProductKey>(['lab'])],
+  ['98d00002-0000-4000-8000-000000000003', new Set<StaffProductKey>(['pharmacy'])],
+  ['98d00002-0000-4000-8000-000000000004', new Set<StaffProductKey>(['outreach'])],
 ])
 
-/** The staff site a demo facility works on; null for any other facility, which works on the site it is opened on. */
-export function demoFacilitySite(id: string | null | undefined): StaffProductKey | null {
+function demoSitesOf(id: string | null | undefined): ReadonlySet<StaffProductKey> | null {
   return typeof id === 'string' ? DEMO_FACILITY_SITES.get(id.toLowerCase()) ?? null : null
+}
+
+/**
+ * The primary staff site a demo facility works on (Demo Hospital's is the EHR site); null for any other facility,
+ * which works on the site it is opened on.
+ */
+export function demoFacilitySite(id: string | null | undefined): StaffProductKey | null {
+  const sites = demoSitesOf(id)
+  return sites ? sites.values().next().value ?? null : null
+}
+
+/**
+ * The staff site a demo facility opened on the staff site `here` must be sent to: its primary site when `here` is not
+ * one it works on; null when it works on `here`, when `here` is not a staff site (the caller decides that, through
+ * productSites.ts siteElsewhere), and for any facility that is not one of the demo's.
+ */
+export function demoFacilitySiteFrom(id: string | null | undefined, here: StaffProductKey | 'web' | null | undefined): StaffProductKey | null {
+  const sites = demoSitesOf(id)
+  if (!sites) return null
+  if (here && here !== 'web' && sites.has(here)) return null
+  return demoFacilitySite(id)
 }
 
 /** The page sets whose arrival switches the blue EHR on for every facility. */
