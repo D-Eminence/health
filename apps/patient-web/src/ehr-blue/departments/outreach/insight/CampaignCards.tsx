@@ -41,7 +41,7 @@ export function CampaignCards({ campaigns, summaryOf, registeredIn, onOpen }: {
       {campaigns.map(campaign => {
         const summary = summaryOf(campaign.id)
         const counts = cardCounts(summary, registeredIn(campaign.id))
-        const focuses = summary?.plan?.focuses.map(focusLabel).join(', ')
+        const focuses = summary?.plan?.focuses.map(focus => focusLabel(focus)).join(', ')
         const stats = counts ? [
           counts.sites !== null ? plural(counts.sites, 'site', 'sites') : null,
           counts.registered !== null ? `${counts.registered} registered` : null,
@@ -63,7 +63,7 @@ export function CampaignCards({ campaigns, summaryOf, registeredIn, onOpen }: {
               {stats.length ? (
                 <span className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2 text-[13px] text-ink-2 tabular">
                   <span>{stats.join(' · ')}</span>
-                  {counts && counts.urgent > 0 ? <Badge size="sm" tone="danger">{counts.urgent} urgent</Badge> : <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />}
+                  {counts && counts.urgent > 0 && campaign.status !== 'closed' ? <Badge size="sm" tone="danger">{counts.urgent} urgent</Badge> : <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />}
                 </span>
               ) : null}
             </button>

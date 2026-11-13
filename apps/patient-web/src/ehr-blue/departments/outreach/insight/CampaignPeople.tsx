@@ -1,16 +1,17 @@
 import { useState } from 'react'
-import { Check, Search, Users } from 'lucide-react'
+import { Check, Users } from 'lucide-react'
 import { PageState } from '../../../../kasuwa/parts'
-import { Alert, Badge, Button, FilterTabs, Input, type Tone } from '../../../../kasuwa/ui'
+import { Badge, Button, FilterTabs, type Tone } from '../../../../kasuwa/ui'
 import type { OutreachCase } from '../../../../staff/api'
-import { useFocusById } from '../../../../staff/focus'
 import { dateText, matchesSearch } from '../../parts/format'
+import { useErrorToast } from '../notify'
 import { stationLabel, STATIONS, type OutreachVisit, type StationKind } from '../campaignTypes'
 import { ageText, caseName, sexText } from '../outreachParts'
 import { outcomeText } from '../screeningTemplates'
 
-/** The list shows this many people a page. */
-const PAGE_SIZE = 50
+/** The list shows this many people a page: a screen or two, never a long page. */
+export const PEOPLE_PAGE_SIZE = 25
+const PAGE_SIZE = PEOPLE_PAGE_SIZE
 
 /** `care`: those whose outcome is a follow-up or a referral (the dashboard's Positive opens it). */
 export type PeopleFilter = 'seeing' | 'finished' | 'all' | 'care'
@@ -55,8 +56,8 @@ export function visitMatches(visit: OutreachVisit, query: string): boolean {
 
 /**
  * The campaign's People tab: everyone registered in it, newest first, as cards (name, age and sex, visit code, the
- * stations done, the outcome), with search by name, visit code or phone, a filter by whether they are still being seen,
- * and pages of 50. A card opens the person's visit.
+ * stations done, the outcome), filtered by where they are (Being seen, Finished, Need care, All), in pages of 25. A card
+ * opens the person's visit in its own view. Finding someone by name, phone or visit code is the top bar's Search.
  */
 export function CampaignPeople({ campaignId, cases, stations, onOpen, initialFilter }: {
   /** The filter it opens with (Being seen unless said). Opened for care, it offers that filter too. */
@@ -68,15 +69,13 @@ export function CampaignPeople({ campaignId, cases, stations, onOpen, initialFil
   readonly onOpen: (visit: OutreachVisit) => void
 }) {
   const [filter, setFilter] = useState<PeopleFilter>(initialFilter ?? 'seeing')
-  const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
-  const focus = useFocusById()
-  const searchId = `outreach-people-search-${campaignId}`
+  useErrorToast(cases.error && cases.value ? cases.error : null, 'Couldn’t refresh the list', () => void cases.refresh())
   const all = (cases.value ?? []).filter(item => item.campaignId === campaignId) as OutreachVisit[]
   all.sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
   const seeing = all.filter(visit => !visit.outcome)
   const inFilter = (visit: OutreachVisit) => filter === 'all' || (filter === 'care' ? needsCare(visit) : (filter === 'seeing') === !visit.outcome)
-  const rows = all.filter(visit => inFilter(visit) && visitMatches(visit, search))
+  const rows = all.filter(inFilter)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
   const first = shownPage === 0
@@ -86,28 +85,18 @@ export function CampaignPeople({ campaignId, cases, stations, onOpen, initialFil
   const empty = all.length === 0
     ? { icon: Users, title: 'No one registered yet', description: 'People registered in this campaign show here, with how far each has got.' }
     : rows.length ? null
-      : search ? { icon: Search, title: 'No one matches', description: 'Check the spelling, or search by visit code or phone number.' }
-        : filter === 'care' ? { icon: Check, title: 'No one needs care yet', description: 'People with a follow-up or a referral show here.' }
+      : filter === 'care' ? { icon: Check, title: 'No one needs care yet', description: 'People with a follow-up or a referral show here.' }
         : filter === 'seeing' ? { icon: Check, title: 'No one is being seen', description: 'Everyone registered has an outcome.' }
           : { icon: Users, title: 'No one has finished yet', description: 'People show here once their outcome is confirmed.' }
 
   return (
     <section aria-label="People" className="flex flex-col gap-3">
-      <div className="flex flex-col gap-3 @xl:flex-row @xl:flex-wrap @xl:items-center @xl:justify-between">
-        <FilterTabs label="Show people" value={filter} onChange={value => { setFilter(value); setPage(0) }} options={[
-          { value: 'seeing', label: 'Being seen', count: seeing.length },
-          { value: 'finished', label: 'Finished', count: all.length - seeing.length },
-          { value: 'all', label: 'All', count: all.length },
-          ...(initialFilter === 'care' ? [{ value: 'care' as const, label: 'Need care', count: all.filter(needsCare).length }] : []),
-        ]} />
-        <div className="flex min-w-0 items-center gap-2 @xl:w-96">
-          <label htmlFor={searchId} className="sr-only">Search people</label>
-          <Input id={searchId} type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
-            placeholder="Name, visit code or phone" onChange={event => { setSearch(event.target.value); setPage(0) }} />
-          {search ? <Button onClick={() => { setSearch(''); setPage(0); focus(searchId) }}>Clear</Button> : null}
-        </div>
-      </div>
-      {cases.error && listed ? <Alert intent="error" title="Couldn’t refresh the list">{cases.error}</Alert> : null}
+      <FilterTabs label="Show people" value={filter} onChange={value => { setFilter(value); setPage(0) }} options={[
+        { value: 'seeing', label: 'Being seen', count: seeing.length },
+        { value: 'finished', label: 'Finished', count: all.length - seeing.length },
+        { value: 'care', label: 'Need care', count: all.filter(needsCare).length },
+        { value: 'all', label: 'All', count: all.length },
+      ]} />
       <PageState loading={cases.loading} error={listed ? null : cases.error || null} hasData={listed} onRetry={() => void cases.refresh()}
         what="people" empty={empty}>
         <ul aria-label="People in this campaign" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
@@ -118,7 +107,7 @@ export function CampaignPeople({ campaignId, cases, stations, onOpen, initialFil
         {rows.length > PAGE_SIZE ? (
           <nav className="flex flex-wrap items-center justify-center gap-3" aria-label="People pages">
             <Button aria-disabled={first || undefined} onClick={() => { if (!first) setPage(shownPage - 1) }}>Previous page</Button>
-            <span className="text-[14px] text-ink-2">Page {shownPage + 1} of {pages}</span>
+            <span className="text-[14px] text-ink-2" aria-live="polite">Page {shownPage + 1} of {pages}</span>
             <Button aria-disabled={last || undefined} onClick={() => { if (!last) setPage(shownPage + 1) }}>Next page</Button>
           </nav>
         ) : null}

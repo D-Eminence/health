@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { ArrowRight, CircleCheck, Megaphone, Play, Plus, Search, UserPlus, Users } from 'lucide-react'
-import { PageState } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, FilterTabs, Input } from '../../../kasuwa/ui'
+import { ArrowRight, CircleCheck, ClipboardList, LayoutGrid, Megaphone, Play, Plus, UserPlus, Users } from 'lucide-react'
+import { LoadingRows, PageState } from '../../../kasuwa/parts'
+import { Badge, Button, FilterTabs } from '../../../kasuwa/ui'
+import { EnsureToastProvider, useToast } from '../../../kasuwa/toast'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachOrganiserStatus } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
-import { useFocusById } from '../../../staff/focus'
 import { focusLost } from '../../../pageFocus'
 import { NO_OUTREACH } from '../../../staff/refusedWork'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { dateText, matchesSearch } from '../parts/format'
+import { useErrorToast } from './notify'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
@@ -19,23 +20,30 @@ import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
 import { lastOpenedCampaign, outreachQueueStore, rememberOpenedCampaign, useOutreachQueue } from './offlineQueue'
-import { isOutreachAddress, OUTREACH_HOME, setOutreachNav, tabAddress, tabOfAddress, type OutreachNavState } from './outreachNav'
+import {
+  isOutreachAddress, OUTREACH_HOME, setOutreachNav, setOutreachSearch, tabAddress, tabOfAddress, type OutreachNavState, type OutreachSearchHit,
+} from './outreachNav'
 import {
   ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, nextStepText, sexText, statusLabel, type MembersRead,
 } from './outreachParts'
-import type { OutreachVisit } from './campaignTypes'
+import { type OutreachVisit, type TeamRole } from './campaignTypes'
 import { VisitView } from './day'
 import { CampaignPlanWizard } from './plan'
 import { CampaignCards } from './insight/CampaignCards'
 import { CampaignHub } from './insight/CampaignHub'
-import { canReadReport, hubRoles, hubTabs, shownTab, type CampaignTab } from './insight/tabs'
+import { campaignDatesText, canReadReport, hubRoles, hubTabs, shownTab, type CampaignTab } from './insight/tabs'
 import { CampaignReport } from './insight/CampaignReport'
 import { CampaignSummaryRead, type CampaignSummary } from './insight/campaignSummary'
 import { useLiveRefresh } from './insight/insightParts'
+import { visitMatches } from './insight/CampaignPeople'
+import { campaignOrder, OrganisationHome, shortName } from './insight/OrganisationHome'
+import { useOrganisationNumbers, workOutSummary } from './insight/organisationSummary'
+import type { MoreItem } from './insight/MoreMenu'
+import { campaignStatusLabel } from './outreachParts'
 
-/** The design's list shows this many records a page. */
-const PAGE_SIZE = 50
+/** A list shows this many records a page: a screen or two, never a long page. */
+const PAGE_SIZE = 25
 
 /**
  * Where the page is: its lists, the create form, or one record. In memory only: nothing about
@@ -44,8 +52,12 @@ const PAGE_SIZE = 50
  */
 type View =
   | { kind: 'list'; focus?: string }
+  /** Every campaign (the home shows six), the organisation's team, and the registrations made before campaigns. */
+  | { kind: 'campaigns' }
+  | { kind: 'team' }
+  | { kind: 'registrations' }
   | { kind: 'new' }
-  | { kind: 'case'; id: string; snapshot: OutreachCase; created: boolean }
+  | { kind: 'case'; id: string; snapshot: OutreachCase; created: boolean; from?: 'registrations' }
   /** A campaign: its hub (with the tab shown) where its campaign routes are served, else today's record. */
   | { kind: 'campaign'; id: string; snapshot: OutreachCampaign; created?: boolean; tab?: CampaignTab }
   /** Today's campaign record (open, close, members), from a campaign hub's "Campaign record". */
@@ -90,7 +102,14 @@ interface Governance {
  * staffed by their own admins.
  */
 export function Outreach() {
+  // What happens after an action is said in a toast at the top of the screen. The app provides the one toast stack;
+  // this adds one only where Outreach is rendered on its own.
+  return <EnsureToastProvider><OutreachPage /></EnsureToastProvider>
+}
+
+function OutreachPage() {
   const { facility, facilityId, membershipId, permissions, actorId } = useDeptAccess()
+  const toast = useToast()
   const { lock } = useStaff()
   // An outreach group's own facility (open sign-up on outreach.), as its roles say; a hospital's outreach team is not one.
   const group = isOutreachGroup(facility)
@@ -205,15 +224,21 @@ export function Outreach() {
     if (facilityId) setCreatedNote({ facilityId, text: `${createdText(created)} It was sent from this device.` })
     void refreshCases()
   }, [facilityId, refreshCases]))
-  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; text: string } | null>(null)
   const groupForm: OutreachGroupForm | undefined = group && facility ? {
     name: facility.name,
     queue: entry => queue.add(entry),
     onQueued: fullName => {
-      if (facilityId) setQueuedNote({ facilityId, text: `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.` })
+      toast.warning({ title: 'Saved on this device', message: `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.` })
       show({ kind: 'list' })
     },
   } : undefined
+
+  // The organisation's numbers for the home: served, else worked out from the campaigns' own reads once they are in.
+  const listedForNumbers = campaigns.value ?? []
+  const numbersSettled = campaigns.value !== null && !campaigns.loading && listedForNumbers.every(campaign => summaryOf(campaign.id))
+  const numbers = useOrganisationNumbers(facilityId, canReadCampaigns && place.view.kind === 'list',
+    () => workOutSummary(listedForNumbers, summaryOf, canReadCases ? cases.value : null), numbersSettled || (campaigns.value === null && !campaigns.loading))
+  const organisationName = listedForNumbers.map(campaign => summaryOf(campaign.id)?.plan?.organisationName).find(Boolean) ?? facility?.name
 
   if (!facilityId) {
     return (
@@ -239,11 +264,15 @@ export function Outreach() {
     const read = members.get(campaignId)
     return read?.facilityId === facilityId ? read : undefined
   }
+  const registeredIn = (campaignId: string) => cases.value ? cases.value.filter(item => item.campaignId === campaignId).length : undefined
   const campaignOf = (campaignId: string | undefined) => campaignId ? campaigns.value?.find(campaign => campaign.id === campaignId) : undefined
   const mayWriteCampaigns = permissions.includes('outreach.campaign.write')
   // Today's Outreach (no campaign routes yet, as every campaign read says): campaigns are made with today's form.
   const known = (campaigns.value ?? []).map(campaign => summaryOf(campaign.id)?.offered)
   const legacyOutreach = known.includes(false) && !known.includes(true) && !known.includes(null)
+  /** The home is today's list of registrations (no campaign routes, or no campaigns read), not the organisation's numbers. */
+  const legacyHome = !canReadCampaigns || legacyOutreach
+  const campaignsKnown = campaigns.value !== null && !campaigns.loading && campaigns.value.every(campaign => summaryOf(campaign.id) !== undefined)
   /** Registrations shown on the Outreach page itself: those outside any campaign whose own hub lists them. */
   const homeCases = (item: OutreachCase) => !canReadCampaigns || !item.campaignId || summaryOf(item.campaignId)?.offered !== true
   const refreshAll = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined])
@@ -275,6 +304,11 @@ export function Outreach() {
   const mine = running.filter(campaign => served(campaign.id)
     && (summaryOf(campaign.id)?.team?.you != null || (eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))))
   const continuing = mine.find(campaign => campaign.id === rememberedId) ?? mine[0]
+  // The organisation's owner, admins and coordinators start on its numbers (owner, 13 Nov 2026); someone who only works
+  // in the field goes straight to their campaign.
+  // Their roles on the campaigns' teams decide; on none (or none read yet), whether they may write campaigns here.
+  const teamRoles = (campaigns.value ?? []).map(campaign => summaryOf(campaign.id)?.team?.you?.roles).filter((roles): roles is readonly TeamRole[] => Boolean(roles?.length))
+  const manager = teamRoles.length ? teamRoles.some(roles => roles.includes('coordinator')) : mayWriteCampaigns
   // Where this visit starts: the one campaign running for them, else the one they were last in, else the list. Undefined
   // while that can't be told yet (the campaigns, what each one's routes say, or the day settings still being read).
   let arrival: OutreachCampaign | 'list' | undefined
@@ -282,7 +316,10 @@ export function Outreach() {
   else if (view.kind !== 'list' || !canReadCampaigns || (campaigns.value === null && !campaigns.loading)) arrival = 'list'
   else if (campaigns.value === null || lastCampaign?.facilityId !== facilityId) arrival = undefined
   else if (running.some(campaign => !summaryOf(campaign.id)) || (rememberedId && campaignOf(rememberedId) && !summaryOf(rememberedId))) arrival = undefined
+  else if (manager && !legacyOutreach && !tabOfAddress(location.pathname)) arrival = 'list'
   else if (mine.length === 1) arrival = mine[0]
+  // Someone who only works in the field goes to the campaign they were last in (else the first running for them).
+  else if (!manager && continuing) arrival = continuing
   else {
     const remembered = rememberedId ? campaignOf(rememberedId) : undefined
     arrival = remembered && served(remembered.id) ? remembered : 'list'
@@ -307,9 +344,34 @@ export function Outreach() {
     }
   }
   const openedId = view.kind === 'campaign' && served(view.id) ? view.id : undefined
+  // The top bar's Search (one search, owner 13 Nov 2026): people in the campaign open or remembered and registrations
+  // outside any campaign, by name, phone or visit code; campaigns by name.
+  const search = (query: string): OutreachSearchHit[] => {
+    const words = query.trim()
+    if (words.length < 2) return []
+    const inOpenCampaign = (item: OutreachCase) => Boolean(navCampaign && item.campaignId === navCampaign.id && served(navCampaign.id))
+    // A campaign's people by name, phone or visit code; a registration outside any campaign by what its card shows
+    // (never by its phone, which its card doesn't show).
+    const people = canReadCases ? (cases.value ?? []).filter(item => inOpenCampaign(item) ? visitMatches(item as OutreachVisit, words)
+      : homeCases(item) && matchesSearch(words, caseSearchText(item)))
+      .sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0)).slice(0, 6)
+      .map(item => {
+        const visit = item as OutreachVisit
+        const inHub = inOpenCampaign(item)
+        return { id: `person-${item.id}`, kind: 'person' as const, title: caseName(item),
+          detail: [ageText(item), sexText(item), visit.visitCode ? `visit code ${visit.visitCode}` : null].filter(Boolean).join(' · '),
+          open: () => inHub && navCampaign ? show({ kind: 'visit', campaign: navCampaign, caseId: item.id, tab: 'people' })
+            : show({ kind: 'case', id: item.id, snapshot: item, created: false, ...(legacyHome ? {} : { from: 'registrations' as const }) }) }
+      }) : []
+    const named = canReadCampaigns ? (campaigns.value ?? []).filter(campaign => matchesSearch(words, [campaign.name])).slice(0, 4)
+      .map(campaign => ({ id: `campaign-${campaign.id}`, kind: 'campaign' as const, title: campaign.name,
+        detail: `${campaignStatusLabel(campaign.status)} · ${campaignDatesText(campaign)}`, open: () => openCampaign(campaign) })) : []
+    return [...people, ...named]
+  }
   const keeper = (
     <PlaceKeeper ready={arrived === facilityId} arrival={arrival} onArrive={arrive} address={address} onAddress={followAddress}
       nav={navCampaign && navTabs ? { facilityId, campaignName: navCampaign.name, tabs: navTabs } : null}
+      search={search} facilityId={facilityId}
       openedId={openedId} onOpened={campaignId => {
         if (!actorId) return
         setLastCampaign({ facilityId, id: campaignId })
@@ -320,7 +382,7 @@ export function Outreach() {
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
     content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} attempt={caseAttempt}
-      group={groupForm} onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null) }} onCreated={onCreated} />
+      group={groupForm} onBack={() => backToList()} onSending={clearCreatedNote} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
     // A record the list no longer holds is not shown from memory, unless the list cannot say (not read, being read,
@@ -329,7 +391,8 @@ export function Outreach() {
     const item = listed ?? (view.created || !settled ? view.snapshot : null)
     content = item
       ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite && !group} group={group}
-        created={view.created} listError={cases.error} onBack={() => backToList(`outreach-case-${item.id}-open`)}
+        created={view.created} listError={cases.error}
+        onBack={() => view.from === 'registrations' ? show({ kind: 'registrations' }, `outreach-case-${item.id}-open`) : backToList(`outreach-case-${item.id}-open`)}
         onNew={canWrite ? () => show({ kind: 'new' }) : undefined}
         onChanged={cases.refresh} onFocusHeading={focusHeadingIfLost} />
       : <RecordNotFound onBack={() => backToList()} />
@@ -392,15 +455,64 @@ export function Outreach() {
           onClosed={() => { void campaigns.refresh(); setSummaryEpoch(epoch => epoch + 1) }} />
       </DeptPage>
     )
+  } else if (view.kind === 'campaigns' && canReadCampaigns) {
+    content = (
+      <DeptPage title="All campaigns" onBack={() => backToList('outreach-home-more')} backLabel="Back to Outreach">
+        <PageState loading={campaigns.loading} error={campaigns.value ? null : campaigns.error || null} hasData={campaigns.value !== null}
+          onRetry={() => void campaigns.refresh()} what="campaigns" rows={3}
+          empty={campaigns.value?.length === 0 ? { icon: Megaphone, title: 'No campaigns yet', description: 'Campaigns your organisation runs show here.' } : null}>
+          <PagedCampaigns campaigns={campaignOrder(campaigns.value ?? [])} summaryOf={summaryOf} registeredIn={registeredIn} onOpen={campaign => openCampaign(campaign)} />
+        </PageState>
+      </DeptPage>
+    )
+  } else if (view.kind === 'team' && organiser) {
+    content = (
+      <DeptPage title="Team" description={facility?.name} onBack={() => backToList('outreach-home-more')} backLabel="Back to Outreach">
+        <OutreachTeam facilityId={facilityId} />
+      </DeptPage>
+    )
+  } else if (view.kind === 'registrations' && canReadCases) {
+    content = (
+      <OutreachList canReadCases={canReadCases} canReadCampaigns={false} canWrite={canWrite} cases={cases} campaigns={campaigns}
+        group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })} showCase={homeCases}
+        summaryOf={summaryOf} onRefresh={refreshAll} legacy title="Registered before campaigns" onBack={() => backToList('outreach-home-more')}
+        continuing={undefined} onContinue={() => undefined}
+        onOpenCase={item => show({ kind: 'case', id: item.id, snapshot: item, created: false, from: 'registrations' })}
+        onOpenCampaign={campaign => openCampaign(campaign)} />
+    )
+  } else if (canReadCampaigns && !campaignsKnown && (campaigns.value !== null || campaigns.loading)) {
+    // Which home this is (the organisation's numbers, or today's list) is known once each campaign says what it serves.
+    content = <DeptPage title="Outreach"><LoadingRows rows={3} label="Loading Outreach" /></DeptPage>
+  } else if (!legacyHome) {
+    const listedCampaigns = campaigns.value ?? []
+    const registrationsBefore = canReadCases && (cases.value ?? []).some(homeCases)
+    const menu: MoreItem[] = [
+      ...(listedCampaigns.length ? [{ id: 'outreach-menu-campaigns', label: 'All campaigns', icon: LayoutGrid, onSelect: () => show({ kind: 'campaigns' }) }] : []),
+      ...(organiser ? [{ id: 'outreach-menu-team', label: 'Team', icon: Users, onSelect: () => show({ kind: 'team' }) }] : []),
+      ...(registrationsBefore ? [{ id: 'outreach-menu-registrations', label: 'Registered before campaigns', icon: ClipboardList, onSelect: () => show({ kind: 'registrations' }) }] : []),
+    ]
+    content = (
+      <HomeRefresh onRefresh={refreshAll}>
+        <OrganisationHome organisationName={organisationName} numbers={numbers} campaigns={listedCampaigns}
+          campaignsRead={{ loading: campaigns.loading, error: campaigns.error, listed: campaigns.value !== null, retry: () => void campaigns.refresh() }}
+          summaryOf={summaryOf} registeredIn={registeredIn} continuing={continuing} onContinue={campaign => openCampaign(campaign)}
+          onNewCampaign={canManage ? () => show({ kind: 'newCampaign' }) : undefined} onOpenCampaign={campaign => openCampaign(campaign)}
+          onAllCampaigns={() => show({ kind: 'campaigns' })} menu={menu}
+          top={group ? <>
+          <OutreachGroupBanner status={organiserStatus} />
+          <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={() => void queue.sync()}
+            onDiscard={id => void queue.discard(id)} />
+        </> : undefined} />
+      </HomeRefresh>
+    )
   } else {
     content = (
       <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
         group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })} showCase={homeCases}
-        summaryOf={summaryOf} onRefresh={refreshAll} legacy={!canReadCampaigns || legacyOutreach}
+        summaryOf={summaryOf} onRefresh={refreshAll} legacy
         continuing={continuing} onContinue={campaign => openCampaign(campaign)}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
-          {queuedNote?.facilityId === facilityId ? <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert> : null}
           <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={() => void queue.sync()}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}
@@ -430,7 +542,10 @@ export function Outreach() {
  * opened (`onAddress`), tells the menu the tabs of the campaign open or remembered (`nav`), and notes on this device the
  * campaign opened (`onOpened`). Only at Outreach's own addresses in the frame: elsewhere the address is left alone.
  */
-function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, openedId, onOpened }: {
+function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, openedId, onOpened, search, facilityId }: {
+  /** What the top bar's Search finds here (outreachNav.ts). */
+  readonly search: (query: string) => OutreachSearchHit[]
+  readonly facilityId: string
   readonly ready: boolean
   readonly arrival: OutreachCampaign | 'list' | undefined
   readonly onArrive: (pick: OutreachCampaign | 'list') => void
@@ -443,8 +558,14 @@ function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, opened
   const location = useLocation()
   const navigate = useNavigate()
   const inFrame = isOutreachAddress(location.pathname)
-  const latest = useRef({ onArrive, onAddress, onOpened })
-  latest.current = { onArrive, onAddress, onOpened }
+  const latest = useRef({ onArrive, onAddress, onOpened, search })
+  latest.current = { onArrive, onAddress, onOpened, search }
+  // Outreach is shown: the top bar's Search asks it, always with what the page knows now.
+  useEffect(() => {
+    const source = { facilityId, search: (query: string) => latest.current.search(query) }
+    setOutreachSearch(source)
+    return () => setOutreachSearch(null)
+  }, [facilityId])
 
   useEffect(() => { if (!ready && arrival !== undefined) latest.current.onArrive(arrival) }, [ready, arrival])
   // The address says where the page is, replacing the one before (the history keeps no step per tab).
@@ -488,7 +609,10 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * what still needs doing, with search and pages. A group's standing and what waits on this device come first.
  */
 function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, group, top, bottom, campaignOf, showCase, summaryOf, onRefresh, onNew,
-  onNewCampaign, onOpenCase, onOpenCampaign, legacy, continuing, onContinue }: {
+  onNewCampaign, onOpenCase, onOpenCampaign, legacy, continuing, onContinue, title = 'Outreach', onBack }: {
+  /** The page's title: Outreach, or "Registered before campaigns" when opened from the home's menu. */
+  readonly title?: string
+  readonly onBack?: () => void
   /** Today's Outreach, with no campaign routes (or no campaigns read): registrations are made here, with the old form. */
   readonly legacy: boolean
   /** The campaign running now that this person is on: carrying on with it is the one main action. */
@@ -517,9 +641,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   readonly onOpenCampaign: (campaign: OutreachCampaign) => void
 }) {
   const [tab, setTab] = useState<CaseTab>('waiting')
-  const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
-  const focus = useFocusById()
   // Read again when the page is shown again or gets focus (and every two minutes while shown): no Refresh button.
   const refreshing = useRef(false)
   useLiveRefresh(useCallback(() => {
@@ -535,7 +657,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   const showCases = canReadCases && !(cases.value && everyCase.length > 0 && all.length === 0)
   const waiting = all.filter(caseWaiting)
   const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'waiting') === caseWaiting(item)
-  const rows = all.filter(item => inTab(item) && matchesSearch(search, caseSearchText(item)))
+  const rows = all.filter(inTab)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
   const first = shownPage === 0
@@ -553,14 +675,16 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   const canLink = canWrite && !group
   const emptyAll = { icon: Users, title: 'No registrations yet', description: canWrite
     ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
-  const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null : search
-    ? { icon: Search, title: 'No matching registrations', description: 'Check the spelling, or search by another name.' }
+  const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null
     : tab === 'waiting' ? { icon: CircleCheck, title: 'No one is waiting to be linked', description: 'Every registration here is linked to a Health ID.' }
       : { icon: Users, title: 'None linked yet', description: 'Registrations move here once they are linked to a Health ID.' }
   const registeredIn = (campaignId: string) => cases.value ? cases.value.filter(item => item.campaignId === campaignId).length : undefined
+  useErrorToast(campaigns.error && campaigns.value ? campaigns.error : null, 'Couldn’t refresh campaigns', () => void campaigns.refresh())
+  useErrorToast(cases.error && listed ? cases.error : null, 'Couldn’t refresh registrations', () => void cases.refresh())
 
   return (
-    <DeptPage title="Outreach" description={canReadCampaigns ? 'Your campaigns, and the people registered in the field.' : 'People registered in the field, and what each one needs next.'}
+    <DeptPage title={title} onBack={onBack} backLabel={onBack ? 'Back to Outreach' : undefined}
+      description={onBack ? 'People registered before your campaigns, and what each one needs next.' : canReadCampaigns ? 'Your campaigns, and the people registered in the field.' : 'People registered in the field, and what each one needs next.'}
       primaryAction={continueButton ?? newCampaign ?? newButton ?? undefined}
       secondaryActions={continueButton ? newCampaign || newButton ? <>{newCampaign}{newButton}</> : undefined
         : newCampaign && newButton ? newButton : undefined}>
@@ -569,7 +693,6 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
         {canReadCampaigns ? (
           <section aria-labelledby="outreach-campaigns-heading" className="flex flex-col gap-3">
             <h2 id="outreach-campaigns-heading" className="m-0 text-title-2 text-ink">Campaigns</h2>
-            {campaigns.error && campaigns.value ? <Alert intent="error" title="Couldn’t refresh campaigns">{campaigns.error}</Alert> : null}
             <PageState loading={campaigns.loading} error={campaigns.value ? null : campaigns.error || null} hasData={campaigns.value !== null}
               onRetry={() => void campaigns.refresh()} what="campaigns" rows={2}
               empty={campaigns.value?.length === 0 ? group && onNewCampaign
@@ -584,21 +707,12 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
         ) : null}
         {showCases ? (
           <section aria-labelledby="outreach-cases-heading" className="flex flex-col gap-3">
-            <h2 id="outreach-cases-heading" className="m-0 text-title-2 text-ink">Registrations</h2>
-            <div className="flex flex-col gap-3 @xl:flex-row @xl:flex-wrap @xl:items-center @xl:justify-between">
-              <FilterTabs label="Show registrations" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
-                { value: 'waiting', label: 'Waiting to link', count: waiting.length },
-                { value: 'done', label: 'Linked', count: all.length - waiting.length },
-                { value: 'all', label: 'All', count: all.length },
-              ]} />
-              <div className="flex min-w-0 items-center gap-2 @xl:w-80">
-                <label htmlFor="outreach-search" className="sr-only">Search Outreach</label>
-                <Input id="outreach-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
-                  placeholder="Search by name" onChange={event => { setSearch(event.target.value); setPage(0) }} />
-                {search ? <Button onClick={() => { setSearch(''); setPage(0); focus('outreach-search') }}>Clear search</Button> : null}
-              </div>
-            </div>
-            {cases.error && listed ? <Alert intent="error" title="Couldn’t refresh registrations">{cases.error}</Alert> : null}
+            <h2 id="outreach-cases-heading" className={onBack ? 'sr-only' : 'm-0 text-title-2 text-ink'}>Registrations</h2>
+            <FilterTabs label="Show registrations" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
+              { value: 'waiting', label: 'Waiting to link', count: waiting.length },
+              { value: 'done', label: 'Linked', count: all.length - waiting.length },
+              { value: 'all', label: 'All', count: all.length },
+            ]} />
             <PageState loading={cases.loading} error={listed ? null : cases.error || null} hasData={listed} onRetry={() => void cases.refresh()}
               what="registrations" empty={empty}>
               <ul aria-label="Registrations" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
@@ -611,7 +725,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
                   {/* Unavailable at the first and last page, not disabled: a disabled button would lose the focus it has. */}
                   <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={first || undefined}
                     onClick={() => { if (!first) setPage(shownPage - 1) }}>Previous page</Button>
-                  <span>Page {shownPage + 1} of {pages}</span>
+                  <span aria-live="polite">Page {shownPage + 1} of {pages}</span>
                   <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={last || undefined}
                     onClick={() => { if (!last) setPage(shownPage + 1) }}>Next page</Button>
                 </nav>
@@ -664,7 +778,33 @@ export function OutreachRefusal() {
   return <DeptUnavailable title="Outreach unavailable" message={NO_OUTREACH} />
 }
 
-/** A long campaign name cut to fit one button line on a phone; the full name is the button's accessible name. */
-function shortName(name: string): string {
-  return name.length > 22 ? `${name.slice(0, 21).trimEnd()}…` : name
+/** Reads the home's lists again when the page is shown again or gets focus (and every two minutes while shown). */
+function HomeRefresh({ onRefresh, children }: { readonly onRefresh: () => Promise<unknown>; readonly children: ReactNode }) {
+  const refreshing = useRef(false)
+  useLiveRefresh(useCallback(() => {
+    if (refreshing.current) return
+    refreshing.current = true
+    void onRefresh().finally(() => { refreshing.current = false })
+  }, [onRefresh]), 120_000)
+  return <>{children}</>
+}
+
+/** All campaigns, running first, as cards in pages of 12. */
+function PagedCampaigns({ campaigns, ...cards }: Omit<Parameters<typeof CampaignCards>[0], 'campaigns'> & { readonly campaigns: readonly OutreachCampaign[] }) {
+  const [page, setPage] = useState(0)
+  const size = 12
+  const pages = Math.max(1, Math.ceil(campaigns.length / size))
+  const shown = Math.min(page, pages - 1)
+  return (
+    <div className="flex flex-col gap-3">
+      <CampaignCards {...cards} campaigns={campaigns.slice(shown * size, (shown + 1) * size)} />
+      {pages > 1 ? (
+        <nav className="flex flex-wrap items-center justify-center gap-3" aria-label="Campaign pages">
+          <Button aria-disabled={shown === 0 || undefined} onClick={() => { if (shown > 0) setPage(shown - 1) }}>Previous page</Button>
+          <span className="text-[14px] text-ink-2" aria-live="polite">Page {shown + 1} of {pages}</span>
+          <Button aria-disabled={shown + 1 >= pages || undefined} onClick={() => { if (shown + 1 < pages) setPage(shown + 1) }}>Next page</Button>
+        </nav>
+      ) : null}
+    </div>
+  )
 }

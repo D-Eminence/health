@@ -40,7 +40,7 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
   const tabs = hubTabs(roles, cases !== null)
   const shown = shownTab(tabs, tab)
   const plan = summary ? summary.plan : undefined
-  const focuses = plan?.focuses.map(focusLabel).join(', ')
+  const focuses = plan?.focuses.map(focus => focusLabel(focus)).join(', ')
   const base = `outreach-campaign-${campaign.id}`
   const tabRefs = useRef(new Map<CampaignTab, HTMLButtonElement>())
   // The People filter a dashboard tile asked for (Positive: those who need care); a tab chosen by itself shows the default.

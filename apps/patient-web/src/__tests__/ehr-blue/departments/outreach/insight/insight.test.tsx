@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../../harness'
+import { ToastProvider } from '../../../../../kasuwa/toast'
 import { CampaignDashboard } from '../../../../../ehr-blue/departments/outreach/insight/CampaignDashboard'
 import { FollowUps } from '../../../../../ehr-blue/departments/outreach/insight/FollowUps'
 import { CampaignReport, reportCount, reportCsv } from '../../../../../ehr-blue/departments/outreach/insight/CampaignReport'
@@ -93,11 +94,22 @@ describe('the dashboard', () => {
     expect(within(tile('Referred')).getByText('1 urgent')).toBeTruthy()
     const alerts = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')!
     expect(within(alerts).getAllByRole('listitem').map(item => item.textContent)).toEqual(['UrgentUrgent referral: K7-4F2.', 'Waiting12 people are waiting for vital signs.'])
-    const team = screen.getByRole('heading', { name: 'Team' }).closest('section')!
+    // The detail one part at a time (no long page): Stations first, then each part its tab opens.
+    const detail = screen.getByRole('tablist', { name: 'Dashboard detail' })
+    expect(within(detail).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Stations', 'Focus', 'Team', 'Sites', 'Kits'])
+    expect(screen.getByRole('list', { name: 'Waiting at each station' }).textContent).toContain('12 waiting')
+    expect(screen.queryByText('Demo Registrar')).toBeNull()
+    await act(async () => { fireEvent.click(within(detail).getByRole('tab', { name: 'Team' })) })
+    const team = screen.getByRole('tabpanel')
     // Sorted by what each did.
     expect(within(team).getAllByText(/^Demo /).map(name => name.textContent)).toEqual(['Demo Coordinator', 'Demo Registrar'])
+    expect(screen.queryByRole('list', { name: 'Waiting at each station' })).toBeNull()
+    // Arrow keys move along the tabs.
+    await act(async () => { fireEvent.keyDown(within(detail).getByRole('tab', { name: 'Team' }), { key: 'ArrowRight' }) })
+    expect(document.activeElement).toBe(within(detail).getByRole('tab', { name: 'Sites' }))
     expect(screen.getByRole('list', { name: 'People registered each hour at Demo Town Hall' }).textContent).toContain('9 people')
-    const kits = screen.getByRole('heading', { name: 'Kits' }).closest('section')!
+    await act(async () => { fireEvent.click(within(detail).getByRole('tab', { name: 'Kits' })) })
+    const kits = screen.getByRole('list', { name: 'Kits' })
     expect(within(kits).getByText('3 left')).toBeTruthy()
     expect(within(kits).getByText('Running low')).toBeTruthy()
     expect(within(kits).getByText(/^Expires /)).toBeTruthy()
@@ -110,7 +122,8 @@ describe('the dashboard', () => {
     const positive = within(tiles).getByText('Positive').parentElement!
     expect(within(positive).getByText('4')).toBeTruthy()
     expect(within(positive).getByText('Not counting hepatitis b')).toBeTruthy()
-    const focus = screen.getByRole('heading', { name: 'By focus' }).closest('section')!
+    await act(async () => { fireEvent.click(screen.getByRole('tab', { name: 'Focus' })) })
+    const focus = screen.getByRole('tabpanel')
     // Each focus's counts as StatCards: hepatitis B's positives left out, high blood pressure's shown.
     const hepB = within(focus).getByRole('group', { name: 'Hepatitis B' })
     expect(within(hepB).queryByText('Positive')).toBeNull()
@@ -183,7 +196,7 @@ describe('follow-ups', () => {
     const path = '/api/v1/outreach/registration-cases/c-1/follow-up'
     let fail = true
     answers[`PATCH ${path}`] = () => { if (fail) { fail = false; throw new TypeError('Failed to fetch') } return {} }
-    renderDept(<FollowUps campaignId={CAMPAIGN} />)
+    renderDept(<ToastProvider><FollowUps campaignId={CAMPAIGN} /></ToastProvider>)
     const later = within(await screen.findByRole('list', { name: 'Follow-ups' })).getAllByRole('listitem')[1]!
     await act(async () => { fireEvent.click(within(later).getByRole('button', { name: 'Reached' })) })
     const note = within(later).getByLabelText(/^Note/)
@@ -191,14 +204,18 @@ describe('follow-ups', () => {
     fireEvent.change(note, { target: { value: 'Feeling better.' } })
     const save = within(later).getByRole('button', { name: 'Save: reached' })
     await act(async () => { fireEvent.click(save) })
-    expect(within(later).getByRole('alert').textContent).toContain('Not saved')
-    await act(async () => { fireEvent.click(save) })
+    // Said in a toast at the top, not in the card; Try again sends the same command.
+    const toast = await screen.findByRole('alert')
+    expect(toast.textContent).toContain('Not saved')
+    expect(within(later).queryByRole('alert')).toBeNull()
+    await act(async () => { fireEvent.click(within(toast).getByRole('button', { name: 'Try again' })) })
     const sent = calls('PATCH', path)
     expect(sent).toHaveLength(2)
     expect(sent[0]![1].body).toEqual({ status: 'reached', notes: 'Feeling better.' })
     expect(sent[0]![1].headers['If-Match']).toBe('"4"')
     expect(sent[0]![1].headers['Idempotency-Key']).toBe(sent[1]![1].headers['Idempotency-Key'])
     await waitFor(() => expect(calls('GET', `${BASE}/follow-ups`).length).toBeGreaterThan(1))
+    expect((await screen.findByRole('status')).textContent).toContain('Demo Later: reached. Saved.')
   })
 
   it('tracks a referral: arrived at referral', async () => {
@@ -217,10 +234,13 @@ describe('follow-ups', () => {
 describe('the report', () => {
   it('says counts only, small ones as “fewer than”, and no name of anyone', async () => {
     renderDept(<CampaignReport campaignId={CAMPAIGN} />)
-    const bySex = (await screen.findByRole('heading', { name: 'By sex' })).closest('section')!
+    // One breakdown at a time: Totals first, then the one chosen.
+    const breakdown = await screen.findByRole('tablist', { name: 'Breakdown' })
+    expect(screen.getByRole('tabpanel').textContent).toContain('Registered40')
+    await act(async () => { fireEvent.click(within(breakdown).getByRole('tab', { name: 'By sex' })) })
+    const bySex = screen.getByRole('tabpanel')
     expect(within(bySex).getByText('Other or not said').nextElementSibling?.textContent).toBe('fewer than 5')
     expect(within(bySex).getByText('Female').nextElementSibling?.textContent).toBe('22')
-    expect(screen.getByRole('heading', { name: 'Totals' }).closest('section')!.textContent).toContain('Registered40')
     expect(document.body.textContent).not.toMatch(/Demo (Overdue|Later|Registrar)|\+234/)
     expect(screen.getByRole('button', { name: 'Download report (PDF)' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Close campaign' })).toBeNull()
@@ -239,7 +259,7 @@ describe('the report', () => {
     api.setOutreachCampaignStatus.mockResolvedValue({})
     const onClosed = vi.fn()
     const campaign = { id: CAMPAIGN, name: 'Demo Screening', status: 'active', services: ['registration'], startsAt: '2026-11-12T00:00:00.000Z', rowVersion: 7 }
-    renderDept(<CampaignReport campaignId={CAMPAIGN} campaign={campaign} canClose onClosed={onClosed} />)
+    renderDept(<ToastProvider><CampaignReport campaignId={CAMPAIGN} campaign={campaign} canClose onClosed={onClosed} /></ToastProvider>)
     await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Close campaign' })) })
     const dialog = screen.getByRole('dialog')
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Close campaign' })) })
@@ -249,7 +269,8 @@ describe('the report', () => {
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Close campaign' })) })
     expect(api.setOutreachCampaignStatus).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, campaign, 'closed', 'The work is done.')
     expect(onClosed).toHaveBeenCalled()
-    expect(await screen.findByText('Campaign closed')).toBeTruthy()
+    expect((await screen.findByRole('status')).textContent).toContain('Campaign closed')
+    expect(screen.queryByRole('button', { name: 'Close campaign' })).toBeNull()
   })
 })
 
@@ -284,10 +305,24 @@ describe('People', () => {
     expect(ada.textContent).toContain('2 of 5 stations done')
     expect(within(ada).getByText('Being seen')).toBeTruthy()
     expect(within(within(list).getByRole('button', { name: /^Demo Bola/ })).getByText('Refer (urgent)')).toBeTruthy()
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search people' }), { target: { value: 'ac9de' } })
+    // No search on the page (the top bar's Search finds people): filters as chips.
+    expect(screen.queryByRole('searchbox')).toBeNull()
+    await act(async () => { fireEvent.click(within(tabs).getByRole('button', { name: /^Need care/ })) })
     expect(within(list).queryByRole('button', { name: /^Demo Ada/ })).toBeNull()
     await act(async () => { fireEvent.click(within(list).getByRole('button', { name: /^Demo Bola/ })) })
     expect(onOpen).toHaveBeenCalledWith(people[1])
+  })
+})
+
+describe('People in pages', () => {
+  it('shows 25 a page, with the page in words', async () => {
+    const many = Array.from({ length: 30 }, (_, index) => visit(`v-${index}`, `Demo Person ${index + 1}`, { createdAt: new Date(Date.UTC(2026, 10, 13, 9, index)).toISOString() }))
+    renderDept(<CampaignPeople campaignId={CAMPAIGN} cases={{ value: many, loading: false, error: '', refresh: async () => {} }} onOpen={vi.fn()} />)
+    const list = screen.getByRole('list', { name: 'People in this campaign' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(25)
+    expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next page' })) })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5)
   })
 })
 

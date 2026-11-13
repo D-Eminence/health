@@ -1,10 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
-import { CircleCheck, Phone, PhoneOff, Search } from 'lucide-react'
+import { CircleCheck, Phone, PhoneOff } from 'lucide-react'
 import { PageState } from '../../../../kasuwa/parts'
-import { Alert, Badge, Button, FilterTabs, Input, Textarea, type Tone } from '../../../../kasuwa/ui'
+import { Badge, Button, FilterTabs, Textarea, type Tone } from '../../../../kasuwa/ui'
+import { useToast } from '../../../../kasuwa/toast'
 import { useDeptAccess } from '../../parts/access'
-import { matchesSearch } from '../../parts/format'
+import { useErrorToast } from '../notify'
 import { campaignFlowErrorText, newLocalCommandId, NOT_OFFERED, outreachCampaignApi } from '../campaignApi'
 import type { CampaignFollowUpRow, FollowUpStatus, ReferralStatus } from '../campaignTypes'
 import { dayText, lagosToday, useCampaignRead } from './insightParts'
@@ -50,10 +51,10 @@ export function FollowUps({ campaignId }: { readonly campaignId: string }) {
   const list = useCampaignRead(Boolean(facilityId),
     useCallback((signal: AbortSignal) => outreachCampaignApi.followUps(facilityId!, campaignId, signal), [facilityId, campaignId]), FOLLOW_UPS_FAILED)
   const [filter, setFilter] = useState<Filter>('due')
-  const [search, setSearch] = useState('')
-  const [said, setSaid] = useState('')
+  const toast = useToast()
   const today = lagosToday()
   const { read, refresh } = list
+  useErrorToast(read.state === 'error' && read.value ? read.error : null, 'Couldn’t refresh the list', () => void refresh())
 
   if (read.state === 'not_offered') return <p className="m-0 text-[14px] text-ink-2">{NOT_OFFERED}</p>
   const items = read.value?.items ?? []
@@ -61,37 +62,27 @@ export function FollowUps({ campaignId }: { readonly campaignId: string }) {
   const late = due.filter(row => overdue(row, today))
   const done = items.filter(row => !open(row)).sort((a, b) => b.followUp.updatedAt.localeCompare(a.followUp.updatedAt))
   const inFilter = filter === 'due' ? due : filter === 'overdue' ? late : done
-  const rows = inFilter.filter(row => matchesSearch(search, [row.fullName, row.visitCode, row.phone?.replace(/\D/g, ''), row.followUp.reason, row.referral?.partnerName]))
+  const rows = inFilter
   const empty = items.length === 0
     ? { icon: CircleCheck, title: 'No follow-ups yet', description: 'People who need a call or a referral check show here once their outcome is confirmed.' }
     : rows.length ? null
-      : search ? { icon: Search, title: 'No one matches', description: 'Search by name, visit code or phone number.' }
-        : filter === 'overdue' ? { icon: CircleCheck, title: 'Nothing overdue', description: 'Everyone due has been called on time.' }
+      : filter === 'overdue' ? { icon: CircleCheck, title: 'Nothing overdue', description: 'Everyone due has been called on time.' }
           : filter === 'due' ? { icon: CircleCheck, title: 'No one to call', description: 'Everyone has been reached.' }
             : { icon: CircleCheck, title: 'Nothing marked yet', description: 'People you mark reached or closed show here.' }
 
   return (
     <div className="flex flex-col gap-4">
-      <div role="status" className="sr-only">{said}</div>
-      <div className="flex flex-col gap-3 @xl:flex-row @xl:flex-wrap @xl:items-center @xl:justify-between">
-        <FilterTabs label="Show follow-ups" value={filter} onChange={setFilter} options={[
-          { value: 'due', label: 'Due', count: due.length },
-          { value: 'overdue', label: 'Overdue', count: late.length, tone: 'danger' },
-          { value: 'done', label: 'Done', count: done.length },
-        ]} />
-        <div className="min-w-0 @xl:w-80">
-          <label htmlFor={`outreach-followups-search-${campaignId}`} className="sr-only">Search follow-ups</label>
-          <Input id={`outreach-followups-search-${campaignId}`} type="search" icon={Search} value={search} autoComplete="off"
-            placeholder="Name, visit code or phone" onChange={event => setSearch(event.target.value)} />
-        </div>
-      </div>
-      {read.state === 'error' && read.value ? <Alert intent="error" title="Couldn’t refresh the list">{read.error}</Alert> : null}
+      <FilterTabs label="Show follow-ups" value={filter} onChange={setFilter} options={[
+        { value: 'due', label: 'Due', count: due.length },
+        { value: 'overdue', label: 'Overdue', count: late.length, tone: 'danger' },
+        { value: 'done', label: 'Done', count: done.length },
+      ]} />
       <PageState loading={read.state === 'loading'} error={read.state === 'error' && !read.value ? read.error : null} hasData={read.value !== null}
         onRetry={() => void refresh()} what="follow-ups" empty={empty} rows={3}>
         <ul aria-label="Follow-ups" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] gap-3 p-0">
           {rows.map(row => (
             <FollowUpCard key={row.caseId} row={row} today={today} facilityId={facilityId!}
-              onSaved={text => { setSaid(text); void refresh() }} onStale={() => void refresh()} />
+              onSaved={text => { toast.success(text); void refresh() }} onStale={() => void refresh()} />
           ))}
         </ul>
       </PageState>
@@ -108,7 +99,7 @@ function FollowUpCard({ row, today, facilityId, onSaved, onStale }: {
 }) {
   const [mark, setMark] = useState<Mark | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const toast = useToast()
   // One command per mark being made: a retry of the same mark sends the same key, so it is saved once.
   const command = useRef<{ key: string; mark: string; id: string } | null>(null)
   // Where focus goes once the form opens or closes: the note, or the first mark button again.
@@ -130,19 +121,20 @@ function FollowUpCard({ row, today, facilityId, onSaved, onStale }: {
   const choose = (next: Mark | null) => {
     if (busy) return
     setMark(next)
-    setError('')
     setFocusTo(next ? `${base}-note` : `${base}-first`)
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    await send(String(new FormData(event.currentTarget).get('notes') ?? '').trim())
+  }
+
+  async function send(notes: string) {
     if (!mark || busy) return
-    const notes = String(new FormData(event.currentTarget).get('notes') ?? '').trim()
     const markKey = `${mark.kind}:${mark.status}`
     const id = mark.kind === 'follow_up' ? row.followUp.followUpId : referral?.referralId ?? ''
     if (!command.current || command.current.mark !== markKey || command.current.id !== id) command.current = { key: newLocalCommandId(), mark: markKey, id }
     setBusy(true)
-    setError('')
     try {
       if (mark.kind === 'follow_up') {
         await outreachCampaignApi.updateFollowUp(facilityId, row.caseId, row.followUp.rowVersion,
@@ -156,8 +148,11 @@ function FollowUpCard({ row, today, facilityId, onSaved, onStale }: {
       setFocusTo(`${base}-first`)
       onSaved(`${name}: ${MARK_LABEL(mark).toLowerCase()}. Saved.`)
     } catch (caught) {
-      setError(campaignFlowErrorText(caught, SAVE_FAILED))
-      if (isHidApiError(caught) && caught.code === 'VERSION_CONFLICT') { command.current = null; onStale() }
+      const stale = isHidApiError(caught) && caught.code === 'VERSION_CONFLICT'
+      // Said at the top. Try again sends the same command (the same key), so it is saved once.
+      toast.error({ title: 'Not saved', message: campaignFlowErrorText(caught, SAVE_FAILED),
+        ...(stale ? {} : { action: { label: 'Try again', onClick: () => void send(notes) } }) })
+      if (stale) { command.current = null; onStale() }
     } finally {
       setBusy(false)
     }
@@ -200,7 +195,6 @@ function FollowUpCard({ row, today, facilityId, onSaved, onStale }: {
           <label htmlFor={`${base}-note`} className="text-[14px] font-medium text-ink">Note <span className="font-normal text-ink-3">(optional)</span></label>
           <Textarea id={`${base}-note`} name="notes" rows={2} maxLength={500}
             placeholder={mark.kind === 'follow_up' ? (mark.status === 'reached' ? 'For example: feeling better, will go on Monday.' : 'For example: no answer, try tomorrow.') : 'For example: seen by the doctor.'} />
-          {error ? <Alert intent="error" title="Not saved">{error}</Alert> : null}
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button size="lg" aria-disabled={busy || undefined} onClick={() => choose(null)}>Cancel</Button>
             <Button size="lg" type="submit" variant="primary" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : `Save: ${MARK_LABEL(mark).toLowerCase()}`}</Button>

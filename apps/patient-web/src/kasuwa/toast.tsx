@@ -1,6 +1,6 @@
 /**
  * paytrail's toasts (components/ui-client.js ToastProvider): every result the person should know about, at the top of
- * the screen (across the top on a phone, the top-right corner on a computer), newest first. A neutral notice surface
+ * the screen (across the top on a phone, the top centre on a computer), newest first. A neutral notice surface
  * with the intent's colour only on the icon and title, as on <Alert>. Errors and warnings stay longer; hovering holds
  * one; the same text already showing is refreshed rather than stacked. Going offline and back online are said too.
  */
@@ -32,6 +32,11 @@ const LOOK: Record<ToastIntent, { icon: Icon; text: string; role: 'status' | 'al
 const noop = Object.assign(() => null, { success: () => null, error: () => null, warning: () => null, info: () => null, loading: () => null, dismiss: () => {}, update: () => {} }) as ToastApi
 const ToastContext = createContext<ToastApi>(noop)
 export const useToast = () => useContext(ToastContext)
+
+/** One toast stack per app: provides one only where nothing above already does (a page rendered on its own, a test). */
+export function EnsureToastProvider({ children }: { children: ReactNode }) {
+  return useContext(ToastContext) === noop ? <ToastProvider>{children}</ToastProvider> : <>{children}</>
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setState] = useState<Toast[]>([])
@@ -83,12 +88,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   return <ToastContext.Provider value={api}>
     {children}
-    {/* Phones: across the top; larger screens: the top-right corner. Newest first. */}
-    <div className="pointer-events-none fixed inset-x-0 top-[max(12px,env(safe-area-inset-top))] z-[var(--z-toast)] flex flex-col-reverse items-center gap-2 px-3 sm:top-5 sm:right-5 sm:left-auto sm:w-[400px] sm:items-end sm:px-0">
+    {/* Phones: across the top; larger screens: the top centre, at most 28rem wide. Newest first. */}
+    <div className="pointer-events-none fixed inset-x-0 top-[max(12px,env(safe-area-inset-top))] z-[var(--z-toast)] mx-auto flex w-full max-w-[28rem] flex-col-reverse items-center gap-2 px-3 sm:top-5 sm:px-0">
       {toasts.map(t => { const it = LOOK[t.intent]
         return <div key={t.id} role={it.role} aria-live={it.role === 'alert' ? 'assertive' : 'polite'}
           onMouseEnter={() => clear(t.id)} onMouseLeave={() => arm(t.id, t.intent, t.duration)}
-          className="pointer-events-auto flex w-full max-w-[440px] animate-[toast-drop_.28s_cubic-bezier(.2,.9,.3,1)] items-start gap-3 rounded-2xl border border-notice-line bg-notice px-4 py-3 shadow-[var(--shadow-pop)]">
+          className="pointer-events-auto flex w-full animate-[toast-drop_.28s_cubic-bezier(.2,.9,.3,1)] items-start gap-3 rounded-2xl border border-notice-line bg-notice px-4 py-3 shadow-[var(--shadow-pop)]">
           <it.icon className={cx('mt-0.5 size-[18px] shrink-0', it.text, t.intent === 'loading' && 'animate-spin')} aria-hidden="true" />
           <div className="min-w-0 flex-1 leading-snug">
             <span className="sr-only">{it.label}: </span>

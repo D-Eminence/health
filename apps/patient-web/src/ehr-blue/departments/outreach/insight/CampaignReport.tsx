@@ -1,13 +1,15 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import { Download, PhoneCall, Printer, Send, Stethoscope, Users } from 'lucide-react'
 import { ConfirmSheet, PageState } from '../../../../kasuwa/parts'
-import { Alert, Button, Card, StatGroup, Textarea } from '../../../../kasuwa/ui'
+import { Button, Card, StatGroup, Textarea } from '../../../../kasuwa/ui'
+import { useToast } from '../../../../kasuwa/toast'
+import { useErrorToast } from '../notify'
 import { staffApi, type OutreachCampaign } from '../../../../staff/api'
 import { useDeptAccess } from '../../parts/access'
 import { campaignErrorText, CAMPAIGN_STATUS_FAILED, campaignStatusLabel, REASON_LENGTH } from '../outreachParts'
 import { NOT_OFFERED, outreachCampaignApi } from '../campaignApi'
 import { focusLabel, type CampaignReport as Report } from '../campaignTypes'
-import { dayText, InsightCard, lagosToday, StatTile, useCampaignRead } from './insightParts'
+import { dayText, InsightCard, lagosToday, SectionSwitch, StatTile, useCampaignRead } from './insightParts'
 
 const REPORT_FAILED = 'The report could not be read. Try again.'
 
@@ -25,9 +27,9 @@ export function reportRows(report: Report): Array<{ section: string; rows: Array
       ['Test kits used', String(report.kitsUsed)], ['Invalid tests (done again)', c(report.invalidTests)],
     ] },
     { section: 'By focus', rows: report.byFocus.flatMap(row => [
-      [`${focusLabel(row.focus)}: screened`, c(row.screened)] as [string, string],
-      [`${focusLabel(row.focus)}: positive`, c(row.positive)] as [string, string],
-      [`${focusLabel(row.focus)}: referred`, c(row.referred)] as [string, string],
+      [`${focusLabel(row.focus, row.label)}: screened`, c(row.screened)] as [string, string],
+      [`${focusLabel(row.focus, row.label)}: positive`, c(row.positive)] as [string, string],
+      [`${focusLabel(row.focus, row.label)}: referred`, c(row.referred)] as [string, string],
     ]) },
     { section: 'By site', rows: report.sites.flatMap(site => [
       [`${site.name} (${site.lga}): registered`, c(site.registered)] as [string, string],
@@ -98,6 +100,7 @@ export function CampaignReport({ campaignId, campaign, canClose = false, onClose
   const { read, refresh } = useCampaignRead(Boolean(facilityId),
     useCallback((signal: AbortSignal) => outreachCampaignApi.report(facilityId!, campaignId, signal), [facilityId, campaignId]), REPORT_FAILED)
   const closable = canClose && campaign && campaign.status !== 'closed'
+  useErrorToast(read.state === 'error' && read.value ? read.error : null, 'Couldn’t refresh the report', () => void refresh())
 
   if (read.state === 'not_offered') {
     return <div className="flex flex-col gap-4">
@@ -133,26 +136,39 @@ export function CampaignReport({ campaignId, campaign, canClose = false, onClose
             <StatTile icon={PhoneCall} tone="warn" label="Follow-ups to call" value={reportCount(report.followUps.due, report.smallCountThreshold)}
               hint={`${reportCount(report.followUps.reached, report.smallCountThreshold)} reached`} />
           </StatGroup>
-          <div className="grid gap-4 @3xl:grid-cols-2">
+          {/* One breakdown at a time on screen; all of them on paper. */}
+          <div data-print-hide="">
+            <SectionSwitch id={`outreach-report-${campaignId}`} label="Breakdown" sections={reportRows(report).map((block, index) => ({
+              value: `part-${index}`, label: block.section, content: <CountList rows={block.rows} />,
+            }))} />
+          </div>
+          <div className="hidden print:grid print:gap-4">
             {reportRows(report).map((block, index) => (
-              <InsightCard key={block.section} title={block.section} id={`outreach-report-${campaignId}-${index}`}>
-                {block.rows.length ? (
-                  <dl className="m-0 flex flex-col divide-y divide-line">
-                    {block.rows.map(([what, count]) => (
-                      <div key={what} className="flex items-baseline justify-between gap-3 py-2 first:pt-0 last:pb-0">
-                        <dt className="min-w-0 text-[14px] break-words text-ink-2">{what}</dt>
-                        <dd className="m-0 text-[15px] font-semibold text-ink tabular">{count}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : <p className="m-0 text-[14px] text-ink-2">Nothing to count yet.</p>}
-              </InsightCard>
+              <InsightCard key={block.section} title={block.section} id={`outreach-report-${campaignId}-${index}`}><CountList rows={block.rows} /></InsightCard>
             ))}
           </div>
           {report.smallCountThreshold > 1 ? <p className="m-0 text-[13px] text-ink-3">Counts under {report.smallCountThreshold} are shown as “fewer than {report.smallCountThreshold}”, so no one can be picked out.</p> : null}
         </> : null}
       </PageState>
       {closable && facilityId ? <div data-print-hide=""><CloseCampaign facilityId={facilityId} campaign={campaign} onClosed={onClosed} /></div> : null}
+    </div>
+  )
+}
+
+/** One breakdown's counts: what, and how many (as said). */
+function CountList({ rows }: { readonly rows: ReadonlyArray<readonly [string, string]> }) {
+  return (
+    <div className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] ring-1 ring-line sm:p-5">
+      {rows.length ? (
+        <dl className="m-0 flex flex-col divide-y divide-line">
+          {rows.map(([what, count]) => (
+            <div key={what} className="flex items-baseline justify-between gap-3 py-2 first:pt-0 last:pb-0">
+              <dt className="min-w-0 text-[14px] break-words text-ink-2">{what}</dt>
+              <dd className="m-0 text-[15px] font-semibold text-ink tabular">{count}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : <p className="m-0 text-[14px] text-ink-2">Nothing to count yet.</p>}
     </div>
   )
 }
@@ -166,7 +182,7 @@ function CloseCampaign({ facilityId, campaign, onClosed }: {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [problem, setProblem] = useState('')
-  const [error, setError] = useState('')
+  const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const reasonId = `outreach-close-${campaign.id}-reason`
@@ -177,20 +193,20 @@ function CloseCampaign({ facilityId, campaign, onClosed }: {
     if (trimmed.length < 8) { setProblem(REASON_LENGTH); document.getElementById(reasonId)?.focus(); return }
     setProblem('')
     setBusy(true)
-    setError('')
     try {
       await staffApi.setOutreachCampaignStatus(facilityId, campaign, 'closed', trimmed)
       setOpen(false)
       setDone(true)
+      toast.success({ title: 'Campaign closed', message: 'No one can register people into it any more. Its records and counts stay.' })
       onClosed?.()
     } catch (caught) {
-      setError(campaignErrorText(caught, CAMPAIGN_STATUS_FAILED))
+      toast.error({ title: 'Not closed', message: campaignErrorText(caught, CAMPAIGN_STATUS_FAILED), action: { label: 'Try again', onClick: () => void close() } })
     } finally {
       setBusy(false)
     }
   }
 
-  if (done) return <Alert intent="success" title="Campaign closed">No one can register people into it any more. Its records and counts stay.</Alert>
+  if (done) return null
   const body: ReactNode = (
     <div className="flex flex-col gap-2">
       <label htmlFor={reasonId} className="text-[14px] font-medium text-ink">Why it is closing</label>
@@ -198,14 +214,13 @@ function CloseCampaign({ facilityId, campaign, onClosed }: {
         aria-describedby={problem ? `${reasonId}-error` : `${reasonId}-hint`} onChange={event => setReason(event.target.value)} />
       {problem ? <p id={`${reasonId}-error`} className="m-0 text-[13px] text-danger-ink">{problem}</p>
         : <p id={`${reasonId}-hint`} className="m-0 text-[13px] text-ink-3">For example: the work is done. At least 8 characters.</p>}
-      {error ? <Alert intent="error" title="Not closed">{error}</Alert> : null}
     </div>
   )
   return (
     <Card className="flex flex-col gap-3 p-4 sm:p-5">
       <h2 className="m-0 text-title-3 text-ink">Finish the campaign</h2>
       <p className="m-0 text-[14px] text-ink-2">Closing finishes it for good: no one can register people into it any more. What was recorded stays.</p>
-      <Button size="lg" variant="destructive" className="self-start" onClick={() => { setError(''); setOpen(true) }}>Close campaign</Button>
+      <Button size="lg" variant="destructive" className="self-start" onClick={() => setOpen(true)}>Close campaign</Button>
       <ConfirmSheet open={open} onClose={() => setOpen(false)} title="Close this campaign?" destructive busy={busy} confirmLabel="Close campaign"
         subject={<Card className="px-4 py-3"><p className="m-0 text-title-3 text-ink">{campaign.name}</p>
           <p className="m-0 text-caption text-ink-2">{campaignStatusLabel(campaign.status)}</p></Card>}

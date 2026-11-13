@@ -514,6 +514,36 @@ const campaignPlans = new Map([[HBV_CAMPAIGN_ID, {
   kits: HBV_KITS, rowVersion: 4, updatedAt: iso(-2 * DAY),
 }]])
 
+// A campaign the organisation ran last month (closed): malaria, blood pressure and one type of its own, sickle cell, which
+// is not on the list (owner, 13 Nov 2026: "Other" → a type of the organisation's own). Its visits are not kept here: its
+// dashboard is its counts as they were when it closed, and the organisation's summary adds them in.
+const PAST_CAMPAIGN_ID = 'camp-olodi'
+outreachCampaignStore.push({ id: PAST_CAMPAIGN_ID, name: 'Olodi malaria and sickle cell drive', status: 'closed',
+  services: ['registration', 'vitals', 'lab_sample', 'referral'], startsAt: iso(-40 * DAY), endsAt: iso(-38 * DAY), rowVersion: 5 })
+outreachMemberStore.set(PAST_CAMPAIGN_ID, [{ id: 'cm-olodi-1', campaignId: PAST_CAMPAIGN_ID, membershipId: 'member-demo-1', role: 'admin', createdAt: iso(-45 * DAY) }])
+const SICKLE_CELL = { id: 'custom:sickle-cell', label: 'Sickle cell' }
+campaignPlans.set(PAST_CAMPAIGN_ID, {
+  campaignId: PAST_CAMPAIGN_ID, organisationName: 'Ajegunle Health Volunteers', target: 300, focuses: ['hypertension', 'malaria', SICKLE_CELL],
+  sites: [{ id: 'site-o1', name: 'Olodi Community Centre', community: 'Olodi-Apapa', lga: 'Ajeromi-Ifelodun', address: '9 Olodi Road', target: 300 }],
+  package: { vitals: HBV_PACKAGE.vitals.concat([{ id: 'temperature', name: 'Temperature', unit: '°C', min: 32, max: 43, decimals: 1, normalText: 'Under 37.5' }]),
+    tests: [{ id: 'malaria_rdt', name: 'Malaria rapid test (mRDT)', focus: 'malaria', kind: 'choice', sensitive: false, usesKit: true,
+      results: [{ value: 'positive', label: 'Positive', flag: 'abnormal' }, { value: 'negative', label: 'Negative', flag: 'normal' }, { value: 'invalid', label: 'Invalid (test again)', flag: 'invalid' }] },
+    { id: 'own-sickle01', name: 'Sickle cell test', focus: SICKLE_CELL.id, kind: 'choice', sensitive: false, usesKit: false,
+      results: [{ value: 'positive', label: 'Positive', flag: 'abnormal' }, { value: 'negative', label: 'Negative', flag: 'normal' }, { value: 'invalid', label: 'Invalid', flag: 'invalid' }] }],
+    questions: HBV_PACKAGE.questions.filter(question => question.focus === 'hypertension') },
+  stationMode: 'split', stations: ['register', 'vitals', 'tests', 'results'], partners: HBV_PARTNERS.filter(partner => partner.treats.includes('hypertension')),
+  consent: { text: 'We will record your name, age, sex, phone and community, check your blood pressure and temperature, and test for malaria and sickle cell.',
+    version: '2026-10-01', hivText: null, hivVersion: null, languages: ['en', 'yo', 'pcm'] },
+  kits: [], rowVersion: 6, updatedAt: iso(-38 * DAY),
+})
+const pastDashboards = new Map([[PAST_CAMPAIGN_ID, {
+  asOf: iso(-38 * DAY), target: 300, registered: 212, screened: 198, waiting: {},
+  outcomes: { normal: 150, followUp: 22, referUrgent: 3, referRoutine: 37, pending: 0 },
+  byFocus: [{ focus: 'hypertension', screened: 190, positive: 37, referred: 12 }, { focus: 'malaria', screened: 198, positive: 41, referred: 23 },
+    { focus: SICKLE_CELL.id, label: SICKLE_CELL.label, screened: 64, positive: 5, referred: 5 }],
+  byMember: [], bySite: [{ siteId: 'site-o1', name: 'Olodi Community Centre', registered: 212, screened: 198 }], byHour: [], kits: [], alerts: [],
+}]])
+
 const demoRoles = () => options.outreachRoles ?? ['coordinator', 'clinician']
 const teamStore = new Map([[HBV_CAMPAIGN_ID, [
   { memberId: 'tm-1', membershipId: 'member-demo-1', name: 'Funke Ade', phone: '+2348012345678', email: 'funke@example.test', roles: ['coordinator', 'clinician'], siteId: 'site-1', station: 'results', status: 'accepted', invitedAt: iso(-6 * DAY), joinedAt: iso(-6 * DAY), rowVersion: 1 },
@@ -524,6 +554,8 @@ const teamStore = new Map([[HBV_CAMPAIGN_ID, [
   { memberId: 'tm-6', name: 'Dr Chidi Nwosu', phone: '+2348065555555', email: 'chidi@example.test', roles: ['clinician', 'counsellor', 'tester'], siteId: 'site-2', station: 'results', status: 'accepted', invitedAt: iso(-4 * DAY), joinedAt: iso(-3 * DAY), rowVersion: 1 },
   { memberId: 'tm-7', name: 'Amaka Eze', phone: '+2348076666666', email: null, roles: ['data_checker'], siteId: null, station: null, status: 'invited', invitedAt: iso(-1 * DAY), joinedAt: null, rowVersion: 1 },
 ]]])
+teamStore.set(PAST_CAMPAIGN_ID, [{ memberId: 'tm-o1', membershipId: 'member-demo-1', name: 'Funke Ade', phone: '+2348012345678', email: 'funke@example.test',
+  roles: ['coordinator', 'clinician'], siteId: 'site-o1', station: 'results', status: 'accepted', invitedAt: iso(-45 * DAY), joinedAt: iso(-45 * DAY), rowVersion: 1 }])
 const teamOf = campaignId => teamStore.get(campaignId) ?? []
 const memberName = memberId => teamOf(HBV_CAMPAIGN_ID).find(member => member.memberId === memberId)?.name ?? null
 const you = campaignId => teamOf(campaignId).find(member => member.membershipId === 'member-demo-1') ?? null
@@ -652,6 +684,7 @@ function registerVisit(body) {
 }
 
 function campaignDashboard(campaignId) {
+  if (pastDashboards.has(campaignId)) return pastDashboards.get(campaignId)
   const visits = allVisits().filter(visit => visit.campaignId === campaignId)
   const plan = campaignPlans.get(campaignId)
   const done = (visit, station) => visit.stationsDone.includes(station)
@@ -714,6 +747,55 @@ function campaignDashboard(campaignId) {
   }
 }
 
+/**
+ * GET …/organisation/summary (proposed): the organisation's numbers across its campaigns, from the same counts as each
+ * campaign's dashboard, so the two always agree. Counts only.
+ */
+function organisationSummary() {
+  const month = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }).slice(0, 7)
+  const monthOf = time => new Date(time).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }).slice(0, 7)
+  const now = Date.now()
+  const planned = [...campaignPlans.keys()].filter(id => outreachCampaignStore.some(campaign => campaign.id === id))
+  const dashboards = planned.map(id => ({ plan: campaignPlans.get(id), dashboard: campaignDashboard(id) }))
+  const visits = allVisits().filter(visit => visit.campaignId)
+  const people = new Set(visits.map(visit => visit.patientId ?? visit.id))
+  const past = [...pastDashboards.values()].reduce((sum, dash) => sum + dash.registered, 0)
+  const byFocus = new Map()
+  for (const { plan, dashboard } of dashboards) {
+    const labelOf = focus => (plan.focuses.find(item => (typeof item === 'string' ? item : item.id) === focus)?.label) ?? null
+    for (const item of plan.focuses) {
+      const focus = typeof item === 'string' ? item : item.id
+      const row = byFocus.get(focus) ?? { focus, label: typeof item === 'string' ? FOCUS_WORDS[focus] ?? focus : item.label, campaigns: 0, screened: 0, positive: 0, referred: 0 }
+      row.campaigns += 1
+      byFocus.set(focus, row)
+    }
+    for (const entry of dashboard.byFocus) {
+      const row = byFocus.get(entry.focus) ?? { focus: entry.focus, label: entry.label ?? labelOf(entry.focus) ?? FOCUS_WORDS[entry.focus] ?? entry.focus, campaigns: 1, screened: 0, positive: 0, referred: 0 }
+      row.screened += entry.screened; row.positive += entry.positive; row.referred += entry.referred
+      byFocus.set(entry.focus, row)
+    }
+  }
+  const rows = [...byFocus.values()]
+  const sum = pick => dashboards.reduce((total, { dashboard }) => total + pick(dashboard), 0)
+  return {
+    campaigns: {
+      total: outreachCampaignStore.length,
+      running: outreachCampaignStore.filter(campaign => campaign.status === 'active' && Date.parse(campaign.startsAt) <= now && (!campaign.endsAt || Date.parse(campaign.endsAt) > now)).length,
+      planned: outreachCampaignStore.filter(campaign => campaign.status === 'planned').length,
+      closed: outreachCampaignStore.filter(campaign => campaign.status === 'closed').length,
+    },
+    people: { reached: people.size + past, thisMonth: visits.filter(visit => monthOf(visit.createdAt) === month).length },
+    screened: sum(dash => dash.screened),
+    positive: sum(dash => dash.byFocus.reduce((total, row) => total + row.positive, 0)),
+    referred: sum(dash => dash.outcomes.referUrgent + dash.outcomes.referRoutine),
+    byFocus: rows,
+    conditions: rows.filter(row => row.focus !== 'general_check' && row.screened > 0)
+      .map(row => ({ condition: row.focus, label: row.label, screened: row.screened, positive: row.positive })),
+  }
+}
+const FOCUS_WORDS = { hepatitis_b: 'Hepatitis B', hiv: 'HIV', diabetes: 'Diabetes', hypertension: 'High blood pressure', breast_cancer: 'Breast cancer',
+  cervical_cancer: 'Cervical cancer', prostate_cancer: 'Prostate cancer', malaria: 'Malaria', eye_health: 'Eye health', general_check: 'General health check' }
+
 function teamMemberCounts(campaignId, member) {
   const visits = allVisits().filter(visit => visit.campaignId === campaignId)
   return { ...member, membershipId: undefined,
@@ -734,6 +816,7 @@ function outreachScreeningRoute(method, path, { body, headers } = {}) {
     if (key) replays.set(key, answer)
     return answer
   }
+  if (method === 'GET' && path === `${base}/organisation/summary`) return [200, organisationSummary()]
   const one = method === 'GET' && new RegExp(`^${base}/(ov-[^/]+)$`).exec(path)
   if (one) { const visit = caseVisit(decodeURIComponent(one[1])); return visit ? [200, visitFor(visit)] : null }
 

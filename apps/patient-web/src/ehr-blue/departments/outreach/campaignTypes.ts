@@ -35,8 +35,51 @@ export const SCREENING_FOCUSES: ReadonlyArray<{ readonly value: ScreeningFocus; 
   { value: 'general_check', label: 'General health check', hint: 'Blood pressure, pulse, temperature, weight, height, BMI and oxygen level.' },
 ]
 
-export function focusLabel(focus: string): string {
-  return SCREENING_FOCUSES.find(item => item.value === focus)?.label ?? 'Other'
+/**
+ * A type of outreach that is not on the list, typed by the coordinator ("Other" → "Sickle cell"): `custom:<slug>`, with
+ * its words. It has no template: its tests, measurements and questions are the ones the coordinator adds.
+ */
+export type CustomFocusId = `custom:${string}`
+export interface CustomFocus { readonly id: CustomFocusId; readonly label: string }
+/** What a campaign is for, as its plan keeps it: one of the list, or one of the organisation's own. */
+export type PlanFocus = ScreeningFocus | CustomFocus
+/** A focus as counts and tests name it: one of the list, or `custom:<slug>`. */
+export type FocusId = ScreeningFocus | CustomFocusId
+
+export const isCustomFocusId = (focus: string): focus is CustomFocusId => focus.startsWith('custom:')
+export const focusIdOf = (focus: PlanFocus): FocusId => (typeof focus === 'string' ? focus : focus.id)
+
+/** A custom focus's slug in words when its label isn't given: "custom:sickle-cell" → "Sickle cell". */
+function slugWords(focus: string): string {
+  const words = focus.replace(/^custom:/, '').replace(/[-_]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Other'
+}
+
+/** A focus in words: the list's own words, a custom focus's label (or its slug in words), else "Other". */
+export function focusLabel(focus: string | PlanFocus, label?: string | null): string {
+  if (typeof focus !== 'string') return focus.label
+  const listed = SCREENING_FOCUSES.find(item => item.value === focus)
+  if (listed) return listed.label
+  if (isCustomFocusId(focus)) return label?.trim() || slugWords(focus)
+  return 'Other'
+}
+
+/** Typed words as a slug: "Sickle Cell!" → "sickle-cell". */
+const slugOf = (words: string) => words.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+
+/**
+ * The focus a person typed under "Other": one of the list when the words name it (any case: "malaria", "HIV", "high
+ * blood pressure", "hypertension"), else their own (`custom:<slug>`, the words as typed, first letter capital). Null
+ * when nothing usable was typed.
+ */
+export function focusFromWords(typed: string): PlanFocus | null {
+  const words = typed.trim().replace(/\s+/g, ' ')
+  const slug = slugOf(words)
+  if (!slug) return null
+  const listed = SCREENING_FOCUSES.find(item => item.label.toLowerCase() === words.toLowerCase() || item.value === slug.replace(/-/g, '_')
+    || item.value.replace(/_/g, ' ') === words.toLowerCase())
+  if (listed) return listed.value
+  return { id: `custom:${slug}`, label: words.charAt(0).toUpperCase() + words.slice(1) }
 }
 
 /** One person does everything for each visitor, or the work is split between stations. */
@@ -152,7 +195,9 @@ export interface CampaignSite {
 }
 
 /** The vital signs a package can take. BMI is worked out from weight and height, never typed. */
-export type VitalId = 'bp_systolic' | 'bp_diastolic' | 'pulse' | 'temperature' | 'weight' | 'height' | 'bmi' | 'spo2' | 'blood_sugar'
+export type BuiltInVitalId = 'bp_systolic' | 'bp_diastolic' | 'pulse' | 'temperature' | 'weight' | 'height' | 'bmi' | 'spo2' | 'blood_sugar'
+/** A measurement the coordinator added for their own type of outreach ("Add a measurement"): `own-…`. */
+export type VitalId = BuiltInVitalId | `own-${string}`
 
 export interface VitalDefinition {
   readonly id: VitalId
@@ -189,7 +234,7 @@ export interface AppliesTo {
 export interface TestDefinition {
   readonly id: string
   readonly name: string
-  readonly focus: ScreeningFocus
+  readonly focus: FocusId
   /** 'choice': pick one of `results`. 'number': type a value in `unit` (PSA). */
   readonly kind: 'choice' | 'number'
   readonly results: readonly TestResultOption[]
@@ -217,7 +262,7 @@ export interface QuestionDefinition {
   readonly text: string
   readonly kind: 'yesno' | 'choice'
   readonly options?: readonly string[]
-  readonly focus: ScreeningFocus
+  readonly focus: FocusId
   readonly appliesTo?: AppliesTo
   /** The answer that raises a finding ('yes', or one of `options`), with the finding and its plain reason. */
   readonly flagWhen?: string
@@ -237,7 +282,7 @@ export interface ReferralPartner {
   readonly phone: string
   readonly address: string
   /** What they treat: the focuses a referral to them is for. */
-  readonly treats: readonly ScreeningFocus[]
+  readonly treats: readonly FocusId[]
   readonly notes?: string | null
 }
 
@@ -271,7 +316,8 @@ export interface OutreachPlan {
   readonly organisationName: string
   /** People the campaign aims to see. */
   readonly target: number
-  readonly focuses: readonly ScreeningFocus[]
+  /** The types of outreach: the list's (`hepatitis_b`) and the organisation's own (`{ id: 'custom:malaria-in-pregnancy', label }`). */
+  readonly focuses: readonly PlanFocus[]
   readonly sites: readonly CampaignSite[]
   readonly package: ScreeningPackage
   readonly stationMode: StationMode
@@ -514,13 +560,31 @@ export interface CampaignDashboard {
   /** Visits waiting at each station now (registered, not yet done there). */
   readonly waiting: Readonly<Partial<Record<StationKind, number>>>
   readonly outcomes: { readonly normal: number; readonly followUp: number; readonly referUrgent: number; readonly referRoutine: number; readonly pending: number }
-  readonly byFocus: ReadonlyArray<{ readonly focus: ScreeningFocus; readonly screened: number; readonly positive: number; readonly referred: number }>
+  /** Per focus; a custom focus carries its words in `label`. */
+  readonly byFocus: ReadonlyArray<{ readonly focus: FocusId; readonly label?: string | null; readonly screened: number; readonly positive: number; readonly referred: number }>
   readonly byMember: ReadonlyArray<{ readonly memberId: string; readonly name: string | null; readonly roles: readonly TeamRole[]; readonly registered: number; readonly screened: number }>
   readonly bySite: ReadonlyArray<{ readonly siteId: string; readonly name: string; readonly registered: number; readonly screened: number }>
   /** Registrations per site per hour; `hour` is the hour's start (ISO). */
   readonly byHour: ReadonlyArray<{ readonly siteId: string; readonly hour: string; readonly registered: number }>
   readonly kits: ReadonlyArray<{ readonly kitId: string; readonly siteId: string; readonly testId: string; readonly lot: string; readonly expiresOn: string; readonly count: number; readonly used: number; readonly left: number }>
   readonly alerts: readonly CampaignAlert[]
+}
+
+/**
+ * GET …/organisation/summary: the organisation's numbers across every campaign it has run, for its owner (counts only,
+ * never a person). Positives of sensitive focuses (HIV, hepatitis B) are counts, as on a campaign's dashboard.
+ */
+export interface OrganisationSummary {
+  readonly campaigns: { readonly total: number; readonly running: number; readonly planned: number; readonly closed: number }
+  /** People registered in any campaign (each person once); `thisMonth` since the 1st, Lagos time. */
+  readonly people: { readonly reached: number; readonly thisMonth: number }
+  readonly screened: number
+  readonly positive: number
+  readonly referred: number
+  /** Per type of outreach, custom ones included (their words in `label`). */
+  readonly byFocus: ReadonlyArray<{ readonly focus: FocusId; readonly label: string; readonly campaigns: number; readonly screened: number; readonly positive: number; readonly referred: number }>
+  /** Per condition looked for: how many were checked for it and how many were found to have it. */
+  readonly conditions: ReadonlyArray<{ readonly condition: string; readonly label: string; readonly screened: number; readonly positive: number }>
 }
 
 /** One row of GET …/follow-ups: who to call, when, and why (a sensitive reason is said only to those allowed). */

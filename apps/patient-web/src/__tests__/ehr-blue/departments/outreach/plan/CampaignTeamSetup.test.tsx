@@ -1,7 +1,9 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { renderDept } from '../../harness'
+import { renderDept as renderBare } from '../../harness'
+import type { ReactElement } from 'react'
+import { ToastProvider } from '../../../../../kasuwa/toast'
 import { CampaignSetup, CampaignTeam } from '../../../../../ehr-blue/departments/outreach/plan'
 import { contactFrom } from '../../../../../ehr-blue/departments/outreach/plan/CampaignTeam'
 import { packageFor } from '../../../../../ehr-blue/departments/outreach/screeningTemplates'
@@ -16,6 +18,8 @@ vi.mock('../../../../../staff/App', async () => {
   const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../../harness')
   return { useStaff: () => staffContext(fakeFacility(['outreach.campaign.read', 'outreach.campaign.write'], { id: hospital, name: 'Demo Hospital', roles: session.roles })) }
 })
+/** Each screen with Outreach's toasts, as the page gives them. */
+const renderDept = (element: ReactElement) => renderBare(<ToastProvider>{element}</ToastProvider>)
 const routes = await vi.hoisted(async () => (await import('./planTestKit')).campaignRoutes())
 const api = vi.hoisted(() => ({ outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn() }))
 vi.mock('../../../../../staff/api', () => ({ staffApi: api, outreachCampaignRequest: routes.request }))
@@ -76,8 +80,11 @@ describe('the team', () => {
     fireEvent.click(within(sheet).getByLabelText('Tester'))
     fireEvent.click(within(sheet).getByLabelText('Counsellor'))
     await press(within(sheet).getByRole('button', { name: 'Send invitation' }))
-    expect(within(sheet).getByRole('alert')).toBeTruthy()
-    await press(within(sheet).getByRole('button', { name: 'Send invitation' }))
+    // Said in a toast at the top, the drawer kept open with what was typed; Try again sends the same key.
+    const toast = await screen.findByRole('alert')
+    expect(toast.textContent).toContain('Not sent')
+    expect(within(sheet).queryByRole('alert')).toBeNull()
+    await press(within(toast).getByRole('button', { name: 'Try again' }))
     const [first, second] = routes.of('POST', '/campaigns/campaign-1/team')
     expect(first?.body).toEqual({ phone: '08031234567', roles: ['registrar', 'tester', 'counsellor'], siteId: 'site-1', station: 'register' })
     expect(first?.headers?.['Idempotency-Key']).toBeTruthy()
@@ -133,9 +140,15 @@ describe('the setup', () => {
   it('shows each section, with kits used and left, and saves a section against the version read', async () => {
     routes.on(call => (call.method === 'PUT' ? { ...(call.body as object), campaignId: 'campaign-1', rowVersion: 5 } : undefined))
     renderDept(<CampaignSetup campaignId="campaign-1" />)
-    expect(await screen.findByText('Demo Town Hall')).toBeTruthy()
-    expect(screen.getByText('5 left')).toBeTruthy()
-    expect(screen.getByText(/95 used of 100/)).toBeTruthy()
+    // Each part of the plan in a line; Edit opens it in a drawer.
+    const sections = await screen.findByRole('list', { name: 'Setup' })
+    await waitFor(() => expect(within(sections).getByRole('button', { name: 'Edit sites' }).textContent).toContain('Demo Town Hall'))
+    expect(within(sections).getByRole('button', { name: 'Edit kits' }).textContent).toContain('1 lot, 5 tests left')
+    await press(within(sections).getByRole('button', { name: 'Edit kits' }))
+    const kits = screen.getByRole('dialog', { name: 'Add kit stock' })
+    expect(within(kits).getByText('5 left')).toBeTruthy()
+    expect(within(kits).getByText(/95 used of 100/)).toBeTruthy()
+    await press(within(kits).getByRole('button', { name: 'Cancel' }))
     await press(screen.getByRole('button', { name: 'Edit sites' }))
     const sheet = screen.getByRole('dialog', { name: 'Edit sites' })
     await press(within(sheet).getByRole('button', { name: 'Add another site' }))
@@ -145,6 +158,9 @@ describe('the setup', () => {
     expect(save?.headers).toEqual({ 'If-Match': '"4"' })
     expect((save?.body as { sites: Array<{ name: string }> }).sites.map(site => site.name)).toEqual(['Demo Town Hall', 'Demo Church Hall'])
     expect((save?.body as { kits: unknown[] }).kits).toHaveLength(1)
+    // Saved: said in a toast, and focus back on the section's Edit.
+    expect((await screen.findByRole('status')).textContent).toContain('Sites saved.')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit sites' }))
   })
 
   it('says a plan changed since in words and reads it again', async () => {
@@ -154,7 +170,8 @@ describe('the setup', () => {
     const sheet = screen.getByRole('dialog', { name: 'Edit campaign' })
     const reads = routes.of('GET', '/plan').length
     await press(within(sheet).getByRole('button', { name: 'Save' }))
-    expect(within(sheet).getByText('Someone changed this just now. It has been read again: check it, then try again.')).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toContain('Someone changed this just now. It has been read again: check it, then try again.')
+    expect(within(sheet).queryByRole('alert')).toBeNull()
     expect(routes.of('GET', '/plan').length).toBe(reads + 1)
   })
 

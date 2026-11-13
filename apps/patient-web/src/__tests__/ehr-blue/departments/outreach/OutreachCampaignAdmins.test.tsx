@@ -170,7 +170,9 @@ describe('creating a campaign', () => {
     fireEvent.change(within(form).getByLabelText(/^Start date/), { target: { value: '2026-11-20' } })
     const reads = api.outreachCampaigns.mock.calls.length
     await press(within(form).getByRole('button', { name: 'Create campaign' }))
-    expect(form.textContent).toContain('Check it for this campaign before you retry')
+    // Said in a toast at the top of the screen, not in the form.
+    expect((await screen.findByRole('alert')).textContent).toContain('Check it for this campaign before you retry')
+    expect(form.textContent).not.toContain('Check it for this campaign')
     await waitFor(() => expect(api.outreachCampaigns.mock.calls.length).toBe(reads + 1))
     expect(api.createOutreachCampaign).toHaveBeenCalledTimes(1)
   })
@@ -262,10 +264,12 @@ describe('a campaign’s admin', () => {
     fireEvent.change(within(form).getByLabelText(/^Why it is opening/), { target: { value: 'The team is on site.' } })
     const reads = api.outreachCampaigns.mock.calls.length
     await press(within(form).getByRole('button', { name: 'Open campaign' }))
-    expect(form.textContent).toContain('This campaign changed since you opened it. It has been read again: check it, then try again.')
+    // Said in a toast at the top, not in the form.
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('This campaign changed since you opened it. It has been read again: check it, then try again.'))
+    expect(form.textContent).not.toContain('This campaign changed')
     expect(api.outreachCampaigns.mock.calls.length).toBe(reads + 1)
     await press(within(form).getByRole('button', { name: 'Open campaign' }))
-    expect(form.textContent).toContain('Only this campaign’s admins can do this. Ask one of them.')
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Only this campaign’s admins can do this. Ask one of them.'))
     expect(document.body.textContent).not.toContain(SAID_REFUSED)
     expect(document.body.textContent).not.toMatch(/VERSION_CONFLICT|OUTREACH_CAMPAIGN|reload before retrying/)
   })

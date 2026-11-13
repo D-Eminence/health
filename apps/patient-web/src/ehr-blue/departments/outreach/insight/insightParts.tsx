@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react'
 import { cx, StatCard } from '../../../../kasuwa/ui'
 import { campaignFlowErrorText, isNotOffered } from '../campaignApi'
-import { focusLabel, type ScreeningFocus, type TeamRole } from '../campaignTypes'
+import { focusLabel, type FocusId, type TeamRole } from '../campaignTypes'
 import { TESTS } from '../screeningTemplates'
 
 /*
@@ -11,7 +11,7 @@ import { TESTS } from '../screeningTemplates'
  */
 
 /** The focuses whose results are sensitive (HIV, hepatitis B): their positives are counts only those allowed may see. */
-export const SENSITIVE_FOCUSES: ReadonlySet<ScreeningFocus> = new Set(Object.values(TESTS).filter(test => test.sensitive).map(test => test.focus))
+export const SENSITIVE_FOCUSES: ReadonlySet<FocusId> = new Set(Object.values(TESTS).filter(test => test.sensitive).map(test => test.focus))
 
 export function testName(testId: string, fromPlan?: ReadonlyArray<{ readonly id: string; readonly name: string }>): string {
   return fromPlan?.find(test => test.id === testId)?.name ?? TESTS[testId]?.name ?? 'Test kit'
@@ -176,4 +176,49 @@ export function rolesWords(roles: readonly TeamRole[], label: (role: string) => 
   const words = roles.map(label)
   if (words.length <= 1) return words[0] ?? 'Team member'
   return `${words.slice(0, -1).join(', ')} and ${words.at(-1)!.toLowerCase()}`
+}
+
+/**
+ * One part of a page at a time (owner, 13 Nov 2026: no long pages): a row of tabs (44px tall, arrow keys move between
+ * them) and the chosen part under it. The first part shows to begin with.
+ */
+export function SectionSwitch<T extends string>({ id, label, sections, initial }: {
+  readonly id: string
+  readonly label: string
+  readonly sections: ReadonlyArray<{ readonly value: T; readonly label: string; readonly content: ReactNode }>
+  readonly initial?: T
+}) {
+  const [chosen, setChosen] = useState<T | undefined>(initial)
+  const buttons = useRef(new Map<T, HTMLButtonElement>())
+  const shown = sections.find(section => section.value === chosen) ?? sections[0]
+  if (!shown) return null
+  const onKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next = event.key === 'ArrowRight' ? index + 1 : event.key === 'ArrowLeft' ? index - 1
+      : event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : null
+    if (next === null) return
+    event.preventDefault()
+    const value = sections[(next + sections.length) % sections.length]!.value
+    setChosen(value)
+    buttons.current.get(value)?.focus()
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div role="tablist" aria-label={label} className="flex max-w-full flex-wrap gap-1 self-start rounded-xl bg-tray p-1">
+        {sections.map((section, index) => {
+          const selected = section.value === shown.value
+          return (
+            <button key={section.value} type="button" role="tab" id={`${id}-tab-${section.value}`} aria-selected={selected} aria-controls={`${id}-panel`}
+              tabIndex={selected ? 0 : -1} onClick={() => setChosen(section.value)} onKeyDown={event => onKey(event, index)}
+              ref={element => { if (element) buttons.current.set(section.value, element); else buttons.current.delete(section.value) }}
+              className={cx('inline-flex h-11 cursor-pointer items-center justify-center rounded-lg border-0 px-3 text-[14px] font-medium whitespace-nowrap',
+                'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
+                selected ? 'bg-surface text-ink shadow-[var(--shadow-xs)] ring-1 ring-line' : 'bg-transparent text-ink-2 hover:text-ink')}>
+              {section.label}
+            </button>
+          )
+        })}
+      </div>
+      <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${shown.value}`} className="min-w-0">{shown.content}</div>
+    </div>
+  )
 }

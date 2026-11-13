@@ -1,12 +1,16 @@
-import { useId, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Check, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Check, Plus, ShieldAlert, Trash2, X } from 'lucide-react'
 import { Badge, Button, Input, Select, Textarea, cx } from '../../../../kasuwa/ui'
 import { Segmented } from '../../../../kasuwa/interactive'
+import { useToast } from '../../../../kasuwa/toast'
 import type { OutreachConsentLanguage } from '../../../../staff/api'
-import { SCREENING_FOCUSES, STATIONS, type CampaignSite, type KitStock, type ReferralPartner, type ScreeningFocus, type StationKind } from '../campaignTypes'
 import {
-  addOwnQuestion, CONSENT_LANGUAGES, emptyPartner, emptySite, isOwnQuestion, kitLeft, localId, needsSeparateConsent, packageChoices,
-  removeOwnQuestion, setStationMode, toggleItem, withFocuses, type PlanDraft,
+  focusFromWords, focusIdOf, focusLabel, SCREENING_FOCUSES, STATIONS, type CampaignSite, type CustomFocus, type FocusId, type KitStock, type PlanFocus,
+  type ReferralPartner, type ScreeningFocus, type StationKind,
+} from '../campaignTypes'
+import {
+  addOwnQuestion, addOwnTest, addOwnVital, CONSENT_LANGUAGES, emptyPartner, emptySite, isOwnItem, isOwnQuestion, kitLeft, localId, needsSeparateConsent,
+  OWN_TEST_RESULTS, packageChoices, removeOwnItem, removeOwnQuestion, setStationMode, toggleItem, withFocuses, type PlanDraft,
 } from './planDraft'
 
 /*
@@ -77,8 +81,10 @@ export function fieldProps(id: string, error: string | undefined, hint = false) 
 const CONTROL = 'h-12 text-base sm:h-11 sm:text-sm'
 
 /** Several of a set, as chips (checkboxes): 44px tall, each says it is chosen with a tick, not colour alone. */
-export function ChoiceChips<T extends string>({ legend, hint, options, values, onChange, name, error, alert, seq, id, disabledValues }: {
+export function ChoiceChips<T extends string>({ legend, hint, options, values, onChange, name, error, alert, seq, id, disabledValues, extra }: {
   readonly legend: string; readonly hint?: string; readonly name: string; readonly id?: string; readonly error?: string
+  /** More chips after the options, in the same row (a focus of the organisation's own, "Other"). */
+  readonly extra?: ReactNode
   readonly alert?: boolean; readonly seq?: number
   readonly options: ReadonlyArray<{ readonly value: T; readonly label: string; readonly hint?: string }>
   readonly values: readonly T[]; readonly onChange: (next: T[]) => void; readonly disabledValues?: readonly T[]
@@ -107,6 +113,7 @@ export function ChoiceChips<T extends string>({ legend, hint, options, values, o
             </label>
           )
         })}
+        {extra}
       </div>
       {error ? <p id={`${base}-error`} className="m-0 text-xs font-medium text-danger-ink">{alert ? <span key={seq} role="alert">{error}</span> : error}</p>
         : hint ? <p id={`${base}-hint`} className="m-0 text-xs text-ink-3">{hint}</p> : null}
@@ -134,36 +141,104 @@ function CheckRow({ id, checked, onChange, title, detail, badge }: {
 // ------------------------------------------------------------------------------------------------------ focuses --
 
 export function FocusEditor({ draft, onChange, consentEdited, errors }: EditorProps) {
+  const listed = draft.focuses.filter((focus): focus is ScreeningFocus => typeof focus === 'string')
+  const own = draft.focuses.filter((focus): focus is CustomFocus => typeof focus !== 'string')
+  const [typing, setTyping] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [typedError, setTypedError] = useState('')
+  const toast = useToast()
+  // The field gets focus as it opens, in the commit that shows it.
+  const opened = useRef(false)
+  useLayoutEffect(() => {
+    if (typing && !opened.current) document.getElementById('plan-focus-other')?.focus()
+    opened.current = typing
+  }, [typing])
+  const set = (focuses: readonly PlanFocus[]) => onChange(withFocuses(draft, focuses, { consentEdited }))
+  const field = 'plan-focus-other'
+  const add = () => {
+    const focus = focusFromWords(typed)
+    if (!focus) {
+      setTypedError('Type what it is for, like malaria.')
+      document.getElementById(field)?.focus()
+      return
+    }
+    const id = focusIdOf(focus)
+    if (!draft.focuses.some(item => focusIdOf(item) === id)) set([...draft.focuses, focus])
+    // A name on the list is that focus (its own checks), not a new one.
+    if (typeof focus === 'string') toast.info(`${focusLabel(focus)} is on the list, so its own checks are used.`)
+    setTyped('')
+    setTypedError('')
+    document.getElementById(field)?.focus()
+  }
+  const remove = (focus: CustomFocus) => {
+    set(draft.focuses.filter(item => focusIdOf(item) !== focus.id))
+    document.getElementById(`${field}-open`)?.focus()
+  }
+  const chip = 'relative inline-flex min-h-11 items-center gap-1.5 rounded-full text-sm font-medium ring-1 ring-inset'
   return (
-    <ChoiceChips name="focuses" id="plan-focuses" legend="What it screens for" hint="Choose one or more. Each brings its own checks, which you can change next."
-      error={errors?.focuses} options={SCREENING_FOCUSES} values={draft.focuses}
-      onChange={focuses => onChange(withFocuses(draft, focuses, { consentEdited }))} />
+    <div className="flex flex-col gap-3">
+      <ChoiceChips name="focuses" id="plan-focuses" legend="What it screens for"
+        hint="Choose one or more. Each brings its own checks, which you can change next. Not on the list? Choose Other."
+        error={errors?.focuses} options={SCREENING_FOCUSES} values={listed}
+        onChange={focuses => set([...focuses, ...own])}
+        extra={<>
+          {own.map(focus => (
+            <span key={focus.id} className={cx(chip, 'bg-brand-soft pl-4 text-brand-ink ring-brand-line')}>
+              <Check className="size-4 shrink-0" aria-hidden />{focus.label}
+              <button type="button" aria-label={`Remove ${focus.label}`} onClick={() => remove(focus)}
+                className="inline-flex size-11 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-brand-ink hover:bg-brand-line/30 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
+                <X className="size-4" aria-hidden />
+              </button>
+            </span>
+          ))}
+          <button type="button" id={`${field}-open`} aria-expanded={typing} aria-controls={typing ? `${field}-row` : undefined}
+            onClick={() => { setTyping(open => !open); setTypedError('') }}
+            className={cx(chip, 'cursor-pointer border-0 px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
+              typing ? 'bg-tray text-ink ring-line-strong' : 'bg-surface text-ink-2 ring-line-strong hover:text-ink')}>
+            <Plus className="size-4 shrink-0" aria-hidden />Other
+          </button>
+        </>} />
+      {typing ? (
+        <div id={`${field}-row`} className="flex flex-col gap-2 @md:flex-row @md:items-start">
+          <PlanField id={field} label="Type the condition (e.g. malaria)" error={typedError} hint="Add as many as you run. Each one is counted on its own."
+            className="flex-1">
+            <Input className={CONTROL} value={typed} maxLength={60} autoComplete="off" onChange={event => setTyped(event.target.value)}
+              onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); add() } }} {...fieldProps(field, typedError, true)} />
+          </PlanField>
+          <Button icon={Plus} className="h-12 @md:mt-6 sm:h-11" onClick={add}>Add</Button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
 // ------------------------------------------------------------------------------------------------------ package --
 
+type OwnKind = 'test' | 'vital' | 'question'
+
 export function PackageEditor({ draft, onChange, consentEdited }: EditorProps) {
   const options = { consentEdited }
   const choices = packageChoices(draft)
   const on = (kind: 'vitals' | 'tests' | 'questions', id: string) => draft.package[kind].some(item => item.id === id)
-  const [question, setQuestion] = useState('')
-  const [questionError, setQuestionError] = useState('')
-  const add = () => {
-    const text = question.trim()
-    if (text.length < 5) { setQuestionError('Write the question, like “Do you have a cough?”'); return }
-    onChange(addOwnQuestion(draft, text, options))
-    setQuestion('')
-    setQuestionError('')
-  }
+  // One "Add …" form open at a time, under the lists.
+  const [adding, setAdding] = useState<OwnKind | null>(null)
   if (draft.focuses.length === 0) return <p className="m-0 text-sm text-ink-2">Choose what the campaign is for first.</p>
+  const ownFocus = draft.focuses.some(focus => typeof focus !== 'string')
+  const empty = !choices.vitals.length && !choices.tests.length && !choices.questions.length
+  const removeButton = (kind: 'vitals' | 'tests' | 'questions', item: { readonly id: string }, name: string) => (
+    <Button variant="ghost" icon={Trash2} aria-label={`Remove “${name}”`} onClick={() => onChange(removeOwnItem(draft, kind, item.id, options))} />
+  )
   return (
     <div className="flex flex-col gap-5">
+      {empty ? <p className="m-0 text-sm text-ink-2">{ownFocus ? 'Nothing to check yet: add a test, a measurement or a question.' : 'Nothing to check yet.'}</p> : null}
       {choices.vitals.length ? (
         <section aria-labelledby="plan-vitals-heading">
-          <h4 id="plan-vitals-heading" className="m-0 text-[13px] font-semibold text-ink-2">Vital signs</h4>
+          <h4 id="plan-vitals-heading" className="m-0 text-[13px] font-semibold text-ink-2">Vital signs and measurements</h4>
           <ul className="m-0 list-none divide-y divide-line p-0">
-            {choices.vitals.map(vital => (
+            {choices.vitals.map(vital => isOwnItem(vital) ? (
+              <OwnRow key={vital.id} title={`${vital.name}${vital.unit ? ` (${vital.unit})` : ''}`} detail="A number, typed at the station."
+                action={removeButton('vitals', vital, vital.name)} />
+            ) : (
               <CheckRow key={vital.id} id={`plan-vital-${vital.id}`} checked={on('vitals', vital.id)} title={`${vital.name} (${vital.unit})`}
                 detail={vital.derived ? vital.note : vital.normalText ? `Usual: ${vital.normalText}` : undefined}
                 onChange={value => onChange(toggleItem(draft, 'vitals', vital.id, value, options))} />
@@ -175,40 +250,123 @@ export function PackageEditor({ draft, onChange, consentEdited }: EditorProps) {
         <section aria-labelledby="plan-tests-heading">
           <h4 id="plan-tests-heading" className="m-0 text-[13px] font-semibold text-ink-2">Tests</h4>
           <ul className="m-0 list-none divide-y divide-line p-0">
-            {choices.tests.map(test => (
-              <CheckRow key={test.id} id={`plan-test-${test.id}`} checked={on('tests', test.id)} title={test.name}
-                badge={test.sensitive ? <Badge size="sm" tone="warn" icon={ShieldAlert}>Sensitive</Badge> : null}
-                detail={<>
-                  {appliesText(test.appliesTo) ? <span className="block">{appliesText(test.appliesTo)}</span> : null}
-                  {test.kind === 'number' ? `A number in ${test.unit ?? ''}` : `Results: ${test.results.map(result => result.label).join(', ')}`}
-                  {test.separateConsent ? <span className="block">Adds its own consent and counselling.</span> : null}
-                </>}
-                onChange={value => onChange(toggleItem(draft, 'tests', test.id, value, options))} />
+            {choices.tests.map(test => {
+              const badge = test.sensitive ? <Badge size="sm" tone="warn" icon={ShieldAlert}>{isOwnItem(test) ? 'Private' : 'Sensitive'}</Badge> : null
+              const detail = <>
+                {appliesText(test.appliesTo) ? <span className="block">{appliesText(test.appliesTo)}</span> : null}
+                {test.kind === 'number' ? `A number in ${test.unit ?? ''}` : `Results: ${test.results.map(result => result.label).join(', ')}`}
+                {test.separateConsent ? <span className="block">Adds its own consent and counselling.</span> : null}
+              </>
+              return isOwnItem(test)
+                ? <OwnRow key={test.id} title={test.name} badge={badge} detail={detail} action={removeButton('tests', test, test.name)} />
+                : <CheckRow key={test.id} id={`plan-test-${test.id}`} checked={on('tests', test.id)} title={test.name} badge={badge} detail={detail}
+                  onChange={value => onChange(toggleItem(draft, 'tests', test.id, value, options))} />
+            })}
+          </ul>
+        </section>
+      ) : null}
+      {choices.questions.length ? (
+        <section aria-labelledby="plan-questions-heading">
+          <h4 id="plan-questions-heading" className="m-0 text-[13px] font-semibold text-ink-2">Questions</h4>
+          <ul className="m-0 list-none divide-y divide-line p-0">
+            {choices.questions.map(item => isOwnQuestion(item) ? (
+              <li key={item.id} className="flex min-h-12 items-center gap-3 py-2">
+                <span className="min-w-0 flex-1 text-sm font-medium text-ink">{item.text}</span>
+                <Button variant="ghost" icon={Trash2} aria-label={`Remove “${item.text}”`} onClick={() => onChange(removeOwnQuestion(draft, item.id, options))} />
+              </li>
+            ) : (
+              <CheckRow key={item.id} id={`plan-question-${item.id}`} checked={on('questions', item.id)} title={item.text} detail={appliesText(item.appliesTo)}
+                onChange={value => onChange(toggleItem(draft, 'questions', item.id, value, options))} />
             ))}
           </ul>
         </section>
       ) : null}
-      <section aria-labelledby="plan-questions-heading">
-        <h4 id="plan-questions-heading" className="m-0 text-[13px] font-semibold text-ink-2">Questions</h4>
-        <ul className="m-0 list-none divide-y divide-line p-0">
-          {choices.questions.map(item => isOwnQuestion(item) ? (
-            <li key={item.id} className="flex min-h-12 items-center gap-3 py-2">
-              <span className="min-w-0 flex-1 text-sm font-medium text-ink">{item.text}</span>
-              <Button variant="ghost" icon={Trash2} aria-label={`Remove “${item.text}”`} onClick={() => onChange(removeOwnQuestion(draft, item.id, options))} />
-            </li>
-          ) : (
-            <CheckRow key={item.id} id={`plan-question-${item.id}`} checked={on('questions', item.id)} title={item.text} detail={appliesText(item.appliesTo)}
-              onChange={value => onChange(toggleItem(draft, 'questions', item.id, value, options))} />
+      <div className="flex flex-col gap-3">
+        <div role="group" aria-label="Add your own" className="flex flex-wrap gap-2">
+          {([['test', 'Add a test'], ['vital', 'Add a measurement'], ['question', 'Add a question']] as const).map(([kind, label]) => (
+            <Button key={kind} id={`plan-add-${kind}-open`} icon={Plus} aria-expanded={adding === kind} aria-controls={adding === kind ? `plan-add-${kind}` : undefined}
+              variant={adding === kind ? 'secondary' : 'ghost'} onClick={() => setAdding(open => (open === kind ? null : kind))}>{label}</Button>
           ))}
-        </ul>
-        <div className="mt-2 flex flex-col gap-2 @md:flex-row @md:items-end">
-          <PlanField id="plan-own-question" label="Add a question" optional hint="A yes or no question." error={questionError} className="flex-1">
-            <Input className={CONTROL} value={question} maxLength={200} autoComplete="off" onChange={event => setQuestion(event.target.value)}
-              onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); add() } }} {...fieldProps('plan-own-question', questionError, true)} />
-          </PlanField>
-          <Button icon={Plus} className="@md:mb-5" onClick={add}>Add question</Button>
         </div>
-      </section>
+        {adding ? <AddOwn key={adding} kind={adding} onAdd={next => onChange(next(draft, options))} /> : null}
+      </div>
+    </div>
+  )
+}
+
+/** A vital, test or question the coordinator added: its name and a button that takes it away. */
+function OwnRow({ title, detail, badge, action }: { readonly title: string; readonly detail?: ReactNode; readonly badge?: ReactNode; readonly action: ReactNode }) {
+  return (
+    <li className="flex min-h-12 items-start gap-3 py-2.5">
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">{title}{badge}<Badge size="sm" tone="neutral">Yours</Badge></span>
+        {detail ? <span className="mt-0.5 block text-[13px] text-ink-3">{detail}</span> : null}
+      </span>
+      {action}
+    </li>
+  )
+}
+
+/**
+ * The small form of one "Add …": a test (name, its results, private or not), a measurement (name, unit) or a yes/no
+ * question. Field errors under their fields, focus to the first one; added, the form empties for the next one.
+ */
+function AddOwn({ kind, onAdd }: {
+  readonly kind: OwnKind
+  readonly onAdd: (change: (draft: PlanDraft, options: { consentEdited: boolean }) => PlanDraft) => void
+}) {
+  const base = `plan-add-${kind}`
+  const [name, setName] = useState('')
+  const [extra, setExtra] = useState(kind === 'test' ? OWN_TEST_RESULTS : '')
+  const [privateResult, setPrivateResult] = useState(false)
+  const [problems, setProblems] = useState<{ name?: string; extra?: string }>({})
+  const nameLabel = kind === 'test' ? 'Test name' : kind === 'vital' ? 'Measurement' : 'Question'
+  const first = useRef<HTMLInputElement>(null)
+  useLayoutEffect(() => { first.current?.focus() }, [])
+  const add = () => {
+    const found: { name?: string; extra?: string } = {}
+    const words = name.trim()
+    if (kind === 'question' ? words.length < 5 : words.length < 2) {
+      found.name = kind === 'test' ? 'Name the test, like “Sickle cell test”.' : kind === 'vital' ? 'Name it, like “Waist size”.' : 'Write the question, like “Do you have a cough?”'
+    }
+    if (kind === 'test' && extra.split(',').map(word => word.trim()).filter(Boolean).length < 2) found.extra = 'Give at least two results, with a comma between.'
+    if (kind === 'vital' && !extra.trim()) found.extra = 'Give the unit, like cm.'
+    setProblems(found)
+    if (found.name || found.extra) { document.getElementById(found.name ? `${base}-name` : `${base}-extra`)?.focus(); return }
+    onAdd((draft, options) => kind === 'test' ? addOwnTest(draft, { name: words, results: extra, sensitive: privateResult }, options)
+      : kind === 'vital' ? addOwnVital(draft, { name: words, unit: extra }, options) : addOwnQuestion(draft, words, options))
+    setName('')
+    setExtra(kind === 'test' ? OWN_TEST_RESULTS : '')
+    setPrivateResult(false)
+    first.current?.focus()
+  }
+  const enter = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Enter') { event.preventDefault(); add() } }
+  return (
+    <div id={base} className="flex flex-col gap-3 rounded-xl bg-subtle p-3 ring-1 ring-line">
+      <div className="grid gap-3 @md:grid-cols-2">
+        <PlanField id={`${base}-name`} label={nameLabel} error={problems.name} className={kind === 'question' ? '@md:col-span-2' : undefined}
+          hint={kind === 'question' ? 'A yes or no question.' : undefined}>
+          <Input ref={first} className={CONTROL} value={name} maxLength={kind === 'question' ? 200 : 80} autoComplete="off" onKeyDown={enter}
+            onChange={event => setName(event.target.value)} {...fieldProps(`${base}-name`, problems.name, kind === 'question')} />
+        </PlanField>
+        {kind !== 'question' ? (
+          <PlanField id={`${base}-extra`} label={kind === 'test' ? 'Results' : 'Unit'} error={problems.extra}
+            hint={kind === 'test' ? 'Comma between. “Invalid” means test again.' : 'For example: cm, mg/dL'}>
+            <Input className={CONTROL} value={extra} maxLength={kind === 'test' ? 120 : 20} autoComplete="off" onKeyDown={enter}
+              onChange={event => setExtra(event.target.value)} {...fieldProps(`${base}-extra`, problems.extra, true)} />
+          </PlanField>
+        ) : null}
+      </div>
+      {kind === 'test' ? (
+        <label htmlFor={`${base}-private`} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-ink">
+          <input id={`${base}-private`} type="checkbox" checked={privateResult} onChange={event => setPrivateResult(event.target.checked)}
+            className="size-5 shrink-0 cursor-pointer accent-[var(--color-brand-fill,currentColor)]" />
+          <span>Private result <span className="text-ink-3">(only counsellors and clinicians see it)</span></span>
+        </label>
+      ) : null}
+      <Button icon={Plus} variant="primary" className="self-start" onClick={add}>
+        {kind === 'test' ? 'Add test' : kind === 'vital' ? 'Add measurement' : 'Add question'}
+      </Button>
     </div>
   )
 }
@@ -275,7 +433,7 @@ export function StationsEditor({ draft, onChange, consentEdited }: EditorProps) 
 
 export function PartnersEditor({ draft, onChange, errors }: EditorProps) {
   const set = (index: number, change: Partial<ReferralPartner>) => onChange({ ...draft, partners: draft.partners.map((partner, at) => (at === index ? { ...partner, ...change } : partner)) })
-  const focuses = SCREENING_FOCUSES.filter(item => draft.focuses.includes(item.value))
+  const focuses = draft.focuses.map(focus => ({ value: focusIdOf(focus), label: focusLabel(focus) }))
   return (
     <div className="flex flex-col gap-4">
       {draft.partners.length === 0 ? <p className="m-0 text-sm text-ink-2">Clinics and hospitals that take the people you refer. You can add them later.</p> : null}
@@ -301,7 +459,7 @@ export function PartnersEditor({ draft, onChange, errors }: EditorProps) {
             </div>
             {focuses.length > 1 ? (
               <ChoiceChips name={`${base}-treats`} id={`${base}-treats`} legend="What they treat" options={focuses} values={partner.treats}
-                onChange={treats => set(index, { treats: treats as ScreeningFocus[] })} />
+                onChange={treats => set(index, { treats: treats as FocusId[] })} />
             ) : null}
             {index < draft.partners.length - 1 ? <hr className="m-0 border-0 border-t border-line" /> : null}
           </fieldset>

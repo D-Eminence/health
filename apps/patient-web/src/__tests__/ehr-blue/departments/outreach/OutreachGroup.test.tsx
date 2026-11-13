@@ -123,9 +123,11 @@ describe('Your team', () => {
     fireEvent.change(within(team).getByRole('textbox', { name: /Their name/ }), { target: { value: 'Chinedu Eze' } })
     fireEvent.change(within(team).getByRole('textbox', { name: /Their email/ }), { target: { value: 'chinedu@example.test' } })
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
-    expect(await within(team).findByRole('alert')).toBeTruthy()
+    // Invite results are said in a toast at the top, not in the card.
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(within(team).queryByRole('alert')).toBeNull()
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
-    expect(await within(team).findByText('Invitation sent to Chinedu Eze. They join when they open the link in the email.')).toBeTruthy()
+    expect(await screen.findByText('Invitation sent to Chinedu Eze. They join when they open the link in the email.')).toBeTruthy()
     const [first, second] = api.createOutreachInvitation.mock.calls
     expect(first![1]).toEqual({ name: 'Chinedu Eze', email: 'chinedu@example.test' })
     expect(second![2]).toBe(first![2])
@@ -139,7 +141,7 @@ describe('Your team', () => {
     fireEvent.change(within(team).getByRole('textbox', { name: /Their name/ }), { target: { value: 'Tayo Ojo' } })
     fireEvent.change(within(team).getByRole('textbox', { name: /Their email/ }), { target: { value: 'tayo@example.test' } })
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
-    expect((await within(team).findByRole('alert')).textContent).toBe('This person already has an invitation waiting.')
+    expect((await screen.findByRole('alert')).textContent).toContain('This person already has an invitation waiting.')
     await waitFor(() => expect(api.outreachInvitations).toHaveBeenCalledTimes(2))
   })
 

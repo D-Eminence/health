@@ -1,9 +1,14 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { renderDept } from '../../harness'
+import type { ReactElement } from 'react'
+import { renderDept as renderBare } from '../../harness'
+import { ToastProvider } from '../../../../../kasuwa/toast'
 import { AllInOne, DayStart, RegisterPerson, StationWork, VisitView } from '../../../../../ehr-blue/departments/outreach/day'
 import { memoryQueueStore, readDaySettings, setOutreachQueueStore, type OutreachQueueStore } from '../../../../../ehr-blue/departments/outreach/offlineQueue'
+
+/** Each screen with Outreach's toasts, as the page gives them. */
+const renderDept = (element: ReactElement) => renderBare(<ToastProvider>{element}</ToastProvider>)
 
 /*
  * The field day of an Outreach campaign (owner decisions of 13 November 2026): where you are today, registering a person
@@ -334,7 +339,9 @@ describe('StationWork', () => {
     expect(posts('answers')[0]!.body).toEqual({ answers: [{ questionId: 'htn_known', value: 'yes' }] })
     const keys = [...posts('vitals'), ...posts('answers')].map(spec => spec.headers?.['Idempotency-Key'])
     expect(new Set(keys).size).toBe(2)
-    expect(await screen.findByText('Saved')).toBeTruthy()
+    // Said in a toast at the top; focus goes to the next thing to do.
+    expect((await screen.findByRole('status')).textContent).toContain('Saved')
+    await waitFor(() => expect(document.activeElement).toBe(button('Next person')))
     await press(button('Next person'))
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Visit code' })))
   })

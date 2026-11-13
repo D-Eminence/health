@@ -1,9 +1,9 @@
 import type { OutreachConsentLanguage } from '../../../../staff/api'
 import type {
-  CampaignSite, KitStock, OutreachPlan, OutreachPlanInput, QuestionDefinition, ReferralPartner, ScreeningFocus, ScreeningPackage,
-  StationKind, StationMode,
+  CampaignSite, FocusId, KitStock, OutreachPlan, OutreachPlanInput, PlanFocus, QuestionDefinition, ReferralPartner, ScreeningPackage,
+  StationKind, StationMode, TestDefinition, VitalDefinition,
 } from '../campaignTypes'
-import { SCREENING_FOCUSES, STATIONS } from '../campaignTypes'
+import { focusIdOf, focusLabel, SCREENING_FOCUSES, STATIONS } from '../campaignTypes'
 import { mergePackages, packageFor } from '../screeningTemplates'
 
 /*
@@ -92,7 +92,7 @@ export function defaultStations(pkg: ScreeningPackage): StationKind[] {
 }
 
 /** A new plan with smart defaults: split into stations, English and Pidgin, a consent notice in plain words. */
-export function emptyDraft(organisationName: string, focuses: readonly ScreeningFocus[] = []): PlanDraft {
+export function emptyDraft(organisationName: string, focuses: readonly PlanFocus[] = []): PlanDraft {
   const pkg = packageFor(focuses)
   return normalise({
     organisationName, target: 200, focuses: [...focuses], sites: [], package: pkg, stationMode: 'split', stations: defaultStations(pkg),
@@ -110,6 +110,9 @@ export function draftFrom(plan: OutreachPlan): PlanDraft {
 export function isOwnQuestion(question: QuestionDefinition): boolean {
   return question.id.startsWith('own-')
 }
+
+/** Any vital, test or question the coordinator added (not from a template): its id starts `own-`. */
+export const isOwnItem = (item: { readonly id: string }) => item.id.startsWith('own-')
 
 /**
  * Keeps a draft consistent after a change: the HIV consent and the counselling station come with a test that needs
@@ -141,19 +144,23 @@ export function normalise(draft: PlanDraft, options: { consentEdited: boolean })
  * The focuses changed: the package is the new focuses' template, keeping what the coordinator switched off (for items
  * the old template had too) and the questions they added.
  */
-export function withFocuses(draft: PlanDraft, focuses: readonly ScreeningFocus[], options: { consentEdited: boolean }): PlanDraft {
+export function withFocuses(draft: PlanDraft, focuses: readonly PlanFocus[], options: { consentEdited: boolean }): PlanDraft {
   const before = packageFor(draft.focuses)
   const after = packageFor(focuses)
   const offBefore = (kind: 'vitals' | 'tests' | 'questions') => new Set(before[kind].map(item => item.id)
     .filter(id => !draft.package[kind].some(item => item.id === id)))
   const off = { vitals: offBefore('vitals'), tests: offBefore('tests'), questions: offBefore('questions') }
-  const own = draft.package.questions.filter(isOwnQuestion)
+  // What the coordinator added stays, unless it was for a focus of their own that is gone now.
+  const kept = new Set(focuses.map(focusIdOf))
+  const stays = (item: { readonly id: string; readonly focus?: string }) => isOwnItem(item) && (!item.focus?.startsWith('custom:') || kept.has(item.focus as FocusId))
   const pkg = mergePackages([{
-    vitals: after.vitals.filter(item => !off.vitals.has(item.id)),
-    tests: after.tests.filter(item => !off.tests.has(item.id)),
-    questions: [...after.questions.filter(item => !off.questions.has(item.id)), ...own],
+    vitals: [...after.vitals.filter(item => !off.vitals.has(item.id)), ...draft.package.vitals.filter(item => stays(item))],
+    tests: [...after.tests.filter(item => !off.tests.has(item.id)), ...draft.package.tests.filter(stays)],
+    questions: [...after.questions.filter(item => !off.questions.has(item.id)), ...draft.package.questions.filter(stays)],
   }])
-  const ordered = SCREENING_FOCUSES.map(item => item.value).filter(value => focuses.includes(value))
+  // The list's focuses in its order, then the organisation's own in the order they were added (each once).
+  const custom = focuses.filter((focus, index) => typeof focus !== 'string' && focuses.findIndex(other => focusIdOf(other) === focus.id) === index)
+  const ordered: PlanFocus[] = [...SCREENING_FOCUSES.map(item => item.value).filter(value => focuses.includes(value)), ...custom]
   const stations = draft.stationMode === 'split' && draft.focuses.length === 0 ? defaultStations(pkg) : draft.stations
   return normalise({ ...draft, focuses: ordered, package: pkg, stations }, options)
 }
@@ -177,8 +184,45 @@ export function toggleItem(draft: PlanDraft, kind: 'vitals' | 'tests' | 'questio
 
 export function addOwnQuestion(draft: PlanDraft, text: string, options: { consentEdited: boolean }): PlanDraft {
   const words = text.trim()
-  const question: QuestionDefinition = { id: localId('own'), text: words.endsWith('?') ? words : `${words}?`, kind: 'yesno', focus: draft.focuses[0] ?? 'general_check' }
+  const question: QuestionDefinition = { id: localId('own'), text: words.endsWith('?') ? words : `${words}?`, kind: 'yesno', focus: focusOfOwn(draft) }
   return normalise({ ...draft, package: { ...draft.package, questions: [...draft.package.questions, question] } }, options)
+}
+
+/** What an item the coordinator adds is for: their own type of outreach when there is one, else the first focus. */
+function focusOfOwn(draft: PlanDraft) {
+  const own = draft.focuses.find(focus => typeof focus !== 'string')
+  return own ? focusIdOf(own) : draft.focuses[0] ? focusIdOf(draft.focuses[0]) : 'general_check'
+}
+
+/** The result options a test the coordinator adds starts with. */
+export const OWN_TEST_RESULTS = 'Positive, Negative, Invalid'
+
+/**
+ * Adds a test of the coordinator's own ("Add a test"): its name, its results (typed, comma between; "Positive" and the
+ * like flag it as abnormal, "Invalid" means test again), and whether its result is private (counsellors and clinicians
+ * only). It is a quick check with no kit count.
+ */
+export function addOwnTest(draft: PlanDraft, input: { name: string; results: string; sensitive: boolean }, options: { consentEdited: boolean }): PlanDraft {
+  const labels = [...new Set(input.results.split(',').map(word => word.trim()).filter(Boolean))]
+  const results = (labels.length >= 2 ? labels : OWN_TEST_RESULTS.split(', ')).map(label => {
+    const word = label.toLowerCase()
+    const flag = /invalid|again/.test(word) ? 'invalid' as const : /^(positive|reactive|abnormal|yes|found|present|high)/.test(word) ? 'abnormal' as const : 'normal' as const
+    return { value: word.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'result', label, flag }
+  })
+  const test: TestDefinition = { id: localId('own'), name: input.name.trim(), focus: focusOfOwn(draft), kind: 'choice', results, sensitive: input.sensitive, usesKit: false }
+  return normalise({ ...draft, package: { ...draft.package, tests: [...draft.package.tests, test] } }, options)
+}
+
+/** Adds a measurement of the coordinator's own ("Add a measurement"): its name and unit, typed as a number. */
+export function addOwnVital(draft: PlanDraft, input: { name: string; unit: string }, options: { consentEdited: boolean }): PlanDraft {
+  const vital: VitalDefinition = { id: localId('own') as VitalDefinition['id'], name: input.name.trim(), unit: input.unit.trim(), min: 0, max: 100000, decimals: 1, normalText: '' }
+  return normalise({ ...draft, package: { ...draft.package, vitals: [...draft.package.vitals, vital] } }, options)
+}
+
+/** Takes away a vital, test or question the coordinator added. */
+export function removeOwnItem(draft: PlanDraft, kind: 'vitals' | 'tests' | 'questions', id: string, options: { consentEdited: boolean }): PlanDraft {
+  const pkg = { ...draft.package, [kind]: (draft.package[kind] as ReadonlyArray<{ id: string }>).filter(item => item.id !== id) } as ScreeningPackage
+  return normalise({ ...draft, package: pkg }, options)
 }
 
 export function removeOwnQuestion(draft: PlanDraft, id: string, options: { consentEdited: boolean }): PlanDraft {
@@ -190,7 +234,7 @@ export function setStationMode(draft: PlanDraft, mode: StationMode, options: { c
 }
 
 export const emptySite = (): CampaignSite => ({ id: localId('site'), name: '', community: '', lga: '', address: '' })
-export const emptyPartner = (focuses: readonly ScreeningFocus[]): ReferralPartner => ({ id: localId('partner'), name: '', phone: '', address: '', treats: [...focuses] })
+export const emptyPartner = (focuses: readonly PlanFocus[]): ReferralPartner => ({ id: localId('partner'), name: '', phone: '', address: '', treats: focuses.map(focusIdOf) })
 
 /** The plan can be saved once it says what it is for and where (Outreach refuses it without a focus and a site). */
 export function canSave(draft: PlanDraft): boolean {
@@ -214,8 +258,9 @@ export function kitLeft(kit: KitStock): number {
   return Math.max(0, kit.count - (kit.used ?? 0))
 }
 
-export function focusesText(focuses: readonly ScreeningFocus[]): string {
-  const words = SCREENING_FOCUSES.filter(item => focuses.includes(item.value)).map(item => item.label)
+export function focusesText(focuses: readonly PlanFocus[]): string {
+  const words = [...SCREENING_FOCUSES.filter(item => focuses.includes(item.value)).map(item => item.label),
+    ...focuses.filter(focus => typeof focus !== 'string').map(focus => focusLabel(focus))]
   return words.length ? list(words) : 'Not chosen yet'
 }
 

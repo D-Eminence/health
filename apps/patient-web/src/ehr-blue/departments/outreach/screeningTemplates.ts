@@ -1,5 +1,5 @@
 import type {
-  AnswerValue, AppliesTo, FindingLevel, OutcomeKind, QuestionDefinition, ResultFlag, ScreeningFocus, ScreeningPackage,
+  AnswerValue, AppliesTo, BuiltInVitalId, FindingLevel, OutcomeKind, PlanFocus, QuestionDefinition, ResultFlag, ScreeningFocus, ScreeningPackage,
   TestDefinition, Urgency, VitalDefinition, VitalId,
 } from './campaignTypes'
 
@@ -17,7 +17,7 @@ import type {
 
 // ------------------------------------------------------------------------------------------------------- vitals --
 
-export const VITALS: Readonly<Record<VitalId, VitalDefinition>> = {
+export const VITALS: Readonly<Record<BuiltInVitalId, VitalDefinition>> = {
   bp_systolic: { id: 'bp_systolic', name: 'Blood pressure, top number (systolic)', unit: 'mmHg', min: 60, max: 260, decimals: 0,
     normalText: 'Under 140' },
   bp_diastolic: { id: 'bp_diastolic', name: 'Blood pressure, bottom number (diastolic)', unit: 'mmHg', min: 30, max: 160, decimals: 0,
@@ -35,7 +35,7 @@ export const VITALS: Readonly<Record<VitalId, VitalDefinition>> = {
 }
 
 /** The order vitals are taken in, whatever the focuses. */
-const VITAL_ORDER: readonly VitalId[] = ['bp_systolic', 'bp_diastolic', 'pulse', 'temperature', 'spo2', 'weight', 'height', 'bmi', 'blood_sugar']
+const VITAL_ORDER: readonly BuiltInVitalId[] = ['bp_systolic', 'bp_diastolic', 'pulse', 'temperature', 'spo2', 'weight', 'height', 'bmi', 'blood_sugar']
 
 /** A meter reading in mg/dL as mmol/L, to one decimal place. */
 export function mgPerDlToMmolPerL(mgPerDl: number): number {
@@ -111,7 +111,15 @@ export function flagVital(id: VitalId, value: number, options: { fasting?: boole
     case 'weight':
     case 'height':
       return NORMAL
+    default:
+      // A measurement the coordinator added has no usual range here: it is recorded as typed.
+      return NORMAL
   }
+}
+
+/** A vital's definition: the list's, or one the coordinator added in the plan's package. */
+export function vitalDefinition(id: VitalId, pkg?: ScreeningPackage | null): VitalDefinition | undefined {
+  return (VITALS as Readonly<Record<string, VitalDefinition | undefined>>)[id] ?? pkg?.vitals.find(vital => vital.id === id)
 }
 
 // -------------------------------------------------------------------------------------------------------- tests --
@@ -228,7 +236,7 @@ export const QUESTIONS: Readonly<Record<ScreeningFocus, readonly QuestionDefinit
 // ---------------------------------------------------------------------------------------------- per-focus package --
 
 /** What each focus brings: its vitals and tests (by id); its questions are QUESTIONS[focus]. */
-export const FOCUS_TEMPLATES: Readonly<Record<ScreeningFocus, { readonly vitals: readonly VitalId[]; readonly tests: readonly string[] }>> = {
+export const FOCUS_TEMPLATES: Readonly<Record<ScreeningFocus, { readonly vitals: readonly BuiltInVitalId[]; readonly tests: readonly string[] }>> = {
   hypertension: { vitals: ['bp_systolic', 'bp_diastolic', 'pulse'], tests: [] },
   diabetes: { vitals: ['weight', 'height', 'bmi', 'blood_sugar'], tests: [] },
   hepatitis_b: { vitals: [], tests: ['hbsag'] },
@@ -254,7 +262,8 @@ export function templateFor(focus: ScreeningFocus): ScreeningPackage {
  * The package for the focuses picked, merged: each vital, test and question once, vitals in the order they are taken
  * (blood pressure first), tests and questions in the focuses' order. BMI comes with weight and height only.
  */
-export function packageFor(focuses: readonly ScreeningFocus[]): ScreeningPackage {
+export function packageFor(focuses: readonly PlanFocus[]): ScreeningPackage {
+  // A focus of the organisation's own has no template: what it checks is what the coordinator adds.
   const picked = FOCUS_ORDER.filter(focus => focuses.includes(focus))
   const vitalIds = new Set(picked.flatMap(focus => FOCUS_TEMPLATES[focus].vitals))
   if (!(vitalIds.has('weight') && vitalIds.has('height'))) vitalIds.delete('bmi')

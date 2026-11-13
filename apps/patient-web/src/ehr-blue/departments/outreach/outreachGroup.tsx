@@ -7,6 +7,7 @@ import { isOutreachProblem, outreachProblemText } from '../../../outreachProblem
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
+import { ErrorToast, NoteToast } from './notify'
 import type { PendingRegistration } from './offlineQueue'
 
 /*
@@ -130,8 +131,9 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
             </OutreachField>
             <Button type="submit" variant="primary" size="lg" loading={busy}>{busy ? 'Sending…' : 'Send invitation'}</Button>
           </form>
-          <ErrorBox message={error} />
-          <div role="status">{notice ? <p className="m-0 text-body text-ink-2">{notice}</p> : null}</div>
+          {/* Invite results are said in a toast at the top; a team that couldn't be read says so in its place. */}
+          <ErrorToast error={error || null} title="Not sent" />
+          <NoteToast note={notice || null} intent={notice.includes('could not be delivered') ? 'warning' : 'success'} />
           {team.error ? <ErrorBox message={team.error} /> : null}
           {team.value && team.value.members.length === 0 && team.value.invitations.length === 0
             ? <p className="m-0 text-caption text-ink-3">No one invited yet.</p> : null}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { ArrowRight, MapPin, RotateCcw } from 'lucide-react'
-import { FormActions, LoadingRows } from '../../../../kasuwa/parts'
-import { Alert, Button, EmptyState } from '../../../../kasuwa/ui'
+import { ArrowRight, MapPin } from 'lucide-react'
+import { FormActions, LoadingRows, PageState } from '../../../../kasuwa/parts'
+import { Button, EmptyState } from '../../../../kasuwa/ui'
 import { useFocusById } from '../../../../staff/focus'
 import { NOT_OFFERED } from '../campaignApi'
 import { STATIONS, type OutreachPlan, type StationKind } from '../campaignTypes'
@@ -38,7 +38,7 @@ export function PlanState({ plan, onRetry, children }: {
   readonly children: (plan: OutreachPlan) => React.ReactNode
 }) {
   if (plan.status === 'loading') return <LoadingRows rows={3} label="Loading the campaign plan" />
-  if (plan.status === 'error') return <Alert intent="error" title="Couldn’t load the campaign plan" action={<Button size="sm" icon={RotateCcw} onClick={onRetry}>Try again</Button>}>{plan.message}</Alert>
+  if (plan.status === 'error') return <PageState loading={false} error={plan.message} hasData={false} onRetry={onRetry} what="the campaign plan">{null}</PageState>
   if (plan.status === 'none') {
     return <EmptyState compact icon={MapPin} title={plan.reason === 'no_plan' ? 'No plan yet' : 'Not available yet'}
       description={plan.reason === 'no_plan' ? 'A coordinator sets the sites, stations and tests first, in Setup.' : NOT_OFFERED} />

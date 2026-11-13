@@ -84,18 +84,22 @@ async function press(button: HTMLElement) {
 }
 const campaignsList = () => screen.findByRole('list', { name: 'Campaigns' })
 const campaignCard = async (name: string) => within(await campaignsList()).getByRole('button', { name: new RegExp(`^${name}`) })
-/** Demo Screening is running and this person is on its team: Outreach opens it directly (no reselecting). */
+/**
+ * Demo Screening is running and this person is on its team. A coordinator starts on the organisation's home and carries
+ * on with it from there (Continue, the one main action); someone who only works in the field goes straight in (no
+ * reselecting).
+ */
 async function openScreening() {
+  if (roles.includes('coordinator')) await press(await screen.findByRole('button', { name: 'Continue Demo Screening' }))
   await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Screening'))
   await waitFor(() => expect(screen.queryAllByRole('tab').length).toBeGreaterThan(0))
 }
-/** Back to every campaign, from inside one. */
+/** The organisation's home, with every campaign's card read. */
 async function toCampaigns() {
-  await openScreening()
-  await press(screen.getByRole('button', { name: 'All campaigns' }))
   await waitFor(async () => expect((await campaignCard('Demo Screening')).textContent).toContain('2 sites'))
 }
-const tabNames = () => screen.getAllByRole('tab').map(tab => tab.textContent)
+const fieldOnly = () => { session.permissions = session.permissions.filter(permission => permission !== 'outreach.campaign.write') }
+const tabNames = () => within(screen.getByRole('tablist', { name: 'Campaign' })).getAllByRole('tab').map(tab => tab.textContent)
 
 describe('the Outreach page', () => {
   it('shows each campaign as a card with its dates, focuses and counts, and Continue as the one main action', async () => {
@@ -108,9 +112,17 @@ describe('the Outreach page', () => {
     expect(within(card).getByText('1 urgent')).toBeTruthy()
     // A campaign on today's Outreach keeps today's card.
     expect((await campaignCard('Demo Old Drive')).textContent).toContain('Not started')
-    // Registrations listed in a campaign's own People are not listed again here.
+    // No registrations on the home: those made before campaigns are in the menu; those in a campaign are in its People.
+    expect(screen.queryByRole('list', { name: 'Registrations' })).toBeNull()
+    await press(screen.getByRole('button', { name: 'More' }))
+    await press(screen.getByRole('button', { name: 'Registered before campaigns' }))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registered before campaigns')
     const cases = await screen.findByRole('list', { name: 'Registrations' })
-    await waitFor(() => expect(within(cases).queryByRole('button', { name: /^Demo Ada/ })).toBeNull())
+    await press(screen.getByRole('button', { name: /^All/, pressed: false }))
+    expect(within(cases).getByRole('button', { name: /^Demo Outside/ })).toBeTruthy()
+    expect(within(cases).queryByRole('button', { name: /^Demo Ada/ })).toBeNull()
+    await press(screen.getByRole('button', { name: 'Back to Outreach' }))
+    expect(document.activeElement?.id).toBe('outreach-home-more')
     // The campaign running for this person is the one main action; New campaign is secondary; no Refresh, and no
     // registration outside a campaign (it is made in the campaign's Today).
     expect(screen.getByRole('button', { name: 'Continue Demo Screening' }).className).toContain('bg-primary-gradient')
@@ -130,6 +142,8 @@ describe('the Outreach page', () => {
 
   it('opens the campaign the person was last in directly, from the day settings on this device', async () => {
     // Not running (so not opened for that), but remembered: it opens straight away, on the tab last used this visit.
+    fieldOnly()
+    roles = ['registrar']
     api.outreachCampaigns.mockResolvedValue([{ ...SCREENING, status: 'planned' }, OLD])
     await rememberOpenedCampaign(memoryQueueStoreRef(), { accountId: 'staff-demo-1', facilityId: DEMO_HOSPITAL_ID }, 'camp-1')
     renderDept(<Outreach />)
@@ -161,6 +175,79 @@ describe('the Outreach page', () => {
     await press(screen.getByRole('button', { name: 'Finish wizard' }))
     expect(screen.getByRole('heading', { level: 1 }).textContent).not.toBe('Outreach')
     expect(screen.queryByRole('list', { name: 'Campaigns' })).toBeNull()
+  })
+})
+
+describe('the organisation’s home', () => {
+  it('shows the numbers first, then the types of outreach and conditions found, then the actions, then the campaigns', async () => {
+    renderDept(<Outreach />)
+    await toCampaigns()
+    // Not served yet (404): worked out from each campaign's own dashboard.
+    const numbers = await screen.findByRole('group', { name: 'Your outreach in numbers' })
+    expect(numbers.textContent).toContain('2Outreaches run1 running')
+    expect(numbers.textContent).toContain('1People reached')
+    expect(numbers.textContent).toContain('5Positive')
+    expect(numbers.textContent).toContain('1Referred')
+    const types = screen.getByRole('heading', { name: 'By type of outreach' }).closest('section')!
+    expect(within(types).getByRole('heading', { name: 'Hepatitis B' })).toBeTruthy()
+    expect(within(types).getByRole('heading', { name: 'High blood pressure' })).toBeTruthy()
+    const conditions = screen.getByRole('list', { name: /^Conditions found/ })
+    expect(conditions.textContent).toContain('High blood pressure4 of 1 positive')
+    // The hierarchy: numbers, then the actions, then the campaigns.
+    const order = [numbers, screen.getByRole('button', { name: 'Continue Demo Screening' }), await campaignsList()]
+    for (let index = 1; index < order.length; index += 1) {
+      expect(order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+    // One search: the top bar's, not the page's.
+    expect(screen.queryByRole('searchbox')).toBeNull()
+  })
+
+  it('reads the organisation’s summary where it is served, with a type of outreach of its own', async () => {
+    const base = request.getMockImplementation()!
+    request.mockImplementation(async (facility: string, spec: Spec) => {
+      if (spec.path === '/api/v1/outreach/registration-cases/organisation/summary') {
+        return { campaigns: { total: 9, running: 2, planned: 3, closed: 4 }, people: { reached: 1250, thisMonth: 40 }, screened: 1100, positive: 120, referred: 60,
+          byFocus: [{ focus: 'malaria', label: 'Malaria', campaigns: 3, screened: 600, positive: 90, referred: 30 },
+            { focus: 'custom:sickle-cell', label: 'Sickle cell', campaigns: 1, screened: 64, positive: 5, referred: 5 }],
+          conditions: [{ condition: 'custom:sickle-cell', label: 'Sickle cell', screened: 64, positive: 5 }] }
+      }
+      return base(facility, spec)
+    })
+    renderDept(<Outreach />)
+    const numbers = await screen.findByRole('group', { name: 'Your outreach in numbers' })
+    await waitFor(() => expect(numbers.textContent).toContain('9Outreaches run2 running'))
+    expect(numbers.textContent).toContain('1250People reachedThis month +40')
+    expect(numbers.textContent).toContain('11% of screened')
+    expect(screen.getByRole('heading', { name: 'Sickle cell' })).toBeTruthy()
+    expect(screen.getByRole('list', { name: /^Conditions found/ }).textContent).toContain('Sickle cell5 of 64 positive (8%)')
+  })
+
+  it('shows at most six campaigns, running first, and every one in All campaigns', async () => {
+    const many = Array.from({ length: 7 }, (_, index) => ({ ...OLD, id: `camp-x${index}`, name: `Demo Drive ${index + 1}` }))
+    api.outreachCampaigns.mockResolvedValue([...many, SCREENING])
+    renderDept(<Outreach />)
+    await waitFor(async () => expect(within(await campaignsList()).getAllByRole('button')).toHaveLength(6))
+    expect(within(await campaignsList()).getAllByRole('button')[0]!.textContent).toContain('Demo Screening')
+    await press(screen.getByRole('button', { name: 'All campaigns (8)' }))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('All campaigns')
+    expect(within(await campaignsList()).getAllByRole('button')).toHaveLength(8)
+  })
+
+  it('lets the top bar’s Search find people and campaigns, opening what is chosen', async () => {
+    const { useOutreachSearch } = await import('../../../../../ehr-blue/departments/outreach/outreachNav')
+    let source: ReturnType<typeof useOutreachSearch> = null
+    function Probe() { source = useOutreachSearch(DEMO_HOSPITAL_ID); return null }
+    renderDept(<><Outreach /><Probe /></>)
+    await toCampaigns()
+    // Not before the campaign is open: Demo Ada is in its People. Outside any campaign, Demo Outside is found.
+    await waitFor(() => expect(source?.search('demo outside').map(hit => hit.title)).toEqual(['Demo Outside']))
+    expect(source!.search('screening').map(hit => [hit.kind, hit.title])).toEqual([['campaign', 'Demo Screening']])
+    await act(async () => { source!.search('screening')[0]!.open() })
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Screening'))
+    // In the campaign open: by name, by visit code (with or without the dash).
+    await waitFor(() => expect(source!.search('k74f2').map(hit => hit.title)).toEqual(['Demo Ada']))
+    await act(async () => { source!.search('Ada')[0]!.open() })
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Visit ov-1')
   })
 })
 

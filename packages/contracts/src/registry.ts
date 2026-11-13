@@ -1157,7 +1157,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // Idempotency-Key (the device's localCommandId); PUT and PATCH take If-Match with the rowVersion read.
   proposed(r('outreach.campaignPlan','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/plan',['GET','PUT'],false,
     { GET: ['outreach.campaign.read'], PUT: ['outreach.campaign.write'] },
-    `${OUTREACH_CAMPAIGNS} The plan: organisation, target, focuses, sites, screening package, station mode, partners, consent texts, kits. `
+    `${OUTREACH_CAMPAIGNS} The plan: organisation, target, focuses (the list's, or { id: 'custom:<slug>', label } for a type of its own), sites, screening package, station mode, partners, consent texts, kits. `
     + 'PUT replaces it (If-Match rowVersion; 0 for the first), coordinators only.')),
   proposed(r('outreach.campaignTeam','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/team',GP,false,
     { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
@@ -1197,6 +1197,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('outreach.campaignFollowUps','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/follow-ups',G,false,
     one('GET','outreach.registration.read'),
     `${OUTREACH_CAMPAIGNS} Who to call back, with their follow-up and referral; a sensitive reason only to counsellors and clinicians.`)),
+  proposed(r('outreach.organisationSummary','outreach','/api/v1/outreach/registration-cases/organisation/summary',G,false,
+    one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGNS} The organisation's numbers across its campaigns, counts only: { campaigns { total, running, planned, closed }, `
+    + 'people { reached, thisMonth }, screened, positive, referred, byFocus [{ focus, label, campaigns, screened, positive, referred }], '
+    + 'conditions [{ condition, label, screened, positive }] }; custom focuses (custom:<slug>) carry their label.')),
   proposed(r('outreach.campaignReport','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/report',G,false,
     one('GET','outreach.campaign.read'),
     `${OUTREACH_CAMPAIGNS} Counts only, nothing about any one person; small counts suppressed.`)),

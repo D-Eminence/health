@@ -10,9 +10,10 @@ import { waitsForNetwork, type PendingRegistration } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
 import {
-  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, RETRY_NOTE,
+  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, OutreachField, RETRY_NOTE,
   type FieldErrors,
 } from './outreachParts'
+import { ErrorToast } from './notify'
 
 /**
  * Outreach's refusals of the campaign a case names (outreach.service.ts assertCampaignAcceptsRegistration and the
@@ -297,8 +298,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
               onClick={saveWithoutCampaign}>{busy ? 'Saving…' : 'Save without the campaign'}</Button>
           </div>
         ) : null}
-        <ErrorBox message={error} />
-        {error ? <small className="hid-ehr-dept-outreach-note">{RETRY_NOTE}</small> : null}
+        {/* What stopped the save is said in a toast at the top; the form keeps what was typed. */}
+        <ErrorToast error={error ? RETRY_NOTE : null} title={error} />
         <FormActions>
           <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Cancel</Button>
           <Button id={SAVE_ID} type="submit" variant="primary" size="lg" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save registration'}</Button>

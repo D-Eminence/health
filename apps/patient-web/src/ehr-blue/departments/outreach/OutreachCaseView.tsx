@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { ErrorToast, NoteToast } from './notify'
 import { isHidApiError } from '@hid/http'
 import { ArrowRight, CircleCheck, Link2, Printer, UserPlus } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
@@ -11,7 +12,7 @@ import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import {
-  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
+  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
   HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
   OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
@@ -213,8 +214,6 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
                 <Textarea name="reason" readOnly={busy} rows={3} minLength={8} maxLength={1000} required {...controlProps(reasonId, problems.errors.reason, true)} />
               </OutreachField>
               <p className="hid-ehr-dept-muted m-0">You can link someone only if they have shared their record with your facility for care. You’ll see their name and date of birth to check before anything is linked.</p>
-              <ErrorBox message={error} />
-              {error && readAgain ? <small className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</small> : null}
               <FormActions sticky={false}>
                 <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={() => { if (!busy) { setOpen(false); setError('') } }}>Cancel</Button>
                 <Button type="submit" variant="primary" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{checking ? 'Checking…' : busy ? 'Saving…' : 'Link existing patient'}</Button>
@@ -247,17 +246,16 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
           <span>{ageText(item)} · {sexText(item)}</span>
           <span className="text-ink-3">Registered {dateText(item.createdAt)}</span>
         </div>
-        <ErrorBox message={listError} />
+        <ErrorToast error={listError || null} title="Couldn’t refresh registrations" />
         {/* Mounted throughout, so what was recorded is announced. */}
         <div id={`outreach-case-status-${item.id}`} role="status" className="hid-ehr-sr-only">
           {linked ? 'Patient linked. This registration case is now linked to the verified Health ID patient.' : ''}
         </div>
         {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
-        {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}
-        {created && !linked
-          ? <Alert intent="success" title="Registration saved">{pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
-            : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
-          : null}
+        {/* What went wrong, and a registration just saved, are said in a toast at the top of the screen. */}
+        <ErrorToast error={error ? `${error}${readAgain ? ` ${LINK_RETRY_NOTE}` : ''}` : null} title="Not linked" />
+        <NoteToast intent="success" title="Registration saved" note={created && !linked ? (pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
+          : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`) : null} />
         {created && visit.visitCode ? (
           // A campaign registration answers with the person's visit code and Health ID: the day screens' slip, to print.
           <Card className="flex flex-col items-start gap-2 p-5">

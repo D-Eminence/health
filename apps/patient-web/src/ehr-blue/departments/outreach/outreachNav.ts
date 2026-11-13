@@ -60,3 +60,43 @@ export function tabOfAddress(pathname: string): CampaignTab | null {
 export const isOutreachAddress = (pathname: string) => pathname === OUTREACH_HOME || pathname === `${OUTREACH_HOME}/` || tabOfAddress(pathname) !== null
 
 export const tabLabel = (tab: CampaignTab) => TABS.find(entry => entry.value === tab)?.label ?? tab
+
+/*
+ * One search (owner, 13 November 2026): the top bar's Search finds people by name, phone or visit code in the campaign
+ * open or remembered (and registrations outside any campaign), and campaigns by name. Outreach hands the frame a
+ * function while it is shown; the frame asks it as the person types and opens what is chosen. Nothing found is kept.
+ */
+export interface OutreachSearchHit {
+  readonly id: string
+  readonly kind: 'person' | 'campaign'
+  readonly title: string
+  /** A line under it: age and sex with the visit code, or the campaign's status and dates. */
+  readonly detail: string
+  readonly open: () => void
+}
+
+export interface OutreachSearchSource {
+  readonly facilityId: string
+  readonly search: (query: string) => readonly OutreachSearchHit[]
+}
+
+let searchSource: OutreachSearchSource | null = null
+const searchListeners = new Set<() => void>()
+
+/** Outreach says how to search it (null: it isn't shown). */
+export function setOutreachSearch(next: OutreachSearchSource | null) {
+  if (searchSource === next) return
+  searchSource = next
+  for (const listener of searchListeners) listener()
+}
+
+function subscribeSearch(listener: () => void) {
+  searchListeners.add(listener)
+  return () => { searchListeners.delete(listener) }
+}
+
+/** How to search Outreach at the facility open now, while it is shown. */
+export function useOutreachSearch(facilityId: string | undefined): OutreachSearchSource | null {
+  const source = useSyncExternalStore(subscribeSearch, () => searchSource, () => null)
+  return source && source.facilityId === facilityId ? source : null
+}

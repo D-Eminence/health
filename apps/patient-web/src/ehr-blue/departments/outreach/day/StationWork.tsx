@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
-import { ArrowLeft, Camera, CircleCheck, CloudOff, ScanLine, Search, UserPlus } from 'lucide-react'
+import { ArrowLeft, Camera, ScanLine, Search, UserPlus } from 'lucide-react'
 import { Modal, Segmented } from '../../../../kasuwa/interactive'
 import { FormActions } from '../../../../kasuwa/parts'
+import { useToast } from '../../../../kasuwa/toast'
 import { Alert, Button, Input } from '../../../../kasuwa/ui'
 import { useFocusById } from '../../../../staff/focus'
 import { campaignFlowErrorText, outreachCampaignApi } from '../campaignApi'
@@ -40,6 +41,7 @@ function StationBody({ station }: { readonly station: StationKind }) {
 function StationSteps({ plan, station }: { readonly plan: OutreachPlan; readonly station: Exclude<StationKind, 'register'> }) {
   const day = useCampaignDay()
   const focus = useFocusById()
+  const toast = useToast()
   const [current, setCurrent] = useState<DayVisit | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
 
@@ -69,7 +71,10 @@ function StationSteps({ plan, station }: { readonly plan: OutreachPlan; readonly
   function onSaved(result: Saved) {
     if (result.visit && current) setCurrent(caseVisit(result.visit))
     setSaved(result)
-    if (station !== 'counselling' && station !== 'results') focus('outreach-station-saved')
+    // Said at the top; the next thing to do is the next person.
+    if (result.state === 'queued') toast.warning({ title: 'Saved on this phone', message: 'It is sent when you’re back online.' })
+    else toast.success('Saved')
+    if (station !== 'counselling' && station !== 'results') focus('outreach-station-next')
   }
 
   if (!current) return <FindPerson station={station} onFound={open} />
@@ -77,14 +82,7 @@ function StationSteps({ plan, station }: { readonly plan: OutreachPlan; readonly
   return (
     <div className="flex flex-col gap-4">
       <div id="outreach-station-person" tabIndex={-1} className="outline-none"><PersonBanner visit={current} sticky /></div>
-      {saved && station !== 'counselling' && station !== 'results' ? (
-        <Panel className="flex flex-col items-start gap-3 p-4 sm:p-5">
-          <p id="outreach-station-saved" tabIndex={-1} role="status" className="m-0 inline-flex items-center gap-2 text-title-3 text-ink outline-none">
-            {saved.state === 'queued' ? <CloudOff className="size-5 text-warn-ink" aria-hidden /> : <CircleCheck className="size-5 text-success-ink" aria-hidden />}
-            {saved.state === 'queued' ? 'Saved on this phone · sent when you’re back online' : 'Saved'}
-          </p>
-        </Panel>
-      ) : (
+      {saved && station !== 'counselling' && station !== 'results' ? null : (
         <Panel className="p-4 sm:p-5">
           {station === 'vitals' ? <VitalsForm plan={plan} visit={current} withQuestions={asksQuestions} onSaved={onSaved} />
             : station === 'tests' ? (
@@ -103,7 +101,7 @@ function StationSteps({ plan, station }: { readonly plan: OutreachPlan; readonly
       )}
       {saved && station !== 'counselling' && station !== 'results' ? (
         <FormActions>
-          <Button variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={next}>Next person</Button>
+          <Button id="outreach-station-next" variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={next}>Next person</Button>
         </FormActions>
       ) : null}
       {!saved || station === 'counselling' || station === 'results' ? (

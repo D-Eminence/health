@@ -1,15 +1,16 @@
-import { useCallback } from 'react'
+import { useCallback, type ReactNode } from 'react'
 import { BellRing, Clock, Send, Stethoscope, TestTube, Users } from 'lucide-react'
 import { PageState } from '../../../../kasuwa/parts'
-import { Alert, Badge, StatGroup } from '../../../../kasuwa/ui'
+import { Badge, cx, StatGroup } from '../../../../kasuwa/ui'
 import { useDeptAccess } from '../../parts/access'
 import { outreachCampaignApi, NOT_OFFERED } from '../campaignApi'
 import {
   canSeeSensitive, focusLabel, roleLabel, stationLabel, STATIONS, type CampaignAlert, type CampaignDashboard as Dashboard,
 } from '../campaignTypes'
 import {
-  BarRow, dayText, hourText, InsightCard, kitTestLabel, rolesWords, SENSITIVE_FOCUSES, StatTile, useCampaignRead, useLiveRefresh, withinDays,
+  BarRow, dayText, hourText, InsightCard, kitTestLabel, rolesWords, SectionSwitch, SENSITIVE_FOCUSES, StatTile, useCampaignRead, useLiveRefresh, withinDays,
 } from './insightParts'
+import { useErrorToast } from '../notify'
 
 const DASHBOARD_FAILED = 'The campaign’s counts could not be read. Try again.'
 
@@ -46,11 +47,11 @@ export function CampaignDashboard({ campaignId, roles, onOpen, opens = [] }: {
   useLiveRefresh(useCallback(() => { if (!busy) void refresh() }, [busy, refresh]), 30_000, enabled && dashboard.read.state !== 'not_offered')
 
   const { read } = dashboard
+  useErrorToast(read.state === 'error' && read.value ? read.error : null, 'Couldn’t refresh the counts', () => void refresh())
   if (read.state === 'not_offered') return <p className="m-0 text-[14px] text-ink-2">{NOT_OFFERED}</p>
   const value = read.value
   return (
     <div className="flex flex-col gap-4">
-      {read.state === 'error' && value ? <Alert intent="error" title="Couldn’t refresh the counts">{read.error}</Alert> : null}
       <PageState loading={read.state === 'loading'} error={read.state === 'error' && !value ? read.error : null} hasData={value !== null}
         onRetry={() => void refresh()} what="the counts" rows={4}>
         {value ? <DashboardBody value={value} sensitive={sensitive}
@@ -89,7 +90,7 @@ function DashboardBody({ value, sensitive, onOpen, opens }: {
         <StatTile icon={Clock} tone={waiting > 0 ? 'warn' : 'neutral'} label="Waiting" value={waiting}
           hint={busiest && busiest.count > 0 ? `Most at ${stationLabel(busiest.station).toLowerCase()}: ${busiest.count}` : 'No one waiting'} />
         <StatTile icon={TestTube} tone="violet" label="Positive" value={positives}
-          hint={hiddenPositives ? `Not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus).toLowerCase()).join(' or ')}` : 'Across every focus'}
+          hint={hiddenPositives ? `Not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus, row.label).toLowerCase()).join(' or ')}` : 'Across every focus'}
           onOpen={opener('people', 'care')} />
         <StatTile icon={Send} tone={value.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred" value={referred}
           hint={value.outcomes.referUrgent > 0 ? <strong className="font-semibold text-danger-ink">{value.outcomes.referUrgent} urgent</strong> : 'None urgent'}
@@ -98,46 +99,49 @@ function DashboardBody({ value, sensitive, onOpen, opens }: {
 
       {value.alerts.length ? <Alerts alerts={value.alerts} /> : null}
 
-      <div className="grid gap-4 @3xl:grid-cols-2">
-        {waitingRows.length ? (
-          <InsightCard title="Waiting at each station" id="outreach-dash-waiting">
-            <ul className="m-0 flex list-none flex-col gap-3 p-0">
-              {waitingRows.map(row => <BarRow key={row.station} label={stationLabel(row.station)} value={row.count}
-                max={Math.max(...waitingRows.map(item => item.count), 1)} valueText={`${row.count} waiting`} tone={row.count >= 10 ? 'warn' : 'brand'} />)}
-            </ul>
-          </InsightCard>
-        ) : null}
-
-        <InsightCard title="By focus" id="outreach-dash-focus">
-          {value.byFocus.length ? (
-            <ul className="m-0 flex list-none flex-col gap-4 p-0">
-              {value.byFocus.map(row => (
+      {/* The detail one part at a time, so the dashboard fits a screen. */}
+      <SectionSwitch id="outreach-dash-detail" label="Dashboard detail" sections={[
+        { value: 'stations', label: 'Stations', content: <Panel>{waitingRows.length ? (
+          <ul aria-label="Waiting at each station" className="m-0 flex list-none flex-col gap-3 p-0">
+            {waitingRows.map(row => <BarRow key={row.station} label={stationLabel(row.station)} value={row.count}
+              max={Math.max(...waitingRows.map(item => item.count), 1)} valueText={`${row.count} waiting`} tone={row.count >= 10 ? 'warn' : 'brand'} />)}
+          </ul>
+        ) : <p className="m-0 text-[14px] text-ink-2">Everyone is registered at one station: no one waits between stations.</p>}</Panel> },
+        { value: 'focus', label: 'Focus', content: <Panel>{value.byFocus.length ? (
+          <ul className="m-0 flex list-none flex-col gap-4 p-0">
+            {value.byFocus.map(row => {
+              const name = focusLabel(row.focus, row.label)
+              return (
                 <li key={row.focus} className="flex flex-col gap-2">
-                  <h3 className="m-0 text-[15px] font-semibold text-ink">{focusLabel(row.focus)}</h3>
+                  <h3 className="m-0 text-[15px] font-semibold text-ink">{name}</h3>
                   {shownFocus(row.focus) ? (
-                    <StatGroup label={focusLabel(row.focus)} cols={3} className="!grid-cols-3">
+                    <StatGroup label={name} cols={3} className="!grid-cols-3">
                       <StatTile label="Screened" value={row.screened} />
                       <StatTile label="Positive" value={row.positive} />
                       <StatTile label="Referred" value={row.referred} />
                     </StatGroup>
                   ) : (
                     <>
-                      <StatGroup label={focusLabel(row.focus)} cols={3} className="!grid-cols-3"><StatTile label="Screened" value={row.screened} /></StatGroup>
+                      <StatGroup label={name} cols={3} className="!grid-cols-3"><StatTile label="Screened" value={row.screened} /></StatGroup>
                       <p className="m-0 text-[13px] text-ink-3">Positives: counsellors and clinicians only</p>
                     </>
                   )}
                 </li>
-              ))}
-            </ul>
-          ) : <p className="m-0 text-[14px] text-ink-2">No focus is set in the plan yet.</p>}
-        </InsightCard>
-
-        <TeamCounts value={value} />
-        <SitesAndHours value={value} />
-        <Kits value={value} />
-      </div>
+              )
+            })}
+          </ul>
+        ) : <p className="m-0 text-[14px] text-ink-2">No focus is set in the plan yet.</p>}</Panel> },
+        { value: 'team', label: 'Team', content: <Panel><TeamCounts value={value} /></Panel> },
+        { value: 'sites', label: 'Sites', content: <Panel><SitesAndHours value={value} /></Panel> },
+        ...(value.kits.length ? [{ value: 'kits' as const, label: 'Kits', content: <Panel><Kits value={value} /></Panel> }] : []),
+      ]} />
     </>
   )
+}
+
+/** A switched part's card: the tab above names it, so it has no heading of its own. */
+function Panel({ children, className }: { readonly children: ReactNode; readonly className?: string }) {
+  return <div className={cx('flex min-w-0 flex-col gap-3 rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] ring-1 ring-line sm:p-5', className)}>{children}</div>
 }
 
 const ALERT_TONE: Readonly<Record<CampaignAlert['kind'], 'danger' | 'warn'>> = {
@@ -168,7 +172,7 @@ function TeamCounts({ value }: { readonly value: Dashboard }) {
   const rows = [...value.byMember].sort((a, b) => (b.registered + b.screened) - (a.registered + a.screened) || (a.name ?? '').localeCompare(b.name ?? ''))
   const max = Math.max(1, ...rows.map(row => Math.max(row.registered, row.screened)))
   return (
-    <InsightCard title="Team" id="outreach-dash-team">
+    <>
       {rows.length ? (
         <ul className="m-0 flex list-none flex-col gap-4 p-0">
           {rows.map(row => (
@@ -185,7 +189,7 @@ function TeamCounts({ value }: { readonly value: Dashboard }) {
           ))}
         </ul>
       ) : <p className="m-0 text-[14px] text-ink-2">No one has recorded anything yet.</p>}
-    </InsightCard>
+    </>
   )
 }
 
@@ -193,7 +197,7 @@ function SitesAndHours({ value }: { readonly value: Dashboard }) {
   const sites = value.bySite
   const max = Math.max(1, ...value.byHour.map(row => row.registered))
   return (
-    <InsightCard title="Sites and hours" id="outreach-dash-sites">
+    <>
       {sites.length ? (
         <div className="flex flex-col gap-5">
           {sites.map(site => {
@@ -213,7 +217,7 @@ function SitesAndHours({ value }: { readonly value: Dashboard }) {
           })}
         </div>
       ) : <p className="m-0 text-[14px] text-ink-2">No sites in the plan yet.</p>}
-    </InsightCard>
+    </>
   )
 }
 
@@ -221,8 +225,7 @@ function Kits({ value }: { readonly value: Dashboard }) {
   if (!value.kits.length) return null
   const siteName = (siteId: string) => value.bySite.find(site => site.siteId === siteId)?.name ?? 'Site'
   return (
-    <InsightCard title="Kits" id="outreach-dash-kits">
-      <ul className="m-0 flex list-none flex-col gap-3 p-0">
+    <ul aria-label="Kits" className="m-0 flex list-none flex-col gap-3 p-0">
         {value.kits.map(kit => {
           const low = kit.count > 0 && kit.left < kit.count * LOW_SHARE
           const expiring = withinDays(kit.expiresOn, EXPIRING_DAYS)
@@ -236,8 +239,7 @@ function Kits({ value }: { readonly value: Dashboard }) {
               </span>} />
           )
         })}
-      </ul>
-    </InsightCard>
+    </ul>
   )
 }
 

@@ -310,6 +310,17 @@ plus two new ones: **`outreach.screening.write`** (station writes, outcome, refe
 | `campaigns/:campaignId/dashboard` | GET | campaign.read | `CampaignDashboard` (see *Dashboard*). |
 | `campaigns/:campaignId/follow-ups` | GET | registration.read | `{ items: CampaignFollowUpRow[] }`: name, full phone (the team calls them), visit code, site, follow-up, referral with the partner's name; `sensitive: true` rows carry a generic reason unless the caller may see sensitive results. |
 | `campaigns/:campaignId/report` | GET | campaign.read | `CampaignReport`: counts only (see *Report*). |
+| `organisation/summary` | GET | campaign.read | `OrganisationSummary` (proposed, owner review 13 Nov 2026: the Outreach home shows the organisation's numbers first): `{ campaigns: { total, running, planned, closed }, people: { reached, thisMonth }, screened, positive, referred, byFocus: [{ focus, label, campaigns, screened, positive, referred }], conditions: [{ condition, label, screened, positive }] }`. Counts only, across every campaign of the `X-Facility-ID` organisation; `people.reached` counts each person once (by Health ID record); `thisMonth` from the 1st, Lagos time; the same counts as each campaign's dashboard, so the two agree. Until served (404) the home works out what it can from the campaigns' own dashboards. |
+
+### Types of outreach of the organisation's own
+
+A plan's `focuses` holds the list's focuses (`hepatitis_b`, `malaria`, …) **and** the organisation's own types, typed under
+"Other" in the plan: `{ id: "custom:<slug>", label }` (for example `{ id: "custom:sickle-cell", label: "Sickle cell" }`).
+A name that matches a listed focus is sent as that focus. A custom type has no template: the coordinator adds its tests
+(`id` starting `own-`, `focus: "custom:<slug>"`, `kind: "choice"`, results with flags, `sensitive` when its result is
+private, `usesKit: false`), measurements (vitals with `id` `own-…`, name and unit, no usual range) and questions. Outreach
+stores them as given, accepts `custom:<slug>` wherever a focus is named (tests, questions, partners' `treats`), and counts
+them like the list's in the dashboard, report and organisation summary (`byFocus[].focus = "custom:<slug>"` with `label`).
 
 ### Registration makes the person's Health ID record
 

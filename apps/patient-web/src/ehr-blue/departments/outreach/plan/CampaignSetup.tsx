@@ -1,19 +1,20 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
-import { ClipboardList, Pencil, Plus, ShieldAlert } from 'lucide-react'
+import { ChevronRight, ClipboardList } from 'lucide-react'
 import { PageState } from '../../../../kasuwa/parts'
 import { Drawer } from '../../../../kasuwa/interactive'
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, Input } from '../../../../kasuwa/ui'
+import { Button, EmptyState, Input, cx } from '../../../../kasuwa/ui'
 import { useToast } from '../../../../kasuwa/toast'
 import { useDeptAccess } from '../../parts/access'
 import { useFacilityRead } from '../../parts/useFacilityRead'
 import { campaignFlowErrorText, NOT_OFFERED, outreachCampaignApi, whenOffered } from '../campaignApi'
-import { SCREENING_FOCUSES, stationLabel, type OutreachPlan } from '../campaignTypes'
+import { stationLabel, type OutreachPlan } from '../campaignTypes'
+import { useErrorToast } from '../notify'
 import { CampaignPlanWizard } from './CampaignPlanWizard'
 import {
   ConsentEditor, enterMovesOn, fieldProps, FocusEditor, KitForm, KitList, PackageEditor, PartnersEditor, PlanField, SitesEditor, StationsEditor,
 } from './planParts'
-import { draftFrom, focusesText, languagesText, listInWords, needsSeparateConsent, normalise, placeText, planInput, type PlanDraft } from './planDraft'
+import { draftFrom, focusesText, kitLeft, languagesText, listInWords, needsSeparateConsent, normalise, planInput, type PlanDraft } from './planDraft'
 
 /*
  * A campaign's Setup (owner decisions of 13 November 2026): the plan after the campaign is made, as sections, each with
@@ -66,6 +67,7 @@ export function CampaignSetup({ campaignId, facilityId: given, embedded = false 
       return read.offered ? new Map(read.value.kits.map(kit => [kit.kitId, kit.used])) : null
     } catch { return null }
   }, [campaignId]), '')
+  useErrorToast(plan.value ? plan.error : null, 'Couldn’t load the latest setup', () => void plan.refresh())
   // Coordinators edit; where the team isn't served or couldn't be read, Outreach decides.
   const canEdit = !(team.value?.offered && !team.value.value.you?.roles.includes('coordinator'))
 
@@ -123,19 +125,22 @@ export function CampaignSetup({ campaignId, facilityId: given, embedded = false 
     try {
       await outreachCampaignApi.savePlan(facilityId, campaignId, planInput(normalise(merged, { consentEdited })), saved!.rowVersion)
       toast.success(`${SECTION_TITLE[editing]} saved.`)
+      const from = editing
       setEditing(null)
       setWork(null)
+      document.getElementById(`setup-${from}-edit`)?.focus()
       await plan.refresh()
     } catch (caught) {
-      setError(campaignFlowErrorText(caught, 'The change could not be saved. Try again.'))
-      if (isHidApiError(caught) && caught.code === 'VERSION_CONFLICT') await plan.refresh()
+      const conflict = isHidApiError(caught) && caught.code === 'VERSION_CONFLICT'
+      // Said at the top, with Try again; what was typed stays in the drawer.
+      toast.error({ title: 'Not saved', message: campaignFlowErrorText(caught, 'The change could not be saved. Try again.'),
+        ...(conflict ? {} : { action: { label: 'Try again', onClick: () => void save() } }) })
+      if (conflict) await plan.refresh()
     } finally {
       setBusy(false)
     }
   }
 
-  const edit = (section: Section) => canEdit
-    ? <Button size="sm" icon={Pencil} aria-label={`Edit ${SECTION_TITLE[section].toLowerCase()}`} onClick={() => open(section)}>Edit</Button> : null
   const pkg = saved.package
   const editorProps = work ? { draft: work, onChange: setWork, consentEdited } : null
 
@@ -169,65 +174,35 @@ export function CampaignSetup({ campaignId, facilityId: given, embedded = false 
   }
 
   const sites = saved.sites
+  const kits = saved.kits.map(kit => (kit.used === undefined && usage.value?.has(kit.id) ? { ...kit, used: usage.value.get(kit.id) } : kit))
+  const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+  const rows: ReadonlyArray<{ section: Section; summary: string }> = [
+    { section: 'campaign', summary: [saved.organisationName || 'No organisation given', `aim ${saved.target} people`, focusesText(saved.focuses)].join(' · ') },
+    { section: 'screening', summary: listInWords([count(pkg.vitals.length, 'vital sign'), `${count(pkg.tests.length, 'test')}${pkg.tests.some(test => test.sensitive) ? ` (${pkg.tests.filter(test => test.sensitive).length} private)` : ''}`,
+      count(pkg.questions.length, 'question')]) },
+    { section: 'sites', summary: sites.length ? `${count(sites.length, 'site')}: ${sites.map(site => site.name).join(', ')}` : 'None yet' },
+    { section: 'stations', summary: saved.stationMode === 'one_person' ? 'One person does everything' : saved.stations.map(stationLabel).join(', ') },
+    { section: 'partners', summary: saved.partners.length ? saved.partners.map(partner => partner.name).join(', ') : 'None yet' },
+    { section: 'consent', summary: `${needsSeparateConsent(pkg) && saved.consent.hivText ? 'Campaign and HIV test consent' : 'Campaign consent'}, read in ${languagesText(saved.consent.languages)}` },
+    { section: 'kits', summary: kits.length ? `${count(kits.length, 'lot')}, ${kits.reduce((sum, kit) => sum + kitLeft(kit), 0)} tests left` : 'None yet' },
+  ]
   return frame(
     <div className="flex flex-col gap-4">
-      {plan.error ? <Alert intent="error" title="Couldn’t load the latest setup" action={<Button size="sm" onClick={() => void plan.refresh()}>Try again</Button>}>{plan.error}</Alert> : null}
-      <div className="grid gap-4 @3xl:grid-cols-2">
-        <SetupCard title="Campaign" action={edit('campaign')}>
-          <Facts items={[['Organisation', saved.organisationName || 'Not given'], ['Aim', `${saved.target} people`], ['For', focusesText(saved.focuses)]]} />
-        </SetupCard>
-        <SetupCard title="Sites" action={edit('sites')}>
-          <ul className="m-0 list-none divide-y divide-line p-0">
-            {sites.map(site => (
-              <li key={site.id} className="py-2.5 first:pt-0 last:pb-0">
-                <p className="m-0 text-sm font-medium text-ink">{site.name}</p>
-                <p className="m-0 text-[13px] text-ink-3">{[placeText(site), site.address].filter(Boolean).join(' · ') || 'No address yet'}</p>
-              </li>
-            ))}
-          </ul>
-        </SetupCard>
-        <SetupCard title="Screening" action={edit('screening')}>
-          {pkg.vitals.length ? <Facts items={[['Vital signs', pkg.vitals.map(vital => `${vital.name} (${vital.unit})`).join('; ')]]} /> : null}
-          {pkg.tests.length ? (
-            <div>
-              <p className="m-0 text-[13px] font-medium text-ink-3">Tests</p>
-              <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
-                {pkg.tests.map(test => (
-                  <li key={test.id} className="flex flex-wrap items-center gap-2 text-sm text-ink">{test.name}
-                    {test.sensitive ? <Badge size="sm" tone="warn" icon={ShieldAlert}>Sensitive</Badge> : null}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <Facts items={[['Questions', `${pkg.questions.length} question${pkg.questions.length === 1 ? '' : 's'}`]]} />
-        </SetupCard>
-        <SetupCard title="Stations" action={edit('stations')}>
-          <p className="m-0 text-sm text-ink">{saved.stationMode === 'one_person' ? 'One person does everything' : saved.stations.map(stationLabel).join(', ')}</p>
-        </SetupCard>
-        <SetupCard title="Referral partners" action={edit('partners')}>
-          {saved.partners.length ? (
-            <ul className="m-0 list-none divide-y divide-line p-0">
-              {saved.partners.map(partner => (
-                <li key={partner.id} className="py-2.5 first:pt-0 last:pb-0">
-                  <p className="m-0 text-sm font-medium text-ink">{partner.name}</p>
-                  <p className="m-0 text-[13px] text-ink-3">{[partner.phone, partner.address].filter(Boolean).join(' · ')}</p>
-                  {partner.treats.length ? <p className="m-0 text-[13px] text-ink-3">Treats {listInWords(SCREENING_FOCUSES.filter(item => partner.treats.includes(item.value)).map(item => item.label))}</p> : null}
-                </li>
-              ))}
-            </ul>
-          ) : <p className="m-0 text-sm text-ink-2">None yet.</p>}
-        </SetupCard>
-        <SetupCard title="Consent" action={edit('consent')}>
-          <p className="m-0 text-sm whitespace-pre-wrap text-ink">{saved.consent.text}</p>
-          {needsSeparateConsent(pkg) && saved.consent.hivText ? (
-            <div><p className="m-0 text-[13px] font-medium text-ink-3">HIV test consent</p><p className="m-0 mt-0.5 text-sm whitespace-pre-wrap text-ink">{saved.consent.hivText}</p></div>
-          ) : null}
-          <Facts items={[['Read in', languagesText(saved.consent.languages)]]} />
-        </SetupCard>
-      </div>
-      <SetupCard title="Kits" action={canEdit ? <Button size="sm" icon={Plus} onClick={() => open('kits')}>Add stock</Button> : null}>
-        <KitList draft={{ ...draftFrom(saved), kits: saved.kits.map(kit => (kit.used === undefined && usage.value?.has(kit.id) ? { ...kit, used: usage.value.get(kit.id) } : kit)) }} />
-      </SetupCard>
+      {/* Each part of the plan in a line: Edit opens it in a drawer (one job a screen). */}
+      <ul aria-label="Setup" className="m-0 list-none divide-y divide-line overflow-hidden rounded-2xl bg-surface p-0 shadow-[var(--shadow-card)] ring-1 ring-line">
+        {rows.map(row => (
+          <li key={row.section}>
+            {canEdit ? (
+              <button type="button" id={`setup-${row.section}-edit`} aria-label={`Edit ${SECTION_TITLE[row.section].toLowerCase()}`} onClick={() => open(row.section)}
+                className={cx('flex min-h-14 w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-4 py-3 text-left text-ink hover:bg-subtle sm:px-5',
+                  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]')}>
+                <SetupRow title={SECTION_TITLE[row.section]} summary={row.summary} />
+                <span className="text-[14px] font-medium text-brand-ink">Edit</span><ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
+              </button>
+            ) : <div className="flex min-h-14 items-center gap-3 px-4 py-3 sm:px-5"><SetupRow title={SECTION_TITLE[row.section]} summary={row.summary} /></div>}
+          </li>
+        ))}
+      </ul>
       <Drawer open={editing !== null} onClose={close} title={editing ? (editing === 'kits' ? 'Add kit stock' : `Edit ${SECTION_TITLE[editing].toLowerCase()}`) : ''}
         footer={<>
           <Button onClick={close} disabled={busy}>Cancel</Button>
@@ -236,28 +211,18 @@ export function CampaignSetup({ campaignId, facilityId: given, embedded = false 
         <form className="flex flex-col gap-4" noValidate aria-label={editing ? SECTION_TITLE[editing] : undefined}
           onSubmit={event => { event.preventDefault(); void save() }} onKeyDown={enterMovesOn}>
           {drawerBody}
-          {error ? <Alert intent="error" title={error} /> : null}
+          {error ? <p id="setup-error" role="alert" className="m-0 text-sm font-medium text-danger-ink">{error}</p> : null}
         </form>
       </Drawer>
     </div>
   )
 }
 
-function SetupCard({ title, action, children }: { readonly title: string; readonly action?: ReactNode; readonly children: ReactNode }) {
+function SetupRow({ title, summary }: { readonly title: string; readonly summary: string }) {
   return (
-    <Card>
-      <CardHeader as="h3" title={title} actions={action ?? undefined} />
-      <div className="flex flex-col gap-3 px-5 py-4">{children}</div>
-    </Card>
-  )
-}
-
-function Facts({ items }: { readonly items: ReadonlyArray<readonly [string, ReactNode]> }) {
-  return (
-    <dl className="m-0 flex flex-col gap-2">
-      {items.map(([label, value]) => (
-        <div key={label}><dt className="text-[13px] font-medium text-ink-3">{label}</dt><dd className="m-0 mt-0.5 text-sm break-words text-ink">{value}</dd></div>
-      ))}
-    </dl>
+    <span className="flex min-w-0 flex-1 flex-col">
+      <span className="text-[15px] font-semibold text-ink">{title}</span>
+      <span className="text-[13px] break-words text-ink-2">{summary}</span>
+    </span>
   )
 }

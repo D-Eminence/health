@@ -5,6 +5,8 @@ import { ConfirmSheet, FormActions } from '../../../../kasuwa/parts'
 import { Alert, Button, Input, Textarea } from '../../../../kasuwa/ui'
 import { useFocusById } from '../../../../staff/focus'
 import { campaignFlowErrorText, newLocalCommandId, outreachCampaignApi, type StationCommand } from '../campaignApi'
+import { ErrorToast } from '../notify'
+import { useToast } from '../../../../kasuwa/toast'
 import {
   canConfirmOutcome, canSeeSensitive, type OutcomeKind, type OutreachPlan, type OutreachVisit, type ScreeningConsentInput, type TestDefinition,
   type TestResultInput, type Urgency, type VitalDefinition, type VitalId,
@@ -66,8 +68,9 @@ function useSaver(visit: DayVisit) {
   return { busy, error, save }
 }
 
+/** What stopped a save, said in a toast at the top while it lasts; the form keeps what was typed and its Save. */
 function SaveError({ error }: { readonly error: string }) {
-  return error ? <Alert intent="error" title="Not saved">{error}</Alert> : null
+  return <ErrorToast error={error} title="Not saved" />
 }
 
 /** Moves to the next field on Enter, or presses Save at the last one. */
@@ -574,7 +577,8 @@ function ResultSlip({ plan, visit, outcome, reasons }: {
 }) {
   const { facilityId, online, campaignName } = useCampaignDay()
   const person = personOf(visit)
-  const [sms, setSms] = useState('')
+  const [, setSms] = useState('')
+  const toast = useToast()
   const [sending, setSending] = useState(false)
   const command = useRef<string | null>(null)
   const partner = plan.partners.find(item => item.name === outcome.partner)
@@ -590,10 +594,15 @@ function ResultSlip({ plan, visit, outcome, reasons }: {
     setSending(true)
     try {
       const sent = await outreachCampaignApi.sendSlipSms(facilityId, visit.caseId, { kind: 'results' }, command.current)
-      setSms(sent.deliveryOutcome === 'definitive_failure' ? 'The text could not be delivered. Give them the printed slip.' : `Sent to ${sent.sentTo}.`)
+      const failed = sent.deliveryOutcome === 'definitive_failure'
+      setSms(failed ? 'The text could not be delivered. Give them the printed slip.' : `Sent to ${sent.sentTo}.`)
+      if (failed) toast.error({ title: 'Not delivered', message: 'The text could not be delivered. Give them the printed slip.' })
+      else toast.success(`Sent to ${sent.sentTo}.`)
       command.current = null
     } catch (caught) {
-      setSms(campaignFlowErrorText(caught, 'The text could not be sent. Give them the printed slip.'))
+      const said = campaignFlowErrorText(caught, 'The text could not be sent. Give them the printed slip.')
+      setSms(said)
+      toast.error({ title: 'Not sent', message: said })
     } finally { setSending(false) }
   }
   return (
@@ -610,7 +619,6 @@ function ResultSlip({ plan, visit, outcome, reasons }: {
           <Button size="lg" icon={MessageSquare} aria-disabled={sending || !online || undefined} onClick={() => { if (online) void text() }}>{sending ? 'Sending…' : 'Text the result'}</Button>
         ) : null}
       </div>
-      <div role="status" className="text-[14px] text-ink-2">{sms}</div>
       <PrintSlip fullName={person.fullName} visitCode={person.visitCode} healthId={person.healthId} campaignName={campaignName} results={lines} />
     </Panel>
   )

@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Pencil } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../../kasuwa/parts'
-import { Alert, Button, Input, cx } from '../../../../kasuwa/ui'
+import { Button, Input, cx } from '../../../../kasuwa/ui'
+import { useToast } from '../../../../kasuwa/toast'
 import { staffApi, type OutreachCampaign } from '../../../../staff/api'
 import { useFocusById } from '../../../../staff/focus'
 import { useDeptAccess } from '../../parts/access'
@@ -79,7 +80,15 @@ export function CampaignPlanWizard({ campaignId: resumeId, onDone, onCancel, fac
   const saved = useRef('')
   const [fromSummary, setFromSummary] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<{ text: string; note?: string } | null>(null)
+  const toast = useToast()
+  // What went wrong after an action is said in a toast at the top, with Try again where it can be tried again.
+  const retry = useRef<() => void>(() => undefined)
+  const toastId = useRef<string | null>(null)
+  const setError = useCallback((error: { text: string; note?: string; noRetry?: boolean } | null) => {
+    if (toastId.current) toast.dismiss(toastId.current)
+    toastId.current = error ? toast.error({ title: error.text, ...(error.note ? { message: error.note } : {}),
+      ...(error.noRetry ? {} : { action: { label: 'Try again', onClick: () => retry.current() } }) }) : null
+  }, [toast])
   const [problems, setProblems] = useState<{ errors: Partial<Record<string, string>>; alert?: string; seq: number }>({ errors: {}, seq: 0 })
   const [basics, setBasics] = useState<BasicsState>({ name: '', services: ['registration'], starts: '', ends: '', target: '200' })
   const doneRef = useRef(onDone)
@@ -102,11 +111,11 @@ export function CampaignPlanWizard({ campaignId: resumeId, onDone, onCancel, fac
         setConsentEdited(true)
       } catch (caught) {
         if (live && isHidApiError(caught) && caught.code === 'OUTREACH_PLAN_NOT_FOUND') version.current = 0
-        else if (live) setError({ text: campaignFlowErrorText(caught, 'The plan could not be read. Try again.') })
+        else if (live) setError({ text: campaignFlowErrorText(caught, 'The plan could not be read. Try again.'), noRetry: true })
       }
     })()
     return () => { live = false }
-  }, [resumeId, facilityId])
+  }, [resumeId, facilityId, setError])
 
   // A new step: focus its first field, so typing starts at once (not on the first view: the page focuses its heading).
   useLayoutEffect(() => {
@@ -234,6 +243,8 @@ export function CampaignPlanWizard({ campaignId: resumeId, onDone, onCancel, fac
     go(after(step))
   }
 
+  retry.current = () => { void next() }
+
   function edit(at: number) { setFromSummary(true); go(at) }
   function finishLater() {
     if (busy) return
@@ -294,9 +305,6 @@ export function CampaignPlanWizard({ campaignId: resumeId, onDone, onCancel, fac
         <Step n={step} title={current.title} hint={current.hint}>
           <div ref={body} className="flex min-w-0 flex-col gap-4">{content}</div>
         </Step>
-        {error ? (
-          <Alert intent="error" title={error.text}>{error.note ?? null}</Alert>
-        ) : null}
         <FormActions>
           <Button variant="ghost" onClick={finishLater} aria-disabled={busy || undefined}>{campaignId ? 'Finish later' : 'Cancel'}</Button>
           {step > 1 && !fromSummary ? (
@@ -383,7 +391,7 @@ function PlanSummary({ draft, campaign, basics, onEdit }: {
           </li>
         ))}
       </ul>
-      {!canSave(draft) ? <Alert intent="warning" title="Not ready to save yet">Choose what it’s for and add a site.</Alert>
+      {!canSave(draft) ? <p className="m-0 text-sm font-medium text-warn-ink">Not ready to save yet: choose what it’s for and add a site.</p>
         : <p className="m-0 text-sm text-ink-2">It stays not started until you open it for registration from the campaign.</p>}
     </>
   )

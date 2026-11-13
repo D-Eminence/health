@@ -1,7 +1,8 @@
-import { act, fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../../harness'
+import { ToastProvider } from '../../../../../kasuwa/toast'
 import { CampaignPlanWizard } from '../../../../../ehr-blue/departments/outreach/plan'
 
 /*
@@ -35,7 +36,7 @@ function render(props: Partial<Parameters<typeof CampaignPlanWizard>[0]> = {}) {
   const onDone = vi.fn()
   const onCancel = vi.fn()
   const onUnsure = vi.fn()
-  renderDept(<CampaignPlanWizard onDone={onDone} onCancel={onCancel} onUnsure={onUnsure} {...props} />)
+  renderDept(<ToastProvider><CampaignPlanWizard onDone={onDone} onCancel={onCancel} onUnsure={onUnsure} {...props} /></ToastProvider>)
   return { onDone, onCancel, onUnsure }
 }
 
@@ -125,7 +126,9 @@ describe('the new campaign’s steps', () => {
     expect(api.createOutreachCampaign).not.toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('Registration'))
     await fillBasics()
-    expect(screen.getByRole('form').textContent).toContain('Check it for this campaign before you retry')
+    // Said in a toast at the top of the screen, not in the form.
+    expect((await screen.findByRole('alert')).textContent).toContain('Check it for this campaign before you retry')
+    expect(screen.getByRole('form').textContent).not.toContain('Check it for this campaign')
     expect(onUnsure).toHaveBeenCalledTimes(1)
     expect(api.createOutreachCampaign).toHaveBeenCalledTimes(1)
     expect(onDone).not.toHaveBeenCalled()
@@ -146,10 +149,69 @@ describe('the new campaign’s steps', () => {
     await next()
     fireEvent.change(screen.getByLabelText(/^Place name/), { target: { value: 'Demo Clinic' } })
     await next()
-    expect(within(screen.getByRole('form')).getByText('Someone changed this just now. It has been read again: check it, then try again.')).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toContain('Someone changed this just now. It has been read again: check it, then try again.')
     expect(stepTitle()).toBe('Sites')
     await next()
     expect(routes.of('PUT', '/plan').map(call => call.headers?.['If-Match'])).toEqual(['"0"', '"3"'])
     expect(stepTitle()).toBe('How stations work')
+  })
+})
+
+describe('a type of outreach of the organisation’s own', () => {
+  it('adds one under Other (a name on the list is that one), with its own test, measurement and question, kept in the plan', async () => {
+    routes.on(call => (call.method === 'GET' && call.path.endsWith('/plan') ? new HidApiError(404, 'x', { code: 'OUTREACH_PLAN_NOT_FOUND' }) : undefined))
+    routes.on(call => (call.method === 'PUT' ? { ...(call.body as object), campaignId: CREATED.id, rowVersion: 1 } : undefined))
+    render()
+    await fillBasics()
+    await press(screen.getByRole('button', { name: 'Other' }))
+    const typed = screen.getByLabelText('Type the condition (e.g. malaria)')
+    expect(document.activeElement).toBe(typed)
+    // Nothing typed: said under the field, focus kept there.
+    await press(screen.getByRole('button', { name: 'Add' }))
+    expect(typed.getAttribute('aria-describedby')).toBe('plan-focus-other-error')
+    expect(screen.getByText('Type what it is for, like malaria.')).toBeTruthy()
+    // "malaria" is on the list: the listed one is chosen, with its own checks.
+    fireEvent.change(typed, { target: { value: 'malaria' } })
+    await press(screen.getByRole('button', { name: 'Add' }))
+    expect((screen.getByLabelText('Malaria') as HTMLInputElement).checked).toBe(true)
+    expect((await screen.findByRole('status')).textContent).toContain('Malaria is on the list')
+    fireEvent.change(typed, { target: { value: 'sickle cell' } })
+    await press(screen.getByRole('button', { name: 'Add' }))
+    fireEvent.change(typed, { target: { value: 'Typhoid' } })
+    await press(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('button', { name: 'Remove Sickle cell' })).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'Remove Typhoid' }))
+    expect(screen.queryByRole('button', { name: 'Remove Typhoid' })).toBeNull()
+    await next()
+
+    // No template for it: the coordinator adds what it checks.
+    expect(stepTitle()).toBe('Screening')
+    await press(screen.getByRole('button', { name: 'Add a test' }))
+    expect(document.activeElement).toBe(screen.getByLabelText('Test name'))
+    expect((screen.getByLabelText('Results') as HTMLInputElement).value).toBe('Positive, Negative, Invalid')
+    fireEvent.change(screen.getByLabelText('Test name'), { target: { value: 'Sickle cell test' } })
+    fireEvent.click(screen.getByLabelText(/^Private result/))
+    await press(screen.getByRole('button', { name: 'Add test' }))
+    expect(screen.getByText('Sickle cell test').closest('li')?.textContent).toContain('Private')
+    await press(screen.getByRole('button', { name: 'Add a measurement' }))
+    fireEvent.change(screen.getByLabelText('Measurement'), { target: { value: 'Haemoglobin' } })
+    await press(screen.getByRole('button', { name: 'Add measurement' }))
+    expect(screen.getByText('Give the unit, like cm.')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByLabelText('Unit'))
+    fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'g/dL' } })
+    await press(screen.getByRole('button', { name: 'Add measurement' }))
+    expect(screen.getByText('Haemoglobin (g/dL)')).toBeTruthy()
+    await next()
+    fireEvent.change(screen.getByLabelText(/^Place name/), { target: { value: 'Demo Clinic' } })
+    await next()
+
+    const [save] = routes.of('PUT', '/plan')
+    const body = save?.body as { focuses: unknown[]; package: { tests: Array<{ name: string; focus: string; sensitive: boolean; results: Array<{ label: string; flag: string }> }>; vitals: Array<{ name: string; unit: string }> } }
+    expect(body.focuses).toEqual(['malaria', { id: 'custom:sickle-cell', label: 'Sickle cell' }])
+    const own = body.package.tests.find(test => test.name === 'Sickle cell test')!
+    expect(own.focus).toBe('custom:sickle-cell')
+    expect(own.sensitive).toBe(true)
+    expect(own.results.map(result => [result.label, result.flag])).toEqual([['Positive', 'abnormal'], ['Negative', 'normal'], ['Invalid', 'invalid']])
+    expect(body.package.vitals.find(vital => vital.name === 'Haemoglobin')?.unit).toBe('g/dL')
   })
 })

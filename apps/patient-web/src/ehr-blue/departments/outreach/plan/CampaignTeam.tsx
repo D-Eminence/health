@@ -3,8 +3,9 @@ import { isHidApiError } from '@hid/http'
 import { Mail, Phone, RotateCcw, Trash2, UserCog, UserPlus, Users } from 'lucide-react'
 import { ConfirmSheet, PageState } from '../../../../kasuwa/parts'
 import { Drawer } from '../../../../kasuwa/interactive'
-import { Alert, Avatar, Badge, Button, Card, EmptyState, Input, Select, type Tone } from '../../../../kasuwa/ui'
+import { Avatar, Badge, Button, Card, EmptyState, Input, Select, type Tone } from '../../../../kasuwa/ui'
 import { useToast } from '../../../../kasuwa/toast'
+import { useErrorToast } from '../notify'
 import { useDeptAccess } from '../../parts/access'
 import { useFacilityRead } from '../../parts/useFacilityRead'
 import { campaignFlowErrorText, newLocalCommandId, NOT_OFFERED, outreachCampaignApi, whenOffered } from '../campaignApi'
@@ -73,10 +74,11 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
     } catch { return null }
   }, [campaignId]), '')
 
+  useErrorToast(team.value ? team.error : null, 'Couldn’t load the latest team', () => void team.refresh())
+
   const [drawer, setDrawer] = useState<{ kind: 'invite' } | { kind: 'change'; member: CampaignTeamMember } | null>(null)
   const [form, setForm] = useState<MemberForm>({ contact: '', name: '', roles: ['registrar'], siteId: '', station: 'register' })
   const [errors, setErrors] = useState<{ contact?: string; roles?: string }>({})
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<CampaignTeamMember | null>(null)
   const [working, setWorking] = useState<string | null>(null)
@@ -97,12 +99,12 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
 
   const startInvite = () => {
     setForm({ contact: '', name: '', roles: ['registrar'], siteId: sites[0]?.id ?? '', station: split ? 'register' : '' })
-    setErrors({}); setError('')
+    setErrors({})
     setDrawer({ kind: 'invite' })
   }
   const startChange = (member: CampaignTeamMember) => {
     setForm({ contact: member.phone ?? member.email ?? '', name: member.name ?? '', roles: [...member.roles], siteId: member.siteId ?? '', station: member.station ?? '' })
-    setErrors({}); setError('')
+    setErrors({})
     setDrawer({ kind: 'change', member })
   }
   const close = () => { if (!busy) setDrawer(null) }
@@ -119,7 +121,6 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
       document.getElementById(found.contact ? 'team-contact' : `team-roles-${TEAM_ROLES[0]!.value}`)?.focus()
       return
     }
-    setError('')
     setBusy(true)
     try {
       if (drawer.kind === 'invite') {
@@ -138,8 +139,12 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
       setDrawer(null)
       await team.refresh()
     } catch (caught) {
-      setError(campaignFlowErrorText(caught, drawer.kind === 'invite' ? 'The invitation could not be sent. Try again.' : 'The change could not be saved. Try again.'))
-      if (isHidApiError(caught) && (caught.code === 'VERSION_CONFLICT' || caught.code === 'OUTREACH_TEAM_MEMBER_EXISTS')) await team.refresh()
+      const stale = isHidApiError(caught) && (caught.code === 'VERSION_CONFLICT' || caught.code === 'OUTREACH_TEAM_MEMBER_EXISTS')
+      // Said at the top; the drawer stays open with what was typed.
+      toast.error({ title: drawer.kind === 'invite' ? 'Not sent' : 'Not saved',
+        message: campaignFlowErrorText(caught, drawer.kind === 'invite' ? 'The invitation could not be sent. Try again.' : 'The change could not be saved. Try again.'),
+        ...(stale ? {} : { action: { label: 'Try again', onClick: () => void submit() } }) })
+      if (stale) await team.refresh()
     } finally {
       setBusy(false)
     }
@@ -187,7 +192,7 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
     <section aria-labelledby={`team-${campaignId}-heading`} className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 id={`team-${campaignId}-heading`} className="m-0 text-title-2 text-ink">Team</h2>
+          <h2 id={`team-${campaignId}-heading`} className="sr-only">Team</h2>
           {read ? <p className="m-0 text-sm text-ink-2">{joined} joined{waiting ? ` · ${waiting} invite${waiting === 1 ? '' : 's'} waiting` : ''}</p> : null}
         </div>
         {coordinator ? <Button variant="primary" icon={UserPlus} onClick={startInvite}>Invite</Button> : null}
@@ -235,7 +240,6 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
           })}
         </ul>
       </PageState>
-      {team.error && read ? <Alert intent="error" title="Couldn’t load the latest team" action={<Button size="sm" onClick={() => void team.refresh()}>Try again</Button>}>{team.error}</Alert> : null}
 
       <Drawer open={drawer !== null} onClose={close}
         title={drawer?.kind === 'change' ? `Change roles for ${drawer.member.name ?? drawer.member.phone ?? drawer.member.email ?? 'this person'}` : 'Invite to the team'}
@@ -280,7 +284,6 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
               </Select>
             </PlanField>
           ) : null}
-          {error ? <Alert intent="error" title={error} /> : null}
         </form>
       </Drawer>
 

@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowRight, CloudOff, MessageSquare, Printer, Search, UserPlus } from 'lucide-react'
 import { Segmented } from '../../../../kasuwa/interactive'
 import { FormActions } from '../../../../kasuwa/parts'
-import { Alert, Button, Input, Select } from '../../../../kasuwa/ui'
+import { useToast } from '../../../../kasuwa/toast'
+import { Button, Input, Select } from '../../../../kasuwa/ui'
 import { useFocusById } from '../../../../staff/focus'
 import type { OutreachCaseInput, OutreachConsentLanguage } from '../../../../staff/api'
 import { CONSENT_LANGUAGES } from '../../../../outreachTerms'
@@ -11,6 +12,7 @@ import { errorText } from '../../parts/errors'
 import { campaignFlowErrorText, isNotOffered, newLocalCommandId, outreachCampaignApi } from '../campaignApi'
 import type { ConsentCodeSent, OutreachPlan, OutreachVisit, ParticipantMatch, ScreeningConsentInput } from '../campaignTypes'
 import { waitsForNetwork } from '../offlineQueue'
+import { ErrorToast, NoteToast } from '../notify'
 import { CREATE_FAILED, healthIdFrom } from '../outreachParts'
 import { caseVisit, DayScope, hivConsentKey, useCampaignDay, useDraft, type DayVisit } from './dayContext'
 import { PlanState } from './DayStart'
@@ -347,7 +349,7 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
     return (
       <Panel className="flex flex-col gap-4 p-4 sm:p-5">
         <h2 id="outreach-register-heading" className="m-0 text-title-2 text-ink">Register a person</h2>
-        {stage.note ? <Alert intent="info" size="sm">{stage.note}</Alert> : null}
+        <NoteToast note={stage.note} />
         <form className="flex flex-col gap-3" noValidate onSubmit={event => void search(event)} aria-label="Find them first">
           <Segmented ariaLabel="Search by" value={searchMode} onChange={mode => { setSearchMode(mode); setSearchError('') }}
             options={[{ value: 'phone', label: 'Phone number' }, { value: 'healthId', label: 'Health ID' }]} />
@@ -392,7 +394,7 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
             </li>
           ))}
         </ul>
-        {error ? <Alert intent="error">{error}</Alert> : null}
+        <ErrorToast error={error} title="Not registered" />
         <Button variant="link" className="self-start" onClick={() => setStage({ step: 'search' })}>Search again</Button>
       </Panel>
     )
@@ -402,7 +404,7 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
     return (
       <Panel className="flex flex-col gap-4 p-4 sm:p-5">
         <h2 id="outreach-register-details-heading" tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{form.match ? 'Their details' : 'New person'}</h2>
-        {form.match ? <Alert intent="info" size="sm">Their own Health ID record is used. Check their name and age with them.</Alert> : null}
+        {form.match ? <p className="m-0 text-[14px] text-ink-2">Their own Health ID record is used. Check their name and age with them.</p> : null}
         <form className="flex flex-col gap-4" noValidate aria-label="Their details"
           onSubmit={event => { event.preventDefault(); if (checkDetails()) setStage({ step: 'consent' }) }}>
           <DayField id={IDS.fullName} label="Full name" error={errors.fullName}>
@@ -486,7 +488,7 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
           </div>
         ) : null}
         <p className="m-0 text-[14px] text-ink-2">If they say no, don’t register them.</p>
-        {error ? <Alert intent="error">{error}</Alert> : null}
+        <ErrorToast error={error} title="Not registered" />
         <FormActions>
           <Button variant="ghost" size="lg" onClick={() => setStage({ step: 'details' })}>Back</Button>
           <Button size="lg" icon={MessageSquare} aria-disabled={busy || codeBlocked !== null || undefined}
@@ -542,13 +544,16 @@ function DoneCard({ registered, note, embedded, language, onNext }: {
   const { facilityId, online, campaignName } = useCampaignDay()
   const [sms, setSms] = useState<{ state: 'idle' | 'sending' | 'sent' | 'failed'; text: string }>({ state: 'idle', text: '' })
   const smsCommand = useRef<string | null>(null)
+  const toast = useToast()
+  const retryText = useRef<() => Promise<void>>(async () => undefined)
 
   if (registered.kind === 'queued') {
     const { person } = registered.dayVisit as Extract<DayVisit, { kind: 'queued' }>
     return (
       <Panel className="flex flex-col gap-4 p-4 sm:p-5">
         <h2 id="outreach-register-done-heading" tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{person.fullName}</h2>
-        <Alert intent="warning" icon={CloudOff} title="Saved on this phone">The code arrives when you’re back online.</Alert>
+        <p className="m-0 inline-flex items-start gap-2 text-[15px] text-ink"><CloudOff className="mt-0.5 size-5 shrink-0 text-warn-ink" aria-hidden />
+          <span><strong className="block font-semibold">Saved on this phone</strong><span>The code arrives when you’re back online.</span></span></p>
         <p className="m-0 text-[15px] text-ink-2">{embedded ? 'Carry on with them here: what you record waits with their registration.'
           : 'Send them on: the next station finds them once this phone has sent the registration.'}</p>
         {!embedded ? <FormActions><Button variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={onNext}>Next person</Button></FormActions> : null}
@@ -563,16 +568,21 @@ function DoneCard({ registered, note, embedded, language, onNext }: {
     setSms({ state: 'sending', text: '' })
     try {
       const sent = await outreachCampaignApi.sendSlipSms(facilityId, visit.id, { kind: 'visit_code', language }, smsCommand.current)
-      setSms(sent.deliveryOutcome === 'definitive_failure'
-        ? { state: 'failed', text: 'The text could not be delivered. Give them the printed slip.' }
-        : { state: 'sent', text: `Sent to ${sent.sentTo}.` })
+      const failed = sent.deliveryOutcome === 'definitive_failure'
+      setSms(failed ? { state: 'failed', text: 'The text could not be delivered. Give them the printed slip.' } : { state: 'sent', text: `Sent to ${sent.sentTo}.` })
+      if (failed) toast.error({ title: 'Not delivered', message: 'The text could not be delivered. Give them the printed slip.' })
+      else toast.success(`Sent to ${sent.sentTo}.`)
       smsCommand.current = null
     } catch (caught) {
-      setSms({ state: 'failed', text: campaignFlowErrorText(caught, 'The text could not be sent. Give them the printed slip.') })
+      const text = campaignFlowErrorText(caught, 'The text could not be sent. Give them the printed slip.')
+      setSms({ state: 'failed', text })
+      toast.error({ title: 'Not sent', message: text, action: { label: 'Try again', onClick: () => void retryText.current() } })
       // Sent again as the same command only when the answer may have been lost: Health ID sends one text, never two.
       if (!waitsForNetwork(caught)) smsCommand.current = null
     }
   }
+
+  retryText.current = text
 
   return (
     <Panel className="flex flex-col gap-4 p-4 sm:p-5">
@@ -580,8 +590,8 @@ function DoneCard({ registered, note, embedded, language, onNext }: {
         <h2 id="outreach-register-done-heading" tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{already ? 'Already registered' : 'Registered'}: {visit.fullName}</h2>
         <p className="m-0 text-[14px] text-ink-2">{ageWords(visit.ageYears)} · {sexWords(visit.sex)}{consentByCode ? ' · agreed by code' : ''}</p>
       </div>
-      {note ? <Alert intent="warning" size="sm">{note}</Alert> : null}
-      {visit.possibleDuplicate && !already ? <Alert intent="info" size="sm">Someone with this phone number is already on Health ID: their record is used.</Alert> : null}
+      <NoteToast note={note} intent="warning" />
+      {visit.possibleDuplicate && !already ? <p className="m-0 text-[14px] text-ink-2">Someone with this phone number is already on Health ID: their record is used.</p> : null}
       <div className="flex flex-col items-start gap-1 rounded-xl bg-subtle p-4">
         {visit.visitCode ? <>
           <p className="m-0 text-[14px] font-medium text-ink-2">Visit code</p>
@@ -596,7 +606,6 @@ function DoneCard({ registered, note, embedded, language, onNext }: {
             onClick={() => { if (online) void text() }}>{sms.state === 'sending' ? 'Sending…' : sms.state === 'sent' ? 'Text it again' : 'Text it to them'}</Button>
         ) : null}
       </div>
-      <div role="status" className="text-[14px] text-ink-2">{sms.text}</div>
       {!embedded ? <FormActions><Button variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={onNext}>Next person</Button></FormActions> : null}
       <PrintSlip fullName={visit.fullName ?? ''} visitCode={visit.visitCode ?? null} healthId={visit.healthId ?? null} campaignName={campaignName} />
     </Panel>

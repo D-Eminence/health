@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, EyeOff, Printer, RotateCcw } from 'lucide-react'
-import { LoadingRows, Value, type FlagLevel } from '../../../../kasuwa/parts'
+import { ArrowLeft, EyeOff, Printer } from 'lucide-react'
+import { LoadingRows, PageState, Value, type FlagLevel } from '../../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader } from '../../../../kasuwa/ui'
 import { campaignFlowErrorText, isNotOffered, NOT_OFFERED } from '../campaignApi'
 import { outreachCampaignApi } from '../campaignApi'
 import {
   canSeeSensitive, STATIONS, type FollowUpStatus, type OutreachPlan, type OutreachVisit, type ReferralStatus, type ResultFlag, type VitalId,
 } from '../campaignTypes'
-import { bmiFrom, flagVital, outcomeText, resultFlagText, VITALS } from '../screeningTemplates'
+import { bmiFrom, flagVital, outcomeText, resultFlagText, vitalDefinition } from '../screeningTemplates'
 import { caseVisit, DayScope, useCampaignDay } from './dayContext'
 import { ageWords, PersonBanner, PrintSlip, sexWords } from './dayParts'
 
@@ -45,7 +45,7 @@ function VisitBody({ caseId, onBack }: { readonly caseId: string; readonly onBac
         <h2 id="outreach-visit-heading" className="m-0 text-title-2 text-ink">{loaded.status === 'ready' ? loaded.visit.fullName ?? 'Visit' : 'Visit'}</h2>
       </div>
       {loaded.status === 'loading' ? <LoadingRows rows={4} label="Loading the visit" />
-        : loaded.status === 'error' ? <Alert intent="error" title="Couldn’t load the visit" action={<Button size="sm" icon={RotateCcw} onClick={retry}>Try again</Button>}>{loaded.message}</Alert>
+        : loaded.status === 'error' ? <PageState loading={false} error={loaded.message} hasData={false} onRetry={retry} what="the visit">{null}</PageState>
           : <VisitDetails visit={loaded.visit} plan={day.plan.status === 'ready' ? day.plan.value : null} />}
     </section>
   )
@@ -105,7 +105,8 @@ function VisitDetails({ visit, plan }: { readonly visit: OutreachVisit; readonly
                 const flag = flagVital(id, value, { fasting: entry.fasting ?? false })
                 const level: FlagLevel | null = flag.level === 'normal' && flag.label === 'Normal' ? null
                   : flag.level === 'refer_urgent' ? 'critical' : flag.label.endsWith('ow') ? 'low' : 'high'
-                return [VITALS[id]?.name ?? id, <Value key={id} value={value} unit={VITALS[id]?.unit} flag={level} />]
+                const definition = vitalDefinition(id, plan?.package)
+                return [definition?.name ?? id, <Value key={id} value={value} unit={definition?.unit} flag={level} />]
               })} />
             </div>
           )

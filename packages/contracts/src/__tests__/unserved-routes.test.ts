@@ -7,6 +7,7 @@ const OUTREACH_CAMPAIGN_ROUTES = [
   'outreach.visitByCode', 'outreach.caseVitals', 'outreach.caseTests', 'outreach.caseAnswers', 'outreach.caseOutcome',
   'outreach.caseReferral', 'outreach.caseFollowUp', 'outreach.caseConsentCode', 'outreach.caseConsentCodeVerify',
   'outreach.caseSlipSms', 'outreach.campaignDashboard', 'outreach.campaignFollowUps', 'outreach.campaignReport',
+  'outreach.organisationSummary',
 ] as const
 
 /**
@@ -117,6 +118,7 @@ describe('Outreach campaign routes (owner decisions of 13 November 2026)', () =>
     ['GET', `${base}/campaigns/c-1/dashboard`, 'outreach.campaignDashboard'],
     ['GET', `${base}/campaigns/c-1/follow-ups`, 'outreach.campaignFollowUps'],
     ['GET', `${base}/campaigns/c-1/report`, 'outreach.campaignReport'],
+    ['GET', `${base}/organisation/summary`, 'outreach.organisationSummary'],
     // The served routes still resolve to themselves.
     ['GET', `${base}/campaigns/governance`, 'outreach.campaignGovernance'],
     ['POST', `${base}/oc-1/link-existing`, 'outreach.linkExisting'],

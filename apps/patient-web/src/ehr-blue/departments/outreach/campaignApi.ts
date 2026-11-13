@@ -2,7 +2,7 @@ import { isHidApiError, NO_RETRY } from '@hid/http'
 import { outreachCampaignRequest, staffApi, type OutreachCaseInput } from '../../../staff/api'
 import { errorText } from '../parts/errors'
 import type {
-  AnswersInput, CampaignDashboard, CampaignFollowUps, CampaignReport, CampaignTeam, CampaignTeamMember, ConsentCodeRequest,
+  AnswersInput, CampaignDashboard, OrganisationSummary, CampaignFollowUps, CampaignReport, CampaignTeam, CampaignTeamMember, ConsentCodeRequest,
   ConsentCodeSent, ConsentRecord, FollowUp, FollowUpInput, FollowUpUpdate, Outcome, OutcomeInput, OutreachPlan,
   OutreachPlanInput, OutreachVisit, ParticipantSearch, ParticipantSearchResult, Referral, ReferralInput, ReferralUpdate,
   SlipSmsRequest, SlipSmsSent, TeamInvite, TeamMemberChange, TestsInput, VitalsInput,
@@ -127,6 +127,9 @@ export const outreachCampaignApi = {
     get<CampaignDashboard>(facilityId, campaignPath(campaignId, 'dashboard'), signal),
   followUps: (facilityId: string, campaignId: string, signal?: AbortSignal) =>
     get<CampaignFollowUps>(facilityId, campaignPath(campaignId, 'follow-ups'), signal),
+  /** The organisation's numbers across its campaigns (proposed: answers 404 until served; the home then works them out). */
+  organisationSummary: (facilityId: string, signal?: AbortSignal) =>
+    get<OrganisationSummary>(facilityId, `${BASE}/organisation/summary`, signal),
   report: (facilityId: string, campaignId: string, signal?: AbortSignal) =>
     get<CampaignReport>(facilityId, campaignPath(campaignId, 'report'), signal),
 }
