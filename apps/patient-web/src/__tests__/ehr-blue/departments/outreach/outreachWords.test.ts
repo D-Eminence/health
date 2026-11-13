@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { campaignSearchText, campaignStatusLabel, caseSearchText, caseTone, nextStepText, NO_ACTIONS, statusLabel } from '../../../../ehr-blue/departments/outreach/outreachParts'
+import {
+  campaignSearchText, campaignStatusLabel, caseSearchText, caseTone, nextStepText, normalizeOutreachPhone, NO_ACTIONS, outreachPhoneAccepted, statusLabel,
+} from '../../../../ehr-blue/departments/outreach/outreachParts'
 
 /* Outreach's statuses in plain words (the owner's rule: no codes on screen), with a plain fallback for any other. */
 
@@ -52,5 +54,36 @@ describe('Outreach words', () => {
 
   it('says plainly when nothing is left to do', () => {
     expect(NO_ACTIONS).toBe('Nothing else to do here.')
+  })
+})
+
+/*
+ * A phone number as Outreach reads it (hid-system services/outreach-api create-registration-case.dto.ts
+ * normalizeOutreachPhone and its E.164 check, ported exactly), with the server's own examples (outreach-tenant.spec.ts
+ * "Registration DTO: consent and E.164 phones") and the numbers the audit found refused only at sync.
+ */
+describe('a phone number, as Outreach takes it', () => {
+  it.each([
+    ['08012345678', '+2348012345678'],
+    ['0801 234 5678', '+2348012345678'],
+    ['+234 0801 234 5678', '+2348012345678'],
+    ['2348012345678', '+2348012345678'],
+    ['+44 7700 900123', '+447700900123'],
+  ])('takes %s, as %s', (typed, expected) => {
+    expect(normalizeOutreachPhone(typed)).toBe(expected)
+    expect(outreachPhoneAccepted(typed)).toBe(true)
+  })
+
+  it.each([
+    'call me',
+    // No leading 0, one digit short, two numbers in one field, too few digits.
+    '8031234567', '0803123456', '08031234567 / 08039876543', '12',
+  ])('refuses %j, as Outreach would', typed => {
+    expect(outreachPhoneAccepted(typed)).toBe(false)
+  })
+
+  it('reads a number of spaces, dots, dashes and brackets only as no number', () => {
+    expect(normalizeOutreachPhone('  ')).toBeUndefined()
+    expect(outreachPhoneAccepted(' (-) ')).toBe(true)
   })
 })

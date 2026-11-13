@@ -52,7 +52,11 @@ beforeEach(() => {
       expiresAt: '2026-11-18T09:00:00.000Z', createdAt: '2026-11-11T09:00:00.000Z', acceptedAt: null }],
   })
 })
-afterEach(() => { setOutreachQueueStore(null) })
+afterEach(() => {
+  setOutreachQueueStore(null)
+  vi.useRealTimers()
+  Reflect.deleteProperty(navigator, 'onLine')
+})
 
 async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
@@ -262,6 +266,32 @@ describe('registering someone at an outreach group', () => {
     expect(await screen.findByText('This person is under 18. Enter the name of the parent or guardian who agreed.')).toBeTruthy()
   })
 
+  it('refuses a phone number Outreach would refuse before anything is sent or kept on this device, and sends one it takes as typed', async () => {
+    const store = memoryQueueStore()
+    setOutreachQueueStore(store)
+    api.createOutreachCase.mockRejectedValue(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await openNewRegistration()
+    expect(screen.getByText('A mobile number: 11 digits starting with 0, or starting with +234.')).toBeTruthy()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    const phone = screen.getByRole('textbox', { name: /Phone number/ })
+    for (const refused of ['8031234567', '0803123456', '08031234567 / 08039876543']) {
+      fireEvent.change(phone, { target: { value: refused } })
+      await press(screen.getByRole('button', { name: 'Save registration' }))
+      expect(document.getElementById(phone.getAttribute('aria-describedby') ?? '')?.textContent)
+        .toBe('Enter a mobile number with 11 digits starting with 0, or starting with +234.')
+    }
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+
+    api.createOutreachCase.mockReset()
+    api.createOutreachCase.mockResolvedValue(pending('case-6', 'Kemi Balogun'))
+    fireEvent.change(phone, { target: { value: ' +234 0803 123 4567 ' } })
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
+    expect(api.createOutreachCase.mock.calls[0]![1].phone).toBe('+234 0803 123 4567')
+  })
+
   it('never offers to save without the campaign when the campaign refuses: a group\'s registration needs its campaign', async () => {
     api.createOutreachCase.mockRejectedValue(new HidApiError(409, 'x', { code: 'OUTREACH_CAMPAIGN_CLOSED' }))
     await openNewRegistration()
@@ -335,6 +365,82 @@ describe('the offline queue', () => {
     await waitFor(async () => expect(await store.list()).toEqual([]))
   })
 
+  const waitingEntry = (n: number, fullName: string, savedAt: string) => ({ localCommandId: `c0000000-0000-4000-8000-00000000001${n}`,
+    temporaryPatientId: `tmp_c1${n}`, accountId: 'staff-demo-1', facilityId: GROUP_ID, savedAt, state: 'waiting' as const,
+    input: { campaignId: 'campaign-1', fullName, sex: 'female', ageYears: 34 } })
+
+  it('says when Health ID isn’t available, rather than “No connection”', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'SERVICE_UNAVAILABLE' }))
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    expect(within(queue).getByText('Waiting to send')).toBeTruthy()
+    expect(document.body.textContent).toContain('Health ID isn’t available right now. Kemi Balogun’s registration is saved on this device and will be sent automatically.')
+    expect(document.body.textContent).not.toContain('No connection')
+  })
+
+  it('takes down “No connection” once that registration has been sent', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    expect(document.body.textContent).toContain('No connection: Kemi Balogun’s registration is saved on this device.')
+
+    api.createOutreachCase.mockResolvedValueOnce(pending('case-4', 'Kemi Balogun'))
+    await press(within(queue).getByRole('button', { name: 'Send now' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull())
+    expect(document.body.textContent).not.toContain('No connection')
+    expect(document.body.textContent).not.toContain('Kemi Balogun’s registration is saved on this device')
+    expect(screen.getByText('Sent 1 registration to Health ID.')).toBeTruthy()
+  })
+
+  it('“Send now” sends the others when one can’t be sent yet, oldest first, and says what happened', async () => {
+    const store = memoryQueueStore()
+    await store.put(waitingEntry(2, 'Bola Ade', '2026-11-14T08:10:00.000Z'))
+    await store.put(waitingEntry(1, 'Amaka Nwosu', '2026-11-14T08:05:00.000Z'))
+    setOutreachQueueStore(store)
+    // Opened with no signal: nothing is tried until "Send now".
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
+    renderDept(<Outreach />)
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    await within(queue).findByText('Amaka Nwosu')
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+
+    Reflect.deleteProperty(navigator, 'onLine')
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+      .mockResolvedValueOnce(pending('case-7', 'Bola Ade'))
+    await press(within(queue).getByRole('button', { name: 'Send now' }))
+    expect((await screen.findByText(/^Sent 1 registration to Health ID\./)).textContent).toBe('Sent 1 registration to Health ID. 1 registration couldn’t be sent '
+      + 'yet because Health ID isn’t available right now. It stays on this device and will be tried again.')
+    expect(api.createOutreachCase.mock.calls.map(call => call[1].fullName)).toEqual(['Amaka Nwosu', 'Bola Ade'])
+    expect(within(queue).getByText('Amaka Nwosu')).toBeTruthy()
+    expect(within(queue).queryByText('Bola Ade')).toBeNull()
+    expect(within(queue).getByText('Waiting to send')).toBeTruthy()
+    expect((await store.list()).map(entry => entry.state)).toEqual(['waiting'])
+  })
+
+  it('sends what waits on this device as soon as Health ID takes a new registration', async () => {
+    const store = memoryQueueStore()
+    const waiting = waitingEntry(1, 'Amaka Nwosu', new Date().toISOString())
+    await store.put(waiting)
+    setOutreachQueueStore(store)
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'SERVICE_UNAVAILABLE' }))
+      .mockResolvedValueOnce(pending('case-8', 'Kemi Balogun'))
+      .mockResolvedValueOnce(pending('case-9', 'Amaka Nwosu'))
+    await openNewRegistration()
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(3))
+    expect(api.createOutreachCase.mock.calls[2]![2]).toEqual({ localCommandId: waiting.localCommandId, temporaryPatientId: waiting.temporaryPatientId })
+    await waitFor(async () => expect(await store.list()).toEqual([]))
+  })
+
   it('never shows another account’s or another facility’s saved registrations', async () => {
     const store = memoryQueueStore()
     await store.put({ localCommandId: 'c0000000-0000-4000-8000-000000000002', temporaryPatientId: 'tmp_x', accountId: 'someone-else',
@@ -344,5 +450,72 @@ describe('the offline queue', () => {
     await screen.findByRole('list', { name: 'Campaigns' })
     expect(screen.queryByText('Not Mine')).toBeNull()
     expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+})
+
+/*
+ * Which campaigns the form offers (the cross-check of 13 November, findings 11 and 13): a campaign that starts while the
+ * page is open is offered, and a campaign list that couldn't be read is never said as "not in a campaign".
+ */
+describe('the campaigns a volunteer can register into', () => {
+  const STARTS = Date.parse('2026-11-14T08:00:00.000Z')
+
+  async function openForm() {
+    renderDept(<Outreach />)
+    await press((await screen.findAllByRole('button', { name: 'New registration' }))[0]!)
+    await screen.findByRole('heading', { level: 1, name: 'New registration' })
+  }
+  const campaignHint = () => document.getElementById('outreach-case-campaign-hint')?.textContent
+
+  it('offers a campaign that starts while the page is open, within a minute', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(STARTS - 20_000)
+    api.outreachCampaigns.mockResolvedValue([{ ...CAMPAIGN, startsAt: new Date(STARTS).toISOString() }])
+    await openForm()
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalled())
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(screen.queryByRole('option', { name: 'Ajegunle health week' })).toBeNull()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(await screen.findByRole('option', { name: 'Ajegunle health week' })).toBeTruthy()
+  })
+
+  it('judges the campaigns again as the page is shown again', async () => {
+    let now = STARTS - 60_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    api.outreachCampaigns.mockResolvedValue([{ ...CAMPAIGN, startsAt: new Date(STARTS).toISOString() }])
+    await openForm()
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalled())
+    await waitFor(() => expect(campaignHint()).toBe('You aren’t in a running registration campaign yet. Ask your organiser.'))
+
+    now = STARTS + 60_000
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(await screen.findByRole('option', { name: 'Ajegunle health week' })).toBeTruthy()
+  })
+
+  it('says the campaigns couldn’t be loaded without signal, never that the person is in none', async () => {
+    api.outreachCampaigns.mockRejectedValue(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await openForm()
+    const offline = 'Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, and keep it open to register people offline.'
+    await waitFor(() => expect(campaignHint()).toBe(offline))
+    expect(document.body.textContent).not.toMatch(/aren’t in a running registration campaign|only in a running registration campaign you belong to/)
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(document.getElementById('outreach-case-campaign-error')?.textContent).toBe(offline)
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+
+  it('says the same when the campaign’s members couldn’t be read without signal', async () => {
+    api.outreachCampaignMembers.mockRejectedValue(new HidApiError(408, 'Timeout', { code: 'REQUEST_TIMEOUT' }))
+    await openForm()
+    await waitFor(() => expect(campaignHint()).toBe('Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, '
+      + 'and keep it open to register people offline.'))
+  })
+
+  it('says plainly when the campaigns couldn’t be loaded for another reason', async () => {
+    api.outreachCampaigns.mockRejectedValue(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+    await openForm()
+    await waitFor(() => expect(campaignHint()).toBe('Your campaigns couldn’t be loaded. Go back to the list and press Refresh.'))
   })
 })

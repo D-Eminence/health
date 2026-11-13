@@ -7,7 +7,7 @@ import { isOutreachProblem, outreachProblemText } from '../../../outreachProblem
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
-import type { PendingRegistration } from './offlineQueue'
+import type { PendingRegistration, QueueSyncResult, WaitReason } from './offlineQueue'
 
 /*
  * An outreach group (open sign-up on outreach., owner decisions of 11 November 2026): a volunteer, NGO or community
@@ -174,6 +174,28 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
       </Card>
     </section>
   )
+}
+
+/** What the page says as a registration is kept on this device: no connection, or Health ID unavailable just now. */
+export function queuedText(fullName: string, reason: WaitReason): string {
+  return reason === 'unavailable'
+    ? `Health ID isn’t available right now. ${fullName}’s registration is saved on this device and will be sent automatically.`
+    : `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.`
+}
+
+const registrations = (count: number) => `${count} registration${count === 1 ? '' : 's'}`
+
+/** What "Send now" did, in plain words: how many were sent, how many still wait and why, and how many Health ID refused. */
+export function queueSyncText({ sent, waiting, refused, reason }: QueueSyncResult): string {
+  const said: string[] = []
+  if (sent > 0) said.push(`Sent ${registrations(sent)} to Health ID.`)
+  if (waiting > 0) {
+    const why = reason === 'unavailable' ? ' because Health ID isn’t available right now'
+      : reason === 'connection' ? ' because there is no connection' : ''
+    said.push(`${registrations(waiting)} couldn’t be sent yet${why}. ${waiting === 1 ? 'It stays' : 'They stay'} on this device and will be tried again.`)
+  }
+  if (refused > 0) said.push(`${registrations(refused)} ${refused === 1 ? 'wasn’t' : 'weren’t'} accepted by Health ID: see below.`)
+  return said.length > 0 ? said.join(' ') : 'Nothing was waiting to be sent.'
 }
 
 /**

@@ -643,7 +643,9 @@ describe('creating a registration case', () => {
 
   it.each([
     ['Notes for the team', { notes: '  ab ' }, 'outreach-case-notes', 'Enter at least 3 characters, or leave this blank.'],
-    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter at least 3 characters, or leave this blank.'],
+    // Outreach reads a phone number as E.164 (CreateRegistrationCaseDto normalizeOutreachPhone) and refuses anything else.
+    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'],
+    ['a phone number with no leading 0', { phone: '8031234567' }, 'outreach-case-phone', 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'],
     ['an empty full name', { fullName: '   ' }, 'outreach-case-name', 'Complete this field.'],
     ['an empty age', { age: '' }, 'outreach-case-age', 'Complete this field.'],
     ['an age over 130', { age: '131' }, 'outreach-case-age', 'Enter an age in whole years, from 0 to 130.'],
@@ -684,7 +686,7 @@ describe('creating a registration case', () => {
     await waitFor(() => expect(document.activeElement).toBe(phone))
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => { fireEvent.submit(form) })
-    const message = 'Enter at least 3 characters, or leave this blank.'
+    const message = 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'
     const first = await screen.findByRole('alert')
     expect(first.textContent).toBe(message)
     await act(async () => { fireEvent.submit(form) })
