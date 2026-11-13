@@ -79,6 +79,40 @@ describe('imported evidence reads', () => {
   })
 })
 
+/** A patient's imports from paper, listed by Lab ({ records }) and Pharmacy ({ items }), a page at a time. */
+describe('imported-from-paper lists', () => {
+  it.each([
+    ['labImports', '/api/v1/lab/imports', { records: [{ id: 'import-2', patientId: 'patient-1', observations: [] }], nextCursor: 'import-2' }],
+    ['pharmacyImports', '/api/v1/pharmacy/imports', { items: [{ id: 'import-2', patientId: 'patient-1', medicationText: 'Metformin' }], nextCursor: 'import-2' }],
+  ] as const)('%s reads one page for the patient at this facility for direct care', async (method, path, answer) => {
+    const requests = recordFetch(answer)
+    const { staffApi } = await signedInStaffApi()
+
+    const page = await staffApi[method]('facility-1', 'patient-1', 'import-1')
+
+    expect(page).toEqual({ items: [expect.objectContaining({ id: 'import-2' })], nextCursor: 'import-2' })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.method).toBe('GET')
+    expect(requests[0]!.url.pathname).toBe(path)
+    expect(Object.fromEntries(requests[0]!.url.searchParams)).toEqual({ patientId: 'patient-1', limit: '20', cursor: 'import-1' })
+    expect(requests[0]!.headers.get('x-facility-id')).toBe('facility-1')
+    expect(requests[0]!.headers.get('x-purpose-of-use')).toBe('direct-care')
+  })
+
+  it('sends no cursor for the first page, and reads a missing cursor as the end', async () => {
+    const requests = recordFetch({ items: [] })
+    const { staffApi } = await signedInStaffApi()
+    expect(await staffApi.pharmacyImports('facility-1', 'patient-1')).toEqual({ items: [], nextCursor: null })
+    expect(requests[0]!.url.searchParams.has('cursor')).toBe(false)
+  })
+
+  it('refuses an answer naming another patient', async () => {
+    recordFetch({ records: [{ id: 'import-2', patientId: 'patient-2', observations: [] }], nextCursor: null })
+    const { staffApi } = await signedInStaffApi()
+    await expect(staffApi.labImports('facility-1', 'patient-1')).rejects.toThrow()
+  })
+})
+
 /**
  * GAP-L93, OUTREACH-01: until hid-system#222 (0111, ADR-045 option B) Identity refused outreach.campaign.write. From it,
  * a campaign's own admins open, close and staff it; the page asks first whether Outreach serves that (governance), and a

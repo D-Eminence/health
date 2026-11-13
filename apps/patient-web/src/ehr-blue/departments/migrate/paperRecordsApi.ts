@@ -85,7 +85,7 @@ function client(): ReturnType<typeof createRegisteredBrowserClient> {
 }
 
 /** The gateway's answer for a route it does not serve, or the service's own for one it lacks. */
-function routeNotServed(caught: unknown): boolean {
+export function routeNotServed(caught: unknown): boolean {
   return isHidApiError(caught) && caught.status === 404 && (caught.code === 'NOT_FOUND' || caught.code === 'API_ROUTE_NOT_FOUND')
 }
 

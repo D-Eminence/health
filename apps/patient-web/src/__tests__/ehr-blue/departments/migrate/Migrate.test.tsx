@@ -374,7 +374,17 @@ describe('Migrate record view', () => {
     await findJob(awaiting)
     expect(detailsButtons()).toEqual(['Refresh status'])
     expect(screen.queryByRole('form', { name: 'Check and save' })).toBeNull()
+    // A reading ready to check says who can check it, instead of showing nothing.
+    expect(screen.getByRole('heading', { name: 'Check and save' })).toBeTruthy()
+    expect(screen.getByText('Ready to check. A doctor, clinician, nurse or lab scientist at this facility must check and save it.'))
+      .toBeTruthy()
     session.permissions = ['ocr.job.read']
+  })
+
+  it('does not show the who-can-check note to someone who may check', async () => {
+    await findJob(awaiting)
+    expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
+    expect(screen.queryByText(/must check and save it/)).toBeNull()
   })
 
   it('says when the review evidence cannot be loaded', async () => {

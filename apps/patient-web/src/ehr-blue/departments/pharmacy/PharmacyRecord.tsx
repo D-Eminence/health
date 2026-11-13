@@ -24,6 +24,7 @@ import { dateText } from '../parts/format'
 import { patientLabel, RoutedWorkLines, RoutedWorkPaused } from '../parts/routedWork'
 import { isUrgent, PriorityBadge, statusTitle } from '../parts/WorkQueue'
 import { WorkItemDocuments } from '../parts/WorkItemDocuments'
+import { ImportedFromPaper, IMPORTS_PERMISSION } from '../../../staff/routes/ImportedFromPaper'
 import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
@@ -484,6 +485,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       <div className="flex min-w-0 flex-col gap-4">
         {doneCard}
         {!done && <Card className="p-5">{drug}</Card>}
+        {/* The medicines read from the patient's paper records, before anything is dispensed, for a role that may read them. */}
+        {!done && permissions.includes(IMPORTS_PERMISSION.pharmacy)
+          ? <ImportedFromPaper key={`${facilityId}:${item.patientId}`} kind="pharmacy" facilityId={facilityId} patientId={item.patientId} /> : null}
         {empty}
         {payment}
         {pick}

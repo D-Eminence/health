@@ -9,6 +9,7 @@ import { cannotCompleteOffered, licenceLine, routeClosedForWork, wrongPatientOff
 import { isUrgent } from '../parts/WorkQueue'
 import { OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
+import { ImportedFromPaper, IMPORTS_PERMISSION } from '../../../staff/routes/ImportedFromPaper'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import { commerce, type CatalogueItem, type ListPage, type PaymentSettings, type WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
@@ -233,6 +234,10 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         never written once its order from another facility has closed. */}
     <WorkItemDocuments kind="lab" facilityId={facilityId} workItemId={item.id} patientId={item.patientId} permissions={permissions}
       writable={!closed} />
+
+    {/* The patient's lab results imported from paper, read only for a role that may read them. */}
+    {permissions.includes(IMPORTS_PERMISSION.lab)
+      ? <ImportedFromPaper key={`${facilityId}:${item.patientId}`} kind="lab" facilityId={facilityId} patientId={item.patientId} /> : null}
 
     {siblings.length > 0 ? <Card>
       <CardHeader as="h2" title="Also on this request" />

@@ -941,7 +941,9 @@
   font-family: var(--ehr-font-body);
 }
 
-.hid-ehr .hid-ehr-clinical-today h2 {
+/* Today's own sections only: a card drawn in the redesign's parts (ImportedFromPaper, .imported-from-paper) keeps its own
+   headings and text. */
+.hid-ehr .hid-ehr-clinical-today h2:not(.imported-from-paper *) {
   margin: 0 0 16px;
   font-family: var(--ehr-font-body);
   font-size: 17px;
@@ -950,7 +952,7 @@
   color: var(--ehr-text);
 }
 
-.hid-ehr .hid-ehr-clinical-today p {
+.hid-ehr .hid-ehr-clinical-today p:not(.imported-from-paper *) {
   margin: 12px 0;
   font-size: 14px;
   line-height: 21px;
