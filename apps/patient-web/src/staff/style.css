@@ -11,6 +11,13 @@ body { margin: 0; }
 .staff-session-ended h1:focus { outline: none; }
 .staff-session-ended p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.5; }
 .staff-app { min-height: 100svh; background: var(--color-page); }
+/* Outreach with no signal: a calm line above the open workspace (staff/App.tsx NoSignalBanner). */
+.staff-no-signal { margin: 0; padding: 8px 16px; background: var(--color-surface-tint); border-bottom: 1px solid var(--color-line); color: var(--color-ink); font-size: 14px; line-height: 1.4; text-align: center; position: sticky; top: 0; z-index: var(--z-dropdown); }
+/* Asked before signing out while registrations wait on this device (staff/App.tsx SignOutPrompt). */
+.staff-sign-out-prompt-backdrop { position: fixed; inset: 0; z-index: var(--z-dialog); display: flex; align-items: center; justify-content: center; padding: 16px; background: rgb(0 0 0 / .4); }
+.staff-sign-out-prompt { max-width: 42ch; width: 100%; display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: 12px; background: var(--color-surface); color: var(--color-ink); }
+.staff-sign-out-prompt h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.staff-sign-out-prompt p { margin: 0; font-size: 14px; line-height: 1.5; }
 .staff-topbar { height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--color-line); padding: 0 clamp(16px, 2vw, 28px); background: var(--color-surface); position: sticky; top: 0; z-index: var(--z-sticky); }
 .staff-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--color-ink); text-decoration: none; white-space: nowrap; }
 .staff-brand img { display: block; width: auto; height: 29px; }

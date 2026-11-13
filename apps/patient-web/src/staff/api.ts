@@ -7,7 +7,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -1818,6 +1818,9 @@ async function stillThisAccount(actorId: string | null): Promise<boolean> {
  */
 export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
 
+/** A session check that may also say no answer came for want of a connection (checkStaffSessionReach). */
+export type StaffSessionReach = StaffSessionCheck | 'offline'
+
 /**
  * Whether the session `actorId` held in generation `sentIn` has really ended,
  * after a request found it refused. The server is asked directly, restoring the
@@ -1829,13 +1832,43 @@ export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
  * the next one.
  */
 async function checkStaffSession(actorId: string, sentIn: number): Promise<StaffSessionCheck> {
+  return await askStaffSession(actorId, sentIn, false) as StaffSessionCheck
+}
+
+/**
+ * The same question for an outreach workspace (staff/App.tsx), which also says when no answer came because there is no
+ * connection ('offline': no network, a timeout, or the browser knows it is offline), so the volunteer can keep
+ * working. A refusal (401, 403) or any other answer is never 'offline'. It waits at most 10 seconds and is not
+ * repeated: the workspace asks again by itself while there is no signal.
+ */
+async function checkStaffSessionReach(actorId: string, sentIn: number): Promise<StaffSessionReach> {
+  return askStaffSession(actorId, sentIn, true)
+}
+
+/** Whether a check got no answer because there is no connection: no network, a timeout, or the browser offline. */
+function noSignal(error: unknown): boolean {
+  if (isHidApiError(error)) {
+    if (error.code === 'REQUEST_CANCELLED') return false
+    if (error.code === 'NETWORK_ERROR' || error.code === 'REQUEST_TIMEOUT' || error.status === 0) return true
+  } else if (isConnectionFailure(error)) return true
+  return typeof navigator !== 'undefined' && navigator.onLine === false && !(isHidApiError(error) && error.status > 0)
+}
+
+const REACH_CHECK_TIMEOUT_MS = 10_000
+
+async function askStaffSession(actorId: string, sentIn: number, reach: boolean): Promise<StaffSessionReach> {
   let session: StaffSession
+  const offline = (error: unknown) => reach && noSignal(error)
   // A read of its own: one already in flight may have reached the server before the refusal.
-  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false }) }
+  try {
+    session = await client.get<StaffSession>('/api/v1/auth/session', reach
+      ? { auth: 'optional', dedupe: false, timeoutMs: REACH_CHECK_TIMEOUT_MS, retry: NO_RETRY }
+      : { auth: 'optional', dedupe: false })
+  }
   catch (error) {
-    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return 'unknown'
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return offline(error) && staffSessionGeneration() === sentIn ? 'offline' : 'unknown'
     try { session = await refreshStaffSession() }
-    catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
+    catch (refused) { return endsStaffSession(refused) ? 'ended' : offline(refused) ? 'offline' : 'unknown' }
   }
   if (typeof session?.actor?.id !== 'string') return 'unknown'
   if (!isSessionOf(session, actorId)) return 'ended'
@@ -2261,6 +2294,7 @@ export const staffApi = {
   refresh: () => refreshStaffSession(),
   logout: signOut,
   checkSession: checkStaffSession,
+  checkSessionReach: checkStaffSessionReach,
   // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
   // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a
   // spent challenge) is never refreshed and never taken for the end of a session.

@@ -17,7 +17,8 @@ import { outreachProblemText } from '../../../outreachProblems'
  * Kept in IndexedDB, keyed by localCommandId, and only for the account and facility that saved it: another person signed
  * in on the same browser sees none of it. Nothing waits longer than 14 days: the staff app sweeps expired entries when it
  * starts and on every session change, whatever page is open (purgeExpiredOutreachQueue), and signing out deletes the
- * account's own entries (removeOutreachQueueEntriesFor). A session that ends without a sign-out keeps them, so the person
+ * account's own entries (removeOutreachQueueEntriesFor), after asking first while any wait: "Send now" sends them
+ * (sendWaitingOutreachEntriesFor). A session that ends without a sign-out keeps them, so the person
  * can sign in again and send them, until the 14 days are up. A browser without IndexedDB (or one that refuses it) keeps
  * the queue in memory for this page only, and says so. Nothing goes in localStorage, cookies or the
  * address. IndexedDB is allowed in this one module only (eslint.config.js, docs/ARCHITECTURE.md).
@@ -221,6 +222,69 @@ export interface QueueSyncResult {
 }
 
 /**
+ * Sends what waits in `store` for the entries `mine` picks, oldest first, one at a time. No connection, a sign-in needed
+ * or a send stopped as the session ended stops the round; Health ID unavailable for one moves on to the next; anything
+ * else is Health ID's answer, kept as refused.
+ */
+async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegistration) => boolean,
+  onCreated: (created: OutreachCase) => void): Promise<QueueSyncResult> {
+  let sent = 0
+  let waiting = 0
+  let refused = 0
+  let reason: QueueSyncResult['reason']
+  const queued = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
+    .sort((a, b) => a.savedAt.localeCompare(b.savedAt))
+  for (const [index, entry] of queued.entries()) {
+    try {
+      const created = await staffApi.createOutreachCase(entry.facilityId, entry.input,
+        { localCommandId: entry.localCommandId, temporaryPatientId: entry.temporaryPatientId })
+      await store.remove(entry.localCommandId)
+      sent += 1
+      onCreated(created)
+    } catch (caught) {
+      // Still offline, signed out, or stopped as the session ended (never judged by Health ID): stop, and try the
+      // rest when the network is back or after signing in again. Each stays waiting.
+      if (noConnection(caught) || waitsForSignIn(caught) || isStoppedRequest(caught)) {
+        waiting += queued.length - index
+        reason = noConnection(caught) ? 'connection' : 'session'
+        break
+      }
+      // Health ID couldn't take this one just now: it waits, and the next is tried.
+      if (healthIdUnavailable(caught)) {
+        waiting += 1
+        reason = 'unavailable'
+        continue
+      }
+      await store.put({ ...entry, state: 'refused', refusal: outreachProblemText(caught, REFUSED_FALLBACK) })
+      refused += 1
+    }
+  }
+  return { sent, waiting, refused, reason }
+}
+
+/** Pages showing the queue, told when something outside them (the sign-out question's "Send now") sent from it. */
+const queueListeners = new Set<() => void>()
+function queueChanged() { for (const listener of queueListeners) listener() }
+
+/**
+ * Sends every registration the account saved that still waits, on any facility: the sign-out question's "Send now"
+ * (staff/App.tsx), whatever page is open. Only this account's: another person's on the same phone are never sent.
+ * Answers how many still wait afterwards. Never throws: what could not be read still waits.
+ */
+export async function sendWaitingOutreachEntriesFor(accountId: string): Promise<number> {
+  try {
+    const store = await sweepStore()
+    if (!store) return 0
+    await sendQueued(store, entry => entry.accountId === accountId, () => undefined)
+  } catch {
+    // What was not sent still waits; the count below says so.
+  } finally {
+    queueChanged()
+  }
+  return waitingOutreachEntriesFor(accountId)
+}
+
+/**
  * The queue for one account at one facility: what waits, sending it again, and adding to it. `onSynced` hears each
  * registration Health ID took from the queue, with its answer.
  */
@@ -255,33 +319,7 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     let reason: QueueSyncResult['reason']
     try {
       const store = await outreachQueueStore()
-      const queued = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
-        .sort((a, b) => a.savedAt.localeCompare(b.savedAt))
-      for (const [index, entry] of queued.entries()) {
-        try {
-          const created = await staffApi.createOutreachCase(entry.facilityId, entry.input,
-            { localCommandId: entry.localCommandId, temporaryPatientId: entry.temporaryPatientId })
-          await store.remove(entry.localCommandId)
-          sent += 1
-          synced.current(created)
-        } catch (caught) {
-          // Still offline, signed out, or stopped as the session ended (never judged by Health ID): stop, and try the
-          // rest when the network is back or after signing in again. Each stays waiting.
-          if (noConnection(caught) || waitsForSignIn(caught) || isStoppedRequest(caught)) {
-            waiting += queued.length - index
-            reason = noConnection(caught) ? 'connection' : 'session'
-            break
-          }
-          // Health ID couldn't take this one just now: it waits, and the next is tried.
-          if (healthIdUnavailable(caught)) {
-            waiting += 1
-            reason = 'unavailable'
-            continue
-          }
-          await store.put({ ...entry, state: 'refused', refusal: outreachProblemText(caught, REFUSED_FALLBACK) })
-          refused += 1
-        }
-      }
+      ;({ sent, waiting, refused, reason } = await sendQueued(store, mine, created => synced.current(created)))
     } finally {
       busy.current = false
       setSyncing(false)
@@ -312,7 +350,11 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     const shown = () => { if (document.visibilityState === 'visible' && mayBeOnline()) void sync() }
     window.addEventListener('online', online)
     document.addEventListener('visibilitychange', shown)
+    // Sent from outside this page (the sign-out question): what is shown is read again.
+    const outside = () => { void reload() }
+    queueListeners.add(outside)
     return () => {
+      queueListeners.delete(outside)
       window.removeEventListener('online', online)
       document.removeEventListener('visibilitychange', shown)
     }
