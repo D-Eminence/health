@@ -133,6 +133,29 @@ describe('Get a Health ID now', () => {
   })
 })
 
+describe('the sign-up as the fallback', () => {
+  it('is a small “Or they can sign up on their own phone” where the team can create the Health ID', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pending('case-5'), healthId: null }])
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
+    await screen.findByRole('heading', { level: 1, name: NAME })
+    expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
+    const summary = screen.getByText('Or they can sign up on their own phone')
+    const details = summary.closest('details')!
+    expect(within(details).getByRole('link', { name: 'Open sign-up on this phone', hidden: true }).getAttribute('href')).toBe(SIGN_UP)
+    expect(details.textContent).not.toContain('Your team can’t create it for them.')
+  })
+
+  it('is not shown once the registration has a Health ID', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pending('case-6'), healthId: 'HID-ABC123' }])
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
+    await screen.findByRole('heading', { level: 1, name: NAME })
+    expect(screen.queryByText('Or they can sign up on their own phone')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
+  })
+})
+
 describe('patientSignUpHref', () => {
   it('is the main site’s /enroll of the deployment the host belongs to', () => {
     expect(patientSignUpHref('outreach.healthidentitydirectory.com')).toBe(SIGN_UP)

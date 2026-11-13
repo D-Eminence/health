@@ -74,6 +74,8 @@ const NOT_ON_MAIN = [
   'admin.outreachCampaignAdmins', 'admin.outreachRegistrationSearch', 'admin.outreachRegistrationRedact',
   // Outreach health checks (outreach-api 0118).
   'outreach.caseScreening',
+  // Assisted Health ID (outreach-api 0119, and the unverified Health ID after it).
+  'outreach.healthIdStart', 'outreach.healthIdConfirm', 'outreach.healthIdCreateUnverified',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

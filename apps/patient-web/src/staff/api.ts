@@ -1408,6 +1408,12 @@ export interface OutreachCase {
   area?: string | null
   /** Whether health checks are recorded for this registration (0118); absent from an earlier Outreach. */
   hasScreening?: boolean
+  /**
+   * The Health ID made for this person at outreach (outreach-api 0119), null while none; absent from an earlier Outreach,
+   * which makes none. With `healthIdCreatedByOutreach`, whether outreach made it.
+   */
+  healthId?: string | null
+  healthIdCreatedByOutreach?: boolean
 }
 
 /** The languages the registration notice is given in; any but English means it was read aloud in that language. */
@@ -1481,6 +1487,28 @@ export interface OutreachScreening extends OutreachScreeningInput {
   recordedAt: string
   recordedByMembershipId: string
   updatedAt: string
+}
+
+/** How the code for an assisted Health ID is sent (0119): email, or a text message (not available yet). */
+export type OutreachHealthIdChannel = 'email' | 'sms'
+
+/** The code sent for an assisted Health ID (health-id/start): where it went, masked, and when another may be sent. */
+export interface OutreachHealthIdStart {
+  channel: OutreachHealthIdChannel
+  expiresAt: string
+  destinationHint: string
+  resendAfterSeconds: number
+}
+
+/** The Health ID made at outreach, and the registration, now linked to it (health-id/confirm). */
+export interface OutreachHealthIdCreated {
+  healthId: string
+  registration: OutreachCase
+}
+
+/** An unverified Health ID (health-id/create-unverified): with its claim code, answered this once only. */
+export interface OutreachUnverifiedHealthId extends OutreachHealthIdCreated {
+  claimCode: string
 }
 
 /**
@@ -2696,6 +2724,22 @@ export const staffApi = {
       path: `/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`, body: input,
       headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': write.idempotencyKey,
         ...(write.version !== undefined ? { 'If-Match': `"${write.version}"` } : {}) } }),
+
+  /**
+   * Assisted Health ID (outreach-api 0119, proposed; each way ships on its own): a code sent to the email the person gives
+   * (or by text message, not available yet), then confirmed; or, with no email or phone, an unverified Health ID with a
+   * claim code. Never sent again by itself: the caller holds the key, a new one for each code sent, each confirmation and
+   * each unverified Health ID, and the same on a retry of that attempt.
+   */
+  startOutreachHealthId: (facilityId: string, caseId: string, body: { channel: 'email'; email: string } | { channel: 'sms' }, idempotencyKey: string) =>
+    client.post<OutreachHealthIdStart>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/start`, body,
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+  confirmOutreachHealthId: (facilityId: string, caseId: string, code: string, idempotencyKey: string) =>
+    client.post<OutreachHealthIdCreated>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/confirm`, { code },
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+  createUnverifiedOutreachHealthId: (facilityId: string, caseId: string, idempotencyKey: string) =>
+    client.post<OutreachUnverifiedHealthId>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/create-unverified`, {},
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
 
   /*
    * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach

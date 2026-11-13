@@ -1154,6 +1154,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + '"<version>" after the first save: 201 first, 200 after, { screening }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
     + 'OUTREACH_SCREENING_EXISTS, IDEMPOTENCY_CONFLICT or OUTREACH_REGISTRATION_REDACTED, 422 OUTREACH_SCREENING_OUT_OF_RANGE or '
     + 'OUTREACH_SCREENING_INCOMPLETE, 404 OUTREACH_REGISTRATION_NOT_FOUND.')),
+  // Assisted Health ID at an outreach event (outreach-api 0119): proposed until served; each way hides on a 404
+  // NOT_FOUND or API_ROUTE_NOT_FOUND of its own route.
+  proposed(r('outreach.healthIdStart','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/start',P,false,one('POST','outreach.registration.write'),
+    'Assisted Health ID (outreach-api 0119); not served by hid-system main (404). Idempotency-Key; { channel: "email", email } or '
+    + '{ channel: "sms" } answers 202 { channel, expiresAt, destinationHint, resendAfterSeconds }.')),
+  proposed(r('outreach.healthIdConfirm','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/confirm',P,false,one('POST','outreach.registration.write'),
+    'Assisted Health ID (outreach-api 0119); not served by hid-system main (404). Idempotency-Key; { code } (6 digits) answers 201 '
+    + '{ healthId, registration }; a replay answers the same.')),
+  proposed(r('outreach.healthIdCreateUnverified','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/create-unverified',P,false,
+    one('POST','outreach.registration.write'),
+    'Unverified Health ID (outreach-api, after 0119); not served by hid-system main (404). Idempotency-Key, body {}; answers 201 '
+    + '{ healthId, claimCode, registration }, the claim code this once only.')),
   // Open sign-up on outreach. (owner decisions of 11 November 2026): the public sign-up, a signed-in account's "Start an
   // outreach group", the organiser's team invitations and accepting one.
   proposed(r('enrollment.outreachOrganiserAvailability','enrollment','/api/v1/identity/outreach-organisers/availability',G,true,undefined,

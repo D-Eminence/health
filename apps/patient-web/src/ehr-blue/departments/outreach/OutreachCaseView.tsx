@@ -19,6 +19,7 @@ import {
 import { LINKS_LATER } from './outreachGroup'
 import { GetHealthIdNow } from './GetHealthIdNow'
 import { HealthChecks } from './HealthChecks'
+import { CreateHealthId } from './CreateHealthId'
 
 type LinkField = 'patient' | 'reason'
 
@@ -269,7 +270,12 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             {nextStep}
             <HealthChecks facilityId={facilityId} caseId={item.id} canWrite={canWrite} />
             {/* While the registration waits for a Health ID: the person can make their own now, on their phone. */}
-            {pending && !linked ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} /> : null}
+            {/* Where Outreach can make the Health ID (its registrations carry healthId), that comes first, and the person's own
+                sign-up is the fallback; elsewhere the sign-up is the way, while the registration waits for a Health ID. */}
+            {(pending && !linked) || item.healthId
+              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onCreated={() => void onChanged()} /> : null}
+            {pending && !linked && !item.healthId
+              ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} /> : null}
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             <Card>
