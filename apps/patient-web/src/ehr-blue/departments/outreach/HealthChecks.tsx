@@ -96,11 +96,13 @@ export function leaveHealthChecks(): boolean {
   return !unsavedHealthChecks.current || window.confirm('You have health checks that aren’t saved. Leave anyway?')
 }
 
-export function HealthChecks({ facilityId, caseId, canWrite }: {
+export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
   readonly facilityId: string
   readonly caseId: string
   /** Whether this membership may write registrations (outreach.registration.write); otherwise the checks are read only. */
   readonly canWrite: boolean
+  /** Told once checks are saved, so the registration is read again (its "Health checks recorded", and the slip's line). */
+  readonly onSaved?: () => void
 }) {
   const [read, setRead] = useState<Read>({ kind: 'loading' })
   const [form, setForm] = useState<ScreeningForm>(() => screeningForm(null))
@@ -272,7 +274,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       if (current && (current.version ?? 0) !== (previous.version ?? 0) && JSON.stringify(held) === JSON.stringify(previous.input)) {
         setRead({ kind: 'ready', screening: current })
         base.current = screeningForm(current)
-        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(base.current); setNotice(SCREENING_SAVED); return }
+        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(base.current); setNotice(SCREENING_SAVED); onSaved?.(); return }
         version = current.version
       }
     }
@@ -287,6 +289,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       base.current = screeningForm(answer.screening)
       setForm(base.current)
       setNotice(SCREENING_SAVED)
+      onSaved?.()
     } catch (caught) {
       const code = isHidApiError(caught) ? caught.code : ''
       if (code === 'OUTREACH_SCREENING_EXISTS' || code === 'VERSION_CONFLICT' || code === 'IF_MATCH_REQUIRED') {

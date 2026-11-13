@@ -439,6 +439,18 @@ describe('Health checks', () => {
     expect(region().textContent).toContain('Whole centimetres')
   })
 
+  it('tells the case view once saved, so the list and the slip know health checks were recorded', async () => {
+    const onSaved = vi.fn()
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
+    renderDept(<HealthChecks facilityId={GROUP_ID} caseId={CASE_ID} canWrite onSaved={onSaved} />)
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Pulse/, '80')
+    expect(onSaved).not.toHaveBeenCalled()
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves a height typed in metres as typed, and says to use centimetres', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
