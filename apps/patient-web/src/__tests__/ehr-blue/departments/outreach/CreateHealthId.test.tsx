@@ -1,8 +1,8 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { CreateHealthId, HEALTH_ID_PROBLEMS } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
+import { CreateHealthId, HEALTH_ID_PROBLEMS, MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 
 /*
  * "Create Health ID" at an outreach event (outreach-api 0119, proposed): only where Outreach serves it, only once the
@@ -24,6 +24,8 @@ const onCreated = vi.fn()
 beforeEach(() => {
   vi.clearAllMocks()
   api.startOutreachHealthId.mockResolvedValue(STARTED)
+  // Each test is a tab of its own: nothing kept from another.
+  sessionStorage.clear()
 })
 
 async function press(button: HTMLElement) {
@@ -76,7 +78,8 @@ describe('Create Health ID', () => {
   it('shows a Health ID made before', () => {
     renderSection({ ...ITEM, healthId: 'HID-ABC123', healthIdCreatedByOutreach: true })
     expect(region().textContent).toContain('HID-ABC123')
-    expect(region().textContent).toContain('Write this on their slip.')
+    // Said plainly that it was made, and what to do: print the slip or write the Health ID on it.
+    expect(region().textContent).toContain(MADE_BEFORE)
   })
 
   it('sends a code to the email, confirms it, and shows the Health ID big', async () => {
@@ -181,3 +184,64 @@ async function sendEmailAgain(email: string) {
   fireEvent.change(within(region()).getByRole('textbox', { name: /Their email address/ }), { target: { value: email } })
   await press(within(region()).getByRole('button', { name: 'Send code' }))
 }
+
+/*
+ * A reload while waiting for the code (the owner's "no hassle" rule, 14 November 2026): the code box is still there,
+ * with the email and the key in use kept for this tab, never the code. Fictional data only.
+ */
+describe('Create Health ID through a reload', () => {
+  function reload() {
+    cleanup()
+    return renderSection()
+  }
+  const keptText = () => JSON.stringify({ ...sessionStorage })
+
+  it('keeps the code box after a reload, and confirms the code as before', async () => {
+    api.confirmOutreachHealthId.mockResolvedValue({ healthId: 'HID-ZDEMAA', registration: { ...ITEM, healthId: 'HID-ZDEMAA' } })
+    renderSection()
+    await sendEmail()
+    fireEvent.change(within(region()).getByRole('textbox', { name: /6-digit code/ }), { target: { value: '123456' } })
+    // What this tab keeps: that a code was sent, where, and the email typed; never the code.
+    expect(keptText()).toContain('kemi@example.test')
+    expect(keptText()).not.toContain('123456')
+    expect(JSON.stringify({ ...localStorage })).not.toContain('kemi@example.test')
+
+    reload()
+    expect(region().textContent).toContain('We sent a code to k***@example.test. Ask them to read you the code from the email.')
+    const code = within(region()).getByRole('textbox', { name: /6-digit code/ }) as HTMLInputElement
+    expect(code.value).toBe('')
+    // The wait before another code is kept too.
+    expect(within(region()).getByRole('button', { name: /Send a new code in/ }).getAttribute('aria-disabled')).toBe('true')
+    fireEvent.change(code, { target: { value: '123456' } })
+    await press(within(region()).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(api.confirmOutreachHealthId).toHaveBeenCalledWith(GROUP_ID, 'case-1', '123456', expect.any(String)))
+    expect(await within(region()).findByText('HID-ZDEMAA')).toBeTruthy()
+    expect(api.startOutreachHealthId).toHaveBeenCalledTimes(1)
+    // Made: nothing of the code step is kept any more.
+    await waitFor(() => expect(keptText()).not.toContain('kemi@example.test'))
+  })
+
+  it('after a reload, sends the code again with the same key when the first answer was lost, so no second code goes', async () => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(STARTED)
+    renderSection()
+    await sendEmail()
+    expect(within(region()).getByRole('textbox', { name: /6-digit code/ })).toBeTruthy()
+    const first = api.startOutreachHealthId.mock.calls[0]![3]
+    await waitFor(() => expect(keptText()).toContain(first))
+
+    reload()
+    await press(within(region()).getByRole('button', { name: 'Send a new code' }))
+    await waitFor(() => expect(api.startOutreachHealthId).toHaveBeenCalledTimes(2))
+    expect(api.startOutreachHealthId.mock.calls[1]![2]).toEqual({ channel: 'email', email: 'kemi@example.test' })
+    expect(api.startOutreachHealthId.mock.calls[1]![3]).toBe(first)
+  })
+
+  it('“Use a different email” keeps nothing for a reload', async () => {
+    renderSection()
+    await sendEmail()
+    await press(within(region()).getByRole('button', { name: 'Use a different email' }))
+    await waitFor(() => expect(keptText()).not.toContain('kemi@example.test'))
+    reload()
+    expect(within(region()).queryByRole('textbox', { name: /6-digit code/ })).toBeNull()
+  })
+})

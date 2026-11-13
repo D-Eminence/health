@@ -134,3 +134,42 @@ export function tabFacilityToRestore(session: StaffSession): string | null {
   if (!id || session.actor.facility?.id === id) return null
   return session.actor.facilities.some(facility => facility.id === id && isGroup(facility)) ? id : null
 }
+
+/** How long a claim code just made is kept for the slip, after which it is deleted. */
+export const CLAIM_CODE_KEEP_MS = 15 * 60 * 1000
+
+interface KeptClaimCode { readonly healthId: string; readonly claimCode: string; readonly until: number }
+const claimKey = (accountId: string, facilityId: string, caseId: string) => `claim:${accountId}:${facilityId}:${caseId}`
+
+/**
+ * Keeps a claim code just made with no email or phone for this tab, for CLAIM_CODE_KEEP_MS, so the slip can still print
+ * it after an accidental reload before it was written down. The screen never shows it again; it is deleted after that.
+ */
+export function keepClaimCode(accountId: string, facilityId: string, caseId: string, made: { healthId: string; claimCode: string }, now = Date.now()): void {
+  writeTab(claimKey(accountId, facilityId, caseId), { healthId: made.healthId, claimCode: made.claimCode, until: now + CLAIM_CODE_KEEP_MS } satisfies KeptClaimCode)
+}
+
+/** The claim code kept for this registration's Health ID, while its 15 minutes last; an expired one is deleted. */
+export function keptClaimCode(accountId: string | undefined, facilityId: string, caseId: string, healthId: string | null | undefined,
+  now = Date.now()): string | undefined {
+  if (!accountId) return undefined
+  dropExpiredClaimCodes(now)
+  const kept = readTab<KeptClaimCode>(claimKey(accountId, facilityId, caseId))
+  return kept && healthId && kept.healthId === healthId && typeof kept.claimCode === 'string' ? kept.claimCode : undefined
+}
+
+/** Deletes every claim code kept in this tab whose 15 minutes are up. Never throws. */
+export function dropExpiredClaimCodes(now = Date.now()): void {
+  try {
+    const store = tabStore()
+    if (!store) return
+    const expired: string[] = []
+    for (let index = 0; index < store.length; index += 1) {
+      const key = store.key(index)
+      if (!key?.startsWith(`${PREFIX}claim:`)) continue
+      const kept = readTab<KeptClaimCode>(key.slice(PREFIX.length))
+      if (!kept || !(typeof kept.until === 'number' && kept.until > now)) expired.push(key)
+    }
+    for (const key of expired) store.removeItem(key)
+  } catch { /* nothing to delete */ }
+}

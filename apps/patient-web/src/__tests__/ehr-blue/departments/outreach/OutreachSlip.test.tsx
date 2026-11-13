@@ -3,14 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import { OutreachCaseView } from '../../../../ehr-blue/departments/outreach/OutreachCaseView'
+import { MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 import {
   CHECKS_RECORDED, eventDateText, GET_HEALTH_ID_LATER, KEEP_SLIP, OutreachSlip,
 } from '../../../../ehr-blue/departments/outreach/OutreachSlip'
 
 /*
  * The slip a person takes home from an outreach: group, campaign, event date, who, when registered, their Health ID
- * when they have one, and the claim code only straight after "No email or phone" made it here. Never a health value,
- * and the claim code is never kept. Fictional data only.
+ * when they have one, and the claim code only straight after "No email or phone" made it here (or, for 15 minutes, after
+ * a reload of that tab). Never a health value, and the claim code is never shown on screen again. Fictional data only.
  */
 
 const GROUP_ID = '0e7c0000-0000-4000-8000-000000000001'
@@ -37,13 +38,16 @@ beforeEach(() => {
   print = vi.fn()
   vi.stubGlobal('print', print)
   api.outreachScreening.mockResolvedValue(SCREENING)
+  sessionStorage.clear()
   setItem = vi.spyOn(Storage.prototype, 'setItem')
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  // The claim code (or anything else) is never kept in the browser.
-  expect(setItem).not.toHaveBeenCalled()
+  vi.restoreAllMocks()
+  // Nothing is kept in the browser but a claim code just made, for this tab and 15 minutes (tabMemory.ts).
+  expect(setItem.mock.calls.filter(([key]: unknown[]) => !String(key).startsWith('hid-outreach:claim:'))).toEqual([])
+  expect(JSON.stringify({ ...localStorage })).not.toContain('K7Q-4MZ')
 })
 
 const slip = () => document.querySelector<HTMLElement>('[data-outreach-slip]')
@@ -114,7 +118,7 @@ describe('Print slip on a registration', () => {
     expect(slip()!.textContent).not.toContain('Claim code')
   })
 
-  it('prints the claim code right after "No email or phone", from the claim-code display, and never again once the view is left', async () => {
+  it('prints the claim code right after "No email or phone", from the claim-code display, and on the slip only after a reload', async () => {
     api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', registration: { ...ITEM, healthId: 'HID-UNVER1' } })
     const view = renderCase()
     const region = screen.getByRole('region', { name: 'Create Health ID' })
@@ -132,18 +136,42 @@ describe('Print slip on a registration', () => {
     expect(slip()).toBeNull()
     await press(screen.getAllByRole('button', { name: 'Print slip' })[0]!)
     expect(slip()!.textContent).toContain('K7Q-4MZ')
-    // Nothing kept it: not the browser's storage, not the address.
-    expect(JSON.stringify({ ...localStorage })).not.toContain('K7Q-4MZ')
-    expect(JSON.stringify({ ...sessionStorage })).not.toContain('K7Q-4MZ')
+    // Kept for this tab only, never in localStorage or the address.
+    expect(Object.keys(sessionStorage).filter(key => sessionStorage.getItem(key)?.includes('K7Q-4MZ')))
+      .toEqual([`hid-outreach:claim:staff-demo-1:${GROUP_ID}:case-1`])
     expect(window.location.href).not.toContain('K7Q-4MZ')
-    // Opened again (the list read again names the Health ID), the claim code is gone.
+
+    // A reload before it was written down (the list read again names the Health ID): the screen says it was made and
+    // never shows the claim code again, and the slip still prints it.
     await act(async () => { window.dispatchEvent(new Event('afterprint')) })
     view.unmount()
     renderCase({ ...ITEM, healthId: 'HID-UNVER1' })
-    await press(screen.getAllByRole('button', { name: 'Print slip' })[0]!)
+    const again = screen.getByRole('region', { name: 'Create Health ID' })
+    expect(again.textContent).toContain(MADE_BEFORE)
+    expect(again.textContent).not.toContain('K7Q-4MZ')
+    expect(again.textContent).not.toContain('Claim code')
+    await press(within(again).getByRole('button', { name: 'Print slip' }))
+    expect(slip()!.textContent).toContain('HID-UNVER1')
+    expect(slip()!.textContent).toContain('K7Q-4MZ')
+
+    // After 15 minutes it is deleted, and the slip prints the Health ID alone.
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
+    const later = Date.now() + 15 * 60 * 1000 + 1000
+    vi.spyOn(Date, 'now').mockReturnValue(later)
+    await press(within(again).getByRole('button', { name: 'Print slip' }))
     expect(slip()!.textContent).toContain('HID-UNVER1')
     expect(slip()!.textContent).not.toContain('K7Q-4MZ')
     expect(slip()!.textContent).not.toContain('Claim code')
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain('K7Q-4MZ')
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
+  })
+
+  it('never prints a claim code kept for another Health ID or another account', async () => {
+    sessionStorage.setItem(`hid-outreach:claim:someone-else:${GROUP_ID}:case-1`, JSON.stringify({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', until: Date.now() + 60_000 }))
+    renderCase({ ...ITEM, healthId: 'HID-UNVER1' })
+    await press(within(screen.getByRole('region', { name: 'Create Health ID' })).getByRole('button', { name: 'Print slip' }))
+    expect(slip()!.textContent).not.toContain('K7Q-4MZ')
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
   })
 
   it('still prints when the screening route is not served', async () => {

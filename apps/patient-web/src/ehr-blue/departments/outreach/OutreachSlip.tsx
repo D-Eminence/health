@@ -9,7 +9,8 @@ import './outreachSlip.css'
  * The slip a person registered at an outreach takes home: who registered them and where, when, and their Health ID if
  * they have one. Built only from what the page already holds; nothing is fetched to print and nothing is kept. Never a
  * health value: at most that health checks were recorded. The claim code is printed only when the page that made the
- * Health ID passes it in (it lives in that page's memory alone, and is never shown again).
+ * Health ID passes it in: from its memory, or for 15 minutes from this tab's own copy after a reload (tabMemory.ts).
+ * Health ID never answers it again, so it can't be printed after that.
  */
 
 /** Where a person without a Health ID can get one later. */
