@@ -88,7 +88,7 @@ describe('the columns', () => {
 
   it('leaves out what it has no words for, and an id given as who registered', () => {
     const odd: ExportCase = { ...basic, sex: 'x_code', status: 'something_new', registeredBy: 'a0000000-0000-4000-8000-000000000001',
-      consent: { method: 'new_method', language: 'zz' }, guardianRelationship: 'cousin_code', healthId: 'a0000000-0000-4000-8000-000000000002', healthIdCreatedByOutreach: 'yes', campaignId: 'campaign-gone' }
+      consent: { method: 'new_method', language: 'zz' }, guardianRelationship: 'cousin_code', healthId: 'a0000000-0000-4000-8000-000000000002', healthIdCreatedByOutreach: 'yes' as unknown as boolean, campaignId: 'campaign-gone' }
     const table = rowsFor([odd], context)
     expect(table.headings).toEqual(['Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
     expect(table.rows[0]).toEqual(['Adébáyọ̀ Ọlọ́run', '', '34', '+2348000000001', 'A campaign not listed here', expect.any(String), 'Status not known'])
