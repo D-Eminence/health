@@ -33,6 +33,7 @@ import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import { purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
+import { forgetOutreachTab, rememberTabFacility, tabFacilityToRestore } from '../ehr-blue/departments/outreach/tabMemory'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
@@ -329,6 +330,16 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       }
       if (!current()) return
       if (session.actor.kind === 'patient') throw new PlainError('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
+      // A login that works at a hospital and at an outreach group lands back on the group this tab chose, after a reload,
+      // while it is still one of the account's (tabMemory.ts). Anything else opens as before.
+      const restore = tabFacilityToRestore(session)
+      if (restore) {
+        try {
+          const chosen = await staffApi.selectFacility(restore)
+          if (!current()) return
+          if (chosen.actor.id === session.actor.id && chosen.actor.facility?.id === restore) session = { ...chosen, facilitySelection: 'selected' }
+        } catch { if (!current()) return }
+      }
       setState({ status: 'ready', session })
       askIfHeardWhileOpening()
     } catch (error) {
@@ -385,6 +396,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // Identity accepted this tab's own choice: an answer for the facility sent is that choice, whatever
     // selection it reports. Asking again straight away would leave the person no way on.
     setState({ status: 'ready', session: session.actor.facility?.id === id ? { ...session, facilitySelection: 'selected' } : session })
+    // This tab's own choice: an outreach group is chosen again after a reload.
+    if (session.actor.facility?.id === id) rememberTabFacility(session)
     return true
   }
 
@@ -396,6 +409,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
     // Registrations this login kept on this device and never sent go with it: the queue's page says so before.
     if (signedOut) await removeOutreachQueueEntriesFor(signedOut)
+    // And what outreach kept for this tab: health checks not saved, a Health ID code step, the group chosen.
+    forgetOutreachTab()
     startStaffSessionGeneration()
     startPeriod()
     away.current = null
