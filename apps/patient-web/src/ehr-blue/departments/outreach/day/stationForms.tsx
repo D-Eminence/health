@@ -221,7 +221,7 @@ export function VitalsForm({ plan, visit, withQuestions, withReadings = true, sa
       {problems.form ? <p role="alert" className="m-0 text-[14px] font-medium text-danger-ink">{problems.form}</p> : null}
       <SaveError error={error} />
       <FormActions>
-        <Button id={saveId} type="submit" variant="primary" size="lg" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save'}</Button>
+        <Button id={saveId} type="submit" variant="primary" size="lg" className="h-14" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save'}</Button>
       </FormActions>
     </form>
   )
@@ -363,7 +363,7 @@ export function TestsForm({ plan, visit, saveId = 'outreach-tests-save', onSaved
       {problem ? <p role="alert" className="m-0 text-[14px] font-medium text-danger-ink">{problem}</p> : null}
       <SaveError error={error} />
       <FormActions>
-        <Button id={saveId} type="submit" variant="primary" size="lg" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save'}</Button>
+        <Button id={saveId} type="submit" variant="primary" size="lg" className="h-14" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save'}</Button>
       </FormActions>
     </form>
   )
@@ -553,7 +553,7 @@ export function OutcomeForm({ plan, visit, saveId = 'outreach-outcome-save', onS
           {problem ? <p role="alert" className="m-0 text-[14px] font-medium text-danger-ink">{problem}</p> : null}
           <SaveError error={error} />
           <FormActions>
-            <Button id={saveId} type="submit" variant="primary" size="lg" aria-disabled={busy || undefined}>{busy ? 'Saving…' : `Confirm: ${outcomeText(kind, urgency)}`}</Button>
+            <Button id={saveId} type="submit" variant="primary" size="lg" className="h-14" aria-disabled={busy || undefined}>{busy ? 'Saving…' : `Confirm: ${outcomeText(kind, urgency)}`}</Button>
           </FormActions>
           <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Less than suggested" busy={busy}
             effect={<>The suggestion is <strong>{outcomeText(suggestion.kind, suggestion.urgency)}</strong>. You chose <strong>{outcomeText(kind, urgency)}</strong>. Check the readings with them first.</>}

@@ -1,13 +1,13 @@
 import { useCallback, useState, type ReactNode } from 'react'
-import { Download, Printer } from 'lucide-react'
+import { Download, PhoneCall, Printer, Send, Stethoscope, Users } from 'lucide-react'
 import { ConfirmSheet, PageState } from '../../../../kasuwa/parts'
-import { Alert, Button, Card, Textarea } from '../../../../kasuwa/ui'
+import { Alert, Button, Card, StatGroup, Textarea } from '../../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign } from '../../../../staff/api'
 import { useDeptAccess } from '../../parts/access'
 import { campaignErrorText, CAMPAIGN_STATUS_FAILED, campaignStatusLabel, REASON_LENGTH } from '../outreachParts'
 import { NOT_OFFERED, outreachCampaignApi } from '../campaignApi'
 import { focusLabel, type CampaignReport as Report } from '../campaignTypes'
-import { dayText, InsightCard, lagosToday, useCampaignRead } from './insightParts'
+import { dayText, InsightCard, lagosToday, StatTile, useCampaignRead } from './insightParts'
 
 const REPORT_FAILED = 'The report could not be read. Try again.'
 
@@ -124,6 +124,15 @@ export function CampaignReport({ campaignId, campaign, canClose = false, onClose
             <Button size="lg" icon={Download} onClick={() => download(`campaign-report-${lagosToday()}.csv`, reportCsv(report))}>Download counts (CSV)</Button>
             <Button size="lg" icon={Printer} variant={closable ? 'secondary' : 'primary'} onClick={() => window.print()}>Download report (PDF)</Button>
           </div>
+          <StatGroup label="Totals at a glance" cols={4}>
+            <StatTile icon={Users} tone="brand" label="Registered" value={report.registered} hint={report.target > 0 ? `Target ${report.target}` : 'No target set'} />
+            <StatTile icon={Stethoscope} tone="info" label="Screened" value={report.screened}
+              hint={report.registered > 0 ? `${Math.round((report.screened / report.registered) * 100)}% of registered` : 'No one registered'} />
+            <StatTile icon={Send} tone={report.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred"
+              value={reportCount(report.referrals.made, report.smallCountThreshold)} hint={`${reportCount(report.referrals.arrived, report.smallCountThreshold)} arrived`} />
+            <StatTile icon={PhoneCall} tone="warn" label="Follow-ups to call" value={reportCount(report.followUps.due, report.smallCountThreshold)}
+              hint={`${reportCount(report.followUps.reached, report.smallCountThreshold)} reached`} />
+          </StatGroup>
           <div className="grid gap-4 @3xl:grid-cols-2">
             {reportRows(report).map((block, index) => (
               <InsightCard key={block.section} title={block.section} id={`outreach-report-${campaignId}-${index}`}>

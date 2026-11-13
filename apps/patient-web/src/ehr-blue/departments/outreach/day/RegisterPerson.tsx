@@ -358,12 +358,12 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
               autoCapitalize={searchMode === 'phone' ? 'off' : 'characters'} maxLength={40}
               onChange={event => setSearchText(event.target.value)} />
           </DayField>
-          <div className="flex flex-col gap-2 sm:flex-row-reverse sm:justify-start">
-            <Button type="submit" variant="primary" size="lg" icon={Search} aria-disabled={busy || undefined}>{busy ? 'Searching…' : 'Search'}</Button>
-            <Button size="lg" icon={UserPlus} onClick={() => { update({ match: null, phone: searchMode === 'phone' ? searchText.trim() : form.phone }); setStage({ step: 'details' }) }}>
+          <FormActions>
+            <Button variant="ghost" size="lg" icon={UserPlus} onClick={() => { update({ match: null, phone: searchMode === 'phone' ? searchText.trim() : form.phone }); setStage({ step: 'details' }) }}>
               New person, no search
             </Button>
-          </div>
+            <Button type="submit" variant="primary" size="lg" className="h-14" icon={Search} aria-disabled={busy || undefined}>{busy ? 'Searching…' : 'Search'}</Button>
+          </FormActions>
         </form>
       </Panel>
     )
@@ -445,8 +445,8 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
               autoComplete="off" onChange={event => update({ community: event.target.value })} />
           </DayField>
           <FormActions>
-            <Button size="lg" onClick={() => setStage({ step: 'search' })}>Back</Button>
-            <Button type="submit" variant="primary" size="lg" iconRight={ArrowRight}>Next: their agreement</Button>
+            <Button variant="ghost" size="lg" onClick={() => setStage({ step: 'search' })}>Back</Button>
+            <Button type="submit" variant="primary" size="lg" className="h-14" iconRight={ArrowRight}>Next: their agreement</Button>
           </FormActions>
         </form>
       </Panel>
@@ -488,11 +488,11 @@ function RegisterSteps({ plan, embedded, onDone, onRegistered }: {
         <p className="m-0 text-[14px] text-ink-2">If they say no, don’t register them.</p>
         {error ? <Alert intent="error">{error}</Alert> : null}
         <FormActions>
-          <Button size="lg" onClick={() => setStage({ step: 'details' })}>Back</Button>
+          <Button variant="ghost" size="lg" onClick={() => setStage({ step: 'details' })}>Back</Button>
           <Button size="lg" icon={MessageSquare} aria-disabled={busy || codeBlocked !== null || undefined}
             aria-describedby={codeBlocked ? 'outreach-register-code-blocked' : undefined}
             onClick={() => { if (!codeBlocked) void register('code') }}>Send code to their phone</Button>
-          <Button variant="primary" size="lg" aria-disabled={busy || undefined} onClick={() => void register('loud')}>
+          <Button variant="primary" size="lg" className="h-14" aria-disabled={busy || undefined} onClick={() => void register('loud')}>
             {busy ? 'Registering…' : minor ? 'Parent or guardian agreed' : 'They agreed out loud'}
           </Button>
         </FormActions>
@@ -551,7 +551,7 @@ function DoneCard({ registered, note, embedded, language, onNext }: {
         <Alert intent="warning" icon={CloudOff} title="Saved on this phone">The code arrives when you’re back online.</Alert>
         <p className="m-0 text-[15px] text-ink-2">{embedded ? 'Carry on with them here: what you record waits with their registration.'
           : 'Send them on: the next station finds them once this phone has sent the registration.'}</p>
-        {!embedded ? <FormActions><Button variant="primary" size="lg" icon={UserPlus} onClick={onNext}>Next person</Button></FormActions> : null}
+        {!embedded ? <FormActions><Button variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={onNext}>Next person</Button></FormActions> : null}
       </Panel>
     )
   }
@@ -597,7 +597,7 @@ function DoneCard({ registered, note, embedded, language, onNext }: {
         ) : null}
       </div>
       <div role="status" className="text-[14px] text-ink-2">{sms.text}</div>
-      {!embedded ? <FormActions><Button variant="primary" size="lg" icon={UserPlus} onClick={onNext}>Next person</Button></FormActions> : null}
+      {!embedded ? <FormActions><Button variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={onNext}>Next person</Button></FormActions> : null}
       <PrintSlip fullName={visit.fullName ?? ''} visitCode={visit.visitCode ?? null} healthId={visit.healthId ?? null} campaignName={campaignName} />
     </Panel>
   )

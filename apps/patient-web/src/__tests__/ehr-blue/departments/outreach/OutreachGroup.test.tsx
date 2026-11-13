@@ -66,7 +66,8 @@ const textbox = (name: RegExp | string) => screen.getByRole('textbox', { name })
 
 async function openNewRegistration() {
   renderDept(<Outreach />)
-  await press(await screen.findByRole('button', { name: 'New registration' }))
+  // In the header (and in the empty list's own words): today's form, as this group's campaigns have no campaign routes.
+  await press((await screen.findAllByRole('button', { name: 'New registration' }))[0]!)
   await screen.findByRole('heading', { level: 1, name: 'New registration' })
   // The campaign is listed once the membership read says this member is in it.
   await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())

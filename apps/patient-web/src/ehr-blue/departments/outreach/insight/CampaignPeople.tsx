@@ -12,7 +12,10 @@ import { outcomeText } from '../screeningTemplates'
 /** The list shows this many people a page. */
 const PAGE_SIZE = 50
 
-type PeopleFilter = 'seeing' | 'finished' | 'all'
+/** `care`: those whose outcome is a follow-up or a referral (the dashboard's Positive opens it). */
+export type PeopleFilter = 'seeing' | 'finished' | 'all' | 'care'
+
+const needsCare = (visit: OutreachVisit) => visit.outcome != null && visit.outcome.kind !== 'normal'
 
 export interface PeopleRead {
   readonly value: OutreachCase[] | null
@@ -55,14 +58,16 @@ export function visitMatches(visit: OutreachVisit, query: string): boolean {
  * stations done, the outcome), with search by name, visit code or phone, a filter by whether they are still being seen,
  * and pages of 50. A card opens the person's visit.
  */
-export function CampaignPeople({ campaignId, cases, stations, onOpen }: {
+export function CampaignPeople({ campaignId, cases, stations, onOpen, initialFilter }: {
+  /** The filter it opens with (Being seen unless said). Opened for care, it offers that filter too. */
+  readonly initialFilter?: PeopleFilter
   readonly campaignId: string
   readonly cases: PeopleRead
   /** The stations the plan uses, in order (all of them when unknown). */
   readonly stations?: readonly StationKind[]
   readonly onOpen: (visit: OutreachVisit) => void
 }) {
-  const [filter, setFilter] = useState<PeopleFilter>('seeing')
+  const [filter, setFilter] = useState<PeopleFilter>(initialFilter ?? 'seeing')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const focus = useFocusById()
@@ -70,7 +75,7 @@ export function CampaignPeople({ campaignId, cases, stations, onOpen }: {
   const all = (cases.value ?? []).filter(item => item.campaignId === campaignId) as OutreachVisit[]
   all.sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
   const seeing = all.filter(visit => !visit.outcome)
-  const inFilter = (visit: OutreachVisit) => filter === 'all' || (filter === 'seeing') === !visit.outcome
+  const inFilter = (visit: OutreachVisit) => filter === 'all' || (filter === 'care' ? needsCare(visit) : (filter === 'seeing') === !visit.outcome)
   const rows = all.filter(visit => inFilter(visit) && visitMatches(visit, search))
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
@@ -82,6 +87,7 @@ export function CampaignPeople({ campaignId, cases, stations, onOpen }: {
     ? { icon: Users, title: 'No one registered yet', description: 'People registered in this campaign show here, with how far each has got.' }
     : rows.length ? null
       : search ? { icon: Search, title: 'No one matches', description: 'Check the spelling, or search by visit code or phone number.' }
+        : filter === 'care' ? { icon: Check, title: 'No one needs care yet', description: 'People with a follow-up or a referral show here.' }
         : filter === 'seeing' ? { icon: Check, title: 'No one is being seen', description: 'Everyone registered has an outcome.' }
           : { icon: Users, title: 'No one has finished yet', description: 'People show here once their outcome is confirmed.' }
 
@@ -92,6 +98,7 @@ export function CampaignPeople({ campaignId, cases, stations, onOpen }: {
           { value: 'seeing', label: 'Being seen', count: seeing.length },
           { value: 'finished', label: 'Finished', count: all.length - seeing.length },
           { value: 'all', label: 'All', count: all.length },
+          ...(initialFilter === 'care' ? [{ value: 'care' as const, label: 'Need care', count: all.filter(needsCare).length }] : []),
         ]} />
         <div className="flex min-w-0 items-center gap-2 @xl:w-96">
           <label htmlFor={searchId} className="sr-only">Search people</label>

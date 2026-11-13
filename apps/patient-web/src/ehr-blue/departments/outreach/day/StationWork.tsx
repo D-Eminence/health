@@ -83,7 +83,6 @@ function StationSteps({ plan, station }: { readonly plan: OutreachPlan; readonly
             {saved.state === 'queued' ? <CloudOff className="size-5 text-warn-ink" aria-hidden /> : <CircleCheck className="size-5 text-success-ink" aria-hidden />}
             {saved.state === 'queued' ? 'Saved on this phone · sent when you’re back online' : 'Saved'}
           </p>
-          <Button variant="primary" size="lg" icon={UserPlus} onClick={next}>Next person</Button>
         </Panel>
       ) : (
         <Panel className="p-4 sm:p-5">
@@ -102,9 +101,14 @@ function StationSteps({ plan, station }: { readonly plan: OutreachPlan; readonly
             )}
         </Panel>
       )}
+      {saved && station !== 'counselling' && station !== 'results' ? (
+        <FormActions>
+          <Button variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={next}>Next person</Button>
+        </FormActions>
+      ) : null}
       {!saved || station === 'counselling' || station === 'results' ? (
         <FormActions sticky={false} align="start">
-          <Button icon={saved ? UserPlus : ArrowLeft} variant={saved ? 'primary' : 'secondary'} size={saved ? 'lg' : 'md'} onClick={next}>{saved ? 'Next person' : 'Someone else'}</Button>
+          <Button icon={saved ? UserPlus : ArrowLeft} variant={saved ? 'primary' : 'secondary'} size={saved ? 'lg' : 'md'} className={saved ? 'h-14' : undefined} onClick={next}>{saved ? 'Next person' : 'Someone else'}</Button>
         </FormActions>
       ) : null}
     </div>
@@ -176,7 +180,7 @@ function FindPerson({ station, onFound }: { readonly station: StationKind; reado
             options={[{ value: 'text', label: 'ABC' }, { value: 'numeric', label: '123' }]} />
           <div className="ml-auto flex flex-wrap gap-2">
             {scanner ? <Button size="lg" icon={Camera} onClick={() => setScanning(true)}>Scan slip</Button> : null}
-            <Button type="submit" variant="primary" size="lg" icon={Search} aria-disabled={busy || undefined}>{busy ? 'Finding…' : 'Find'}</Button>
+            <Button type="submit" variant="primary" size="lg" className="h-14" icon={Search} aria-disabled={busy || undefined}>{busy ? 'Finding…' : 'Find'}</Button>
           </div>
         </div>
       </form>

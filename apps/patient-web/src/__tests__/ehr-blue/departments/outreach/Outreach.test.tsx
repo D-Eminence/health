@@ -235,7 +235,8 @@ describe('the list', () => {
     const list = await casesList()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(heading().textContent).toBe('Outreach')
-    expect(screen.getByRole('button', { name: 'New registration' })).toBeTruthy()
+    // Today's Outreach (no campaign routes): its registrations are made here, once the campaigns say so.
+    expect(await screen.findByRole('button', { name: 'New registration' })).toBeTruthy()
     expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search by name')
     // The list opens on who still needs linking.
     const tabs = screen.getByRole('navigation', { name: 'Show registrations' })
@@ -267,7 +268,7 @@ describe('the list', () => {
     renderPage()
     expect(await screen.findByText('No registrations yet')).toBeTruthy()
     expect(screen.getByText('People you register in the field show here, with what each needs next.')).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: 'New registration' })).toHaveLength(2)
+    expect(await screen.findAllByRole('button', { name: 'New registration' })).toHaveLength(2)
   })
 
   it.each([
@@ -340,11 +341,12 @@ describe('the list', () => {
     expect(previous.getAttribute('aria-disabled')).toBeNull()
   })
 
-  it('reads both lists again on Refresh', async () => {
+  it('reads both lists again when the page gets focus, with no Refresh button', async () => {
     renderPage()
     await casesList()
     await campaignsList()
-    await press(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
     expect(api.outreachCampaigns).toHaveBeenCalledTimes(2)
   })

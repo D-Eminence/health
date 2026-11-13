@@ -1,14 +1,14 @@
 import { useCallback } from 'react'
-import { BellRing, RotateCcw } from 'lucide-react'
+import { BellRing, Clock, Send, Stethoscope, TestTube, Users } from 'lucide-react'
 import { PageState } from '../../../../kasuwa/parts'
-import { Alert, Badge, Button } from '../../../../kasuwa/ui'
+import { Alert, Badge, StatGroup } from '../../../../kasuwa/ui'
 import { useDeptAccess } from '../../parts/access'
 import { outreachCampaignApi, NOT_OFFERED } from '../campaignApi'
 import {
   canSeeSensitive, focusLabel, roleLabel, stationLabel, STATIONS, type CampaignAlert, type CampaignDashboard as Dashboard,
 } from '../campaignTypes'
 import {
-  BarRow, dayText, hourText, InsightCard, kitTestLabel, rolesWords, SENSITIVE_FOCUSES, Tile, useCampaignRead, useLiveRefresh, withinDays,
+  BarRow, dayText, hourText, InsightCard, kitTestLabel, rolesWords, SENSITIVE_FOCUSES, StatTile, useCampaignRead, useLiveRefresh, withinDays,
 } from './insightParts'
 
 const DASHBOARD_FAILED = 'The campaign’s counts could not be read. Try again.'
@@ -23,7 +23,17 @@ const EXPIRING_DAYS = 30
  * (and when it is shown again). Counts only, never a person; positives for HIV and hepatitis B only to those who may
  * see sensitive results (`roles`, the viewer's roles in the campaign; when not given, read from the team).
  */
-export function CampaignDashboard({ campaignId, roles }: { readonly campaignId: string; readonly roles?: readonly string[] }) {
+/** Where a dashboard tile leads: a campaign tab, with People shown for those who need care. */
+export type DashboardOpen = (tab: 'people' | 'followups' | 'today', filter?: 'care') => void
+
+export function CampaignDashboard({ campaignId, roles, onOpen, opens = [] }: {
+  readonly campaignId: string
+  readonly roles?: readonly string[]
+  /** Opens what a tile counts (none: the tiles open nothing). */
+  readonly onOpen?: DashboardOpen
+  /** The tabs the viewer has: a tile opens only one of these. */
+  readonly opens?: readonly string[]
+}) {
   const { facilityId } = useDeptAccess()
   const enabled = Boolean(facilityId)
   const dashboard = useCampaignRead(enabled,
@@ -43,18 +53,20 @@ export function CampaignDashboard({ campaignId, roles }: { readonly campaignId: 
       {read.state === 'error' && value ? <Alert intent="error" title="Couldn’t refresh the counts">{read.error}</Alert> : null}
       <PageState loading={read.state === 'loading'} error={read.state === 'error' && !value ? read.error : null} hasData={value !== null}
         onRetry={() => void refresh()} what="the counts" rows={4}>
-        {value ? <DashboardBody value={value} sensitive={sensitive} busy={busy} onRefresh={() => void refresh()} /> : null}
+        {value ? <DashboardBody value={value} sensitive={sensitive}
+          onOpen={onOpen ? (tab, filter) => { if (opens.includes(tab)) onOpen(tab, filter) } : undefined} opens={onOpen ? opens : []} /> : null}
       </PageState>
     </div>
   )
 }
 
-function DashboardBody({ value, sensitive, busy, onRefresh }: {
+function DashboardBody({ value, sensitive, onOpen, opens }: {
   readonly value: Dashboard
   readonly sensitive: boolean
-  readonly busy: boolean
-  readonly onRefresh: () => void
+  readonly onOpen?: DashboardOpen
+  readonly opens: readonly string[]
 }) {
+  const opener = (tab: Parameters<DashboardOpen>[0], filter?: 'care') => onOpen && opens.includes(tab) ? () => onOpen(tab, filter) : undefined
   const shownFocus = (focus: Dashboard['byFocus'][number]['focus']) => sensitive || !SENSITIVE_FOCUSES.has(focus)
   const positives = value.byFocus.filter(row => shownFocus(row.focus)).reduce((sum, row) => sum + row.positive, 0)
   const hiddenPositives = value.byFocus.some(row => !shownFocus(row.focus))
@@ -66,19 +78,23 @@ function DashboardBody({ value, sensitive, busy, onRefresh }: {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="m-0 text-[13px] text-ink-3" aria-live="off">Updated {hourText(value.asOf)} · reads again every 30 seconds</p>
-        <Button size="sm" icon={RotateCcw} loading={busy} onClick={() => { if (!busy) onRefresh() }}>Refresh</Button>
-      </div>
+      {/* Read again every 30 seconds and when the page is shown again: no Refresh button, only when it was last read. */}
+      <p className="m-0 text-[13px] text-ink-3" aria-live="off">Updated {hourText(value.asOf)}</p>
 
-      <dl aria-label="Today’s counts" className="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-3 @3xl:grid-cols-5">
-        <Tile label="Registered" value={value.registered} hint={value.target > 0 ? `Target ${value.target}` : undefined} />
-        <Tile label="Screened" value={value.screened} hint={value.registered > 0 ? `${Math.round((value.screened / value.registered) * 100)}% of registered` : undefined} />
-        <Tile label="Waiting" value={waiting} hint={busiest && busiest.count > 0 ? `Most at ${stationLabel(busiest.station).toLowerCase()}: ${busiest.count}` : 'No one waiting'} />
-        <Tile label="Positive" value={positives} hint={hiddenPositives ? `Not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus).toLowerCase()).join(' or ')}` : undefined} />
-        <Tile label="Referred" value={referred} tone={value.outcomes.referUrgent > 0 ? 'danger' : 'neutral'}
-          hint={value.outcomes.referUrgent > 0 ? <strong className="font-semibold text-danger-ink">{value.outcomes.referUrgent} urgent</strong> : 'None urgent'} />
-      </dl>
+      <StatGroup label="Today’s counts" cols={3}>
+        <StatTile icon={Users} tone="brand" label="Registered" value={value.registered} hint={value.target > 0 ? `Target ${value.target}` : 'No target set'}
+          onOpen={opener('people')} />
+        <StatTile icon={Stethoscope} tone="info" label="Screened" value={value.screened}
+          hint={value.registered > 0 ? `${Math.round((value.screened / value.registered) * 100)}% of registered` : 'No one registered yet'} />
+        <StatTile icon={Clock} tone={waiting > 0 ? 'warn' : 'neutral'} label="Waiting" value={waiting}
+          hint={busiest && busiest.count > 0 ? `Most at ${stationLabel(busiest.station).toLowerCase()}: ${busiest.count}` : 'No one waiting'} />
+        <StatTile icon={TestTube} tone="violet" label="Positive" value={positives}
+          hint={hiddenPositives ? `Not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus).toLowerCase()).join(' or ')}` : 'Across every focus'}
+          onOpen={opener('people', 'care')} />
+        <StatTile icon={Send} tone={value.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred" value={referred}
+          hint={value.outcomes.referUrgent > 0 ? <strong className="font-semibold text-danger-ink">{value.outcomes.referUrgent} urgent</strong> : 'None urgent'}
+          onOpen={opener('followups')} />
+      </StatGroup>
 
       {value.alerts.length ? <Alerts alerts={value.alerts} /> : null}
 
@@ -94,15 +110,22 @@ function DashboardBody({ value, sensitive, busy, onRefresh }: {
 
         <InsightCard title="By focus" id="outreach-dash-focus">
           {value.byFocus.length ? (
-            <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
+            <ul className="m-0 flex list-none flex-col gap-4 p-0">
               {value.byFocus.map(row => (
-                <li key={row.focus} className="flex flex-col gap-1 py-2.5 first:pt-0 last:pb-0">
-                  <span className="font-semibold text-ink">{focusLabel(row.focus)}</span>
-                  <span className="flex flex-wrap gap-x-4 gap-y-1 text-[14px] text-ink-2 tabular">
-                    <span>{row.screened} screened</span>
-                    <span>{shownFocus(row.focus) ? `${row.positive} positive` : 'Positives: counsellors and clinicians only'}</span>
-                    <span>{shownFocus(row.focus) ? `${row.referred} referred` : null}</span>
-                  </span>
+                <li key={row.focus} className="flex flex-col gap-2">
+                  <h3 className="m-0 text-[15px] font-semibold text-ink">{focusLabel(row.focus)}</h3>
+                  {shownFocus(row.focus) ? (
+                    <StatGroup label={focusLabel(row.focus)} cols={3} className="!grid-cols-3">
+                      <StatTile label="Screened" value={row.screened} />
+                      <StatTile label="Positive" value={row.positive} />
+                      <StatTile label="Referred" value={row.referred} />
+                    </StatGroup>
+                  ) : (
+                    <>
+                      <StatGroup label={focusLabel(row.focus)} cols={3} className="!grid-cols-3"><StatTile label="Screened" value={row.screened} /></StatGroup>
+                      <p className="m-0 text-[13px] text-ink-3">Positives: counsellors and clinicians only</p>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

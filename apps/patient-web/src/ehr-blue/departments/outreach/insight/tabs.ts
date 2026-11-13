@@ -19,6 +19,26 @@ export function tabsFor(roles: readonly string[]): CampaignTab[] {
   return TABS.filter(tab => roles.some(role => tab.roles.has(role as TeamRole))).map(tab => tab.value)
 }
 
+/** The tabs the hub shows: the roles' tabs, People only where registrations can be read. */
+export function hubTabs(roles: readonly string[], canReadPeople: boolean): CampaignTab[] {
+  return tabsFor(roles).filter(value => value !== 'people' || canReadPeople)
+}
+
+/** The tab shown: the one asked for when the roles have it, else their first. */
+export function shownTab(tabs: readonly CampaignTab[], asked: CampaignTab | undefined): CampaignTab | undefined {
+  return asked && tabs.includes(asked) ? asked : tabs[0]
+}
+
+/**
+ * The main action of a role inside a campaign, away from Today (owner, 13 Nov 2026: one focal point in thumb reach):
+ * "Register a person" for a registrar, "Next person" for a station role, none for a coordinator or data checker.
+ */
+export function roleAction(roles: readonly string[]): string | null {
+  if (roles.includes('coordinator') || roles.includes('data_checker')) return null
+  if (roles.includes('registrar')) return 'Register a person'
+  return roles.some(role => role === 'vitals' || role === 'tester' || role === 'counsellor' || role === 'clinician') ? 'Next person' : null
+}
+
 /** Who may read the report: coordinators and data checkers. */
 export const canReadReport = (roles: readonly string[]) => roles.includes('coordinator') || roles.includes('data_checker')
 

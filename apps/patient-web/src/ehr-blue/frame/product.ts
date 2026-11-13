@@ -88,7 +88,26 @@ export function inProduct(product: Product, path: string): boolean {
  * lists Home there only to a session that may not open that page, as /provider stays on Home for it: BlueFrame.tsx.)
  */
 export function productLists(product: Product, path: string): boolean {
+  if (ONLY_OWN.has(product)) return ownPath(product, path)
   return inProduct(product, path) && (product === 'ehr' || path !== '')
+}
+
+/**
+ * The products whose workspace lists only their own pages (owner, 13 November 2026): Outreach on its own is Outreach
+ * only. Its menu, tab bar and search offer its campaigns and nothing of a hospital's (no Patients, Access requests,
+ * Network & Services, Insight or Settings) and no other product's. Outreach inside a hospital's EHR is unchanged.
+ */
+const ONLY_OWN: ReadonlySet<Product> = new Set<Product>(['outreach'])
+
+/** Whether a page is the product's own: its home page or one below it. */
+function ownPath(product: Product, path: string): boolean {
+  const base = basePath(path)
+  return base === PRODUCTS[product].home || base.startsWith(`${PRODUCTS[product].home}/`)
+}
+
+/** Whether this product's workspace lists only its own pages (ONLY_OWN). */
+export function listsOnlyOwn(product: Product): boolean {
+  return ONLY_OWN.has(product)
 }
 
 /**
@@ -131,6 +150,7 @@ export function opensInProduct(product: Product, path: string): boolean {
  */
 export function pageListedInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>,
   served: (href: string) => boolean): boolean {
+  if (ONLY_OWN.has(product)) return productLists(product, page.path)
   return (page.everyProduct === true && basePath(page.path) !== '' && served(pageHrefOf(page))) || productLists(product, page.path)
 }
 

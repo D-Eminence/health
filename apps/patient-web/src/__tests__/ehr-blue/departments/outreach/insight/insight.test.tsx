@@ -111,9 +111,38 @@ describe('the dashboard', () => {
     expect(within(positive).getByText('4')).toBeTruthy()
     expect(within(positive).getByText('Not counting hepatitis b')).toBeTruthy()
     const focus = screen.getByRole('heading', { name: 'By focus' }).closest('section')!
-    expect(within(focus).queryByText('5 positive')).toBeNull()
+    // Each focus's counts as StatCards: hepatitis B's positives left out, high blood pressure's shown.
+    const hepB = within(focus).getByRole('group', { name: 'Hepatitis B' })
+    expect(within(hepB).queryByText('Positive')).toBeNull()
     expect(within(focus).getByText('Positives: counsellors and clinicians only')).toBeTruthy()
-    expect(within(focus).getByText('4 positive')).toBeTruthy()
+    const shownGroups = within(focus).getAllByRole('group').filter(group => within(group).queryByText('Positive'))
+    expect(shownGroups.some(group => within(within(group).getByText('Positive').parentElement!).queryByText('4'))).toBe(true)
+  })
+
+  it('shows the counts as every dashboard does: StatCards in a StatGroup, tiles opening the tab they count, no Refresh', async () => {
+    const opened = vi.fn()
+    renderDept(<CampaignDashboard campaignId={CAMPAIGN} roles={['coordinator']} opens={['today', 'people', 'followups']} onOpen={opened} />)
+    const tiles = await screen.findByRole('group', { name: 'Today’s counts' })
+    // Kasuwa's StatGroup: the grey tray holding white tiles, each with its icon chip, number, label and hint.
+    expect(tiles.className).toContain('bg-tray')
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+    expect(screen.getByText(/^Updated \d\d:\d\d$/)).toBeTruthy()
+    const referred = within(tiles).getByRole('button', { name: /Referred/ })
+    expect(referred.textContent).toContain('1 urgent')
+    expect(referred.querySelector('.rounded-full svg')).not.toBeNull()
+    fireEvent.click(referred)
+    expect(opened).toHaveBeenLastCalledWith('followups', undefined)
+    fireEvent.click(within(tiles).getByRole('button', { name: /Positive/ }))
+    expect(opened).toHaveBeenLastCalledWith('people', 'care')
+    // Screened and Waiting open nothing: they are plain tiles.
+    expect(within(tiles).queryByRole('button', { name: /Screened/ })).toBeNull()
+  })
+
+  it('opens no tab the viewer does not have', async () => {
+    renderDept(<CampaignDashboard campaignId={CAMPAIGN} roles={['data_checker']} opens={['dashboard', 'people']} onOpen={vi.fn()} />)
+    const tiles = await screen.findByRole('group', { name: 'Today’s counts' })
+    expect(within(tiles).queryByRole('button', { name: /Referred/ })).toBeNull()
+    expect(within(tiles).getByRole('button', { name: /Registered/ })).toBeTruthy()
   })
 
   it('reads the counts again every 30 seconds while shown, and on focus', async () => {

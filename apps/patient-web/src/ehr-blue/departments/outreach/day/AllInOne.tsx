@@ -117,7 +117,7 @@ function AllInOneSteps({ plan }: { readonly plan: OutreachPlan }) {
             <OutcomeForm plan={plan} visit={person} saveId="outreach-all-outcome-save" onSaved={result => done('outcome', result)} />
           </PartCard>
           <FormActions>
-            <Button variant={saved.outcome ? 'primary' : 'secondary'} size="lg" icon={UserPlus} onClick={nextPerson}>Next person</Button>
+            <Button variant={saved.outcome ? 'primary' : 'secondary'} size="lg" className="h-14" icon={UserPlus} onClick={nextPerson}>Next person</Button>
           </FormActions>
         </>
       ) : null}

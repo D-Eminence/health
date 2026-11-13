@@ -1,6 +1,7 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { ArrowRight, CircleCheck, Megaphone, Plus, RotateCcw, Search, UserPlus, Users } from 'lucide-react'
+import { ArrowRight, CircleCheck, Megaphone, Play, Plus, Search, UserPlus, Users } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachOrganiserStatus } from '../../../staff/api'
@@ -17,7 +18,8 @@ import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignVie
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
-import { useOutreachQueue } from './offlineQueue'
+import { lastOpenedCampaign, outreachQueueStore, rememberOpenedCampaign, useOutreachQueue } from './offlineQueue'
+import { isOutreachAddress, OUTREACH_HOME, setOutreachNav, tabAddress, tabOfAddress, type OutreachNavState } from './outreachNav'
 import {
   ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, nextStepText, sexText, statusLabel, type MembersRead,
@@ -27,9 +29,10 @@ import { VisitView } from './day'
 import { CampaignPlanWizard } from './plan'
 import { CampaignCards } from './insight/CampaignCards'
 import { CampaignHub } from './insight/CampaignHub'
-import { canReadReport, hubRoles, type CampaignTab } from './insight/tabs'
+import { canReadReport, hubRoles, hubTabs, shownTab, type CampaignTab } from './insight/tabs'
 import { CampaignReport } from './insight/CampaignReport'
 import { CampaignSummaryRead, type CampaignSummary } from './insight/campaignSummary'
+import { useLiveRefresh } from './insight/insightParts'
 
 /** The design's list shows this many records a page. */
 const PAGE_SIZE = 50
@@ -148,6 +151,22 @@ export function Outreach() {
   const view: View = place.facilityId === facilityId ? place.view : { kind: 'list' }
   const viewRef = useRef(view)
   viewRef.current = view
+  const location = useLocation()
+  // The tab last shown in each campaign, for this visit: coming back to a campaign opens where the person was.
+  const lastTabs = useRef(new Map<string, CampaignTab>())
+  // The campaign this person was last in, from the day settings on this device (per account): undefined while read.
+  const [lastCampaign, setLastCampaign] = useState<{ facilityId: string; id: string | null } | undefined>(undefined)
+  const readsCampaigns = permissions.includes('outreach.campaign.read')
+  useEffect(() => {
+    if (!facilityId) return
+    if (!actorId || !readsCampaigns) { setLastCampaign({ facilityId, id: null }); return }
+    let live = true
+    void outreachQueueStore().then(store => lastOpenedCampaign(store, { accountId: actorId, facilityId }))
+      .catch(() => null).then(id => { if (live) setLastCampaign({ facilityId, id }) })
+    return () => { live = false }
+  }, [actorId, facilityId, readsCampaigns])
+  // Whether the page has decided where this visit starts (a campaign opened directly, or the list), per facility.
+  const [arrived, setArrived] = useState<string | null>(null)
 
   // Focus moves with the view, in the commit that shows it: to the new view's heading, or back to the record opened.
   const root = useRef<HTMLDivElement>(null)
@@ -230,13 +249,73 @@ export function Outreach() {
   const refreshAll = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined])
     .then(() => setSummaryEpoch(epoch => epoch + 1))
   const openCampaign = (campaign: OutreachCampaign, tab?: CampaignTab, focusId?: string) =>
-    show({ kind: 'campaign', id: campaign.id, snapshot: campaign, tab }, focusId)
+    show({ kind: 'campaign', id: campaign.id, snapshot: campaign, tab: tab ?? lastTabs.current.get(campaign.id) }, focusId)
   /** The campaign as listed, or as it was opened while the list is read again (or just made). */
   const currentCampaign = (id: string, snapshot: OutreachCampaign, created?: boolean) => {
     const listed = campaigns.value?.find(campaign => campaign.id === id)
     const settled = campaigns.value !== null && !campaigns.loading && !campaigns.error
     return listed ?? (!settled || created ? snapshot : null)
   }
+
+  // ------------------------------------------------------------------------------------------- where it starts --
+  /** The hub's tabs for a campaign, as this person's roles there allow. */
+  const tabsOf = (campaignId: string) => hubTabs(hubRoles(summaryOf(campaignId), mayWriteCampaigns), canReadCases)
+  const served = (campaignId: string) => summaryOf(campaignId)?.offered === true
+  // The campaign the menu and its tabs are about: the one open now, else the one this person was last in.
+  const viewCampaignId = view.kind === 'campaign' || view.kind === 'record' ? view.id : view.kind === 'visit' || view.kind === 'report' ? view.campaign.id : undefined
+  const rememberedId = lastCampaign?.facilityId === facilityId ? lastCampaign.id : null
+  const navCampaign = (viewCampaignId ? campaignOf(viewCampaignId) ?? (view.kind === 'campaign' || view.kind === 'record' ? view.snapshot : undefined) : undefined)
+    ?? (rememberedId ? campaignOf(rememberedId) : undefined)
+  const navTabs = navCampaign && served(navCampaign.id) ? tabsOf(navCampaign.id) : null
+  /** The address that says where the page is: its list, or a campaign hub's tab. Null where the address stays as it is. */
+  const hubTab = view.kind === 'campaign' && served(view.id) ? shownTab(tabsOf(view.id), view.tab ?? lastTabs.current.get(view.id)) : undefined
+  const address = view.kind === 'list' ? OUTREACH_HOME : hubTab ? tabAddress(hubTab) : null
+  // The campaigns running now that this person is on (owner, 13 Nov 2026: no reselecting): on its team, or a member.
+  const running = (campaigns.value ?? []).filter(campaign => campaign.status === 'active' && campaignOpenNow(campaign))
+  const mine = running.filter(campaign => served(campaign.id)
+    && (summaryOf(campaign.id)?.team?.you != null || (eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))))
+  const continuing = mine.find(campaign => campaign.id === rememberedId) ?? mine[0]
+  // Where this visit starts: the one campaign running for them, else the one they were last in, else the list. Undefined
+  // while that can't be told yet (the campaigns, what each one's routes say, or the day settings still being read).
+  let arrival: OutreachCampaign | 'list' | undefined
+  if (arrived === facilityId) arrival = undefined
+  else if (view.kind !== 'list' || !canReadCampaigns || (campaigns.value === null && !campaigns.loading)) arrival = 'list'
+  else if (campaigns.value === null || lastCampaign?.facilityId !== facilityId) arrival = undefined
+  else if (running.some(campaign => !summaryOf(campaign.id)) || (rememberedId && campaignOf(rememberedId) && !summaryOf(rememberedId))) arrival = undefined
+  else if (mine.length === 1) arrival = mine[0]
+  else {
+    const remembered = rememberedId ? campaignOf(rememberedId) : undefined
+    arrival = remembered && served(remembered.id) ? remembered : 'list'
+  }
+  const arrive = (pick: OutreachCampaign | 'list') => {
+    setArrived(facilityId)
+    if (pick === 'list') return
+    const tab = tabOfAddress(location.pathname) ?? lastTabs.current.get(pick.id)
+    setPlace({ facilityId, view: { kind: 'campaign', id: pick.id, snapshot: pick, tab } })
+    setFocusRequest({ ifLost: true })
+  }
+  /** An address the person followed (the menu's Campaigns or a tab): the page goes there, when it isn't there already. */
+  const followAddress = (tab: CampaignTab | null) => {
+    if (tab === null) {
+      if (view.kind !== 'list') backToList()
+      return
+    }
+    if (view.kind === 'campaign' && hubTab === tab) return
+    if (navCampaign && navTabs?.includes(tab)) {
+      lastTabs.current.set(navCampaign.id, tab)
+      show({ kind: 'campaign', id: navCampaign.id, snapshot: navCampaign, tab })
+    }
+  }
+  const openedId = view.kind === 'campaign' && served(view.id) ? view.id : undefined
+  const keeper = (
+    <PlaceKeeper ready={arrived === facilityId} arrival={arrival} onArrive={arrive} address={address} onAddress={followAddress}
+      nav={navCampaign && navTabs ? { facilityId, campaignName: navCampaign.name, tabs: navTabs } : null}
+      openedId={openedId} onOpened={campaignId => {
+        if (!actorId) return
+        setLastCampaign({ facilityId, id: campaignId })
+        void outreachQueueStore().then(store => rememberOpenedCampaign(store, { accountId: actorId, facilityId }, campaignId)).catch(() => undefined)
+      }} />
+  )
 
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
@@ -268,7 +347,8 @@ export function Outreach() {
         setSummaryEpoch(epoch => epoch + 1)
         const made = campaignOf(campaignId) ?? { id: campaignId, name: 'New campaign', status: 'planned', services: ['registration'],
           startsAt: new Date().toISOString(), rowVersion: 0 }
-        show({ kind: 'campaign', id: campaignId, snapshot: made, created: true, tab: 'team' })
+        // Inside the campaign made, on the first tab the person's roles have (Today, or the Dashboard): no reselecting.
+        show({ kind: 'campaign', id: campaignId, snapshot: made, created: true })
       }} />
   } else if (view.kind === 'campaign' && canReadCampaigns) {
     const campaign = currentCampaign(view.id, view.snapshot, view.created)
@@ -283,8 +363,8 @@ export function Outreach() {
     } else {
       const roles = hubRoles(summary, mayWriteCampaigns)
       const here = { ...view, snapshot: campaign }
-      content = <CampaignHub key={campaign.id} campaign={campaign} summary={summary} roles={roles} tab={view.tab}
-        onTab={tab => setPlace({ facilityId, view: { ...here, tab } })}
+      content = <CampaignHub key={campaign.id} campaign={campaign} summary={summary} roles={roles} tab={view.tab ?? lastTabs.current.get(campaign.id)}
+        onTab={tab => { lastTabs.current.set(campaign.id, tab); setPlace({ facilityId, view: { ...here, tab } }) }}
         facilityId={facilityId} accountId={actorId} cases={canReadCases ? cases : null}
         onBack={() => backToList(`outreach-campaign-${campaign.id}-open`)}
         onOpenVisit={(visit: OutreachVisit) => show({ kind: 'visit', campaign, caseId: visit.id, tab: 'people' })}
@@ -297,7 +377,7 @@ export function Outreach() {
     content = campaign
       ? <OutreachCampaignView key={campaign.id} facilityId={facilityId} campaign={campaign} members={membersOf(campaign.id)}
         manage={canManage} onChanged={async () => { await campaigns.refresh(); setSummaryEpoch(epoch => epoch + 1) }}
-        onBack={() => openCampaign(campaign, view.tab, `outreach-campaign-${campaign.id}-record`)} />
+        onBack={() => openCampaign(campaign, view.tab, `outreach-campaign-${campaign.id}-more`)} />
       : <RecordNotFound onBack={() => backToList()} />
   } else if (view.kind === 'visit' && canReadCampaigns) {
     content = <VisitView key={view.caseId} campaignId={view.campaign.id} caseId={view.caseId}
@@ -307,7 +387,7 @@ export function Outreach() {
     const roles = hubRoles(summaryOf(campaign.id), mayWriteCampaigns)
     content = (
       <DeptPage title="Campaign report" description={campaign.name} backLabel="Back to the campaign"
-        onBack={() => openCampaign(campaign, view.tab, `outreach-campaign-${campaign.id}-report`)}>
+        onBack={() => openCampaign(campaign, view.tab, `outreach-campaign-${campaign.id}-more`)}>
         <CampaignReport campaignId={campaign.id} campaign={campaign} canClose={roles.includes('coordinator')}
           onClosed={() => { void campaigns.refresh(); setSummaryEpoch(epoch => epoch + 1) }} />
       </DeptPage>
@@ -316,7 +396,8 @@ export function Outreach() {
     content = (
       <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
         group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })} showCase={homeCases}
-        summaryOf={summaryOf} onRefresh={refreshAll}
+        summaryOf={summaryOf} onRefresh={refreshAll} legacy={!canReadCampaigns || legacyOutreach}
+        continuing={continuing} onContinue={campaign => openCampaign(campaign)}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
           {queuedNote?.facilityId === facilityId ? <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert> : null}
@@ -326,13 +407,14 @@ export function Outreach() {
         bottom={organiser ? <OutreachTeam facilityId={facilityId} /> : undefined}
         onNewCampaign={canManage ? () => show({ kind: 'newCampaign' }) : undefined}
         onOpenCase={item => show({ kind: 'case', id: item.id, snapshot: item, created: false })}
-        onOpenCampaign={campaign => show({ kind: 'campaign', id: campaign.id, snapshot: campaign })} />
+        onOpenCampaign={campaign => openCampaign(campaign)} />
     )
   }
 
   return (
     <div ref={root}>
       {readers}
+      {keeper}
       {content}
       {/* Mounted throughout, so what was created is announced; the created case's view shows it as a banner. */}
       <div id="outreach-status" role="status" className="hid-ehr-sr-only">
@@ -340,6 +422,46 @@ export function Outreach() {
       </div>
     </div>
   )
+}
+
+/**
+ * Keeps where Outreach is in step with the frame (it draws nothing, as CampaignSummaryRead): it opens the campaign this
+ * visit starts in (`arrival`), keeps the address on the list or the hub's tab (`address`), follows an address the menu
+ * opened (`onAddress`), tells the menu the tabs of the campaign open or remembered (`nav`), and notes on this device the
+ * campaign opened (`onOpened`). Only at Outreach's own addresses in the frame: elsewhere the address is left alone.
+ */
+function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, openedId, onOpened }: {
+  readonly ready: boolean
+  readonly arrival: OutreachCampaign | 'list' | undefined
+  readonly onArrive: (pick: OutreachCampaign | 'list') => void
+  readonly address: string | null
+  readonly onAddress: (tab: CampaignTab | null) => void
+  readonly nav: OutreachNavState | null
+  readonly openedId: string | undefined
+  readonly onOpened: (campaignId: string) => void
+}) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const inFrame = isOutreachAddress(location.pathname)
+  const latest = useRef({ onArrive, onAddress, onOpened })
+  latest.current = { onArrive, onAddress, onOpened }
+
+  useEffect(() => { if (!ready && arrival !== undefined) latest.current.onArrive(arrival) }, [ready, arrival])
+  // The address says where the page is, replacing the one before (the history keeps no step per tab).
+  useEffect(() => {
+    if (ready && inFrame && address && address !== location.pathname) navigate(address, { replace: true })
+  }, [ready, inFrame, address, location.pathname, navigate])
+  // An address followed from the menu (a new history entry, even to the same address): the page goes there.
+  const seen = useRef(location.key)
+  useEffect(() => {
+    if (seen.current === location.key) return
+    seen.current = location.key
+    if (ready && inFrame) latest.current.onAddress(tabOfAddress(location.pathname))
+  }, [location.key, location.pathname, ready, inFrame])
+  useEffect(() => { setOutreachNav(nav) })
+  useEffect(() => () => setOutreachNav(null), [])
+  useEffect(() => { if (openedId) latest.current.onOpened(openedId) }, [openedId])
+  return null
 }
 
 /** The design's view of a record the list no longer holds. */
@@ -366,7 +488,12 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * what still needs doing, with search and pages. A group's standing and what waits on this device come first.
  */
 function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, group, top, bottom, campaignOf, showCase, summaryOf, onRefresh, onNew,
-  onNewCampaign, onOpenCase, onOpenCampaign }: {
+  onNewCampaign, onOpenCase, onOpenCampaign, legacy, continuing, onContinue }: {
+  /** Today's Outreach, with no campaign routes (or no campaigns read): registrations are made here, with the old form. */
+  readonly legacy: boolean
+  /** The campaign running now that this person is on: carrying on with it is the one main action. */
+  readonly continuing: OutreachCampaign | undefined
+  readonly onContinue: (campaign: OutreachCampaign) => void
   readonly canReadCases: boolean
   /** An outreach group's own Outreach (open sign-up on outreach.): nobody here links a Health ID. */
   readonly group: boolean
@@ -392,13 +519,14 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   const [tab, setTab] = useState<CaseTab>('waiting')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
   const focus = useFocusById()
-  const loading = (canReadCases && cases.loading) || (canReadCampaigns && campaigns.loading) || refreshing
-  const refresh = () => {
-    setRefreshing(true)
-    void onRefresh().finally(() => setRefreshing(false))
-  }
+  // Read again when the page is shown again or gets focus (and every two minutes while shown): no Refresh button.
+  const refreshing = useRef(false)
+  useLiveRefresh(useCallback(() => {
+    if (refreshing.current) return
+    refreshing.current = true
+    void onRefresh().finally(() => { refreshing.current = false })
+  }, [onRefresh]), 120_000)
 
   // Newest first: the person just met is the one most likely to be looked for.
   const everyCase = [...(cases.value ?? [])].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
@@ -413,9 +541,15 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   const first = shownPage === 0
   const last = shownPage + 1 >= pages
   const listed = cases.value !== null
-  // One main action: New campaign where campaigns are managed here, else New registration.
-  const newButton = canWrite ? <Button variant={onNewCampaign ? 'secondary' : 'primary'} icon={UserPlus} onClick={onNew}>New registration</Button> : null
-  const newCampaign = onNewCampaign ? <Button id="outreach-new-campaign" variant="primary" icon={Plus} onClick={onNewCampaign}>New campaign</Button> : null
+  // One main action (Hick, Fitts): carry on with the campaign running for this person; else New campaign where campaigns are
+  // managed here; else, on today's Outreach only, New registration. A registration is otherwise made in a campaign's Today.
+  const newButton = canWrite && legacy
+    ? <Button variant={onNewCampaign || continuing ? 'secondary' : 'primary'} icon={UserPlus} onClick={onNew}>New registration</Button> : null
+  const continueButton = continuing
+    ? <Button id="outreach-continue" variant="primary" icon={Play} className="max-w-full" onClick={() => onContinue(continuing)}>
+      <span className="truncate">Continue {continuing.name}</span></Button> : null
+  const newCampaign = onNewCampaign
+    ? <Button id="outreach-new-campaign" variant={continuing ? 'secondary' : 'primary'} icon={Plus} onClick={onNewCampaign}>New campaign</Button> : null
   const canLink = canWrite && !group
   const emptyAll = { icon: Users, title: 'No registrations yet', description: canWrite
     ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
@@ -427,12 +561,9 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
 
   return (
     <DeptPage title="Outreach" description={canReadCampaigns ? 'Your campaigns, and the people registered in the field.' : 'People registered in the field, and what each one needs next.'}
-      primaryAction={newCampaign ?? undefined}
-      secondaryActions={<>
-        <Button icon={RotateCcw} aria-busy={loading || undefined} onClick={() => { if (!loading) refresh() }}>Refresh</Button>
-        {/* Always here, so it stays one button as the page learns whether campaigns are managed here; the main one without them. */}
-        {newButton}
-      </>}>
+      primaryAction={continueButton ?? newCampaign ?? newButton ?? undefined}
+      secondaryActions={continueButton ? newCampaign || newButton ? <>{newCampaign}{newButton}</> : undefined
+        : newCampaign && newButton ? newButton : undefined}>
       <div className="flex flex-col gap-6">
         {top}
         {canReadCampaigns ? (

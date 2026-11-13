@@ -72,10 +72,12 @@ export interface DaySettings {
   readonly station: StationKind | null
   /** The kit lot in use for each test (testId → lot). */
   readonly kitLots: Readonly<Record<string, string>>
+  /** When this account last opened the campaign on this device: the one it was last in opens directly next time. */
+  readonly openedAt?: string
   readonly savedAt: string
 }
 
-export type DaySettingsChange = Partial<Pick<DaySettings, 'siteId' | 'station' | 'kitLots'>>
+export type DaySettingsChange = Partial<Pick<DaySettings, 'siteId' | 'station' | 'kitLots' | 'openedAt'>>
 
 /** Where the queue is kept. */
 export interface OutreachQueueStore {
@@ -406,10 +408,24 @@ export async function saveDaySettings(store: OutreachQueueStore, owner: QueueOwn
     siteId: change.siteId !== undefined ? change.siteId : before?.siteId ?? null,
     station: change.station !== undefined ? change.station : before?.station ?? null,
     kitLots: { ...before?.kitLots, ...change.kitLots },
+    ...(change.openedAt ?? before?.openedAt ? { openedAt: change.openedAt ?? before?.openedAt } : {}),
     savedAt: now.toISOString(),
   }
   await store.putDaySettings(next)
   return next
+}
+
+/** Notes that this account opened a campaign on this device now (its day settings' openedAt). */
+export async function rememberOpenedCampaign(store: OutreachQueueStore, owner: QueueOwner, campaignId: string, now = new Date()): Promise<void> {
+  await saveDaySettings(store, owner, campaignId, { openedAt: now.toISOString() }, now)
+}
+
+/** The campaign this account last opened at this facility on this device (within 14 days), or null. */
+export async function lastOpenedCampaign(store: OutreachQueueStore, owner: QueueOwner, now = Date.now()): Promise<string | null> {
+  const mine = (await store.listDaySettings().catch(() => [] as DaySettings[]))
+    .filter(entry => entry.accountId === owner.accountId && entry.facilityId === owner.facilityId && entry.openedAt && !queueEntryExpired(entry, now))
+    .sort((a, b) => Date.parse(b.openedAt!) - Date.parse(a.openedAt!))
+  return mine[0]?.campaignId ?? null
 }
 
 /** A station's day settings for one campaign, kept on this device (see the top of this module). */

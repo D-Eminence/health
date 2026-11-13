@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Navigate, Route, Routes, UNSAFE_RouteContext, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
-import { Activity, ArrowLeft, Check, CircleHelp, ExternalLink, Hospital, House, Search, ShieldCheck, ShieldX, UserPlus, UserRound } from 'lucide-react'
+import { Activity, ArrowLeft, CalendarCheck, ChartColumn, Check, CircleHelp, ExternalLink, Hospital, House, Megaphone, PhoneCall, Search, Settings2, ShieldCheck, ShieldX, UserPlus, UserRound, Users, UsersRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
@@ -14,7 +14,9 @@ import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
+import { PRODUCTS, listsOnlyOwn, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
+import { OUTREACH_HOME, tabAddress, tabLabel, useOutreachNav } from '../departments/outreach/outreachNav'
+import type { CampaignTab } from '../departments/outreach/insight/tabs'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { productUsable } from './pageAccess'
 import { AttentionProvider } from './attention'
@@ -59,6 +61,11 @@ function iconOf(element: ReactNode): Icon {
   const Wrapped: Icon = ({ className }) => <span className={cx('inline-flex items-center justify-center [&_svg]:size-full', className)}>{element}</span>
   if (element && typeof element === 'object') iconCache.set(element, Wrapped)
   return Wrapped
+}
+
+/** Each Outreach campaign tab's icon in the menu of Outreach on its own. */
+const OUTREACH_TAB_ICON: Readonly<Record<CampaignTab, Icon>> = {
+  today: CalendarCheck, dashboard: ChartColumn, people: Users, followups: PhoneCall, team: UsersRound, setup: Settings2,
 }
 
 /** Design tools for the team, not places staff work: reachable by address, never listed. */
@@ -213,6 +220,8 @@ export function BlueFrame() {
   // The facility being opened: one switch at a time, as Choose workspace's own buttons wait for theirs.
   const [switching, setSwitching] = useState<string | null>(null)
   const { viewing } = useRoleView()
+  // Outreach on its own: the tabs of the campaign open or remembered, which its menu lists (outreachNav.ts).
+  const outreachNav = useOutreachNav(state.status === 'ready' ? state.session.actor.facility?.id : undefined)
   useFocusOnPageChange(pageRef, lock !== null)
   // A refused switch is said where it was tried: another page opened leaves it behind.
   useEffect(() => setSwitchError(''), [location.pathname])
@@ -350,8 +359,16 @@ export function BlueFrame() {
     items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
+  // Outreach on its own lists only Outreach (owner, 13 November 2026): its campaigns, and the tabs of the campaign open
+  // or remembered, as the person's roles allow them. Nothing of a hospital's, and no other product's site.
+  const onlyOwn = listsOnlyOwn(product) && ownPageOpen
+  const ownItems: NavItem[] = onlyOwn ? [
+    { to: OUTREACH_HOME, label: 'Campaigns', icon: Megaphone, end: true },
+    ...(outreachNav?.tabs ?? []).map(tab => ({ to: tabAddress(tab), label: tabLabel(tab), icon: OUTREACH_TAB_ICON[tab], end: true })),
+  ] : []
+  if (onlyOwn) nav.splice(0, nav.length, { items: ownItems })
   // Each product on its own site: the other sites that serve the rest of what this session may open.
-  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
+  const otherSites = onlyOwn ? null : otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
   if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
@@ -389,13 +406,15 @@ export function BlueFrame() {
             headerStart={<>
               <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label={`Health ID ${info.name} home`}><BrandLogo className="h-7 w-auto" /></a>
               {arrival ? <SwitchBackLink arrival={arrival} /> : null}
-              <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
+              {/* Outreach on its own names its organisation or group, never a hospital. */}
+              <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex">{onlyOwn ? <Users className="size-4" aria-hidden /> : <Hospital className="size-4" aria-hidden />}<span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) && !onlyOwn ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
             headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} />
               {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
               {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
               <NotificationsButton /></div>}
             tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
+              : onlyOwn ? ownItems.slice(0, 3)
               : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
             create={product !== 'ehr' ? undefined : { label: 'Start', items: [
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),

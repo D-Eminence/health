@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { cx } from '../../../../kasuwa/ui'
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react'
+import { cx, StatCard } from '../../../../kasuwa/ui'
 import { campaignFlowErrorText, isNotOffered } from '../campaignApi'
 import { focusLabel, type ScreeningFocus, type TeamRole } from '../campaignTypes'
 import { TESTS } from '../screeningTemplates'
@@ -156,19 +156,18 @@ export function InsightCard({ title, id, children, action, className }: {
   )
 }
 
-/** A big number with what it counts, and an optional line under it. */
-export function Tile({ label, value, hint, tone = 'neutral' }: {
-  readonly label: string
-  readonly value: ReactNode
-  readonly hint?: ReactNode
-  readonly tone?: 'neutral' | 'danger'
-}) {
+/**
+ * A count as every dashboard shows one (Kasuwa's StatCard, in a StatGroup's grey tray: its icon, the big number, what it
+ * counts and a line under it). With `onOpen` the whole tile is one button that opens what it counts (a tab), as Home's
+ * tiles link to their pages; the page keeps where it is in memory, so it is a button rather than a link.
+ */
+export function StatTile({ onOpen, id, ...card }: ComponentProps<typeof StatCard> & { readonly onOpen?: () => void; readonly id?: string }) {
+  if (!onOpen) return <StatCard {...card} />
   return (
-    <div className={cx('flex min-w-0 flex-col rounded-xl bg-surface p-4 ring-1 ring-line', tone === 'danger' && 'ring-2 ring-danger/50')}>
-      <dt className="order-2 text-[14px] text-ink-2">{label}</dt>
-      <dd className="order-1 m-0 text-[28px] leading-9 font-semibold tracking-[-0.02em] text-ink tabular">{value}</dd>
-      {hint ? <dd className="order-3 m-0 mt-1 text-[13px] text-ink-3">{hint}</dd> : null}
-    </div>
+    <button type="button" id={id} onClick={onOpen}
+      className="group flex min-w-0 cursor-pointer rounded-xl border-0 bg-transparent p-0 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
+      <StatCard {...card} className={cx('w-full transition-shadow group-hover:shadow-[var(--shadow-pop)]', card.className)} />
+    </button>
   )
 }
 

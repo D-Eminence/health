@@ -125,7 +125,7 @@ function DayChoices({ plan, onStart }: { readonly plan: OutreachPlan; readonly o
         </fieldset>
       ) : null}
       <FormActions>
-        <Button variant="primary" size="lg" iconRight={ArrowRight} aria-disabled={busy || undefined} onClick={() => void start()}>
+        <Button variant="primary" size="lg" className="h-14" iconRight={ArrowRight} aria-disabled={busy || undefined} onClick={() => void start()}>
           {onePerson ? 'Start seeing people' : 'Start at this station'}
         </Button>
       </FormActions>

@@ -68,12 +68,12 @@ describe('a membership with campaign read only', () => {
 })
 
 describe('a membership with registration read', () => {
-  it('lists Outreach in the sidebar and opens it', async () => {
+  it('lists Outreach in the sidebar (as Campaigns, Outreach on its own here) and opens it', async () => {
     const demo = demoOutreach(['outreach.registration.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CASES]: [() => json([]), () => json([])] })
     await openStaffApp('/provider/outreach')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
-    expect(within(nav).getByRole('link', { name: 'Outreach' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).getByRole('link', { name: 'Campaigns' }).getAttribute('aria-current')).toBe('page')
     await waitFor(() => expect(sent.filter(request => request.route === CASES).length).toBeGreaterThan(0))
     expect(sent.filter(request => request.route === CAMPAIGNS)).toHaveLength(0)
   })

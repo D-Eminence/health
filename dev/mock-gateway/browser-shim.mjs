@@ -7,7 +7,10 @@
 import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from './routes.mjs'
 
 const params = new URLSearchParams(window.location.search)
-configure({ facility: params.get('facility') === 'classic' ? 'classic' : params.get('facility') === 'outreach' ? 'outreach' : 'blue' })
+// "Outreach only" is Outreach as an outreach group runs it on its own: the fictional group, not the demo hospital, so
+// the preview shows a real standalone Outreach (?facility= still picks the facility where it is given).
+const facilityAsked = params.get('facility') ?? (params.get('product') === 'outreach' ? 'outreach' : null)
+configure({ facility: facilityAsked === 'classic' ? 'classic' : facilityAsked === 'outreach' ? 'outreach' : 'blue' })
 // ?outreachRoles=registrar,vitals: the demo login's roles in the Outreach screening campaign (routes.mjs).
 if (params.get('outreachRoles')) configure({ outreachRoles: params.get('outreachRoles').split(',').map(role => role.trim()).filter(Boolean) })
 // ?product=lab|pharmacy|outreach shows the provider workspace as that product alone (ehr-blue/frame/product.ts).

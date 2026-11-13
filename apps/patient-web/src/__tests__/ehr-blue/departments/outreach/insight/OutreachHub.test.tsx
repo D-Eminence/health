@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../../harness'
 import { Outreach } from '../../../../../ehr-blue/departments/outreach/Outreach'
-import { memoryQueueStore, saveDaySettings, setOutreachQueueStore } from '../../../../../ehr-blue/departments/outreach/offlineQueue'
+import { lastOpenedCampaign, memoryQueueStore, rememberOpenedCampaign, saveDaySettings, setOutreachQueueStore } from '../../../../../ehr-blue/departments/outreach/offlineQueue'
 
 /*
  * The Outreach hub where Outreach serves its campaign routes (owner decisions of 13 November 2026): campaigns as cards,
@@ -42,7 +42,7 @@ vi.mock('../../../../../ehr-blue/departments/outreach/day', () => ({
 
 const BASE = '/api/v1/outreach/registration-cases/campaigns'
 const SCREENING = { id: 'camp-1', name: 'Demo Screening', status: 'active', services: ['registration'], startsAt: '2026-11-12T08:00:00.000Z',
-  endsAt: '2026-11-14T18:00:00.000Z', rowVersion: 2 }
+  endsAt: '2099-11-14T18:00:00.000Z', rowVersion: 2 }
 const OLD = { id: 'camp-old', name: 'Demo Old Drive', status: 'planned', services: ['registration'], startsAt: '2026-01-01T00:00:00.000Z', rowVersion: 1 }
 const PLAN = { campaignId: 'camp-1', organisationName: 'Demo Volunteers', target: 100, focuses: ['hepatitis_b', 'hypertension'],
   sites: [{ id: 'site-1', name: 'Demo Hall', community: 'Demo', lga: 'Demo', address: '1 Demo Road' }, { id: 'site-2', name: 'Demo Church', community: 'Demo', lga: 'Demo', address: '2 Demo Road' }],
@@ -84,15 +84,23 @@ async function press(button: HTMLElement) {
 }
 const campaignsList = () => screen.findByRole('list', { name: 'Campaigns' })
 const campaignCard = async (name: string) => within(await campaignsList()).getByRole('button', { name: new RegExp(`^${name}`) })
+/** Demo Screening is running and this person is on its team: Outreach opens it directly (no reselecting). */
 async function openScreening() {
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Screening'))
+  await waitFor(() => expect(screen.queryAllByRole('tab').length).toBeGreaterThan(0))
+}
+/** Back to every campaign, from inside one. */
+async function toCampaigns() {
+  await openScreening()
+  await press(screen.getByRole('button', { name: 'All campaigns' }))
   await waitFor(async () => expect((await campaignCard('Demo Screening')).textContent).toContain('2 sites'))
-  await press(await campaignCard('Demo Screening'))
 }
 const tabNames = () => screen.getAllByRole('tab').map(tab => tab.textContent)
 
 describe('the Outreach page', () => {
-  it('shows each campaign as a card with its dates, focuses and counts, and New campaign as the one main action', async () => {
+  it('shows each campaign as a card with its dates, focuses and counts, and Continue as the one main action', async () => {
     renderDept(<Outreach />)
+    await toCampaigns()
     await waitFor(async () => expect((await campaignCard('Demo Screening')).textContent).toContain('2 sites · 2 registered · 5 positive · 1 referral'))
     const card = await campaignCard('Demo Screening')
     expect(card.textContent).toContain('Hepatitis B, High blood pressure')
@@ -103,17 +111,56 @@ describe('the Outreach page', () => {
     // Registrations listed in a campaign's own People are not listed again here.
     const cases = await screen.findByRole('list', { name: 'Registrations' })
     await waitFor(() => expect(within(cases).queryByRole('button', { name: /^Demo Ada/ })).toBeNull())
+    // The campaign running for this person is the one main action; New campaign is secondary; no Refresh, and no
+    // registration outside a campaign (it is made in the campaign's Today).
+    expect(screen.getByRole('button', { name: 'Continue Demo Screening' }).className).toContain('bg-primary-gradient')
+    expect(screen.getByRole('button', { name: 'New campaign' }).className).not.toContain('bg-primary-gradient')
+    expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+  })
+
+  it('makes New campaign the one main action when nothing runs for this person', async () => {
+    api.outreachCampaigns.mockResolvedValue([{ ...SCREENING, status: 'planned' }, OLD])
+    renderDept(<Outreach />)
+    await waitFor(async () => expect((await campaignCard('Demo Screening')).textContent).toContain('2 sites'))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Outreach')
     expect(screen.getByRole('button', { name: 'New campaign' }).className).toContain('bg-primary-gradient')
-    expect(screen.getByRole('button', { name: 'New registration' }).className).not.toContain('bg-primary-gradient')
+    expect(screen.queryByRole('button', { name: /^Continue/ })).toBeNull()
+  })
+
+  it('opens the campaign the person was last in directly, from the day settings on this device', async () => {
+    // Not running (so not opened for that), but remembered: it opens straight away, on the tab last used this visit.
+    api.outreachCampaigns.mockResolvedValue([{ ...SCREENING, status: 'planned' }, OLD])
+    await rememberOpenedCampaign(memoryQueueStoreRef(), { accountId: 'staff-demo-1', facilityId: DEMO_HOSPITAL_ID }, 'camp-1')
+    renderDept(<Outreach />)
+    await openScreening()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
+    expect(screen.getByRole('tab', { name: 'Today' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('remembers the campaign opened, and each campaign’s last tab for the visit', async () => {
+    const kept = memoryQueueStoreRef()
+    renderDept(<Outreach />)
+    await openScreening()
+    await waitFor(async () => expect(await lastOpenedCampaign(kept, { accountId: 'staff-demo-1', facilityId: DEMO_HOSPITAL_ID })).toBe('camp-1'))
+    await press(screen.getByRole('tab', { name: 'Team' }))
+    await press(screen.getByRole('button', { name: 'All campaigns' }))
+    await press(await campaignCard('Demo Screening'))
+    expect(screen.getByRole('tab', { name: 'Team' }).getAttribute('aria-selected')).toBe('true')
   })
 
   it('opens the plan wizard for New campaign, and the campaign it made', async () => {
     renderDept(<Outreach />)
-    await waitFor(async () => expect((await campaignCard('Demo Screening')).textContent).toContain('2 sites'))
+    await toCampaigns()
     await press(screen.getByRole('button', { name: 'New campaign' }))
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Plan wizard')
     await press(screen.getByRole('button', { name: 'Cancel wizard' }))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New campaign' }))
+    // Made: it lands inside the campaign, not back on the list.
+    await press(screen.getByRole('button', { name: 'New campaign' }))
+    await press(screen.getByRole('button', { name: 'Finish wizard' }))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).not.toBe('Outreach')
+    expect(screen.queryByRole('list', { name: 'Campaigns' })).toBeNull()
   })
 })
 
@@ -144,6 +191,9 @@ describe('inside a campaign', () => {
     renderDept(<Outreach />)
     await openScreening()
     expect(tabNames()).toEqual(tabs)
+    // The report is in More, for a data checker only.
+    const more = screen.queryByRole('button', { name: 'More' })
+    if (more) await press(more)
     expect(screen.queryByRole('button', { name: 'Report' }) !== null).toBe(given.includes('data_checker'))
   })
 
@@ -170,18 +220,43 @@ describe('inside a campaign', () => {
     expect(document.activeElement?.id).toBe('outreach-visit-ov-1-open')
   })
 
-  it('opens the report and comes back', async () => {
+  it('opens the report from More and comes back', async () => {
     renderDept(<Outreach />)
     await openScreening()
+    // Report and Campaign record fold into one More (⋯), not a row of buttons.
+    expect(screen.queryByRole('button', { name: 'Report' })).toBeNull()
+    await press(screen.getByRole('button', { name: 'More' }))
+    expect(screen.getByRole('button', { name: 'Campaign record' })).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Report' }))
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Campaign report')
     await press(screen.getByRole('button', { name: 'Back to the campaign' }))
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Report' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'More' }))
+  })
+
+  it('puts the role’s main action at the bottom away from Today, and none for a coordinator', async () => {
+    roles = ['registrar']
+    renderDept(<Outreach />)
+    await openScreening()
+    expect(screen.queryByRole('button', { name: 'Register a person' })).toBeNull()
+    await press(screen.getByRole('tab', { name: 'People' }))
+    const main = screen.getByRole('button', { name: 'Register a person' })
+    expect(main.className).toContain('h-14')
+    expect(main.closest('[data-form-actions]')).not.toBeNull()
+    await press(main)
+    expect(screen.getByRole('tab', { name: 'Today' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('gives a coordinator no main action on the Dashboard', async () => {
+    renderDept(<Outreach />)
+    await openScreening()
+    await press(screen.getByRole('tab', { name: 'Dashboard' }))
+    expect(screen.queryByRole('button', { name: 'Register a person' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Next person' })).toBeNull()
   })
 
   it('opens a campaign on today’s Outreach as today’s record', async () => {
     renderDept(<Outreach />)
-    await waitFor(async () => expect((await campaignCard('Demo Screening')).textContent).toContain('2 sites'))
+    await toCampaigns()
     await press(await campaignCard('Demo Old Drive'))
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Old Drive')
     expect(screen.queryAllByRole('tab')).toEqual([])
