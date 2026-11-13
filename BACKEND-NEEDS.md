@@ -268,3 +268,125 @@ view that ends in a done state. These are not in the API (`/api/v1/outreach/regi
    but `staff/api.ts` has no calls for them and campaign governance isn't decided, so campaigns stay read only.
 6. **Member names**: `GET …/campaigns/:id/members` returns membership IDs only; the campaign view can only show
    "Membership abc12345". Send the member's display name.
+
+## Outreach campaigns (owner decisions 13 Nov 2026)
+
+Outreach is for **medical** outreach. An organisation creates a campaign for a purpose (hepatitis B, HIV, diabetes,
+high blood pressure, breast, cervical or prostate cancer, malaria, eye health, or a general check), invites its team,
+registers people, screens them at one or several stations, decides an outcome, refers and follows up, and sees counts.
+These decisions replace older notes where they conflict: in particular **every person registered gets their own Health
+ID medical record at once** (the older rule was that an outreach group can't link and the person links later).
+
+The website is built against the routes below; all are `proposed` in `packages/contracts/src/registry.ts` (names
+`outreach.campaignPlan` … `outreach.campaignReport`) and answer 404 until served, which the website takes as "not
+available yet" (`campaignApi.ts` `isNotOffered`: a 404 whose code doesn't start `OUTREACH_`). Types are in
+`apps/patient-web/src/ehr-blue/departments/outreach/campaignTypes.ts`; calls in `campaignApi.ts`; default screening
+packages and the outcome suggestion in `screeningTemplates.ts`; the offline queue in `offlineQueue.ts`.
+
+### Routes
+
+All under `/api/v1/outreach/registration-cases/`, with `X-Facility-ID`. Every POST takes an `Idempotency-Key` (the
+device's `localCommandId`, see *Offline*); PUT, PATCH and DELETE take `If-Match: "<rowVersion>"` (412
+`VERSION_CONFLICT` when stale). Permissions: existing `outreach.campaign.read/write` and `outreach.registration.read/write`,
+plus two new ones: **`outreach.screening.write`** (station writes, outcome, referral, follow-up) and
+**`outreach.sensitive.read`** (sensitive results, with a counsellor or clinician campaign role).
+
+| Route | Method | Permission | What |
+| --- | --- | --- | --- |
+| `campaigns/:campaignId/plan` | GET, PUT | campaign.read / campaign.write | The plan (`OutreachPlan`). 404 `OUTREACH_PLAN_NOT_FOUND` before the first save; PUT with `If-Match: "0"` creates it. Coordinators only (403 `OUTREACH_COORDINATOR_REQUIRED`); 422 `OUTREACH_PLAN_INVALID`. |
+| `campaigns/:campaignId/team` | GET, POST | campaign.read / campaign.write | GET `{ members: CampaignTeamMember[], you }` with each member's `registered` and `screened` counts. POST `{ name?, phone? \| email?, roles[], siteId?, station? }` invites by SMS or email; the same phone or email again answers the existing member (200), never a second invitation. 400 `OUTREACH_TEAM_CONTACT_INVALID`. |
+| `campaigns/:campaignId/team/:memberId` | PATCH, DELETE | campaign.write | Change `roles`, `siteId`, `station` (null clears); DELETE removes (status `removed`; their counts stay). 409 `OUTREACH_TEAM_LAST_COORDINATOR`. |
+| `campaigns/:campaignId/participants/search?phone=` or `?healthId=` | GET | registration.read | Before registering. Minimal matches only (`ParticipantMatch`): initials, age, sex, masked phone, `hasHealthId`, and `caseId` + `visitCode` when already in this campaign. Never a record, name, date of birth or full phone. 400 `OUTREACH_SEARCH_INVALID` unless exactly one is given. Audited without the value. *Note:* the owner asked for a GET; a phone or Health ID in the query string lands in gateway logs, so the backend may prefer a POST with a body (as `admin.outreachRegistrationSearch` does) — tell us and the website follows. |
+| `campaigns/:campaignId/visits/by-code/:visitCode` | GET | registration.read | The visit (`OutreachVisit`) with that code in this campaign; 404 `OUTREACH_VISIT_NOT_FOUND`. |
+| `:caseId/vitals` | POST | screening.write | `VitalsInput { siteId?, readings: { bp_systolic, bp_diastolic, pulse, temperature, weight, height, spo2, blood_sugar }, fasting?, takenAt }`. The server works out BMI. Answers the visit. |
+| `:caseId/tests` | POST | screening.write (+ sensitive.read for HIV/hepatitis B) | `TestsInput { siteId?, results: [{ testId, result? \| value?, kitId?, kitLot?, attempt: 1\|2, takenAt }], consent? }`. Attempt 2 only after an invalid attempt 1 (422 `OUTREACH_RETEST_NOT_ALLOWED`). Each kit test (invalid ones too) counts against the site's kit lot; 422 `OUTREACH_KIT_UNKNOWN`/`OUTREACH_KIT_EXPIRED`. HIV needs `consent` (see *Consent*), else 422 `OUTREACH_HIV_CONSENT_REQUIRED`. |
+| `:caseId/answers` | POST | screening.write | `{ answers: [{ questionId, value }] }`, merged by question. |
+| `:caseId/outcome` | POST | screening.write | `OutcomeInput { kind: normal\|follow_up\|refer, urgency? (urgent\|routine, required for refer), reason, suggestedKind?, suggestedUrgency? }`. Counsellor or clinician role only (403 `OUTREACH_OUTCOME_ROLE_REQUIRED`). Stores `confirmedBy` (member, name, roles) and `confirmedAt`; keeps the suggestion so overrides can be counted. |
+| `:caseId/referral` | POST, PATCH | screening.write | POST `{ partnerId, urgency, reason }` to a partner in the plan (422 `OUTREACH_PARTNER_UNKNOWN`); PATCH `{ status: made\|arrived\|not_arrived\|closed, notes? }`. |
+| `:caseId/follow-up` | POST, PATCH | screening.write | POST `{ dueOn, reason }`; PATCH `{ status: due\|reached\|not_reached\|closed, notes?, dueOn? }`; `attempts` counts reached/not reached. |
+| `:caseId/consent-code` | POST | registration.write | `{ purpose: registration\|hiv, language, version, guardianName? }` sends a 6-digit code by SMS to the case's phone; `{ challengeId, sentTo (masked), expiresAt, resendAfterSeconds }`. 422 `OUTREACH_PHONE_REQUIRED`. |
+| `:caseId/consent-code/verify` | POST | registration.write | `{ challengeId, code }` → `ConsentRecord`. 400 `OTP_INVALID`, 410 `OTP_EXPIRED`, 429 `OTP_ATTEMPTS_EXHAUSTED`. |
+| `:caseId/slip-sms` | POST | registration.write | `{ kind: visit_code\|results, language? }` → `{ sentTo, deliveryOutcome }`. Never carries a sensitive result: "results" for a person with one says "Your results are ready. Please see the counsellor." |
+| `campaigns/:campaignId/dashboard` | GET | campaign.read | `CampaignDashboard` (see *Dashboard*). |
+| `campaigns/:campaignId/follow-ups` | GET | registration.read | `{ items: CampaignFollowUpRow[] }`: name, full phone (the team calls them), visit code, site, follow-up, referral with the partner's name; `sensitive: true` rows carry a generic reason unless the caller may see sensitive results. |
+| `campaigns/:campaignId/report` | GET | campaign.read | `CampaignReport`: counts only (see *Report*). |
+
+### Registration makes the person's Health ID record
+
+Registration stays on the served `POST /api/v1/outreach/registration-cases` with the **same request**. What changes is
+the answer and what happens behind it:
+
+- Outreach asks Identity to create a patient record with a Health ID for the person at once, marked **identity not yet
+  checked** (`identityChecked: false`; a NIN can be added later, which checks it). The answer adds `healthId`,
+  `patientId`, `visitCode` and `identityChecked`; `status` stays `identity_resolution_pending` until the identity is
+  checked, so today's screens keep working.
+- **Dedupe** before creating: the same phone number (normalised to its last 10 digits) or the same Health ID already
+  known to Identity reuses that person's record instead of making a second (the answer then carries their existing
+  `healthId`, and `possibleDuplicate: true` when the match was by phone only). A person found by the search who is
+  already in this campaign is not registered again: the station opens their visit. *Open:* someone found by Health ID
+  whose phone differs can only be tied to their record by the phone dedupe, since the request carries no Health ID; the
+  served `link-existing` (by Health ID once it takes one, see the section above) or a later merge covers that.
+- **Merge later**: two records later found to be the same person (a NIN added to both) are merged by Identity's
+  existing merge, keeping both visits' history; the website shows nothing until then.
+- The person can claim their record later (with their phone, or a NIN) and see their results, sensitive ones included.
+
+### Visit codes
+
+Short (`K7-4F2`: two characters, a dash, three), made by Outreach, random, **unique per campaign** while it runs, and
+carrying no personal data (never derived from name, phone, date or Health ID). Alphabet without easily mixed-up
+characters: `234679ACDEFGHJKMNPQRTWXY` (no 0/O, 1/I/L, 5/S, 8/B, U/V, Z). Case-insensitive on lookup. A code is never
+reused within the campaign. Printed on the slip and sent by SMS (`slip-sms` `visit_code`).
+
+*Open:* a registration made **offline** gets its code only when it reaches Outreach, so an offline device can't give a
+code on the spot. Today that device carries on with the person itself (its station writes wait in the queue, tied to the
+queued registration). If the owner wants codes offline, Outreach would need to accept a device-proposed code (from a
+block reserved per device) — a request change, so not built.
+
+### Consent
+
+Stored per visit: **who** recorded it (member), **when**, **method** (`code` — the person read back the SMS code — or
+`witnessed` — with the witness's name; today's `verbal_read_aloud`/`self_ticked`/`guardian` on registration count as
+witnessed), **language**, **notice version**, and the guardian's name for anyone under 18. **HIV testing has its own,
+separate consent** (`purpose: hiv`, the plan's `consent.hivText`/`hivVersion`), required on any `tests` POST with an HIV
+test: `consent: { method: 'code', consentId }` or `{ method: 'witnessed', witnessName, language, version, guardianName? }`.
+
+### Sensitive results
+
+HIV and hepatitis B results (tests with `sensitive: true` in the package), and outcome, referral and follow-up reasons
+that reveal them, are returned only to members whose campaign roles include **counsellor or clinician** and who hold
+`outreach.sensitive.read`, and to the person themselves through their own record. Everyone else gets the visit without
+those tests and with `sensitiveHidden: true`, and generic reasons. Dashboard and report give counts, never people. SMS
+never carries a sensitive result. Testers may record a sensitive test (they do it) but read it back only with the role.
+
+### Offline and idempotency
+
+The device makes a `localCommandId` (UUID) for every write; it is the `Idempotency-Key` and the key in the device's
+queue (IndexedDB, at most 14 days, wiped at sign-out). Outreach must answer a repeated key with the **same** result
+(the same case, the same entry), for at least 14 days. A station write for a person registered offline waits until
+the registration is sent, then goes with the real `caseId` (the device swaps its temporary reference before removing
+the registration from the queue, so a crash in between only resends the registration, which replays). Writes are
+independent: one refused doesn't stop the others. Writes carry `takenAt`, the time on the device, which the server
+keeps beside its own received time.
+
+### Dashboard aggregation
+
+Worked out by the server from the visits, for the campaign: `registered`; `screened` (vitals or tests done);
+`waiting` per station (previous station done, this one not, in the plan's station order); outcomes (normal, follow up,
+refer urgent/routine, pending); per focus `screened`, `positive` (an abnormal result for that focus — a positive test,
+or blood pressure ≥140/90 for hypertension, blood sugar over the threshold for diabetes) and `referred`; per member
+`registered` and `screened`; per site and per hour (registrations); kits (`count`, `used` including invalids, `left`);
+alerts (kit low under 25%, kit expiring within 30 days, more than 5 waiting at a station, invalid tests, urgent
+referrals not yet seen, overdue follow-ups). Fresh within a minute is enough.
+
+### Report
+
+Counts only, nothing about any one person: totals, per site, by sex and age band, per focus, outcomes, referrals
+(made, arrived, not arrived, waiting), follow-ups, kits used and invalid tests. `smallCountThreshold` (5): the website
+shows a count under it as "fewer than 5"; the backend may also suppress them itself.
+
+### Retention
+
+The person's record and results are theirs and follow Health ID's normal retention. The campaign's operational data
+(visit codes, team counts, kit use, follow-up notes) is kept for the campaign's life plus the period the owner sets for
+outreach groups; visit codes stop resolving when the campaign closes. Deletion on the person's request uses the existing
+`admin.outreachRegistrationRedact`. Nothing personal is kept on devices beyond the 14-day queue.

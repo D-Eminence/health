@@ -8,6 +8,8 @@ import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from 
 
 const params = new URLSearchParams(window.location.search)
 configure({ facility: params.get('facility') === 'classic' ? 'classic' : params.get('facility') === 'outreach' ? 'outreach' : 'blue' })
+// ?outreachRoles=registrar,vitals: the demo login's roles in the Outreach screening campaign (routes.mjs).
+if (params.get('outreachRoles')) configure({ outreachRoles: params.get('outreachRoles').split(',').map(role => role.trim()).filter(Boolean) })
 // ?product=lab|pharmacy|outreach shows the provider workspace as that product alone (ehr-blue/frame/product.ts).
 const PRODUCTS = ['ehr', 'lab', 'pharmacy', 'outreach']
 const product = PRODUCTS.includes(params.get('product') ?? '') ? params.get('product') : 'ehr'

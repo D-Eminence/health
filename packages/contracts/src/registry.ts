@@ -34,7 +34,8 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
  * the patient's push subscriptions), which answer 404 until the owner configures
  * the push keys as well; Outreach campaign management's governance and
- * campaign staff reads (hid-system#222, migration 0111); and Migrate learning's
+ * campaign staff reads (hid-system#222, migration 0111); Outreach campaigns' plan, team, stations, outcomes,
+ * dashboard and report (owner decisions of 13 November 2026, BACKEND-NEEDS.md); and Migrate learning's
  * "Reading quality" counts, Session B's per-facility OCR quality summary, on a
  * hid-system branch and not on main yet: callers treat a 404 as "not available
  * yet" and show nothing.
@@ -137,6 +138,11 @@ const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on
  * OUTREACH_CAMPAIGN_ADMIN_REQUIRED otherwise). Not served before (404): the page then offers no campaign management.
  */
 const OUTREACH_CAMPAIGN_ADMINS = 'Outreach campaign admins (hid-system#222, 0111); 404 before, and the page then offers no campaign management.'
+/**
+ * Outreach campaigns as the owner decided them on 13 November 2026 (BACKEND-NEEDS.md): proposed, not served by any
+ * hid-system release yet. Each answers 404 until served, which the page takes as not offered (campaignApi.ts isNotOffered).
+ */
+const OUTREACH_CAMPAIGNS = 'Outreach campaigns (owner decisions 13 Nov 2026; proposed): not served by hid-system main (404, which the page takes as not offered).'
 /**
  * Open sign-up to run outreach on outreach. (owner decisions of 11 November 2026; hid-system identity-api
  * OutreachOrganiserController, OutreachInvitationsController and OutreachOrganisersAdminController, with the database's
@@ -1145,6 +1151,55 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
+  // Outreach campaigns (owner decisions of 13 November 2026; BACKEND-NEEDS.md "Outreach campaigns (owner decisions 13 Nov
+  // 2026)"): the plan, the team, finding a person, the stations' writes, the outcome, referral and follow-up, consent by
+  // code, the slip by SMS, the dashboard, the follow-up list and the counts-only report. Every POST takes an
+  // Idempotency-Key (the device's localCommandId); PUT and PATCH take If-Match with the rowVersion read.
+  proposed(r('outreach.campaignPlan','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/plan',['GET','PUT'],false,
+    { GET: ['outreach.campaign.read'], PUT: ['outreach.campaign.write'] },
+    `${OUTREACH_CAMPAIGNS} The plan: organisation, target, focuses, sites, screening package, station mode, partners, consent texts, kits. `
+    + 'PUT replaces it (If-Match rowVersion; 0 for the first), coordinators only.')),
+  proposed(r('outreach.campaignTeam','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/team',GP,false,
+    { GET: ['outreach.campaign.read'], POST: ['outreach.campaign.write'] },
+    `${OUTREACH_CAMPAIGNS} GET { members, you }, each member with roles, site, station, status and counts; POST invites { phone|email, roles, siteId?, station? }.`)),
+  proposed(r('outreach.campaignTeamMember','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/team/:memberId',['PATCH','DELETE'],false,
+    { PATCH: ['outreach.campaign.write'], DELETE: ['outreach.campaign.write'] },
+    `${OUTREACH_CAMPAIGNS} Changes roles, site or station, or removes the member (their counts stay); If-Match rowVersion.`)),
+  proposed(r('outreach.participantSearch','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/participants/search',G,false,
+    one('GET','outreach.registration.read'),
+    `${OUTREACH_CAMPAIGNS} Query phone or healthId (one). Minimal matches only: initials, age, sex, masked phone, and the visit when already in this campaign.`)),
+  proposed(r('outreach.visitByCode','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/visits/by-code/:visitCode',G,false,
+    one('GET','outreach.registration.read'),
+    `${OUTREACH_CAMPAIGNS} The visit with this code (K7-4F2) in this campaign; sensitive results only with outreach.sensitive.read and a counsellor or clinician role.`)),
+  proposed(r('outreach.caseVitals','outreach','/api/v1/outreach/registration-cases/:caseId/vitals',P,false,one('POST','outreach.screening.write'),
+    `${OUTREACH_CAMPAIGNS} One set of vital signs (readings, fasting, takenAt); answers the visit.`)),
+  proposed(r('outreach.caseTests','outreach','/api/v1/outreach/registration-cases/:caseId/tests',P,false,one('POST','outreach.screening.write'),
+    `${OUTREACH_CAMPAIGNS} Test results with kit lot and attempt (2 = retest after invalid); HIV needs its consent in the body and outreach.sensitive.read.`)),
+  proposed(r('outreach.caseAnswers','outreach','/api/v1/outreach/registration-cases/:caseId/answers',P,false,one('POST','outreach.screening.write'),
+    `${OUTREACH_CAMPAIGNS} Answers to the package's questions; answers the visit.`)),
+  proposed(r('outreach.caseOutcome','outreach','/api/v1/outreach/registration-cases/:caseId/outcome',P,false,one('POST','outreach.screening.write'),
+    `${OUTREACH_CAMPAIGNS} The confirmed outcome (normal, follow_up, refer with urgency) and the suggestion; counsellors and clinicians only.`)),
+  proposed(r('outreach.caseReferral','outreach','/api/v1/outreach/registration-cases/:caseId/referral',['POST','PATCH'],false,
+    { POST: ['outreach.screening.write'], PATCH: ['outreach.screening.write'] },
+    `${OUTREACH_CAMPAIGNS} POST makes the referral to a plan partner; PATCH records arrived, not arrived or closed (If-Match rowVersion).`)),
+  proposed(r('outreach.caseFollowUp','outreach','/api/v1/outreach/registration-cases/:caseId/follow-up',['POST','PATCH'],false,
+    { POST: ['outreach.screening.write'], PATCH: ['outreach.screening.write'] },
+    `${OUTREACH_CAMPAIGNS} POST books the follow-up (dueOn, reason); PATCH records reached, not reached or closed (If-Match rowVersion).`)),
+  proposed(r('outreach.caseConsentCode','outreach','/api/v1/outreach/registration-cases/:caseId/consent-code',P,false,one('POST','outreach.registration.write'),
+    `${OUTREACH_CAMPAIGNS} Sends a consent code by SMS to the case's phone (purpose registration or hiv); answers { challengeId, sentTo (masked), expiresAt }.`)),
+  proposed(r('outreach.caseConsentCodeVerify','outreach','/api/v1/outreach/registration-cases/:caseId/consent-code/verify',P,false,one('POST','outreach.registration.write'),
+    `${OUTREACH_CAMPAIGNS} The code read back; stores the consent (who, when, method, language, version) and answers it.`)),
+  proposed(r('outreach.caseSlipSms','outreach','/api/v1/outreach/registration-cases/:caseId/slip-sms',P,false,one('POST','outreach.registration.write'),
+    `${OUTREACH_CAMPAIGNS} Sends the visit code or the results by SMS; never a sensitive result.`)),
+  proposed(r('outreach.campaignDashboard','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/dashboard',G,false,
+    one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGNS} Counts only: registered, screened, waiting per station, by focus, member, site and hour, kits, alerts.`)),
+  proposed(r('outreach.campaignFollowUps','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/follow-ups',G,false,
+    one('GET','outreach.registration.read'),
+    `${OUTREACH_CAMPAIGNS} Who to call back, with their follow-up and referral; a sensitive reason only to counsellors and clinicians.`)),
+  proposed(r('outreach.campaignReport','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/report',G,false,
+    one('GET','outreach.campaign.read'),
+    `${OUTREACH_CAMPAIGNS} Counts only, nothing about any one person; small counts suppressed.`)),
   // Open sign-up on outreach. (owner decisions of 11 November 2026): the public sign-up, a signed-in account's "Start an
   // outreach group", the organiser's team invitations and accepting one.
   proposed(r('enrollment.outreachOrganiserAvailability','enrollment','/api/v1/identity/outreach-organisers/availability',G,true,undefined,

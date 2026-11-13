@@ -27,6 +27,8 @@ const PORT = Number(process.env.MOCK_PORT ?? 3000)
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NEEDS_LOG = join(HERE, 'backend-needs.log')
 configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : process.env.MOCK_FACILITY === 'outreach' ? 'outreach' : 'blue' })
+// MOCK_OUTREACH_ROLES=registrar,vitals: the demo login's roles in the Outreach screening campaign (routes.mjs).
+if (process.env.MOCK_OUTREACH_ROLES) configure({ outreachRoles: process.env.MOCK_OUTREACH_ROLES.split(',').map(role => role.trim()).filter(Boolean) })
 
 const seen = new Set()
 function logNeed(method, path, workspace) {
