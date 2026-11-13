@@ -32,7 +32,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
-import { purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
+import { purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor, sendWaitingOutreachEntriesFor, waitingOutreachEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
@@ -73,11 +73,43 @@ type SessionLock = 'away' | 'checking' | 'unconfirmed' | null
 /** A tab back in view after this long asks the server before it shows the workspace again. */
 const RECHECK_AFTER_HIDDEN_MS = 60_000
 
+/** How often an outreach workspace with no signal asks again whether the session holds, while the page is shown. */
+export const NO_SIGNAL_RECHECK_MS = 30_000
+
+// The provider page shown, as the router has it (Gate keeps it): the session check reads it as it asks.
+let shownPathname = ''
+
+/**
+ * Whether the workspace shown is Outreach: the outreach. site, or the Outreach department's pages on another site. There
+ * a session check that gets no answer for want of a signal keeps the workspace open (NoSignalBanner): volunteers
+ * register people on phones with patchy signal. Everywhere else the workspace is locked as before.
+ */
+export function outreachWorkspaceShown(hostname = window.location.hostname, pathname = shownPathname): boolean {
+  return resolveStaffProductHostname(hostname)?.key === 'outreach' || /^\/provider\/outreach(\/|$)/i.test(pathname)
+}
+
+/** Whether the browser knows it is offline: it says so only when it knows. */
+function knownOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/** The sign-out question while registrations wait on this device: how many, and what "Send now" last found. */
+export interface SignOutQuestion { waiting: number; sending: boolean; stillWaiting: boolean }
+
 interface StaffContextValue {
   state: SessionState
   lock: SessionLock
   /** Asks the server again whether the session holds, locking the workspace meanwhile. */
   checkSession(): void
+  /**
+   * Outreach only: the last session check got no answer for want of a signal. The workspace stays open, and the
+   * check is made again by itself (NoSignalBanner).
+   */
+  noSignal: boolean
+  /** Set while signing out asks first, because registrations wait on this device unsent. */
+  signOutQuestion: SignOutQuestion | null
+  /** The answer to that question: send them first (then sign out once none wait), or sign out and delete them. */
+  answerSignOut(answer: 'send' | 'delete' | 'stay'): void
   activePatient: ActivePatient | null
   /**
    * The password step. It changes nothing here: since hid-system #71 Identity
@@ -126,6 +158,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const facilityLost = useRef(false)
   const [lock, setLockState] = useState<SessionLock>(null)
   const lockRef = useRef<SessionLock>(null)
+  // Outreach only: no answer came for want of a signal, so the workspace stays open and the check is made again.
+  const [noSignal, setNoSignal] = useState(false)
   // Where focus was when the workspace locked, given back when it opens again.
   const focusBeforeLock = useRef<HTMLElement | null>(null)
   const setLock = useCallback((next: SessionLock) => {
@@ -138,6 +172,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
   // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
+    if (next.status !== 'ready') setNoSignal(false)
     status.current = next.status; currentSession.current = next.session
     facilityLost.current = next.status === 'ready' && next.facilityLost === true
     setSessionState(next)
@@ -197,14 +232,26 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // or signed in: that answer may predate it, so the session is asked about once
   // it is ready.
   const heardWhileOpening = useRef(false)
-  const ask = useCallback((sentIn: number) => {
+  // `quiet`: a check an outreach workspace with no signal makes by itself; it never hides the workspace, and an answer
+  // it cannot read changes nothing.
+  const ask = useCallback((sentIn: number, quiet = false) => {
     const actor = currentSession.current?.actor
     if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
-    setLock('checking')
+    const outreach = outreachWorkspaceShown()
+    // Outreach, and the browser knows it has no signal: nothing can answer, so nothing is asked and nothing is hidden.
+    // The check is made again when the browser says it is back online.
+    if (outreach && knownOffline()) {
+      setNoSignal(true)
+      if (lockRef.current !== null) setLock(away.current?.sentIn === sentIn ? 'away' : null)
+      return
+    }
+    if (quiet && asking.current?.sentIn === sentIn) return
+    if (!quiet) setLock('checking')
     if (asking.current?.sentIn === sentIn) { asking.current.again = true; return }
     const question = { sentIn, again: false }
     asking.current = question
-    void staffApi.checkSession(actor.id, sentIn).catch(() => 'unknown' as const).then(answer => {
+    const check = outreach ? staffApi.checkSessionReach(actor.id, sentIn) : staffApi.checkSession(actor.id, sentIn)
+    void check.catch(() => 'unknown' as const).then(answer => {
       if (asking.current === question) asking.current = null
       if (status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
       if (answer === 'ended') {
@@ -214,17 +261,39 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         setState({ status: 'ended', session: null, reason: staffSessionEndReason(sentIn) })
         setLock(null)
         announceStaffSessionChange()
+      } else if (answer === 'offline') {
+        // No signal (outreach only): the workspace stays open with the banner, and is checked again by itself.
+        setNoSignal(true)
+        if (lockRef.current !== null) setLock(away.current?.sentIn === sentIn ? 'away' : null)
       } else if (question.again) ask(sentIn)
       // An answer that arrives while the page is away, or still hidden, opens
       // nothing: the page is judged again as it comes back.
       else if (answer === 'alive') {
+        setNoSignal(false)
         if (document.visibilityState === 'hidden' && !away.current) away.current = { since: Date.now(), sentIn, cached: false }
         setLock(away.current?.sentIn === sentIn ? 'away' : null)
       }
-      else setLock('unconfirmed')
+      else if (!(quiet && lockRef.current === null)) setLock('unconfirmed')
     })
   }, [setState, setLock, startPeriod])
   useEffect(() => onStaffSessionEnded(ask), [ask])
+
+  // Outreach with no signal: the session is checked again when the browser says it is back online, when the page is
+  // shown again, and every 30 seconds while the page is shown, unless the browser knows it is offline. None of these
+  // hides the workspace.
+  useEffect(() => {
+    if (!noSignal) return
+    const again = () => { if (document.visibilityState !== 'hidden') ask(staffSessionGeneration(), true) }
+    const shown = () => { if (document.visibilityState === 'visible' && lockRef.current === null) again() }
+    const timer = window.setInterval(() => { if (!knownOffline()) again() }, NO_SIGNAL_RECHECK_MS)
+    window.addEventListener('online', again)
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('online', again)
+      document.removeEventListener('visibilitychange', shown)
+    }
+  }, [noSignal, ask])
 
   // A refresh or check of this session that finds the facility this tab works at no
   // longer among the actor's (its membership ended). The tab never moves to the
@@ -388,13 +457,46 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     return true
   }
 
+  // Signing out while registrations wait on this device unsent asks first (SignOutPrompt): the sign-out waits for the
+  // answer. "Send now" sends them and signs out once none wait; "Sign out and delete them" signs out and deletes them.
+  const [signOutQuestion, setSignOutQuestion] = useState<SignOutQuestion | null>(null)
+  const signOutAnswer = useRef<((answer: 'send' | 'delete' | 'stay') => void) | null>(null)
+  const answerSignOut = useCallback((answer: 'send' | 'delete' | 'stay') => { signOutAnswer.current?.(answer) }, [])
+
+  /** Resolves true to go on signing out (deleting what waits), false to stay signed in. */
+  async function askBeforeSignOut(accountId: string): Promise<boolean> {
+    let waiting = await waitingOutreachEntriesFor(accountId)
+    if (waiting === 0) return true
+    let stillWaiting = false
+    try {
+      for (;;) {
+        setSignOutQuestion({ waiting, sending: false, stillWaiting })
+        const answer = await new Promise<'send' | 'delete' | 'stay'>(resolve => { signOutAnswer.current = resolve })
+        if (answer === 'delete') return true
+        if (answer === 'stay') return false
+        setSignOutQuestion({ waiting, sending: true, stillWaiting })
+        waiting = await sendWaitingOutreachEntriesFor(accountId)
+        if (currentSession.current?.actor.id !== accountId) return false
+        if (waiting === 0) return true
+        stillWaiting = true
+      }
+    } finally {
+      signOutAnswer.current = null
+      setSignOutQuestion(null)
+    }
+  }
+
   async function signOut() {
+    // A second sign-out while the question shows waits for the same answer.
+    if (signOutAnswer.current) return
+    const asked = currentSession.current?.actor.id ?? null
+    if (asked && !await askBeforeSignOut(asked)) return
     // No next session can start meanwhile: signing in waits for a sign-out in progress.
     // So a sign-out answered while the session-ended screen shows also completes, as asked.
     // From a workspace locked for a check, the server is asked first whose session the browser holds.
     const signedOut = currentSession.current?.actor.id ?? null
     await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
-    // Registrations this login kept on this device and never sent go with it: the queue's page says so before.
+    // Registrations this login kept on this device and never sent go with it: the question above says so before.
     if (signedOut) await removeOutreachQueueEntriesFor(signedOut)
     startStaffSessionGeneration()
     startPeriod()
@@ -407,9 +509,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   const checkSession = useCallback(() => ask(staffSessionGeneration()), [ask])
-  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, verifyMfa,
+  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, noSignal, signOutQuestion, answerSignOut, activePatient, login, verifyMfa,
     sendEnrollmentCode: staffApi.sendEnrollmentCode, startEnrollment: staffApi.startEnrollment, activateEnrollment,
-    completeSignIn, refresh, selectFacility, signOut, setActivePatient }), [state, lock, checkSession, activePatient, refresh, setActivePatient])
+    completeSignIn, refresh, selectFacility, signOut, setActivePatient }), [state, lock, checkSession, noSignal, signOutQuestion, answerSignOut, activePatient, refresh, setActivePatient])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }
 
@@ -472,9 +574,45 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
   </main>
 }
 
+/**
+ * Outreach only, while the session check gets no answer for want of a signal: a calm line at the top of the open
+ * workspace. Nothing waits on it; it goes once Health ID answers.
+ */
+function NoSignalBanner() {
+  return <p role="status" className="staff-no-signal">No signal. You can keep registering. Your work stays on this phone.</p>
+}
+
+/**
+ * Asked before signing out while registrations wait on this device unsent: "Send now" (the default) sends them, then
+ * signs out once none wait; "Sign out and delete them" signs out and deletes them.
+ */
+function SignOutPrompt({ question }: { question: SignOutQuestion }) {
+  const { answerSignOut } = useStaff()
+  const prompt = useRef<HTMLElement>(null)
+  // "Send now" is the default: it takes focus as the question appears.
+  useLayoutEffect(() => { prompt.current?.querySelector<HTMLButtonElement>('button')?.focus() }, [])
+  const { waiting, sending, stillWaiting } = question
+  const these = waiting === 1 ? '1 registration is saved on this phone and not sent yet. Send it now, or it will be deleted when you sign out.'
+    : `${waiting} registrations are saved on this phone and not sent yet. Send them now, or they will be deleted when you sign out.`
+  return <div className="staff-sign-out-prompt-backdrop">
+    <section ref={prompt} role="alertdialog" aria-modal="true" aria-labelledby="staff-sign-out-prompt-title" aria-describedby="staff-sign-out-prompt-text" className="staff-sign-out-prompt"
+      onKeyDown={event => { if (event.key === 'Escape' && !sending) answerSignOut('stay') }}>
+      <h2 id="staff-sign-out-prompt-title">Sign out?</h2>
+      <p id="staff-sign-out-prompt-text">{these}</p>
+      {stillWaiting && <p role="status">Could not send them yet. Try again when you have signal.</p>}
+      <div className="staff-row">
+        <Button onClick={() => answerSignOut('send')} aria-disabled={sending || undefined}>{sending ? 'Sending…' : 'Send now'}</Button>
+        <Button tone="quiet" onClick={() => answerSignOut('delete')} disabled={sending}>Sign out and delete them</Button>
+      </div>
+    </section>
+  </div>
+}
+
 function Gate({ children }: { children: ReactNode }) {
-  const { state, lock, refresh } = useStaff()
+  const { state, lock, refresh, noSignal, signOutQuestion } = useStaff()
   const { pathname } = useLocation()
+  // The session check reads the page shown as it asks (outreachWorkspaceShown).
+  useLayoutEffect(() => { shownPathname = pathname }, [pathname])
   if (state.status === 'ended') return <SessionEnded reason={state.reason} />
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
   if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
@@ -494,7 +632,9 @@ function Gate({ children }: { children: ReactNode }) {
   if (state.session.actor.facilities.length === 0) return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></main>
   // Locked, the workspace is hidden and inert but stays mounted: nothing reloads,
   // and a session the server still accepts gets it back as it was.
-  return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
+  return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}{noSignal && lock === null && <NoSignalBanner />}
+    {signOutQuestion && <SignOutPrompt question={signOutQuestion} />}
+    <div hidden={lock !== null} inert={lock !== null || signOutQuestion !== null}>{children}</div></>
 }
 
 /**
