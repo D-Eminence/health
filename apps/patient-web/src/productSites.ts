@@ -17,10 +17,12 @@ import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
  * stays in the hospital EHR. The admin site, and any host that is not a Health ID site (local, preview), serve every
  * address, as before.
  *
- * The one named exception (owner, 2 Nov 2026; demo only): Demo Hospital opened on the Lab or Migrate site shows its
- * "Open Hospital EHR" button (ehr-blue/frame/BlueFrame.tsx FacilityOnAnotherSite, blueFacilities.ts demoFacilitySite),
- * because the sealed demo tenant's hospital works only on the EHR site. It is the only link from a product site to the
- * EHR site; no real facility gets one, and no other link may be added on its strength.
+ * The one named exception (owner, 2 Nov 2026; demo only): Demo Hospital opened on the Lab, Pharmacy or Outreach site
+ * shows its "Open Hospital EHR" button (ehr-blue/frame/BlueFrame.tsx FacilityOnAnotherSite, blueFacilities.ts
+ * demoFacilitySiteFrom), because the sealed demo tenant's hospital works on the EHR site. It is the only link from a
+ * product site to the EHR site; no real facility gets one, and no other link may be added on its strength. Demo
+ * Hospital also works on the Migrate site (owner: the demo staff login works on every product site, Migrate included),
+ * so there it opens Migrate as any facility would; every other demo facility works on its one site only.
  */
 export type SiteKey = 'web' | StaffProductKey
 
