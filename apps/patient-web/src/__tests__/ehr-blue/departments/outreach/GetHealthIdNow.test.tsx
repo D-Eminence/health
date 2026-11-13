@@ -6,6 +6,7 @@ import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { QrCode } from '../../../../mfa/OtpauthQr'
 import { patientSignUpHref } from '../../../../productSites'
+import { LINKS_LATER } from '../../../../ehr-blue/departments/outreach/outreachGroup'
 
 /*
  * "Get a Health ID now": after a registration is saved, on its case view, and while a registration waits on this device,
@@ -235,6 +236,70 @@ describe('under-18s and the sign-up QR code', () => {
     const region = screen.getByRole('region', { name: 'Get a Health ID now' })
     expect(region.textContent).not.toContain(GUARDIAN_WORDS)
     expect(region.textContent).toContain(CHILD_STEP)
+  })
+})
+
+describe('a registration with a Health ID made at outreach', () => {
+  async function openFromList(item: Record<string, unknown>) {
+    api.outreachCases.mockResolvedValue([item])
+    renderDept(<Outreach />)
+    const card = (await screen.findByRole('button', { name: new RegExp(NAME) })).closest('li')!
+    return card
+  }
+  async function openCard(card: HTMLElement) {
+    await press(within(card).getByRole('button'))
+    await screen.findByRole('heading', { level: 1, name: NAME })
+  }
+
+  it('says it has a Health ID, on its card and its case view, not that it comes later', async () => {
+    const card = await openFromList({ ...pending('case-h1'), healthId: 'HID-ABC123', healthIdCreatedByOutreach: true })
+    expect(card.textContent).toContain('Has a Health ID')
+    expect(card.textContent).toContain('Health ID made: HID-ABC123')
+    expect(card.textContent).not.toContain('Waiting to link')
+    expect(card.textContent).not.toContain('They link their own Health ID later')
+    await openCard(card)
+    const main = document.body.textContent ?? ''
+    expect(main).toContain('Has a Health ID')
+    expect(main).toContain('Health ID made: HID-ABC123')
+    expect(main).not.toContain(LINKS_LATER)
+    expect(main).not.toContain('Their Health ID comes later')
+    expect(main).not.toContain('Waiting to link')
+  })
+
+  it('says there is none yet, and to use Create Health ID, where Outreach makes them but this one has none', async () => {
+    const card = await openFromList({ ...pending('case-h2'), healthId: null })
+    expect(card.textContent).toContain('No Health ID yet')
+    expect(card.textContent).not.toContain('They link their own Health ID later')
+    await openCard(card)
+    const main = document.body.textContent ?? ''
+    expect(main).toContain('No Health ID yet')
+    expect(main).toContain('If they want one, use Create Health ID below.')
+    expect(main).not.toContain(LINKS_LATER)
+  })
+
+  it('keeps “links their own Health ID later” where Outreach makes none (no healthId on its reads)', async () => {
+    const card = await openFromList(pending('case-h3'))
+    expect(card.textContent).toContain('They link their own Health ID later')
+    expect(card.textContent).not.toContain('Has a Health ID')
+    await openCard(card)
+    expect(document.body.textContent).toContain(LINKS_LATER)
+    expect(document.body.textContent).not.toContain('No Health ID yet')
+  })
+
+  it('after saving, says the next steps are health checks then a Health ID, where Outreach makes them', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-h4'), healthId: null })
+    await register()
+    const saved = (await screen.findByText('Registration saved')).closest('[role]')!
+    expect(saved.textContent).toContain('Registration saved')
+    expect(saved.textContent).toContain('Next: their health checks, then a Health ID if they want one.')
+    expect(saved.textContent).not.toContain('They can link their own Health ID to it later.')
+  })
+
+  it('after saving, keeps the temporary record wording where Outreach makes none', async () => {
+    api.createOutreachCase.mockResolvedValue(pending('case-h5'))
+    await register()
+    const saved = (await screen.findByText('Registration saved')).closest('[role]')!
+    expect(saved.textContent).toContain('They have a temporary record. They can link their own Health ID to it later.')
   })
 })
 

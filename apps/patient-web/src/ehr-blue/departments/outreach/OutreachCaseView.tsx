@@ -13,12 +13,12 @@ import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import {
-  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
-  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
-  OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
+  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HAS_HEALTH_ID, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
+  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, healthIdMadeText, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
+  NO_HEALTH_ID_YET, OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
-import { GetHealthIdNow } from './GetHealthIdNow'
+import { GetHealthIdNow, GUARDIAN_MUST_AGREE } from './GetHealthIdNow'
 import { HealthChecks, leaveHealthChecks } from './HealthChecks'
 import { CreateHealthId, healthIdMadeByEmail, type MadeHere } from './CreateHealthId'
 import { OutreachSlip, useSlipPrint } from './OutreachSlip'
@@ -196,6 +196,12 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   // "Register another person" leaves this case too: it asks first while health checks aren't saved, as Back does.
   const next = onNew ? () => { if (leaveHealthChecks()) onNew() } : undefined
   const facts = caseFacts(item, campaign)
+  // The Health ID made at outreach (0119): just now in this view, or as the registration says. The registration stays
+  // pending identity all the same, so it is said in place of "Waiting to link" and "comes later".
+  const healthIdMade = madeHere?.healthId ?? item.healthId ?? null
+  // Outreach makes Health IDs (its registrations carry healthId): one can still be made here, below.
+  const makesHealthIds = 'healthId' in item
+  const minor = typeof item.ageYears === 'number' && item.ageYears < 18
 
   // The one next step, or the done state.
   let nextStep
@@ -243,6 +249,13 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         </div>
       </Card>
     )
+  } else if (healthIdMade) {
+    nextStep = <Alert intent="success" title={healthIdMadeText(healthIdMade)} />
+  } else if (group && makesHealthIds) {
+    // A Health ID can't be made at outreach for under-18s: their parent or guardian makes it with them.
+    nextStep = (
+      <Alert intent="info" title={`${NO_HEALTH_ID_YET}.`}>{minor ? GUARDIAN_MUST_AGREE : 'If they want one, use Create Health ID below.'}</Alert>
+    )
   } else if (group) {
     nextStep = (
       <Alert intent="info" title="Their Health ID comes later">{LINKS_LATER}</Alert>
@@ -262,7 +275,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
     )}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
-          <Badge tone={linked ? 'success' : caseTone(item.status)}>{linked ? 'Linked' : statusLabel(item.status)}</Badge>
+          <Badge tone={linked || (pending && healthIdMade) ? 'success' : caseTone(item.status)}>
+            {linked ? 'Linked' : pending && healthIdMade ? HAS_HEALTH_ID : statusLabel(item.status)}</Badge>
           <span>{ageText(item)} · {sexText(item)}</span>
           <span className="text-ink-3">Registered {dateText(item.createdAt)}</span>
         </div>
@@ -274,7 +288,9 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
         {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}
         {created && !linked
-          ? <Alert intent="success" title="Registration saved">{pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
+          ? <Alert intent="success" title="Registration saved">{pending ? group ? makesHealthIds
+            ? 'Next: their health checks, then a Health ID if they want one.'
+            : 'They have a temporary record. They can link their own Health ID to it later.'
             : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}
         {created && item.possibleDuplicate

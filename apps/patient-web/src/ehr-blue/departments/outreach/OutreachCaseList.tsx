@@ -5,7 +5,7 @@ import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCasesP
 import { useFocusById } from '../../../staff/focus'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
-import { ageText, caseName, caseTone, CASES_NOT_LOADED, caseWaiting, nextStepText, sexText, statusLabel } from './outreachParts'
+import { ageText, caseBadgeText, caseBadgeTone, caseName, CASES_NOT_LOADED, caseWaiting, nextStepText, sexText } from './outreachParts'
 
 /*
  * The registration list, read a page at a time (hid-system#247). The first read is the list's own request, as before
@@ -171,7 +171,7 @@ export function CaseCard({ item, campaign, canLink, group, onOpen }: {
         className="flex w-full cursor-pointer flex-col gap-1.5 border-0 bg-transparent p-4 text-left text-ink transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)] sm:p-5">
         <span className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
           <span className="min-w-0 flex-[1_1_10rem] text-[18px] font-semibold leading-tight break-words">{caseName(item)}</span>
-          <Badge size="sm" tone={caseTone(item.status)}>{statusLabel(item.status)}</Badge>
+          <Badge size="sm" tone={caseBadgeTone(item)}>{caseBadgeText(item)}</Badge>
         </span>
         <span className="text-[14px] text-ink-2">{ageText(item)} · {sexText(item)}{campaign ? ` · ${campaign.name}` : ''}</span>
         {item.hasScreening ? <span className="self-start"><Badge size="sm" tone="success">Health checks recorded</Badge></span> : null}
