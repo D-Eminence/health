@@ -116,6 +116,24 @@ export const EXPECTATIONS = Object.freeze([
   { id: '240-who-can-check', label: '#240 Migrate "who can check" note', sites: ['migrate'],
     text: 'A doctor, clinician, nurse or lab scientist at this facility must check and save it.', expect: 'present', enabled: true },
 
+  // #243 (with #245): the new outreach parts on a person's page and the Outreach screen. Sentences, not the bare
+  // button words: "Create Health ID" and "Print slip" are also on the pharmacy desk, so those words alone prove nothing.
+  // apps/patient-web/src/ehr-blue/departments/outreach/ HealthChecks.tsx, CreateHealthId.tsx, OutreachSlip.tsx, OutreachExport.tsx.
+  // Each part also hides itself when its backend route is not served, so a pass proves the code shipped, not that it shows.
+  { id: '243-health-checks', label: '#243 outreach "Health checks"', sites: ['outreach'],
+    text: 'Record any checks done today.', expect: 'present', enabled: true },
+  { id: '243-create-health-id', label: '#243 outreach "Create Health ID"', sites: ['outreach'],
+    text: 'Make their Health ID now from this registration.', expect: 'present', enabled: true },
+  { id: '243-print-slip', label: '#243 outreach "Print slip"', sites: ['outreach'],
+    text: 'Show this slip if you visit a clinic or come back to the outreach.', expect: 'present', enabled: true },
+  { id: '243-export', label: '#243 outreach "Export"', sites: ['outreach'],
+    text: 'This file contains people’s personal and health information.', expect: 'present', enabled: true },
+
+  // Tonight's no-hassle change (released with #243 and #245): Outreach stays open with no signal. Wording as given by
+  // the coordinator on 2026-11-13; re-check it against the shipped code at release.
+  { id: 'nohassle-no-signal', label: 'Outreach "No signal" line', sites: ['outreach'],
+    text: 'No signal. You can keep registering. Your work stays on this phone.', expect: 'present', enabled: true },
+
   // #221: outreach.'s front page offers organiser sign-up, not a demo. Live (checked 2026-11-12). Read on the front page's
   // HTML only: the public site's shared scripts still say "Book a demo" for the pages that keep it.
   { id: '221-book-a-demo-gone', label: '#221 "Book a demo" gone from the outreach front page', sites: ['outreach'],
