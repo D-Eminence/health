@@ -366,6 +366,25 @@ describe('Health checks', () => {
     }
   })
 
+  it('after a lost answer, a line break or double space in a text is no false clash: text is sent as Outreach keeps it', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
+      .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 70, outcome: 'Rest and fluids. Come back if worse.' }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 72, outcome: 'Rest and fluids. Come back if worse.' }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+    type(/Outcome or advice/, 'Rest and fluids.\nCome back  if worse.')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2].outcome).toBe('Rest and fluids. Come back if worse.')
+    // That save did land (version 2): the next one goes on version 2, not as a clash on 1.
+    type(/^Pulse/, '72')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+    expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
+  })
+
   it('after a save whose answer was lost, checks what Outreach holds before saving again (no false conflict)', async () => {
     api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
       .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 75 }) })

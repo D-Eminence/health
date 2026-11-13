@@ -107,6 +107,9 @@ export function mergeMedicines(theirs: readonly MedicineRow[], mine: readonly Me
   return merged
 }
 
+/** Text as Outreach keeps it: trimmed, each run of spaces and line breaks one space. */
+const squeeze = (value: string) => value.trim().replace(/\s+/g, ' ')
+
 const text = (value: number | null | undefined) => value === null || value === undefined ? '' : String(value)
 const yesNo = (value: boolean | null | undefined): YesNo => value === true ? 'yes' : value === false ? 'no' : ''
 
@@ -187,8 +190,10 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
     else glucoseValue = value
   }
 
+  // Text is sent as Outreach keeps it: trimmed, with each run of spaces and line breaks made one space. Otherwise, after a
+  // lost answer, what Outreach holds never matches what was sent, and the next save looks like someone else's.
   const words = (field: 'mainComplaint' | 'clinicianName' | 'outcome' | 'referredTo', limit: number) => {
-    const value = form[field].trim()
+    const value = squeeze(form[field])
     if (value.length > limit) errors[field] = `Keep this to ${limit} characters.`
     return value || null
   }
@@ -199,11 +204,11 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
   const referred = form.referred === '' ? null : form.referred === 'yes'
   const referredTo = referred ? words('referredTo', 200) : null
 
-  const medicines = form.medicines.filter(row => row.name.trim() || row.dose.trim())
+  const medicines = form.medicines.filter(row => squeeze(row.name) || squeeze(row.dose))
   for (const row of medicines) {
-    if (!row.name.trim()) errors[`medicine-${row.key}-name`] = 'Enter the medicine’s name, as given.'
-    else if (row.name.trim().length > 100) errors[`medicine-${row.key}-name`] = 'Keep the name to 100 characters.'
-    if (row.dose.trim().length > 200) errors[`medicine-${row.key}-dose`] = 'Keep the dose to 200 characters.'
+    if (!squeeze(row.name)) errors[`medicine-${row.key}-name`] = 'Enter the medicine’s name, as given.'
+    else if (squeeze(row.name).length > 100) errors[`medicine-${row.key}-name`] = 'Keep the name to 100 characters.'
+    if (squeeze(row.dose).length > 200) errors[`medicine-${row.key}-dose`] = 'Keep the dose to 200 characters.'
   }
 
   const input: OutreachScreeningInput = {
@@ -212,7 +217,7 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
     glucoseTiming: glucoseTyped && form.glucoseTiming ? form.glucoseTiming : null,
     malariaRdt: form.malariaRdt || null, hearingLeft: form.hearingLeft || null, hearingRight: form.hearingRight || null,
     mainComplaint, seenByClinician: seen, clinicianName, outcome,
-    medicinesGiven: medicines.length ? medicines.map(row => ({ name: row.name.trim(), dose: row.dose.trim() || null })) : null,
+    medicinesGiven: medicines.length ? medicines.map(row => ({ name: squeeze(row.name), dose: squeeze(row.dose) || null })) : null,
     referred, referredTo,
   }
   // Nothing to record unless some value reaches Outreach: a unit, timing or hidden clinician name alone is not a check.
