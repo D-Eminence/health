@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { HealthChecks, leaveHealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
+import { HealthChecks, leaveHealthChecks, SCREENING_CLASH, SCREENING_MERGED, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
@@ -215,15 +215,15 @@ describe('Health checks', () => {
       type(/^Pulse/, '75')
       await press(saveButton())
       expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
-      expect(SCREENING_RELOADED).toBe('Someone else just saved this person’s checks. Reload to see them.')
+      expect(SCREENING_RELOADED).toBe('Someone else saved checks for this person while you were typing. Press Show their checks: your typing stays.')
       // Every field is sent back, so one station never erases another's entries.
       expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual({ ...NULLS, pulseBpm: 75, malariaRdt: 'negative' })
       expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBe(1)
       expect(box(/^Pulse/).value).toBe('75')
       expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1)
-      await press(within(region()).getByRole('button', { name: 'Reload' }))
+      await press(within(region()).getByRole('button', { name: 'Show their checks' }))
       // Their checks are read; this volunteer's own change (the pulse) is kept on top, marked, and nothing typed is lost.
-      expect(await within(region()).findByText(/Your changes are kept on top and not saved yet/)).toBeTruthy()
+      expect(await within(region()).findByText(SCREENING_MERGED)).toBeTruthy()
       expect(box(/^Pulse/).value).toBe('75')
       expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
       await press(saveButton())
@@ -233,6 +233,36 @@ describe('Health checks', () => {
       expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
       expect(api.saveOutreachScreening.mock.calls[1]![3].idempotencyKey).not.toBe(api.saveOutreachScreening.mock.calls[0]![3].idempotencyKey)
     })
+
+  it('after a clash, a failed read of their checks keeps the typing and the way to try again', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70, malariaRdt: 'negative' }) })
+      .mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 90, malariaRdt: 'positive' }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 75, malariaRdt: 'positive' }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+    type(/^Pulse/, '75')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
+    expect(await within(region()).findByText(SCREENING_RELOAD_OFFLINE)).toBeTruthy()
+    // Nothing replaced: the typing and the form are still here, and leaving still asks.
+    expect(box(/^Pulse/).value).toBe('75')
+    expect(saveButton()).toBeTruthy()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(leaveHealthChecks()).toBe(false)
+    confirm.mockRestore()
+    // With signal again, their checks come in under the typing.
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
+    expect(await within(region()).findByText(SCREENING_MERGED)).toBeTruthy()
+    expect(box(/^Pulse/).value).toBe('75')
+    expect((within(region()).getByRole('combobox', { name: /Malaria rapid test/ }) as HTMLSelectElement).value).toBe('positive')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![2]).toEqual({ ...NULLS, pulseBpm: 75, malariaRdt: 'positive' })
+    expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+  })
 
   it('after a clash, keeps the other station’s medicines: this station saved a medicine earlier, then only typed a pulse', async () => {
     const paracetamol = { name: 'Paracetamol', dose: '1 g' }
@@ -253,7 +283,7 @@ describe('Health checks', () => {
     type(/^Pulse/, '88')
     await press(saveButton())
     expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
-    await press(within(region()).getByRole('button', { name: /Reload|Show their checks/ }))
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
     await waitFor(() => expect(box(/^Medicine 2/).value).toBe('Artemether-lumefantrine'))
     expect(box(/^Pulse/).value).toBe('88')
     await press(saveButton())
@@ -273,7 +303,7 @@ describe('Health checks', () => {
     type(/^Medicine 2/, 'ORS')
     await press(saveButton())
     expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
-    await press(within(region()).getByRole('button', { name: /Reload|Show their checks/ }))
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
     await waitFor(() => expect(box(/^Medicine 3/).value).toBe('ORS'))
     await press(saveButton())
     await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))

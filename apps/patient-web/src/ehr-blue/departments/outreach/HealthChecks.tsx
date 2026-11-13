@@ -35,7 +35,9 @@ function noSignal(error: unknown): boolean {
 }
 
 export const SCREENING_SAVED = 'Health checks saved.'
-export const SCREENING_RELOADED = 'Someone else just saved this person’s checks. Reload to see them.'
+export const SCREENING_RELOADED = 'Someone else saved checks for this person while you were typing. Press Show their checks: your typing stays.'
+export const SCREENING_RELOAD_OFFLINE = 'No signal: their checks couldn’t be loaded. Your typing is still here. Press Show their checks again when you have signal.'
+export const SCREENING_MERGED = 'Their checks are shown, with your changes put back in. Nothing is saved yet: check them, then press Save health checks.'
 export const SCREENING_OFFLINE = 'No signal: the health checks were not saved. Everything you typed is still here. Save again when you have signal.'
 export const SCREENING_REDACTED = 'This person’s details were deleted, so health checks can’t be saved for them.'
 export const SCREENING_NOT_FOUND = 'This registration can’t be found. It may have been deleted. Go back to the list.'
@@ -106,8 +108,10 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [redacted, setRedacted] = useState(false)
-  // Someone else saved this person's checks since they were read: said with Reload, the typing kept until then.
+  // Someone else saved this person's checks since they were read: said with "Show their checks", the typing kept until
+  // then. If reading their checks fails, the typing and this state stay, with why.
   const [conflict, setConflict] = useState(false)
+  const [reloadError, setReloadError] = useState('')
   // The save last sent, and its key: the same screening sent again (after a lost answer or no signal) reuses the key; any
   // other save gets a new one. Cleared once saved.
   const attempt = useRef<{ signature: string; key: string } | null>(null)
@@ -188,9 +192,22 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   async function reloadKeeping() {
     const mine = form
     const before = base.current
+    setReloadError('')
+    setBusy(true)
+    let theirs: OutreachScreening | null
+    try {
+      theirs = (await staffApi.outreachScreening(facilityId, caseId))?.screening ?? null
+    } catch (caught) {
+      // Nothing is replaced: the typing, and the way to try again, stay on the page.
+      setReloadError(noSignal(caught) ? SCREENING_RELOAD_OFFLINE : errorText(caught, SCREENING_NOT_LOADED))
+      focus(errorId)
+      return
+    } finally {
+      setBusy(false)
+    }
     setConflict(false)
-    const theirs = await load(undefined, true)
-    if (theirs === undefined) return
+    setRead({ kind: 'ready', screening: theirs })
+    base.current = screeningForm(theirs)
     const merged = { ...base.current } as Record<keyof ScreeningForm, unknown>
     let kept = 0
     for (const key of Object.keys(mine) as (keyof ScreeningForm)[]) {
@@ -200,7 +217,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       kept += 1
     }
     setForm(merged as unknown as ScreeningForm)
-    setNotice(kept ? 'Their checks are shown. Your changes are kept on top and not saved yet: check them, then save again.' : '')
+    setNotice(kept ? SCREENING_MERGED : '')
   }
 
   function update<K extends keyof ScreeningForm>(field: K, value: ScreeningForm[K]) {
@@ -223,6 +240,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     if (busy || read.kind !== 'ready') return
     setFormError('')
     setConflict(false)
+    setReloadError('')
     setNotice('')
     const { input, errors, empty } = checkScreening(form)
     if (Object.keys(errors).length) { refuse(errors); return }
@@ -407,8 +425,8 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
           ) : null}
         </Group>
         <div id={errorId} tabIndex={-1} className="flex flex-col items-start gap-3 outline-none">
-          <ErrorBox message={conflict ? SCREENING_RELOADED : formError} />
-          {conflict ? <Button onClick={() => { if (!busy) void reloadKeeping() }}>Reload</Button> : null}
+          <ErrorBox message={conflict ? reloadError || SCREENING_RELOADED : formError} />
+          {conflict ? <Button aria-busy={busy || undefined} onClick={() => { if (!busy) void reloadKeeping() }}>Show their checks</Button> : null}
         </div>
         {canWrite ? (
           <FormActions sticky={false}>
