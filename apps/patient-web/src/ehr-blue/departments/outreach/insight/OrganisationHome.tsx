@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArrowRight, Megaphone, Play, Plus, Send, Stethoscope, TestTube, Users } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Megaphone, Play, Plus } from 'lucide-react'
 import { LoadingRows, PageState } from '../../../../kasuwa/parts'
 import { Button } from '../../../../kasuwa/ui'
 import type { OutreachCampaign } from '../../../../staff/api'
@@ -7,7 +7,7 @@ import '../../departments.css'
 import { focusLabel, type OrganisationSummary } from '../campaignTypes'
 import { CampaignCards } from './CampaignCards'
 import type { CampaignSummary } from './campaignSummary'
-import { BarRow, NumberTile, NumberTiles } from './insightParts'
+import { BarRow } from './insightParts'
 import { MoreMenu, type MoreItem } from './MoreMenu'
 import { isRunning, type OrganisationNumbers } from './organisationSummary'
 
@@ -20,7 +20,6 @@ export function campaignOrder(campaigns: readonly OutreachCampaign[], now = Date
   return [...campaigns].sort((a, b) => rank(a) - rank(b) || Date.parse(b.startsAt) - Date.parse(a.startsAt))
 }
 
-const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`
 const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '0%')
 
 /** A long campaign name cut to fit one button line on a phone; the full name is the button's accessible name. */
@@ -67,7 +66,7 @@ export function OrganisationHome({ organisationName, numbers, campaigns, campaig
       </header>
       <div className="flex flex-col gap-6">
         {top}
-        {numbers.state === 'loading' ? <LoadingRows rows={2} label="Loading the numbers" /> : value ? <Numbers value={value} /> : null}
+        {numbers.state === 'loading' ? <LoadingRows rows={2} label="Loading the numbers" /> : value ? <Numbers value={value} onAllCampaigns={onAllCampaigns} /> : null}
 
         {campaigns.length ? <Actions continuing={continuing} onContinue={onContinue} onNewCampaign={onNewCampaign} /> : null}
 
@@ -113,65 +112,94 @@ function Actions({ continuing, onContinue, onNewCampaign }: {
   )
 }
 
-/** The organisation's numbers: the tiles, each type of outreach, and the conditions found. */
-function Numbers({ value }: { readonly value: OrganisationSummary }) {
+/** The organisation's numbers: the stat cards, then each type of outreach (a table), and the conditions found. */
+function Numbers({ value, onAllCampaigns }: { readonly value: OrganisationSummary; readonly onAllCampaigns: () => void }) {
   return (
     <>
-      <NumberTiles label="Your outreach in numbers">
-        <NumberTile hero icon={Users} tone="info" label="People reached" value={value.people.reached}
-          hint={value.people.thisMonth >= 0 ? `This month +${value.people.thisMonth}` : 'In every campaign'} />
-        <NumberTile icon={Megaphone} tone="brand" label="Outreaches run" value={value.campaigns.total}
-          hint={value.campaigns.running ? `${value.campaigns.running} running` : value.campaigns.planned ? `${value.campaigns.planned} planned` : 'None running'} />
-        <NumberTile icon={Stethoscope} tone="neutral" label="Screened" value={value.screened}
-          hint={value.people.reached > 0 ? `${share(value.screened, value.people.reached)} of people reached` : 'No one yet'} />
-        <NumberTile icon={TestTube} tone="violet" label="Positive" value={value.positive}
-          hint={value.screened > 0 ? `${share(value.positive, value.screened)} of screened` : 'No one screened yet'} />
-        <NumberTile icon={Send} tone="warn" label="Referred" value={value.referred} hint="To a clinic or hospital" />
-      </NumberTiles>
+      <div role="group" aria-label="Your outreach in numbers" className="hid-outreach-stats grid gap-3">
+        <OverviewStat label="People reached" value={value.people.reached}
+          change={value.people.thisMonth > 0 ? `+${value.people.thisMonth}` : undefined}
+          hint={value.people.thisMonth >= 0 ? 'this month' : 'in every campaign'} />
+        <OverviewStat label="Outreaches run" value={value.campaigns.total} onOpen={onAllCampaigns} openLabel="See all campaigns"
+          hint={value.campaigns.running ? `${value.campaigns.running} running` : value.campaigns.planned ? `${value.campaigns.planned} planned` : 'none running'} />
+        <OverviewStat label="Screened" value={value.screened}
+          hint={value.people.reached > 0 ? `${share(value.screened, value.people.reached)} of people reached` : 'no one yet'} />
+        <OverviewStat label="Positive" value={value.positive}
+          hint={value.screened > 0 ? `${share(value.positive, value.screened)} of screened` : 'no one screened yet'} />
+        <OverviewStat label="Referred" value={value.referred} hint="to a clinic or hospital" />
+      </div>
 
-      {value.byFocus.length || value.conditions.length ? (
-        <div className="grid gap-6 @3xl:grid-cols-2">
-          {value.byFocus.length ? (
-            <section aria-labelledby="outreach-types-heading" className="flex min-w-0 flex-col gap-3">
-              <h2 id="outreach-types-heading" className="m-0 text-title-2 text-ink">By type of outreach</h2>
-              <ul className="m-0 grid list-none grid-cols-1 gap-2 p-0 @md:grid-cols-2">
-                {value.byFocus.map(row => {
-                  const name = focusLabel(row.focus, row.label)
-                  return (
-                    <li key={row.focus} className="flex min-w-0 flex-col gap-2 rounded-xl bg-surface p-3.5 shadow-[var(--shadow-card)] ring-1 ring-line">
-                      <span className="flex flex-wrap items-baseline justify-between gap-x-2">
-                        <h3 className="m-0 text-[15px] font-semibold break-words text-ink">{name}</h3>
-                        <span className="text-[13px] text-ink-3">{plural(row.campaigns, 'campaign')}</span>
-                      </span>
-                      <dl className="m-0 grid grid-cols-3 gap-1 text-center">
-                        {([['Screened', row.screened], ['Positive', row.positive], ['Referred', row.referred]] as const).map(([what, count]) => (
-                          <div key={what} className="flex flex-col-reverse rounded-lg bg-tray px-1 py-1.5">
-                            <dt className="text-[12px] text-ink-2">{what}</dt>
-                            <dd className="m-0 text-[17px] font-semibold text-ink tabular">{count}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </li>
-                  )
-                })}
-              </ul>
-            </section>
-          ) : null}
-          {value.conditions.length ? (
-            <section aria-labelledby="outreach-conditions-heading" className="flex min-w-0 flex-col gap-3">
-              <h2 id="outreach-conditions-heading" className="m-0 text-title-2 text-ink">Conditions found</h2>
-              <div className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] ring-1 ring-line sm:p-5">
-                <ul aria-label="Conditions found: positive of those screened" className="m-0 flex list-none flex-col gap-3 p-0">
-                  {value.conditions.map(row => (
-                    <BarRow key={row.condition} label={focusLabel(row.condition, row.label)} value={row.positive} max={Math.max(row.screened, 1)}
-                      valueText={`${row.positive} of ${row.screened} positive (${share(row.positive, row.screened)})`} tone={row.positive > 0 ? 'warn' : 'muted'} />
+      {value.byFocus.length ? (
+        <section aria-labelledby="outreach-types-heading" className="flex min-w-0 flex-col gap-3">
+          <h2 id="outreach-types-heading" className="m-0 text-title-2 text-ink">By type of outreach</h2>
+          <div className="overflow-hidden rounded-xl bg-surface ring-1 ring-line">
+            {/* On a phone the number of campaigns is left out, so the table fits without sideways scrolling. */}
+            <table className="w-full border-collapse text-left text-[13px] @md:text-[14px]">
+              <thead className="bg-tray text-ink-2">
+                <tr>
+                  {['Type of outreach', 'Campaigns', 'Screened', 'Positive', 'Referred'].map((head, index) => (
+                    <th key={head} scope="col" className={`border-b border-line px-2.5 py-2.5 font-medium whitespace-nowrap @md:px-4 ${index ? 'border-l text-right' : ''} ${index === 1 ? 'hidden @md:table-cell' : ''}`}>
+                      {head}
+                    </th>
                   ))}
-                </ul>
-              </div>
-            </section>
-          ) : null}
-        </div>
+                </tr>
+              </thead>
+              <tbody>
+                {value.byFocus.map(row => (
+                  <tr key={row.focus} className="border-b border-line last:border-b-0">
+                    <th scope="row" className="px-2.5 py-3 font-medium break-words text-ink @md:px-4">{focusLabel(row.focus, row.label)}</th>
+                    {[row.campaigns, row.screened, row.positive, row.referred].map((count, index) => (
+                      <td key={index} className={`border-l border-line px-2.5 py-3 text-right text-ink tabular @md:px-4 ${index === 0 ? 'hidden @md:table-cell' : ''}`}>{count}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {value.conditions.length ? (
+        <section aria-labelledby="outreach-conditions-heading" className="flex min-w-0 flex-col gap-3">
+          <h2 id="outreach-conditions-heading" className="m-0 text-title-2 text-ink">Conditions found</h2>
+          <div className="rounded-xl bg-surface p-4 ring-1 ring-line sm:p-5">
+            <ul aria-label="Conditions found: positive of those screened" className="m-0 flex list-none flex-col gap-3 p-0">
+              {value.conditions.map(row => (
+                <BarRow key={row.condition} label={focusLabel(row.condition, row.label)} value={row.positive} max={Math.max(row.screened, 1)}
+                  valueText={`${row.positive} of ${row.screened} positive (${share(row.positive, row.screened)})`} tone={row.positive > 0 ? 'warn' : 'muted'} />
+              ))}
+            </ul>
+          </div>
+        </section>
       ) : null}
     </>
+  )
+}
+
+/** One stat card: the label (with ↗ where the number opens a page), the number, and a line under it; a rise in green. */
+function OverviewStat({ label, value, change, hint, onOpen, openLabel }: {
+  readonly label: string
+  readonly value: number
+  readonly change?: string
+  readonly hint: string
+  readonly onOpen?: () => void
+  readonly openLabel?: string
+}) {
+  return (
+    <div className="hid-outreach-stat relative flex min-w-0 flex-col rounded-xl bg-surface p-4 ring-1 ring-line @md:p-5">
+      <div className="flex min-h-6 items-start justify-between gap-2">
+        <span className={`min-w-0 text-[14px] break-words text-ink-2 ${onOpen ? 'pr-8' : ''}`}>{label}</span>
+        {onOpen ? (
+          <button type="button" onClick={onOpen} aria-label={openLabel}
+            className="absolute top-1.5 right-1.5 inline-flex size-11 items-center justify-center rounded-lg text-ink-3 hover:bg-tray hover:text-ink @md:top-2.5 @md:right-2.5">
+            <ArrowUpRight className="size-4" aria-hidden />
+          </button>
+        ) : null}
+      </div>
+      <span className="mt-2 text-[26px] leading-9 font-semibold tracking-[-0.02em] text-ink tabular @md:text-[30px] @md:leading-10">{value.toLocaleString('en-GB')}</span>
+      <span className="mt-1 text-[13px] text-ink-2">
+        {change ? <span className="font-medium text-success-ink">{change} </span> : null}{hint}
+      </span>
+    </div>
   )
 }

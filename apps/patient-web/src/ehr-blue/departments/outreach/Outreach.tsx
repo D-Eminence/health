@@ -581,8 +581,13 @@ function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, opened
 
   useEffect(() => { if (!ready && arrival !== undefined) latest.current.onArrive(arrival) }, [ready, arrival])
   // The address says where the page is, replacing the one before (the history keeps no step per tab).
+  // Only a change of place moves the address: an address the person followed is left alone until the page has caught up
+  // with it, so the two never chase each other.
+  const placed = useRef<string | null>(null)
   useEffect(() => {
-    if (ready && inFrame && address && address !== location.pathname && location.hash !== '#menu') navigate(address, { replace: true })
+    if (!ready || !inFrame || !address || location.hash === '#menu' || placed.current === address) return
+    placed.current = address
+    if (address !== location.pathname) navigate(address, { replace: true })
   }, [ready, inFrame, address, location.pathname, location.hash, navigate])
   // An address followed from the menu (a new history entry, even to the same address): the page goes there. Opening the
   // Menu page (#menu) and closing it again (back, or Close) leave the page where it was: the campaign open stays open.

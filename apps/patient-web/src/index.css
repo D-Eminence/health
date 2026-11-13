@@ -706,6 +706,13 @@
   grid-template-columns: repeat(auto-fill, minmax(max(calc((100% - 1.125rem) / 4), min(calc((100% - .375rem) / 2), (50rem - 100%) * 999)), 1fr));
 }
 
+/* The organisation Overview's five stat cards, by the page's width: phone, People reached on its own row then two by two;
+   wider, it over a row of four; from 48rem, all five in one row. */
+.hid-outreach-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hid-outreach-stats > :first-child { grid-column: 1 / -1; }
+@container (min-width: 36rem) { .hid-outreach-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 48rem) { .hid-outreach-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); } .hid-outreach-stats > :first-child { grid-column: auto; } }
+
 /* Outreach's five number tiles (outreach/insight/insightParts.tsx NumberTiles), by the page's own width: on a phone the
    first (hero) across, the other four two by two; from 36rem the other four in one row; from 64rem all five in a row.
    Below 64rem each tile is compact: its icon beside the number, the label and line under both. A number never breaks. */

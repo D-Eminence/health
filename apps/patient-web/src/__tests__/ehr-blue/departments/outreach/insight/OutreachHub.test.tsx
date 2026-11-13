@@ -200,13 +200,13 @@ describe('the organisation’s home', () => {
     await toOverview()
     // Not served yet (404): worked out from each campaign's own dashboard.
     const numbers = await screen.findByRole('group', { name: 'Your outreach in numbers' })
-    expect(numbers.textContent).toContain('2Outreaches run1 running')
-    expect(numbers.textContent).toContain('1People reached')
-    expect(numbers.textContent).toContain('5Positive')
-    expect(numbers.textContent).toContain('1Referred')
+    expect(numbers.textContent).toContain('Outreaches run21 running')
+    expect(numbers.textContent).toContain('People reached1')
+    expect(numbers.textContent).toContain('Positive5')
+    expect(numbers.textContent).toContain('Referred1')
     const types = screen.getByRole('heading', { name: 'By type of outreach' }).closest('section')!
-    expect(within(types).getByRole('heading', { name: 'Hepatitis B' })).toBeTruthy()
-    expect(within(types).getByRole('heading', { name: 'High blood pressure' })).toBeTruthy()
+    expect(within(types).getByRole('rowheader', { name: 'Hepatitis B' })).toBeTruthy()
+    expect(within(types).getByRole('rowheader', { name: 'High blood pressure' })).toBeTruthy()
     const conditions = screen.getByRole('list', { name: /^Conditions found/ })
     expect(conditions.textContent).toContain('High blood pressure4 of 1 positive')
     // The hierarchy: numbers, then the actions, then the campaigns running now. People reached leads the tiles.
@@ -233,10 +233,10 @@ describe('the organisation’s home', () => {
     })
     renderDept(<Outreach />)
     const numbers = await screen.findByRole('group', { name: 'Your outreach in numbers' })
-    await waitFor(() => expect(numbers.textContent).toContain('9Outreaches run2 running'))
-    expect(numbers.textContent).toContain('1250People reachedThis month +40')
+    await waitFor(() => expect(numbers.textContent).toContain('Outreaches run92 running'))
+    expect(numbers.textContent).toContain('People reached1,250+40 this month')
     expect(numbers.textContent).toContain('11% of screened')
-    expect(screen.getByRole('heading', { name: 'Sickle cell' })).toBeTruthy()
+    expect(screen.getByRole('rowheader', { name: 'Sickle cell' })).toBeTruthy()
     expect(screen.getByRole('list', { name: /^Conditions found/ }).textContent).toContain('Sickle cell5 of 64 positive (8%)')
   })
 
@@ -269,6 +269,31 @@ describe('the organisation’s home', () => {
     await waitFor(() => expect(source!.search('k74f2').map(hit => hit.title)).toEqual(['Demo Ada']))
     await act(async () => { source!.search('Ada')[0]!.open() })
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Visit ov-1')
+  })
+})
+
+describe('following the menu', () => {
+  it('goes to Campaigns and back to Overview once, without the address and the page chasing each other', async () => {
+    const { Link, useLocation } = await import('react-router-dom')
+    const seen: string[] = []
+    function Menu() {
+      const location = useLocation()
+      if (seen.at(-1) !== location.pathname) seen.push(location.pathname)
+      return <><Link to="/provider/outreach/campaigns">Go to campaigns</Link><Link to="/provider/outreach">Go to overview</Link></>
+    }
+    renderDept(<><Outreach /><Menu /></>, { route: '/provider/outreach' })
+    await toOverview()
+    seen.length = 0
+    await press(screen.getByRole('link', { name: 'Go to campaigns' }))
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Campaigns'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 200)) })
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Campaigns')
+    expect(seen).toEqual(['/provider/outreach/campaigns'])
+    await press(screen.getByRole('link', { name: 'Go to overview' }))
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Overview'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 200)) })
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Overview')
+    expect(seen).toEqual(['/provider/outreach/campaigns', '/provider/outreach'])
   })
 })
 
