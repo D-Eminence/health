@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Services as deployed after hid-system #218 (0117 recorded allergies), #244 (zlib base repin) and #245 (suite checks): all nine at 09e5b5c0 (release run 43472723148, 0117 applied 2026-11-13 18:22 UTC). Approved by the owner in chat on 2026-11-13 (\"Q66 0117 signed, release #222 #218 #244 #245\").",
+  "review_reference": "Services as deployed after hid-system #247 (0118 outreach health checks, signed by the owner in chat on 2026-11-13: \"Q69 0118 signed\"): all nine at 8d6d9736 (release run 43485533579, release backend-43485533579-1-8c894125bb550b2d; 0118 applied 2026-11-13 with hash b1ed2c54\u202674b2). Builds on 09e5b5c0 (0117, approved \"Q66 0117 signed, release #222 #218 #244 #245\").",
   "backend_commits": {
-    "gateway": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "identity-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "ehr-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "lab-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "pharmacy-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "ocr-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "outreach-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "support-api": "09e5b5c00d36324e4c757252691c799745c434c7",
-    "notification-api": "09e5b5c00d36324e4c757252691c799745c434c7"
+    "gateway": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "identity-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "ehr-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "lab-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "pharmacy-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "ocr-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "outreach-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "support-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab",
+    "notification-api": "8d6d973637f40d40e6875c2edc780934ccd7f6ab"
   }
 }
