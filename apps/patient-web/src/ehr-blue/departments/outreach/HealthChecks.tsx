@@ -304,7 +304,11 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       else if (code === 'OUTREACH_REGISTRATION_REDACTED') setRedacted(true)
       else if (code === 'OUTREACH_REGISTRATION_NOT_FOUND') setFormError(SCREENING_NOT_FOUND)
       else if (noSignal(caught)) { unsure.current = { input, version }; setFormError(SCREENING_OFFLINE) }
-      else setFormError(errorText(caught, SCREENING_FAILED))
+      else {
+        // A timeout, too many requests or a server fault may come after Outreach stored the save: checked before the next.
+        if (isHidApiError(caught) && (caught.status === 408 || caught.status === 429 || caught.status >= 500)) unsure.current = { input, version }
+        setFormError(errorText(caught, SCREENING_FAILED))
+      }
       if (code !== 'OUTREACH_SCREENING_OUT_OF_RANGE' || !fieldNamedIn(isHidApiError(caught) ? caught.detail : null)) focus(errorId)
     } finally {
       setBusy(false)

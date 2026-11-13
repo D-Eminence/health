@@ -385,6 +385,24 @@ describe('Health checks', () => {
     expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
   })
 
+  it.each([[503, 'SERVICE_UNAVAILABLE'], [502, 'BAD_GATEWAY'], [408, 'REQUEST_TIMEOUT'], [429, 'RATE_LIMITED']])(
+    'after %s %s on a save that Outreach did store, the next save is no false clash', async (status, code) => {
+      api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
+        .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 75 }) })
+      api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(status, 'x', { code }))
+        .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 75, temperatureC: 37.2 }) })
+      renderChecks()
+      await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+      type(/^Pulse/, '75')
+      await press(saveButton())
+      await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+      type(/^Temperature/, '37.2')
+      await press(saveButton())
+      await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+      expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+      expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
+    })
+
   it('after a save whose answer was lost, checks what Outreach holds before saving again (no false conflict)', async () => {
     api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
       .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 75 }) })
