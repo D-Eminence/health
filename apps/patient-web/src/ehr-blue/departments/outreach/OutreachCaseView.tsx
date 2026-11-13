@@ -291,7 +291,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
               ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip}
                 onCreated={made => { if (made) setMadeHere(made); void onChanged() }} /> : null}
             {pending && !linked && !item.healthId
-              ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} /> : null}
+              ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} ageYears={item.ageYears} /> : null}
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             <Card>

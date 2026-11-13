@@ -211,7 +211,7 @@ export function Outreach() {
   }, [facilityId, refreshCases, show, syncQueue])
 
   // The registration just kept on this device, and why: said until it is sent (or refused, which the queue then shows).
-  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string } | null>(null)
+  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string; ageYears: number } | null>(null)
   const queuedShown = queuedNote !== null && queuedNote.facilityId === facilityId
     && queue.entries.some(entry => entry.localCommandId === queuedNote.localCommandId && entry.state === 'waiting')
   // What "Send now" did, until the next registration is sent. Anything but "all sent" goes once nothing is left on this device.
@@ -230,8 +230,8 @@ export function Outreach() {
     queue: entry => queue.add(entry),
     dequeue: localCommandId => queue.discard(localCommandId),
     claim: claimSend,
-    onQueued: ({ fullName, localCommandId, reason }) => {
-      if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason) })
+    onQueued: ({ fullName, localCommandId, reason, ageYears }) => {
+      if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason), ageYears })
       show({ kind: 'list' })
     },
   } : undefined
@@ -315,7 +315,7 @@ export function Outreach() {
           {queuedShown ? <>
             <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
             {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
-            <GetHealthIdNow id="outreach-queued-health-id" />
+            <GetHealthIdNow id="outreach-queued-health-id" ageYears={queuedNote.ageYears} />
           </> : null}
           {sendShown && sendNote ? (
             <Alert intent={sendDone ? 'success' : 'warning'}

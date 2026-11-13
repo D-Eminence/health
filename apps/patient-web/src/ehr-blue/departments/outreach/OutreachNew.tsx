@@ -79,7 +79,13 @@ export interface OutreachGroupForm {
   /** Claims a registration for sending (offlineQueue.ts claimSend): null while another sender has it. */
   readonly claim: (localCommandId: string) => Promise<(() => void) | null>
   /** A registration was kept on this device, and why it could not be sent: the form is cleared for the next person. */
-  readonly onQueued: (queued: { readonly fullName: string; readonly localCommandId: string; readonly reason: WaitReason | 'session' }) => void
+  readonly onQueued: (queued: {
+    readonly fullName: string
+    readonly localCommandId: string
+    readonly reason: WaitReason | 'session'
+    /** Their age as entered: under 18, the sign-up shown meanwhile says a parent or guardian must agree. */
+    readonly ageYears: number
+  }) => void
 }
 
 /** Why no campaign is listed, at an outreach group, when it isn't that the person is in none. */
@@ -229,7 +235,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
         attempt.current = null
         element.reset()
         resetConsent()
-        group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection' })
+        group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection', ageYears })
       } catch {
         setError(KEEP_FAILED)
       } finally {
@@ -266,7 +272,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
           attempt.current = null
           element.reset()
           resetConsent()
-          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught) })
+          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught), ageYears })
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
       }

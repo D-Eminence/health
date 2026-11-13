@@ -15,6 +15,8 @@ import './outreachSlip.css'
 
 /** Where a person without a Health ID can get one later. */
 export const GET_HEALTH_ID_LATER = 'You can get a Health ID later at app.healthidentitydirectory.com.'
+/** As GET_HEALTH_ID_LATER, for anyone under 18: a parent or guardian gets it for them. */
+export const GET_HEALTH_ID_LATER_MINOR = 'A parent or guardian can get them a Health ID later at app.healthidentitydirectory.com.'
 export const KEEP_SLIP = 'Keep this slip. You’ll need your Health ID and this code to start using it.'
 export const CHECKS_RECORDED = 'Health checks were recorded today.'
 
@@ -89,7 +91,7 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode }:
             <p className="hid-outreach-slip-note">{KEEP_SLIP}</p>
           </> : null}
         </section>
-      ) : <p>{GET_HEALTH_ID_LATER}</p>}
+      ) : <p>{typeof item.ageYears === 'number' && item.ageYears < 18 ? GET_HEALTH_ID_LATER_MINOR : GET_HEALTH_ID_LATER}</p>}
       {item.hasScreening ? <p>{CHECKS_RECORDED}</p> : null}
       <p className="hid-outreach-slip-foot">Show this slip if you visit a clinic or come back to the outreach.</p>
     </article>

@@ -55,14 +55,19 @@ async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
 }
 
-async function register() {
+async function register(age = '30') {
   renderDept(<Outreach />)
   await press(await screen.findByRole('button', { name: 'New registration' }))
   await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
   fireEvent.change(screen.getByRole('textbox', { name: /Full name/ }), { target: { value: NAME } })
-  fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: '30' } })
+  fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: age } })
   fireEvent.change(screen.getByRole('textbox', { name: /Phone number/ }), { target: { value: PHONE } })
-  await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+  if (Number(age) < 18) {
+    await press(screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: /Parent or guardian’s name/ }), { target: { value: 'Tunde Balogun' } })
+  } else {
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+  }
   await press(screen.getByRole('button', { name: 'Save registration' }))
 }
 
@@ -152,6 +157,60 @@ describe('the sign-up as the fallback', () => {
     await screen.findByRole('heading', { level: 1, name: NAME })
     expect(screen.queryByText('Or they can sign up on their own phone')).toBeNull()
     expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
+  })
+})
+
+const GUARDIAN_WORDS = 'A parent or guardian must agree. They can make it with them on their phone, now or later.'
+const CHILD_STEP = 'They enter their name, email address and phone number, choose a password, and type in the code sent to their email.'
+
+describe('under-18s and the sign-up QR code', () => {
+  async function openCase(item: Record<string, unknown>) {
+    api.outreachCases.mockResolvedValue([item])
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
+    await screen.findByRole('heading', { level: 1, name: NAME })
+  }
+
+  it('at 17, says a parent or guardian must agree instead of steps addressed to the child, and keeps the QR code', async () => {
+    await openCase({ ...pending('case-17'), ageYears: 17 })
+    const region = screen.getByRole('region', { name: 'Get a Health ID now' })
+    expect(region.textContent).toContain(GUARDIAN_WORDS)
+    expect(region.textContent).not.toContain(CHILD_STEP)
+    expect(within(region).queryAllByRole('listitem')).toEqual([])
+    expect(within(region).getByRole('img', { name: 'QR code that opens the Health ID sign-up page' })).toBeTruthy()
+  })
+
+  it('at 18, shows the steps as for any adult', async () => {
+    await openCase({ ...pending('case-18'), ageYears: 18 })
+    const region = screen.getByRole('region', { name: 'Get a Health ID now' })
+    expect(region.textContent).not.toContain(GUARDIAN_WORDS)
+    expect(region.textContent).toContain(CHILD_STEP)
+  })
+
+  it('at 17, under “Create Health ID” too, where it can’t be made here for them', async () => {
+    await openCase({ ...pending('case-17b'), ageYears: 17, healthId: null })
+    const details = screen.getByText(/they can sign up on their own phone/).closest('details')!
+    expect(details.textContent).toContain(GUARDIAN_WORDS)
+    expect(details.textContent).not.toContain(CHILD_STEP)
+    expect(within(details).getByRole('img', { name: 'QR code that opens the Health ID sign-up page', hidden: true })).toBeTruthy()
+  })
+
+  it('at 17, while their registration waits on this device', async () => {
+    api.createOutreachCase.mockRejectedValue(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await register('17')
+    await screen.findByRole('region', { name: 'Saved on this device' })
+    const region = screen.getByRole('region', { name: 'Get a Health ID now' })
+    expect(region.textContent).toContain(GUARDIAN_WORDS)
+    expect(region.textContent).not.toContain(CHILD_STEP)
+  })
+
+  it('at 18, while their registration waits on this device', async () => {
+    api.createOutreachCase.mockRejectedValue(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await register('18')
+    await screen.findByRole('region', { name: 'Saved on this device' })
+    const region = screen.getByRole('region', { name: 'Get a Health ID now' })
+    expect(region.textContent).not.toContain(GUARDIAN_WORDS)
+    expect(region.textContent).toContain(CHILD_STEP)
   })
 })
 

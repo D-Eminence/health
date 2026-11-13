@@ -5,7 +5,7 @@ import { renderDept } from '../harness'
 import { OutreachCaseView } from '../../../../ehr-blue/departments/outreach/OutreachCaseView'
 import { MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 import {
-  CHECKS_RECORDED, eventDateText, GET_HEALTH_ID_LATER, KEEP_SLIP, OutreachSlip,
+  CHECKS_RECORDED, eventDateText, GET_HEALTH_ID_LATER, GET_HEALTH_ID_LATER_MINOR, KEEP_SLIP, OutreachSlip,
 } from '../../../../ehr-blue/departments/outreach/OutreachSlip'
 
 /*
@@ -80,6 +80,17 @@ describe('the outreach slip', () => {
     expect(text).not.toMatch(/HID-/)
     expect(text).not.toContain(CHECKS_RECORDED)
     expect(text).not.toContain('Claim code')
+  })
+
+  it('says a parent or guardian can get a Health ID later for anyone under 18 (17), and the person themselves at 18', () => {
+    expect(GET_HEALTH_ID_LATER_MINOR).toBe('A parent or guardian can get them a Health ID later at app.healthidentitydirectory.com.')
+    const minor = render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={{ ...ITEM, ageYears: 17 } as never} healthId={null} />)
+    expect(minor.container.textContent).toContain(GET_HEALTH_ID_LATER_MINOR)
+    expect(minor.container.textContent).not.toContain(GET_HEALTH_ID_LATER)
+    minor.unmount()
+    const adult = render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={{ ...ITEM, ageYears: 18 } as never} healthId={null} />)
+    expect(adult.container.textContent).toContain(GET_HEALTH_ID_LATER)
+    expect(adult.container.textContent).not.toContain(GET_HEALTH_ID_LATER_MINOR)
   })
 
   it('prints the claim code only when it is passed in', () => {
