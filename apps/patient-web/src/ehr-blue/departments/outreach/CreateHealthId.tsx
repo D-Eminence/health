@@ -81,7 +81,13 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean; readonly codeLost?: boolean }
 
 /** A Health ID made here just now, its claim code when it was made with no email, and whether by email. */
-export interface MadeHere { readonly healthId: string; readonly claimCode?: string; readonly byEmail?: boolean }
+export interface MadeHere {
+  readonly healthId: string
+  readonly claimCode?: string
+  /** Until when the claim code works (0120's claimExpiresAt), for the slip. */
+  readonly claimExpiresAt?: string
+  readonly byEmail?: boolean
+}
 
 /**
  * 0119 makes the Health ID with no password and sends no email after the code: the person sets one with "Forgot
@@ -377,7 +383,8 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       if (actorId && answer.claimCode) keepClaimCode(actorId, facilityId, item.id, { healthId: answer.healthId, claimCode: answer.claimCode })
       setMade({ healthId: answer.healthId, claimCode: answer.claimCode, byEmail: false })
       focus(id('made'))
-      onCreated({ healthId: answer.healthId, claimCode: answer.claimCode })
+      const until = (answer as { readonly claimExpiresAt?: unknown }).claimExpiresAt
+      onCreated({ healthId: answer.healthId, claimCode: answer.claimCode, claimExpiresAt: typeof until === 'string' ? until : undefined })
     } catch (caught) {
       // The answer was lost (no signal, or a timeout): it may have been made, and its claim code with it.
       if (!isHidApiError(caught) || caught.status === 0 || caught.status === 408 || caught.status === 504) {

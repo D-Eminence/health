@@ -113,6 +113,12 @@ describe('the outreach slip', () => {
     expect(document.body.textContent).not.toContain(FORGOT_PASSWORD)
   })
 
+  it('says until when the claim code works, from claimExpiresAt', () => {
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-UNVER1" claimCode="K7Q-4MZ"
+      claimExpiresAt="2027-05-14T12:00:00.000Z" />)
+    expect(document.body.textContent).toContain('Keep this slip. You’ll need your Health ID and this code to start using it. The code works until 14 May 2027.')
+  })
+
   it('writes an event over more than one day as its first and last day', () => {
     expect(eventDateText({ startsAt: '2026-11-14T07:00:00.000Z', endsAt: '2026-11-15T15:00:00.000Z' })).toBe('14 Nov 2026 to 15 Nov 2026')
     expect(eventDateText({ startsAt: '2026-11-14T07:00:00.000Z', endsAt: null })).toBe('14 Nov 2026')
@@ -223,7 +229,7 @@ describe('Print slip on a registration', () => {
  * volunteer says it is written down. Fictional data only.
  */
 describe('leaving the case view while a Health ID is made', () => {
-  const MADE = { healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', claimExpiresAt: '2027-05-14T08:30:00.000Z', registration: { ...ITEM, healthId: 'HID-UNVER1' } }
+  const MADE = { healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', claimExpiresAt: '2027-05-14T12:00:00.000Z', registration: { ...ITEM, healthId: 'HID-UNVER1' } }
   function renderWithWaysOut() {
     const onBack = vi.fn()
     const onNew = vi.fn()
@@ -268,7 +274,7 @@ describe('leaving the case view while a Health ID is made', () => {
     expect(onBack).toHaveBeenCalledTimes(1)
   })
 
-  it('lets Back go once the slip is printed', async () => {
+  it('lets Back go once the slip is printed, and the slip says until when the claim code works', async () => {
     api.createUnverifiedOutreachHealthId.mockResolvedValue(MADE)
     const { onBack } = renderWithWaysOut()
     const region = await createWithNoEmail()
@@ -276,6 +282,8 @@ describe('leaving the case view while a Health ID is made', () => {
     await press(backButton())
     expect(onBack).not.toHaveBeenCalled()
     await press(within(region).getByRole('button', { name: 'Print slip' }))
+    expect(slip()!.textContent).toContain('K7Q-4MZ')
+    expect(slip()!.textContent).toContain('The code works until 14 May 2027.')
     await act(async () => { window.dispatchEvent(new Event('afterprint')) })
     await press(backButton())
     expect(onBack).toHaveBeenCalledTimes(1)

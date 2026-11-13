@@ -42,6 +42,13 @@ export function useSlipPrint() {
   return { print, area }
 }
 
+/** The last day a claim code works, as "14 May 2027", or '' when not known. */
+function untilText(value: string | undefined): string {
+  if (!value) return ''
+  const day = new Date(value)
+  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 /** A day as "14 Nov 2026". */
 function dayText(value: string | null | undefined): string {
   if (!value) return ''
@@ -56,7 +63,7 @@ export function eventDateText(campaign: Pick<OutreachCampaign, 'startsAt' | 'end
   return start && end && end !== start ? `${start} to ${end}` : start
 }
 
-export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, byEmail = false }: {
+export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, claimExpiresAt, byEmail = false }: {
   /** The outreach group (or the facility whose outreach team registered them). */
   readonly groupName: string | undefined
   readonly campaign: Pick<OutreachCampaign, 'name' | 'startsAt' | 'endsAt'> | undefined
@@ -65,10 +72,13 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, b
   readonly healthId: string | null | undefined
   /** Only straight after a Health ID was made here with no email (“No email”). */
   readonly claimCode?: string
+  /** Until when the claim code works (0120's claimExpiresAt), when the page that made it still holds it. */
+  readonly claimExpiresAt?: string
   /** The Health ID was made at outreach by email: it has no password yet. */
   readonly byEmail?: boolean
 }) {
   const eventDate = eventDateText(campaign)
+  const until = untilText(claimExpiresAt)
   const facts: Array<[string, string]> = [
     ['Name', caseName(item)],
     ['Age and sex', `${ageText(item)} · ${sexText(item)}`],
@@ -92,7 +102,7 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, b
           {claimCode ? <>
             <h2>Claim code</h2>
             <p className="hid-outreach-slip-big">{claimCode}</p>
-            <p className="hid-outreach-slip-note">{KEEP_SLIP}</p>
+            <p className="hid-outreach-slip-note">{KEEP_SLIP}{until ? ` The code works until ${until}.` : null}</p>
           </> : byEmail ? <p className="hid-outreach-slip-note">{FORGOT_PASSWORD}</p> : null}
         </section>
       ) : <p>{typeof item.ageYears === 'number' && item.ageYears < 18 ? GET_HEALTH_ID_LATER_MINOR : GET_HEALTH_ID_LATER}</p>}
