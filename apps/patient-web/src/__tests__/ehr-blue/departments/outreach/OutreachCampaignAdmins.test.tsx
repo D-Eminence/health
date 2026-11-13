@@ -18,7 +18,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachScreening: vi.fn(), outreachCampaignGovernance: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn(), outreachCampaignGovernance: vi.fn(),
   outreachCampaignStaff: vi.fn(), createOutreachCampaign: vi.fn(), setOutreachCampaignStatus: vi.fn(), addOutreachCampaignMember: vi.fn(),
 }))
 // Every staff API member the page reaches for that this test does not provide.
@@ -47,6 +47,8 @@ const NURSE = { membershipId: 'membership-demo-2', name: 'Demo Nurse', campaignR
 const CLERK = { membershipId: 'membership-demo-3', name: 'Demo Clerk', campaignRole: 'enumerator' }
 
 beforeEach(() => {
+  // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
+  api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
   // Today's Outreach serves no health checks (0118): the section is not shown.
   api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))

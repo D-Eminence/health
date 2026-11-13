@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { EhrBadge, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
-import { Users } from 'lucide-react'
+import { UserSearch, Users } from 'lucide-react'
 import { FormActions, PageState } from '../../../kasuwa/parts'
 import { Alert, Button, Card } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
-import { staffApi, type OutreachCampaign, type OutreachCampaignRole } from '../../../staff/api'
+import { staffApi, type OutreachCampaign, type OutreachCampaignRole, type OutreachCase } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import { CaseCard, ShowMore, useOutreachCases } from './OutreachCaseList'
 import {
   CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignStarted, campaignStatusLabel,
   COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, OutreachField, REASON_LENGTH, RETRY_NOTE,
@@ -50,7 +51,7 @@ type ActionField = 'reason' | 'person'
  * has started), close it (for good, after a confirmation) and add people to it, each with what Outreach asks for; its
  * other members and staff are told that only its admins change it. Elsewhere it is read only, as before.
  */
-export function OutreachCampaignView({ facilityId, campaign, members, manage, created = false, exportAction, onBack, onChanged }: {
+export function OutreachCampaignView({ facilityId, campaign, members, manage, created = false, exportAction, registrations, onBack, onChanged }: {
   readonly facilityId: string
   readonly campaign: OutreachCampaign
   readonly members: MembersRead | undefined
@@ -60,6 +61,12 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   readonly created?: boolean
   /** "Export" for this campaign's registrations (OutreachExport.tsx), for those who can read them. */
   readonly exportAction?: ReactNode
+  /** For those who can read registrations: this campaign's, newest first, with "Show more" and a way to open each. */
+  readonly registrations?: {
+    readonly canLink: boolean
+    readonly group: boolean
+    readonly onOpen: (item: OutreachCase) => void
+  }
   readonly onBack: () => void
   /** Reads the campaigns again. */
   readonly onChanged: () => Promise<void>
@@ -294,7 +301,39 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
           </ul>
         </PageState>
       </DeptSection>
+      {registrations ? <CampaignRegistrations facilityId={facilityId} campaign={campaign} {...registrations} /> : null}
       {sheet}
     </DeptPage>
+  )
+}
+
+/**
+ * A campaign's registrations, newest first: its newest 100 (asked by campaign; an Outreach before paging sends its newest
+ * 100 of every campaign, and only this campaign's are kept), then "Show more" while older ones are left.
+ */
+function CampaignRegistrations({ facilityId, campaign, canLink, group, onOpen }: {
+  readonly facilityId: string
+  readonly campaign: OutreachCampaign
+  readonly canLink: boolean
+  readonly group: boolean
+  readonly onOpen: (item: OutreachCase) => void
+}) {
+  const cases = useOutreachCases(facilityId, true, campaign.id)
+  const rows = cases.value ?? []
+  return (
+    <DeptSection title="Registrations">
+      {cases.error && cases.value ? <Alert intent="error" title="Couldn’t refresh registrations">{cases.error}</Alert> : null}
+      <PageState loading={cases.loading} error={cases.value ? null : cases.error || null} hasData={cases.value !== null} what="registrations" rows={2}
+        onRetry={() => void cases.refresh()}
+        empty={cases.value?.length === 0 && !cases.more.available
+          ? { icon: UserSearch, title: 'No registrations yet', description: 'People registered into this campaign show here.' } : null}>
+        <div className="flex flex-col gap-3">
+          <ul aria-label={`Registrations in ${campaign.name}`} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
+            {rows.map(item => <CaseCard key={item.id} item={item} campaign={campaign} canLink={canLink} group={group} onOpen={() => onOpen(item)} />)}
+          </ul>
+          <ShowMore more={cases.more} shown={rows.length} />
+        </div>
+      </PageState>
+    </DeptSection>
   )
 }

@@ -90,13 +90,13 @@ export const ORGANISER_TERMS_SUMMARY: readonly string[] = [
  * The registration notice (version outreach-notice-2026-11-14), read to each person before they are registered, or read
  * by them. `group`: the outreach group's name, as the working facility is named. With health checks and a Health ID made
  * at the event, which the person agrees to separately ("They want a Health ID"). Owner approved in chat on 2026-11-13:
- * Q68 notice approved.
+ * Q68 notice approved; line 2 adds the area (Q71 add area).
  */
 export function registrationNotice(group: string): readonly string[] {
   const who = group.trim() || 'This outreach group'
   return [
     `${who} is registering people at this event on Health ID Outreach.`,
-    'We will write down your name, age and sex, your phone number or email if you want to give them, and the results of today\'s health checks, so the team can care for you and follow up.',
+    'We will write down your name, age and sex, the area where you live, your phone number or email if you want to give them, and the results of today\'s health checks, so the team can care for you and follow up.',
     `Only this outreach team and Health ID can see your details. ${who} and Health ID are both responsible for looking after them.`,
     'If you agree, we will also make a Health ID for you from these details. You can start using it later with your email, or with the code on your slip, and add the rest of your details then.',
     `If you don't get a Health ID, your details are deleted ${RETENTION_WORDS}.`,

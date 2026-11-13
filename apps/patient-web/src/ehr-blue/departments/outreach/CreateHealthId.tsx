@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { EhrInput } from '@hid/ui/ehr'
-import { Copy, IdCard } from 'lucide-react'
+import { Copy, IdCard, Printer } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
 import { Alert, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCase, type OutreachHealthIdChannel } from '../../../staff/api'
@@ -46,13 +46,21 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /** What the section shows once a Health ID is made: the claim code only from the answer that made it, once. */
 interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean }
 
-export function CreateHealthId({ facilityId, item, canWrite, onCreated }: {
+/** A Health ID made here just now, and its claim code when it was made with no email or phone. */
+export interface MadeHere { readonly healthId: string; readonly claimCode?: string }
+
+export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintSlip }: {
   readonly facilityId: string
   readonly item: OutreachCase
   /** Whether the membership may write registrations: only then can it make a Health ID. */
   readonly canWrite: boolean
-  /** A Health ID was made: the cases are read again. */
-  readonly onCreated: () => void
+  /**
+   * A Health ID was made (or found already made): the cases are read again. Told what was made here, claim code
+   * included, so the slip can print it; the claim code is held in memory only, never stored.
+   */
+  readonly onCreated: (made?: MadeHere) => void
+  /** "Print slip", once a Health ID is shown. */
+  readonly onPrintSlip?: () => void
 }) {
   // The ways Outreach answered it does not serve (404 route-not-served): each hides on its own, as each ships alone.
   const [unserved, setUnserved] = useState<ReadonlySet<'email' | 'unverified'>>(new Set())
@@ -111,7 +119,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated }: {
       if (existing) setMade({ healthId: existing, byEmail: false })
       else setError('This person already has a Health ID. It is shown here once the registration is read again.')
       // Read again: the registration names its Health ID.
-      onCreated()
+      onCreated(existing ? { healthId: existing } : undefined)
       return
     }
     if (problem === 'OUTREACH_HEALTH_ID_UNAVAILABLE' && method === 'sms') { setError(SMS_UNAVAILABLE); return }
@@ -177,7 +185,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated }: {
       attempt.current = null
       setMade({ healthId: answer.healthId, byEmail: true })
       focus(id('made'))
-      onCreated()
+      onCreated({ healthId: answer.healthId })
     } catch (caught) {
       refused(caught, true, 'email')
     } finally {
@@ -195,7 +203,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated }: {
       attempt.current = null
       setMade({ healthId: answer.healthId, claimCode: answer.claimCode, byEmail: false })
       focus(id('made'))
-      onCreated()
+      onCreated({ healthId: answer.healthId, claimCode: answer.claimCode })
     } catch (caught) {
       refused(caught, false, 'unverified')
     } finally {
@@ -215,8 +223,11 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated }: {
           <Alert intent="warning" title="Write this on their slip.">They’ll need the Health ID and this code to start using it later. The code isn’t shown again.</Alert>
         </> : <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>}
         {made.byEmail ? <p className="m-0 text-body text-ink-2">They’ll get an email to set a password. They can add their details and set a password later in the app.</p> : null}
-        <Button icon={Copy} className="self-start" onClick={() => { void navigator.clipboard?.writeText(made.claimCode ? `${made.healthId} ${made.claimCode}` : made.healthId).catch(() => undefined) }}>
-          Copy</Button>
+        <div className="flex flex-wrap gap-2">
+          {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={onPrintSlip}>Print slip</Button> : null}
+          <Button icon={Copy} onClick={() => { void navigator.clipboard?.writeText(made.claimCode ? `${made.healthId} ${made.claimCode}` : made.healthId).catch(() => undefined) }}>
+            Copy</Button>
+        </div>
       </div>
     )
   } else if (minor) {

@@ -1,12 +1,13 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { EhrInput, EhrTextarea } from '@hid/ui/ehr'
-import { ArrowRight, CircleCheck, Link2, UserPlus } from 'lucide-react'
+import { ArrowRight, CircleCheck, Link2, Printer, UserPlus } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
 import { staffApi, type OutreachCampaign, type OutreachCase, type PatientSummary } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { useDeptAccess } from '../parts/access'
 import { DeptPage } from '../parts/DeptPage'
 import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
@@ -19,7 +20,8 @@ import {
 import { LINKS_LATER } from './outreachGroup'
 import { GetHealthIdNow } from './GetHealthIdNow'
 import { HealthChecks } from './HealthChecks'
-import { CreateHealthId } from './CreateHealthId'
+import { CreateHealthId, type MadeHere } from './CreateHealthId'
+import { OutreachSlip, useSlipPrint } from './OutreachSlip'
 
 type LinkField = 'patient' | 'reason'
 
@@ -92,6 +94,12 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
   const doneId = `outreach-case-${item.id}-done`
+  const { facility } = useDeptAccess()
+  // The Health ID made here just now, with its claim code when made with no email or phone: in memory only, for the slip.
+  const [madeHere, setMadeHere] = useState<MadeHere | null>(null)
+  const { print, area: slipArea } = useSlipPrint()
+  const printSlip = () => print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
+    healthId={madeHere?.healthId ?? item.healthId} claimCode={madeHere?.claimCode} />)
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -240,7 +248,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   }
 
   return (
-    <DeptPage title={caseName(item)} primaryAction={(
+    <DeptPage title={caseName(item)} secondaryActions={<Button icon={Printer} onClick={printSlip}>Print slip</Button>} primaryAction={(
       // Unavailable while the link is sent, so its answer is not lost.
       <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>
     )}>
@@ -273,7 +281,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             {/* Where Outreach can make the Health ID (its registrations carry healthId), that comes first, and the person's own
                 sign-up is the fallback; elsewhere the sign-up is the way, while the registration waits for a Health ID. */}
             {(pending && !linked) || item.healthId
-              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onCreated={() => void onChanged()} /> : null}
+              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip}
+                onCreated={made => { if (made) setMadeHere(made); void onChanged() }} /> : null}
             {pending && !linked && !item.healthId
               ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} /> : null}
           </div>
@@ -287,6 +296,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         {onNew && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={onNew}>Register another person</Button> : null}
       </div>
       {sheet}
+      {slipArea}
     </DeptPage>
   )
 }

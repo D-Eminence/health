@@ -2704,9 +2704,11 @@ export const staffApi = {
   /**
    * One page of registration cases, for an export (hid-system#247): up to `limit` (1 to 500), older than the cursor
    * `before`, of one campaign when `campaignId` is given. The answer is the list's own array; X-Next-Cursor, when sent,
-   * names the next page. An Outreach before paging ignores the query and sends its newest 100 with no cursor.
+   * names the next page. An Outreach before paging ignores the query and sends its newest 100 with no cursor. Without
+   * `limit` (the Outreach list's first read) nothing but `campaignId` is asked: the request is the list's own, the newest
+   * 100, and a paging Outreach still says whether more are left.
    */
-  outreachCasesPage: async (facilityId: string, query: { campaignId?: string; limit: number; before?: string }): Promise<OutreachCasesPage> => {
+  outreachCasesPage: async (facilityId: string, query: { campaignId?: string; limit?: number; before?: string }): Promise<OutreachCasesPage> => {
     let cursor: string | null = null
     const items = await client.get<unknown>('/api/v1/outreach/registration-cases', {
       headers: facilityHeaders(facilityId), query: { limit: query.limit, campaignId: query.campaignId, before: query.before }, dedupe: false,

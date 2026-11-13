@@ -26,7 +26,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
   outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(), outreachScreening: vi.fn(), saveOutreachScreening: vi.fn(),
 }))
@@ -45,6 +45,8 @@ const saved = (version: number, values: Record<string, unknown>) => ({ ...NULLS,
   recordedAt: '2026-11-14T09:30:00.000Z', recordedByMembershipId: 'membership-demo-1', updatedAt: '2026-11-14T09:30:00.000Z' })
 
 beforeEach(() => {
+  // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
+  api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
   session.permissions = ['outreach.campaign.read', 'outreach.registration.read', 'outreach.registration.write']
   setOutreachQueueStore(memoryQueueStore())
@@ -338,7 +340,7 @@ describe('the registration’s area and the list', () => {
     const notice = registrationNotice('Ajegunle Health Volunteers')
     expect(notice).toEqual([
       'Ajegunle Health Volunteers is registering people at this event on Health ID Outreach.',
-      'We will write down your name, age and sex, your phone number or email if you want to give them, and the results of today\'s health checks, so the team can care for you and follow up.',
+      'We will write down your name, age and sex, the area where you live, your phone number or email if you want to give them, and the results of today\'s health checks, so the team can care for you and follow up.',
       'Only this outreach team and Health ID can see your details. Ajegunle Health Volunteers and Health ID are both responsible for looking after them.',
       'If you agree, we will also make a Health ID for you from these details. You can start using it later with your email, or with the code on your slip, and add the rest of your details then.',
       'If you don\'t get a Health ID, your details are deleted 1 year after the campaign closes (or 1 year after it starts, if it is never closed).',

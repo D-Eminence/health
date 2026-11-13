@@ -27,7 +27,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), lookupPatient: vi.fn(),
   // Campaign management (hid-system#222): asked of a membership that may write campaigns. Today's Outreach answers 404,
   // so these tests keep campaigns read only (OutreachCampaignAdmins.test.tsx has it served).
@@ -79,6 +79,8 @@ const LOOKED_UP = { authorization: { decision: 'allow', scope: 'read_records' },
 let setItem: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
+  // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
+  api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
   // Today's Outreach serves no health checks (0118): the section is not shown.
   api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
@@ -413,8 +415,11 @@ describe('campaigns, read only', () => {
     expect(within(members).queryByText(/Reference|membersh/)).toBeNull()
     expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
-    // Nothing to change; only Export, of this campaign's registrations (OutreachExport.test.tsx).
-    expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label') ?? button.textContent).sort()).toEqual(['Back to list', 'Export'])
+    // Nothing to change; only Export, of this campaign's registrations (OutreachExport.test.tsx), and its registrations to open.
+    const registrations = await screen.findByRole('list', { name: 'Registrations in Demo screening week' })
+    expect(within(registrations).getAllByRole('button').map(button => button.textContent)).toEqual([expect.stringMatching(/^Patient One/)])
+    expect(screen.getAllByRole('button').filter(button => !registrations.contains(button))
+      .map(button => button.getAttribute('aria-label') ?? button.textContent).sort()).toEqual(['Back to list', 'Export'])
     // Back to the list, focus returns to the campaign opened.
     await press(screen.getByRole('button', { name: 'Back to list' }))
     expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))
