@@ -546,8 +546,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   const newButton = canWrite && legacy
     ? <Button variant={onNewCampaign || continuing ? 'secondary' : 'primary'} icon={UserPlus} onClick={onNew}>New registration</Button> : null
   const continueButton = continuing
-    ? <Button id="outreach-continue" variant="primary" icon={Play} className="max-w-full" onClick={() => onContinue(continuing)}>
-      <span className="truncate">Continue {continuing.name}</span></Button> : null
+    ? <Button id="outreach-continue" variant="primary" icon={Play} className="max-w-full" aria-label={`Continue ${continuing.name}`}
+      onClick={() => onContinue(continuing)}><span className="truncate">Continue {shortName(continuing.name)}</span></Button> : null
   const newCampaign = onNewCampaign
     ? <Button id="outreach-new-campaign" variant={continuing ? 'secondary' : 'primary'} icon={Plus} onClick={onNewCampaign}>New campaign</Button> : null
   const canLink = canWrite && !group
@@ -662,4 +662,9 @@ function CaseCard({ item, campaign, canLink, group, onOpen }: {
  */
 export function OutreachRefusal() {
   return <DeptUnavailable title="Outreach unavailable" message={NO_OUTREACH} />
+}
+
+/** A long campaign name cut to fit one button line on a phone; the full name is the button's accessible name. */
+function shortName(name: string): string {
+  return name.length > 22 ? `${name.slice(0, 21).trimEnd()}…` : name
 }
