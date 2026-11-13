@@ -21,7 +21,7 @@ import { GetHealthIdNow } from './GetHealthIdNow'
 import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
-import { claimSend, noConnection, useOutreachQueue, type QueueSyncResult } from './offlineQueue'
+import { claimSend, noConnection, useOutreachQueue, type PendingRegistration, type QueueSyncResult } from './offlineQueue'
 import { outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
 import { noteOutreachRegistrations, outreachServed } from './outreachServed'
 import { offlineShellHere } from '../../../productHostname'
@@ -35,6 +35,9 @@ const PAGE_SIZE = 50
 
 /** How often the campaigns open now are judged again while the page is open. */
 const CAMPAIGN_CLOCK_MS = 60_000
+
+/** The registrations kept on this device as the page lists them, each with its state: what a note about a round was said of. */
+const queueShape = (entries: readonly PendingRegistration[]) => entries.map(entry => `${entry.localCommandId}:${entry.state}`).join(' ')
 
 /**
  * Renders the page again every minute, and as it is shown again, while `enabled`: whether a campaign is open now is
@@ -224,10 +227,11 @@ export function Outreach() {
   const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string; ageYears: number } | null>(null)
   const queuedShown = queuedNote !== null && queuedNote.facilityId === facilityId
     && queue.entries.some(entry => entry.localCommandId === queuedNote.localCommandId && entry.state === 'waiting')
-  // What "Send now" did, until the next registration is sent. Anything but "all sent" goes once nothing is left on this device.
+  // What "Send now" did, while the list is as that round left it: once another round sends one (or one is kept, removed or
+  // refused), its counts no longer hold and it goes. Also cleared as the next registration is sent.
   const [sendNote, setSendNote] = useState<{ facilityId: string; result: QueueSyncResult } | null>(null)
   const sendDone = sendNote ? sendNote.result.waiting === 0 && sendNote.result.refused === 0 : false
-  const sendShown = sendNote?.facilityId === facilityId && (sendDone || queue.entries.length > 0)
+  const sendShown = sendNote !== null && sendNote.facilityId === facilityId && queueShape(sendNote.result.left) === queueShape(queue.entries)
   // A registration the list already holds (Health ID took it, and its answer was lost or is still on its way) is shown
   // once, as the list's row: not under "Saved on this device" too, while the queue sends it again (answered the same).
   const listedTemporary = new Set((cases.value ?? []).map(item => item.temporaryPatientId).filter(Boolean))
@@ -263,6 +267,9 @@ export function Outreach() {
     const read = members.get(campaignId)
     return read?.facilityId === facilityId ? read : undefined
   }
+  // Refresh reads each listed campaign's members again too: a read that failed is tried again, and someone just added to a
+  // campaign is offered it.
+  const refreshMembers = () => Promise.all([...members.values()].filter(read => read.facilityId === facilityId).map(read => read.refresh()))
   const campaignOf = (campaignId: string | undefined) => campaignId ? campaigns.value?.find(campaign => campaign.id === campaignId) : undefined
   // Why the form lists no campaign, when it may not be that the person is in none: the campaigns, or a running campaign's
   // members, are still being read, or couldn't be (opened with no signal, say).
@@ -319,7 +326,7 @@ export function Outreach() {
   } else {
     content = (
       <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} canExport={canExport} cases={cases} campaigns={campaigns}
-        group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
+        refreshMembers={refreshMembers} group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
           {queuedShown ? <>
@@ -379,8 +386,8 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
-function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cases, campaigns, group, top, bottom, campaignOf, onNew, onNewCampaign, onOpenCase,
-  onOpenCampaign }: {
+function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cases, campaigns, refreshMembers, group, top, bottom, campaignOf, onNew, onNewCampaign,
+  onOpenCase, onOpenCampaign }: {
   readonly canReadCases: boolean
   /** Export is offered: reading registrations, and at an outreach group, its organiser. */
   readonly canExport: boolean
@@ -394,6 +401,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   readonly canWrite: boolean
   readonly cases: CasesRead
   readonly campaigns: ListRead<OutreachCampaign>
+  /** Reads each listed campaign's members again, as Refresh reads the lists again. */
+  readonly refreshMembers: () => Promise<unknown>
   readonly campaignOf: (campaignId: string | undefined) => OutreachCampaign | undefined
   readonly onNew: () => void
   /** Opens "New campaign", where Outreach serves campaign management to this membership. */
@@ -406,7 +415,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   const [page, setPage] = useState(0)
   const focus = useFocusById()
   const loading = (canReadCases && cases.loading) || (canReadCampaigns && campaigns.loading)
-  const refresh = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined])
+  const refresh = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined,
+    canReadCampaigns ? refreshMembers() : undefined])
 
   // Newest first: the person just met is the one most likely to be looked for.
   const all = [...(cases.value ?? [])].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
