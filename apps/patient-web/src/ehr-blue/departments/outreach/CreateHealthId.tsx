@@ -312,8 +312,10 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       setWait(after)
       focus(id('code'))
     } catch (caught) {
-      if (!isHidApiError(caught) && method === 'email') {
-        // The answer was lost: the code may have been sent. Let them type it, or try again with the same request.
+      // The http client wraps a lost answer as status 0 (no network) or 408 (timeout).
+      if ((!isHidApiError(caught) || caught.status === 0 || caught.status === 408) && method === 'email') {
+        // The answer was lost: the code may have been sent. Let them type it, or try again with the same request (the
+        // same key, so the open code is sent again, not a second one).
         sentAt.current = new Date().toISOString()
         setSent({ hint: body.channel === 'email' ? body.email : '', channel: 'email' })
         setError('We couldn’t tell if the code was sent. If an email arrived, ask them for the code. If not, send the code again.')

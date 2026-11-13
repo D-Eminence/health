@@ -429,3 +429,13 @@ describe('Create Health ID with no email: a lost answer', () => {
     expect(api.createUnverifiedOutreachHealthId).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Send code: a lost answer', () => {
+  it.each([[0, 'NETWORK_ERROR'], [408, 'REQUEST_TIMEOUT']])('shows the code box after a lost answer (%s): the code may have been sent', async (status, code) => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new HidApiError(status, 'x', { code }))
+    renderSection()
+    await sendEmail()
+    expect(await within(region()).findByRole('textbox', { name: /6-digit code/ })).toBeTruthy()
+    expect(region().textContent).toContain('We couldn’t tell if the code was sent. If an email arrived, ask them for the code. If not, send the code again.')
+  })
+})
