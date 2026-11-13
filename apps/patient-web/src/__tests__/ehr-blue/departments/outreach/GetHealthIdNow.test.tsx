@@ -309,6 +309,15 @@ describe('a registration with a Health ID made at outreach', () => {
     expect(main).not.toContain(LINKS_LATER)
   })
 
+  it('for under-18s with none yet, says a parent or guardian must agree instead of pointing to Create Health ID', async () => {
+    const card = await openFromList({ ...pending('case-h6'), ageYears: 16, healthId: null })
+    await openCard(card)
+    const main = document.body.textContent ?? ''
+    expect(main).toContain('No Health ID yet')
+    expect(main).toContain(GUARDIAN_WORDS)
+    expect(main).not.toContain('If they want one, use Create Health ID below.')
+  })
+
   it('keeps “links their own Health ID later” where Outreach makes none (no healthId on its reads)', async () => {
     const card = await openFromList(pending('case-h3'))
     expect(card.textContent).toContain('They link their own Health ID later')
