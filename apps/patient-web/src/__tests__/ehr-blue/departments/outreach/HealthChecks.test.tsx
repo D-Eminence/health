@@ -6,7 +6,7 @@ import { HealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
-import { REGISTRATION_NOTICE_VERSION, registrationNotice, registrationNotice20261101 } from '../../../../outreachTerms'
+import { REGISTRATION_NOTICE_VERSION, registrationNotice, registrationNotice20261114, registrationNotice20261101 } from '../../../../outreachTerms'
 
 /*
  * "Health checks" on a registration (outreach-api 0118): hidden while Outreach does not serve the route, the whole
@@ -463,8 +463,12 @@ describe('the registration’s area and the list', () => {
     expect(screen.getByRole('button', { name: /Ada Obi/ }).textContent).not.toContain('Health checks recorded')
   })
 
-  it('tells the person, in the 2026-11-14 notice, that health checks are written down and a Health ID is their choice', () => {
-    const notice = registrationNotice('Ajegunle Health Volunteers')
+  it('reads the one-line notice the owner chose (Q76), and keeps the 2026-11-14 notice for the record', () => {
+    expect(registrationNotice('Ajegunle Health Volunteers')).toEqual([
+      'Ajegunle Health Volunteers will write down your details and today\'s health check results, to care for you and follow up and assign a Health ID for you. Only this team and Health ID can see them.',
+    ])
+    expect(REGISTRATION_NOTICE_VERSION).toBe('outreach-notice-2026-11-14b')
+    const notice = registrationNotice20261114('Ajegunle Health Volunteers')
     expect(notice).toEqual([
       'Ajegunle Health Volunteers is registering people at this event on Health ID Outreach.',
       'We will write down your name, age and sex, the area where you live, your phone number or email if you want to give them, and the results of today\'s health checks, so the team can care for you and follow up.',
@@ -474,7 +478,6 @@ describe('the registration’s area and the list', () => {
       'You can say no to being registered. You can also say yes to being registered but no to a Health ID.',
       'To have your details deleted sooner, or to complain, contact Health ID support.',
     ])
-    expect(REGISTRATION_NOTICE_VERSION).toBe('outreach-notice-2026-11-14')
     expect(registrationNotice20261101('x').join(' ')).toContain('This does not give you a Health ID.')
   })
 })

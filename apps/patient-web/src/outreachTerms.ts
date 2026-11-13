@@ -11,7 +11,7 @@ import type { OutreachConsentLanguage, OutreachConsentMethod } from './staff/api
 /** The organiser terms' version, as Identity accepts it (identity-api OUTREACH_ORGANISER_TERMS_VERSION). */
 export const ORGANISER_TERMS_VERSION = '2026-11-01'
 /** The registration notice's version, recorded with each person's agreement (outreach-api consent.textVersion). */
-export const REGISTRATION_NOTICE_VERSION = 'outreach-notice-2026-11-14'
+export const REGISTRATION_NOTICE_VERSION = 'outreach-notice-2026-11-14b'
 /** The longest note an outreach group may keep on a registration (outreach-api OUTREACH_NOTES_LIMIT). */
 export const OUTREACH_NOTES_LIMIT = 1000
 /** How long details never linked to a Health ID are kept (owner decision 3). */
@@ -87,12 +87,23 @@ export const ORGANISER_TERMS_SUMMARY: readonly string[] = [
 ]
 
 /**
- * The registration notice (version outreach-notice-2026-11-14), read to each person before they are registered, or read
- * by them. `group`: the outreach group's name, as the working facility is named. With health checks and a Health ID made
- * at the event, which the person agrees to separately ("They want a Health ID"). Owner approved in chat on 2026-11-13:
- * Q68 notice approved; line 2 adds the area (Q71 add area).
+ * The registration notice (version outreach-notice-2026-11-14b), read to each person before they are registered.
+ * `group`: the outreach group's name, as the working facility is named. One line, in the owner's words (Q76, in chat on
+ * 2026-11-13): it replaces the longer 2026-11-14 notice and the "Unverified organiser" line.
  */
 export function registrationNotice(group: string): readonly string[] {
+  const who = group.trim() || 'This outreach group'
+  return [
+    `${who} will write down your details and today's health check results, to care for you and follow up and assign a Health ID for you. Only this team and Health ID can see them.`,
+  ]
+}
+
+/**
+ * The registration notice's earlier version (outreach-notice-2026-11-14), kept for the record: registrations agreed
+ * before the one-line notice (Q76) were given these words. Owner approved in chat on 2026-11-13: Q68; line 2 adds the
+ * area (Q71).
+ */
+export function registrationNotice20261114(group: string): readonly string[] {
   const who = group.trim() || 'This outreach group'
   return [
     `${who} is registering people at this event on Health ID Outreach.`,
@@ -133,7 +144,7 @@ export const CONSENT_LANGUAGES: ReadonlyArray<{ readonly value: OutreachConsentL
 
 /** How the person agreed, in the words the form offers. */
 export const CONSENT_METHODS: ReadonlyArray<{ readonly value: OutreachConsentMethod; readonly label: string; readonly hint: string }> = [
-  { value: 'verbal_read_aloud', label: 'I read it to them and they said yes', hint: 'Read every line of the notice to them.' },
+  { value: 'verbal_read_aloud', label: 'I read it to them and they said yes', hint: 'Read the notice above to them.' },
   { value: 'self_ticked', label: 'They read it themselves and agreed', hint: 'Let them read the notice on this screen.' },
   { value: 'guardian', label: 'Their parent or guardian agreed for them', hint: 'Needed for anyone under 18.' },
 ]

@@ -77,7 +77,9 @@ async function openNewRegistration() {
 
 function fillPerson(age = '30') {
   fireEvent.change(textbox(/Full name/), { target: { value: 'Kemi Balogun' } })
-  fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: age } })
+  const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+  fireEvent.change(ageBox, { target: { value: age } })
+  fireEvent.blur(ageBox)
 }
 
 describe('an outreach group’s Outreach', () => {
@@ -168,14 +170,11 @@ describe('registering someone at an outreach group', () => {
     api.createOutreachCase.mockResolvedValue({ ...pending('case-1', 'Kemi Balogun'), possibleDuplicate: false })
     await openNewRegistration()
     const notice = screen.getByRole('note', { name: 'Registration notice' })
-    expect(notice.textContent).toContain('Ajegunle Health Volunteers is registering people at this event on Health ID Outreach.')
-    expect(notice.textContent).toContain('Unverified organiser. Health ID has not checked who runs Ajegunle Health Volunteers.')
-    expect(notice.textContent).toContain('deleted 1 year after the campaign closes')
-    expect(notice.textContent).toContain('You can say no to being registered.')
+    expect(notice.textContent).toBe('Ajegunle Health Volunteers will write down your details and today\'s health check results, to care for you and follow up and assign a Health ID for you. Only this team and Health ID can see them.')
+    expect(document.body.textContent).not.toContain('Unverified organiser')
+    // Read aloud and English are chosen already (Q76): the volunteer only taps Save.
+    expect((screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement).checked).toBe(true)
     fillPerson()
-    await press(screen.getByRole('button', { name: 'Save registration' }))
-    expect(screen.getByText('Choose how the person agreed.')).toBeTruthy()
-    expect(api.createOutreachCase).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByRole('combobox', { name: /Language the notice was given in/ }), { target: { value: 'yo' } })
     expect(screen.getByText('You read the notice aloud in this language.')).toBeTruthy()
@@ -185,9 +184,35 @@ describe('registering someone at an outreach group', () => {
     const [facility, input, command] = api.createOutreachCase.mock.calls[0]!
     expect(facility).toBe(GROUP_ID)
     expect(input).toMatchObject({ campaignId: 'campaign-1', fullName: 'Kemi Balogun', ageYears: 30,
-      consent: { textVersion: 'outreach-notice-2026-11-14', language: 'yo', method: 'verbal_read_aloud' } })
+      consent: { textVersion: 'outreach-notice-2026-11-14b', language: 'yo', method: 'verbal_read_aloud' } })
     expect(input.consent.guardianName).toBeUndefined()
     expect(command.localCommandId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('typing an adult\'s age keeps how they agreed: "35" passes through "3" without switching to a guardian (item 0)', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-35', 'Kemi Balogun'), possibleDuplicate: false })
+    await openNewRegistration()
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Kemi Balogun' } })
+    const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(ageBox, { target: { value: '3' } })
+    fireEvent.change(ageBox, { target: { value: '35' } })
+    fireEvent.blur(ageBox)
+    expect((screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement).checked).toBe(true)
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14b', language: 'en', method: 'verbal_read_aloud' })
+  })
+
+  it('an age corrected from 17 to 18 brings back the way they agreed that the volunteer chose', async () => {
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(ageBox, { target: { value: '17' } })
+    fireEvent.blur(ageBox)
+    expect((screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.change(ageBox, { target: { value: '18' } })
+    fireEvent.blur(ageBox)
+    expect((screen.getByRole('radio', { name: /They read it themselves and agreed/ }) as HTMLInputElement).checked).toBe(true)
   })
 
   it('needs a parent or guardian’s name for anyone under 18', async () => {
@@ -201,7 +226,7 @@ describe('registering someone at an outreach group', () => {
     fireEvent.change(textbox(/Parent or guardian’s name/), { target: { value: 'Ngozi Obi' } })
     await press(screen.getByRole('button', { name: 'Save registration' }))
     await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
-    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14', language: 'en',
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14b', language: 'en',
       method: 'guardian', guardianName: 'Ngozi Obi' })
   })
 

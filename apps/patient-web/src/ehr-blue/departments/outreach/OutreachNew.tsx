@@ -132,7 +132,10 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
   const formRef = useRef<HTMLFormElement>(null)
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
   const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
-  const [method, setMethod] = useState<OutreachConsentMethod | ''>('')
+  // Read aloud is chosen by default (Q76); a guardian is chosen for an age under 18, and the volunteer's own choice
+  // comes back if the age is corrected to 18 or over.
+  const [method, setMethod] = useState<OutreachConsentMethod | ''>('verbal_read_aloud')
+  const chosenMethod = useRef<OutreachConsentMethod>('verbal_read_aloud')
   // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
   const [minorAge, setMinorAge] = useState(false)
   const [notesLength, setNotesLength] = useState(0)
@@ -285,7 +288,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
 
   function resetConsent() {
     setLanguage('en')
-    setMethod('')
+    setMethod('verbal_read_aloud')
+    chosenMethod.current = 'verbal_read_aloud'
     setMinorAge(false)
     setNotesLength(0)
   }
@@ -302,7 +306,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
       <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}>
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
-        {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage} onMethod={setMethod}
+        {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage}
+          onMethod={choice => { setMethod(choice); if (choice !== 'guardian') chosenMethod.current = choice }}
           methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
         <Step n={group ? 2 : 1} title="Who they are" hint={group ? 'As they say it.' : 'As they say it. You can correct it when you link their Health ID.'}>
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
@@ -319,10 +324,12 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
             </OutreachField>
             <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
               <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
-                onChange={group ? event => {
+                onBlur={group ? event => {
+                  // Decided once the age is typed, not on each keystroke: "35" passes through "3" on the way.
                   const minor = isMinorAge(event.target.value.trim())
                   setMinorAge(minor)
                   if (minor) setMethod('guardian')
+                  else setMethod(current => (current === 'guardian' || current === '') ? chosenMethod.current : current)
                 } : undefined} />
             </OutreachField>
           </div>
@@ -402,10 +409,8 @@ function ConsentStep({ group, language, method, minor, onLanguage, onMethod, met
   readonly guardian: { error: string | undefined; alert: boolean; seq: number }
 }) {
   return (
-    <Step n={1} title="Their agreement" hint="Before you write anything down, give them this notice and ask if they agree.">
+    <Step n={1} title="Their agreement" hint="Before you write anything down, read this to them and ask if they agree.">
       <div className="rounded-xl bg-subtle p-4 text-body text-ink" aria-label="Registration notice" role="note">
-        {/* Health ID never verifies an outreach group (owner decision Q38), and the person is told so before agreeing. */}
-        <p className="m-0 mb-2"><strong>Unverified organiser.</strong> Health ID has not checked who runs {group.trim() || 'this outreach group'}.</p>
         {registrationNotice(group).map(line => <p key={line} className="m-0 mb-2 last:mb-0">{line}</p>)}
       </div>
       <OutreachField id="outreach-consent-language" label="Language the notice was given in" required
