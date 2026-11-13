@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react'
-import { cx, StatCard } from '../../../../kasuwa/ui'
+import { cx, StatCard, StatGroup } from '../../../../kasuwa/ui'
 import { campaignFlowErrorText, isNotOffered } from '../campaignApi'
 import { focusLabel, type FocusId, type TeamRole } from '../campaignTypes'
 import { TESTS } from '../screeningTemplates'
@@ -171,6 +171,21 @@ export function StatTile({ onOpen, id, ...card }: ComponentProps<typeof StatCard
   )
 }
 
+/**
+ * Outreach's five number tiles (the organisation's and a campaign's Overview), by the room the page gives them
+ * (index.css .hid-outreach-tiles): one row of five on a wide page; narrower, the first tile (`hero`: people reached, or
+ * registered) across the row and the other four in one row, or two by two on a phone, each tile compact there (its icon
+ * beside the number). No tile left alone on a row, and a number never breaks. Kasuwa's StatGroup and StatCard as they are.
+ */
+export function NumberTiles({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return <StatGroup label={label} className="hid-outreach-tiles">{children}</StatGroup>
+}
+
+/** One of NumberTiles' tiles: a StatTile with the tile's compact layout; `hero` for the first, wide one. */
+export function NumberTile({ hero, ...tile }: ComponentProps<typeof StatTile> & { readonly hero?: boolean }) {
+  return <StatTile {...tile} className={cx('hid-outreach-tile', hero && 'hid-outreach-tile-hero', tile.className)} />
+}
+
 /** The roles' words, joined: "Registrar and vital signs". */
 export function rolesWords(roles: readonly TeamRole[], label: (role: string) => string): string {
   const words = roles.map(label)
@@ -179,8 +194,8 @@ export function rolesWords(roles: readonly TeamRole[], label: (role: string) => 
 }
 
 /**
- * One part of a page at a time (owner, 13 Nov 2026: no long pages): a row of tabs (44px tall, arrow keys move between
- * them) and the chosen part under it. The first part shows to begin with.
+ * One part of a page at a time (owner, 13 Nov 2026: no long pages): one row of tabs (44px tall, arrow keys move between
+ * them; on a phone they share the row's width rather than wrap) and the chosen part under it. The first part shows to begin with.
  */
 export function SectionSwitch<T extends string>({ id, label, sections, initial }: {
   readonly id: string
@@ -203,17 +218,17 @@ export function SectionSwitch<T extends string>({ id, label, sections, initial }
   }
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div role="tablist" aria-label={label} className="flex max-w-full flex-wrap gap-1 self-start rounded-xl bg-tray p-1">
+      <div role="tablist" aria-label={label} className="flex w-full min-w-0 gap-0.5 rounded-xl bg-tray p-1 @xl:w-auto @xl:self-start @xl:gap-1">
         {sections.map((section, index) => {
           const selected = section.value === shown.value
           return (
             <button key={section.value} type="button" role="tab" id={`${id}-tab-${section.value}`} aria-selected={selected} aria-controls={`${id}-panel`}
               tabIndex={selected ? 0 : -1} onClick={() => setChosen(section.value)} onKeyDown={event => onKey(event, index)}
               ref={element => { if (element) buttons.current.set(section.value, element); else buttons.current.delete(section.value) }}
-              className={cx('inline-flex h-11 cursor-pointer items-center justify-center rounded-lg border-0 px-3 text-[14px] font-medium whitespace-nowrap',
+              className={cx('inline-flex h-11 min-w-0 flex-auto cursor-pointer items-center justify-center rounded-lg border-0 px-1.5 text-[13px] font-medium whitespace-nowrap @xl:flex-none @xl:px-3 @xl:text-[14px]',
                 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
                 selected ? 'bg-surface text-ink shadow-[var(--shadow-xs)] ring-1 ring-line' : 'bg-transparent text-ink-2 hover:text-ink')}>
-              {section.label}
+              <span className="truncate">{section.label}</span>
             </button>
           )
         })}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { ArrowRight, CircleCheck, ClipboardList, LayoutGrid, Megaphone, Play, Plus, UserPlus, Users } from 'lucide-react'
+import { ArrowRight, CircleCheck, ClipboardList, Megaphone, Play, Plus, UserPlus, Users } from 'lucide-react'
 import { LoadingRows, PageState } from '../../../kasuwa/parts'
 import { Badge, Button, FilterTabs } from '../../../kasuwa/ui'
 import { EnsureToastProvider, useToast } from '../../../kasuwa/toast'
@@ -21,7 +21,7 @@ import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './Outreac
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
 import { lastOpenedCampaign, outreachQueueStore, rememberOpenedCampaign, useOutreachQueue } from './offlineQueue'
 import {
-  isOutreachAddress, OUTREACH_HOME, setOutreachNav, setOutreachSearch, tabAddress, tabOfAddress, type OutreachNavState, type OutreachSearchHit,
+  CAMPAIGNS_ADDRESS, isCampaignsAddress, isOutreachAddress, OUTREACH_HOME, setOutreachNav, useOutreachStandalone, setOutreachSearch, tabAddress, tabOfAddress, type OutreachNavState, type OutreachSearchHit,
 } from './outreachNav'
 import {
   ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
@@ -111,6 +111,8 @@ function OutreachPage() {
   const { facility, facilityId, membershipId, permissions, actorId } = useDeptAccess()
   const toast = useToast()
   const { lock } = useStaff()
+  // Outreach on its own: its menu leads to Campaigns, so that page has no way back of its own.
+  const standalone = useOutreachStandalone()
   // An outreach group's own facility (open sign-up on outreach.), as its roles say; a hospital's outreach team is not one.
   const group = isOutreachGroup(facility)
   const organiser = group && isOrganiser(facility)
@@ -298,7 +300,7 @@ function OutreachPage() {
   const navTabs = navCampaign && served(navCampaign.id) ? tabsOf(navCampaign.id) : null
   /** The address that says where the page is: its list, or a campaign hub's tab. Null where the address stays as it is. */
   const hubTab = view.kind === 'campaign' && served(view.id) ? shownTab(tabsOf(view.id), view.tab ?? lastTabs.current.get(view.id)) : undefined
-  const address = view.kind === 'list' ? OUTREACH_HOME : hubTab ? tabAddress(hubTab) : null
+  const address = view.kind === 'list' ? OUTREACH_HOME : view.kind === 'campaigns' ? CAMPAIGNS_ADDRESS : hubTab ? tabAddress(hubTab) : null
   // The campaigns running now that this person is on (owner, 13 Nov 2026: no reselecting): on its team, or a member.
   const running = (campaigns.value ?? []).filter(campaign => campaign.status === 'active' && campaignOpenNow(campaign))
   const mine = running.filter(campaign => served(campaign.id)
@@ -316,7 +318,7 @@ function OutreachPage() {
   else if (view.kind !== 'list' || !canReadCampaigns || (campaigns.value === null && !campaigns.loading)) arrival = 'list'
   else if (campaigns.value === null || lastCampaign?.facilityId !== facilityId) arrival = undefined
   else if (running.some(campaign => !summaryOf(campaign.id)) || (rememberedId && campaignOf(rememberedId) && !summaryOf(rememberedId))) arrival = undefined
-  else if (manager && !legacyOutreach && !tabOfAddress(location.pathname)) arrival = 'list'
+  else if (isCampaignsAddress(location.pathname) || (manager && !legacyOutreach && !tabOfAddress(location.pathname))) arrival = 'list'
   else if (mine.length === 1) arrival = mine[0]
   // Someone who only works in the field goes to the campaign they were last in (else the first running for them).
   else if (!manager && continuing) arrival = continuing
@@ -326,15 +328,23 @@ function OutreachPage() {
   }
   const arrive = (pick: OutreachCampaign | 'list') => {
     setArrived(facilityId)
-    if (pick === 'list') return
+    // Campaigns' own address (followed from the menu, or the page reloaded there) opens Campaigns.
+    if (pick === 'list') {
+      if (isCampaignsAddress(location.pathname) && !legacyHome) setPlace({ facilityId, view: { kind: 'campaigns' } })
+      return
+    }
     const tab = tabOfAddress(location.pathname) ?? lastTabs.current.get(pick.id)
     setPlace({ facilityId, view: { kind: 'campaign', id: pick.id, snapshot: pick, tab } })
     setFocusRequest({ ifLost: true })
   }
-  /** An address the person followed (the menu's Campaigns or a tab): the page goes there, when it isn't there already. */
-  const followAddress = (tab: CampaignTab | null) => {
-    if (tab === null) {
+  /** An address the person followed (the menu's Overview, Campaigns or a section): the page goes there, when it isn't there already. */
+  const followAddress = (tab: CampaignTab | 'home' | 'campaigns') => {
+    if (tab === 'home') {
       if (view.kind !== 'list') backToList()
+      return
+    }
+    if (tab === 'campaigns') {
+      if (view.kind !== 'campaigns' && !legacyHome) show({ kind: 'campaigns' })
       return
     }
     if (view.kind === 'campaign' && hubTab === tab) return
@@ -410,7 +420,7 @@ function OutreachPage() {
         setSummaryEpoch(epoch => epoch + 1)
         const made = campaignOf(campaignId) ?? { id: campaignId, name: 'New campaign', status: 'planned', services: ['registration'],
           startsAt: new Date().toISOString(), rowVersion: 0 }
-        // Inside the campaign made, on the first tab the person's roles have (Today, or the Dashboard): no reselecting.
+        // Inside the campaign made, on the first section the person's roles have (its Overview, or Today): no reselecting.
         show({ kind: 'campaign', id: campaignId, snapshot: made, created: true })
       }} />
   } else if (view.kind === 'campaign' && canReadCampaigns) {
@@ -429,7 +439,7 @@ function OutreachPage() {
       content = <CampaignHub key={campaign.id} campaign={campaign} summary={summary} roles={roles} tab={view.tab ?? lastTabs.current.get(campaign.id)}
         onTab={tab => { lastTabs.current.set(campaign.id, tab); setPlace({ facilityId, view: { ...here, tab } }) }}
         facilityId={facilityId} accountId={actorId} cases={canReadCases ? cases : null}
-        onBack={() => backToList(`outreach-campaign-${campaign.id}-open`)}
+        onBack={() => show({ kind: 'campaigns' }, `outreach-campaign-${campaign.id}-open`)}
         onOpenVisit={(visit: OutreachVisit) => show({ kind: 'visit', campaign, caseId: visit.id, tab: 'people' })}
         onRegistered={() => { void cases.refresh(); setSummaryEpoch(epoch => epoch + 1) }}
         onReport={canReadReport(roles) ? () => show({ kind: 'report', campaign, tab: view.tab }) : undefined}
@@ -456,8 +466,11 @@ function OutreachPage() {
       </DeptPage>
     )
   } else if (view.kind === 'campaigns' && canReadCampaigns) {
+    // Campaigns: every campaign, a page of its own (owner, 13 Nov 2026). Where Outreach is on its own the menu leads
+    // here; inside a hospital's EHR the Overview's All campaigns does, and its arrow goes back.
     content = (
-      <DeptPage title="All campaigns" onBack={() => backToList('outreach-home-more')} backLabel="Back to Outreach">
+      <DeptPage title="Campaigns" description={organisationName} onBack={standalone ? undefined : () => backToList('outreach-all-campaigns')} backLabel="Back to Overview"
+        primaryAction={canManage ? <Button id="outreach-new-campaign" variant="primary" icon={Plus} onClick={() => show({ kind: 'newCampaign' })}>New campaign</Button> : undefined}>
         <PageState loading={campaigns.loading} error={campaigns.value ? null : campaigns.error || null} hasData={campaigns.value !== null}
           onRetry={() => void campaigns.refresh()} what="campaigns" rows={3}
           empty={campaigns.value?.length === 0 ? { icon: Megaphone, title: 'No campaigns yet', description: 'Campaigns your organisation runs show here.' } : null}>
@@ -467,7 +480,7 @@ function OutreachPage() {
     )
   } else if (view.kind === 'team' && organiser) {
     content = (
-      <DeptPage title="Team" description={facility?.name} onBack={() => backToList('outreach-home-more')} backLabel="Back to Outreach">
+      <DeptPage title="Team" description={facility?.name} onBack={() => backToList('outreach-home-more')} backLabel="Back to Overview">
         <OutreachTeam facilityId={facilityId} />
       </DeptPage>
     )
@@ -487,7 +500,6 @@ function OutreachPage() {
     const listedCampaigns = campaigns.value ?? []
     const registrationsBefore = canReadCases && (cases.value ?? []).some(homeCases)
     const menu: MoreItem[] = [
-      ...(listedCampaigns.length ? [{ id: 'outreach-menu-campaigns', label: 'All campaigns', icon: LayoutGrid, onSelect: () => show({ kind: 'campaigns' }) }] : []),
       ...(organiser ? [{ id: 'outreach-menu-team', label: 'Team', icon: Users, onSelect: () => show({ kind: 'team' }) }] : []),
       ...(registrationsBefore ? [{ id: 'outreach-menu-registrations', label: 'Registered before campaigns', icon: ClipboardList, onSelect: () => show({ kind: 'registrations' }) }] : []),
     ]
@@ -550,7 +562,7 @@ function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, opened
   readonly arrival: OutreachCampaign | 'list' | undefined
   readonly onArrive: (pick: OutreachCampaign | 'list') => void
   readonly address: string | null
-  readonly onAddress: (tab: CampaignTab | null) => void
+  readonly onAddress: (where: CampaignTab | 'home' | 'campaigns') => void
   readonly nav: OutreachNavState | null
   readonly openedId: string | undefined
   readonly onOpened: (campaignId: string) => void
@@ -570,15 +582,23 @@ function PlaceKeeper({ ready, arrival, onArrive, address, onAddress, nav, opened
   useEffect(() => { if (!ready && arrival !== undefined) latest.current.onArrive(arrival) }, [ready, arrival])
   // The address says where the page is, replacing the one before (the history keeps no step per tab).
   useEffect(() => {
-    if (ready && inFrame && address && address !== location.pathname) navigate(address, { replace: true })
-  }, [ready, inFrame, address, location.pathname, navigate])
-  // An address followed from the menu (a new history entry, even to the same address): the page goes there.
+    if (ready && inFrame && address && address !== location.pathname && location.hash !== '#menu') navigate(address, { replace: true })
+  }, [ready, inFrame, address, location.pathname, location.hash, navigate])
+  // An address followed from the menu (a new history entry, even to the same address): the page goes there. Opening the
+  // Menu page (#menu) and closing it again (back, or Close) leave the page where it was: the campaign open stays open.
   const seen = useRef(location.key)
+  const before = useRef(location)
+  const navigationType = useNavigationType()
   useEffect(() => {
     if (seen.current === location.key) return
     seen.current = location.key
-    if (ready && inFrame) latest.current.onAddress(tabOfAddress(location.pathname))
-  }, [location.key, location.pathname, ready, inFrame])
+    const was = before.current
+    before.current = location
+    const menuOpened = location.hash === '#menu'
+    const menuClosed = was.hash === '#menu' && was.pathname === location.pathname && navigationType !== 'PUSH'
+    if (menuOpened || menuClosed) return
+    if (ready && inFrame) latest.current.onAddress(isCampaignsAddress(location.pathname) ? 'campaigns' : tabOfAddress(location.pathname) ?? 'home')
+  }, [location, ready, inFrame, navigationType])
   useEffect(() => { setOutreachNav(nav) })
   useEffect(() => () => setOutreachNav(null), [])
   useEffect(() => { if (openedId) latest.current.onOpened(openedId) }, [openedId])
@@ -683,7 +703,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   useErrorToast(cases.error && listed ? cases.error : null, 'Couldn’t refresh registrations', () => void cases.refresh())
 
   return (
-    <DeptPage title={title} onBack={onBack} backLabel={onBack ? 'Back to Outreach' : undefined}
+    <DeptPage title={title} onBack={onBack} backLabel={onBack ? 'Back to Overview' : undefined}
       description={onBack ? 'People registered before your campaigns, and what each one needs next.' : canReadCampaigns ? 'Your campaigns, and the people registered in the field.' : 'People registered in the field, and what each one needs next.'}
       primaryAction={continueButton ?? newCampaign ?? newButton ?? undefined}
       secondaryActions={continueButton ? newCampaign || newButton ? <>{newCampaign}{newButton}</> : undefined

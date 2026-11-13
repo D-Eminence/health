@@ -30,14 +30,16 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
  * The campaigns as cards: name (large), status in words, dates, focuses, and where the campaign routes are served its
  * sites, people registered, positives (to those who may see them) and referrals. One button opens it.
  */
-export function CampaignCards({ campaigns, summaryOf, registeredIn, onOpen }: {
+export function CampaignCards({ campaigns, summaryOf, registeredIn, onOpen, label = 'Campaigns' }: {
+  /** The list's name: Campaigns, or Running now on the Overview. */
+  readonly label?: string
   readonly campaigns: readonly OutreachCampaign[]
   readonly summaryOf: (campaignId: string) => CampaignSummary | undefined
   readonly registeredIn: (campaignId: string) => number | undefined
   readonly onOpen: (campaign: OutreachCampaign) => void
 }) {
   return (
-    <ul aria-label="Campaigns" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
+    <ul aria-label={label} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
       {campaigns.map(campaign => {
         const summary = summaryOf(campaign.id)
         const counts = cardCounts(summary, registeredIn(campaign.id))

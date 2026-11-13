@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
 import type { StaffSession } from '../../../../staff/api'
 import { outreachPage } from '../../../../ehr-blue/departments/outreach/page'
-import { SESSION, facility, json, openStaffApp, serve, sessionAt } from '../../frame/blueHarness'
+import { SESSION, facility, json, openStaffApp, serve, sessionAt, where } from '../../frame/blueHarness'
 
 /*
  * Outreach inside the blue EHR's frame, as today's page opens it: with campaign or registration read, each reading only
@@ -68,12 +68,13 @@ describe('a membership with campaign read only', () => {
 })
 
 describe('a membership with registration read', () => {
-  it('lists Outreach in the sidebar (as Campaigns, Outreach on its own here) and opens it', async () => {
+  it('lists Outreach in the sidebar (as Overview, Outreach on its own here, with no Campaigns without campaign read) and opens it', async () => {
     const demo = demoOutreach(['outreach.registration.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CASES]: [() => json([]), () => json([])] })
     await openStaffApp('/provider/outreach')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
-    expect(within(nav).getByRole('link', { name: 'Campaigns' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).queryByRole('link', { name: 'Campaigns' })).toBeNull()
     await waitFor(() => expect(sent.filter(request => request.route === CASES).length).toBeGreaterThan(0))
     expect(sent.filter(request => request.route === CAMPAIGNS)).toHaveLength(0)
   })
@@ -92,5 +93,55 @@ describe('a membership with neither', () => {
     expect(screen.queryByText(/read permission/)).toBeNull()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
     expect(sent.filter(request => request.route === CAMPAIGNS || request.route === CASES)).toHaveLength(0)
+  })
+})
+
+describe('Outreach on its own, inside a campaign, on a phone’s Menu', () => {
+  // Owner, 13 November 2026: opening Menu inside a campaign kept nothing of it. Now the tab bar keeps the campaign's
+  // Today, the Menu page lists the campaign's sections under its name, and closing the Menu shows the campaign as it was,
+  // reading nothing again.
+  const running = { ...campaign, id: 'c0a00000-0000-4000-8000-000000000002', name: 'Demo hepatitis drive', startsAt: '2026-01-01T00:00:00.000Z',
+    endsAt: '2099-12-31T00:00:00.000Z' }
+  const at = `/api/v1/outreach/registration-cases/campaigns/${running.id}`
+  const always = <T,>(answer: () => T) => Array.from({ length: 40 }, () => answer)
+  const plan = { campaignId: running.id, organisationName: 'Demo Volunteers', target: 0, focuses: ['hepatitis_b'], sites: [],
+    package: { vitals: [], tests: [], questions: [] }, stationMode: 'single', stations: ['register'], partners: [],
+    consent: { text: 'Demo', version: '1' }, kits: [], rowVersion: 1 }
+
+  it('keeps the campaign, its tab bar and its sections while the Menu opens and closes', async () => {
+    const demo = demoOutreach(['outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read'])
+    const sent = serve({
+      [SESSION]: always(sessionAt(demo, [demo])),
+      [CAMPAIGNS]: always(() => json([running])),
+      [CASES]: always(() => json([])),
+      [`GET ${at}/team`]: always(() => json({ members: [], you: { memberId: 'tm-1', roles: ['registrar'], siteId: null, station: null } })),
+      [`GET ${at}/plan`]: always(() => json(plan)),
+    })
+    await openStaffApp('/provider/outreach')
+    // Someone who only works in the field goes straight into the campaign running for them, on Today.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo hepatitis drive'), { timeout: 10000 })
+    const title = screen.getByRole('heading', { level: 1 })
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    await waitFor(() => expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today']))
+    await waitFor(() => expect(where()).toBe('/provider/outreach/today'))
+    const reads = sent.filter(request => request.route === CAMPAIGNS).length
+
+    await act(async () => { fireEvent.click(within(quick).getByRole('button', { name: 'Menu' })) })
+    const menu = screen.getByRole('heading', { level: 1, name: 'Menu' })
+    const lists = [...menu.closest('div')!.parentElement!.querySelectorAll('ul')]
+    const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
+    expect(groups).toContainEqual(['', ['Overview', 'Campaigns']])
+    expect(groups).toContainEqual(['Demo hepatitis drive', ['Today', 'People']])
+    const today = lists.flatMap(list => [...list.querySelectorAll('a')]).find(link => link.textContent === 'Today')!
+    expect(today.getAttribute('aria-current')).toBe('page')
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Close menu' })) })
+    expect(screen.getByRole('heading', { level: 1 })).toBe(title)
+    expect(where()).toBe('/provider/outreach/today')
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(sent.filter(request => request.route === CAMPAIGNS)).toHaveLength(reads)
+    // No "Dashboard" anywhere in Outreach.
+    expect(document.body.textContent).not.toMatch(/Dashboard/)
   })
 })

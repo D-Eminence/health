@@ -77,7 +77,7 @@ function useMenu(open: boolean, close: () => void, button: RefObject<HTMLElement
 /** The text after the last " · " of a tab's title: the product it names ("Health ID", "Health ID Platform"). */
 const productOf = (title: string) => title.includes(' · ') ? title.slice(title.lastIndexOf(' · ') + 3) : 'Health ID'
 
-export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content' }: {
+export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content', keepPageUnderMenu = false }: {
   brand: ReactNode
   switcher: Switcher
   nav: readonly NavGroup[]
@@ -103,6 +103,11 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
    * link's target is the shell's own <main>); a host that holds the page's <main> has its own way past.
    */
   skipLink?: string
+  /**
+   * The page stays mounted (hidden) while the Menu page covers it, so opening and closing Menu keeps what the page holds
+   * in memory (where it is, a half-done entry) and what it tells the menu. Off by default: the Menu page replaces it.
+   */
+  keepPageUnderMenu?: boolean
 }) {
   const location = useLocation()
   const { pathname, hash, search } = location
@@ -278,11 +283,13 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     {nav.map((group, i) => <div key={group.title ?? i}>
       {group.title && <p className="m-0 px-1 pb-2 text-[13px] font-medium text-ink-3">{group.title}</p>}
       <ul className="m-0 list-none divide-y divide-line overflow-hidden rounded-2xl bg-surface p-0 ring-1 ring-line">
-        {group.items.map(item => <li key={item.to}><Link to={item.to} className={row}>
-          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-tray text-ink-2"><item.icon className="size-[18px]" aria-hidden /></span>
-          <span className="min-w-0 flex-1 truncate">{item.label}</span>
-          {item.badge ? badge(item.badge) : null}
-          <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden /></Link></li>)}
+        {/* The page under the Menu is marked (aria-current), as in the sidebar. */}
+        {group.items.map(item => <li key={item.to}><NavLink to={item.to} end={item.end} className={({ isActive }) => cx(row, isActive && 'bg-hover font-semibold')}>
+          {({ isActive }) => <>
+            <span className={cx('inline-flex size-9 shrink-0 items-center justify-center rounded-lg', isActive ? 'bg-ink text-surface' : 'bg-tray text-ink-2')}><item.icon className="size-[18px]" aria-hidden /></span>
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.badge ? badge(item.badge) : null}
+            <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden /></>}</NavLink></li>)}
       </ul>
     </div>)}
     <ThemeSwitch />
@@ -295,6 +302,9 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
       {signingOutSaid}
     </div>
   </div>
+
+  const shown = !keepPageUnderMenu ? (menu ? menuPage : children)
+    : <>{menu ? menuPage : null}<div hidden={menu}>{children}</div></>
 
   const tabCls = (on: boolean) => cx('flex min-h-14 flex-col items-center justify-end gap-0.5 pt-2 pb-1.5 text-[12px] font-medium no-underline', on ? 'text-ink' : 'text-ink-3')
   const tabInner = (item: Pick<NavItem, 'icon' | 'label' | 'badge'>, on: boolean) => <>
@@ -330,8 +340,8 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         <div className="flex items-center gap-2">{headerActions}</div>
       </header>
       {mainAs === 'main'
-        ? <main ref={page} id="main" tabIndex={-1} className="@container mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36">{menu ? menuPage : children}</main>
-        : <div ref={page} className={cx('@container mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{menu ? menuPage : children}</div>}
+        ? <main ref={page} id="main" tabIndex={-1} className="@container mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36">{shown}</main>
+        : <div ref={page} className={cx('@container mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-36', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{shown}</div>}
     </div>
     <nav aria-label="Quick" data-hid-bottom-nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden">
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}

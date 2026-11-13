@@ -151,22 +151,53 @@ describe('Outreach on its own', () => {
   it('lists only Outreach in the menu, the tab bar and search, even for a session allowed the hospital’s pages', async () => {
     await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
       ['outreach.registration.read', 'outreach.campaign.read', ...FIND_AND_ASK, ...EHR_ONLY, 'workforce.manage', 'audit.read'], '/provider/outreach')
-    expect(within(nav()).getAllByRole('link').map(link => link.textContent)).toEqual(['Campaigns'])
+    expect(within(nav()).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
     expect(headings()).toEqual([])
     for (const page of ['Patients', 'Access requests', 'Staff & access', 'Audit trail', 'Home']) expect(listedInMenu(page), page).toBe(false)
     expect(document.body.textContent).not.toMatch(/Network & Services|Other Health ID sites|Demo Hospital/)
     const quick = screen.getByRole('navigation', { name: 'Quick' })
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Campaigns'])
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
     expect(searchOffers()).toEqual(['Outreach'])
   })
 
-  it('lists the open campaign’s tabs after Campaigns, each at its own address', async () => {
+  it('lists Overview, Campaigns, then the open campaign’s sections under its name, each at its own address', async () => {
     await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
       ['outreach.registration.read', 'outreach.campaign.read'], '/provider/outreach')
     const { setOutreachNav } = await import('../../../ehr-blue/departments/outreach/outreachNav')
-    act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['today', 'people'] }))
+    act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['overview', 'today', 'people'] }))
     expect(within(nav()).getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]))
-      .toEqual([['Campaigns', '/provider/outreach'], ['Today', '/provider/outreach/today'], ['People', '/provider/outreach/people']])
+      .toEqual([['Overview', '/provider/outreach'], ['Campaigns', '/provider/outreach/campaigns'], ['Overview', '/provider/outreach/overview'],
+        ['Today', '/provider/outreach/today'], ['People', '/provider/outreach/people']])
+    expect(within(nav()).getByText('Demo drive')).toBeDefined()
+    // The phone's tab bar: Overview, Campaigns and the campaign's Today (then Menu).
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    act(() => setOutreachNav(null))
+  })
+
+  it('keeps the open campaign in the Menu page and the tab bar, and the page under the Menu', async () => {
+    await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
+      ['outreach.registration.read', 'outreach.campaign.read'], '/provider/outreach/people')
+    const { setOutreachNav } = await import('../../../ehr-blue/departments/outreach/outreachNav')
+    act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['today', 'people'] }))
+    const page = screen.getByRole('heading', { level: 1 })
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    await act(async () => { fireEvent.click(within(quick).getByRole('button', { name: 'Menu' })) })
+    const menu = screen.getByRole('heading', { level: 1, name: 'Menu' })
+    const lists = [...menu.closest('div')!.parentElement!.querySelectorAll('ul')]
+    const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
+    // Overview and Campaigns, then the campaign's own group, its section shown marked.
+    expect(groups).toContainEqual(['', ['Overview', 'Campaigns']])
+    expect(groups).toContainEqual(['Demo drive', ['Today', 'People']])
+    const people = lists.flatMap(list => [...list.querySelectorAll('a')]).find(link => link.textContent === 'People')!
+    expect(people.getAttribute('aria-current')).toBe('page')
+    // The tab bar keeps the campaign's Today while the Menu is open, and the page stays mounted under it.
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(page.isConnected).toBe(true)
+    expect(page.closest('[hidden]')).not.toBeNull()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Close menu' })) })
+    expect(screen.getByRole('heading', { level: 1 })).toBe(page)
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
     act(() => setOutreachNav(null))
   })
 

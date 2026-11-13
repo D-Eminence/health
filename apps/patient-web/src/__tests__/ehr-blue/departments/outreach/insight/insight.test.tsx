@@ -80,7 +80,7 @@ afterEach(() => { vi.useRealTimers() })
 
 const calls = (method: string, path: string) => request.mock.calls.filter(([, spec]) => spec.method === method && spec.path === path)
 
-describe('the dashboard', () => {
+describe('a campaign’s Overview', () => {
   it('shows the big counts, waiting, by focus, team, sites and hours, kits and alerts, every value in words', async () => {
     renderDept(<CampaignDashboard campaignId={CAMPAIGN} roles={['coordinator', 'clinician']} />)
     const tiles = await screen.findByRole('list', { name: 'Today’s counts' }).catch(() => screen.findByLabelText('Today’s counts'))
@@ -95,7 +95,7 @@ describe('the dashboard', () => {
     const alerts = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')!
     expect(within(alerts).getAllByRole('listitem').map(item => item.textContent)).toEqual(['UrgentUrgent referral: K7-4F2.', 'Waiting12 people are waiting for vital signs.'])
     // The detail one part at a time (no long page): Stations first, then each part its tab opens.
-    const detail = screen.getByRole('tablist', { name: 'Dashboard detail' })
+    const detail = screen.getByRole('tablist', { name: 'Overview detail' })
     expect(within(detail).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Stations', 'Focus', 'Team', 'Sites', 'Kits'])
     expect(screen.getByRole('list', { name: 'Waiting at each station' }).textContent).toContain('12 waiting')
     expect(screen.queryByText('Demo Registrar')).toBeNull()
@@ -152,7 +152,7 @@ describe('the dashboard', () => {
   })
 
   it('opens no tab the viewer does not have', async () => {
-    renderDept(<CampaignDashboard campaignId={CAMPAIGN} roles={['data_checker']} opens={['dashboard', 'people']} onOpen={vi.fn()} />)
+    renderDept(<CampaignDashboard campaignId={CAMPAIGN} roles={['data_checker']} opens={['overview', 'people']} onOpen={vi.fn()} />)
     const tiles = await screen.findByRole('group', { name: 'Today’s counts' })
     expect(within(tiles).queryByRole('button', { name: /Referred/ })).toBeNull()
     expect(within(tiles).getByRole('button', { name: /Registered/ })).toBeTruthy()
@@ -331,7 +331,7 @@ describe('the tabs each role sees', () => {
     expect(tabsFor(['registrar'])).toEqual(['today', 'people'])
     expect(tabsFor(['vitals', 'tester'])).toEqual(['today', 'people'])
     expect(tabsFor(['counsellor'])).toEqual(['today', 'people', 'followups'])
-    expect(tabsFor(['data_checker'])).toEqual(['dashboard', 'people'])
-    expect(tabsFor(['coordinator'])).toEqual(['today', 'dashboard', 'people', 'followups', 'team', 'setup'])
+    expect(tabsFor(['data_checker'])).toEqual(['overview', 'people'])
+    expect(tabsFor(['coordinator'])).toEqual(['overview', 'today', 'people', 'followups', 'team', 'setup'])
   })
 })

@@ -8,7 +8,7 @@ import {
   canSeeSensitive, focusLabel, roleLabel, stationLabel, STATIONS, type CampaignAlert, type CampaignDashboard as Dashboard,
 } from '../campaignTypes'
 import {
-  BarRow, dayText, hourText, InsightCard, kitTestLabel, rolesWords, SectionSwitch, SENSITIVE_FOCUSES, StatTile, useCampaignRead, useLiveRefresh, withinDays,
+  BarRow, dayText, hourText, InsightCard, kitTestLabel, NumberTile, NumberTiles, rolesWords, SectionSwitch, SENSITIVE_FOCUSES, StatTile, useCampaignRead, useLiveRefresh, withinDays,
 } from './insightParts'
 import { useErrorToast } from '../notify'
 
@@ -20,11 +20,11 @@ const LOW_SHARE = 0.25
 const EXPIRING_DAYS = 30
 
 /**
- * A campaign's dashboard: its counts as Outreach works them out, read again every 30 seconds while the page is shown
+ * A campaign's Overview (its numbers; never called a dashboard on screen): its counts as Outreach works them out, read again every 30 seconds while the page is shown
  * (and when it is shown again). Counts only, never a person; positives for HIV and hepatitis B only to those who may
  * see sensitive results (`roles`, the viewer's roles in the campaign; when not given, read from the team).
  */
-/** Where a dashboard tile leads: a campaign tab, with People shown for those who need care. */
+/** Where an Overview tile leads: a campaign tab, with People shown for those who need care. */
 export type DashboardOpen = (tab: 'people' | 'followups' | 'today', filter?: 'care') => void
 
 export function CampaignDashboard({ campaignId, roles, onOpen, opens = [] }: {
@@ -82,25 +82,25 @@ function DashboardBody({ value, sensitive, onOpen, opens }: {
       {/* Read again every 30 seconds and when the page is shown again: no Refresh button, only when it was last read. */}
       <p className="m-0 text-[13px] text-ink-3" aria-live="off">Updated {hourText(value.asOf)}</p>
 
-      <StatGroup label="Today’s counts" cols={3}>
-        <StatTile icon={Users} tone="brand" label="Registered" value={value.registered} hint={value.target > 0 ? `Target ${value.target}` : 'No target set'}
+      <NumberTiles label="Today’s counts">
+        <NumberTile hero icon={Users} tone="brand" label="Registered" value={value.registered} hint={value.target > 0 ? `Target ${value.target}` : 'No target set'}
           onOpen={opener('people')} />
-        <StatTile icon={Stethoscope} tone="info" label="Screened" value={value.screened}
+        <NumberTile icon={Stethoscope} tone="info" label="Screened" value={value.screened}
           hint={value.registered > 0 ? `${Math.round((value.screened / value.registered) * 100)}% of registered` : 'No one registered yet'} />
-        <StatTile icon={Clock} tone={waiting > 0 ? 'warn' : 'neutral'} label="Waiting" value={waiting}
+        <NumberTile icon={Clock} tone={waiting > 0 ? 'warn' : 'neutral'} label="Waiting" value={waiting}
           hint={busiest && busiest.count > 0 ? `Most at ${stationLabel(busiest.station).toLowerCase()}: ${busiest.count}` : 'No one waiting'} />
-        <StatTile icon={TestTube} tone="violet" label="Positive" value={positives}
+        <NumberTile icon={TestTube} tone="violet" label="Positive" value={positives}
           hint={hiddenPositives ? `Not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus, row.label).toLowerCase()).join(' or ')}` : 'Across every focus'}
           onOpen={opener('people', 'care')} />
-        <StatTile icon={Send} tone={value.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred" value={referred}
+        <NumberTile icon={Send} tone={value.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred" value={referred}
           hint={value.outcomes.referUrgent > 0 ? <strong className="font-semibold text-danger-ink">{value.outcomes.referUrgent} urgent</strong> : 'None urgent'}
           onOpen={opener('followups')} />
-      </StatGroup>
+      </NumberTiles>
 
       {value.alerts.length ? <Alerts alerts={value.alerts} /> : null}
 
       {/* The detail one part at a time, so the dashboard fits a screen. */}
-      <SectionSwitch id="outreach-dash-detail" label="Dashboard detail" sections={[
+      <SectionSwitch id="outreach-dash-detail" label="Overview detail" sections={[
         { value: 'stations', label: 'Stations', content: <Panel>{waitingRows.length ? (
           <ul aria-label="Waiting at each station" className="m-0 flex list-none flex-col gap-3 p-0">
             {waitingRows.map(row => <BarRow key={row.station} label={stationLabel(row.station)} value={row.count}

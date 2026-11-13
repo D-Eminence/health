@@ -15,7 +15,7 @@ import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SIT
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, listsOnlyOwn, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
-import { OUTREACH_HOME, tabAddress, tabLabel, useOutreachNav } from '../departments/outreach/outreachNav'
+import { CAMPAIGNS_ADDRESS, OUTREACH_HOME, setOutreachStandalone, tabAddress, tabLabel, useOutreachNav } from '../departments/outreach/outreachNav'
 import type { CampaignTab } from '../departments/outreach/insight/tabs'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { productUsable } from './pageAccess'
@@ -63,9 +63,9 @@ function iconOf(element: ReactNode): Icon {
   return Wrapped
 }
 
-/** Each Outreach campaign tab's icon in the menu of Outreach on its own. */
+/** Each Outreach campaign section's icon in the menu of Outreach on its own. */
 const OUTREACH_TAB_ICON: Readonly<Record<CampaignTab, Icon>> = {
-  today: CalendarCheck, dashboard: ChartColumn, people: Users, followups: PhoneCall, team: UsersRound, setup: Settings2,
+  overview: ChartColumn, today: CalendarCheck, people: Users, followups: PhoneCall, team: UsersRound, setup: Settings2,
 }
 
 /** Design tools for the team, not places staff work: reachable by address, never listed. */
@@ -242,6 +242,12 @@ export function BlueFrame() {
   // refuse. So Home is always listed in the EHR, and in a single product only then, where /provider lands.
   const ownPage = product === 'ehr' ? undefined : BLUE_PAGES.find(page => basePath(page.path) === info.home)
   const ownPageOpen = ownPage !== undefined && pageAllowed(ownPage, session, viewing)
+  // Outreach on its own says so to its page: a phone's tab bar carries the campaign's Today there (outreachNav.ts).
+  const outreachAlone = listsOnlyOwn(product) && ownPageOpen
+  useEffect(() => {
+    setOutreachStandalone(outreachAlone)
+    return () => setOutreachStandalone(false)
+  }, [outreachAlone])
   // What each page that can say so says now (EhrBluePage.listedChanges): the list below is worked out again when it changes.
   const listedNow = useListedChanges(BLUE_PAGES, session)
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
@@ -359,14 +365,23 @@ export function BlueFrame() {
     items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
-  // Outreach on its own lists only Outreach (owner, 13 November 2026): its campaigns, and the tabs of the campaign open
-  // or remembered, as the person's roles allow them. Nothing of a hospital's, and no other product's site.
+  // Outreach on its own lists only Outreach (owner, 13 November 2026): the organisation's Overview (its home), Campaigns
+  // (where campaigns can be read), then a group named for the campaign open or remembered, with its sections as the
+  // person's roles allow them. Nothing of a hospital's, and no other product's site. The phone's tab bar carries
+  // Overview, Campaigns and, while a campaign is open or remembered, its Today; the Menu page lists the rest.
   const onlyOwn = listsOnlyOwn(product) && ownPageOpen
-  const ownItems: NavItem[] = onlyOwn ? [
-    { to: OUTREACH_HOME, label: 'Campaigns', icon: Megaphone, end: true },
-    ...(outreachNav?.tabs ?? []).map(tab => ({ to: tabAddress(tab), label: tabLabel(tab), icon: OUTREACH_TAB_ICON[tab], end: true })),
+  const outreachMain: NavItem[] = onlyOwn ? [
+    { to: OUTREACH_HOME, label: 'Overview', icon: House, end: true },
+    ...(permissions.includes('outreach.campaign.read') ? [{ to: CAMPAIGNS_ADDRESS, label: 'Campaigns', icon: Megaphone, end: true }] : []),
   ] : []
-  if (onlyOwn) nav.splice(0, nav.length, { items: ownItems })
+  const outreachSections: NavItem[] = onlyOwn
+    ? (outreachNav?.tabs ?? []).map(tab => ({ to: tabAddress(tab), label: tabLabel(tab), icon: OUTREACH_TAB_ICON[tab], end: true })) : []
+  if (onlyOwn) {
+    nav.splice(0, nav.length, { items: outreachMain },
+      ...(outreachNav && outreachSections.length ? [{ title: outreachNav.campaignName, items: outreachSections }] : []))
+  }
+  const outreachToday = outreachSections.find(item => item.to === tabAddress('today'))
+  const outreachTabs: NavItem[] = [...outreachMain, ...(outreachToday ? [outreachToday] : [])]
   // Each product on its own site: the other sites that serve the rest of what this session may open.
   const otherSites = onlyOwn ? null : otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
   if (otherSites) nav.push(otherSites)
@@ -383,6 +398,8 @@ export function BlueFrame() {
           <AppShell
             mainAs="div"
             wide
+            // Outreach on its own keeps its page (the campaign open, a half-done entry) under the Menu page.
+            keepPageUnderMenu={onlyOwn}
             brand={<a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex items-center gap-2.5 no-underline" aria-label={`Health ID ${info.name} home`}>
               <BrandLogo className="h-7 w-auto" /><Badge tone="brand" size="sm">{info.name}</Badge></a>}
             switcher={{
@@ -414,7 +431,7 @@ export function BlueFrame() {
               {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
               <NotificationsButton /></div>}
             tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
-              : onlyOwn ? ownItems.slice(0, 3)
+              : onlyOwn ? outreachTabs
               : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
             create={product !== 'ehr' ? undefined : { label: 'Start', items: [
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),

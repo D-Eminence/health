@@ -2,15 +2,20 @@ import { useSyncExternalStore } from 'react'
 import { TABS, type CampaignTab } from './insight/tabs'
 
 /*
- * What Outreach on its own tells the frame's menu (owner, 13 November 2026): the tabs of the campaign open or remembered,
- * as this person's roles allow them, so the sidebar and the phone tab bar list Campaigns and those tabs only. Kept in
- * memory for the visit: never anything about a person, and nothing of a campaign but which tabs it has.
+ * What Outreach on its own tells the frame's menu (owner, 13 November 2026): the sections of the campaign open or
+ * remembered, as this person's roles allow them, so the sidebar, the Menu page and the phone tab bar list Overview,
+ * Campaigns and that campaign's sections only. Kept in memory for the visit: never anything about a person, and nothing
+ * of a campaign but its name and which sections it has.
  *
- * Each tab has its own address below Outreach (/provider/outreach/dashboard), so the menu can point at it and show
- * where the person is. Which campaign it is stays in memory (and in the day settings on this device), never the address.
+ * The organisation's Overview is Outreach's own address, Campaigns is /provider/outreach/campaigns, and each section
+ * has its own address below Outreach (/provider/outreach/overview), so the menu can point at it and show where the
+ * person is. Which campaign it is stays in memory (and in the day settings on this device), never the address.
  */
 
+/** The organisation's Overview: Outreach's home. */
 export const OUTREACH_HOME = '/provider/outreach'
+/** Every campaign, as cards. */
+export const CAMPAIGNS_ADDRESS = `${OUTREACH_HOME}/campaigns`
 
 export interface OutreachNavState {
   readonly facilityId: string
@@ -56,8 +61,35 @@ export function tabOfAddress(pathname: string): CampaignTab | null {
   return tab ? tab.value : null
 }
 
-/** Whether an address is Outreach's own (its list) or one of its tabs. */
-export const isOutreachAddress = (pathname: string) => pathname === OUTREACH_HOME || pathname === `${OUTREACH_HOME}/` || tabOfAddress(pathname) !== null
+/** Whether an address is Campaigns (every campaign). */
+export const isCampaignsAddress = (pathname: string) => pathname === CAMPAIGNS_ADDRESS || pathname === `${CAMPAIGNS_ADDRESS}/`
+
+/** Whether an address is Outreach's own (its Overview), Campaigns, or one of a campaign's sections. */
+export const isOutreachAddress = (pathname: string) => pathname === OUTREACH_HOME || pathname === `${OUTREACH_HOME}/`
+  || isCampaignsAddress(pathname) || tabOfAddress(pathname) !== null
+
+/*
+ * Whether Outreach is on its own (its own workspace: the frame lists only Outreach). Then a phone's tab bar carries the
+ * open campaign's Today, so the campaign's own section switcher leaves Today out there. Set by the frame.
+ */
+let standalone = false
+const standaloneListeners = new Set<() => void>()
+
+export function setOutreachStandalone(next: boolean) {
+  if (standalone === next) return
+  standalone = next
+  for (const listener of standaloneListeners) listener()
+}
+
+function subscribeStandalone(listener: () => void) {
+  standaloneListeners.add(listener)
+  return () => { standaloneListeners.delete(listener) }
+}
+
+/** Whether Outreach is shown on its own, with its own tab bar on phones. */
+export function useOutreachStandalone(): boolean {
+  return useSyncExternalStore(subscribeStandalone, () => standalone, () => false)
+}
 
 export const tabLabel = (tab: CampaignTab) => TABS.find(entry => entry.value === tab)?.label ?? tab
 

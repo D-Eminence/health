@@ -3,11 +3,15 @@ import type { TeamRole } from '../campaignTypes'
 import type { CampaignSummary } from './campaignSummary'
 import { dayText } from './insightParts'
 
-export type CampaignTab = 'today' | 'dashboard' | 'people' | 'followups' | 'team' | 'setup'
+export type CampaignTab = 'overview' | 'today' | 'people' | 'followups' | 'team' | 'setup'
 
+/**
+ * A campaign's sections, in order (owner, 13 Nov 2026): Overview (the campaign's numbers; there is no "Dashboard" in
+ * Outreach, as the organisation's Overview is its home), Today, People, Follow-ups, Team, Setup.
+ */
 export const TABS: ReadonlyArray<{ readonly value: CampaignTab; readonly label: string; readonly roles: ReadonlySet<TeamRole> }> = [
+  { value: 'overview', label: 'Overview', roles: new Set<TeamRole>(['coordinator', 'data_checker']) },
   { value: 'today', label: 'Today', roles: new Set<TeamRole>(['coordinator', 'registrar', 'vitals', 'tester', 'counsellor', 'clinician']) },
-  { value: 'dashboard', label: 'Dashboard', roles: new Set<TeamRole>(['coordinator', 'data_checker']) },
   { value: 'people', label: 'People', roles: new Set<TeamRole>(['coordinator', 'registrar', 'vitals', 'tester', 'counsellor', 'clinician', 'data_checker']) },
   { value: 'followups', label: 'Follow-ups', roles: new Set<TeamRole>(['coordinator', 'counsellor', 'clinician']) },
   { value: 'team', label: 'Team', roles: new Set<TeamRole>(['coordinator']) },
@@ -24,7 +28,10 @@ export function hubTabs(roles: readonly string[], canReadPeople: boolean): Campa
   return tabsFor(roles).filter(value => value !== 'people' || canReadPeople)
 }
 
-/** The tab shown: the one asked for when the roles have it, else their first. */
+/**
+ * The tab shown: the one asked for when the roles have it, else their first: Overview for a coordinator or data checker,
+ * Today for those who work in the field.
+ */
 export function shownTab(tabs: readonly CampaignTab[], asked: CampaignTab | undefined): CampaignTab | undefined {
   return asked && tabs.includes(asked) ? asked : tabs[0]
 }

@@ -1,18 +1,18 @@
 import type { ReactNode } from 'react'
 import { ArrowRight, Megaphone, Play, Plus, Send, Stethoscope, TestTube, Users } from 'lucide-react'
 import { LoadingRows, PageState } from '../../../../kasuwa/parts'
-import { Button, StatGroup } from '../../../../kasuwa/ui'
+import { Button } from '../../../../kasuwa/ui'
 import type { OutreachCampaign } from '../../../../staff/api'
-import { DeptPage } from '../../parts/DeptPage'
+import '../../departments.css'
 import { focusLabel, type OrganisationSummary } from '../campaignTypes'
 import { CampaignCards } from './CampaignCards'
 import type { CampaignSummary } from './campaignSummary'
-import { BarRow, StatTile } from './insightParts'
+import { BarRow, NumberTile, NumberTiles } from './insightParts'
 import { MoreMenu, type MoreItem } from './MoreMenu'
 import { isRunning, type OrganisationNumbers } from './organisationSummary'
 
-/** The home shows this many campaigns; the rest are in All campaigns. */
-export const HOME_CAMPAIGNS = 6
+/** The Overview shows this many campaigns running now; every campaign is in Campaigns. */
+export const HOME_CAMPAIGNS = 3
 
 /** Running first, then planned, then closed; newest first within each. */
 export function campaignOrder(campaigns: readonly OutreachCampaign[], now = Date.now()): OutreachCampaign[] {
@@ -29,10 +29,11 @@ export function shortName(name: string): string {
 }
 
 /**
- * Outreach's home for the organisation's owner, admins and coordinators (owner, 13 November 2026): the numbers first
- * (outreaches run, people reached, screened, positive, referred), then each type of outreach and the conditions found,
- * then the one thing to do next (carry on with the campaign running, or start one), then the campaigns (at most six;
- * the rest in All campaigns). Team and the registrations made before campaigns are in the menu (⋯).
+ * Overview: Outreach's home for the organisation's owner, admins and coordinators (owner, 13 November 2026): the numbers
+ * first (people reached, outreaches run, screened, positive, referred), then each type of outreach and the conditions
+ * found, then the one thing to do next (carry on with the campaign running, or start one), then at most three campaigns
+ * running now and All campaigns (Campaigns, a page of its own). Team and the registrations made before campaigns are in
+ * the menu (⋯).
  */
 export function OrganisationHome({ organisationName, numbers, campaigns, campaignsRead, summaryOf, registeredIn, continuing, onContinue,
   onNewCampaign, onOpenCampaign, onAllCampaigns, menu, top }: {
@@ -51,22 +52,31 @@ export function OrganisationHome({ organisationName, numbers, campaigns, campaig
   /** Lasting state above the numbers: an outreach group's standing, what waits on this device. */
   readonly top?: ReactNode
 }) {
-  const ordered = campaignOrder(campaigns)
-  const shown = ordered.slice(0, HOME_CAMPAIGNS)
+  const running = campaignOrder(campaigns).filter(campaign => isRunning(campaign))
+  const shown = running.slice(0, HOME_CAMPAIGNS)
   const value = numbers.state === 'ready' ? numbers.value : null
   return (
-    <DeptPage title="Outreach" description={organisationName} secondaryActions={menu.length ? <MoreMenu id="outreach-home-more" items={menu} /> : undefined}>
+    <div className="hid-ehr-dept">
+      {/* The title and More (⋯) on one row, the organisation under them: never ⋯ on a row of its own. */}
+      <header className="mb-5 flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="hid-ehr-page-title m-0 min-w-0 flex-1 break-words">Overview</h1>
+          {menu.length ? <MoreMenu id="outreach-home-more" items={menu} className="shrink-0" /> : null}
+        </div>
+        {organisationName ? <p className="m-0 text-[13px] break-words text-ink-2">{organisationName}</p> : null}
+      </header>
       <div className="flex flex-col gap-6">
         {top}
         {numbers.state === 'loading' ? <LoadingRows rows={2} label="Loading the numbers" /> : value ? <Numbers value={value} /> : null}
 
         {campaigns.length ? <Actions continuing={continuing} onContinue={onContinue} onNewCampaign={onNewCampaign} /> : null}
 
-        <section aria-labelledby="outreach-campaigns-heading" className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="outreach-campaigns-heading" className="m-0 text-title-2 text-ink">Campaigns</h2>
-            {ordered.length > HOME_CAMPAIGNS ? (
-              <Button variant="ghost" iconRight={ArrowRight} id="outreach-all-campaigns" onClick={onAllCampaigns}>All campaigns ({ordered.length})</Button>
+        <section aria-labelledby="outreach-running-heading" className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <h2 id="outreach-running-heading" className="m-0 text-title-2 text-ink">Running now</h2>
+            {campaigns.length ? (
+              <Button variant="ghost" iconRight={ArrowRight} id="outreach-all-campaigns"
+                onClick={onAllCampaigns}>All campaigns ({campaigns.length})</Button>
             ) : null}
           </div>
           <PageState loading={campaignsRead.loading} error={campaignsRead.listed ? null : campaignsRead.error || null} hasData={campaignsRead.listed}
@@ -76,11 +86,12 @@ export function OrganisationHome({ organisationName, numbers, campaigns, campaig
                 + 'where, and who helps. You become its coordinator, and everyone you register gets their own Health ID record.',
               action: <Button variant="primary" size="lg" icon={Plus} onClick={onNewCampaign}>Create your first campaign</Button> }
               : { icon: Megaphone, title: 'No campaigns yet', description: 'Campaigns your organisation runs show here.' } : null}>
-            <CampaignCards campaigns={shown} summaryOf={summaryOf} registeredIn={registeredIn} onOpen={onOpenCampaign} />
+            {shown.length ? <CampaignCards label="Running now" campaigns={shown} summaryOf={summaryOf} registeredIn={registeredIn} onOpen={onOpenCampaign} />
+              : <p className="m-0 text-[14px] text-ink-2">No campaign is running now.</p>}
           </PageState>
         </section>
       </div>
-    </DeptPage>
+    </div>
   )
 }
 
@@ -106,24 +117,24 @@ function Actions({ continuing, onContinue, onNewCampaign }: {
 function Numbers({ value }: { readonly value: OrganisationSummary }) {
   return (
     <>
-      <StatGroup label="Your outreach in numbers" cols={3}>
-        <StatTile icon={Megaphone} tone="brand" label="Outreaches run" value={value.campaigns.total}
-          hint={value.campaigns.running ? `${value.campaigns.running} running` : value.campaigns.planned ? `${value.campaigns.planned} planned` : 'None running'} />
-        <StatTile icon={Users} tone="info" label="People reached" value={value.people.reached}
+      <NumberTiles label="Your outreach in numbers">
+        <NumberTile hero icon={Users} tone="info" label="People reached" value={value.people.reached}
           hint={value.people.thisMonth >= 0 ? `This month +${value.people.thisMonth}` : 'In every campaign'} />
-        <StatTile icon={Stethoscope} tone="neutral" label="Screened" value={value.screened}
+        <NumberTile icon={Megaphone} tone="brand" label="Outreaches run" value={value.campaigns.total}
+          hint={value.campaigns.running ? `${value.campaigns.running} running` : value.campaigns.planned ? `${value.campaigns.planned} planned` : 'None running'} />
+        <NumberTile icon={Stethoscope} tone="neutral" label="Screened" value={value.screened}
           hint={value.people.reached > 0 ? `${share(value.screened, value.people.reached)} of people reached` : 'No one yet'} />
-        <StatTile icon={TestTube} tone="violet" label="Positive" value={value.positive}
+        <NumberTile icon={TestTube} tone="violet" label="Positive" value={value.positive}
           hint={value.screened > 0 ? `${share(value.positive, value.screened)} of screened` : 'No one screened yet'} />
-        <StatTile icon={Send} tone="warn" label="Referred" value={value.referred} hint="To a clinic or hospital" />
-      </StatGroup>
+        <NumberTile icon={Send} tone="warn" label="Referred" value={value.referred} hint="To a clinic or hospital" />
+      </NumberTiles>
 
       {value.byFocus.length || value.conditions.length ? (
         <div className="grid gap-6 @3xl:grid-cols-2">
           {value.byFocus.length ? (
             <section aria-labelledby="outreach-types-heading" className="flex min-w-0 flex-col gap-3">
               <h2 id="outreach-types-heading" className="m-0 text-title-2 text-ink">By type of outreach</h2>
-              <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-2 p-0">
+              <ul className="m-0 grid list-none grid-cols-1 gap-2 p-0 @md:grid-cols-2">
                 {value.byFocus.map(row => {
                   const name = focusLabel(row.focus, row.label)
                   return (
