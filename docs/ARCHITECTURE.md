@@ -879,7 +879,10 @@ directly in the Google controls. Clinical request/response bodies are not
 intended for logs, public URLs or browser persistence. Provider facility
 selection is held in portal memory and sent as `X-Facility-ID` on scoped calls.
 Choosing a facility in the list only proposes it; Switch facility confirms it.
-The portal keeps nothing about the facility in browser storage. With
+The portal keeps nothing about the facility in browser storage, except the
+outreach group a tab chose, kept in that tab's sessionStorage so a login that
+works at a hospital and at an outreach group lands back on the group after a
+reload, while it is still one of the account's (`tabMemory.ts`, below). With
 hid-system's per-sign-in facility contract (D-Eminence/hid-system#47: ADR-046;
 open, not merged or deployed; hand-off C1; its migration 0080 must be
 renumbered to 0085, since hid-system `main` gave 0080 to hid-system#48, 0081 to
