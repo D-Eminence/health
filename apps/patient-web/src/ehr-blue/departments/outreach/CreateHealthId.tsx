@@ -409,7 +409,8 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
         <div className="flex flex-wrap gap-2">
           {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={() => { setNoted(true); onPrintSlip() }}>Print slip</Button> : null}
           {made.claimCode && !noted ? <Button onClick={() => setNoted(true)}>I’ve written it down</Button> : null}
-          <Button icon={Copy} onClick={() => { void navigator.clipboard?.writeText(made.claimCode ? `${made.healthId} ${made.claimCode}` : made.healthId).catch(() => undefined) }}>
+          {/* The Health ID only: a claim code left on a shared phone's clipboard could let someone else claim it. */}
+          <Button icon={Copy} onClick={() => { void navigator.clipboard?.writeText(made.healthId).catch(() => undefined) }}>
             Copy</Button>
         </div>
       </div>

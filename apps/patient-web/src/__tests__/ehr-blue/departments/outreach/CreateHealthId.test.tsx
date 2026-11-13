@@ -457,3 +457,23 @@ describe('Confirm: an answer that can’t be trusted', () => {
     expect(region().textContent).toContain(NO_PASSWORD_YET)
   })
 })
+
+describe('Copy', () => {
+  it('copies the Health ID only, never the claim code, onto a phone others may share', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', registration: { ...ITEM, healthId: 'HID-UNVER1' } })
+      renderSection()
+      await want()
+      await press(within(region()).getByRole('radio', { name: /^No email/ }))
+      await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
+      expect(await within(region()).findByText('K7Q-4MZ')).toBeTruthy()
+      await press(within(region()).getByRole('button', { name: 'Copy' }))
+      expect(writeText).toHaveBeenCalledWith('HID-UNVER1')
+      expect(JSON.stringify(writeText.mock.calls)).not.toContain('K7Q-4MZ')
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
+  })
+})
