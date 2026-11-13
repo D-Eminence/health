@@ -186,10 +186,12 @@ export function queuedText(fullName: string, reason: WaitReason): string {
 const registrations = (count: number) => `${count} registration${count === 1 ? '' : 's'}`
 
 /** What "Send now" did, in plain words: how many were sent, how many still wait and why, and how many Health ID refused. */
-export function queueSyncText({ sent, waiting, refused, reason }: QueueSyncResult): string {
+export function queueSyncText({ sent, waiting, refused, reason }: Pick<QueueSyncResult, 'sent' | 'waiting' | 'refused' | 'reason'>): string {
   const said: string[] = []
   if (sent > 0) said.push(`Sent ${registrations(sent)} to Health ID.`)
-  if (waiting > 0) {
+  if (waiting > 0 && reason === 'session') {
+    said.push(`${registrations(waiting)} couldn’t be sent yet. Sign in again to send ${waiting === 1 ? 'it: it stays' : 'them: they stay'} on this device until then.`)
+  } else if (waiting > 0) {
     const why = reason === 'unavailable' ? ' because Health ID isn’t available right now'
       : reason === 'connection' ? ' because there is no connection' : ''
     said.push(`${registrations(waiting)} couldn’t be sent yet${why}. ${waiting === 1 ? 'It stays' : 'They stay'} on this device and will be tried again.`)

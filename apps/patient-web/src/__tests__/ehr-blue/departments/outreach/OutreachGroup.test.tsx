@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
+import { queueSyncText } from '../../../../ehr-blue/departments/outreach/outreachGroup'
 
 /*
  * An outreach group's own Outreach (open sign-up on outreach., owner decisions of 11 November 2026): no Health ID check
@@ -423,6 +424,46 @@ describe('the offline queue', () => {
     expect((await store.list()).map(entry => entry.state)).toEqual(['waiting'])
   })
 
+  it('takes down what “Send now” said once a later round has changed what waits', async () => {
+    const store = memoryQueueStore()
+    await store.put(waitingEntry(1, 'Amaka Nwosu', '2026-11-14T08:05:00.000Z'))
+    setOutreachQueueStore(store)
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
+    renderDept(<Outreach />)
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    await within(queue).findByText('Amaka Nwosu')
+    Reflect.deleteProperty(navigator, 'onLine')
+
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+    await press(within(queue).getByRole('button', { name: 'Send now' }))
+    const said = '1 registration couldn’t be sent yet because Health ID isn’t available right now. It stays on this device and will be tried again.'
+    expect(await screen.findByText(said)).toBeTruthy()
+    // Tried again and still not taken: the list is as it was, and so is the note.
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'SERVICE_UNAVAILABLE' }))
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(within(queue).getByRole('button', { name: 'Send now' })).toBeTruthy())
+    expect(screen.getByText(said)).toBeTruthy()
+
+    // Sent by a later round (the page shown again): the note no longer holds, and goes.
+    api.createOutreachCase.mockResolvedValueOnce(pending('case-10', 'Amaka Nwosu'))
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull())
+    expect(screen.queryByText(said)).toBeNull()
+    expect(screen.queryByText(/Not sent yet|Not all sent/)).toBeNull()
+  })
+
+  it('says what “Send now” did in plain words, and to sign in again when that is what sending needs', () => {
+    expect(queueSyncText({ sent: 0, waiting: 1, refused: 0, reason: 'session' }))
+      .toBe('1 registration couldn’t be sent yet. Sign in again to send it: it stays on this device until then.')
+    expect(queueSyncText({ sent: 1, waiting: 2, refused: 0, reason: 'session' }))
+      .toBe('Sent 1 registration to Health ID. 2 registrations couldn’t be sent yet. Sign in again to send them: they stay on this device until then.')
+    // Left waiting for different reasons: none is named.
+    expect(queueSyncText({ sent: 0, waiting: 2, refused: 1, reason: undefined })).toBe('2 registrations couldn’t be sent yet. They stay on this device '
+      + 'and will be tried again. 1 registration wasn’t accepted by Health ID: see below.')
+    expect(queueSyncText({ sent: 0, waiting: 0, refused: 0 })).toBe('Nothing was waiting to be sent.')
+  })
+
   it('sends what waits on this device as soon as Health ID takes a new registration', async () => {
     const store = memoryQueueStore()
     const waiting = waitingEntry(1, 'Amaka Nwosu', new Date().toISOString())
@@ -511,6 +552,20 @@ describe('the campaigns a volunteer can register into', () => {
     await openForm()
     await waitFor(() => expect(campaignHint()).toBe('Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, '
       + 'and keep it open to register people offline.'))
+  })
+
+  it('reads a campaign’s members again on Refresh once they couldn’t be read, as the form says to, and then offers it', async () => {
+    api.outreachCampaignMembers.mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+    await openForm()
+    await waitFor(() => expect(campaignHint()).toBe('Your campaigns couldn’t be loaded. Go back to the list and press Refresh.'))
+    expect(screen.queryByRole('option', { name: 'Ajegunle health week' })).toBeNull()
+
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await press(await screen.findByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(2))
+    await press((await screen.findAllByRole('button', { name: 'New registration' }))[0]!)
+    expect(await screen.findByRole('option', { name: 'Ajegunle health week' })).toBeTruthy()
+    expect(campaignHint()).toBe('Only running registration campaigns you belong to are listed.')
   })
 
   it('says plainly when the campaigns couldn’t be loaded for another reason', async () => {

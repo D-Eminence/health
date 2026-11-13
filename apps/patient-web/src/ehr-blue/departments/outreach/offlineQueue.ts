@@ -12,7 +12,9 @@ import { outreachProblemText } from '../../../outreachProblems'
  * What waits is sent again, oldest first: when the page opens, when the browser says it is back online, when the page is
  * shown again, after a registration Health ID took, and every 30 seconds while anything waits (a phone on weak signal
  * rarely says it went offline). No connection, a timeout, a send stopped as the session ended, or a sign-in needed stops
- * the round; Health ID unavailable for one registration (a server fault, too many requests) moves on to the next.
+ * the round. A registration Health ID can't take just now (a server fault) waits and the next is tried, and it is tried
+ * after the others next time, so it never holds them up; too many requests, or Health ID unavailable twice in a row,
+ * stops the round, so a struggling Health ID is not sent every registration on the device every 30 seconds.
  *
  * Kept in IndexedDB, keyed by localCommandId, and only for the account and facility that saved it: another person signed
  * in on the same browser sees none of it. Nothing waits longer than 14 days: the staff app sweeps expired entries when it
@@ -143,10 +145,23 @@ export async function purgeExpiredOutreachQueue(now = Date.now()): Promise<numbe
 
 /** Deletes every entry the account saved, on any facility: signing out leaves none of its registrations here. Never throws. */
 export async function removeOutreachQueueEntriesFor(accountId: string): Promise<number> {
+  return removeEntriesFor(accountId, () => true)
+}
+
+/**
+ * Deletes the entries Health ID refused that the account saved, on any facility, and nothing still waiting to be sent:
+ * for signing out, where a registration that started waiting meanwhile (a save in another tab timing out, say) is kept.
+ * Never throws.
+ */
+export async function removeRefusedOutreachEntriesFor(accountId: string): Promise<number> {
+  return removeEntriesFor(accountId, entry => entry.state === 'refused')
+}
+
+async function removeEntriesFor(accountId: string, which: (entry: PendingRegistration) => boolean): Promise<number> {
   try {
     const store = await sweepStore()
     if (!store) return 0
-    const own = (await store.list()).filter(entry => entry.accountId === accountId)
+    const own = (await store.list()).filter(entry => entry.accountId === accountId && which(entry))
     await Promise.all(own.map(entry => store.remove(entry.localCommandId).catch(() => undefined)))
     return own.length
   } catch {
@@ -216,8 +231,19 @@ export interface QueueSyncResult {
   readonly sent: number
   readonly waiting: number
   readonly refused: number
-  /** Why the last registration still waiting was not sent: 'session' when the person must sign in again, or the session ended meanwhile. */
+  /**
+   * Why those still waiting were not sent: 'session' when the person must sign in again (the session ended meanwhile, say),
+   * whatever else happened; otherwise the one reason they share, and none when they differ.
+   */
   readonly reason?: WaitReason | 'session'
+  /** What the page lists once the round ended (waiting and refused, oldest first): what it said holds while that is unchanged. */
+  readonly left: readonly PendingRegistration[]
+}
+
+/** Why a round left registrations waiting, as one reason for the person: signing in again comes first. */
+function oneReason(reasons: ReadonlySet<WaitReason | 'session'>): QueueSyncResult['reason'] {
+  if (reasons.has('session')) return 'session'
+  return reasons.size === 1 ? [...reasons][0] : undefined
 }
 
 /**
@@ -228,12 +254,18 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
   const [entries, setEntries] = useState<PendingRegistration[]>([])
   const [durable, setDurable] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  // One round at a time on this page (a second page of Outreach, opened while a round runs, may run its own: both send
+  // the same commands, which Outreach takes once).
   const busy = useRef(false)
+  // When each registration Health ID couldn't take was last tried on this page, by round: tried after the others next time.
+  const triedUnavailable = useRef(new Map<string, number>())
+  const round = useRef(0)
   const synced = useRef(onSynced)
   synced.current = onSynced
   const mine = useCallback((entry: PendingRegistration) => entry.accountId === accountId && entry.facilityId === facilityId,
     [accountId, facilityId])
 
+  /** Reads this account's entries here again, oldest first, and answers them. */
   const reload = useCallback(async () => {
     const store = await outreachQueueStore()
     setDurable(store.durable)
@@ -241,26 +273,37 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     // Nothing waits longer than 14 days on a device, whoever saved it.
     const expired = all.filter(entry => queueEntryExpired(entry))
     await Promise.all(expired.map(entry => store.remove(entry.localCommandId).catch(() => undefined)))
-    setEntries(all.filter(entry => mine(entry) && !expired.includes(entry)).sort((a, b) => a.savedAt.localeCompare(b.savedAt)))
+    const listed = all.filter(entry => mine(entry) && !expired.includes(entry)).sort((a, b) => a.savedAt.localeCompare(b.savedAt))
+    setEntries(listed)
+    return listed
   }, [mine])
 
-  /** Sends what waits, oldest first, one at a time; null when a round is already running in this tab (or nothing is queued here). */
+  /**
+   * Sends what waits, oldest first (one Health ID couldn't take last time after the others), one at a time; null when a
+   * round is already running on this page (or nothing is queued here).
+   */
   const sync = useCallback(async (): Promise<QueueSyncResult | null> => {
     if (busy.current || !accountId) return null
     busy.current = true
     setSyncing(true)
+    const thisRound = ++round.current
+    const unavailableAt = triedUnavailable.current
     let sent = 0
     let waiting = 0
     let refused = 0
-    let reason: QueueSyncResult['reason']
+    let unavailableInARow = 0
+    const reasons = new Set<WaitReason | 'session'>()
+    let left: readonly PendingRegistration[] = []
     try {
       const store = await outreachQueueStore()
       const queued = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
-        .sort((a, b) => a.savedAt.localeCompare(b.savedAt))
+        .sort((a, b) => (unavailableAt.get(a.localCommandId) ?? 0) - (unavailableAt.get(b.localCommandId) ?? 0) || a.savedAt.localeCompare(b.savedAt))
       for (const [index, entry] of queued.entries()) {
         try {
           const created = await staffApi.createOutreachCase(entry.facilityId, entry.input,
             { localCommandId: entry.localCommandId, temporaryPatientId: entry.temporaryPatientId })
+          unavailableAt.delete(entry.localCommandId)
+          unavailableInARow = 0
           await store.remove(entry.localCommandId)
           sent += 1
           synced.current(created)
@@ -269,15 +312,24 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
           // rest when the network is back or after signing in again. Each stays waiting.
           if (noConnection(caught) || waitsForSignIn(caught) || isStoppedRequest(caught)) {
             waiting += queued.length - index
-            reason = noConnection(caught) ? 'connection' : 'session'
+            reasons.add(noConnection(caught) ? 'connection' : 'session')
             break
           }
-          // Health ID couldn't take this one just now: it waits, and the next is tried.
+          // Health ID couldn't take this one just now: it waits, tried after the others next time, and the next is tried,
+          // unless Health ID asked for fewer requests or answered so twice in a row: the rest then wait for the next round.
           if (healthIdUnavailable(caught)) {
             waiting += 1
-            reason = 'unavailable'
+            reasons.add('unavailable')
+            unavailableAt.set(entry.localCommandId, thisRound)
+            unavailableInARow += 1
+            if ((isHidApiError(caught) && caught.status === 429) || unavailableInARow >= 2) {
+              waiting += queued.length - index - 1
+              break
+            }
             continue
           }
+          unavailableAt.delete(entry.localCommandId)
+          unavailableInARow = 0
           await store.put({ ...entry, state: 'refused', refusal: outreachProblemText(caught, REFUSED_FALLBACK) })
           refused += 1
         }
@@ -285,9 +337,9 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     } finally {
       busy.current = false
       setSyncing(false)
-      await reload()
+      left = await reload()
     }
-    return { sent, waiting, refused, reason }
+    return { sent, waiting, refused, reason: oneReason(reasons), left }
   }, [accountId, mine, reload])
 
   const add = useCallback(async (entry: Omit<PendingRegistration, 'accountId' | 'facilityId' | 'savedAt' | 'state'>) => {

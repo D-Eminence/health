@@ -920,9 +920,11 @@ and facility that saved it, and sent again, oldest first: when the page opens, w
 the network is back, when the page is shown again, after a registration Health ID
 took, and every 30 seconds while any waits and the page is shown (or, after a
 session ended, once the person signs in again). One that Health ID can't take just
-now (a server fault, too many requests) waits without holding up the others; no
-connection, a timeout, a send stopped as the session ended, or a sign-in needed
-stops the round, and none of these marks it refused. It is deleted as soon as Health
+now (a server fault) waits without holding up the others, and is tried after them
+next time; too many requests, or Health ID unavailable twice in a row, ends the
+round, so a struggling Health ID is not sent every waiting registration every 30
+seconds. No connection, a timeout, a send stopped as the session ended, or a
+sign-in needed also ends the round, and none of these marks it refused. It is deleted as soon as Health
 ID takes it, when the person removes a refused one, when the account that saved
 it signs out on that browser, and after 14 days in any case: the staff app
 sweeps entries older than 14 days as it starts and on every session change,
