@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { EhrBadge, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { Users } from 'lucide-react'
 import { FormActions, PageState } from '../../../kasuwa/parts'
-import { Alert, Button, Card } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, Select, Textarea } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
 import { staffApi, type OutreachCampaign, type OutreachCampaignRole } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -183,7 +182,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const reasonField = (label: string, hint: string) => (
     <OutreachField id={ids.reason} label={label} required hint={hint}
       error={problems.errors.reason} alert={problems.alert === 'reason'} seq={problems.seq}>
-      <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required {...controlProps(ids.reason, problems.errors.reason, true)} />
+      <Textarea name="reason" rows={3} minLength={8} maxLength={500} required {...controlProps(ids.reason, problems.errors.reason, true)} />
     </OutreachField>
   )
   const formFoot = (submit: string) => (
@@ -230,15 +229,15 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
         <form id={ids.form} className="flex flex-col gap-4" noValidate aria-label="Add a person" onSubmit={event => void addPerson(event)}>
           <OutreachField id={ids.person} label="Person" required hint="Active staff at this facility who aren’t in this campaign yet."
             error={problems.errors.person} alert={problems.alert === 'person'} seq={problems.seq}>
-            <EhrSelect name="membershipId" required defaultValue="" {...controlProps(ids.person, problems.errors.person, true)}>
+            <Select name="membershipId" required defaultValue="" {...controlProps(ids.person, problems.errors.person, true)}>
               <option value="">Choose a person</option>
               {candidates.map(person => <option key={person.membershipId} value={person.membershipId}>{person.name}</option>)}
-            </EhrSelect>
+            </Select>
           </OutreachField>
           <OutreachField id={ids.role} label="Their role" required hint="A campaign admin can also open, close and add people to it.">
-            <EhrSelect name="role" required defaultValue="enumerator" {...controlProps(ids.role, undefined, true)}>
+            <Select name="role" required defaultValue="enumerator" {...controlProps(ids.role, undefined, true)}>
               {CAMPAIGN_ROLES.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
-            </EhrSelect>
+            </Select>
           </OutreachField>
           {formFoot('Add to campaign')}
         </form>
@@ -286,7 +285,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
                   <span className="hid-ehr-dept-row-title">{names.get(member.membershipId) ?? 'Team member'}</span>
                   <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
-                <EhrBadge>{memberRoleLabel(member.role)}</EhrBadge>
+                <Badge size="sm">{memberRoleLabel(member.role)}</Badge>
               </li>
             ))}
           </ul>

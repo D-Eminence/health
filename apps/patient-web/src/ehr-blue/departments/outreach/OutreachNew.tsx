@@ -1,9 +1,8 @@
 import { useRef, useState, type FormEvent, type MutableRefObject } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { ArrowLeft } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
-import { Button } from '../../../kasuwa/ui'
+import { Button, Input, Select, Textarea } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
 import { outreachProblemText } from '../../../outreachProblems'
@@ -240,19 +239,19 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
           methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
         <Step n={group ? 2 : 1} title="Who they are" hint={group ? 'As they say it.' : 'As they say it. You can correct it when you link their Health ID.'}>
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
-            <EhrInput name="fullName" maxLength={200} required autoComplete="off" {...controlProps(FIELD_ID.name, fieldError('name'))} />
+            <Input name="fullName" maxLength={200} required autoComplete="off" {...controlProps(FIELD_ID.name, fieldError('name'))} />
           </OutreachField>
           <div className="grid gap-4 @md:grid-cols-2">
             <OutreachField id="outreach-case-sex" label="Sex" required>
-              <EhrSelect name="sex" required {...controlProps('outreach-case-sex', undefined)}>
+              <Select name="sex" required {...controlProps('outreach-case-sex', undefined)}>
                 <option value="unknown">Not known</option>
                 <option value="female">Female</option>
                 <option value="male">Male</option>
                 <option value="other">Other</option>
-              </EhrSelect>
+              </Select>
             </OutreachField>
             <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
-              <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
+              <Input name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
                 onChange={group ? event => {
                   const minor = isMinorAge(event.target.value.trim())
                   setMinorAge(minor)
@@ -263,31 +262,31 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
         </Step>
         <Step n={group ? 3 : 2} title="How to reach them" hint="Optional. Used to follow up.">
           <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
-            <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
+            <Input name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
           </OutreachField>
         </Step>
         <Step n={group ? 4 : 3} title="Campaign and notes">
           {group ? (
             <OutreachField id={FIELD_ID.campaign} label="Campaign" required {...field('campaign')}
               hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.' : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
-              <EhrSelect name="campaignId" required {...controlProps(FIELD_ID.campaign, fieldError('campaign'), true)}>
+              <Select name="campaignId" required {...controlProps(FIELD_ID.campaign, fieldError('campaign'), true)}>
                 {campaigns.length !== 1 ? <option value="">Choose a campaign</option> : null}
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
-              </EhrSelect>
+              </Select>
             </OutreachField>
           ) : showCampaign && (
             <OutreachField id={CAMPAIGN_FIELD} label="Campaign (optional)"
               hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.' : 'You aren’t in an active registration campaign. You can save without one.'}>
-              <EhrSelect name="campaignId" {...controlProps(CAMPAIGN_FIELD, undefined, true)}>
+              <Select name="campaignId" {...controlProps(CAMPAIGN_FIELD, undefined, true)}>
                 <option value="">No campaign</option>
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
-              </EhrSelect>
+              </Select>
             </OutreachField>
           )}
           <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
             hint={group ? `Where you met them, what they need next. No diagnoses, test results or other health details. ${notesLength} of ${OUTREACH_NOTES_LIMIT} characters.`
               : 'Where you met them, what they need next. Not a clinical note.'}>
-            <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
+            <Textarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />
           </OutreachField>
         </Step>
@@ -336,10 +335,10 @@ function ConsentStep({ group, language, method, minor, onLanguage, onMethod, met
       </div>
       <OutreachField id="outreach-consent-language" label="Language the notice was given in" required
         hint={language === 'en' ? 'Choose another language if you read it aloud in that language.' : 'You read the notice aloud in this language.'}>
-        <EhrSelect name="consentLanguage" value={language} onChange={event => onLanguage(event.target.value as OutreachConsentLanguage)}
+        <Select name="consentLanguage" value={language} onChange={event => onLanguage(event.target.value as OutreachConsentLanguage)}
           {...controlProps('outreach-consent-language', undefined, true)}>
           {CONSENT_LANGUAGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </EhrSelect>
+        </Select>
       </OutreachField>
       <fieldset className="hid-ehr-field m-0 border-0 p-0" aria-describedby={methodError ? 'outreach-consent-method-error' : undefined}
         aria-invalid={methodError ? true : undefined}>
@@ -355,7 +354,7 @@ function ConsentStep({ group, language, method, minor, onLanguage, onMethod, met
         {methodError ? <p id="outreach-consent-method-error" className="hid-ehr-error">{methodAlert ? <span role="alert">{methodError}</span> : methodError}</p> : null}
       </fieldset>
       <OutreachField id="outreach-consent-guardian" label="Parent or guardian’s name" hint="Required for anyone under 18." {...guardian}>
-        <EhrInput name="guardianName" maxLength={GUARDIAN_NAME_LIMIT} autoComplete="off" {...controlProps('outreach-consent-guardian', guardian.error, true)} />
+        <Input name="guardianName" maxLength={GUARDIAN_NAME_LIMIT} autoComplete="off" {...controlProps('outreach-consent-guardian', guardian.error, true)} />
       </OutreachField>
       <p className="m-0 text-caption text-ink-3">If they say no, don’t register them.</p>
     </Step>

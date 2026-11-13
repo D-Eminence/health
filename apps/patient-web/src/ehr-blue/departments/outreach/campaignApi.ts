@@ -71,10 +71,17 @@ export const outreachCampaignApi = {
       headers: ifMatch(member.rowVersion), retry: NO_RETRY }),
 
   // -------------------------------------------------------------------------------------- registration, visits --
-  /** Before registering: is this person known, by phone or Health ID? Minimal matches only, never a record. */
+  /**
+   * Before registering: is this person known, by phone or Health ID? Minimal matches only, never a record. A POST with
+   * the phone or Health ID in the body, never in the address: personal data stays out of web addresses and gateway logs.
+   * A read: no Idempotency-Key, and sent again only by the person.
+   */
   searchParticipants: (facilityId: string, campaignId: string, search: ParticipantSearch, signal?: AbortSignal) =>
-    get<ParticipantSearchResult>(facilityId, campaignPath(campaignId, 'participants/search'), signal,
-      search.phone !== undefined ? { phone: search.phone } : { healthId: search.healthId }),
+    outreachCampaignRequest<ParticipantSearchResult>(facilityId, { method: 'POST', path: campaignPath(campaignId, 'participants/search'),
+      body: search.phone !== undefined ? { phone: search.phone } : { healthId: search.healthId }, retry: NO_RETRY, ...(signal ? { signal } : {}) }),
+  /** One visit by its case (the served GET …/registration-cases/:caseId), read as a visit. */
+  visit: (facilityId: string, caseId: string, signal?: AbortSignal) =>
+    get<OutreachVisit>(facilityId, `${BASE}/${enc(caseId)}`, signal),
   /**
    * Registers a person (the served POST, request unchanged) and reads the answer as a visit. Outreach makes their
    * Health ID record at once (identity not yet checked) and gives the visit its code.

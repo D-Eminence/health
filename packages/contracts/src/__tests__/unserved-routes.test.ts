@@ -103,7 +103,7 @@ describe('Outreach campaign routes (owner decisions of 13 November 2026)', () =>
     ['POST', `${base}/campaigns/c-1/team`, 'outreach.campaignTeam'],
     ['PATCH', `${base}/campaigns/c-1/team/m-1`, 'outreach.campaignTeamMember'],
     ['DELETE', `${base}/campaigns/c-1/team/m-1`, 'outreach.campaignTeamMember'],
-    ['GET', `${base}/campaigns/c-1/participants/search`, 'outreach.participantSearch'],
+    ['POST', `${base}/campaigns/c-1/participants/search`, 'outreach.participantSearch'],
     ['GET', `${base}/campaigns/c-1/visits/by-code/K7-4F2`, 'outreach.visitByCode'],
     ['POST', `${base}/oc-1/vitals`, 'outreach.caseVitals'],
     ['POST', `${base}/oc-1/tests`, 'outreach.caseTests'],

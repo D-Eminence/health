@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type FormEvent } from 'react'
-import { EhrButton, EhrInput } from '@hid/ui/ehr'
+import { EhrButton } from '@hid/ui/ehr'
 import { CloudOff, UserPlus } from 'lucide-react'
-import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
+import { Alert, Avatar, Badge, Button, Card, CardHeader, Input } from '../../../kasuwa/ui'
 import { staffApi, type Facility, type OutreachInvitation, type OutreachOrganiserStatus, type OutreachTeamMember } from '../../../staff/api'
 import { isOutreachProblem, outreachProblemText } from '../../../outreachProblems'
 import { dateText } from '../parts/format'
@@ -121,14 +121,14 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
         <div className="flex flex-col gap-4 p-5">
           <form className="grid gap-3 @xl:grid-cols-[1fr_1fr_auto] @xl:items-end" noValidate aria-label="Invite a helper" onSubmit={event => void invite(event)}>
             <OutreachField id="outreach-team-name" label="Their name" required error={errors.name}>
-              <EhrInput maxLength={80} autoComplete="off" value={name} onChange={event => setName(event.target.value)}
+              <Input className="h-12 text-base sm:h-11 sm:text-sm" maxLength={80} autoComplete="off" value={name} onChange={event => setName(event.target.value)}
                 {...controlProps('outreach-team-name', errors.name)} />
             </OutreachField>
             <OutreachField id="outreach-team-email" label="Their email" required error={errors.email}>
-              <EhrInput type="email" maxLength={254} autoComplete="off" value={email} onChange={event => setEmail(event.target.value)}
+              <Input className="h-12 text-base sm:h-11 sm:text-sm" type="email" inputMode="email" maxLength={254} autoComplete="off" value={email} onChange={event => setEmail(event.target.value)}
                 {...controlProps('outreach-team-email', errors.email)} />
             </OutreachField>
-            <EhrButton type="submit" busy={busy}>{busy ? 'Sending…' : 'Send invitation'}</EhrButton>
+            <Button type="submit" variant="primary" size="lg" loading={busy}>{busy ? 'Sending…' : 'Send invitation'}</Button>
           </form>
           <ErrorBox message={error} />
           <div role="status">{notice ? <p className="m-0 text-body text-ink-2">{notice}</p> : null}</div>
@@ -138,8 +138,9 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
           {team.value && team.value.members.length > 0 ? (
             <ul aria-label="Team members" className="m-0 list-none divide-y divide-line p-0">
               {team.value.members.map(member => (
-                <li key={member.membershipId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                  <span className="flex min-w-0 flex-col">
+                <li key={member.membershipId} className="flex flex-wrap items-center gap-3 py-3">
+                  <Avatar name={member.name || member.email || ''} size="sm" />
+                  <span className="flex min-w-0 flex-1 flex-col">
                     <span className="font-semibold break-words">{member.name || member.email || 'Team member'}</span>
                     <span className="text-[13px] text-ink-3 break-all">{ROLE_WORDS[member.roleCode] ?? 'Team member'}{member.email && member.name ? ` · ${member.email}` : ''}</span>
                   </span>
@@ -156,8 +157,9 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
               {team.value.invitations.map(invitation => {
                 const status = INVITATION_STATUS[invitation.status] ?? { label: 'Status not known', tone: 'neutral' as const }
                 return (
-                  <li key={invitation.invitationId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                    <span className="flex min-w-0 flex-col">
+                  <li key={invitation.invitationId} className="flex flex-wrap items-center gap-3 py-3">
+                    <Avatar name={invitation.name} size="sm" />
+                    <span className="flex min-w-0 flex-1 flex-col">
                       <span className="font-semibold break-words">{invitation.name}</span>
                       <span className="text-[13px] text-ink-3 break-all">{invitation.email}</span>
                     </span>

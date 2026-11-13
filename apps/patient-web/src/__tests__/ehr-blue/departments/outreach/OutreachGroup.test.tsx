@@ -28,7 +28,12 @@ const api = vi.hoisted(() => ({
   linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
   outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(),
 }))
-vi.mock('../../../../staff/api', () => ({ staffApi: api }))
+// Outreach campaigns' proposed routes (plan, team; owner decisions 13 Nov 2026): not served here, as today's gateway answers (404).
+const notServed = vi.hoisted(() => async () => {
+  const { HidApiError } = await import('@hid/http')
+  throw new HidApiError(404, 'Not Found', { code: 'NOT_FOUND' })
+})
+vi.mock('../../../../staff/api', () => ({ staffApi: api, outreachCampaignRequest: notServed }))
 
 const MEMBERSHIP = 'membership-demo-1'
 const CAMPAIGN = { id: 'campaign-1', name: 'Ajegunle health week', status: 'active', services: ['registration'], startsAt: '2026-11-01T00:00:00.000Z', rowVersion: 2 }

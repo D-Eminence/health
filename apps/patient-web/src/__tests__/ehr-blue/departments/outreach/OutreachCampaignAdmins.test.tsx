@@ -23,7 +23,13 @@ const api = vi.hoisted(() => ({
 }))
 // Every staff API member the page reaches for that this test does not provide.
 const unprovided = vi.hoisted(() => new Set<string>())
+// Outreach campaigns' proposed routes (plan, team; owner decisions 13 Nov 2026): not served here, as today's gateway answers (404).
+const notServed = vi.hoisted(() => async () => {
+  const { HidApiError } = await import('@hid/http')
+  throw new HidApiError(404, 'Not Found', { code: 'NOT_FOUND' })
+})
 vi.mock('../../../../staff/api', () => ({
+  outreachCampaignRequest: notServed,
   staffApi: new Proxy(api, {
     get(target, property) {
       if (typeof property === 'string' && !(property in target)) unprovided.add(property)

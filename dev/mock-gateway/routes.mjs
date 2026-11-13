@@ -723,7 +723,7 @@ function teamMemberCounts(campaignId, member) {
 }
 
 /** Outreach campaigns' proposed routes (see the top of this section). */
-function outreachScreeningRoute(method, path, { body, headers, query } = {}) {
+function outreachScreeningRoute(method, path, { body, headers } = {}) {
   const base = '/outreach/registration-cases'
   if (method === 'POST' && path === base) {
     if (!body) return NO_BODY()
@@ -801,10 +801,11 @@ function outreachScreeningRoute(method, path, { body, headers, query } = {}) {
       member.rowVersion += 1
       return [200, teamMemberCounts(campaignId, member)]
     }
-    if (method !== 'GET') return null
     if (rest === 'participants/search') {
-      const phone = query?.get?.('phone') ?? null
-      const healthId = query?.get?.('healthId') ?? null
+      // A POST with the phone or Health ID in the body: personal data never goes in the address or the logs.
+      if (method !== 'POST') return null
+      const phone = body?.phone ? String(body.phone) : null
+      const healthId = body?.healthId ? String(body.healthId) : null
       if (!phone === !healthId) return outreachProblem(400, 'OUTREACH_SEARCH_INVALID', 'Search by a phone number or a Health ID')
       const found = allVisits().filter(visit => phone ? digits(visit.phone) === digits(phone) && digits(phone).length === 10 : visit.healthId === String(healthId).trim().toUpperCase())
       const matches = found.map(visit => ({ matchId: `match-${visit.patientId}`, initials: visit.fullName.split(/\s+/).map(part => part[0]).join('').toUpperCase(),
@@ -816,6 +817,7 @@ function outreachScreeningRoute(method, path, { body, headers, query } = {}) {
       }
       return [200, { matches }]
     }
+    if (method !== 'GET') return null
     if (rest.startsWith('visits/by-code/')) {
       const code = decodeURIComponent(rest.slice('visits/by-code/'.length)).toUpperCase()
       const visit = allVisits().find(entry => entry.campaignId === campaignId && entry.visitCode === code)
