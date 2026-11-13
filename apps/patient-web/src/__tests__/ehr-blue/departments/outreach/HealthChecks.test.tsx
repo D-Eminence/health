@@ -100,6 +100,36 @@ describe('Health checks', () => {
     }
   })
 
+  it('“Register another person” asks first while health checks aren’t saved, and stays if the volunteer says no', async () => {
+    api.createOutreachCase.mockResolvedValue(pending(CASE_ID))
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: 'New registration' }))
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
+    fireEvent.change(screen.getByRole('textbox', { name: /Full name/ }), { target: { value: 'Kemi Balogun' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: '30' } })
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await within(region()).findByRole('button', { name: 'Save health checks' })
+    type(/top number/, '182')
+    type(/bottom number/, '117')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    try {
+      for (const button of screen.getAllByRole('button', { name: 'Register another person' })) {
+        await press(button)
+        expect(confirm).toHaveBeenCalledTimes(1)
+        confirm.mockClear()
+        // Still on the case, with the readings.
+        expect(box(/top number/).value).toBe('182')
+        expect(screen.queryByRole('heading', { level: 1, name: 'New registration' })).toBeNull()
+      }
+      confirm.mockReturnValue(true)
+      await press(screen.getAllByRole('button', { name: 'Register another person' })[0]!)
+      expect(await screen.findByRole('heading', { level: 1, name: 'New registration' })).toBeTruthy()
+    } finally {
+      confirm.mockRestore()
+    }
+  })
+
   it('saves the whole screening the first time with a new key and no version, then with its version', async () => {
     api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { bpSystolic: 128, bpDiastolic: 84, weightKg: 70, heightCm: 170,
       glucoseValue: 6.1, glucoseUnit: 'mmol/L', glucoseTiming: 'random', malariaRdt: 'negative', medicinesGiven: [{ name: 'Paracetamol', dose: '500 mg' }] }) })

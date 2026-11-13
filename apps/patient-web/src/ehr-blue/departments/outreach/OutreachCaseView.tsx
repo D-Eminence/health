@@ -192,6 +192,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
   const back = () => { if (!busy && leaveHealthChecks()) onBack() }
+  // "Register another person" leaves this case too: it asks first while health checks aren't saved, as Back does.
+  const next = onNew ? () => { if (leaveHealthChecks()) onNew() } : undefined
   const facts = caseFacts(item, campaign)
 
   // The one next step, or the done state.
@@ -206,7 +208,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             ? 'This registration is now joined to the verified Health ID patient. Their care continues under their Health ID.'
             : `This registration is ${statusLabel(item.status).toLowerCase()}. No further step is needed here.`}</p>
           <FormActions sticky={false} align="start" className="mt-2">
-            {onNew ? <Button variant="primary" icon={UserPlus} onClick={onNew}>Register another person</Button> : null}
+            {next ? <Button variant="primary" icon={UserPlus} onClick={next}>Register another person</Button> : null}
             <Button onClick={back}>Back to list</Button>
           </FormActions>
         </div>
@@ -298,7 +300,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             </Card>
           </div>
         </div>
-        {onNew && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={onNew}>Register another person</Button> : null}
+        {next && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={next}>Register another person</Button> : null}
       </div>
       {sheet}
       {slipArea}
