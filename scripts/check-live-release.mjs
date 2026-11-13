@@ -112,6 +112,10 @@ export const EXPECTATIONS = Object.freeze([
   { id: '223-finished-weeks', label: '#223 Reading quality "finished weeks" note', sites: ['migrate'],
     text: 'Figures cover finished weeks only.', expect: 'present', enabled: true },
 
+  // #240: Migrate says who can check a reading (apps/patient-web/src/ehr-blue/departments/migrate/Migrate.tsx CHECK_NEEDS_CHECKER).
+  { id: '240-who-can-check', label: '#240 Migrate "who can check" note', sites: ['migrate'],
+    text: 'A doctor, clinician, nurse or lab scientist at this facility must check and save it.', expect: 'present', enabled: true },
+
   // #221: outreach.'s front page offers organiser sign-up, not a demo. Live (checked 2026-11-12). Read on the front page's
   // HTML only: the public site's shared scripts still say "Book a demo" for the pages that keep it.
   { id: '221-book-a-demo-gone', label: '#221 "Book a demo" gone from the outreach front page', sites: ['outreach'],
