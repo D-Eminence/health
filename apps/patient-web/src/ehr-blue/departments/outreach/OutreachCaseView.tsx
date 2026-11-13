@@ -20,7 +20,7 @@ import {
 import { LINKS_LATER } from './outreachGroup'
 import { GetHealthIdNow, GUARDIAN_MUST_AGREE } from './GetHealthIdNow'
 import { HealthChecks, leaveHealthChecks } from './HealthChecks'
-import { CreateHealthId, healthIdMadeByEmail, type MadeHere } from './CreateHealthId'
+import { CreateHealthId, healthIdMadeByEmail, type HealthIdHold, type MadeHere } from './CreateHealthId'
 import { OutreachSlip, useSlipPrint } from './OutreachSlip'
 import { keptClaimCode } from './tabMemory'
 
@@ -99,8 +99,11 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   // The Health ID made here just now, with its claim code when made with no email, for the slip. After a reload
   // the claim code is printed for 15 minutes from this tab's own copy (tabMemory.ts), never shown on screen again.
   const [madeHere, setMadeHere] = useState<MadeHere | null>(null)
+  // A Health ID being made, or a claim code shown and not yet printed or written down: nothing here leaves the view.
+  const [healthIdHold, setHealthIdHold] = useState<HealthIdHold>(null)
   const { print, area: slipArea } = useSlipPrint()
   const printSlip = () => {
+    if (healthIdHold === 'claim') setHealthIdHold(null)
     const healthId = madeHere?.healthId ?? item.healthId
     print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
       healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)}
@@ -192,9 +195,16 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
 
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
-  const back = () => { if (!busy && leaveHealthChecks()) onBack() }
-  // "Register another person" leaves this case too: it asks first while health checks aren't saved, as Back does.
-  const next = onNew ? () => { if (leaveHealthChecks()) onNew() } : undefined
+  /**
+   * Leaves the view, unless something must be finished first: a Health ID being made waits for its answer, and a claim
+   * code shown is brought back into view until it is printed or written down.
+   */
+  const leave = (go: () => void) => {
+    if (healthIdHold === 'claim') focus(`outreach-health-id-${item.id}-made`)
+    if (!healthIdHold && !busy && leaveHealthChecks()) go()
+  }
+  const back = () => leave(onBack)
+  const registerAnother = onNew ? () => leave(onNew) : undefined
   const facts = caseFacts(item, campaign)
   // The Health ID made at outreach (0119): just now in this view, or as the registration says. The registration stays
   // pending identity all the same, so it is said in place of "Waiting to link" and "comes later".
@@ -215,7 +225,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             ? 'This registration is now joined to the verified Health ID patient. Their care continues under their Health ID.'
             : `This registration is ${statusLabel(item.status).toLowerCase()}. No further step is needed here.`}</p>
           <FormActions sticky={false} align="start" className="mt-2">
-            {next ? <Button variant="primary" icon={UserPlus} onClick={next}>Register another person</Button> : null}
+            {registerAnother ? <Button variant="primary" icon={UserPlus} onClick={registerAnother}>Register another person</Button> : null}
             <Button onClick={back}>Back to list</Button>
           </FormActions>
         </div>
@@ -271,7 +281,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   return (
     <DeptPage title={caseName(item)} secondaryActions={<Button icon={Printer} onClick={printSlip}>Print slip</Button>} primaryAction={(
       // Unavailable while the link is sent, so its answer is not lost.
-      <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>
+      <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || healthIdHold !== null || undefined} onClick={back}>Back to list</Button>
     )}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
@@ -305,7 +315,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             {/* Where Outreach can make the Health ID (its registrations carry healthId), that comes first, and the person's own
                 sign-up is the fallback; elsewhere the sign-up is the way, while the registration waits for a Health ID. */}
             {(pending && !linked) || item.healthId
-              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip}
+              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip} onHold={setHealthIdHold}
                 onCreated={made => { if (made) setMadeHere(made); void onChanged() }} /> : null}
             {pending && !linked && !item.healthId
               ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} ageYears={item.ageYears} /> : null}
@@ -317,7 +327,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             </Card>
           </div>
         </div>
-        {next && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={next}>Register another person</Button> : null}
+        {registerAnother && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={registerAnother}>Register another person</Button> : null}
       </div>
       {sheet}
       {slipArea}

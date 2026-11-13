@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import {
-  CreateHealthId, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET, REQUEST_USED, START_UNAVAILABLE,
+  CLAIM_CODE_LOST, CREATE_UNANSWERED, CreateHealthId, forgetUnservedHealthIdWays, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET,
+  REQUEST_USED, START_UNAVAILABLE,
 } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 
 /*
@@ -28,6 +29,8 @@ beforeEach(() => {
   api.startOutreachHealthId.mockResolvedValue(STARTED)
   // Each test is a tab of its own: nothing kept from another.
   sessionStorage.clear()
+  // And a page of its own: no route found not served by another.
+  forgetUnservedHealthIdWays()
 })
 
 async function press(button: HTMLElement) {
@@ -372,5 +375,57 @@ describe('Create Health ID refusals', () => {
     expect(send.getAttribute('aria-disabled')).toBe('true')
     await press(send)
     expect(api.startOutreachHealthId).toHaveBeenCalledTimes(1)
+  })
+})
+
+/*
+ * "No email" (0120): the claim code is answered once only. A create whose answer was lost says so and never shows the
+ * Health ID as complete without its code; a registration whose Health ID is unclaimed, with no code in this tab, says
+ * the code was lost. A route not served is remembered for the page, not asked again on every case. Fictional data only.
+ */
+describe('Create Health ID with no email: a lost answer', () => {
+  async function createWithNoEmail() {
+    await want()
+    await press(within(region()).getByRole('radio', { name: /^No email/ }))
+    await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
+  }
+
+  it.each([[0, 'NETWORK_ERROR'], [408, 'REQUEST_TIMEOUT']])('after a lost answer (%s), says it couldn’t tell; then “already created” says the code was lost', async (status, code) => {
+    api.createUnverifiedOutreachHealthId.mockRejectedValueOnce(new HidApiError(status, 'x', { code }))
+      .mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'OUTREACH_HEALTH_ID_ALREADY_CREATED', details: { healthId: 'HID-UNVER1' } }))
+    renderSection()
+    await createWithNoEmail()
+    expect(await within(region()).findByText(CREATE_UNANSWERED)).toBeTruthy()
+    expect(CREATE_UNANSWERED).toBe('We couldn’t tell if the Health ID was made. Keep the person with you and press Create Health ID again when you have signal.')
+    await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
+    expect(await within(region()).findByText('HID-UNVER1')).toBeTruthy()
+    expect(region().textContent).toContain(CLAIM_CODE_LOST)
+    expect(CLAIM_CODE_LOST).toBe('This Health ID was made, but its claim code can’t be shown again. Write the Health ID on their slip. They will need Health ID support to start using it. Don’t ask them to sign up again.')
+    expect(region().textContent).not.toContain('Write this on their slip.')
+  })
+
+  it('says the claim code was lost for an unclaimed Health ID with no code in this tab', () => {
+    renderSection({ ...ITEM, healthId: 'HID-UNVER1', healthIdCreatedByOutreach: true, healthIdStatus: 'unclaimed' })
+    expect(region().textContent).toContain(CLAIM_CODE_LOST)
+    expect(region().textContent).not.toContain(MADE_BEFORE)
+  })
+
+  it('says nothing of a lost code for a Health ID made by email', () => {
+    renderSection({ ...ITEM, healthId: 'HID-ZDEMAA', healthIdCreatedByOutreach: true, healthIdStatus: 'verified' })
+    expect(region().textContent).not.toContain(CLAIM_CODE_LOST)
+    expect(region().textContent).toContain(MADE_BEFORE)
+  })
+
+  it('remembers for the page that “No email” is not served, so the next case does not offer it again', async () => {
+    api.createUnverifiedOutreachHealthId.mockRejectedValue(new HidApiError(404, 'x', { code: 'API_ROUTE_NOT_FOUND' }))
+    renderSection()
+    await createWithNoEmail()
+    await waitFor(() => expect(within(region()).queryByRole('radio', { name: /^No email/ })).toBeNull())
+    cleanup()
+    renderSection({ ...ITEM, id: 'case-2' })
+    await want()
+    expect(within(region()).queryByRole('radio', { name: /^No email/ })).toBeNull()
+    expect(within(region()).getByRole('radio', { name: /^Email/ })).toBeTruthy()
+    expect(api.createUnverifiedOutreachHealthId).toHaveBeenCalledTimes(1)
   })
 })

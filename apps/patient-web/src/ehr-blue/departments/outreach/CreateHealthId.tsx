@@ -9,7 +9,7 @@ import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { errorText } from '../parts/errors'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
-import { keepClaimCode, readTab, writeTab } from './tabMemory'
+import { keepClaimCode, keptClaimCode, readTab, writeTab } from './tabMemory'
 
 /*
  * "Create Health ID" at an outreach event (outreach-api 0119, proposed; owner decisions of 13 November 2026): once the
@@ -29,6 +29,20 @@ type Method = 'email' | 'unverified' | 'sms'
 
 /** The 404 codes that mean Outreach does not serve the route (not that the registration is missing). */
 const ROUTE_NOT_SERVED: ReadonlySet<string> = new Set(['NOT_FOUND', 'API_ROUTE_NOT_FOUND'])
+
+/**
+ * The ways Outreach answered it does not serve (404 route-not-served), for as long as this page stays loaded: kept in
+ * memory only, so each new case does not offer them again. A reload asks again.
+ */
+const unservedWays = new Set<'email' | 'unverified'>()
+
+/** Forgets the ways found not served, as a reload does (each test is a page of its own). */
+export function forgetUnservedHealthIdWays(): void {
+  unservedWays.clear()
+}
+
+/** What leaving the case view must wait for: a Health ID being made, or a claim code not yet printed or written down. */
+export type HealthIdHold = 'creating' | 'claim' | null
 
 /**
  * Outreach's refusals, each in words that say what to do next and fit every variant it is answered in (never whose
@@ -64,7 +78,7 @@ const FAILED = 'The Health ID could not be created. Please retry.'
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /** What the section shows once a Health ID is made: the claim code only from the answer that made it, once. */
-interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean }
+interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean; readonly codeLost?: boolean }
 
 /** A Health ID made here just now, its claim code when it was made with no email, and whether by email. */
 export interface MadeHere { readonly healthId: string; readonly claimCode?: string; readonly byEmail?: boolean }
@@ -85,6 +99,15 @@ export function healthIdMadeByEmail(item: OutreachCase): boolean {
   return status === undefined ? item.healthIdCreatedByOutreach === true : status === 'verified'
 }
 
+/** A create with no email whose answer was lost (no signal, or a timeout): it may have been made. */
+export const CREATE_UNANSWERED = 'We couldn’t tell if the Health ID was made. Keep the person with you and press Create Health ID again when you have signal.'
+
+/**
+ * A Health ID made with no email whose claim code this page never got (a lost answer, then "already created"), or an
+ * unclaimed one with no claim code kept in this tab: the code is never answered again (0120 has no reissue).
+ */
+export const CLAIM_CODE_LOST = 'This Health ID was made, but its claim code can’t be shown again. Write the Health ID on their slip. They will need Health ID support to start using it. Don’t ask them to sign up again.'
+
 /** Said once a Health ID made before (or before a reload) is shown: the claim code is never shown again. */
 export const MADE_BEFORE = 'Their Health ID has been made. Print their slip, or write the Health ID on it.'
 
@@ -100,7 +123,7 @@ interface CodeStep {
   readonly attempt: { readonly signature: string; readonly key: string } | null
 }
 
-export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintSlip }: {
+export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintSlip, onHold }: {
   readonly facilityId: string
   readonly item: OutreachCase
   /** Whether the membership may write registrations: only then can it make a Health ID. */
@@ -112,15 +135,21 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   readonly onCreated: (made?: MadeHere) => void
   /** "Print slip", once a Health ID is shown. */
   readonly onPrintSlip?: () => void
+  /**
+   * What leaving the view must wait for, as it changes: while a confirm or a create with no email is sent (a page left
+   * then loses the answer, and with it a claim code for good), and while a claim code is shown until the slip is printed
+   * or "I've written it down" is pressed.
+   */
+  readonly onHold?: (hold: HealthIdHold) => void
 }) {
   // A code step under way before a reload, kept for this tab by account, facility and registration.
   const { actorId } = useDeptAccess()
   const stepKey = actorId && canWrite ? `health-id:${actorId}:${facilityId}:${item.id}` : null
   const [step] = useState(() => stepKey && !item.healthId ? readTab<CodeStep>(stepKey) : null)
   // The ways Outreach answered it does not serve (404 route-not-served): each hides on its own, as each ships alone.
-  const [unserved, setUnserved] = useState<ReadonlySet<'email' | 'unverified'>>(new Set())
+  const [unserved, setUnserved] = useState<ReadonlySet<'email' | 'unverified'>>(() => new Set(unservedWays))
   const [wanted, setWanted] = useState(step !== null)
-  const [method, setMethod] = useState<Method>('email')
+  const [method, setMethod] = useState<Method>(() => unservedWays.has('email') ? 'unverified' : 'email')
   const [email, setEmail] = useState(step?.email ?? '')
   const [emailError, setEmailError] = useState('')
   const [sent, setSent] = useState<{ readonly hint: string; readonly channel: OutreachHealthIdChannel } | null>(
@@ -130,6 +159,12 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   const [codeError, setCodeError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // A confirm or a create with no email under way: leaving now would lose its answer.
+  const [creating, setCreating] = useState(false)
+  // The claim code shown has been printed or written down.
+  const [noted, setNoted] = useState(false)
+  // A create with no email from this view went unanswered: "already created" after it means its claim code was lost.
+  const unanswered = useRef(false)
   const [justMade, setMade] = useState<Made | null>(null)
   const [wait, setWait] = useState(() => step ? Math.max(0, Math.ceil((step.resendAt - Date.now()) / 1000)) : 0)
   // One key per attempt: a new one for each code sent, each code confirmed and each unverified Health ID; the same on a
@@ -149,6 +184,19 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     } satisfies CodeStep : null)
   }, [stepKey, sent, email, justMade, busy, item.healthId])
 
+  const hold: HealthIdHold = creating ? 'creating' : justMade?.claimCode && !noted ? 'claim' : null
+  useEffect(() => {
+    onHold?.(hold)
+    return () => { if (hold) onHold?.(null) }
+  }, [hold, onHold])
+  // Closing or reloading the page asks first while an answer is awaited (a claim code shown is kept for the slip).
+  useEffect(() => {
+    if (!creating) return undefined
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [creating])
+
   useEffect(() => {
     if (wait <= 0) return undefined
     const timer = window.setTimeout(() => setWait(seconds => seconds - 1), 1000)
@@ -160,6 +208,10 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   const minor = typeof item.ageYears === 'number' && item.ageYears < 18
   // Made here just now (with its claim code, shown this once), or made before, as the registration says.
   const made: Made | null = justMade ?? (item.healthId ? { healthId: item.healthId, byEmail: healthIdMadeByEmail(item) } : null)
+  // No claim code in this page or in this tab's copy for the slip, for a Health ID made with no email (0120 says so).
+  const unclaimed = (item as { readonly healthIdStatus?: unknown }).healthIdStatus === 'unclaimed'
+  const codeLost = made !== null && !made.claimCode && (made.codeLost === true
+    || (unclaimed && made.healthId === item.healthId && !keptClaimCode(actorId, facilityId, item.id, item.healthId)))
 
   function keyFor(signature: string): string {
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
@@ -171,6 +223,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     const problem = isHidApiError(caught) ? caught.code : ''
     const way = call === 'unverified' ? 'unverified' : 'email'
     if (isHidApiError(caught) && caught.status === 404 && ROUTE_NOT_SERVED.has(problem)) {
+      unservedWays.add(way)
       const next = new Set(unserved).add(way)
       setUnserved(next)
       setSent(null)
@@ -185,9 +238,12 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     if (problem === 'OUTREACH_HEALTH_ID_ALREADY_CREATED') {
       const details = isHidApiError(caught) ? caught.details as { healthId?: unknown } | null : null
       const existing = typeof details?.healthId === 'string' ? details.healthId : null
-      // At confirm, it was made from the code just proved (a retry after a lost answer): by email.
+      // At confirm, it was made from the code just proved (a retry after a lost answer): by email. After this view's own
+      // create with no email went unanswered, it was made then, and its claim code is never answered again.
       const byEmail = call === 'confirm'
-      if (existing) setMade({ healthId: existing, byEmail })
+      const lost = call === 'unverified' && unanswered.current
+      if (existing) setMade({ healthId: existing, byEmail, codeLost: lost })
+      else if (lost) setError(CLAIM_CODE_LOST)
       else setError('This person already has a Health ID. It is shown here once the registration is read again.')
       // Read again: the registration names its Health ID.
       onCreated(existing ? { healthId: existing, byEmail } : undefined)
@@ -278,6 +334,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     setCodeError('')
     const key = keyFor(JSON.stringify(['confirm', typed]))
     setBusy(true)
+    setCreating(true)
     try {
       const answer = await staffApi.confirmOutreachHealthId(facilityId, item.id, typed, key)
       attempt.current = null
@@ -288,6 +345,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       refused(caught, 'confirm')
     } finally {
       setBusy(false)
+      setCreating(false)
     }
   }
 
@@ -296,6 +354,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     setError('')
     const key = keyFor('unverified')
     setBusy(true)
+    setCreating(true)
     try {
       const answer = await staffApi.createUnverifiedOutreachHealthId(facilityId, item.id, key)
       attempt.current = null
@@ -305,9 +364,16 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       focus(id('made'))
       onCreated({ healthId: answer.healthId, claimCode: answer.claimCode })
     } catch (caught) {
+      // The answer was lost (no signal, or a timeout): it may have been made, and its claim code with it.
+      if (!isHidApiError(caught) || caught.status === 0 || caught.status === 408 || caught.status === 504) {
+        unanswered.current = true
+        setError(CREATE_UNANSWERED)
+        return
+      }
       refused(caught, 'unverified')
     } finally {
       setBusy(false)
+      setCreating(false)
     }
   }
 
@@ -321,11 +387,13 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
           <p className="m-0 text-body text-ink-2">Claim code</p>
           <p className="m-0 font-mono text-[32px] font-semibold tracking-wide break-all text-ink" aria-label={`Claim code ${made.claimCode.split('').join(' ')}`}>{made.claimCode}</p>
           <Alert intent="warning" title="Write this on their slip.">They’ll need the Health ID and this code to start using it later. The code isn’t shown again.</Alert>
-        </> : justMade ? <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>
+        </> : codeLost ? <Alert intent="warning">{CLAIM_CODE_LOST}</Alert>
+          : justMade ? <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>
           : <p className="m-0 text-body text-ink">{MADE_BEFORE}</p>}
         {made.byEmail ? <p className="m-0 text-body text-ink-2">{NO_PASSWORD_YET}</p> : null}
         <div className="flex flex-wrap gap-2">
-          {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={onPrintSlip}>Print slip</Button> : null}
+          {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={() => { setNoted(true); onPrintSlip() }}>Print slip</Button> : null}
+          {made.claimCode && !noted ? <Button onClick={() => setNoted(true)}>I’ve written it down</Button> : null}
           <Button icon={Copy} onClick={() => { void navigator.clipboard?.writeText(made.claimCode ? `${made.healthId} ${made.claimCode}` : made.healthId).catch(() => undefined) }}>
             Copy</Button>
         </div>

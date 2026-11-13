@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import { OutreachCaseView } from '../../../../ehr-blue/departments/outreach/OutreachCaseView'
-import { MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
+import { forgetUnservedHealthIdWays, MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 import {
   CHECKS_RECORDED, eventDateText, FORGOT_PASSWORD, GET_HEALTH_ID_LATER, GET_HEALTH_ID_LATER_MINOR, KEEP_SLIP, OutreachSlip,
 } from '../../../../ehr-blue/departments/outreach/OutreachSlip'
@@ -39,6 +39,7 @@ beforeEach(() => {
   vi.stubGlobal('print', print)
   api.outreachScreening.mockResolvedValue(SCREENING)
   sessionStorage.clear()
+  forgetUnservedHealthIdWays()
   setItem = vi.spyOn(Storage.prototype, 'setItem')
 })
 
@@ -213,5 +214,70 @@ describe('Print slip on a registration', () => {
     renderCase({ ...ITEM, hasScreening: false })
     await press(screen.getByRole('button', { name: 'Print slip' }))
     expect(slip()!.textContent).not.toContain(CHECKS_RECORDED)
+  })
+})
+
+/*
+ * A claim code is answered once (0120): nothing on the case view may leave it behind. Back to list and "Register another
+ * person" wait while a Health ID is being made, and after a claim code is shown until the slip is printed or the
+ * volunteer says it is written down. Fictional data only.
+ */
+describe('leaving the case view while a Health ID is made', () => {
+  const MADE = { healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', claimExpiresAt: '2027-05-14T08:30:00.000Z', registration: { ...ITEM, healthId: 'HID-UNVER1' } }
+  function renderWithWaysOut() {
+    const onBack = vi.fn()
+    const onNew = vi.fn()
+    renderDept(<OutreachCaseView facilityId={GROUP_ID} item={ITEM as never} campaign={CAMPAIGN} canLink={false} canWrite group created={false}
+      listError="" onBack={onBack} onNew={onNew} onChanged={async () => undefined} onFocusHeading={() => undefined} />)
+    return { onBack, onNew }
+  }
+  async function createWithNoEmail() {
+    const region = screen.getByRole('region', { name: 'Create Health ID' })
+    await press(within(region).getByRole('checkbox', { name: /They want a Health ID/ }))
+    await press(within(region).getByRole('radio', { name: /^No email/ }))
+    await press(within(region).getByRole('button', { name: 'Create Health ID' }))
+    return region
+  }
+  const backButton = () => screen.getAllByRole('button', { name: 'Back to list' })[0]!
+
+  it('holds Back while creating, and after the claim code is shown until “I’ve written it down”', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    api.createUnverifiedOutreachHealthId.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    const { onBack, onNew } = renderWithWaysOut()
+    const region = await createWithNoEmail()
+    expect(backButton().getAttribute('aria-disabled')).toBe('true')
+    await press(backButton())
+    await press(screen.getByRole('button', { name: 'Register another person' }))
+    expect(onBack).not.toHaveBeenCalled()
+    expect(onNew).not.toHaveBeenCalled()
+    // Closing or reloading the page asks first while the answer is awaited.
+    const leaving = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(leaving)
+    expect(leaving.defaultPrevented).toBe(true)
+
+    await act(async () => { answer(MADE) })
+    expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
+    await press(backButton())
+    await press(screen.getByRole('button', { name: 'Register another person' }))
+    expect(onBack).not.toHaveBeenCalled()
+    expect(onNew).not.toHaveBeenCalled()
+
+    await press(within(region).getByRole('button', { name: 'I’ve written it down' }))
+    expect(backButton().getAttribute('aria-disabled')).toBeNull()
+    await press(backButton())
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets Back go once the slip is printed', async () => {
+    api.createUnverifiedOutreachHealthId.mockResolvedValue(MADE)
+    const { onBack } = renderWithWaysOut()
+    const region = await createWithNoEmail()
+    expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
+    await press(backButton())
+    expect(onBack).not.toHaveBeenCalled()
+    await press(within(region).getByRole('button', { name: 'Print slip' }))
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
+    await press(backButton())
+    expect(onBack).toHaveBeenCalledTimes(1)
   })
 })
