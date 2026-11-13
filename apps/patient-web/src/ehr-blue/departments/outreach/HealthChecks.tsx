@@ -11,7 +11,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, checkScreening, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, NOTHING_RECORDED, screeningForm,
+  bmiOf, checkScreening, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type ScreeningField, type ScreeningForm,
 } from './screening'
 import { readTab, tabKeeps, writeTab } from './tabMemory'
@@ -57,7 +57,7 @@ interface Draft {
 function changesFrom(form: ScreeningForm, base: ScreeningForm): Partial<ScreeningForm> {
   const changes: Record<string, unknown> = {}
   for (const key of Object.keys(form) as (keyof ScreeningForm)[]) {
-    if (JSON.stringify(form[key]) !== JSON.stringify(base[key])) changes[key] = form[key]
+    if (!sameField(key, form[key], base[key])) changes[key] = form[key]
   }
   return changes as Partial<ScreeningForm>
 }
@@ -135,7 +135,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
         const draft = draftKey ? readTab<Draft>(draftKey) : null
         const changes = draft?.changes && typeof draft.changes === 'object' ? draft.changes : {}
         const kept = Object.keys(changes).filter(key => key in base.current
-          && JSON.stringify(changes[key as keyof ScreeningForm]) !== JSON.stringify(base.current[key as keyof ScreeningForm]))
+          && !sameField(key as keyof ScreeningForm, changes[key as keyof ScreeningForm] as never, base.current[key as keyof ScreeningForm] as never))
         if (draft) {
           unsure.current = draft.unsure ?? null
           attempt.current = draft.attempt ?? null
@@ -162,7 +162,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
 
   // Checks typed but not saved are kept for this tab as they change (and a save whose answer was lost, so it is checked
   // after a reload too), and dropped once nothing is left to save.
-  const unsaved = read.kind === 'ready' && JSON.stringify(form) !== JSON.stringify(base.current)
+  const unsaved = read.kind === 'ready' && !sameForm(form, base.current)
   useEffect(() => {
     if (!draftKey || read.kind !== 'ready' || busy) return
     const changes = changesFrom(form, base.current)
@@ -191,10 +191,13 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     setConflict(false)
     const theirs = await load(undefined, true)
     if (theirs === undefined) return
-    const merged = { ...screeningForm(theirs) } as Record<keyof ScreeningForm, unknown>
+    const merged = { ...base.current } as Record<keyof ScreeningForm, unknown>
     let kept = 0
     for (const key of Object.keys(mine) as (keyof ScreeningForm)[]) {
-      if (JSON.stringify(mine[key]) !== JSON.stringify(before[key])) { merged[key] = mine[key]; kept += 1 }
+      if (sameField(key, mine[key], before[key])) continue
+      // Medicines are merged, not replaced: their medicines stay, with this volunteer's added and removed ones applied.
+      merged[key] = key === 'medicines' ? mergeMedicines(base.current.medicines, mine.medicines, before.medicines) : mine[key]
+      kept += 1
     }
     setForm(merged as unknown as ScreeningForm)
     setNotice(kept ? 'Their checks are shown. Your changes are kept on top and not saved yet: check them, then save again.' : '')
@@ -249,7 +252,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       if (current && (current.version ?? 0) !== (previous.version ?? 0) && JSON.stringify(held) === JSON.stringify(previous.input)) {
         setRead({ kind: 'ready', screening: current })
         base.current = screeningForm(current)
-        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(screeningForm(current)); setNotice(SCREENING_SAVED); return }
+        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(base.current); setNotice(SCREENING_SAVED); return }
         version = current.version
       }
     }
@@ -261,8 +264,8 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       attempt.current = null
       unsure.current = null
       setRead({ kind: 'ready', screening: answer.screening })
-      setForm(screeningForm(answer.screening))
       base.current = screeningForm(answer.screening)
+      setForm(base.current)
       setNotice(SCREENING_SAVED)
     } catch (caught) {
       const code = isHidApiError(caught) ? caught.code : ''

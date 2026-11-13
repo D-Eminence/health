@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { HealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
+import { HealthChecks, leaveHealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
@@ -233,6 +233,71 @@ describe('Health checks', () => {
       expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
       expect(api.saveOutreachScreening.mock.calls[1]![3].idempotencyKey).not.toBe(api.saveOutreachScreening.mock.calls[0]![3].idempotencyKey)
     })
+
+  it('after a clash, keeps the other station’s medicines: this station saved a medicine earlier, then only typed a pulse', async () => {
+    const paracetamol = { name: 'Paracetamol', dose: '1 g' }
+    const antimalarial = { name: 'Artemether-lumefantrine', dose: '4 tablets twice a day' }
+    api.outreachScreening.mockResolvedValueOnce({ screening: null })
+      .mockResolvedValueOnce({ screening: saved(2, { medicinesGiven: [paracetamol, antimalarial] }) })
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { medicinesGiven: [paracetamol] }) })
+      .mockRejectedValueOnce(new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 88, medicinesGiven: [paracetamol, antimalarial] }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 1/, 'Paracetamol')
+    type(/^Dose of medicine 1/, '1 g')
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    // Meanwhile another station adds an antimalarial (version 2). This station types a pulse only.
+    type(/^Pulse/, '88')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: /Reload|Show their checks/ }))
+    await waitFor(() => expect(box(/^Medicine 2/).value).toBe('Artemether-lumefantrine'))
+    expect(box(/^Pulse/).value).toBe('88')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(3))
+    expect(api.saveOutreachScreening.mock.calls[2]![2]).toEqual({ ...NULLS, pulseBpm: 88, medicinesGiven: [paracetamol, antimalarial] })
+  })
+
+  it('after a clash, keeps the medicines both stations added', async () => {
+    const paracetamol = { name: 'Paracetamol', dose: '1 g' }
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { medicinesGiven: [paracetamol] }) })
+      .mockResolvedValueOnce({ screening: saved(2, { medicinesGiven: [paracetamol, { name: 'Artemether-lumefantrine', dose: null }] }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ screening: saved(3, {}) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Paracetamol'))
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 2/, 'ORS')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: /Reload|Show their checks/ }))
+    await waitFor(() => expect(box(/^Medicine 3/).value).toBe('ORS'))
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![2].medicinesGiven).toEqual([paracetamol, { name: 'Artemether-lumefantrine', dose: null }, { name: 'ORS', dose: null }])
+  })
+
+  it('a case with a saved medicine is not “not saved”: after loading it, and after saving', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    try {
+      api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { medicinesGiven: [{ name: 'Paracetamol', dose: '1 g' }] }) })
+      renderChecks()
+      await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Paracetamol'))
+      expect(leaveHealthChecks()).toBe(true)
+      type(/^Pulse/, '72')
+      api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 72, medicinesGiven: [{ name: 'Paracetamol', dose: '1 g' }] }) })
+      await press(saveButton())
+      expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+      await act(async () => { await Promise.resolve() })
+      expect(leaveHealthChecks()).toBe(true)
+      expect(confirm).not.toHaveBeenCalled()
+    } finally {
+      confirm.mockRestore()
+    }
+  })
 
   it('after a save whose answer was lost, checks what Outreach holds before saving again (no false conflict)', async () => {
     api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })

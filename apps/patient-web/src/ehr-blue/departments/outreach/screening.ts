@@ -67,6 +67,46 @@ export function medicineRow(name = '', dose = ''): MedicineRow {
   return { key: `m${rowSeq}`, name, dose }
 }
 
+/** A medicine as written, for comparing: its name and dose, ignoring case and spacing. The row's key is never compared. */
+const medicineId = (row: Pick<MedicineRow, 'name' | 'dose'>) =>
+  `${row.name.trim().replace(/\s+/g, ' ').toLowerCase()}\u0000${row.dose.trim().replace(/\s+/g, ' ').toLowerCase()}`
+
+/**
+ * Whether one field holds the same in two forms. Medicines are compared by name and dose, in order: each read of a
+ * screening gives its rows new keys, so comparing keys would make every saved medicine look like a change.
+ */
+export function sameField<K extends keyof ScreeningForm>(key: K, a: ScreeningForm[K], b: ScreeningForm[K]): boolean {
+  if (key === 'medicines') {
+    const left = a as readonly MedicineRow[]
+    const right = b as readonly MedicineRow[]
+    return left.length === right.length && left.every((row, index) => medicineId(row) === medicineId(right[index]!))
+  }
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** Whether two forms hold the same health checks (see sameField). */
+export function sameForm(a: ScreeningForm, b: ScreeningForm): boolean {
+  return (Object.keys(a) as (keyof ScreeningForm)[]).every(key => sameField(key, a[key], b[key]))
+}
+
+/**
+ * The medicines after someone else saved: theirs, without those this volunteer removed since the last read, and with those
+ * this volunteer added, so neither station's medicines are lost.
+ */
+export function mergeMedicines(theirs: readonly MedicineRow[], mine: readonly MedicineRow[], before: readonly MedicineRow[]): MedicineRow[] {
+  const ids = (rows: readonly MedicineRow[]) => new Set(rows.map(medicineId))
+  const mineIds = ids(mine)
+  const beforeIds = ids(before)
+  const removed = new Set([...beforeIds].filter(id => !mineIds.has(id)))
+  const merged = theirs.filter(row => !removed.has(medicineId(row)))
+  const present = ids(merged)
+  for (const row of mine) {
+    const id = medicineId(row)
+    if (!beforeIds.has(id) && !present.has(id)) { merged.push(row); present.add(id) }
+  }
+  return merged
+}
+
 const text = (value: number | null | undefined) => value === null || value === undefined ? '' : String(value)
 const yesNo = (value: boolean | null | undefined): YesNo => value === true ? 'yes' : value === false ? 'no' : ''
 
