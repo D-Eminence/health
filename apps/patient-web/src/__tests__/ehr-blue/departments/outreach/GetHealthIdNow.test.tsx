@@ -25,7 +25,7 @@ vi.mock('../../../../staff/App', async () => {
 const api = vi.hoisted(() => ({
   outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
-  outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(),
+  outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(), createUnverifiedOutreachHealthId: vi.fn(),
 }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
 
@@ -78,6 +78,8 @@ const OPEN_WHEN_SENT = 'Once this registration is sent, open it to create their 
 /** The panel's region, its link and its QR code, checked the same way wherever it is shown. */
 function expectPanel(region: HTMLElement, { queued = false } = {}) {
   expect(within(region).getByRole('heading', { level: 2, name: 'Get a Health ID now' })).toBeTruthy()
+  // The public sign-up needs an email address: said before anyone pulls out a phone.
+  expect(region.textContent).toContain('If they have a phone with internet and an email address, they can get their own Health ID before they leave.')
   // No link that opens sign-up on the volunteer's own (signed-in) device: the person would type their password there.
   expect(within(region).queryByRole('link', { name: /sign-up/i })).toBeNull()
   expect(region.textContent).toContain('Don’t open sign-up on yours')
@@ -160,14 +162,15 @@ describe('Get a Health ID now', () => {
 })
 
 describe('the sign-up as the fallback', () => {
-  it('is a small “Or they can sign up on their own phone” where the team can create the Health ID', async () => {
+  it('is a small “Or, instead, they can sign up on their own phone” where the team can create the Health ID, saying to use one way only', async () => {
     api.outreachCases.mockResolvedValue([{ ...pending('case-5'), healthId: null }])
     renderDept(<Outreach />)
     await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
     await screen.findByRole('heading', { level: 1, name: NAME })
     expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
-    const summary = screen.getByText('Or they can sign up on their own phone')
+    const summary = screen.getByText('Or, instead, they can sign up on their own phone')
     const details = summary.closest('details')!
+    expect(details.textContent).toContain('Use one way only: if they sign up on their phone, don’t press Create Health ID.')
     expect(within(details).queryByRole('link', { name: /sign-up/i, hidden: true })).toBeNull()
     expect(within(details).getByRole('img', { name: 'QR code that opens the Health ID sign-up page', hidden: true })).toBeTruthy()
     expect(details.textContent).not.toContain('Your team can’t create it for them.')
@@ -178,8 +181,34 @@ describe('the sign-up as the fallback', () => {
     renderDept(<Outreach />)
     await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
     await screen.findByRole('heading', { level: 1, name: NAME })
-    expect(screen.queryByText('Or they can sign up on their own phone')).toBeNull()
+    expect(screen.queryByText(/they can sign up on their own phone/)).toBeNull()
     expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
+  })
+
+  it('goes once a Health ID is made in this view, before the list is read again', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pending('case-7'), healthId: null }])
+    api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-UNVER7', claimCode: 'K7Q-4MZ',
+      registration: { ...pending('case-7'), healthId: 'HID-UNVER7' } })
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
+    await screen.findByRole('heading', { level: 1, name: NAME })
+    expect(screen.getByText(/they can sign up on their own phone/)).toBeTruthy()
+    const region = screen.getByRole('region', { name: 'Create Health ID' })
+    await press(within(region).getByRole('checkbox', { name: /They want a Health ID/ }))
+    await press(within(region).getByRole('radio', { name: /No email/ }))
+    await press(within(region).getByRole('button', { name: 'Create Health ID' }))
+    expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
+    expect(screen.queryByText(/they can sign up on their own phone/)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
+  })
+
+  it('leaves out “use one way only” for under-18s, for whom Create Health ID is not offered', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pending('case-8'), ageYears: 15, healthId: null }])
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
+    await screen.findByRole('heading', { level: 1, name: NAME })
+    const details = screen.getByText(/they can sign up on their own phone/).closest('details')!
+    expect(details.textContent).not.toContain('Use one way only')
   })
 })
 

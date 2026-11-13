@@ -26,7 +26,8 @@ export function GetHealthIdNow({ id, fallback = false, queued = false, ageYears 
   readonly ageYears?: number
   /**
    * Where the team can create the Health ID itself (CreateHealthId.tsx): the sign-up is only the fallback, a small
-   * "Or they can sign up on their own phone" that opens to the same QR code, link and steps.
+   * "Or, instead, they can sign up on their own phone" that opens to the same QR code, link and steps, and says to use one
+   * way only.
    */
   readonly fallback?: boolean
   /**
@@ -55,6 +56,8 @@ export function GetHealthIdNow({ id, fallback = false, queued = false, ageYears 
             // Not for under-18s: a Health ID can't be created for them at outreach.
             ? minor ? null : <p className="m-0 text-body text-ink-2">{OPEN_WHEN_SENT}</p>
             : <p className="m-0 text-body text-ink-2"><strong>They own their Health ID.</strong> Your team can’t create it for them.</p>}
+          {/* Both ways would make two Health IDs for one person. Not for under-18s, who are not offered Create Health ID. */}
+          {fallback && !minor ? <p className="m-0 text-body text-ink-2">Use one way only: if they sign up on their phone, don’t press Create Health ID.</p> : null}
           <p className="m-0 text-body text-ink-2">Let them use their own phone. Don’t open sign-up on yours: they would type their password on your device.</p>
         </div>
       </div>
@@ -62,7 +65,7 @@ export function GetHealthIdNow({ id, fallback = false, queued = false, ageYears 
   if (fallback) {
     return (
       <details id={id} className="rounded-xl bg-surface ring-1 ring-line">
-        <summary className="cursor-pointer px-5 py-3 text-body font-medium text-brand-ink">Or they can sign up on their own phone</summary>
+        <summary className="cursor-pointer px-5 py-3 text-body font-medium text-brand-ink">Or, instead, they can sign up on their own phone</summary>
         {content}
       </details>
     )
@@ -70,7 +73,7 @@ export function GetHealthIdNow({ id, fallback = false, queued = false, ageYears 
   return (
     <Card aria-labelledby={headingId}>
       <CardHeader as="h2" titleId={headingId} icon={IdCard} iconTone="brand" title="Get a Health ID now"
-        description="If they have a phone with internet, they can get their own Health ID before they leave." />
+        description="If they have a phone with internet and an email address, they can get their own Health ID before they leave." />
       {content}
     </Card>
   )

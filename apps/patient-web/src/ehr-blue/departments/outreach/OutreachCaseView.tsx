@@ -317,7 +317,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             {(pending && !linked) || item.healthId
               ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip} onHold={setHealthIdHold}
                 onCreated={made => { if (made) setMadeHere(made); void onChanged() }} /> : null}
-            {pending && !linked && !item.healthId
+            {/* Not once they have a Health ID, made here just now or before: signing up too would make them a second one. */}
+            {pending && !linked && !healthIdMade
               ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} ageYears={item.ageYears} /> : null}
           </div>
           <div className="flex min-w-0 flex-col gap-4">
