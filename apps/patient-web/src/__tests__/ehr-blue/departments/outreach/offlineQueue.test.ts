@@ -4,10 +4,11 @@ import { HidApiError } from '@hid/http'
 const api = vi.hoisted(() => ({ createOutreachCase: vi.fn() }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
 import {
-  healthIdUnavailable, indexedDbQueueStore, memoryQueueStore, noConnection, purgeExpiredOutreachQueue, QUEUE_MAX_AGE_MS, QUEUE_RETRY_MS,
+  claimSend, healthIdUnavailable, indexedDbQueueStore, memoryQueueStore, noConnection, purgeExpiredOutreachQueue, QUEUE_MAX_AGE_MS, QUEUE_RETRY_MS,
   removeOutreachQueueEntriesFor, setOutreachQueueStore, useOutreachQueue, waitingOutreachEntriesFor, waitsForNetwork, waitsForSignIn,
   type OutreachQueueStore, type PendingRegistration,
 } from '../../../../ehr-blue/departments/outreach/offlineQueue'
+import { STORAGE_LOCK_MS, tabId } from '../../../../ehr-blue/departments/outreach/tabMemory'
 
 /** The offline queue's rules (open sign-up on outreach., plan PR-5): what waits for the network, and where it is kept. */
 describe('the offline queue', () => {
@@ -280,5 +281,92 @@ describe('sending what waits', () => {
     expect(api.createOutreachCase).toHaveBeenCalledTimes(1)
     await act(async () => { answer(created('case-1', 'Amaka Nwosu')) })
     await waitFor(() => expect(result.current.entries).toEqual([]))
+  })
+
+  it('leaves a registration another tab is sending to that tab, and sends it once that tab’s lock has lapsed', async () => {
+    const waiting = entry(1, 'Amaka Nwosu', at(0))
+    const store = await queueOf(waiting)
+    const lock = `hid-outreach:lock:hid-outreach-send:${waiting.localCommandId}`
+    localStorage.setItem(lock, JSON.stringify({ tab: 'another-tab', until: Date.now() + STORAGE_LOCK_MS }))
+    try {
+      api.createOutreachCase.mockResolvedValue(created('case-1', 'Amaka Nwosu'))
+      const { result } = useQueue()
+      await waitFor(() => expect(result.current.entries).toHaveLength(1))
+      await waitFor(() => expect(result.current.syncing).toBe(false))
+      expect(api.createOutreachCase).not.toHaveBeenCalled()
+
+      // The other tab was closed while sending: its lock lapses, and this tab sends it.
+      localStorage.setItem(lock, JSON.stringify({ tab: 'another-tab', until: Date.now() - 1 }))
+      let outcome: Awaited<ReturnType<typeof result.current.sync>> = null
+      await act(async () => { outcome = await result.current.sync() })
+      expect(outcome).toEqual({ sent: 1, waiting: 0, refused: 0, reason: undefined })
+      expect(await store.list()).toEqual([])
+      // Let go once sent: nothing is left in the browser's storage.
+      expect(localStorage.getItem(lock)).toBeNull()
+    } finally {
+      localStorage.removeItem(lock)
+    }
+  })
+
+  it('sends nothing the round listed that was sent and taken off this device meanwhile', async () => {
+    const waiting = entry(1, 'Amaka Nwosu', at(0))
+    const store = await queueOf(waiting)
+    // The form in this tab sent it and took it off between the round's list and its send.
+    const list = store.list
+    // The page's first read shows it; the round's own read (the second) still lists it as it is taken off.
+    let reads = 0
+    setOutreachQueueStore({ ...store, list: async () => {
+      const all = await list()
+      reads += 1
+      if (reads === 2) await store.remove(waiting.localCommandId)
+      return all
+    } })
+    const { result } = useQueue()
+    await waitFor(() => expect(result.current.syncing).toBe(false))
+    await waitFor(() => expect(result.current.entries).toEqual([]))
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+})
+
+describe('claiming a registration to send', () => {
+  afterEach(() => { Reflect.deleteProperty(navigator, 'locks') })
+
+  it('is one sender at a time in a tab, and the same tab reloaded takes its own lock back', async () => {
+    const release = await claimSend('c-1')
+    expect(release).toBeTypeOf('function')
+    expect(await claimSend('c-1')).toBeNull()
+    const other = await claimSend('c-2')
+    expect(other).toBeTypeOf('function')
+    other!()
+    release!()
+    const again = await claimSend('c-1')
+    expect(again).toBeTypeOf('function')
+    again!()
+    // A lock this same tab left (a reload while sending) is this tab's own: it is taken back at once.
+    localStorage.setItem('hid-outreach:lock:hid-outreach-send:c-3', JSON.stringify({ tab: tabId(), until: Date.now() + STORAGE_LOCK_MS }))
+    const mine = await claimSend('c-3')
+    expect(mine).toBeTypeOf('function')
+    mine!()
+    expect(localStorage.getItem('hid-outreach:lock:hid-outreach-send:c-3')).toBeNull()
+  })
+
+  it('uses the browser’s Web Locks where it has them: another tab holding one means no send here', async () => {
+    const held = new Set<string>()
+    const request = vi.fn((name: string, _options: { ifAvailable: boolean }, callback: (lock: { name: string } | null) => unknown) => {
+      if (held.has(name)) return Promise.resolve(callback(null))
+      held.add(name)
+      return Promise.resolve(callback({ name })).finally(() => held.delete(name))
+    })
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } })
+    held.add('hid-outreach-send:c-9')
+    expect(await claimSend('c-9')).toBeNull()
+    held.delete('hid-outreach-send:c-9')
+    const release = await claimSend('c-9')
+    expect(release).toBeTypeOf('function')
+    expect(held.has('hid-outreach-send:c-9')).toBe(true)
+    release!()
+    await waitFor(() => expect(held.has('hid-outreach-send:c-9')).toBe(false))
+    expect(request).toHaveBeenCalledWith('hid-outreach-send:c-9', { ifAvailable: true }, expect.any(Function))
+    expect(localStorage.getItem('hid-outreach:lock:hid-outreach-send:c-9')).toBeNull()
   })
 })

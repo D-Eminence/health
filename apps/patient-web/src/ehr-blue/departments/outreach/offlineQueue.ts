@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { isHidApiError, isStoppedRequest } from '@hid/http'
 import { staffApi, type OutreachCase, type OutreachCaseInput } from '../../../staff/api'
 import { outreachProblemText } from '../../../outreachProblems'
+import { claimStorageLock } from './tabMemory'
 
 /*
- * The offline queue for registrations at an outreach group (plan PR-5, the field critique): a registration that could
- * not be sent (no network, a timeout, or Health ID briefly unavailable) is kept on this device, with its command, and
- * sent again when the network comes back, or when the person asks. It survives a reload. Outreach is idempotent on the
+ * The offline queue for registrations at an outreach group (plan PR-5, the field critique): every new registration is
+ * kept on this device, with its command, before it is first sent (OutreachNew.tsx), and goes as soon as Health ID takes
+ * it; one that could not be sent (no network, a timeout, or Health ID briefly unavailable) stays, and is sent again when
+ * the network comes back, or when the person asks. It survives a reload, even one made while it was being sent. Outreach is idempotent on the
  * command's localCommandId (also its Idempotency-Key), so sending the same entry twice makes one registration.
  *
  * What waits is sent again, oldest first: when the page opens, when the browser says it is back online, when the page is
@@ -20,8 +22,9 @@ import { outreachProblemText } from '../../../outreachProblems'
  * account's own entries (removeOutreachQueueEntriesFor), after asking first while any wait: "Send now" sends them
  * (sendWaitingOutreachEntriesFor). A session that ends without a sign-out keeps them, so the person
  * can sign in again and send them, until the 14 days are up. A browser without IndexedDB (or one that refuses it) keeps
- * the queue in memory for this page only, and says so. Nothing goes in localStorage, cookies or the
- * address. IndexedDB is allowed in this one module only (eslint.config.js, docs/ARCHITECTURE.md).
+ * the queue in memory for this page only, and says so. Nothing about a person goes in localStorage, cookies or the
+ * address: localStorage holds at most a short send lock with a random command id (claimSend), where the browser has
+ * no Web Locks. IndexedDB is allowed in this one module only (eslint.config.js, docs/ARCHITECTURE.md).
  */
 
 export interface PendingRegistration {
@@ -205,6 +208,45 @@ export function waitsForSignIn(error: unknown): boolean {
   return error.status === 401 || error.status === 403 && SESSION_REFUSALS.has(error.code)
 }
 
+/** The registrations being sent from this tab just now, by command id. */
+const sendingHere = new Set<string>()
+
+/** A lock held by one tab of this browser at a time, through Web Locks; null where the browser has none. */
+function claimWebLock(name: string): Promise<(() => void) | null> | null {
+  const locks = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { locks?: LockManager }).locks
+  if (!locks || typeof locks.request !== 'function') return null
+  return new Promise(resolve => {
+    let answered = false
+    const answer = (release: (() => void) | null) => { if (!answered) { answered = true; resolve(release) } }
+    locks.request(name, { ifAvailable: true }, lock => {
+      if (!lock) { answer(null); return undefined }
+      // Held until released, or until the tab goes (a reload or a closed tab lets it go at once).
+      return new Promise<void>(done => answer(done))
+    }).catch(() => answer(claimStorageLock(name)))
+  })
+}
+
+/**
+ * Claims a registration for sending: the release, or null when this tab or another tab of this browser is sending it
+ * already. So the form, "Send now", the 30-second retry, the online and the page-shown senders never send the same
+ * registration twice at once, here or in two tabs (Health ID's idempotency already keeps it from being made twice; this
+ * keeps two "Saving" rows from showing). Web Locks where the browser has them, else a short lock in localStorage.
+ */
+export async function claimSend(localCommandId: string): Promise<(() => void) | null> {
+  if (sendingHere.has(localCommandId)) return null
+  sendingHere.add(localCommandId)
+  const name = `hid-outreach-send:${localCommandId}`
+  const release = await (claimWebLock(name) ?? Promise.resolve(claimStorageLock(name)))
+  if (!release) { sendingHere.delete(localCommandId); return null }
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    sendingHere.delete(localCommandId)
+    release()
+  }
+}
+
 /** Whether the browser may have a connection: it says so only when it knows it is offline. */
 function mayBeOnline(): boolean {
   return typeof navigator === 'undefined' || navigator.onLine !== false
@@ -235,7 +277,14 @@ async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegist
   const queued = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
     .sort((a, b) => a.savedAt.localeCompare(b.savedAt))
   for (const [index, entry] of queued.entries()) {
+    // Being sent already, from the form or another tab: left to that send.
+    const release = await claimSend(entry.localCommandId)
+    if (!release) continue
     try {
+      // Sent and taken off this device since the round began (by the form, or another tab): nothing to send.
+      const still = await store.list().then(all => all.some(other => other.localCommandId === entry.localCommandId && other.state === 'waiting'),
+        () => true)
+      if (!still) continue
       const created = await staffApi.createOutreachCase(entry.facilityId, entry.input,
         { localCommandId: entry.localCommandId, temporaryPatientId: entry.temporaryPatientId })
       await store.remove(entry.localCommandId)
@@ -257,6 +306,8 @@ async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegist
       }
       await store.put({ ...entry, state: 'refused', refusal: outreachProblemText(caught, REFUSED_FALLBACK) })
       refused += 1
+    } finally {
+      release()
     }
   }
   return { sent, waiting, refused, reason }

@@ -6,6 +6,7 @@ import { FormActions } from '../../../kasuwa/parts'
 import { Alert, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { staffApi, type OutreachScreening, type OutreachScreeningInput } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { useDeptAccess } from '../parts/access'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
@@ -13,12 +14,15 @@ import {
   bmiOf, checkScreening, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, NOTHING_RECORDED, screeningForm,
   type ScreeningField, type ScreeningForm,
 } from './screening'
+import { readTab, tabKeeps, writeTab } from './tabMemory'
 
 /*
  * "Health checks" on a registration (outreach-api 0118, proposed): vital signs, blood sugar, a malaria rapid test,
  * hearing, the consultation, medicines given and a referral, saved as one screening. An Outreach without the route
  * answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the section is not shown. A save that cannot reach Health ID is not
- * kept on the device: it is said plainly, and everything typed stays on the page to save again with signal.
+ * sent later by itself: it is said plainly, and everything typed stays on the page to save again with signal. What is
+ * typed and not saved yet is kept for this tab (sessionStorage, tabMemory.ts), so a reload brings it back on top of the
+ * checks as last saved; it goes once saved, when the tab closes, or on sign-out. Never in localStorage.
  */
 
 /** The 404 codes that mean Outreach does not serve the route yet (not that the registration is missing). */
@@ -40,6 +44,23 @@ export const SCREENING_INVALID = 'Health ID couldn’t accept these health check
 export const SCREENING_CLASH = 'This save clashed with an earlier one. Check the health checks, then press Save again.'
 export const SCREENING_FAILED = 'The health checks could not be saved. Please retry.'
 export const SCREENING_NOT_LOADED = 'Health checks could not be loaded.'
+export const SCREENING_KEPT = 'Your health checks that weren’t saved are back. Check them, then save.'
+
+/** What a reload needs to bring back: the fields changed and not saved, and a save whose answer was lost, with its key. */
+interface Draft {
+  readonly changes: Partial<ScreeningForm>
+  readonly unsure: { readonly input: OutreachScreeningInput; readonly version: number | undefined } | null
+  readonly attempt: { readonly signature: string; readonly key: string } | null
+}
+
+/** The fields of `form` that differ from `base`. */
+function changesFrom(form: ScreeningForm, base: ScreeningForm): Partial<ScreeningForm> {
+  const changes: Record<string, unknown> = {}
+  for (const key of Object.keys(form) as (keyof ScreeningForm)[]) {
+    if (JSON.stringify(form[key]) !== JSON.stringify(base[key])) changes[key] = form[key]
+  }
+  return changes as Partial<ScreeningForm>
+}
 
 type Read =
   | { readonly kind: 'loading' }
@@ -95,6 +116,9 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   // The form as last read or saved: the volunteer's own changes are the fields that differ from it.
   const base = useRef<ScreeningForm>(screeningForm(null))
   const focus = useFocusById()
+  // Kept for this tab, by account, facility and registration: what was typed and not saved survives a reload.
+  const { actorId } = useDeptAccess()
+  const draftKey = actorId && canWrite ? `health-checks:${actorId}:${facilityId}:${caseId}` : null
   const id = (field: string) => `outreach-screening-${caseId}-${field}`
   const headingId = id('heading')
   const errorId = id('error')
@@ -105,8 +129,20 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       const answer = await staffApi.outreachScreening(facilityId, caseId, signal)
       const screening = answer?.screening ?? null
       setRead({ kind: 'ready', screening })
-      if (!keepForm) setForm(screeningForm(screening))
       base.current = screeningForm(screening)
+      if (!keepForm) {
+        // Typed before a reload and not saved: back on top of the checks as saved, as Reload keeps them after a clash.
+        const draft = draftKey ? readTab<Draft>(draftKey) : null
+        const changes = draft?.changes && typeof draft.changes === 'object' ? draft.changes : {}
+        const kept = Object.keys(changes).filter(key => key in base.current
+          && JSON.stringify(changes[key as keyof ScreeningForm]) !== JSON.stringify(base.current[key as keyof ScreeningForm]))
+        if (draft) {
+          unsure.current = draft.unsure ?? null
+          attempt.current = draft.attempt ?? null
+        }
+        setForm(kept.length ? { ...base.current, ...Object.fromEntries(kept.map(key => [key, changes[key as keyof ScreeningForm]])) } : base.current)
+        if (kept.length) setNotice(SCREENING_KEPT)
+      }
       return screening
     } catch (caught) {
       if (signal?.aborted) return undefined
@@ -116,7 +152,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       else setRead({ kind: 'failed', text: errorText(caught, SCREENING_NOT_LOADED) })
       return undefined
     }
-  }, [facilityId, caseId])
+  }, [facilityId, caseId, draftKey])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -124,15 +160,24 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     return () => controller.abort()
   }, [load])
 
-  // Checks typed but not saved: the browser asks before the page is closed or reloaded, and Back asks too.
+  // Checks typed but not saved are kept for this tab as they change (and a save whose answer was lost, so it is checked
+  // after a reload too), and dropped once nothing is left to save.
   const unsaved = read.kind === 'ready' && JSON.stringify(form) !== JSON.stringify(base.current)
+  useEffect(() => {
+    if (!draftKey || read.kind !== 'ready' || busy) return
+    const changes = changesFrom(form, base.current)
+    writeTab(draftKey, Object.keys(changes).length || unsure.current
+      ? { changes, unsure: unsure.current, attempt: attempt.current } satisfies Draft : null)
+  }, [draftKey, read, form, busy])
+  // Back asks before leaving checks not saved. A reload or a closed page asks too, but only where this tab can't keep them.
+  const keptForReload = draftKey !== null && tabKeeps()
   useEffect(() => {
     unsavedHealthChecks.current = unsaved
     if (!unsaved) return undefined
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
-    window.addEventListener('beforeunload', warn)
+    if (!keptForReload) window.addEventListener('beforeunload', warn)
     return () => { window.removeEventListener('beforeunload', warn); unsavedHealthChecks.current = false }
-  }, [unsaved])
+  }, [unsaved, keptForReload])
 
   if (read.kind === 'hidden') return null
 

@@ -176,8 +176,12 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
   )
 }
 
-/** What the page says as a registration is kept on this device: no connection, or Health ID unavailable just now. */
-export function queuedText(fullName: string, reason: WaitReason): string {
+/**
+ * What the page says as a registration is kept on this device: no connection, Health ID unavailable just now, or the
+ * session ended before it could be sent.
+ */
+export function queuedText(fullName: string, reason: WaitReason | 'session'): string {
+  if (reason === 'session') return `${fullName}’s registration is saved on this device. It is sent once you are signed in again.`
   return reason === 'unavailable'
     ? `Health ID isn’t available right now. ${fullName}’s registration is saved on this device and will be sent automatically.`
     : `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.`

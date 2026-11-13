@@ -6,8 +6,10 @@ import { FormActions } from '../../../kasuwa/parts'
 import { Alert, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCase, type OutreachHealthIdChannel } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { useDeptAccess } from '../parts/access'
 import { errorText } from '../parts/errors'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
+import { keepClaimCode, readTab, writeTab } from './tabMemory'
 
 /*
  * "Create Health ID" at an outreach event (outreach-api 0119, proposed; owner decisions of 13 November 2026): once the
@@ -16,6 +18,11 @@ import { controlProps, ErrorBox, OutreachField } from './outreachParts'
  * claim code for their slip. Text messages are not available yet. Shown only where Outreach serves it: a registration
  * from such an Outreach carries `healthId` (null while none), and a 404 route-not-served from any of its calls hides it.
  * Under 18: no Health ID here yet (Outreach refuses it).
+ *
+ * A reload while waiting for the 6-digit code keeps the code box: this tab keeps (sessionStorage, tabMemory.ts) that a
+ * code was sent and when, where, the email typed and the Idempotency-Key in use, never the code. A claim code is shown
+ * on screen once; it is kept for 15 minutes for the slip only, so an accidental reload before it was written down does
+ * not lose it (Health ID never answers it again).
  */
 
 type Method = 'email' | 'unverified' | 'sms'
@@ -49,6 +56,21 @@ interface Made { readonly healthId: string; readonly claimCode?: string; readonl
 /** A Health ID made here just now, and its claim code when it was made with no email or phone. */
 export interface MadeHere { readonly healthId: string; readonly claimCode?: string }
 
+/** Said once a Health ID made before (or before a reload) is shown: the claim code is never shown again. */
+export const MADE_BEFORE = 'Their Health ID has been made. Print their slip, or write the Health ID on it.'
+
+/** What a reload needs to keep the code box: never the code itself. */
+interface CodeStep {
+  readonly email: string
+  readonly hint: string
+  readonly channel: OutreachHealthIdChannel
+  readonly sentAt: string
+  /** When another code may be sent (ms since 1970). */
+  readonly resendAt: number
+  readonly sends: number
+  readonly attempt: { readonly signature: string; readonly key: string } | null
+}
+
 export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintSlip }: {
   readonly facilityId: string
   readonly item: OutreachCase
@@ -62,26 +84,41 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   /** "Print slip", once a Health ID is shown. */
   readonly onPrintSlip?: () => void
 }) {
+  // A code step under way before a reload, kept for this tab by account, facility and registration.
+  const { actorId } = useDeptAccess()
+  const stepKey = actorId && canWrite ? `health-id:${actorId}:${facilityId}:${item.id}` : null
+  const [step] = useState(() => stepKey && !item.healthId ? readTab<CodeStep>(stepKey) : null)
   // The ways Outreach answered it does not serve (404 route-not-served): each hides on its own, as each ships alone.
   const [unserved, setUnserved] = useState<ReadonlySet<'email' | 'unverified'>>(new Set())
-  const [wanted, setWanted] = useState(false)
+  const [wanted, setWanted] = useState(step !== null)
   const [method, setMethod] = useState<Method>('email')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(step?.email ?? '')
   const [emailError, setEmailError] = useState('')
-  const [sent, setSent] = useState<{ readonly hint: string; readonly channel: OutreachHealthIdChannel } | null>(null)
+  const [sent, setSent] = useState<{ readonly hint: string; readonly channel: OutreachHealthIdChannel } | null>(
+    step ? { hint: step.hint, channel: step.channel } : null)
+  const sentAt = useRef(step?.sentAt ?? '')
   const [code, setCode] = useState('')
   const [codeError, setCodeError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [justMade, setMade] = useState<Made | null>(null)
-  const [wait, setWait] = useState(0)
+  const [wait, setWait] = useState(() => step ? Math.max(0, Math.ceil((step.resendAt - Date.now()) / 1000)) : 0)
   // One key per attempt: a new one for each code sent, each code confirmed and each unverified Health ID; the same on a
-  // retry of that attempt (the same body).
-  const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // retry of that attempt (the same body), after a reload too.
+  const attempt = useRef<{ signature: string; key: string } | null>(step?.attempt ?? null)
   // Codes sent so far in this view: part of the start request's identity, so a retry reuses its key.
-  const sends = useRef(0)
+  const sends = useRef(step?.sends ?? 0)
   const focus = useFocusById()
   const id = (part: string) => `outreach-health-id-${item.id}-${part}`
+
+  // The code step is kept as it changes, and dropped once the Health ID is made or another email is to be used.
+  const resendAt = useRef(step?.resendAt ?? 0)
+  useEffect(() => {
+    if (!stepKey || busy) return
+    writeTab(stepKey, sent && !justMade && !item.healthId ? {
+      email, hint: sent.hint, channel: sent.channel, sentAt: sentAt.current, resendAt: resendAt.current, sends: sends.current, attempt: attempt.current,
+    } satisfies CodeStep : null)
+  }, [stepKey, sent, email, justMade, busy, item.healthId])
 
   useEffect(() => {
     if (wait <= 0) return undefined
@@ -168,13 +205,17 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       const answer = await staffApi.startOutreachHealthId(facilityId, item.id, body, key)
       attempt.current = null
       sends.current += 1
+      sentAt.current = new Date().toISOString()
+      const after = Math.max(0, Math.round(answer.resendAfterSeconds || 0))
+      resendAt.current = Date.now() + after * 1000
       setSent({ hint: answer.destinationHint, channel: answer.channel })
       setCode('')
-      setWait(Math.max(0, Math.round(answer.resendAfterSeconds || 0)))
+      setWait(after)
       focus(id('code'))
     } catch (caught) {
       if (!isHidApiError(caught) && method === 'email') {
         // The answer was lost: the code may have been sent. Let them type it, or try again with the same request.
+        sentAt.current = new Date().toISOString()
         setSent({ hint: body.channel === 'email' ? body.email : '', channel: 'email' })
         setError('We couldn’t tell if the code was sent. If an email arrived, ask them for the code. If not, send the code again.')
         return
@@ -215,6 +256,8 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     try {
       const answer = await staffApi.createUnverifiedOutreachHealthId(facilityId, item.id, key)
       attempt.current = null
+      // For the slip only, for 15 minutes: an accidental reload before it is written down does not lose it.
+      if (actorId && answer.claimCode) keepClaimCode(actorId, facilityId, item.id, { healthId: answer.healthId, claimCode: answer.claimCode })
       setMade({ healthId: answer.healthId, claimCode: answer.claimCode, byEmail: false })
       focus(id('made'))
       onCreated({ healthId: answer.healthId, claimCode: answer.claimCode })
@@ -235,7 +278,8 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
           <p className="m-0 text-body text-ink-2">Claim code</p>
           <p className="m-0 font-mono text-[32px] font-semibold tracking-wide break-all text-ink" aria-label={`Claim code ${made.claimCode.split('').join(' ')}`}>{made.claimCode}</p>
           <Alert intent="warning" title="Write this on their slip.">They’ll need the Health ID and this code to start using it later. The code isn’t shown again.</Alert>
-        </> : <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>}
+        </> : justMade ? <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>
+          : <p className="m-0 text-body text-ink">{MADE_BEFORE}</p>}
         {made.byEmail ? <p className="m-0 text-body text-ink-2">They’ll get an email to set a password. They can add their details and set a password later in the app.</p> : null}
         <div className="flex flex-wrap gap-2">
           {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={onPrintSlip}>Print slip</Button> : null}

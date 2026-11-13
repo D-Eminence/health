@@ -22,6 +22,7 @@ import { GetHealthIdNow } from './GetHealthIdNow'
 import { HealthChecks, leaveHealthChecks } from './HealthChecks'
 import { CreateHealthId, type MadeHere } from './CreateHealthId'
 import { OutreachSlip, useSlipPrint } from './OutreachSlip'
+import { keptClaimCode } from './tabMemory'
 
 type LinkField = 'patient' | 'reason'
 
@@ -94,12 +95,16 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
   const doneId = `outreach-case-${item.id}-done`
-  const { facility } = useDeptAccess()
-  // The Health ID made here just now, with its claim code when made with no email or phone: in memory only, for the slip.
+  const { facility, actorId } = useDeptAccess()
+  // The Health ID made here just now, with its claim code when made with no email or phone, for the slip. After a reload
+  // the claim code is printed for 15 minutes from this tab's own copy (tabMemory.ts), never shown on screen again.
   const [madeHere, setMadeHere] = useState<MadeHere | null>(null)
   const { print, area: slipArea } = useSlipPrint()
-  const printSlip = () => print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
-    healthId={madeHere?.healthId ?? item.healthId} claimCode={madeHere?.claimCode} />)
+  const printSlip = () => {
+    const healthId = madeHere?.healthId ?? item.healthId
+    print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
+      healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)} />)
+  }
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

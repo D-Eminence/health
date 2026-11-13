@@ -1,8 +1,8 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { HealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
+import { HealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
@@ -57,6 +57,8 @@ beforeEach(() => {
   api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'member', people: [] })
   api.outreachInvitations.mockResolvedValue({ members: [], invitations: [] })
   api.outreachScreening.mockResolvedValue({ screening: null })
+  sessionStorage.clear()
+  localStorage.clear()
 })
 
 async function press(button: HTMLElement) {
@@ -324,6 +326,92 @@ describe('Health checks', () => {
     expect(box(/^Pulse/).readOnly).toBe(true)
     expect(within(region()).queryByRole('button', { name: 'Save health checks' })).toBeNull()
     expect(within(region()).queryByRole('button', { name: 'Add a medicine' })).toBeNull()
+  })
+})
+
+/*
+ * A reload never loses health checks typed (the owner's "no hassle" rule, 14 November 2026): what is typed and not saved
+ * is kept for this tab (sessionStorage, never localStorage), brought back on top of the checks as saved, and dropped once
+ * saved; the browser no longer asks before a reload; a save whose answer was lost is still checked after one. Fictional.
+ */
+describe('Health checks through a reload', () => {
+  /** The page goes and comes back: everything in memory is lost, the tab's own storage is not. */
+  function reload() {
+    cleanup()
+    return renderChecks()
+  }
+  const kept = () => Object.keys(sessionStorage).filter(key => key.includes('health-checks:'))
+
+  it('brings back what was typed and not saved, kept for this tab only, and drops it once saved', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Pulse/, '80')
+    choose(/Malaria rapid test/, 'negative')
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    expect(kept()[0]).toContain(`staff-demo-1:${GROUP_ID}:${CASE_ID}`)
+    expect(JSON.stringify({ ...localStorage })).not.toContain('80')
+
+    reload()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('80'))
+    expect((within(region()).getByRole('combobox', { name: /Malaria rapid test/ }) as HTMLSelectElement).value).toBe('negative')
+    expect(within(region()).getByText(SCREENING_KEPT)).toBeTruthy()
+
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80, malariaRdt: 'negative' }) })
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual({ ...NULLS, pulseBpm: 80, malariaRdt: 'negative' })
+    await waitFor(() => expect(kept()).toEqual([]))
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { pulseBpm: 80, malariaRdt: 'negative' }) })
+    reload()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('80'))
+    expect(within(region()).queryByText(SCREENING_KEPT)).toBeNull()
+  })
+
+  it('brings typing back on top of checks someone else saved meanwhile', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Pulse/, '80')
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { malariaRdt: 'positive' }) })
+    reload()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('80'))
+    expect((within(region()).getByRole('combobox', { name: /Malaria rapid test/ }) as HTMLSelectElement).value).toBe('positive')
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 80, malariaRdt: 'positive' }) })
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual({ ...NULLS, pulseBpm: 80, malariaRdt: 'positive' })
+    expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBe(1)
+  })
+
+  it('does not ask before a reload, since nothing typed is lost', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Pulse/, '80')
+    const leaving = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(leaving)
+    expect(leaving.defaultPrevented).toBe(false)
+  })
+
+  it('after a reload, still checks a save whose answer was lost before saving again', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { pulseBpm: 70 }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+    type(/^Pulse/, '75')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_OFFLINE)).toBeTruthy()
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    expect(JSON.stringify({ ...localStorage })).not.toContain('75')
+
+    // That save did land (version 2 holds pulse 75), and the page was reloaded before anyone knew.
+    api.outreachScreening.mockResolvedValue({ screening: saved(2, { pulseBpm: 75 }) })
+    reload()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('75'))
+    await press(saveButton())
+    // Outreach is asked what it holds, finds that save, and nothing is sent again.
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(kept()).toEqual([]))
   })
 })
 
