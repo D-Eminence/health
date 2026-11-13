@@ -1,6 +1,5 @@
-import { isHidApiError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
@@ -12,6 +11,7 @@ import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import type { SubmitOutcome } from '../parts/RecordForm'
 import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { AllergyLines, useAllergies } from '../patients/AllergiesCard'
 import { VisitPages } from './ListCard'
 import {
   NO_COMPLAINT, NO_CREATE, NO_ENCOUNTERS, NO_RECORD_ACCESS, NO_WRITE, RECORD_NOT_SAVED, isoNow, onAnotherPage, recordKey, recordedAt,
@@ -138,50 +138,19 @@ function SampleTriage() {
 }
 
 /**
- * As today's "Reported by the patient" (staff/routes/PatientReportedHealth.tsx): nothing shows while it is read, nor
- * when EHR refuses it (403), does not serve it (404) or its answer cannot be read ('hidden'). "None recorded" is said
- * only after a read that answered with no allergies.
- */
-type Reported = { readonly state: 'loading' | 'hidden' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
-
-/**
- * The design's "Patient context": the patient, their allergies and their earlier triage. Today's only allergy record
- * is what the patient reported in their Health ID portal (read for direct care, with ehr.note.read), so it is
- * labelled as such.
+ * The design's "Patient context": the patient, their allergies and their earlier triage. The allergies are the chart's
+ * (useAllergies, read for direct care with ehr.note.read): those clinicians recorded, most serious first, and what the
+ * patient entered in their Health ID portal, each labelled; on a backend before 0117, the patient's text alone. A read
+ * that failed, was refused or is not served says so: "none" is said only after a read that found none.
  */
 function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitRecord[] | null }) {
-  const { facilityId, patientId } = chart
-  const reads = chart.can('ehr.note.read')
-  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'hidden' })
+  const { state: allergies } = useAllergies(chart)
   const corrections = useCorrections(chart, prior?.map(item => ({ encounterId: item.encounter.id, vital: item.record })) ?? null)
-
-  useEffect(() => {
-    if (!reads) return
-    const controller = new AbortController()
-    staffApi.reportedHealthProfile(facilityId, patientId, controller.signal).then(
-      profile => controller.signal.aborted ? undefined : setReported(profile?.allergies ? { state: 'shown', allergies: profile.allergies } : { state: 'none' }),
-      caught => {
-        if (controller.signal.aborted) return
-        const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
-        setReported({ state: hidden ? 'hidden' : 'failed' })
-      },
-    )
-    return () => controller.abort()
-  }, [facilityId, patientId, reads])
 
   return (
     <section className="hid-ehr-clinical-context-block" aria-labelledby="triage-patient-context">
       <h2 id="triage-patient-context">Allergies and earlier vitals</h2>
-      {!reads || reported.state === 'loading' || reported.state === 'hidden' ? null : (
-        <p>
-          {/* Today's caution and failure words (staff/routes/PatientReportedHealth.tsx:47, :54-55). */}
-          {reported.state === 'shown'
-            ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
-            : reported.state === 'failed'
-              ? 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
-              : 'Recorded allergies: None recorded. Confirm with the patient.'}
-        </p>
-      )}
+      <AllergyLines allergies={allergies} />
       {(prior ?? []).map(({ encounter, record }) => {
         const read = corrections(record)
         const values = currentValues(record, read)

@@ -2,7 +2,7 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
-import { parseAllergyCheck, parseAllergyList, parseRecordedAllergy, type AllergyCheck, type AllergyList, type AllergySeverity, type RecordedAllergy } from './allergies'
+import { parseAllergyCheck, parseAllergyList, parseRecordedAllergy, type AllergyAcknowledgement, type AllergyCheck, type AllergyList, type AllergySeverity, type RecordedAllergy } from './allergies'
 import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
@@ -2378,9 +2378,10 @@ export const staffApi = {
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
-  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched.
+  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched. A prescription's Activate or
+  // Resume after an allergy warning (0124) also carries allergyAcknowledgement; leave it out otherwise.
   updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
-    recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string }) =>
+    recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string; allergyAcknowledgement?: AllergyAcknowledgement }) =>
     client.request<SavedRecord>({ method: 'PATCH',
       path: `${encounterPath(patientId, encounterId)}/${kind}/${encodeURIComponent(recordId)}`,
       body: input, headers: facilityHeaders(facilityId) }),
@@ -2402,9 +2403,11 @@ export const staffApi = {
   // or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. Both callers (Clinical.tsx and the blue
   // OrderPage.tsx, through words.ts prescriptionChanged) read the prescription again and say these in words.
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
-    prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
+    prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string, allergyAcknowledgement?: AllergyAcknowledgement) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
-      { expectedRowVersion, reason }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+      { expectedRowVersion, reason, ...(allergyAcknowledgement
+        ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   // Sends (or sends again) a saved active lab request to Lab at the version read
   // (hid-system #56). The body is exactly SendLabRequestToLabDto; the caller keeps
   // one key per attempt, so pressing again after no answer is the same send.
@@ -2679,11 +2682,14 @@ export const orderRoutesApi = {
   attestation: (facilityId: string, kind: OrderRouteKind) =>
     client.get<OrderRouteAttestation>('/api/v1/ehr/order-route-attestation',
       { query: { kind }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  // A draft prescription sent after an allergy warning (0124) also carries allergyAcknowledgement; a lab request never does.
   send: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string,
-    input: { expectedRowVersion: number; receivingFacilityId: string; attestationTextVersion: string }, idempotencyKey: string) =>
+    input: { expectedRowVersion: number; receivingFacilityId: string; attestationTextVersion: string; allergyAcknowledgement?: AllergyAcknowledgement }, idempotencyKey: string) =>
     client.post<OrderRouteSent>(orderRoutesPath(patientId, encounterId, kind, orderId),
       { expectedRowVersion: input.expectedRowVersion, receivingFacilityId: input.receivingFacilityId, patientAgreed: true,
-        attestationTextVersion: input.attestationTextVersion },
+        attestationTextVersion: input.attestationTextVersion,
+        ...(kind === 'prescription' && input.allergyAcknowledgement
+          ? { allergyAcknowledgement: { reason: input.allergyAcknowledgement.reason, warningToken: input.allergyAcknowledgement.warningToken } } : {}) },
       { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
   /** An order's routes, newest first, with the attestation and what came back. Audited: read only when asked. */
   routes: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string) =>
