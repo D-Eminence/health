@@ -252,6 +252,8 @@ describe('leaving the case view while a Health ID is made', () => {
     const { onBack, onNew } = renderWithWaysOut()
     const region = await createWithNoEmail()
     expect(backButton().getAttribute('aria-disabled')).toBe('true')
+    // "Register another person" says it is held too, as Back does.
+    expect(screen.getByRole('button', { name: 'Register another person' }).getAttribute('aria-disabled')).toBe('true')
     await press(backButton())
     await press(screen.getByRole('button', { name: 'Register another person' }))
     expect(onBack).not.toHaveBeenCalled()
@@ -270,6 +272,7 @@ describe('leaving the case view while a Health ID is made', () => {
 
     await press(within(region).getByRole('button', { name: 'I’ve written it down' }))
     expect(backButton().getAttribute('aria-disabled')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Register another person' }).getAttribute('aria-disabled')).toBeNull()
     await press(backButton())
     expect(onBack).toHaveBeenCalledTimes(1)
   })

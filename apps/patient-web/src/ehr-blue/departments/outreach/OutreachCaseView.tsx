@@ -204,6 +204,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
     if (healthIdHold === 'claim') focus(`outreach-health-id-${item.id}-made`)
     if (!healthIdHold && !busy && leaveHealthChecks()) go()
   }
+  // Held (said with aria-disabled on every way out): a send in flight, a Health ID being made, or a claim code not noted.
+  const held = busy || healthIdHold !== null
   const back = () => leave(onBack)
   const registerAnother = onNew ? () => leave(onNew) : undefined
   const facts = caseFacts(item, campaign)
@@ -226,8 +228,9 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             ? 'This registration is now joined to the verified Health ID patient. Their care continues under their Health ID.'
             : `This registration is ${statusLabel(item.status).toLowerCase()}. No further step is needed here.`}</p>
           <FormActions sticky={false} align="start" className="mt-2">
-            {registerAnother ? <Button variant="primary" icon={UserPlus} onClick={registerAnother}>Register another person</Button> : null}
-            <Button onClick={back}>Back to list</Button>
+            {registerAnother ? <Button variant="primary" icon={UserPlus} className="hid-ehr-dept-outreach-unavailable" aria-disabled={held || undefined}
+              onClick={registerAnother}>Register another person</Button> : null}
+            <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={held || undefined} onClick={back}>Back to list</Button>
           </FormActions>
         </div>
       </Card>
@@ -329,7 +332,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             </Card>
           </div>
         </div>
-        {registerAnother && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={registerAnother}>Register another person</Button> : null}
+        {registerAnother && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="hid-ehr-dept-outreach-unavailable self-start"
+          aria-disabled={held || undefined} onClick={registerAnother}>Register another person</Button> : null}
       </div>
       {sheet}
       {slipArea}
