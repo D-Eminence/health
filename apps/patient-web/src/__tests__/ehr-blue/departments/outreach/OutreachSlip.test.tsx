@@ -5,7 +5,7 @@ import { renderDept } from '../harness'
 import { OutreachCaseView } from '../../../../ehr-blue/departments/outreach/OutreachCaseView'
 import { MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 import {
-  CHECKS_RECORDED, eventDateText, GET_HEALTH_ID_LATER, GET_HEALTH_ID_LATER_MINOR, KEEP_SLIP, OutreachSlip,
+  CHECKS_RECORDED, eventDateText, FORGOT_PASSWORD, GET_HEALTH_ID_LATER, GET_HEALTH_ID_LATER_MINOR, KEEP_SLIP, OutreachSlip,
 } from '../../../../ehr-blue/departments/outreach/OutreachSlip'
 
 /*
@@ -101,6 +101,17 @@ describe('the outreach slip', () => {
     expect(text).toContain(KEEP_SLIP)
   })
 
+  it('says how to start using a Health ID made by email: "Forgot password" with the email they gave', () => {
+    expect(FORGOT_PASSWORD).toBe('To start using your Health ID, open the Health ID app, tap “Forgot password” and use the email you gave today.')
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-ZDEMAA" byEmail />)
+    expect(document.body.textContent).toContain(FORGOT_PASSWORD)
+  })
+
+  it('says nothing of "Forgot password" for a Health ID not made by email', () => {
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-UNVER1" claimCode="K7Q-4MZ" />)
+    expect(document.body.textContent).not.toContain(FORGOT_PASSWORD)
+  })
+
   it('writes an event over more than one day as its first and last day', () => {
     expect(eventDateText({ startsAt: '2026-11-14T07:00:00.000Z', endsAt: '2026-11-15T15:00:00.000Z' })).toBe('14 Nov 2026 to 15 Nov 2026')
     expect(eventDateText({ startsAt: '2026-11-14T07:00:00.000Z', endsAt: null })).toBe('14 Nov 2026')
@@ -174,6 +185,18 @@ describe('Print slip on a registration', () => {
     expect(slip()!.textContent).not.toContain('K7Q-4MZ')
     expect(slip()!.textContent).not.toContain('Claim code')
     expect(JSON.stringify({ ...sessionStorage })).not.toContain('K7Q-4MZ')
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
+  })
+
+  it.each([
+    ['made by email at outreach (0119)', { healthIdCreatedByOutreach: true }, true],
+    ['made by email, as 0120 says', { healthIdCreatedByOutreach: true, healthIdStatus: 'verified' }, true],
+    ['made with no email (0120)', { healthIdCreatedByOutreach: true, healthIdStatus: 'unclaimed' }, false],
+    ['their own, linked', { healthIdCreatedByOutreach: false }, false],
+  ])('prints the "Forgot password" line for a Health ID %s: %s', async (_name, fields, shown) => {
+    renderCase({ ...ITEM, healthId: 'HID-ABC123', ...fields })
+    await press(screen.getAllByRole('button', { name: 'Print slip' })[0]!)
+    expect(slip()!.textContent?.includes(FORGOT_PASSWORD)).toBe(shown)
     await act(async () => { window.dispatchEvent(new Event('afterprint')) })
   })
 

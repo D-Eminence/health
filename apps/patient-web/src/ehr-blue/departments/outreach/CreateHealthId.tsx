@@ -57,8 +57,24 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /** What the section shows once a Health ID is made: the claim code only from the answer that made it, once. */
 interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean }
 
-/** A Health ID made here just now, and its claim code when it was made with no email or phone. */
-export interface MadeHere { readonly healthId: string; readonly claimCode?: string }
+/** A Health ID made here just now, its claim code when it was made with no email or phone, and whether by email. */
+export interface MadeHere { readonly healthId: string; readonly claimCode?: string; readonly byEmail?: boolean }
+
+/**
+ * 0119 makes the Health ID with no password and sends no email after the code: the person sets one with "Forgot
+ * password" in the app, with the email they gave.
+ */
+export const NO_PASSWORD_YET = 'They have no password yet. To start using it, they open the Health ID app, tap “Forgot password” and enter the email they gave you. They can add the rest of their details then.'
+
+/**
+ * Whether the registration's Health ID was made at outreach from an email the person proved (0119): 0120 says so in
+ * `healthIdStatus` ('verified'); before 0120 every Health ID made at outreach was made that way.
+ */
+export function healthIdMadeByEmail(item: OutreachCase): boolean {
+  if (!item.healthId) return false
+  const status = (item as { readonly healthIdStatus?: unknown }).healthIdStatus
+  return status === undefined ? item.healthIdCreatedByOutreach === true : status === 'verified'
+}
 
 /** Said once a Health ID made before (or before a reload) is shown: the claim code is never shown again. */
 export const MADE_BEFORE = 'Their Health ID has been made. Print their slip, or write the Health ID on it.'
@@ -134,7 +150,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   if (!('healthId' in item) || unserved.size === 2) return null
   const minor = typeof item.ageYears === 'number' && item.ageYears < 18
   // Made here just now (with its claim code, shown this once), or made before, as the registration says.
-  const made: Made | null = justMade ?? (item.healthId ? { healthId: item.healthId, byEmail: false } : null)
+  const made: Made | null = justMade ?? (item.healthId ? { healthId: item.healthId, byEmail: healthIdMadeByEmail(item) } : null)
 
   function keyFor(signature: string): string {
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
@@ -160,10 +176,12 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     if (problem === 'OUTREACH_HEALTH_ID_ALREADY_CREATED') {
       const details = isHidApiError(caught) ? caught.details as { healthId?: unknown } | null : null
       const existing = typeof details?.healthId === 'string' ? details.healthId : null
-      if (existing) setMade({ healthId: existing, byEmail: false })
+      // At confirm, it was made from the code just proved (a retry after a lost answer): by email.
+      const byEmail = call === 'confirm'
+      if (existing) setMade({ healthId: existing, byEmail })
       else setError('This person already has a Health ID. It is shown here once the registration is read again.')
       // Read again: the registration names its Health ID.
-      onCreated(existing ? { healthId: existing } : undefined)
+      onCreated(existing ? { healthId: existing, byEmail } : undefined)
       return
     }
     if (problem === 'OUTREACH_HEALTH_ID_UNAVAILABLE' && method === 'sms') { setError(SMS_UNAVAILABLE); return }
@@ -255,7 +273,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       attempt.current = null
       setMade({ healthId: answer.healthId, byEmail: true })
       focus(id('made'))
-      onCreated({ healthId: answer.healthId })
+      onCreated({ healthId: answer.healthId, byEmail: true })
     } catch (caught) {
       refused(caught, 'confirm')
     } finally {
@@ -295,7 +313,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
           <Alert intent="warning" title="Write this on their slip.">They’ll need the Health ID and this code to start using it later. The code isn’t shown again.</Alert>
         </> : justMade ? <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>
           : <p className="m-0 text-body text-ink">{MADE_BEFORE}</p>}
-        {made.byEmail ? <p className="m-0 text-body text-ink-2">They’ll get an email to set a password. They can add their details and set a password later in the app.</p> : null}
+        {made.byEmail ? <p className="m-0 text-body text-ink-2">{NO_PASSWORD_YET}</p> : null}
         <div className="flex flex-wrap gap-2">
           {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={onPrintSlip}>Print slip</Button> : null}
           <Button icon={Copy} onClick={() => { void navigator.clipboard?.writeText(made.claimCode ? `${made.healthId} ${made.claimCode}` : made.healthId).catch(() => undefined) }}>

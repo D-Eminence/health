@@ -20,7 +20,7 @@ import {
 import { LINKS_LATER } from './outreachGroup'
 import { GetHealthIdNow } from './GetHealthIdNow'
 import { HealthChecks, leaveHealthChecks } from './HealthChecks'
-import { CreateHealthId, type MadeHere } from './CreateHealthId'
+import { CreateHealthId, healthIdMadeByEmail, type MadeHere } from './CreateHealthId'
 import { OutreachSlip, useSlipPrint } from './OutreachSlip'
 import { keptClaimCode } from './tabMemory'
 
@@ -103,7 +103,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const printSlip = () => {
     const healthId = madeHere?.healthId ?? item.healthId
     print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
-      healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)} />)
+      healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)}
+      byEmail={madeHere ? madeHere.byEmail === true : healthIdMadeByEmail(item)} />)
   }
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {

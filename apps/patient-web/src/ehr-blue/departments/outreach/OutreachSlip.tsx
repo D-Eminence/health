@@ -19,6 +19,8 @@ export const GET_HEALTH_ID_LATER = 'You can get a Health ID later at app.healthi
 export const GET_HEALTH_ID_LATER_MINOR = 'A parent or guardian can get them a Health ID later at app.healthidentitydirectory.com.'
 export const KEEP_SLIP = 'Keep this slip. You’ll need your Health ID and this code to start using it.'
 export const CHECKS_RECORDED = 'Health checks were recorded today.'
+/** A Health ID made by email (0119) has no password yet: the person sets one with "Forgot password". */
+export const FORGOT_PASSWORD = 'To start using your Health ID, open the Health ID app, tap “Forgot password” and use the email you gave today.'
 
 /**
  * Prints a slip: it is put under <body> (outreachSlip.css hides it on screen and prints it alone), window.print runs in
@@ -54,7 +56,7 @@ export function eventDateText(campaign: Pick<OutreachCampaign, 'startsAt' | 'end
   return start && end && end !== start ? `${start} to ${end}` : start
 }
 
-export function OutreachSlip({ groupName, campaign, item, healthId, claimCode }: {
+export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, byEmail = false }: {
   /** The outreach group (or the facility whose outreach team registered them). */
   readonly groupName: string | undefined
   readonly campaign: Pick<OutreachCampaign, 'name' | 'startsAt' | 'endsAt'> | undefined
@@ -63,6 +65,8 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode }:
   readonly healthId: string | null | undefined
   /** Only straight after a Health ID was made here with no email or phone. */
   readonly claimCode?: string
+  /** The Health ID was made at outreach by email: it has no password yet. */
+  readonly byEmail?: boolean
 }) {
   const eventDate = eventDateText(campaign)
   const facts: Array<[string, string]> = [
@@ -89,7 +93,7 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode }:
             <h2>Claim code</h2>
             <p className="hid-outreach-slip-big">{claimCode}</p>
             <p className="hid-outreach-slip-note">{KEEP_SLIP}</p>
-          </> : null}
+          </> : byEmail ? <p className="hid-outreach-slip-note">{FORGOT_PASSWORD}</p> : null}
         </section>
       ) : <p>{typeof item.ageYears === 'number' && item.ageYears < 18 ? GET_HEALTH_ID_LATER_MINOR : GET_HEALTH_ID_LATER}</p>}
       {item.hasScreening ? <p>{CHECKS_RECORDED}</p> : null}

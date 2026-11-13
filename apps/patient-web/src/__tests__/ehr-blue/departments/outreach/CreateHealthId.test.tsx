@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import {
-  CreateHealthId, HEALTH_ID_PROBLEMS, MADE_BEFORE, REQUEST_USED, START_UNAVAILABLE,
+  CreateHealthId, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET, REQUEST_USED, START_UNAVAILABLE,
 } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 
 /*
@@ -99,7 +99,10 @@ describe('Create Health ID', () => {
     await waitFor(() => expect(api.confirmOutreachHealthId).toHaveBeenCalledWith(GROUP_ID, 'case-1', '123456', expect.any(String)))
     expect(await within(region()).findByText('HID-ZDEMAA')).toBeTruthy()
     expect(region().textContent).toContain('Write this on their slip.')
-    expect(region().textContent).toContain('They’ll get an email to set a password.')
+    // 0119 makes it with no password and sends no email after the code: they set one with "Forgot password".
+    expect(region().textContent).toContain(NO_PASSWORD_YET)
+    expect(NO_PASSWORD_YET).toBe('They have no password yet. To start using it, they open the Health ID app, tap “Forgot password” and enter the email they gave you. They can add the rest of their details then.')
+    expect(region().textContent).not.toContain('They’ll get an email')
     expect(onCreated).toHaveBeenCalled()
   })
 
