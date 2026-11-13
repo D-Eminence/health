@@ -12,7 +12,7 @@ import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
   bmiOf, checkScreening, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
-  type ScreeningField, type ScreeningForm,
+  type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
 import { readTab, writeTab } from './tabMemory'
 
@@ -57,6 +57,8 @@ export const SCREENING_KEPT = 'Your health checks that weren’t saved are back.
 /** What a reload needs to bring back: the fields changed and not saved, and a save whose answer was lost, with its key. */
 interface Draft {
   readonly changes: Partial<ScreeningForm>
+  /** The medicines as read when the medicines in `changes` were typed: what was added and removed is worked out from them. */
+  readonly baseMedicines?: ReadonlyArray<{ readonly name: string; readonly dose: string }>
   readonly unsure: { readonly input: OutreachScreeningInput; readonly version: number | undefined } | null
   readonly attempt: { readonly signature: string; readonly key: string } | null
 }
@@ -152,7 +154,17 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
           unsure.current = draft.unsure ?? null
           attempt.current = draft.attempt ?? null
         }
-        setForm(kept.length ? { ...base.current, ...Object.fromEntries(kept.map(key => [key, changes[key as keyof ScreeningForm]])) } : base.current)
+        let restored = { ...base.current, ...Object.fromEntries(kept.map(key => [key, changes[key as keyof ScreeningForm]])) } as ScreeningForm
+        if (kept.includes('medicines')) {
+          // New keys for the rows brought back (the row counter starts again on a reload), and merged with the medicines
+          // read now, as after a clash: someone else's medicines saved meanwhile stay.
+          const rows = (list: unknown) => (Array.isArray(list) ? list : [])
+            .map(row => medicineRow(String((row as MedicineRow).name ?? ''), String((row as MedicineRow).dose ?? '')))
+          const typed = rows(changes.medicines)
+          restored = { ...restored, medicines: Array.isArray(draft?.baseMedicines)
+            ? mergeMedicines(base.current.medicines, typed, rows(draft.baseMedicines)) : typed }
+        }
+        setForm(kept.length ? restored : base.current)
         if (kept.length) setNotice(SCREENING_KEPT)
       }
       return screening
@@ -180,7 +192,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
     if (!draftKey || read.kind !== 'ready' || busy) return
     const changes = changesFrom(form, base.current)
     writeTab(draftKey, Object.keys(changes).length || unsure.current
-      ? { changes, unsure: unsure.current, attempt: attempt.current } satisfies Draft : null)
+      ? { changes, unsure: unsure.current, attempt: attempt.current,
+        ...('medicines' in changes ? { baseMedicines: base.current.medicines.map(({ name, dose }) => ({ name, dose })) } : {}) } satisfies Draft : null)
   }, [draftKey, read, form, busy])
   // Back asks before leaving checks not saved, and so does closing or reloading the page: what this tab keeps is lost
   // when the tab is closed, and the browser can't tell a reload from a close.

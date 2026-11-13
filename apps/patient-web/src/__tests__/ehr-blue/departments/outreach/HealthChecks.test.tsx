@@ -614,6 +614,46 @@ describe('Health checks through a reload', () => {
     expect(within(region()).queryByText(SCREENING_KEPT)).toBeNull()
   })
 
+  it('brings back medicines typed before a reload merged with medicines someone else saved meanwhile', async () => {
+    const paracetamol = { name: 'Paracetamol', dose: '1 g' }
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { medicinesGiven: [paracetamol] }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Paracetamol'))
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 2/, 'ORS')
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    // Meanwhile another station saves an antimalarial (version 2); then this tab reloads.
+    api.outreachScreening.mockResolvedValue({ screening: saved(2, { medicinesGiven: [paracetamol, { name: 'Artemether-lumefantrine', dose: null }] }) })
+    reload()
+    await waitFor(() => expect(box(/^Medicine 3/).value).toBe('ORS'))
+    expect(box(/^Medicine 2/).value).toBe('Artemether-lumefantrine')
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(3, {}) })
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2].medicinesGiven).toEqual([paracetamol,
+      { name: 'Artemether-lumefantrine', dose: null }, { name: 'ORS', dose: null }])
+  })
+
+  it('a medicine added after a reload is its own row, not tied to one brought back', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 1/, 'Amoxicillin')
+    type(/^Dose of medicine 1/, '250 mg')
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    // A real reload starts the row counter again, so a kept row's key is one a new row may get: give it such a key.
+    const stored = kept()[0]!
+    sessionStorage.setItem(stored, sessionStorage.getItem(stored)!.replace(/"key":"m\d+"/, '"key":"m1"'))
+    reload()
+    await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Amoxicillin'))
+    expect(document.getElementById(`outreach-screening-${CASE_ID}-medicine-m1-name`)).toBeNull()
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 2/, 'Paracetamol')
+    expect(box(/^Medicine 1/).value).toBe('Amoxicillin')
+    expect(box(/^Dose of medicine 1/).value).toBe('250 mg')
+    expect(box(/^Medicine 2/).value).toBe('Paracetamol')
+  })
+
   it('brings typing back on top of checks someone else saved meanwhile', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
