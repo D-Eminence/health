@@ -147,8 +147,9 @@ describe('opening Outreach with no signal', () => {
     await act(async () => { window.dispatchEvent(new Event('online')) })
     await waitFor(() => expect(where()).toBe('/provider/sign-in'), { timeout: 5000 })
     expect(sent.filter(request => request.route === SESSION).length).toBeGreaterThanOrEqual(2)
-    // The facts stay: the same account signs in, and what waits is then sent.
-    expect(readOutreachSnapshot()).not.toBeNull()
+    // Health ID said the session ended: the facts go, so nothing opens "No signal" mode for it again. What waits on
+    // the phone stays (offlineQueue.ts) and is sent once the same account signs in.
+    expect(readOutreachSnapshot()).toBeNull()
   })
 })
 
@@ -176,8 +177,16 @@ describe('start-up as before', () => {
     expect(await screen.findByRole('heading', { name: 'Session unavailable' }, { timeout: 5000 })).toBeTruthy()
   })
 
-  it('with a Health ID answer that is not "no connection" (a fault): "Session unavailable", never "No signal"', async () => {
+  it('with Health ID unavailable just now (a 5xx): "No signal" mode, not "Session unavailable"', async () => {
     keepFacts()
+    const fault = () => json({ code: 'INTERNAL', detail: 'x' }, 500)
+    serve({ [SESSION]: [fault, fault, fault, fault] })
+    await openStaffApp('/provider/outreach')
+    expect(await screen.findByText(/No signal. You can keep registering/, undefined, { timeout: 5000 })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Session unavailable' })).toBeNull()
+  })
+
+  it('with no facts kept and a 5xx: "Session unavailable", as before', async () => {
     const fault = () => json({ code: 'INTERNAL', detail: 'x' }, 500)
     serve({ [SESSION]: [fault, fault, fault, fault] })
     await openStaffApp('/provider/outreach')
@@ -194,14 +203,23 @@ describe('the facts and the accounts', () => {
     }
     render(<MemoryRouter><StaffProvider><Probe /></StaffProvider></MemoryRouter>)
   }
-  const sessionOf = (id: string) => () => json({ actor: { id, displayName: 'Someone', roles: [], permissions: [], facilities: [] }, expiresAt: '2026-11-30T12:00:00.000Z' })
+  const group = { id: 'group-1', name: 'Ilorin Health Volunteers' }
+  const sessionOf = (id: string, facilities: unknown[] = []) => () => json({ actor: { id, displayName: 'Someone', roles: [], permissions: [], facilities }, expiresAt: '2026-11-30T12:00:00.000Z' })
 
-  it('are kept when the same account\'s session is confirmed', async () => {
+  it('are kept when the same account\'s session is confirmed at the same outreach group', async () => {
+    keepFacts()
+    serve({ [SESSION]: [sessionOf('staff-demo-1', [group])] })
+    await staffProvider()
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'))
+    expect(readOutreachSnapshot()).not.toBeNull()
+  })
+
+  it('are deleted when the same account\'s confirmed session no longer includes the outreach group', async () => {
     keepFacts()
     serve({ [SESSION]: [sessionOf('staff-demo-1')] })
     await staffProvider()
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'))
-    expect(readOutreachSnapshot()).not.toBeNull()
+    expect(readOutreachSnapshot()).toBeNull()
   })
 
   it('are deleted when another account\'s session is confirmed on this browser', async () => {
