@@ -247,8 +247,8 @@ describe('the list', () => {
     const two = card(await casesList(), 'Patient Two')
     expect(within(two).getByText('Linked')).toBeTruthy()
     expect(within(two).getByText('Done: nothing more to do')).toBeTruthy()
-    // No export: today's API has none, and a download would keep identifying data on the device.
-    expect(screen.queryByRole('button', { name: /export/i })).toBeNull()
+    // Export (owner, 13 Nov 2026): made on this device from the list as read, after a privacy note (OutreachExport.test.tsx).
+    expect(screen.getByRole('button', { name: 'Export' }).getAttribute('aria-disabled')).toBeNull()
   })
 
   it('says the list is loading', async () => {
@@ -413,7 +413,8 @@ describe('campaigns, read only', () => {
     expect(within(members).queryByText(/Reference|membersh/)).toBeNull()
     expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
-    expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
+    // Nothing to change; only Export, of this campaign's registrations (OutreachExport.test.tsx).
+    expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label') ?? button.textContent).sort()).toEqual(['Back to list', 'Export'])
     // Back to the list, focus returns to the campaign opened.
     await press(screen.getByRole('button', { name: 'Back to list' }))
     expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))

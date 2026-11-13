@@ -72,6 +72,12 @@ export interface RequestSpec {
    */
   readonly responseType?: 'json' | 'download'
   /**
+   * Given a successful JSON answer's headers (those the browser may read) before its body is parsed, for a list that
+   * names its next page in a header. Not called on a failure. A read that passes it should set `dedupe: false`, so it
+   * is not answered from another caller's request.
+   */
+  readonly onResponseHeaders?: (headers: Headers) => void
+  /**
    * Whether a 401 should restore the cookie session and repeat the request.
    * Defaults to always. A request that submits a one-time credential (such as
    * an authenticator code) returns false for the backend's own rejection, so
@@ -436,6 +442,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       throw error
     }
 
+    spec.onResponseHeaders?.(response.headers)
     if (response.status === 204 || rawBody.trim() === '') return undefined as T
 
     if (payload === null && rawBody.trim() !== '') {

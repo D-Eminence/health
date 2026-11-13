@@ -1143,6 +1143,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.campaignStatus','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/status',P,false,one('POST','outreach.campaign.write')),
   r('outreach.campaignMembers','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/members',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
+  // The blue EHR's Outreach export (owner, 13 Nov 2026) records each file it saves; until served it answers 404 or 405, which
+  // the page ignores (ehr-blue/departments/outreach/OutreachExport.tsx).
+  proposed(r('outreach.caseExports','outreach','/api/v1/outreach/registration-cases/exports',P,false,one('POST','outreach.registration.read'),
+    'Body { format: csv|xlsx|docx|pdf, count, campaignId? }. Answers 204 and writes an audit row. The list read '
+    + '(outreach.cases GET) takes campaignId, limit (1..500, default 100) and before (a cursor) from hid-system#247, '
+    + 'and names the next page in X-Next-Cursor.')),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
   // Health checks at an outreach event (outreach-api 0118): proposed until served; a 404 NOT_FOUND or API_ROUTE_NOT_FOUND
