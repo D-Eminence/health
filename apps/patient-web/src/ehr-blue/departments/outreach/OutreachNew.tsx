@@ -34,6 +34,9 @@ function campaignRefused(caught: unknown): boolean {
   return CAMPAIGN_REFUSALS.some(([status, code]) => caught.status === status && caught.code === code)
 }
 
+/** "No signal" mode, when this device could not keep the registration. */
+const KEEP_FAILED = 'This registration couldn’t be saved on this device. Try again.'
+
 const CAMPAIGN_FIELD = 'outreach-case-campaign'
 const CAMPAIGN_REFUSED_ID = 'outreach-case-campaign-refused'
 const SAVE_ID = 'outreach-case-save'
@@ -92,7 +95,7 @@ const GROUP_CAMPAIGNS_UNREAD: Readonly<Record<CampaignsUnread, string>> = {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, offline = false, onBack, onSending, onCreated }: {
   readonly facilityId: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
@@ -112,6 +115,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
    * OUTREACH_NOTES_LIMIT characters; before it, no area and the earlier 280.
    */
   readonly healthChecksServed?: boolean
+  /**
+   * "No signal" mode (OfflineOutreach.tsx), at an outreach group: the session could not be read, so nothing is sent; the
+   * registration is kept on this device at once, with its command, and sent once the session is read again.
+   */
+  readonly offline?: boolean
   readonly onBack: () => void
   /** A case is being sent: what the last one said no longer applies. */
   readonly onSending: () => void
@@ -210,6 +218,22 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
     const { command } = attempt.current
     onSending()
     setBusy(true)
+    // "No signal" mode (OfflineOutreach.tsx): kept on this device with its command, and no request is made. It is sent
+    // with the same command once the session is confirmed again, so it is registered once.
+    if (group && offline) {
+      try {
+        await group.queue({ ...command, input })
+        attempt.current = null
+        element.reset()
+        resetConsent()
+        group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection' })
+      } catch {
+        setError(KEEP_FAILED)
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
     // At an outreach group, the registration is kept on this device before it is sent, so a reload or a closed tab while
     // it is saving loses nothing: it is under "Saved on this device" and sent again with the same command (registered
     // once). Claimed first, so no other sender in this tab, or another tab, sends it at the same time.

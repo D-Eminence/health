@@ -276,6 +276,14 @@ export function outreachSignUpHere(hostname: string): boolean {
 }
 
 /**
+ * Whether this site keeps Outreach's offline app shell (public/sw-outreach.js, outreachShell.ts): Health ID Outreach's
+ * own site, in each deployment, and nowhere else. public/sw.js names the same hosts (OFFLINE_SHELL_HOSTS).
+ */
+export function offlineShellHere(hostname: string): boolean {
+  return resolveStaffProductHostname(hostname)?.key === 'outreach'
+}
+
+/**
  * Where the outreach organiser sign-up is, from this site: outreach.'s own on outreach. and from another product site
  * (Turnstile accepts the sign-up there only); this build's own page anywhere else. One of a few fixed values.
  */

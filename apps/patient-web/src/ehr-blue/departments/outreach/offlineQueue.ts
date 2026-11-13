@@ -337,9 +337,11 @@ export async function sendWaitingOutreachEntriesFor(accountId: string): Promise<
 
 /**
  * The queue for one account at one facility: what waits, sending it again, and adding to it. `onSynced` hears each
- * registration Health ID took from the queue, with its answer.
+ * registration Health ID took from the queue, with its answer. `offline` ("No signal" mode, OfflineOutreach.tsx, where
+ * the session could not be read): what waits is listed and added to, and never sent from there.
  */
-export function useOutreachQueue(accountId: string | undefined, facilityId: string, onSynced: (created: OutreachCase) => void) {
+export function useOutreachQueue(accountId: string | undefined, facilityId: string, onSynced: (created: OutreachCase) => void,
+  { offline = false }: { readonly offline?: boolean } = {}) {
   const [entries, setEntries] = useState<PendingRegistration[]>([])
   const [durable, setDurable] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -361,7 +363,7 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
 
   /** Sends what waits, oldest first, one at a time; null when a round is already running in this tab (or nothing is queued here). */
   const sync = useCallback(async (): Promise<QueueSyncResult | null> => {
-    if (busy.current || !accountId) return null
+    if (busy.current || !accountId || offline) return null
     busy.current = true
     setSyncing(true)
     let sent = 0
@@ -377,7 +379,7 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
       await reload()
     }
     return { sent, waiting, refused, reason }
-  }, [accountId, mine, reload])
+  }, [accountId, mine, reload, offline])
 
   const add = useCallback(async (entry: Omit<PendingRegistration, 'accountId' | 'facilityId' | 'savedAt' | 'state'>) => {
     if (!accountId) return
