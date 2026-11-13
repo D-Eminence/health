@@ -108,6 +108,8 @@ export function Outreach() {
   const group = isOutreachGroup(facility)
   const organiser = group && isOrganiser(facility)
   const canReadCases = permissions.includes('outreach.registration.read')
+  // At an outreach group only its organiser downloads the list (the file holds personal details); helpers never see Export.
+  const canExport = canReadCases && (!group || organiser)
   const canReadCampaigns = permissions.includes('outreach.campaign.read')
   const canWrite = permissions.includes('outreach.registration.write')
   // Campaign management is offered only where Outreach says it serves it, and is never asked of anyone who may not use it.
@@ -300,7 +302,7 @@ export function Outreach() {
     content = campaign
       ? <OutreachCampaignView key={campaign.id} facilityId={facilityId} campaign={campaign} members={membersOf(campaign.id)}
         manage={canManage} created={view.created} onChanged={campaigns.refresh}
-        exportAction={canReadCases ? <OutreachExport cases={cases.value} campaign={campaign} campaignOf={campaignOf} /> : undefined}
+        exportAction={canExport ? <OutreachExport cases={cases.value} campaign={campaign} campaignOf={campaignOf} /> : undefined}
         registrations={canReadCases ? { canLink: canWrite && !group, group,
           onOpen: item => show({ kind: 'case', id: item.id, snapshot: item, created: false,
             from: { kind: 'campaign', id: campaign.id, snapshot: campaign } }) } : undefined}
@@ -308,7 +310,7 @@ export function Outreach() {
       : <RecordNotFound onBack={() => backToList()} />
   } else {
     content = (
-      <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
+      <OutreachList canReadCases={canReadCases} canExport={canExport} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
         group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
@@ -367,9 +369,11 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
-function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, group, top, bottom, campaignOf, onNew, onNewCampaign, onOpenCase,
+function OutreachList({ canReadCases, canExport, canReadCampaigns, canWrite, cases, campaigns, group, top, bottom, campaignOf, onNew, onNewCampaign, onOpenCase,
   onOpenCampaign }: {
   readonly canReadCases: boolean
+  /** Export is shown: everyone who reads registrations, except an outreach group's helpers (only its organiser). */
+  readonly canExport: boolean
   /** An outreach group's own Outreach (open sign-up on outreach.): nobody here links a Health ID. */
   readonly group: boolean
   /** Shown above the lists: an outreach group's standing with Health ID, and what waits on this device. */
@@ -416,7 +420,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   return (
     <DeptPage title="Outreach" description="People registered in the field, and what each one needs next." primaryAction={newButton ?? undefined}
       secondaryActions={<>
-        {canReadCases ? <OutreachExport cases={cases.value} campaignOf={campaignOf} /> : null}
+        {canExport ? <OutreachExport cases={cases.value} campaignOf={campaignOf} /> : null}
         <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>
       </>}>
       <div className="flex flex-col gap-6">

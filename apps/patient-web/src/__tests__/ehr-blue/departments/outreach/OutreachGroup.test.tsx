@@ -165,6 +165,21 @@ describe('Your team', () => {
   })
 })
 
+describe('Export at an outreach group', () => {
+  it('is the organiser\'s: the organiser sees Export', async () => {
+    renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Campaigns' })
+    expect(screen.queryByRole('button', { name: 'Export' })).toBeTruthy()
+  })
+
+  it('a helper never sees Export: the file holds personal details', async () => {
+    session.roles = ['outreach_volunteer']
+    renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Campaigns' })
+    expect(screen.queryByRole('button', { name: 'Export' })).toBeNull()
+  })
+})
+
 describe('registering someone at an outreach group', () => {
   it('asks for their agreement first, with the notice in plain English, and sends it with the registration', async () => {
     api.createOutreachCase.mockResolvedValue({ ...pending('case-1', 'Kemi Balogun'), possibleDuplicate: false })
