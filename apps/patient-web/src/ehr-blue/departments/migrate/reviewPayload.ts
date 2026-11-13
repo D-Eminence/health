@@ -3,7 +3,7 @@ import {
   MAX_MISSED_ITEMS, MAX_REMOVED_ITEMS, isCode, REJECTION_REASONS, type ChangeReason, type FieldClass, type RejectionReason, type RemovalReason,
   type ReviewSignals,
 } from '../../../readingLearningContract'
-import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
+import { PAPER_READING_CONTRACT, cleanReading, isUnreadable, itemHeadlineText, itemLine, itemNotActive, needsCheck, orderItems, type PaperItem, type PaperItemKind, type PaperReading } from './paperReading'
 
 /*
  * The check of a paper reading, as staff make it on the Document OCR page: each item read is kept, changed or removed,
@@ -388,22 +388,47 @@ function medication(entry: CheckedItem) {
  * (old and new); removed items are listed as rejected.
  */
 export function buildValidation(choices: ReviewChoices): { readonly input: ReviewInput } | { readonly problem: ReviewProblem } {
+  const checked = checkValidation(choices)
+  if ('input' in checked) return checked
+  const { field, message } = checked.problems[0]!
+  return { problem: { field, message } }
+}
+
+/** An item still without Keep, Change or Remove. */
+const UNDECIDED = 'Choose Keep, Change or Remove for this item.'
+
+/** One thing to fix before a check can be saved; `item` is the place among the items read of the item it is about. */
+export interface ValidationProblem extends ReviewProblem { readonly item?: number }
+
+/**
+ * Every thing to fix before a check can be saved, in the order the form shows its fields: the first is buildValidation's
+ * problem. Empty when the check can be saved. A Save as problem that turns on which items are kept is listed only once
+ * every item has its choice, as until then it may not hold.
+ */
+export function validationProblems(choices: ReviewChoices): readonly ValidationProblem[] {
+  const checked = checkValidation(choices)
+  return 'input' in checked ? [] : checked.problems
+}
+
+function checkValidation(choices: ReviewChoices): { readonly input: ReviewInput } | { readonly problems: readonly ValidationProblem[] } {
   const { reading, decisions, saveAs, learning } = choices
   const items = reviewItems(reading)
+  const problems: ValidationProblem[] = []
+  const add = (problem: ValidationProblem) => { problems.push(problem) }
   const checked: CheckedItem[] = []
   for (const [index, item] of items.entries()) {
+    const itemProblem = (field: string, message: string) => { add({ field, message, item: index }) }
     // A line that couldn't be read at all is always removed: it is listed as rejected and never accepted or published.
     const decision: ItemDecision = isUnreadable(item) ? { choice: 'remove', text: readingLine(item) }
       : decisions[item.id] ?? { choice: null, text: readingLine(item) }
-    if (!decision.choice) return { problem: { field: itemCardId(index), message: 'Choose Keep, Change or Remove for this item.' } }
+    if (!decision.choice) { itemProblem(itemCardId(index), UNDECIDED); continue }
     if (learning && item.kind === 'medicine' && decision.choice === 'change') {
       const read = medicineAsRead(item)
       const typed = Object.fromEntries(MEDICINE_FIELDS.map(field => [field, (decision.medicine?.[field] ?? read[field]).trim()])) as unknown as MedicineFields
-      if (!typed.name) return { problem: { field: itemMedicineId(index, 'name'), message: 'Enter the medicine’s name, or choose Keep or Remove.' } }
-      if (typed.name.length > 500) return { problem: { field: itemMedicineId(index, 'name'), message: 'Shorten this to 500 characters or fewer.' } }
-      for (const field of ['strength', 'dose', 'frequency'] as const) {
-        if (typed[field].length > 240) return { problem: { field: itemMedicineId(index, field), message: 'Shorten this to 240 characters or fewer.' } }
-      }
+      if (!typed.name) { itemProblem(itemMedicineId(index, 'name'), 'Enter the medicine’s name, or choose Keep or Remove.'); continue }
+      if (typed.name.length > 500) { itemProblem(itemMedicineId(index, 'name'), 'Shorten this to 500 characters or fewer.'); continue }
+      const tooLong = (['strength', 'dose', 'frequency'] as const).find(field => typed[field].length > 240)
+      if (tooLong) { itemProblem(itemMedicineId(index, tooLong), 'Shorten this to 240 characters or fewer.'); continue }
       const changed = MEDICINE_FIELDS.some(field => typed[field] !== read[field])
       const final = changed ? MEDICINE_FIELDS.map(field => typed[field]).filter(Boolean).join(' ') : readingLine(item)
       checked.push({ item, index, decision, line: readingLine(item), final, med: { ...typed, changed } })
@@ -412,18 +437,20 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
     if (item.kind === 'lab_result') {
       const read = { test: labTest(item), result: labResult(item) }
       const typed = decision.choice === 'change' ? { test: (decision.test ?? read.test).trim(), result: (decision.result ?? read.result).trim() } : read
-      if (!typed.test) return { problem: { field: itemTestId(index), message: 'Enter the test, or choose Keep or Remove.' } }
-      if (!typed.result) return { problem: { field: itemResultId(index), message: 'Enter the result, or choose Keep or Remove.' } }
+      if (!typed.test) { itemProblem(itemTestId(index), 'Enter the test, or choose Keep or Remove.'); continue }
+      if (!typed.result) { itemProblem(itemResultId(index), 'Enter the result, or choose Keep or Remove.'); continue }
       const changed = typed.test !== read.test || typed.result !== read.result
       checked.push({ item, index, decision, line: readingLine(item), final: changed ? `${typed.test} ${typed.result}` : readingLine(item),
         lab: { ...typed, changed } })
       continue
     }
     const final = decision.choice === 'change' ? decision.text.trim() : readingLine(item)
-    if (decision.choice === 'change' && !final) return { problem: { field: itemTextId(index), message: 'Enter what the paper says, or choose Keep or Remove.' } }
-    if (decision.choice === 'change' && final.length > 2_000) return { problem: { field: itemTextId(index), message: 'Shorten this to 2,000 characters or fewer.' } }
+    if (decision.choice === 'change' && !final) { itemProblem(itemTextId(index), 'Enter what the paper says, or choose Keep or Remove.'); continue }
+    if (decision.choice === 'change' && final.length > 2_000) { itemProblem(itemTextId(index), 'Shorten this to 2,000 characters or fewer.'); continue }
     checked.push({ item, index, decision, line: readingLine(item), final })
   }
+  // Which items are kept is known only once every item passed: until then, what turns on it is not checked.
+  const itemsPassed = problems.length === 0
   const kept = checked.filter(entry => entry.decision.choice !== 'remove')
   const accepted: AcceptedItem[] = kept.map(({ item, final }) => ({ itemId: item.id, kind: item.kind, page: item.page, asWritten: item.asWritten, reading: final }))
   const removed = checked.filter(entry => entry.decision.choice === 'remove')
@@ -456,58 +483,86 @@ export function buildValidation(choices: ReviewChoices): { readonly input: Revie
 
   // Migrate learning: "The reading missed…", one optional total; blank sends nothing.
   const missedItems = learning ? missedTotal(learning.missed) : undefined
-  if (missedItems === null) return { problem: { field: MISSED_FIELD, message: `Enter a number from 0 to ${MAX_MISSED_ITEMS}, or leave it blank.` } }
+  if (missedItems === null) add({ field: MISSED_FIELD, message: `Enter a number from 0 to ${MAX_MISSED_ITEMS}, or leave it blank.` })
 
   let domainFields: Record<string, unknown> = {}
-  const domainProblem = (message: string) => ({ problem: { field: 'ocr-review-domain', message } })
+  const domainProblem = (message: string) => { add({ field: 'ocr-review-domain', message }) }
   if (saveAs === 'EHR') {
-    if (kept.length === 0) return domainProblem('Every item was removed, so there is nothing to put in a clinical note. Choose Keep the document only.')
-    if (!choices.encounterId) return { problem: { field: 'ocr-review-visit', message: 'Choose the visit to attach this note to.' } }
+    const nothingKept = itemsPassed && kept.length === 0
+    if (nothingKept) domainProblem('Every item was removed, so there is nothing to put in a clinical note. Choose Keep the document only.')
+    if (!choices.encounterId) add({ field: 'ocr-review-visit', message: 'Choose the visit to attach this note to.' })
     const content = noteContent(kept, reading?.items ?? [])
-    if (content.length > 100_000) return domainProblem('This is too long for one clinical note. Choose Keep the document only.')
+    if (itemsPassed && !nothingKept && content.length > 100_000) domainProblem('This is too long for one clinical note. Choose Keep the document only.')
     domainFields = { encounterId: choices.encounterId, noteType: NOTE_TYPE, title: NOTE_TITLE, content }
   } else if (saveAs === 'LAB') {
     const results = kept.filter(entry => entry.item.kind === 'lab_result')
-    if (results.length === 0) return domainProblem('No lab result is kept, so nothing can be added to past lab results. Choose another way to save it.')
-    if (results.length > 200) return domainProblem('This has more than 200 lab results, too many to add at once. Choose Keep the document only.')
+    if (itemsPassed && results.length === 0) domainProblem('No lab result is kept, so nothing can be added to past lab results. Choose another way to save it.')
+    if (results.length > 200) domainProblem('This has more than 200 lab results, too many to add at once. Choose Keep the document only.')
     const observations = results.map(observation)
     for (const [at, entry] of results.entries()) {
       const { testName, value, valueText } = observations[at]!
       const changed = entry.decision.choice === 'change'
-      if (testName.length > 240) return { problem: { field: changed ? itemTestId(entry.index) : itemCardId(entry.index),
-        message: 'This test name is too long to add to past lab results. Use Change to shorten the test name to 240 characters or fewer.' } }
-      if ((value?.length ?? 0) > 240 || (valueText?.length ?? 0) > 2_000) return { problem: { field: changed ? itemResultId(entry.index) : itemCardId(entry.index),
-        message: 'This result is too long to add to past lab results. Use Change to shorten it.' } }
+      if (testName.length > 240) add({ field: changed ? itemTestId(entry.index) : itemCardId(entry.index), item: entry.index,
+        message: 'This test name is too long to add to past lab results. Use Change to shorten the test name to 240 characters or fewer.' })
+      else if ((value?.length ?? 0) > 240 || (valueText?.length ?? 0) > 2_000) add({ field: changed ? itemResultId(entry.index) : itemCardId(entry.index), item: entry.index,
+        message: 'This result is too long to add to past lab results. Use Change to shorten it.' })
     }
     const reportDate = (choices.reportedAtAsWritten ?? '').trim()
-    if (reportDate.length > MAX_DATE_AS_WRITTEN) return { problem: { field: REPORT_DATE_FIELD, message: `Write the date in ${MAX_DATE_AS_WRITTEN} characters or fewer.` } }
+    if (reportDate.length > MAX_DATE_AS_WRITTEN) add({ field: REPORT_DATE_FIELD, message: `Write the date in ${MAX_DATE_AS_WRITTEN} characters or fewer.` })
     domainFields = { ...(reportDate ? { reportedAtAsWritten: reportDate } : {}), observations }
   } else if (saveAs === 'PHARMACY') {
     // In the order they are on the paper, each its own record; past the most one review takes, they stay with the document.
     const read = reading?.items ?? []
     const medicines = kept.filter(entry => entry.item.kind === 'medicine')
       .sort((a, b) => read.indexOf(a.item) - read.indexOf(b.item)).slice(0, MAX_MEDICINES)
-    if (medicines.length === 0) return domainProblem('No medicine is kept, so nothing can be added to past medicines. Choose another way to save it.')
+    if (itemsPassed && medicines.length === 0) domainProblem('No medicine is kept, so nothing can be added to past medicines. Choose another way to save it.')
     const medications = medicines.map(medication)
     for (const [at, entry] of medicines.entries()) {
-      if (medications[at]!.medicationText.length > 500) return { problem: { field: entry.decision.choice === 'change' ? itemTextId(entry.index) : itemCardId(entry.index),
-        message: 'This medicine is too long to add to past medicines. Use Change to shorten it to 500 characters or fewer.' } }
+      if (medications[at]!.medicationText.length > 500) add({ field: entry.decision.choice === 'change' ? itemTextId(entry.index) : itemCardId(entry.index), item: entry.index,
+        message: 'This medicine is too long to add to past medicines. Use Change to shorten it to 500 characters or fewer.' })
     }
     domainFields = { medications }
   }
 
   const reason = choices.reason.trim()
-  if (!reason) return { problem: { field: 'ocr-review-reason', message: 'Complete this field.' } }
-  if (reason.length < 8) return { problem: { field: 'ocr-review-reason', message: 'Write at least 8 characters.' } }
-  if (reason.length > 500) return { problem: { field: 'ocr-review-reason', message: 'Write 500 characters or fewer.' } }
+  if (!reason) add({ field: 'ocr-review-reason', message: 'Complete this field.' })
+  else if (reason.length < 8) add({ field: 'ocr-review-reason', message: 'Write at least 8 characters.' })
+  else if (reason.length > 500) add({ field: 'ocr-review-reason', message: 'Write 500 characters or fewer.' })
+  if (problems.length > 0) return { problems }
 
   const validatedPayload = reading ? { contract: PAPER_READING_CONTRACT, identity: reading.identity, items: accepted } : {}
   const acceptedFields = reading ? { items: accepted, ...domainFields } : { ...domainFields }
   return { input: {
     extractionId: choices.extractionId, validatedPayload, acceptedFields, rejectedFields, corrections,
     disposition: 'validated', targetDomain: saveAs, candidateType: CANDIDATE_TYPES[saveAs], reason,
-    ...(learning ? reviewSignals(learning, items, removed, missedItems) : {}),
+    ...(learning ? reviewSignals(learning, items, removed, missedItems ?? undefined) : {}),
   } }
+}
+
+const REASON_WORDS: Readonly<Record<string, string>> = {
+  'Complete this field.': 'The reason must be at least 8 characters.',
+  'Write at least 8 characters.': 'The reason must be at least 8 characters.',
+  'Write 500 characters or fewer.': 'The reason must be 500 characters or fewer.',
+}
+
+/**
+ * Every thing still to fix before a check can be saved, one plain sentence each, in the order the form shows them:
+ * the items still without Keep, Change or Remove as one count, then each other item's problem named by its line, then
+ * the rest. `items` are the items read, which a problem's `item` is the place of.
+ */
+export function notSavedLines(problems: readonly ValidationProblem[], items: readonly PaperItem[]): string[] {
+  const undecided = problems.filter(problem => problem.message === UNDECIDED).length
+  const lines = undecided > 0 ? [`${undecided} ${undecided === 1 ? 'item still needs' : 'items still need'} Keep, Change or Remove.`] : []
+  for (const problem of problems) {
+    if (problem.message === UNDECIDED) continue
+    const item = problem.item === undefined ? undefined : items[problem.item]
+    lines.push(item ? `“${itemLine(item)}”: ${problem.message}`
+      : problem.field === 'ocr-review-reason' ? REASON_WORDS[problem.message] ?? `Why you’re saving it: ${problem.message}`
+        : problem.field === REPORT_DATE_FIELD ? `Report date: ${problem.message}`
+          : problem.field === MISSED_FIELD ? `The reading missed: ${problem.message}`
+            : problem.message)
+  }
+  return lines
 }
 
 /**
