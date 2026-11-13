@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
+import type * as BlueFacilities from '../../ehr-blue/blueFacilities'
 import { offeredHere, rightSiteHref, servedHere } from '../../productSites'
-import { DEMO_HOSPITAL, facility, REAL_FACILITY } from '../ehr-blue/frame/blueHarness'
+import { DEMO_HOSPITAL, DEMO_LABORATORY, facility, REAL_FACILITY } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, openBlueOn,
   openClassicOn, openPortalOn, openPortalSignedInOn, signInActionOn, siteLinks,
@@ -18,9 +20,21 @@ const clinic = vi.hoisted(() => ({ switchedOn: false }))
 vi.mock('../../ehr-blue/clinicSwitch', () => ({ get BLUE_FOR_ALL() { return clinic.switchedOn } }))
 const opened = vi.hoisted(() => vi.fn())
 vi.mock('../../openSite', () => ({ openSite: opened }))
+// The classic EHR is gone (#104): nothing in the app sets the flag staff/App.tsx still reads for today's workspace. This
+// file sets it, to see today's workspace with Demo Hospital as a tab that chose the classic EHR had it.
+const classicTab = vi.hoisted(() => ({ on: false, listeners: new Set<() => void>() }))
+vi.mock('../../ehr-blue/blueFacilities', async importOriginal => {
+  const subscribe = (listener: () => void) => { classicTab.listeners.add(listener); return () => { classicTab.listeners.delete(listener) } }
+  const chosen = () => classicTab.on
+  return { ...await importOriginal<typeof BlueFacilities>(), useClassicEhrChosen: () => useSyncExternalStore(subscribe, chosen, chosen) }
+})
+function chooseClassicEhr() {
+  classicTab.on = true
+  classicTab.listeners.forEach(listener => listener())
+}
 
 class TabChannel extends EventTarget { postMessage() {} close() {} }
-beforeEach(() => { opened.mockClear(); clinic.switchedOn = false; vi.stubGlobal('BroadcastChannel', TabChannel) })
+beforeEach(() => { opened.mockClear(); clinic.switchedOn = false; classicTab.on = false; classicTab.listeners.clear(); vi.stubGlobal('BroadcastChannel', TabChannel) })
 afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const SITE = 'migrate.healthidentitydirectory.com'
@@ -114,13 +128,31 @@ describe(SITE, () => {
     ])
   })
 
-  it('opens nothing of Demo Hospital here: it works on its own site', async () => {
+  it('opens Demo Hospital here as Migrate: the sealed demo hospital works on this site too', async () => {
     const other = facility(REAL_FACILITY, 'Another facility', ['audit.read'])
-    await openBlueOn(SITE, { id: DEMO_HOSPITAL, name: 'Demo Hospital' }, EVERY_PERMISSION, [other])
-    expect(await screen.findByRole('heading', { level: 1, name: 'Demo Hospital works on Hospital EHR' })).toBeTruthy()
+    const nav = await openBlueOn(SITE, { id: DEMO_HOSPITAL, name: 'Demo Hospital' }, EVERY_PERMISSION, [other], '/provider/ocr')
+    expect(blueProduct()).toBe('Migrate')
+    expect(blueAddresses(nav).filter(address => !offeredHere(address, SITE))).toEqual([])
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
-    expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/')
-    expect(page.getByText(/^Demo Hospital is on Health ID EHR, where you sign in separately\./)).toBeTruthy()
+    expect(await page.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /works on/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open Hospital EHR' })).toBeNull()
+
+    // Today's workspace, as a tab that chose the classic EHR had it (nothing offers a way there now: the flag is set above).
+    act(() => chooseClassicEhr())
+    const sidebar = await screen.findByRole('complementary', { name: 'Provider navigation' })
+    expect(within(sidebar).getByRole('link', { name: 'Document OCR' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /works on/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Open Hospital EHR/ })).toBeNull()
+  })
+
+  it('opens nothing of Demo Laboratory here: it works on the Laboratory’s site only', async () => {
+    const other = facility(REAL_FACILITY, 'Another facility', ['audit.read'])
+    await openBlueOn(SITE, { id: DEMO_LABORATORY, name: 'Demo Laboratory' }, EVERY_PERMISSION, [other])
+    expect(await screen.findByRole('heading', { level: 1, name: 'Demo Laboratory works on Laboratory' })).toBeTruthy()
+    const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
+    expect(page.getByRole('link', { name: 'Open Laboratory' }).getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/')
+    expect(page.getByText(/^Demo Laboratory is on Health ID Lab, where you sign in separately\./)).toBeTruthy()
     expectNoHostnameShown()
   })
 })

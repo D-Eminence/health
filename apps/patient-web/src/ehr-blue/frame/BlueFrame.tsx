@@ -13,7 +13,7 @@ import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
-import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
+import { demoFacilitySiteFrom, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { productUsable } from './pageAccess'
@@ -134,9 +134,9 @@ function switchBackPath(pathname: string, page: EhrBluePage | null): string {
  * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
  * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility. With single sign-on on,
  * that site signs them in through the sign-in site they already used, so the page no longer warns of a second sign-in.
- * For Demo Hospital on the Lab or Migrate site its button is "Open Hospital EHR": the owner's one named cross-site
- * exception, demo only (2 Nov 2026, productSites.ts). Real facilities never reach this page (demoFacilitySite is null
- * for them).
+ * For Demo Hospital on a product site other than Migrate (where it also works) its button is "Open Hospital EHR": the
+ * owner's one named cross-site exception, demo only (2 Nov 2026, productSites.ts). Real facilities never reach this page
+ * (demoFacilitySiteFrom is null for them).
  */
 function FacilityOnAnotherSite({ facility, site, href, choosing }: { facility: string; site: Site; href: string; choosing: boolean }) {
   const where = switchingOn() ? `${facility} is on ${SITE_PRODUCT_NAMES[site.key]}.`
@@ -304,9 +304,10 @@ export function BlueFrame() {
   // may not open leads Home instead, where it landed, rather than to a refusal.
   const home: NavItem = product === 'ehr' || !ownPageOpen ? { to: '/provider', label: 'Home', icon: House, end: true }
     : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
-  // A demo facility works on its own site (productSites.ts): opened on another, the page says so and opens nothing.
-  const demoSite = demoFacilitySite(facility?.id)
-  const facilitySite = demoSite ? siteElsewhere(demoSite) : null
+  // A demo facility works on its own sites (productSites.ts, blueFacilities.ts): opened on another, the page says so,
+  // points to its primary site, and opens nothing.
+  const demoSite = demoFacilitySiteFrom(facility?.id, here?.key)
+  const facilitySite = demoSite ? siteElsewhere(demoSite, hostname) : null
   const backPath = switchBackPath(location.pathname, match?.page ?? null)
   const arrival = switchArrival()
   const content = facilitySite
