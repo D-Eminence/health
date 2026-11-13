@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import {
-  CLAIM_CODE_LOST, CREATE_UNANSWERED, CreateHealthId, forgetUnservedHealthIdWays, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET,
+  CLAIM_CODE_LOST, CONFIRM_UNANSWERED, CREATE_UNANSWERED, CreateHealthId, forgetUnservedHealthIdWays, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET,
   REQUEST_USED, START_UNAVAILABLE,
 } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 
@@ -437,5 +437,23 @@ describe('Send code: a lost answer', () => {
     await sendEmail()
     expect(await within(region()).findByRole('textbox', { name: /6-digit code/ })).toBeTruthy()
     expect(region().textContent).toContain('We couldn’t tell if the code was sent. If an email arrived, ask them for the code. If not, send the code again.')
+  })
+})
+
+describe('Confirm: an answer that can’t be trusted', () => {
+  it.each([[503, 'OUTREACH_HEALTH_ID_UNAVAILABLE'], [0, 'NETWORK_ERROR'], [408, 'REQUEST_TIMEOUT']])('after %s, says we couldn’t tell if it was made, and to press Confirm again', async (status, code) => {
+    api.confirmOutreachHealthId.mockRejectedValueOnce(new HidApiError(status, 'x', { code }))
+      .mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'OUTREACH_HEALTH_ID_ALREADY_CREATED', details: { healthId: 'HID-ZDEMAA' } }))
+    renderSection()
+    await sendEmail()
+    fireEvent.change(within(region()).getByRole('textbox', { name: /6-digit code/ }), { target: { value: '123456' } })
+    await press(within(region()).getByRole('button', { name: 'Confirm' }))
+    expect(await within(region()).findByText(CONFIRM_UNANSWERED)).toBeTruthy()
+    expect(CONFIRM_UNANSWERED).toBe('We couldn’t tell if the Health ID was made. Press Confirm again.')
+    expect(region().textContent).not.toContain('Give them the slip')
+    await press(within(region()).getByRole('button', { name: 'Confirm' }))
+    // Made by the code just proved: shown as made by email.
+    expect(await within(region()).findByText('HID-ZDEMAA')).toBeTruthy()
+    expect(region().textContent).toContain(NO_PASSWORD_YET)
   })
 })

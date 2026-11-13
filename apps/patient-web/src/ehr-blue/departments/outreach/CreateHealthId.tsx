@@ -99,6 +99,12 @@ export function healthIdMadeByEmail(item: OutreachCase): boolean {
   return status === undefined ? item.healthIdCreatedByOutreach === true : status === 'verified'
 }
 
+/**
+ * A confirm whose answer was lost, or a 503 at confirm: the Health ID may already be made. Confirm again is safe: once
+ * made, the code is spent and Outreach answers "already created" with the Health ID.
+ */
+export const CONFIRM_UNANSWERED = 'We couldn’t tell if the Health ID was made. Press Confirm again.'
+
 /** A create with no email whose answer was lost (no signal, or a timeout): it may have been made. */
 export const CREATE_UNANSWERED = 'We couldn’t tell if the Health ID was made. Keep the person with you and press Create Health ID again when you have signal.'
 
@@ -344,6 +350,13 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       focus(id('made'))
       onCreated({ healthId: answer.healthId, byEmail: true })
     } catch (caught) {
+      const unavailable = isHidApiError(caught) && caught.code === 'OUTREACH_HEALTH_ID_UNAVAILABLE'
+      if (unavailable || !isHidApiError(caught) || caught.status === 0 || caught.status === 408 || caught.status === 504) {
+        // A lost answer keeps the key, so Confirm again replays it; after a 503 the next Confirm is a request of its own.
+        if (unavailable) attempt.current = null
+        setError(CONFIRM_UNANSWERED)
+        return
+      }
       refused(caught, 'confirm')
     } finally {
       setBusy(false)
