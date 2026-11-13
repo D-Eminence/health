@@ -96,6 +96,17 @@ export const STATIONS: ReadonlyArray<{ readonly value: StationKind; readonly lab
   { value: 'results', label: 'Results and next steps', hint: 'Confirms the outcome, refers, and books the follow-up.' },
 ]
 
+/** Who works at each station (owner, 14 Nov 2026: a person is offered only the stations their roles do). */
+const STATION_ROLES: Readonly<Record<StationKind, readonly TeamRole[]>> = {
+  register: ['registrar'], vitals: ['vitals'], tests: ['tester'], counselling: ['counsellor'], results: ['counsellor', 'clinician'],
+}
+
+/** The stations these roles work at: every one for a coordinator, or where the roles aren't known. */
+export function stationsFor(roles: readonly string[]): StationKind[] {
+  if (!roles.length || roles.includes('coordinator')) return STATIONS.map(item => item.value)
+  return STATIONS.filter(item => STATION_ROLES[item.value].some(role => roles.includes(role))).map(item => item.value)
+}
+
 export function stationLabel(station: string | null | undefined): string {
   return STATIONS.find(item => item.value === station)?.label ?? 'No station'
 }

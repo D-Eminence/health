@@ -91,6 +91,21 @@ export function useOutreachStandalone(): boolean {
   return useSyncExternalStore(subscribeStandalone, () => standalone, () => false)
 }
 
+/**
+ * Someone who works in the field (owner, 14 Nov 2026): their campaign has no Overview for them (registrar, vital signs,
+ * tester, counsellor, clinician). Their phone tab bar carries their own sections, not the organisation's Overview and
+ * Campaigns.
+ */
+export const worksInField = (tabs: readonly CampaignTab[]) => tabs.length > 0 && !tabs.includes('overview')
+
+/**
+ * The campaign sections a phone's tab bar carries for Outreach on its own: for someone in the field, their sections (at
+ * most three, beside Menu); for a coordinator or data checker, Today only (beside Overview and Campaigns).
+ */
+export function barSections(tabs: readonly CampaignTab[]): CampaignTab[] {
+  return worksInField(tabs) ? tabs.slice(0, 3) : tabs.filter(tab => tab === 'today')
+}
+
 export const tabLabel = (tab: CampaignTab) => TABS.find(entry => entry.value === tab)?.label ?? tab
 
 /*

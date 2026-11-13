@@ -1,3 +1,4 @@
+import { dayText } from '../insight/insightParts'
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { CircleCheck, CloudOff, MessageSquare, Printer, RotateCcw } from 'lucide-react'
 import { Segmented } from '../../../../kasuwa/interactive'
@@ -341,7 +342,7 @@ export function TestsForm({ plan, visit, saveId = 'outreach-tests-save', onSaved
               available.length ? (
                 <BigChoice label={`Kit lot for ${test.name}`} size="md" columns={available.length > 1 ? 2 : 1} value={lotOf(test)}
                   onChange={lot => void day.saveSettings({ kitLots: { [test.id]: lot } })}
-                  options={available.map(kit => ({ value: kit.lot, label: `Kit lot ${kit.lot}`, hint: `Use by ${kit.expiresOn}` }))} />
+                  options={available.map(kit => ({ value: kit.lot, label: `Kit lot ${kit.lot}`, hint: `Use by ${dayText(kit.expiresOn, true)}` }))} />
               ) : <p className="m-0 text-[14px] text-danger-ink">No unexpired kits for this test at your site. Ask the coordinator.</p>
             ) : null}
             {test.kind === 'number' ? (

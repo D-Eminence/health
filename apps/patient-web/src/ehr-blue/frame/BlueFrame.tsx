@@ -15,7 +15,7 @@ import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SIT
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, listsOnlyOwn, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
-import { CAMPAIGNS_ADDRESS, OUTREACH_HOME, setOutreachStandalone, tabAddress, tabLabel, useOutreachNav } from '../departments/outreach/outreachNav'
+import { barSections, CAMPAIGNS_ADDRESS, OUTREACH_HOME, setOutreachStandalone, tabAddress, tabLabel, useOutreachNav, worksInField } from '../departments/outreach/outreachNav'
 import type { CampaignTab } from '../departments/outreach/insight/tabs'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { productUsable } from './pageAccess'
@@ -370,18 +370,24 @@ export function BlueFrame() {
   // person's roles allow them. Nothing of a hospital's, and no other product's site. The phone's tab bar carries
   // Overview, Campaigns and, while a campaign is open or remembered, its Today; the Menu page lists the rest.
   const onlyOwn = listsOnlyOwn(product) && ownPageOpen
+  // Someone in the field (owner, 14 Nov 2026) isn't offered the organisation's Overview: their campaign's sections are
+  // their place, and Campaigns stays in the menu for switching campaign.
+  const inField = onlyOwn && worksInField(outreachNav?.tabs ?? [])
   const outreachMain: NavItem[] = onlyOwn ? [
-    { to: OUTREACH_HOME, label: 'Overview', icon: House, end: true },
+    ...(inField ? [] : [{ to: OUTREACH_HOME, label: 'Overview', icon: House, end: true }]),
     ...(permissions.includes('outreach.campaign.read') ? [{ to: CAMPAIGNS_ADDRESS, label: 'Campaigns', icon: Megaphone, end: true }] : []),
   ] : []
   const outreachSections: NavItem[] = onlyOwn
     ? (outreachNav?.tabs ?? []).map(tab => ({ to: tabAddress(tab), label: tabLabel(tab), icon: OUTREACH_TAB_ICON[tab], end: true })) : []
   if (onlyOwn) {
-    nav.splice(0, nav.length, { items: outreachMain },
-      ...(outreachNav && outreachSections.length ? [{ title: outreachNav.campaignName, items: outreachSections }] : []))
+    const campaignGroup = outreachNav && outreachSections.length ? [{ title: outreachNav.campaignName, items: outreachSections }] : []
+    // In the field, the campaign's sections come first and Campaigns after them; otherwise Overview and Campaigns lead.
+    const mainGroup = outreachMain.length ? [{ items: outreachMain }] : []
+    nav.splice(0, nav.length, ...(inField ? [...campaignGroup, ...mainGroup] : [...mainGroup, ...campaignGroup]))
   }
-  const outreachToday = outreachSections.find(item => item.to === tabAddress('today'))
-  const outreachTabs: NavItem[] = [...outreachMain, ...(outreachToday ? [outreachToday] : [])]
+  const carried = barSections(outreachNav?.tabs ?? []).map(tab => tabAddress(tab))
+  const outreachCarried = outreachSections.filter(item => carried.includes(item.to))
+  const outreachTabs: NavItem[] = inField ? outreachCarried : [...outreachMain, ...outreachCarried]
   // Each product on its own site: the other sites that serve the rest of what this session may open.
   const otherSites = onlyOwn ? null : otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
   if (otherSites) nav.push(otherSites)

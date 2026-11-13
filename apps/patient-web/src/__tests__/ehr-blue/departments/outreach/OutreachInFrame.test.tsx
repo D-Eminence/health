@@ -122,7 +122,8 @@ describe('Outreach on its own, inside a campaign, on a phone’s Menu', () => {
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo hepatitis drive'), { timeout: 10000 })
     const title = screen.getByRole('heading', { level: 1 })
     const quick = screen.getByRole('navigation', { name: 'Quick' })
-    await waitFor(() => expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today']))
+    // Their tab bar carries their own sections (owner, 14 Nov 2026), not the organisation's Overview and Campaigns.
+    await waitFor(() => expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Today', 'People']))
     await waitFor(() => expect(where()).toBe('/provider/outreach/today'))
     const reads = sent.filter(request => request.route === CAMPAIGNS).length
 
@@ -130,16 +131,16 @@ describe('Outreach on its own, inside a campaign, on a phone’s Menu', () => {
     const menu = screen.getByRole('heading', { level: 1, name: 'Menu' })
     const lists = [...menu.closest('div')!.parentElement!.querySelectorAll('ul')]
     const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
-    expect(groups).toContainEqual(['', ['Overview', 'Campaigns']])
     expect(groups).toContainEqual(['Demo hepatitis drive', ['Today', 'People']])
+    expect(groups).toContainEqual(['', ['Campaigns']])
     const today = lists.flatMap(list => [...list.querySelectorAll('a')]).find(link => link.textContent === 'Today')!
     expect(today.getAttribute('aria-current')).toBe('page')
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Today', 'People'])
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Close menu' })) })
     expect(screen.getByRole('heading', { level: 1 })).toBe(title)
     expect(where()).toBe('/provider/outreach/today')
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Today', 'People'])
     expect(sent.filter(request => request.route === CAMPAIGNS)).toHaveLength(reads)
     // No "Dashboard" anywhere in Outreach.
     expect(document.body.textContent).not.toMatch(/Dashboard/)

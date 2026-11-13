@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react'
-import { cx, StatCard, StatGroup } from '../../../../kasuwa/ui'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowUpRight } from 'lucide-react'
+import { cx } from '../../../../kasuwa/ui'
 import { campaignFlowErrorText, isNotOffered } from '../campaignApi'
 import { focusLabel, type FocusId, type TeamRole } from '../campaignTypes'
 import { TESTS } from '../screeningTemplates'
@@ -157,34 +158,84 @@ export function InsightCard({ title, id, children, action, className }: {
 }
 
 /**
- * A count as every dashboard shows one (Kasuwa's StatCard, in a StatGroup's grey tray: its icon, the big number, what it
- * counts and a line under it). With `onOpen` the whole tile is one button that opens what it counts (a tab), as Home's
- * tiles link to their pages; the page keeps where it is in memory, so it is a button rather than a link.
+ * Outreach's five numbers (the organisation's and a campaign's Overview; owner, 14 Nov 2026): a card each, its label
+ * first, the number, and a line under it. By the room the page gives them (index.css .hid-outreach-stats): one row of
+ * five on a wide page; narrower, the first across the row over the other four, or two by two on a phone.
  */
-export function StatTile({ onOpen, id, ...card }: ComponentProps<typeof StatCard> & { readonly onOpen?: () => void; readonly id?: string }) {
-  if (!onOpen) return <StatCard {...card} />
+export function NumberCards({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return <div role="group" aria-label={label} className="hid-outreach-stats grid gap-3">{children}</div>
+}
+
+/**
+ * One of NumberCards' cards. `lead` starts the line under the number in colour: a rise in green, something urgent in red.
+ * With `onOpen` the card has ↗, a 44px button that opens what it counts.
+ */
+export function NumberCard({ label, value, hint, lead, onOpen, openLabel }: {
+  readonly label: string
+  readonly value: number | string
+  readonly hint?: string
+  readonly lead?: { readonly text: string; readonly tone: 'up' | 'urgent' }
+  readonly onOpen?: () => void
+  readonly openLabel?: string
+}) {
   return (
-    <button type="button" id={id} onClick={onOpen}
-      className="group flex min-w-0 cursor-pointer rounded-xl border-0 bg-transparent p-0 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
-      <StatCard {...card} className={cx('w-full transition-shadow group-hover:shadow-[var(--shadow-pop)]', card.className)} />
-    </button>
+    <div className="relative flex min-w-0 flex-col rounded-xl bg-surface p-4 ring-1 ring-line @md:p-5">
+      <span className={cx('min-h-6 min-w-0 text-[14px] break-words text-ink-2', onOpen && 'pr-8')}>{label}</span>
+      {onOpen ? (
+        <button type="button" onClick={onOpen} aria-label={openLabel ?? `Open ${label.toLowerCase()}`}
+          className="absolute top-1.5 right-1.5 inline-flex size-11 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-ink-3 hover:bg-tray hover:text-ink focus-visible:outline-2 focus-visible:outline-[var(--focus-ring-color)] @md:top-2.5 @md:right-2.5">
+          <ArrowUpRight className="size-4" aria-hidden />
+        </button>
+      ) : null}
+      <span className="mt-2 text-[26px] leading-9 font-semibold tracking-[-0.02em] text-ink tabular @md:text-[30px] @md:leading-10">{typeof value === 'number' ? value.toLocaleString('en-GB') : value}</span>
+      {lead || hint ? (
+        <span className="mt-1 text-[13px] text-ink-2">
+          {lead ? <span className={cx('font-medium', lead.tone === 'up' ? 'text-success-ink' : 'text-danger-ink')}>{lead.text}</span> : null}
+          {lead && hint ? ' ' : null}{hint}
+        </span>
+      ) : null}
+    </div>
   )
 }
 
 /**
- * Outreach's five number tiles (the organisation's and a campaign's Overview), by the room the page gives them
- * (index.css .hid-outreach-tiles): one row of five on a wide page; narrower, the first tile (`hero`: people reached, or
- * registered) across the row and the other four in one row, or two by two on a phone, each tile compact there (its icon
- * beside the number). No tile left alone on a row, and a number never breaks. Kasuwa's StatGroup and StatCard as they are.
+ * Counts as a table (owner, 14 Nov 2026: the Overview's tables): the first column names the row, the rest are counts,
+ * right-aligned. Columns marked `wide` are left out on a phone so the table never scrolls sideways.
  */
-export function NumberTiles({ label, children }: { readonly label: string; readonly children: ReactNode }) {
-  return <StatGroup label={label} className="hid-outreach-tiles">{children}</StatGroup>
+export function CountTable({ label, columns, rows }: {
+  readonly label: string
+  readonly columns: ReadonlyArray<{ readonly head: string; readonly wide?: boolean }>
+  readonly rows: ReadonlyArray<{ readonly key: string; readonly name: ReactNode; readonly cells: readonly ReactNode[] }>
+}) {
+  const hide = (index: number) => (columns[index + 1]?.wide ? 'hidden @md:table-cell' : '')
+  return (
+    <div className="overflow-hidden rounded-xl bg-surface ring-1 ring-line">
+      <table aria-label={label} className="w-full border-collapse text-left text-[13px] @md:text-[14px]">
+        <thead className="bg-tray text-ink-2">
+          <tr>
+            {columns.map((column, index) => (
+              <th key={column.head} scope="col" className={cx('border-b border-line px-2.5 py-2.5 font-medium whitespace-nowrap @md:px-4',
+                index > 0 && 'border-l text-right', index > 0 && hide(index - 1))}>{column.head}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.key} className="border-b border-line last:border-b-0">
+              <th scope="row" className="px-2.5 py-3 font-medium break-words text-ink @md:px-4">{row.name}</th>
+              {row.cells.map((cell, index) => (
+                <td key={index} className={cx('border-l border-line px-2.5 py-3 text-right text-ink tabular @md:px-4', hide(index))}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
-/** One of NumberTiles' tiles: a StatTile with the tile's compact layout; `hero` for the first, wide one. */
-export function NumberTile({ hero, ...tile }: ComponentProps<typeof StatTile> & { readonly hero?: boolean }) {
-  return <StatTile {...tile} className={cx('hid-outreach-tile', hero && 'hid-outreach-tile-hero', tile.className)} />
-}
+/** A date written as 2026-12-05 inside a sentence from Outreach, in words: 5 Dec 2026. */
+export const datesInWords = (text: string) => text.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, date => dayText(date, true))
 
 /** The roles' words, joined: "Registrar and vital signs". */
 export function rolesWords(roles: readonly TeamRole[], label: (role: string) => string): string {

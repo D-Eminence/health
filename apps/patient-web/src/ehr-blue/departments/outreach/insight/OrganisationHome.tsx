@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArrowRight, ArrowUpRight, Megaphone, Play, Plus } from 'lucide-react'
+import { ArrowRight, Megaphone, Play, Plus } from 'lucide-react'
 import { LoadingRows, PageState } from '../../../../kasuwa/parts'
 import { Button } from '../../../../kasuwa/ui'
 import type { OutreachCampaign } from '../../../../staff/api'
@@ -7,7 +7,7 @@ import '../../departments.css'
 import { focusLabel, type OrganisationSummary } from '../campaignTypes'
 import { CampaignCards } from './CampaignCards'
 import type { CampaignSummary } from './campaignSummary'
-import { BarRow } from './insightParts'
+import { BarRow, CountTable, NumberCard, NumberCards } from './insightParts'
 import { MoreMenu, type MoreItem } from './MoreMenu'
 import { isRunning, type OrganisationNumbers } from './organisationSummary'
 
@@ -116,46 +116,25 @@ function Actions({ continuing, onContinue, onNewCampaign }: {
 function Numbers({ value, onAllCampaigns }: { readonly value: OrganisationSummary; readonly onAllCampaigns: () => void }) {
   return (
     <>
-      <div role="group" aria-label="Your outreach in numbers" className="hid-outreach-stats grid gap-3">
-        <OverviewStat label="People reached" value={value.people.reached}
-          change={value.people.thisMonth > 0 ? `+${value.people.thisMonth}` : undefined}
+      <NumberCards label="Your outreach in numbers">
+        <NumberCard label="People reached" value={value.people.reached}
+          lead={value.people.thisMonth > 0 ? { text: `+${value.people.thisMonth}`, tone: 'up' } : undefined}
           hint={value.people.thisMonth >= 0 ? 'this month' : 'in every campaign'} />
-        <OverviewStat label="Outreaches run" value={value.campaigns.total} onOpen={onAllCampaigns} openLabel="See all campaigns"
+        <NumberCard label="Outreaches run" value={value.campaigns.total} onOpen={onAllCampaigns} openLabel="See all campaigns"
           hint={value.campaigns.running ? `${value.campaigns.running} running` : value.campaigns.planned ? `${value.campaigns.planned} planned` : 'none running'} />
-        <OverviewStat label="Screened" value={value.screened}
+        <NumberCard label="Screened" value={value.screened}
           hint={value.people.reached > 0 ? `${share(value.screened, value.people.reached)} of people reached` : 'no one yet'} />
-        <OverviewStat label="Positive" value={value.positive}
+        <NumberCard label="Positive" value={value.positive}
           hint={value.screened > 0 ? `${share(value.positive, value.screened)} of screened` : 'no one screened yet'} />
-        <OverviewStat label="Referred" value={value.referred} hint="to a clinic or hospital" />
-      </div>
+        <NumberCard label="Referred" value={value.referred} hint="to a clinic or hospital" />
+      </NumberCards>
 
       {value.byFocus.length ? (
         <section aria-labelledby="outreach-types-heading" className="flex min-w-0 flex-col gap-3">
           <h2 id="outreach-types-heading" className="m-0 text-title-2 text-ink">By type of outreach</h2>
-          <div className="overflow-hidden rounded-xl bg-surface ring-1 ring-line">
-            {/* On a phone the number of campaigns is left out, so the table fits without sideways scrolling. */}
-            <table className="w-full border-collapse text-left text-[13px] @md:text-[14px]">
-              <thead className="bg-tray text-ink-2">
-                <tr>
-                  {['Type of outreach', 'Campaigns', 'Screened', 'Positive', 'Referred'].map((head, index) => (
-                    <th key={head} scope="col" className={`border-b border-line px-2.5 py-2.5 font-medium whitespace-nowrap @md:px-4 ${index ? 'border-l text-right' : ''} ${index === 1 ? 'hidden @md:table-cell' : ''}`}>
-                      {head}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {value.byFocus.map(row => (
-                  <tr key={row.focus} className="border-b border-line last:border-b-0">
-                    <th scope="row" className="px-2.5 py-3 font-medium break-words text-ink @md:px-4">{focusLabel(row.focus, row.label)}</th>
-                    {[row.campaigns, row.screened, row.positive, row.referred].map((count, index) => (
-                      <td key={index} className={`border-l border-line px-2.5 py-3 text-right text-ink tabular @md:px-4 ${index === 0 ? 'hidden @md:table-cell' : ''}`}>{count}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CountTable label="By type of outreach"
+            columns={[{ head: 'Type of outreach' }, { head: 'Campaigns', wide: true }, { head: 'Screened' }, { head: 'Positive' }, { head: 'Referred' }]}
+            rows={value.byFocus.map(row => ({ key: row.focus, name: focusLabel(row.focus, row.label), cells: [row.campaigns, row.screened, row.positive, row.referred] }))} />
         </section>
       ) : null}
 
@@ -173,33 +152,5 @@ function Numbers({ value, onAllCampaigns }: { readonly value: OrganisationSummar
         </section>
       ) : null}
     </>
-  )
-}
-
-/** One stat card: the label (with ↗ where the number opens a page), the number, and a line under it; a rise in green. */
-function OverviewStat({ label, value, change, hint, onOpen, openLabel }: {
-  readonly label: string
-  readonly value: number
-  readonly change?: string
-  readonly hint: string
-  readonly onOpen?: () => void
-  readonly openLabel?: string
-}) {
-  return (
-    <div className="hid-outreach-stat relative flex min-w-0 flex-col rounded-xl bg-surface p-4 ring-1 ring-line @md:p-5">
-      <div className="flex min-h-6 items-start justify-between gap-2">
-        <span className={`min-w-0 text-[14px] break-words text-ink-2 ${onOpen ? 'pr-8' : ''}`}>{label}</span>
-        {onOpen ? (
-          <button type="button" onClick={onOpen} aria-label={openLabel}
-            className="absolute top-1.5 right-1.5 inline-flex size-11 items-center justify-center rounded-lg text-ink-3 hover:bg-tray hover:text-ink @md:top-2.5 @md:right-2.5">
-            <ArrowUpRight className="size-4" aria-hidden />
-          </button>
-        ) : null}
-      </div>
-      <span className="mt-2 text-[26px] leading-9 font-semibold tracking-[-0.02em] text-ink tabular @md:text-[30px] @md:leading-10">{value.toLocaleString('en-GB')}</span>
-      <span className="mt-1 text-[13px] text-ink-2">
-        {change ? <span className="font-medium text-success-ink">{change} </span> : null}{hint}
-      </span>
-    </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react'
-import { Download, PhoneCall, Printer, Send, Stethoscope, Users } from 'lucide-react'
+import { Download, Printer } from 'lucide-react'
 import { ConfirmSheet, PageState } from '../../../../kasuwa/parts'
-import { Button, Card, StatGroup, Textarea } from '../../../../kasuwa/ui'
+import { Button, Card, Textarea } from '../../../../kasuwa/ui'
 import { useToast } from '../../../../kasuwa/toast'
 import { useErrorToast } from '../notify'
 import { staffApi, type OutreachCampaign } from '../../../../staff/api'
@@ -9,7 +9,7 @@ import { useDeptAccess } from '../../parts/access'
 import { campaignErrorText, CAMPAIGN_STATUS_FAILED, campaignStatusLabel, REASON_LENGTH } from '../outreachParts'
 import { NOT_OFFERED, outreachCampaignApi } from '../campaignApi'
 import { focusLabel, type CampaignReport as Report } from '../campaignTypes'
-import { dayText, InsightCard, lagosToday, SectionSwitch, StatTile, useCampaignRead } from './insightParts'
+import { dayText, InsightCard, lagosToday, NumberCard, SectionSwitch, useCampaignRead } from './insightParts'
 
 const REPORT_FAILED = 'The report could not be read. Try again.'
 
@@ -127,15 +127,16 @@ export function CampaignReport({ campaignId, campaign, canClose = false, onClose
             <Button size="lg" icon={Download} onClick={() => download(`campaign-report-${lagosToday()}.csv`, reportCsv(report))}>Download counts (CSV)</Button>
             <Button size="lg" icon={Printer} variant={closable ? 'secondary' : 'primary'} onClick={() => window.print()}>Download report (PDF)</Button>
           </div>
-          <StatGroup label="Totals at a glance" cols={4}>
-            <StatTile icon={Users} tone="brand" label="Registered" value={report.registered} hint={report.target > 0 ? `Target ${report.target}` : 'No target set'} />
-            <StatTile icon={Stethoscope} tone="info" label="Screened" value={report.screened}
-              hint={report.registered > 0 ? `${Math.round((report.screened / report.registered) * 100)}% of registered` : 'No one registered'} />
-            <StatTile icon={Send} tone={report.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred"
-              value={reportCount(report.referrals.made, report.smallCountThreshold)} hint={`${reportCount(report.referrals.arrived, report.smallCountThreshold)} arrived`} />
-            <StatTile icon={PhoneCall} tone="warn" label="Follow-ups to call" value={reportCount(report.followUps.due, report.smallCountThreshold)}
+          <div role="group" aria-label="Totals at a glance" className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
+            <NumberCard label="Registered" value={report.registered} hint={report.target > 0 ? `target ${report.target.toLocaleString('en-GB')}` : 'no target set'} />
+            <NumberCard label="Screened" value={report.screened}
+              hint={report.registered > 0 ? `${Math.round((report.screened / report.registered) * 100)}% of registered` : 'no one registered'} />
+            <NumberCard label="Referred" value={reportCount(report.referrals.made, report.smallCountThreshold)}
+              lead={report.outcomes.referUrgent > 0 ? { text: `${report.outcomes.referUrgent} urgent`, tone: 'urgent' } : undefined}
+              hint={`${reportCount(report.referrals.arrived, report.smallCountThreshold)} arrived`} />
+            <NumberCard label="Follow-ups to call" value={reportCount(report.followUps.due, report.smallCountThreshold)}
               hint={`${reportCount(report.followUps.reached, report.smallCountThreshold)} reached`} />
-          </StatGroup>
+          </div>
           {/* One breakdown at a time on screen; all of them on paper. */}
           <div data-print-hide="">
             <SectionSwitch id={`outreach-report-${campaignId}`} label="Breakdown" sections={reportRows(report).map((block, index) => ({

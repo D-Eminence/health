@@ -5,7 +5,7 @@ import { FormActions } from '../../../../kasuwa/parts'
 import { Badge, Button, cx, type Icon } from '../../../../kasuwa/ui'
 import type { OutreachCampaign } from '../../../../staff/api'
 import '../../departments.css'
-import { useOutreachStandalone } from '../outreachNav'
+import { barSections, useOutreachStandalone, worksInField } from '../outreachNav'
 import { CampaignSetup, CampaignTeam } from '../plan'
 import { focusLabel, type OutreachVisit } from '../campaignTypes'
 import { campaignStatusLabel } from '../outreachParts'
@@ -82,6 +82,7 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
   readonly onRecord?: () => void
 }) {
   const tabs = hubTabs(roles, cases !== null)
+  const field = worksInField(tabs)
   const shown = shownTab(tabs, tab)
   const plan = summary ? summary.plan : undefined
   const focuses = plan?.focuses.map(focus => focusLabel(focus)).join(', ')
@@ -90,15 +91,16 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
   // The People filter a dashboard tile asked for (Positive: those who need care); a tab chosen by itself shows the default.
   const [peopleFilter, setPeopleFilter] = useState<PeopleFilter | undefined>(undefined)
   const choose = (value: CampaignTab) => { setPeopleFilter(undefined); onTab(value) }
-  // The sections in the row: Today left out where the phone's tab bar carries it; as many as fit, the rest under More.
+  // The sections in the row: those the phone's tab bar carries left out; as many as fit, the rest under More.
   const root = useRef<HTMLDivElement>(null)
   const width = useWidth(root)
   const standalone = useOutreachStandalone()
   const barShown = useTabBarShown()
-  const barCarriesToday = standalone && barShown
-  // (Unless that left one section alone in the row: a field role keeps Today | People, a switch rather than a lone button.)
-  const withoutToday = tabs.filter(value => value !== 'today')
-  const sections = barCarriesToday && withoutToday.length >= 2 ? withoutToday : tabs
+  // What the tab bar carries is left out of the row: for someone in the field, all of it, so the bar is their one switch.
+  // (Unless that left one section alone in the row: then the row keeps them all, a switch rather than a lone button.)
+  const carried = standalone && barShown ? barSections(tabs) : []
+  const rest = tabs.filter(value => !carried.includes(value))
+  const sections = rest.length === 0 ? [] : rest.length >= 2 || !carried.length ? rest : tabs
   const fit = sectionsThatFit(width)
   const inRow = sections.length <= fit ? sections : sections.slice(0, Math.max(1, fit - 1))
 
@@ -146,17 +148,18 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
 
   return (
     <div ref={root} className="hid-ehr-dept">
-      <header className="mb-5 flex min-w-0 flex-col gap-2">
+      <header className={cx('flex min-w-0 flex-col gap-2', field ? 'mb-3 @md:mb-5' : 'mb-5')}>
         <div className="flex min-w-0 items-center gap-1">
           <EhrBackButton label="All campaigns" onClick={onBack} />
-          <h1 className="hid-ehr-page-title m-0 line-clamp-2 min-w-0 flex-1 break-words">{campaign.name}</h1>
+          {/* Someone in the field keeps the form high on a phone: the name on one line, the focuses left to the slip. */}
+          <h1 className={cx('hid-ehr-page-title m-0 min-w-0 flex-1 break-words', field ? 'line-clamp-1 max-md:text-[20px] max-md:leading-7' : 'line-clamp-2')}>{campaign.name}</h1>
           {more.length ? <MoreMenu id={`${base}-more`} items={more} className="shrink-0" /> : null}
         </div>
         <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
           <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaignStatusLabel(campaign.status)}</Badge>
           <span className="whitespace-nowrap">{campaignDatesText(campaign)}</span>
         </p>
-        {focuses ? <p className="m-0 text-[13px] break-words text-ink-2">{focuses}</p> : null}
+        {focuses ? <p className={cx('m-0 text-[13px] break-words text-ink-2', field && 'max-md:hidden')}>{focuses}</p> : null}
       </header>
       <div className="flex flex-col gap-4">
         {inRow.length || folded.length ? (

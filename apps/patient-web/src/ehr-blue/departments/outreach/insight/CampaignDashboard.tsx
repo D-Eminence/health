@@ -1,14 +1,14 @@
 import { useCallback, type ReactNode } from 'react'
-import { BellRing, Clock, Send, Stethoscope, TestTube, Users } from 'lucide-react'
+import { BellRing } from 'lucide-react'
 import { PageState } from '../../../../kasuwa/parts'
-import { Badge, cx, StatGroup } from '../../../../kasuwa/ui'
+import { Badge, cx } from '../../../../kasuwa/ui'
 import { useDeptAccess } from '../../parts/access'
 import { outreachCampaignApi, NOT_OFFERED } from '../campaignApi'
 import {
   canSeeSensitive, focusLabel, roleLabel, stationLabel, STATIONS, type CampaignAlert, type CampaignDashboard as Dashboard,
 } from '../campaignTypes'
 import {
-  BarRow, dayText, hourText, InsightCard, kitTestLabel, NumberTile, NumberTiles, rolesWords, SectionSwitch, SENSITIVE_FOCUSES, StatTile, useCampaignRead, useLiveRefresh, withinDays,
+  BarRow, CountTable, datesInWords, dayText, hourText, InsightCard, kitTestLabel, NumberCard, NumberCards, rolesWords, SectionSwitch, SENSITIVE_FOCUSES, useCampaignRead, useLiveRefresh, withinDays,
 } from './insightParts'
 import { useErrorToast } from '../notify'
 
@@ -82,20 +82,19 @@ function DashboardBody({ value, sensitive, onOpen, opens }: {
       {/* Read again every 30 seconds and when the page is shown again: no Refresh button, only when it was last read. */}
       <p className="m-0 text-[13px] text-ink-3" aria-live="off">Updated {hourText(value.asOf)}</p>
 
-      <NumberTiles label="Today’s counts">
-        <NumberTile hero icon={Users} tone="brand" label="Registered" value={value.registered} hint={value.target > 0 ? `Target ${value.target}` : 'No target set'}
-          onOpen={opener('people')} />
-        <NumberTile icon={Stethoscope} tone="info" label="Screened" value={value.screened}
-          hint={value.registered > 0 ? `${Math.round((value.screened / value.registered) * 100)}% of registered` : 'No one registered yet'} />
-        <NumberTile icon={Clock} tone={waiting > 0 ? 'warn' : 'neutral'} label="Waiting" value={waiting}
-          hint={busiest && busiest.count > 0 ? `Most at ${stationLabel(busiest.station).toLowerCase()}: ${busiest.count}` : 'No one waiting'} />
-        <NumberTile icon={TestTube} tone="violet" label="Positive" value={positives}
-          hint={hiddenPositives ? `Not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus, row.label).toLowerCase()).join(' or ')}` : 'Across every focus'}
-          onOpen={opener('people', 'care')} />
-        <NumberTile icon={Send} tone={value.outcomes.referUrgent > 0 ? 'danger' : 'neutral'} label="Referred" value={referred}
-          hint={value.outcomes.referUrgent > 0 ? <strong className="font-semibold text-danger-ink">{value.outcomes.referUrgent} urgent</strong> : 'None urgent'}
-          onOpen={opener('followups')} />
-      </NumberTiles>
+      <NumberCards label="Today’s counts">
+        <NumberCard label="Registered" value={value.registered} hint={value.target > 0 ? `target ${value.target.toLocaleString('en-GB')}` : 'no target set'}
+          onOpen={opener('people')} openLabel="See people" />
+        <NumberCard label="Screened" value={value.screened}
+          hint={value.registered > 0 ? `${Math.round((value.screened / value.registered) * 100)}% of registered` : 'no one registered yet'} />
+        <NumberCard label="Waiting" value={waiting}
+          hint={busiest && busiest.count > 0 ? `most at ${stationLabel(busiest.station).toLowerCase()}: ${busiest.count}` : 'no one waiting'} />
+        <NumberCard label="Positive" value={positives} onOpen={opener('people', 'care')} openLabel="See who needs care"
+          hint={hiddenPositives ? `not counting ${[...value.byFocus].filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus, row.label)).join(' or ')}` : 'across every focus'} />
+        <NumberCard label="Referred" value={referred} onOpen={opener('followups')} openLabel="See follow-ups"
+          lead={value.outcomes.referUrgent > 0 ? { text: `${value.outcomes.referUrgent} urgent`, tone: 'urgent' } : undefined}
+          hint={value.outcomes.referUrgent > 0 ? undefined : 'none urgent'} />
+      </NumberCards>
 
       {value.alerts.length ? <Alerts alerts={value.alerts} /> : null}
 
@@ -107,30 +106,14 @@ function DashboardBody({ value, sensitive, onOpen, opens }: {
               max={Math.max(...waitingRows.map(item => item.count), 1)} valueText={`${row.count} waiting`} tone={row.count >= 10 ? 'warn' : 'brand'} />)}
           </ul>
         ) : <p className="m-0 text-[14px] text-ink-2">Everyone is registered at one station: no one waits between stations.</p>}</Panel> },
-        { value: 'focus', label: 'Focus', content: <Panel>{value.byFocus.length ? (
-          <ul className="m-0 flex list-none flex-col gap-4 p-0">
-            {value.byFocus.map(row => {
-              const name = focusLabel(row.focus, row.label)
-              return (
-                <li key={row.focus} className="flex flex-col gap-2">
-                  <h3 className="m-0 text-[15px] font-semibold text-ink">{name}</h3>
-                  {shownFocus(row.focus) ? (
-                    <StatGroup label={name} cols={3} className="!grid-cols-3">
-                      <StatTile label="Screened" value={row.screened} />
-                      <StatTile label="Positive" value={row.positive} />
-                      <StatTile label="Referred" value={row.referred} />
-                    </StatGroup>
-                  ) : (
-                    <>
-                      <StatGroup label={name} cols={3} className="!grid-cols-3"><StatTile label="Screened" value={row.screened} /></StatGroup>
-                      <p className="m-0 text-[13px] text-ink-3">Positives: counsellors and clinicians only</p>
-                    </>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        ) : <p className="m-0 text-[14px] text-ink-2">No focus is set in the plan yet.</p>}</Panel> },
+        { value: 'focus', label: 'Focus', content: value.byFocus.length ? (
+          <div className="flex flex-col gap-2">
+            <CountTable label="By focus" columns={[{ head: 'Focus' }, { head: 'Screened' }, { head: 'Positive' }, { head: 'Referred' }]}
+              rows={value.byFocus.map(row => ({ key: row.focus, name: focusLabel(row.focus, row.label),
+                cells: [row.screened, shownFocus(row.focus) ? row.positive : <span className="text-ink-3" aria-label="Not shown to you">–</span>, row.referred] }))} />
+            {hiddenPositives ? <p className="m-0 text-[13px] text-ink-3">Positives for {value.byFocus.filter(row => !shownFocus(row.focus)).map(row => focusLabel(row.focus, row.label)).join(' and ')}: counsellors and clinicians only.</p> : null}
+          </div>
+        ) : <Panel><p className="m-0 text-[14px] text-ink-2">No focus is set in the plan yet.</p></Panel> },
         { value: 'team', label: 'Team', content: <Panel><TeamCounts value={value} /></Panel> },
         { value: 'sites', label: 'Sites', content: <Panel><SitesAndHours value={value} /></Panel> },
         ...(value.kits.length ? [{ value: 'kits' as const, label: 'Kits', content: <Panel><Kits value={value} /></Panel> }] : []),
@@ -160,7 +143,7 @@ function Alerts({ alerts }: { readonly alerts: readonly CampaignAlert[] }) {
         {sorted.map((alert, index) => (
           <li key={`${alert.kind}-${index}`} className="flex flex-wrap items-start gap-2 text-[14px] text-ink">
             <Badge size="sm" tone={ALERT_TONE[alert.kind]}>{ALERT_WORD[alert.kind]}</Badge>
-            <span className="min-w-0 flex-1 break-words">{alert.message}</span>
+            <span className="min-w-0 flex-1 break-words">{datesInWords(alert.message)}</span>
           </li>
         ))}
       </ul>

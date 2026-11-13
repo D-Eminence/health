@@ -1,10 +1,11 @@
+import { dayText } from '../insight/insightParts'
 import { useState } from 'react'
 import { ArrowRight, MapPin } from 'lucide-react'
 import { FormActions, LoadingRows, PageState } from '../../../../kasuwa/parts'
 import { Button, EmptyState } from '../../../../kasuwa/ui'
 import { useFocusById } from '../../../../staff/focus'
 import { NOT_OFFERED } from '../campaignApi'
-import { STATIONS, type OutreachPlan, type StationKind } from '../campaignTypes'
+import { STATIONS, stationsFor, type OutreachPlan, type StationKind } from '../campaignTypes'
 import { DayScope, useCampaignDay, type Read } from './dayContext'
 import { BigChoice, dayFromToday, SyncStatus } from './dayParts'
 
@@ -47,7 +48,7 @@ export function PlanState({ plan, onRetry, children }: {
 }
 
 function DayChoices({ plan, onStart }: { readonly plan: OutreachPlan; readonly onStart: () => void }) {
-  const { settings, saveSettings } = useCampaignDay()
+  const { settings, saveSettings, roles } = useCampaignDay()
   const focus = useFocusById()
   const onePerson = plan.stationMode === 'one_person'
   const [site, setSite] = useState<string | null>(null)
@@ -58,7 +59,10 @@ function DayChoices({ plan, onStart }: { readonly plan: OutreachPlan; readonly o
 
   // What this device remembered, until the person picks again; a single site is picked for them.
   const siteId = site ?? (plan.sites.some(item => item.id === settings?.siteId) ? settings!.siteId : plan.sites.length === 1 ? plan.sites[0]!.id : null)
-  const stations = STATIONS.filter(item => plan.stations.includes(item.value))
+  // Only the stations this person's roles work at (all of them when that leaves none: the plan has none of theirs).
+  const planned = STATIONS.filter(item => plan.stations.includes(item.value))
+  const theirs = planned.filter(item => stationsFor(roles).includes(item.value))
+  const stations = theirs.length ? theirs : planned
   const stationKind = onePerson ? null : station ?? (stations.some(item => item.value === settings?.station) ? settings!.station : stations.length === 1 ? stations[0]!.value : null)
   const today = dayFromToday(0)
   const kitTests = onePerson || stationKind === 'tests' ? plan.package.tests.filter(test => test.usesKit) : []
@@ -117,7 +121,7 @@ function DayChoices({ plan, onStart }: { readonly plan: OutreachPlan; readonly o
                 <p className="m-0 text-[15px] font-medium text-ink">{test.name}</p>
                 {available.length ? (
                   <BigChoice label={`Kit lot for ${test.name}`} value={lotOf(test.id)} size="md" onChange={lot => setLots(previous => ({ ...previous, [test.id]: lot }))}
-                    options={available.map(kit => ({ value: kit.lot, label: `Lot ${kit.lot}`, hint: `Use by ${kit.expiresOn}` }))} />
+                    options={available.map(kit => ({ value: kit.lot, label: `Lot ${kit.lot}`, hint: `Use by ${dayText(kit.expiresOn, true)}` }))} />
                 ) : <p className="m-0 text-[14px] text-ink-2">No unexpired kits for this test at this site. Ask the coordinator.</p>}
               </div>
             )

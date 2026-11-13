@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { MapPin, Settings2 } from 'lucide-react'
+import { Settings2 } from 'lucide-react'
 import { Button, Card } from '../../../../kasuwa/ui'
 import { AllInOne, DayStart, RegisterPerson, StationWork } from '../day'
+import { YourDay } from '../day/YourDay'
+import { DayScope } from '../day/dayContext'
 import { stationLabel, type OutreachPlan, type OutreachVisit } from '../campaignTypes'
 import { LoadingRows } from '../../../../kasuwa/parts'
 import { outreachQueueStore, readDaySettings, type DaySettings } from '../offlineQueue'
@@ -63,20 +65,17 @@ function TodayWork({ campaignId, facilityId, accountId, plan, onStart, onChange,
   if (!plan || !settings?.siteId || (!onePerson && !settings.station)) return <DayStart campaignId={campaignId} onStart={onStart} />
   const site = plan.sites.find(entry => entry.id === settings.siteId)
   const station = settings.station
+  // One day scope for the strip and the work under it: what is done below counts in the strip at once.
   return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-tray px-4 py-2.5">
-        <p className="m-0 inline-flex min-w-0 flex-wrap items-center gap-x-2 text-[14px] text-ink">
-          <MapPin className="size-4 shrink-0 text-ink-3" aria-hidden />
-          <span className="font-semibold">{site?.name ?? 'Your site'}</span>
-          <span className="text-ink-2">· {onePerson ? 'Everything on this device' : stationLabel(station)}</span>
-        </p>
-        <Button size="sm" onClick={onChange}>Change</Button>
-      </div>
+    <DayScope campaignId={campaignId}>
+      <YourDay campaignId={campaignId} onChange={onChange} place={<>
+        <span className="font-semibold">{site?.name ?? 'Your site'}</span>
+        <span className="text-ink-2">· {onePerson ? 'Everything on this device' : stationLabel(station)}</span>
+      </>} />
       {onePerson ? <AllInOne campaignId={campaignId} />
         : station === 'register' ? <RegisterPerson campaignId={campaignId} onDone={onRegistered} />
           : station ? <StationWork campaignId={campaignId} station={station} /> : null}
-    </>
+    </DayScope>
   )
 }
 

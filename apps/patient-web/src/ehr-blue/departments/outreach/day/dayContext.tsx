@@ -93,6 +93,11 @@ export interface CampaignDayValue {
   readonly remember: (station: StationKind | 'all', visit: DayVisit) => void
   /** Registrations sent from the queue since this screen opened, by their temporary patient id. */
   readonly synced: ReadonlyMap<string, OutreachVisit>
+  /**
+   * This person's own count in the campaign (owner, 13 Nov 2026: each member's count): the team's figures as read, plus
+   * what they have done on this phone since. Null when they are not on the team and have done nothing here yet.
+   */
+  readonly mine: { readonly registered: number; readonly screened: number } | null
 }
 
 const DayContext = createContext<CampaignDayValue | null>(null)
@@ -151,11 +156,12 @@ function DayProvider({ campaignId, children }: { readonly campaignId: string; re
 
   const [roles, setRoles] = useState<readonly TeamRole[]>([])
   const [members, setMembers] = useState<readonly CampaignTeamMember[]>([])
+  const [youId, setYouId] = useState<string | null>(null)
   useEffect(() => {
     if (!facilityId) return
     const abort = new AbortController()
     outreachCampaignApi.team(facilityId, campaignId, abort.signal).then(
-      team => { if (!abort.signal.aborted) { setRoles(team.you?.roles ?? []); setMembers(team.members) } },
+      team => { if (!abort.signal.aborted) { setRoles(team.you?.roles ?? []); setMembers(team.members); setYouId(team.you?.memberId ?? null) } },
       () => { if (!abort.signal.aborted) setRoles([]) })
     return () => abort.abort()
   }, [facilityId, campaignId])
@@ -205,18 +211,33 @@ function DayProvider({ campaignId, children }: { readonly campaignId: string; re
 
   const drafts = useRef(new Map<string, unknown>()).current
   const [recent, setRecent] = useState<CampaignDayValue['recent']>([])
+  // The people this person registered, and screened (any station's form saved), on this phone since the team was read.
+  const [doneHere, setDoneHere] = useState<{ readonly registered: ReadonlySet<string>; readonly screened: ReadonlySet<string> }>(
+    () => ({ registered: new Set(), screened: new Set() }))
+  const count = useCallback((what: 'registered' | 'screened', key: string) => {
+    setDoneHere(previous => previous[what].has(key) ? previous : { ...previous, [what]: new Set(previous[what]).add(key) })
+  }, [])
   const remember = useCallback((station: StationKind | 'all', visit: DayVisit) => {
     setRecent(previous => [{ station, visit }, ...previous.filter(item => !(item.station === station && item.visit.key === visit.key))].slice(0, 12))
-  }, [])
+    if (station === 'register') count('registered', visit.key)
+  }, [count])
+  const saveWriteCounted = useCallback(async (given: DayVisit, command: StationCommand, localCommandId: string): Promise<SaveResult> => {
+    const result = await saveWrite(given, command, localCommandId)
+    count('screened', given.key)
+    return result
+  }, [saveWrite, count])
+  const you = youId ? members.find(member => member.memberId === youId) : undefined
+  const mine = you || doneHere.registered.size || doneHere.screened.size
+    ? { registered: (you?.registered ?? 0) + doneHere.registered.size, screened: (you?.screened ?? 0) + doneHere.screened.size } : null
 
   const waiting = queue.entries.filter(entry => entry.state === 'waiting').length + queue.writes.filter(entry => entry.state === 'waiting').length
   const refused = queue.entries.filter(entry => entry.state === 'refused').length + queue.writes.filter(entry => entry.state === 'refused').length
 
   const value = useMemo<CampaignDayValue>(() => ({
     campaignId, campaignName, facilityId, accountId: actorId, staffName, group, online, plan, refreshPlan, roles, members, settings, saveSettings, queue,
-    waiting, refused, saveWrite, drafts, recent, remember, synced,
+    waiting, refused, saveWrite: saveWriteCounted, drafts, recent, remember, synced, mine,
   }), [campaignId, campaignName, facilityId, actorId, staffName, group, online, plan, refreshPlan, roles, members, settings, saveSettings, queue, waiting, refused,
-    saveWrite, drafts, recent, remember, synced])
+    saveWriteCounted, drafts, recent, remember, synced, mine])
   return <DayContext.Provider value={value}>{children}</DayContext.Provider>
 }
 
