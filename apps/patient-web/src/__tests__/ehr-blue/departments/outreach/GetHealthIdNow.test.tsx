@@ -71,8 +71,11 @@ async function register(age = '30') {
   await press(screen.getByRole('button', { name: 'Save registration' }))
 }
 
+const CANT_CREATE = 'They own their Health ID. Your team can’t create it for them.'
+const OPEN_WHEN_SENT = 'Once this registration is sent, open it to create their Health ID.'
+
 /** The panel's region, its link and its QR code, checked the same way wherever it is shown. */
-function expectPanel(region: HTMLElement) {
+function expectPanel(region: HTMLElement, { queued = false } = {}) {
   expect(within(region).getByRole('heading', { level: 2, name: 'Get a Health ID now' })).toBeTruthy()
   // No link that opens sign-up on the volunteer's own (signed-in) device: the person would type their password there.
   expect(within(region).queryByRole('link', { name: /sign-up/i })).toBeNull()
@@ -88,7 +91,14 @@ function expectPanel(region: HTMLElement) {
     'They enter their name, email address and phone number, choose a password, and type in the code sent to their email.',
     'Their Health ID appears on screen. Write it on their slip.',
   ])
-  expect(region.textContent).toContain('They own their Health ID. Your team can’t create it for them.')
+  // Waiting on this device, it is an outreach group's registration: once sent, the team can make the Health ID there.
+  if (queued) {
+    expect(region.textContent).toContain(OPEN_WHEN_SENT)
+    expect(region.textContent).not.toContain('Your team can’t create it for them.')
+  } else {
+    expect(region.textContent).toContain(CANT_CREATE)
+    expect(region.textContent).not.toContain(OPEN_WHEN_SENT)
+  }
 }
 
 describe('Get a Health ID now', () => {
@@ -120,7 +130,19 @@ describe('Get a Health ID now', () => {
     api.createOutreachCase.mockRejectedValue(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
     await register()
     await screen.findByRole('region', { name: 'Saved on this device' })
-    expectPanel(screen.getByRole('region', { name: 'Get a Health ID now' }))
+    expectPanel(screen.getByRole('region', { name: 'Get a Health ID now' }), { queued: true })
+  })
+
+  it('goes, with the note, once the registration waiting on this device is sent', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    await register()
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    expect(screen.getByRole('region', { name: 'Get a Health ID now' }).textContent).toContain(OPEN_WHEN_SENT)
+    api.createOutreachCase.mockResolvedValueOnce(pending('case-sent'))
+    await press(within(queue).getByRole('button', { name: 'Send now' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull())
+    expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
+    expect(document.body.textContent).not.toContain(OPEN_WHEN_SENT)
   })
 
   it('carries nothing about the person: not their name, phone number, temporary ID or case', async () => {
@@ -202,6 +224,8 @@ describe('under-18s and the sign-up QR code', () => {
     const region = screen.getByRole('region', { name: 'Get a Health ID now' })
     expect(region.textContent).toContain(GUARDIAN_WORDS)
     expect(region.textContent).not.toContain(CHILD_STEP)
+    // A Health ID can't be created at outreach for under-18s, so the team is not told to open it for that.
+    expect(region.textContent).not.toContain(OPEN_WHEN_SENT)
   })
 
   it('at 18, while their registration waits on this device', async () => {

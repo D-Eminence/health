@@ -315,7 +315,7 @@ export function Outreach() {
           {queuedShown ? <>
             <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
             {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
-            <GetHealthIdNow id="outreach-queued-health-id" ageYears={queuedNote.ageYears} />
+            <GetHealthIdNow id="outreach-queued-health-id" queued ageYears={queuedNote.ageYears} />
           </> : null}
           {sendShown && sendNote ? (
             <Alert intent={sendDone ? 'success' : 'warning'}

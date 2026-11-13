@@ -6,6 +6,9 @@ import { patientSignUpHref } from '../../../productSites'
 /** For anyone under 18, in place of the steps: the Terms allow under-18s with a parent's or guardian's agreement. */
 export const GUARDIAN_MUST_AGREE = 'A parent or guardian must agree. They can make it with them on their phone, now or later.'
 
+/** While the registration waits on this device: the team creates the Health ID from its case view once it is sent. */
+export const OPEN_WHEN_SENT = 'Once this registration is sent, open it to create their Health ID.'
+
 /**
  * "Get a Health ID now" (outreach event of 14 November 2026): after a registration is saved, and on its case view, the
  * patient sign-up on the main site as a QR code for the person's own phone, the same link to open on this phone, and the
@@ -13,7 +16,7 @@ export const GUARDIAN_MUST_AGREE = 'A parent or guardian must agree. They can ma
  * alone (productSites.ts patientSignUpHref): the same for everyone, with nothing about the person in it, so neither the
  * QR code nor the link can carry their name, phone number or temporary ID anywhere.
  */
-export function GetHealthIdNow({ id, fallback = false, ageYears }: {
+export function GetHealthIdNow({ id, fallback = false, queued = false, ageYears }: {
   /** Unique on the page, for the heading and the hint ids. */
   readonly id: string
   /**
@@ -26,6 +29,12 @@ export function GetHealthIdNow({ id, fallback = false, ageYears }: {
    * "Or they can sign up on their own phone" that opens to the same QR code, link and steps.
    */
   readonly fallback?: boolean
+  /**
+   * Shown while the registration waits on this device (an outreach group's, where the team can create the Health ID once
+   * it is sent): that is said instead of "Your team can't create it for them". Not judged from the registration list,
+   * which a page opened with no signal has not read.
+   */
+  readonly queued?: boolean
 }) {
   const href = patientSignUpHref()
   const headingId = `${id}-heading`
@@ -42,7 +51,10 @@ export function GetHealthIdNow({ id, fallback = false, ageYears }: {
               <li>Their Health ID appears on screen. Write it on their slip.</li>
             </ol>
           )}
-          {fallback ? null : <p className="m-0 text-body text-ink-2"><strong>They own their Health ID.</strong> Your team can’t create it for them.</p>}
+          {fallback ? null : queued
+            // Not for under-18s: a Health ID can't be created for them at outreach.
+            ? minor ? null : <p className="m-0 text-body text-ink-2">{OPEN_WHEN_SENT}</p>
+            : <p className="m-0 text-body text-ink-2"><strong>They own their Health ID.</strong> Your team can’t create it for them.</p>}
           <p className="m-0 text-body text-ink-2">Let them use their own phone. Don’t open sign-up on yours: they would type their password on your device.</p>
         </div>
       </div>
