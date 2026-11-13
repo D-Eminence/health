@@ -223,6 +223,53 @@ describe('registering someone at an outreach group', () => {
     expect(api.createOutreachCase.mock.calls[0]![1].consent).toMatchObject({ method: 'guardian', guardianName: 'Ngozi Obi' })
   })
 
+  it('typing an adult’s age key by key keeps the way they agreed (“3” on the way to “35” is not an under-18)', async () => {
+    api.createOutreachCase.mockResolvedValue(pending('case-5', 'Kemi Balogun'))
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /I read it to them and they said yes/ }))
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Kemi Balogun' } })
+    const age = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(age, { target: { value: '3' } })
+    fireEvent.change(age, { target: { value: '35' } })
+    fireEvent.blur(age)
+    const readAloud = screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement
+    const guardian = screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement
+    expect(readAloud.checked).toBe(true)
+    expect(readAloud.disabled).toBe(false)
+    expect(guardian.checked).toBe(false)
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14', language: 'en',
+      method: 'verbal_read_aloud' })
+  })
+
+  it('an age changed from 17 to 18 gives back the way they agreed that the volunteer chose, and none if none was chosen', async () => {
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    const age = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(age, { target: { value: '1' } })
+    fireEvent.change(age, { target: { value: '17' } })
+    const self = () => screen.getByRole('radio', { name: /They read it themselves and agreed/ }) as HTMLInputElement
+    const guardian = () => screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement
+    expect(guardian().checked).toBe(true)
+    expect(self().disabled).toBe(true)
+    fireEvent.change(age, { target: { value: '1' } })
+    fireEvent.change(age, { target: { value: '18' } })
+    expect(self().checked).toBe(true)
+    expect(guardian().checked).toBe(false)
+    expect(self().disabled).toBe(false)
+  })
+
+  it('an adult’s age typed before any choice leaves the choice to the volunteer', async () => {
+    await openNewRegistration()
+    const age = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(age, { target: { value: '4' } })
+    fireEvent.change(age, { target: { value: '42' } })
+    for (const name of [/They read it themselves and agreed/, /I read it to them and they said yes/, /Their parent or guardian agreed for them/]) {
+      expect((screen.getByRole('radio', { name }) as HTMLInputElement).checked).toBe(false)
+    }
+  })
+
   it('keeps a parent or guardian’s name to 120 characters, as Outreach does', async () => {
     await openNewRegistration()
     const guardian = textbox(/Parent or guardian’s name/)

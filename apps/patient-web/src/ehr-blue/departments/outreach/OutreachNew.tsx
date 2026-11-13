@@ -135,6 +135,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
   const [method, setMethod] = useState<OutreachConsentMethod | ''>('')
   // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
   const [minorAge, setMinorAge] = useState(false)
+  // The way of agreeing the volunteer chose before an age under 18 switched it to a parent or guardian: an adult's age
+  // passes through one digit on the way ("3" on the way to "35"), so it is given back once the age is 18 or over again.
+  const chosenBeforeMinor = useRef<OutreachConsentMethod | '' | null>(null)
   const [notesLength, setNotesLength] = useState(0)
   const focus = useFocusById()
   const groupNotesLimit = healthChecksServed ? OUTREACH_NOTES_LIMIT : 280
@@ -287,7 +290,24 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
     setLanguage('en')
     setMethod('')
     setMinorAge(false)
+    chosenBeforeMinor.current = null
     setNotesLength(0)
+  }
+
+  /**
+   * Under 18 only a parent or guardian can agree, so that becomes the choice; once the age is 18 or over again (an adult's
+   * age typed key by key passes through one digit), the volunteer's own choice comes back, or none if they made none.
+   */
+  function ageChanged(age: string) {
+    const minor = isMinorAge(age)
+    setMinorAge(minor)
+    if (minor && chosenBeforeMinor.current === null) {
+      chosenBeforeMinor.current = method
+      setMethod('guardian')
+    } else if (!minor && chosenBeforeMinor.current !== null) {
+      setMethod(chosenBeforeMinor.current)
+      chosenBeforeMinor.current = null
+    }
   }
 
   const fieldError = (field: CaseField) => problems.errors[field]
@@ -319,11 +339,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
             </OutreachField>
             <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
               <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
-                onChange={group ? event => {
-                  const minor = isMinorAge(event.target.value.trim())
-                  setMinorAge(minor)
-                  if (minor) setMethod('guardian')
-                } : undefined} />
+                onChange={group ? event => ageChanged(event.target.value.trim()) : undefined} />
             </OutreachField>
           </div>
         </Step>
