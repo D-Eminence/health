@@ -15,12 +15,17 @@ const pdf = vi.hoisted(() => ({
   constructed: [] as unknown[],
   autoTable: vi.fn(),
   text: vi.fn(),
+  fonts: [] as unknown[][],
+  files: new Map<string, string>(),
+  added: [] as unknown[][],
 }))
 vi.mock('jspdf', () => ({
   jsPDF: class {
     internal = { pageSize: { getWidth: () => 842, getHeight: () => 595 } }
     constructor(options: unknown) { pdf.constructed.push(options) }
-    setFont() {}
+    setFont(...args: unknown[]) { pdf.fonts.push(args) }
+    addFileToVFS(name: string, data: string) { pdf.files.set(name, data) }
+    addFont(...args: unknown[]) { pdf.added.push(args) }
     setFontSize() {}
     setPage() {}
     text(...args: unknown[]) { pdf.text(...args) }
@@ -112,7 +117,10 @@ describe('CSV', () => {
 
   it.each([
     ['=HYPERLINK("http://example.test")', '\'=HYPERLINK("http://example.test")'],
-    ['+2348000000001', '\'+2348000000001'],
+    ['+SUM(A1)', '\'+SUM(A1)'],
+    ['+ 1', '\'+ 1'],
+    ['+=1', '\'+=1'],
+    ['+234abc', '\'+234abc'],
     ['-1+1', '\'-1+1'],
     ['@SUM(A1)', '\'@SUM(A1)'],
     ['\tTab', '\'\tTab'],
@@ -122,6 +130,12 @@ describe('CSV', () => {
   ])('never lets a spreadsheet run %j', (value, safe) => {
     expect(safeCell(value)).toBe(safe)
   })
+
+  it.each(['+2348000000001', '+234 801 234 5678', '(0803) 123-4567', '08031234567', '+1-1', '42'])(
+    'leaves a phone number or plain number as it is (%j)', value => {
+      expect(safeCell(value)).toBe(value)
+      expect(toCsv({ headings: ['Phone'], rows: [[value]] })).toBe(`\uFEFFPhone\r\n${value}\r\n`)
+    })
 
   it('makes every CSV cell safe, headings too, and quotes the result when it must', () => {
     const csv = toCsv({ headings: ['=Name'], rows: [['=1+1,2']] })
@@ -148,23 +162,27 @@ describe('file names and titles', () => {
 
 describe('Excel', () => {
   it('writes a workbook whose cells are text, never formulas, with the heading row bold', async () => {
-    const table = { headings: ['Full name', 'Phone number'], rows: [['Adébáyọ̀ <Ọlọ́run> & co', '\'+2348000000001']] }
+    const table = { headings: ['Full name', 'Phone number'], rows: [['Adébáyọ̀ <Ọlọ́run> & co', '+2348000000001']] }
     const files = unzipSync(await xlsxBytes(table, exportMeta(undefined, 1, new Date())))
     expect(Object.keys(files).sort()).toEqual(['[Content_Types].xml', '_rels/.rels', 'docProps/core.xml', 'xl/_rels/workbook.xml.rels',
       'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml'])
     const sheet = strFromU8(files['xl/worksheets/sheet1.xml']!)
     expect(sheet).toContain('<c r="A1" t="inlineStr" s="1"><is><t xml:space="preserve">Full name</t></is></c>')
-    expect(sheet).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Adébáyọ̀ &lt;Ọlọ́run&gt; &amp; co</t></is></c>')
-    expect(sheet).toContain('\'+2348000000001')
+    expect(sheet).toContain('<c r="A2" t="inlineStr" s="2"><is><t xml:space="preserve">Adébáyọ̀ &lt;Ọlọ́run&gt; &amp; co</t></is></c>')
+    // The phone number is a text cell in the Text ("@") format: it keeps its "+" and every digit, and is never a number.
+    expect(sheet).toContain('<c r="B2" t="inlineStr" s="2"><is><t xml:space="preserve">+2348000000001</t></is></c>')
+    expect(strFromU8(files['xl/styles.xml']!)).toMatch(/<cellXfs count="3">.*<xf numFmtId="49" fontId="0"[^>]*applyNumberFormat="1"\/><\/cellXfs>/)
     expect(sheet).not.toContain('<f>')
+    expect(sheet).not.toMatch(/<c [^>]*t="n"|<v>/)
     expect(strFromU8(files['xl/workbook.xml']!)).toContain('name="Registrations"')
   })
 
-  it('makes every cell safe for a spreadsheet before it is written', async () => {
-    const blob = await buildExport('xlsx', { headings: ['Phone'], rows: [['=cmd']] }, exportMeta(undefined, 1, new Date()))
+  it('makes every cell safe for a spreadsheet before it is written, and leaves a phone number as it is', async () => {
+    const blob = await buildExport('xlsx', { headings: ['Phone'], rows: [['=cmd'], ['+2348000000001']] }, exportMeta(undefined, 1, new Date()))
     expect(blob.type).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     const sheet = strFromU8(unzipSync(new Uint8Array(await blob.arrayBuffer()))['xl/worksheets/sheet1.xml']!)
     expect(sheet).toContain('>\'=cmd<')
+    expect(sheet).toContain('>+2348000000001<')
   })
 
   it('names columns as a spreadsheet does', () => {
@@ -198,21 +216,29 @@ describe('Word', () => {
 })
 
 describe('PDF', () => {
-  beforeEach(() => { pdf.autoTable.mockClear(); pdf.text.mockClear() })
+  beforeEach(() => { pdf.autoTable.mockClear(); pdf.text.mockClear(); pdf.fonts.length = 0; pdf.files.clear(); pdf.added.length = 0 })
 
   it('draws a landscape table with the title and page numbers', async () => {
     const blob = await buildExport('pdf', { headings: ['Full name'], rows: [['Adébáyọ̀ Ọlọ́run']] },
       { title: 'Outreach registrations: Demo', subtitle: '1 registration.' })
     expect(blob.type).toBe('application/pdf')
     expect(pdf.constructed).toEqual([{ orientation: 'landscape', unit: 'pt', format: 'a4' }])
-    expect(pdf.autoTable).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ head: [['Full name']], body: [['Adébáyo Olorun']] }))
+    expect(pdf.autoTable).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ head: [['Full name']],
+      body: [['Adébáyọ̀ Ọlọ́run'.normalize('NFC')]], styles: expect.objectContaining({ font: 'NotoSans' }) }))
+    // Noto Sans, both weights, from the lazy chunk, registered and used for the title and the text.
+    expect([...pdf.files.keys()]).toEqual(['NotoSans-Regular.ttf', 'NotoSans-Bold.ttf'])
+    // A TrueType file starts 00 01 00 00.
+    for (const data of pdf.files.values()) expect([...atob(data.slice(0, 8)).slice(0, 4)].map(c => c.charCodeAt(0))).toEqual([0, 1, 0, 0])
+    expect(pdf.added).toEqual([['NotoSans-Regular.ttf', 'NotoSans', 'normal'], ['NotoSans-Bold.ttf', 'NotoSans', 'bold']])
+    expect(pdf.fonts).toEqual([['NotoSans', 'bold'], ['NotoSans', 'normal']])
     const texts = pdf.text.mock.calls.map(call => call[0])
     expect(texts).toContain('Outreach registrations: Demo')
     expect(texts).toEqual(expect.arrayContaining(['Page 1 of 2', 'Page 2 of 2']))
   })
 
-  it('writes letters the built-in font lacks without their marks, keeping the ones it has', () => {
-    expect(pdfText('Adébáyọ̀ Ọlọ́run’s “notes” – ok')).toBe('Adébáyo Olorun’s “notes” – ok')
+  it('keeps Yoruba, Igbo and Hausa letters and tone marks, and writes what the font lacks as ?', () => {
+    expect(pdfText('Adébáyọ̀ Ọlọ́rùn’s “notes” – ₦500')).toBe('Adébáyọ̀ Ọlọ́rùn’s “notes” – ₦500'.normalize('NFC'))
+    expect(pdfText('Ṣadé Ẹ̀kọ́ · Ɓello Ɗanjuma Ƙasimu Ƴaro · Chukwuemeka Ọ̄kọ̀')).toBe('Ṣadé Ẹ̀kọ́ · Ɓello Ɗanjuma Ƙasimu Ƴaro · Chukwuemeka Ọ̄kọ̀'.normalize('NFC'))
     expect(pdfText('漢')).toBe('?')
   })
 })

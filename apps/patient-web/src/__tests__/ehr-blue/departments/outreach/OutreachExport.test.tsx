@@ -94,7 +94,8 @@ describe('Outreach export', () => {
     expect(name).toBe('outreach-all-registrations-2026-11-14.csv')
     const csv = await blob.text()
     expect(csv).toContain('Full name,Sex,Age (years),Phone number,Campaign,Registered on,Status')
-    expect(csv).toContain('Patient One,Female,34,\'+2348000000001,Demo Screening Week,')
+    // A phone number is written as it is: nothing a spreadsheet would run.
+    expect(csv).toContain('Patient One,Female,34,+2348000000001,Demo Screening Week,')
     expect(csv).toContain('Patient Two,Male,51,,Demo follow-up,')
     expect(csv).not.toContain('case-1')
     expect(screen.queryByRole('dialog')).toBeNull()

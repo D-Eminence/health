@@ -41,13 +41,14 @@ function widthOf(table: ExportTable, index: number) {
 
 /**
  * The table as an Excel workbook: one sheet, "Registrations", its heading row bold and frozen. Every cell is written
- * as text (an inline string), never as a number or a formula; the caller has already made each cell safe.
+ * as text (an inline string in the Text "@" format), never as a number or a formula, so a phone number such as
+ * +2348012345678 keeps its "+" and its digits, even once edited; the caller has already made each cell safe.
  */
 export async function xlsxBytes(table: ExportTable, meta: ExportMeta): Promise<Uint8Array<ArrayBuffer>> {
   const cell = (value: string, column: number, row: number, style: number) =>
     `<c r="${columnName(column)}${row}" t="inlineStr"${style ? ` s="${style}"` : ''}><is><t xml:space="preserve">${xmlText(value)}</t></is></c>`
   const rows = [table.headings, ...table.rows].map((values, index) =>
-    `<row r="${index + 1}">${values.map((value, column) => cell(value, column, index + 1, index === 0 ? 1 : 0)).join('')}</row>`)
+    `<row r="${index + 1}">${values.map((value, column) => cell(value, column, index + 1, index === 0 ? 1 : 2)).join('')}</row>`)
   const cols = table.headings.map((_, index) => `<col min="${index + 1}" max="${index + 1}" width="${widthOf(table, index)}" customWidth="1"/>`).join('')
   const sheet = `${XML_HEAD}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
     + '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
@@ -80,8 +81,9 @@ export async function xlsxBytes(table: ExportTable, meta: ExportMeta): Promise<U
       + '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
       + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
       + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-      + '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-      + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
+      + '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+      + '<xf numFmtId="49" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>'
+      + '<xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
       + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>',
     'xl/worksheets/sheet1.xml': sheet,
   })
@@ -133,41 +135,53 @@ export async function docxBytes(table: ExportTable, meta: ExportMeta): Promise<U
   })
 }
 
-/** The characters jsPDF's built-in fonts can draw (Windows-1252), beyond printable ASCII and Latin-1. */
-const WIN_ANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ')
+/**
+ * What the PDF's font draws: Noto Sans (SIL Open Font License 1.1, fonts/OFL.txt), cut down to Latin with its extended
+ * letters (ọ ẹ ṣ, ɓ ɗ ƙ ƴ), the combining tone marks, general punctuation, ₦ and €. These are the ranges it was cut to
+ * (pyftsubset --unicodes, with no layout features or hinting).
+ */
+const FONT_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x20, 0x7e], [0xa0, 0x2ff], [0x300, 0x36f], [0x1e00, 0x1eff], [0x2000, 0x206f], [0x20a6, 0x20a6], [0x20ac, 0x20ac],
+  [0x2122, 0x2122], [0x2190, 0x2193], [0xfffd, 0xfffd],
+]
 
 /**
- * Words as the PDF's built-in font can draw them. Letters it lacks (ọ, ẹ, ṣ in Yoruba names) are written without their
- * marks ("Adébáyọ̀" → "Adébáyo"), rather than as broken symbols; the other formats keep every letter.
+ * Words as the PDF's font can draw them: every Yoruba, Igbo and Hausa letter and tone mark as written (composed where
+ * Unicode composes them), and anything else the font lacks as "?" rather than a blank.
  */
 export function pdfText(value: string): string {
   let out = ''
   for (const character of value.normalize('NFC')) {
     const code = character.codePointAt(0)!
-    if (character === '\n' || (code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff) || WIN_ANSI_EXTRA.has(character)) {
-      out += character
-      continue
-    }
-    const plain = character.normalize('NFD').replace(/[̀-ͯ]/g, '')
-    out += [...plain].every(part => { const c = part.codePointAt(0)!; return (c >= 0x20 && c <= 0x7e) || (c >= 0xa0 && c <= 0xff) }) ? plain : '?'
+    out += character === '\n' || FONT_RANGES.some(([from, to]) => code >= from && code <= to) ? character : '?'
   }
   return out
 }
+
+/** The font's file, from the build's own lazy chunk (a data: URL), as the base64 jsPDF takes. */
+const base64Of = (dataUrl: string) => dataUrl.slice(dataUrl.indexOf(',') + 1)
+export const PDF_FONT = 'NotoSans'
 
 /**
  * The table as a PDF: A4 landscape, the title and what the file holds above a table whose heading row repeats on every
  * page, and "Page 1 of 3" at the foot of each page.
  */
 export async function pdfBytes(table: ExportTable, meta: ExportMeta): Promise<ArrayBuffer> {
-  const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+  // The font is part of this chunk's lazy imports: only a PDF export loads it (about 250 kB with both weights).
+  const [{ jsPDF }, { autoTable }, regular, bold] = await Promise.all([import('jspdf'), import('jspdf-autotable'),
+    import('./fonts/NotoSans-Regular.ttf?inline'), import('./fonts/NotoSans-Bold.ttf?inline')])
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+  doc.addFileToVFS('NotoSans-Regular.ttf', base64Of(regular.default))
+  doc.addFont('NotoSans-Regular.ttf', PDF_FONT, 'normal')
+  doc.addFileToVFS('NotoSans-Bold.ttf', base64Of(bold.default))
+  doc.addFont('NotoSans-Bold.ttf', PDF_FONT, 'bold')
   const margin = 36
   const width = doc.internal.pageSize.getWidth()
   const height = doc.internal.pageSize.getHeight()
-  doc.setFont('helvetica', 'bold')
+  doc.setFont(PDF_FONT, 'bold')
   doc.setFontSize(14)
   doc.text(pdfText(meta.title), margin, margin + 6)
-  doc.setFont('helvetica', 'normal')
+  doc.setFont(PDF_FONT, 'normal')
   doc.setFontSize(9)
   const subtitle = doc.splitTextToSize(pdfText(meta.subtitle), width - 2 * margin) as string[]
   doc.text(subtitle, margin, margin + 24)
@@ -177,7 +191,7 @@ export async function pdfBytes(table: ExportTable, meta: ExportMeta): Promise<Ar
     startY: margin + 30 + subtitle.length * 11,
     margin: { top: margin, left: margin, right: margin, bottom: margin + 10 },
     theme: 'grid',
-    styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, overflow: 'linebreak', valign: 'top' },
+    styles: { font: PDF_FONT, fontSize: 7, cellPadding: 3, overflow: 'linebreak', valign: 'top' },
     headStyles: { fillColor: [231, 238, 247], textColor: [16, 24, 40], fontStyle: 'bold' },
   })
   const pages = doc.getNumberOfPages()

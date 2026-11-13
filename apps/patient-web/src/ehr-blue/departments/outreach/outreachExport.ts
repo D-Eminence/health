@@ -155,11 +155,16 @@ export function rowsFor(cases: readonly ExportCase[], context: ExportContext, co
   }
 }
 
+/** A phone number or plain number ("+234 801 234 5678", "(0803) 123-4567"): nothing a spreadsheet would run. */
+const PHONE_OR_NUMBER = /^\+?[0-9][0-9 ()-]*$/
+
 /**
  * A cell a spreadsheet will not run as a formula: one starting with = + - @, a tab or a carriage return is written
- * after a single quote (OWASP CSV injection).
+ * after a single quote (OWASP CSV injection). A phone number or plain number is left as it is ("+2348012345678"); a
+ * "+" followed by anything else is still quoted.
  */
 export function safeCell(value: string): string {
+  if (PHONE_OR_NUMBER.test(value)) return value
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
 }
 
