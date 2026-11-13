@@ -912,9 +912,10 @@ computed or aliased access is left to review. `NO_SERVICE_WORKER` is lifted for
 exactly two files, `apps/patient-web/src/pushDevice.ts` and
 `apps/patient-web/public/sw.js`; every other rule stays on in both. `NO_INDEXED_DB` is lifted
 for exactly one file, `apps/patient-web/src/ehr-blue/departments/outreach/offlineQueue.ts`
-(open sign-up on outreach., plan PR-5): at an outreach group only, a registration
-that could not be sent (no network, a timeout, or Health ID briefly unavailable)
-is kept in IndexedDB with its command, keyed by its `localCommandId` (also its
+(open sign-up on outreach., plan PR-5): at an outreach group only, every new
+registration is kept there before it is first sent, so a reload or a closed tab
+while it is saving loses nothing, and one that could not be sent (no network, a
+timeout, or Health ID briefly unavailable) stays; each is kept in IndexedDB with its command, keyed by its `localCommandId` (also its
 Idempotency-Key, so sending it again registers the person once), for the account
 and facility that saved it, and sent again, oldest first: when the page opens, when
 the network is back, when the page is shown again, after a registration Health ID
@@ -922,13 +923,30 @@ took, and every 30 seconds while any waits and the page is shown (or, after a
 session ended, once the person signs in again). One that Health ID can't take just
 now (a server fault, too many requests) waits without holding up the others; no
 connection, a timeout, a send stopped as the session ended, or a sign-in needed
-stops the round, and none of these marks it refused. It is deleted as soon as Health
+stops the round, and none of these marks it refused. One registration is sent by
+one sender at a time: the form, "Send now" and the retries in a tab, and the tabs of
+a browser, each claim it first (Web Locks, or where a browser has none a lock in
+localStorage holding only its random command id, a random tab id and an expiry of
+60 seconds). A registration the list already holds is shown once, as its row. It is
+taken off the device when Health ID answers the form with a refusal the person
+corrects there. It is deleted as soon as Health
 ID takes it, when the person removes a refused one, when the account that saved
 it signs out on that browser, and after 14 days in any case: the staff app
 sweeps entries older than 14 days as it starts and on every session change,
 whatever page is open, and only opens the database where one already exists.
 Hospitals' outreach teams keep today's behaviour:
-nothing is kept. This is a reviewed exception for field work with patchy
+nothing is kept. `NO_BROWSER_STORAGE` is lifted for exactly one more file,
+`apps/patient-web/src/ehr-blue/departments/outreach/tabMemory.ts` (the owner's
+"no hassle" rule for field work, 14 November 2026): at an outreach page, what this
+tab must keep across a reload goes in sessionStorage (kept through a reload of the
+tab, gone when the tab closes), keyed by account, and signing out removes it all:
+health checks typed and not saved yet on one registration (until saved; never in
+localStorage), a Health ID being made with an email code (that a code was sent and
+when, the email typed and the Idempotency-Key in use, never the code), a claim code
+just made with no email or phone, for 15 minutes, so the slip can still print it
+after an accidental reload (the screen does not show it again), the outreach group
+this tab last chose, and the tab's own random id. Its only localStorage value is
+the send lock above. This is a reviewed exception for field work with patchy
 networks; it needs the owner's sign-off before release. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that

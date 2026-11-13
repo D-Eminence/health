@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
@@ -462,6 +462,116 @@ describe('the offline queue', () => {
     await screen.findByRole('list', { name: 'Campaigns' })
     expect(screen.queryByText('Not Mine')).toBeNull()
     expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+})
+
+/*
+ * Saved on the phone first (the owner's "no hassle" rule, 14 November 2026): a new registration is kept on this device
+ * before it is first sent, so a reload or a closed tab while it says "Saving…" loses nothing; it is sent again with the
+ * same command (registered once), and the same person is never shown twice. Fictional data only.
+ */
+describe('a registration is kept on this device before it is sent', () => {
+  async function fillAndSave() {
+    await openNewRegistration()
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+  }
+
+  it('is on this device while it is saving, with its command, and goes once Health ID takes it', async () => {
+    const store = memoryQueueStore()
+    setOutreachQueueStore(store)
+    let answer: (value: unknown) => void = () => undefined
+    api.createOutreachCase.mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
+    await fillAndSave()
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
+    const [, input, command] = api.createOutreachCase.mock.calls[0]!
+    const kept = await store.list()
+    expect(kept).toHaveLength(1)
+    expect(kept[0]).toMatchObject({ localCommandId: command.localCommandId, temporaryPatientId: command.temporaryPatientId, input,
+      accountId: 'staff-demo-1', facilityId: GROUP_ID, state: 'waiting' })
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy()
+
+    await act(async () => { answer(pending('case-1', 'Kemi Balogun')) })
+    expect(await screen.findByText('Registration saved')).toBeTruthy()
+    expect(await store.list()).toEqual([])
+    expect(api.createOutreachCase).toHaveBeenCalledTimes(1)
+  })
+
+  it('after a reload while saving, is under “Saved on this device” and sent again with the same command', async () => {
+    const store = memoryQueueStore()
+    setOutreachQueueStore(store)
+    let stop: (reason: unknown) => void = () => undefined
+    api.createOutreachCase.mockImplementationOnce(() => new Promise((_, reject) => { stop = reject }))
+    // No signal as the page opens again, so the saved registration is seen before it is sent.
+    await fillAndSave()
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
+    const first = api.createOutreachCase.mock.calls[0]!
+    // The page goes (a reload): the send it made is stopped, never judged by Health ID.
+    cleanup()
+    await act(async () => { stop(new HidApiError(0, 'Stopped', { code: 'REQUEST_CANCELLED' })) })
+    expect((await store.list()).map(entry => entry.localCommandId)).toEqual([first[2].localCommandId])
+
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
+    renderDept(<Outreach />)
+    const queue = await screen.findByRole('region', { name: 'Saved on this device' })
+    expect(within(queue).getByText('Kemi Balogun')).toBeTruthy()
+    expect(within(queue).getByText('Waiting to send')).toBeTruthy()
+
+    Reflect.deleteProperty(navigator, 'onLine')
+    api.createOutreachCase.mockResolvedValueOnce(pending('case-1', 'Kemi Balogun'))
+    await press(within(queue).getByRole('button', { name: 'Send now' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(2))
+    // The same command, so Health ID answers with the registration it made, never a second one.
+    expect(api.createOutreachCase.mock.calls[1]![2]).toEqual(first[2])
+    expect(api.createOutreachCase.mock.calls[1]![1]).toEqual(first[1])
+    await waitFor(async () => expect(await store.list()).toEqual([]))
+  })
+
+  it('is taken off this device when Health ID refuses it, with everything typed still on the form', async () => {
+    const store = memoryQueueStore()
+    setOutreachQueueStore(store)
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(422, 'x', { code: 'OUTREACH_CONSENT_GUARDIAN_REQUIRED' }))
+    await fillAndSave()
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save registration' })).toBeTruthy())
+    expect(await store.list()).toEqual([])
+    expect(textbox(/Full name/).value).toBe('Kemi Balogun')
+    expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull()
+  })
+
+  it('is never sent twice at once in a tab: the online and page-shown senders leave it to the form', async () => {
+    const store = memoryQueueStore()
+    setOutreachQueueStore(store)
+    let answer: (value: unknown) => void = () => undefined
+    api.createOutreachCase.mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
+    await fillAndSave()
+    await waitFor(async () => expect(await store.list()).toHaveLength(1))
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+      document.dispatchEvent(new Event('visibilitychange'))
+      await new Promise(resolve => setTimeout(resolve, 20))
+    })
+    expect(api.createOutreachCase).toHaveBeenCalledTimes(1)
+    await act(async () => { answer(pending('case-1', 'Kemi Balogun')) })
+    expect(await screen.findByText('Registration saved')).toBeTruthy()
+    expect(api.createOutreachCase).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a registration the list already holds once, as its row, not under “Saved on this device” too', async () => {
+    const store = memoryQueueStore()
+    await store.put({ localCommandId: 'c0000000-0000-4000-8000-000000000021', temporaryPatientId: 'tmp_case-1', accountId: 'staff-demo-1',
+      facilityId: GROUP_ID, savedAt: new Date().toISOString(), state: 'waiting',
+      input: { campaignId: 'campaign-1', fullName: 'Kemi Balogun', sex: 'female', ageYears: 30 } })
+    setOutreachQueueStore(store)
+    // Health ID took it, but its answer never came: the list holds it, and the device still has it to send again.
+    api.outreachCases.mockResolvedValue([pending('case-1', 'Kemi Balogun')])
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
+    renderDept(<Outreach />)
+    expect(await screen.findByRole('button', { name: /Kemi Balogun/ })).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(screen.queryByRole('region', { name: 'Saved on this device' })).toBeNull()
+    expect(screen.getAllByText('Kemi Balogun')).toHaveLength(1)
   })
 })
 

@@ -21,7 +21,7 @@ import { GetHealthIdNow } from './GetHealthIdNow'
 import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
-import { noConnection, useOutreachQueue, type QueueSyncResult } from './offlineQueue'
+import { claimSend, noConnection, useOutreachQueue, type QueueSyncResult } from './offlineQueue'
 import {
   campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, servicesText, type CampaignsUnread, type MembersRead,
@@ -201,12 +201,18 @@ export function Outreach() {
   const [sendNote, setSendNote] = useState<{ facilityId: string; result: QueueSyncResult } | null>(null)
   const sendDone = sendNote ? sendNote.result.waiting === 0 && sendNote.result.refused === 0 : false
   const sendShown = sendNote?.facilityId === facilityId && (sendDone || queue.entries.length > 0)
+  // A registration the list already holds (Health ID took it, and its answer was lost or is still on its way) is shown
+  // once, as the list's row: not under "Saved on this device" too, while the queue sends it again (answered the same).
+  const listedTemporary = new Set((cases.value ?? []).map(item => item.temporaryPatientId).filter(Boolean))
+  const queueShown = queue.entries.filter(entry => !listedTemporary.has(entry.temporaryPatientId))
   const sendNow = () => {
     void syncQueue().then(result => { if (result && facilityId) setSendNote({ facilityId, result }) })
   }
   const groupForm: OutreachGroupForm | undefined = group && facility ? {
     name: facility.name,
     queue: entry => queue.add(entry),
+    dequeue: localCommandId => queue.discard(localCommandId),
+    claim: claimSend,
     onQueued: ({ fullName, localCommandId, reason }) => {
       if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason) })
       show({ kind: 'list' })
@@ -300,7 +306,7 @@ export function Outreach() {
               {queueSyncText(sendNote.result)}
             </Alert>
           ) : null}
-          <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={sendNow}
+          <OutreachQueuePanel entries={queueShown} durable={queue.durable} syncing={queue.syncing} onSync={sendNow}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}
         bottom={organiser ? <OutreachTeam facilityId={facilityId} /> : undefined}

@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type MutableRefObject } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, isStoppedRequest } from '@hid/http'
 import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { ArrowLeft } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
@@ -7,7 +7,7 @@ import { Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
 import { outreachProblemText } from '../../../outreachProblems'
-import { waitReason, waitsForNetwork, type PendingRegistration, type WaitReason } from './offlineQueue'
+import { waitReason, waitsForNetwork, waitsForSignIn, type PendingRegistration, type WaitReason } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
 import {
@@ -65,13 +65,18 @@ const FIELD_ID: Record<CaseField, string> = {
 
 /**
  * At an outreach group (open sign-up on outreach.): the group's name for the notice, and the device's queue, which keeps
- * a registration that could not be sent. A hospital's outreach team has neither.
+ * each registration from before it is first sent until Health ID takes it, so a reload while it is saving loses nothing.
+ * A hospital's outreach team has neither.
  */
 export interface OutreachGroupForm {
   readonly name: string
   readonly queue: (entry: Pick<PendingRegistration, 'localCommandId' | 'temporaryPatientId' | 'input'>) => Promise<void>
+  /** Takes a registration off this device: Health ID took it, or refused it while the person is still here to correct it. */
+  readonly dequeue: (localCommandId: string) => Promise<void>
+  /** Claims a registration for sending (offlineQueue.ts claimSend): null while another sender has it. */
+  readonly claim: (localCommandId: string) => Promise<(() => void) | null>
   /** A registration was kept on this device, and why it could not be sent: the form is cleared for the next person. */
-  readonly onQueued: (queued: { readonly fullName: string; readonly localCommandId: string; readonly reason: WaitReason }) => void
+  readonly onQueued: (queued: { readonly fullName: string; readonly localCommandId: string; readonly reason: WaitReason | 'session' }) => void
 }
 
 /** Why no campaign is listed, at an outreach group, when it isn't that the person is in none. */
@@ -205,25 +210,42 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
     const { command } = attempt.current
     onSending()
     setBusy(true)
+    // At an outreach group, the registration is kept on this device before it is sent, so a reload or a closed tab while
+    // it is saving loses nothing: it is under "Saved on this device" and sent again with the same command (registered
+    // once). Claimed first, so no other sender in this tab, or another tab, sends it at the same time.
+    const release = group ? await group.claim(command.localCommandId) : null
+    let kept = false
+    if (group && release) {
+      try { await group.queue({ ...command, input }); kept = true } catch { /* the device could not keep it: sent all the same */ }
+    }
     try {
       const created = await staffApi.createOutreachCase(facilityId, input, command)
+      // Taken by Health ID (or the registration it already made for this command): off this device before it is listed.
+      if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
       attempt.current = null
       element.reset()
       resetConsent()
+      release?.()
       onCreated(created)
     } catch (caught) {
-      if (group && waitsForNetwork(caught)) {
-        // Not reached Health ID, or it could not take it just now: kept on this device with its command, and sent again
-        // when the network is back. The same command is sent, so it is registered once.
+      release?.()
+      // Not reached Health ID, or it could not take it just now, or never judged (the session ended, or the page stopped
+      // the send): kept on this device with its command, and sent again when it can be. The same command is sent, so it
+      // is registered once.
+      const session = kept && (waitsForSignIn(caught) || isStoppedRequest(caught))
+      if (group && (waitsForNetwork(caught) || session)) {
         try {
-          await group.queue({ ...command, input })
+          if (!kept) await group.queue({ ...command, input })
           attempt.current = null
           element.reset()
           resetConsent()
-          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: waitReason(caught) })
+          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught) })
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
       }
+      // Health ID's answer (a refusal to correct here, with everything typed still on the form): not left waiting on the
+      // device, where it would be sent again as it is.
+      if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
       if (!group && campaignId && campaignRefused(caught)) {
         // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
         // outreach group, whose registrations always need their campaign.

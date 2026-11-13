@@ -173,6 +173,15 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
+    // Outreach's reload safety (the owner's "no hassle" rule, 14 November 2026): the one module allowed browser storage
+    // for outreach, sessionStorage for what this tab must keep across a reload (unsaved health checks, a Health ID code
+    // step, a just-made claim code for 15 minutes, the outreach group chosen), keyed by account and cleared on sign-out,
+    // and localStorage only for a cross-tab send lock holding a random command id (docs/ARCHITECTURE.md). Every other
+    // restriction stays, IndexedDB among them.
+    files: ['apps/patient-web/src/ehr-blue/departments/outreach/tabMemory.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
     // The portal's push-only worker (B6), a classic worker script: it shows a fixed notification and opens
     // Notifications. No fetch, Cache API, storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
     files: ['apps/patient-web/public/sw.js'],
