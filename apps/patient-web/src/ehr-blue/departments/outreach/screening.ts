@@ -143,17 +143,22 @@ export function parseNumber(typed: string, decimals: number): number | undefined
  * blood sugar under 3.9 or 11.1 mmol/L or more (under 70 or 200 mg/dL or more).
  */
 export function outsideUsualRange(form: ScreeningForm): boolean {
-  const value = (typed: string, decimals: number) => parseNumber(typed, decimals)
-  const top = value(form.bpSystolic, 0)
-  const bottom = value(form.bpDiastolic, 0)
-  const pulse = value(form.pulseBpm, 0)
-  const temperature = value(form.temperatureC, 1)
-  const glucose = value(form.glucoseValue, 1)
-  const mmol = form.glucoseUnit === 'mg/dL' ? (glucose === undefined ? undefined : glucose / 18) : form.glucoseUnit === 'mmol/L' ? glucose : undefined
+  // Only readings Outreach takes are judged, so a number part-typed ("1" on the way to "120") never prompts.
+  const value = (typed: string, decimals: number, low: number, high: number) => {
+    const read = parseNumber(typed, decimals)
+    return read !== undefined && read >= low && read <= high ? read : undefined
+  }
+  const top = value(form.bpSystolic, 0, 50, 300)
+  const bottom = value(form.bpDiastolic, 0, 20, 200)
+  const pulse = value(form.pulseBpm, 0, 20, 250)
+  const temperature = value(form.temperatureC, 1, 30, 45)
+  const mmol = form.glucoseUnit === 'mmol/L' ? value(form.glucoseValue, 1, 1, 40) : undefined
+  const mgdl = form.glucoseUnit === 'mg/dL' ? value(form.glucoseValue, 1, 18, 720) : undefined
   return (top !== undefined && (top >= 180 || top < 90)) || (bottom !== undefined && bottom >= 110)
     || (pulse !== undefined && (pulse > 120 || pulse < 50))
     || (temperature !== undefined && (temperature >= 38 || temperature < 35.5))
     || (mmol !== undefined && (mmol < 3.9 || mmol >= 11.1))
+    || (mgdl !== undefined && (mgdl < 70 || mgdl >= 200))
 }
 
 /** Whether weight and height give a BMI no one has (under 10 or over 70): most likely swapped or mistyped. */

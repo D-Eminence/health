@@ -103,11 +103,13 @@ export function leaveHealthChecks(): boolean {
   return !unsavedHealthChecks.current || window.confirm('You have health checks that aren’t saved. Leave anyway?')
 }
 
-export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
+export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }: {
   readonly facilityId: string
   readonly caseId: string
   /** Whether this membership may write registrations (outreach.registration.write); otherwise the checks are read only. */
   readonly canWrite: boolean
+  /** The person's age, when known: the weight-and-height check is for adults (a newborn's BMI can be under 10). */
+  readonly ageYears?: number
   /** Told once checks are saved, so the registration is read again (its "Health checks recorded", and the slip's line). */
   readonly onSaved?: () => void
 }) {
@@ -360,6 +362,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
     </EhrSelect>
   )
   const bmi = bmiOf(form)
+  const bmiImplausible = (ageYears === undefined || ageYears >= 18) && implausibleBmi(form)
   const saved = read.kind === 'ready' ? read.screening : null
 
   let body: ReactNode
@@ -381,8 +384,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
             <OutreachField id={id('weightKg')} label="Weight" hint="kg, like 64.5." {...field('weightKg')}>{numberInput('weightKg', true, true)}</OutreachField>
             <OutreachField id={id('heightCm')} label="Height" hint="Whole centimetres, like 165." {...field('heightCm')}>{numberInput('heightCm', false, true)}</OutreachField>
           </div>
-          {bmi && !implausibleBmi(form) ? <p id={id('bmi')} className="m-0 text-body text-ink-2" aria-live="polite">BMI about <strong>{bmi}</strong> (worked out from weight and height; not saved).</p> : null}
-          {implausibleBmi(form) ? <p id={id('bmi')} className="m-0 text-body text-ink-1" aria-live="polite">{CHECK_WEIGHT_HEIGHT}</p> : null}
+          {bmi && !bmiImplausible ? <p id={id('bmi')} className="m-0 text-body text-ink-2" aria-live="polite">BMI about <strong>{bmi}</strong> (worked out from weight and height; not saved).</p> : null}
+          {bmiImplausible ? <p id={id('bmi')} className="m-0 text-body text-ink-1" aria-live="polite">{CHECK_WEIGHT_HEIGHT}</p> : null}
         </Group>
         <Group id={id('glucose')} title="Blood sugar">
           <div className="grid gap-3 @md:grid-cols-3">

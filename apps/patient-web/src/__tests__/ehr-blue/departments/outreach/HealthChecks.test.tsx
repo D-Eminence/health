@@ -481,6 +481,31 @@ describe('Health checks', () => {
     expect(SEE_CLINICIAN).toBe('This reading is outside the usual range. Make sure a clinician sees this person before they leave.')
   })
 
+  it('never asks for a clinician while a usual reading is being typed, nor for 70 mg/dL', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    const steps: Array<[RegExp, string]> = [[/top number/, '1'], [/top number/, '12'], [/top number/, '120'], [/bottom number/, '8'], [/bottom number/, '80'],
+      [/^Pulse/, '7'], [/^Pulse/, '72'], [/^Temperature/, '3'], [/^Temperature/, '36'], [/^Temperature/, '36.8']]
+    for (const [name, value] of steps) {
+      type(name, value)
+      expect(within(region()).queryByText(SEE_CLINICIAN)).toBeNull()
+    }
+    choose(/^Unit/, 'mg/dL')
+    type(/^Reading/, '70')
+    expect(within(region()).queryByText(SEE_CLINICIAN)).toBeNull()
+    type(/^Reading/, '69')
+    expect(within(region()).getByText(SEE_CLINICIAN)).toBeTruthy()
+  })
+
+  it('shows a baby’s BMI as it is: the weight-and-height check is for adults', async () => {
+    renderDept(<HealthChecks facilityId={GROUP_ID} caseId={CASE_ID} canWrite ageYears={0} />)
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Weight/, '2.2')
+    type(/^Height/, '50')
+    expect(region().textContent).toContain('BMI about')
+    expect(within(region()).queryByText(CHECK_WEIGHT_HEIGHT)).toBeNull()
+  })
+
   it('says to check weight and height when they give a BMI no one has, instead of showing it', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
