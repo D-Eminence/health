@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { HealthChecks, leaveHealthChecks, SCREENING_CLASH, SCREENING_MERGED, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
+import { HealthChecks, leaveHealthChecks, SCREENING_CLASH, SCREENING_MERGED, SCREENING_NO_SIGNAL, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
@@ -218,6 +218,13 @@ describe('Health checks', () => {
     expect(within(within(region()).getByRole('list', { name: 'Medicines given' })).getAllByRole('listitem')).toHaveLength(9)
   })
 
+  it('a case opened with no signal says so, and to write the readings on paper', async () => {
+    api.outreachScreening.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    renderChecks()
+    expect(await screen.findByText(SCREENING_NO_SIGNAL)).toBeTruthy()
+    expect(SCREENING_NO_SIGNAL).toBe('Health checks can’t be opened without signal. Write the readings on paper and add them here when you have signal.')
+  })
+
   it('without signal, says so, keeps everything typed, and sends the same key when saved again', async () => {
     api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
       .mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
@@ -226,7 +233,7 @@ describe('Health checks', () => {
     type(/^Pulse/, '80')
     await press(saveButton())
     expect(await within(region()).findByText(SCREENING_OFFLINE)).toBeTruthy()
-    expect(SCREENING_OFFLINE).toContain('Save again when you have signal.')
+    expect(SCREENING_OFFLINE).toBe('No signal, so we can’t tell if the health checks were saved. Your typing is still here while this page stays open. Write the readings on paper before you move on. Press Save again when you have signal. Nothing is saved twice.')
     expect(box(/^Pulse/).value).toBe('80')
     await press(saveButton())
     await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))

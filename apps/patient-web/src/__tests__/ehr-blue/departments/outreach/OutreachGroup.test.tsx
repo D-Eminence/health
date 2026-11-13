@@ -287,12 +287,13 @@ describe('registering someone at an outreach group', () => {
     const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
     expect(notes.maxLength).toBe(280)
     expect(screen.queryByRole('textbox', { name: /Area, town or LGA/ })).toBeNull()
+    expect(document.body.textContent).not.toContain('Health check results go')
   })
 
   it('keeps notes to 1000 characters, with health check results kept out of them', async () => {
     api.outreachCases.mockResolvedValue([{ ...pending('case-0', 'Ada Obi'), hasScreening: false }])
     await openNewRegistration()
-    expect(document.body.textContent).toContain('Health check results go in Health checks after you save, not here.')
+    expect(document.body.textContent).toContain('Health check results go in Health checks once the registration is sent, not here.')
     const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
     expect(notes.maxLength).toBe(1000)
     fireEvent.change(notes, { target: { value: 'x'.repeat(1001) } })
@@ -436,7 +437,7 @@ describe('the offline queue', () => {
     await press(screen.getByRole('button', { name: 'Save registration' }))
     const queue = await screen.findByRole('region', { name: 'Saved on this device' })
     expect(within(queue).getByText('Waiting to send')).toBeTruthy()
-    expect(document.body.textContent).toContain('Health ID isn’t available right now. Kemi Balogun’s registration is saved on this device and will be sent automatically.')
+    expect(document.body.textContent).toContain('Health ID isn’t available right now. Kemi Balogun’s registration is saved on this device and will be sent automatically. Health checks can be added once it is sent. Write the readings on paper until then.')
     expect(document.body.textContent).not.toContain('No connection')
   })
 

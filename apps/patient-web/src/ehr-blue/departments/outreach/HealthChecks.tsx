@@ -38,7 +38,8 @@ export const SCREENING_SAVED = 'Health checks saved.'
 export const SCREENING_RELOADED = 'Someone else saved checks for this person while you were typing. Press Show their checks: your typing stays.'
 export const SCREENING_RELOAD_OFFLINE = 'No signal: their checks couldn’t be loaded. Your typing is still here. Press Show their checks again when you have signal.'
 export const SCREENING_MERGED = 'Their checks are shown, with your changes put back in. Nothing is saved yet: check them, then press Save health checks.'
-export const SCREENING_OFFLINE = 'No signal: the health checks were not saved. Everything you typed is still here. Save again when you have signal.'
+export const SCREENING_OFFLINE = 'No signal, so we can’t tell if the health checks were saved. Your typing is still here while this page stays open. Write the readings on paper before you move on. Press Save again when you have signal. Nothing is saved twice.'
+export const SCREENING_NO_SIGNAL = 'Health checks can’t be opened without signal. Write the readings on paper and add them here when you have signal.'
 export const SCREENING_REDACTED = 'This person’s details were deleted, so health checks can’t be saved for them.'
 export const SCREENING_NOT_FOUND = 'This registration can’t be found. It may have been deleted. Go back to the list.'
 export const SCREENING_INCOMPLETE = 'Some health checks are incomplete. Blood pressure needs both numbers, a blood sugar reading needs its unit and fasting or random, and a referral needs where to.'
@@ -153,6 +154,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       if (isHidApiError(caught) && caught.status === 404 && ROUTE_NOT_SERVED.has(caught.code)) setRead({ kind: 'hidden' })
       else if (isHidApiError(caught) && caught.code === 'OUTREACH_REGISTRATION_NOT_FOUND') setRead({ kind: 'failed', text: SCREENING_NOT_FOUND })
       else if (isHidApiError(caught) && caught.code === 'OUTREACH_REGISTRATION_REDACTED') { setRedacted(true); setRead({ kind: 'failed', text: SCREENING_REDACTED }) }
+      else if (noSignal(caught)) setRead({ kind: 'failed', text: SCREENING_NO_SIGNAL })
       else setRead({ kind: 'failed', text: errorText(caught, SCREENING_NOT_LOADED) })
       return undefined
     }

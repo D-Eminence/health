@@ -375,7 +375,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
             </OutreachField>
           )}
           <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
-            hint={group ? `Where you met them, what they need next. Health check results go in Health checks after you save, not here. ${notesLength} of ${groupNotesLimit} characters.`
+            hint={group ? `Where you met them, what they need next.${healthChecksServed ? ' Health check results go in Health checks once the registration is sent, not here.' : ''} ${notesLength} of ${groupNotesLimit} characters.`
               : 'Where you met them, what they need next. Not a clinical note.'}>
             <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />
