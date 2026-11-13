@@ -191,3 +191,31 @@ describe('Outreach registration case requests', () => {
     }
   })
 })
+
+/** Outreach health checks (outreach-api 0118): read, then the whole screening saved with the caller's key and version. */
+describe('Outreach health checks requests', () => {
+  it('reads the screening, and saves it with the key the caller holds, If-Match only after the first save', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    const requests = recordFetch({ screening: null })
+    const { staffApi } = await signedInStaffApi()
+    const input = { bpSystolic: 120, bpDiastolic: 80, pulseBpm: null, temperatureC: null, weightKg: null, heightCm: null, glucoseValue: null,
+      glucoseUnit: null, glucoseTiming: null, malariaRdt: 'negative' as const, hearingLeft: null, hearingRight: null, mainComplaint: null,
+      seenByClinician: null, clinicianName: null, outcome: null, medicinesGiven: null, referred: null, referredTo: null }
+
+    await staffApi.outreachScreening('facility-1', 'case-1')
+    await staffApi.saveOutreachScreening('facility-1', 'case-1', input, { idempotencyKey: 'k-1' })
+    await staffApi.saveOutreachScreening('facility-1', 'case-1', input, { idempotencyKey: 'k-2', version: 3 })
+
+    expect(requests.map(request => `${request.method} ${request.url.pathname}`)).toEqual([
+      'GET /api/v1/outreach/registration-cases/case-1/screening',
+      'PUT /api/v1/outreach/registration-cases/case-1/screening',
+      'PUT /api/v1/outreach/registration-cases/case-1/screening',
+    ])
+    expect(requests[1]!.body).toEqual(input)
+    expect(requests[1]!.headers.get('idempotency-key')).toBe('k-1')
+    expect(requests[1]!.headers.get('if-match')).toBeNull()
+    expect(requests[2]!.headers.get('idempotency-key')).toBe('k-2')
+    expect(requests[2]!.headers.get('if-match')).toBe('"3"')
+    for (const request of requests) expect(request.headers.get('x-facility-id')).toBe('facility-1')
+  })
+})

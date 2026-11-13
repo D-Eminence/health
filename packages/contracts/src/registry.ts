@@ -1145,6 +1145,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
+  // Health checks at an outreach event (outreach-api 0118): proposed until served; a 404 NOT_FOUND or API_ROUTE_NOT_FOUND
+  // hides the page's Health checks section.
+  proposed(r('outreach.caseScreening','outreach','/api/v1/outreach/registration-cases/:caseId/screening',['GET','PUT'],false,
+    { GET: ['outreach.registration.read'], PUT: ['outreach.registration.write'] },
+    'Outreach health checks (outreach-api 0118); not served by hid-system main (404). GET answers { screening: null | Screening } '
+    + 'with ETag "<version>". PUT takes the whole screening (nulls for what is not recorded) with Idempotency-Key, and If-Match '
+    + '"<version>" after the first save: 201 first, 200 after, { screening }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
+    + 'OUTREACH_SCREENING_EXISTS, IDEMPOTENCY_CONFLICT or OUTREACH_REGISTRATION_REDACTED, 422 OUTREACH_SCREENING_OUT_OF_RANGE or '
+    + 'OUTREACH_SCREENING_INCOMPLETE, 404 OUTREACH_REGISTRATION_NOT_FOUND.')),
   // Open sign-up on outreach. (owner decisions of 11 November 2026): the public sign-up, a signed-in account's "Start an
   // outreach group", the organiser's team invitations and accepting one.
   proposed(r('enrollment.outreachOrganiserAvailability','enrollment','/api/v1/identity/outreach-organisers/availability',G,true,undefined,

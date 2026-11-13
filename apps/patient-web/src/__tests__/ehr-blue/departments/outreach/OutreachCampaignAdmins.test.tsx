@@ -18,7 +18,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCampaignGovernance: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachScreening: vi.fn(), outreachCampaignGovernance: vi.fn(),
   outreachCampaignStaff: vi.fn(), createOutreachCampaign: vi.fn(), setOutreachCampaignStatus: vi.fn(), addOutreachCampaignMember: vi.fn(),
 }))
 // Every staff API member the page reaches for that this test does not provide.
@@ -48,6 +48,8 @@ const CLERK = { membershipId: 'membership-demo-3', name: 'Demo Clerk', campaignR
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Today's Outreach serves no health checks (0118): the section is not shown.
+  api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   unprovided.clear()
   session.permissions = MANAGE
   api.outreachCampaigns.mockResolvedValue([PLANNED, RUNNING, LATER, FINISHED])

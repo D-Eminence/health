@@ -18,6 +18,7 @@ import {
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
 import { GetHealthIdNow } from './GetHealthIdNow'
+import { HealthChecks } from './HealthChecks'
 
 type LinkField = 'patient' | 'reason'
 
@@ -49,7 +50,7 @@ function personName(patient: PatientSummary) {
  * step is today's one action (link a verified existing patient, for a membership that may write registrations); once
  * linked, a done state with the way on.
  */
-export function OutreachCaseView({ facilityId, item, campaign, canLink, group = false, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
+export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite = canLink, group = false, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
   readonly facilityId: string
   /**
    * At an outreach group, which can't link anyone to a Health ID (Identity and Outreach refuse it): no "Link existing
@@ -59,6 +60,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
   readonly item: OutreachCase
   readonly campaign: OutreachCampaign | undefined
   readonly canLink: boolean
+  /** Whether the membership may write registrations: health checks are recorded then, else only read. */
+  readonly canWrite?: boolean
   /** Opened from the create form, which made this case. */
   readonly created: boolean
   /** The registration case list's last read failed: what is shown may be out of date. */
@@ -264,6 +267,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
         <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
           <div className="flex min-w-0 flex-col gap-4">
             {nextStep}
+            <HealthChecks facilityId={facilityId} caseId={item.id} canWrite={canWrite} />
             {/* While the registration waits for a Health ID: the person can make their own now, on their phone. */}
             {pending && !linked ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} /> : null}
           </div>

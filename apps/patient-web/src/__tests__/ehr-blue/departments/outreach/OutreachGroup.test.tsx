@@ -24,7 +24,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
   outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(),
 }))
@@ -37,6 +37,8 @@ const pending = (id: string, fullName: string) => ({ id, campaignId: 'campaign-1
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Today's Outreach serves no health checks (0118): the section is not shown.
+  api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   session.roles = ['outreach_organiser']
   setOutreachQueueStore(memoryQueueStore())
   api.outreachCampaigns.mockResolvedValue([CAMPAIGN])
@@ -163,7 +165,7 @@ describe('registering someone at an outreach group', () => {
     expect(notice.textContent).toContain('Ajegunle Health Volunteers is registering people at this event on Health ID Outreach.')
     expect(notice.textContent).toContain('Unverified organiser. Health ID has not checked who runs Ajegunle Health Volunteers.')
     expect(notice.textContent).toContain('deleted 1 year after the campaign closes')
-    expect(notice.textContent).toContain('You can say no.')
+    expect(notice.textContent).toContain('You can say no to being registered.')
     fillPerson()
     await press(screen.getByRole('button', { name: 'Save registration' }))
     expect(screen.getByText('Choose how the person agreed.')).toBeTruthy()
@@ -177,7 +179,7 @@ describe('registering someone at an outreach group', () => {
     const [facility, input, command] = api.createOutreachCase.mock.calls[0]!
     expect(facility).toBe(GROUP_ID)
     expect(input).toMatchObject({ campaignId: 'campaign-1', fullName: 'Kemi Balogun', ageYears: 30,
-      consent: { textVersion: 'outreach-notice-2026-11-01', language: 'yo', method: 'verbal_read_aloud' } })
+      consent: { textVersion: 'outreach-notice-2026-11-14', language: 'yo', method: 'verbal_read_aloud' } })
     expect(input.consent.guardianName).toBeUndefined()
     expect(command.localCommandId).toMatch(/^[0-9a-f-]{36}$/)
   })
@@ -193,7 +195,7 @@ describe('registering someone at an outreach group', () => {
     fireEvent.change(textbox(/Parent or guardian’s name/), { target: { value: 'Ngozi Obi' } })
     await press(screen.getByRole('button', { name: 'Save registration' }))
     await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
-    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-01', language: 'en',
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14', language: 'en',
       method: 'guardian', guardianName: 'Ngozi Obi' })
   })
 
@@ -227,16 +229,16 @@ describe('registering someone at an outreach group', () => {
     expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 
-  it('keeps notes to 280 characters, with no diagnoses', async () => {
+  it('keeps notes to 1000 characters, with health check results kept out of them', async () => {
     await openNewRegistration()
-    expect(document.body.textContent).toContain('No diagnoses, test results or other health details.')
+    expect(document.body.textContent).toContain('Health check results go in Health checks after you save, not here.')
     const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
-    expect(notes.maxLength).toBe(280)
-    fireEvent.change(notes, { target: { value: 'x'.repeat(300) } })
+    expect(notes.maxLength).toBe(1000)
+    fireEvent.change(notes, { target: { value: 'x'.repeat(1001) } })
     fillPerson()
     await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
     await press(screen.getByRole('button', { name: 'Save registration' }))
-    expect(screen.getByText('Keep notes to 280 characters, and do not write diagnoses.')).toBeTruthy()
+    expect(screen.getByText('Keep notes to 1000 characters. Record health check results in Health checks, not in the notes.')).toBeTruthy()
     expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 

@@ -1404,6 +1404,10 @@ export interface OutreachCase {
    * the same campaign has the same phone number, or the same name and age. A hint only: the registration is saved.
    */
   possibleDuplicate?: boolean
+  /** Where the person lives ("Area, town or LGA"), null when none was given; absent from an Outreach before 0118. */
+  area?: string | null
+  /** Whether health checks are recorded for this registration (0118); absent from an earlier Outreach. */
+  hasScreening?: boolean
 }
 
 /** The languages the registration notice is given in; any but English means it was read aloud in that language. */
@@ -1431,7 +1435,52 @@ export interface OutreachCaseInput {
   ageYears: number
   phone?: string
   operationalNotes?: string
+  /** "Area, town or LGA", up to 100 characters (0118). */
+  area?: string
   consent?: OutreachConsent
+}
+
+/** A blood sugar reading's unit and when it was taken (outreach-api screening, 0118). */
+export type OutreachGlucoseUnit = 'mmol/L' | 'mg/dL'
+export type OutreachGlucoseTiming = 'fasting' | 'random'
+export type OutreachMalariaRdt = 'positive' | 'negative' | 'not_done'
+export type OutreachHearing = 'pass' | 'refer' | 'not_done'
+export interface OutreachMedicineGiven { name: string; dose?: string | null }
+
+/**
+ * A registration's health checks as outreach-api 0118 takes them: the whole screening each time, null for anything not
+ * recorded. Blood pressure takes both numbers or neither; a blood sugar value takes its unit and timing; referredTo only
+ * with referred true.
+ */
+export interface OutreachScreeningInput {
+  bpSystolic: number | null
+  bpDiastolic: number | null
+  pulseBpm: number | null
+  temperatureC: number | null
+  weightKg: number | null
+  heightCm: number | null
+  glucoseValue: number | null
+  glucoseUnit: OutreachGlucoseUnit | null
+  glucoseTiming: OutreachGlucoseTiming | null
+  malariaRdt: OutreachMalariaRdt | null
+  hearingLeft: OutreachHearing | null
+  hearingRight: OutreachHearing | null
+  mainComplaint: string | null
+  seenByClinician: boolean | null
+  clinicianName: string | null
+  outcome: string | null
+  medicinesGiven: OutreachMedicineGiven[] | null
+  referred: boolean | null
+  referredTo: string | null
+}
+
+/** A saved screening: what was sent, and who saved it when, at its version (the ETag the next save sends as If-Match). */
+export interface OutreachScreening extends OutreachScreeningInput {
+  caseId: string
+  version: number
+  recordedAt: string
+  recordedByMembershipId: string
+  updatedAt: string
 }
 
 /**
@@ -2628,6 +2677,25 @@ export const staffApi = {
     command: { localCommandId: string; temporaryPatientId: string }) =>
     client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
+
+  /**
+   * A registration's health checks (outreach-api 0118, proposed): `{ screening: null }` until any are saved. An Outreach
+   * without the route answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the page then shows no Health checks section.
+   */
+  outreachScreening: (facilityId: string, caseId: string, signal?: AbortSignal) =>
+    client.get<{ screening: OutreachScreening | null }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,
+      { headers: facilityHeaders(facilityId), signal, dedupe: false }),
+  /**
+   * Saves the whole screening: 201 the first time (no If-Match), 200 after, against the version read (If-Match, 412
+   * VERSION_CONFLICT when it changed since). The caller holds the Idempotency-Key, one per save attempt and the same on a
+   * retry of that attempt.
+   */
+  saveOutreachScreening: (facilityId: string, caseId: string, input: OutreachScreeningInput,
+    write: { idempotencyKey: string; version?: number }) =>
+    client.request<{ screening: OutreachScreening }>({ method: 'PUT',
+      path: `/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`, body: input,
+      headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': write.idempotencyKey,
+        ...(write.version !== undefined ? { 'If-Match': `"${write.version}"` } : {}) } }),
 
   /*
    * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach

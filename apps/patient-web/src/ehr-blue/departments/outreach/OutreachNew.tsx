@@ -47,17 +47,19 @@ const SAVE_ID = 'outreach-case-save'
  */
 export type CaseAttempt = { signature: string; command: { localCommandId: string; temporaryPatientId: string } } | null
 
+/** Where the person lives ("Area, town or LGA"), as Outreach takes it (0118): up to 100 characters. */
+const AREA_LIMIT = 100
 /** A parent or guardian's name, as Outreach and the database take it: 2 to 120 characters. */
 const GUARDIAN_NAME_LIMIT = 120
 const UNDER_18_METHOD = 'This person is under 18. Choose “Their parent or guardian agreed for them”.'
 /** An age entered as a whole number under 18. */
 const isMinorAge = (age: string) => age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) < 18
 
-type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'campaign' | 'notes'
-const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'campaign', 'notes']
+type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'area' | 'campaign' | 'notes'
+const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'area', 'campaign', 'notes']
 const FIELD_ID: Record<CaseField, string> = {
   method: 'outreach-consent-method-verbal_read_aloud', guardian: 'outreach-consent-guardian',
-  name: 'outreach-case-name', age: 'outreach-case-age', phone: 'outreach-case-phone', campaign: 'outreach-case-campaign',
+  name: 'outreach-case-name', age: 'outreach-case-age', phone: 'outreach-case-phone', area: 'outreach-case-area', campaign: 'outreach-case-campaign',
   notes: 'outreach-case-notes',
 }
 
@@ -87,7 +89,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   readonly attempt: MutableRefObject<CaseAttempt>
   /**
    * At an outreach group: the person's agreement comes first (the notice, its language, how they agreed, and a guardian
-   * for anyone under 18), a campaign is required, notes are kept short with no diagnoses, and a registration that could
+   * for anyone under 18), a campaign is required, notes keep no health check results (those go in Health checks), and a registration that could
    * not be sent waits on this device. Absent at a hospital, where the form is today's.
    */
   readonly group?: OutreachGroupForm
@@ -138,6 +140,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     const age = String(form.get('ageYears') ?? '').trim()
     const ageYears = Number(age)
     const phone = String(form.get('phone') ?? '').trim() || undefined
+    const area = String(form.get('area') ?? '').trim().replace(/\s+/g, ' ') || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
     const guardianName = String(form.get('guardianName') ?? '').trim().replace(/\s+/g, ' ') || undefined
     // The last answer no longer applies.
@@ -150,10 +153,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     if (!age) errors.age = COMPLETE_FIELD
     else if (!Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) errors.age = AGE_RANGE
     if (phone !== undefined && phone.length < 3) errors.phone = AT_LEAST_THREE
+    if (area !== undefined && area.length > AREA_LIMIT) errors.area = `Keep the area to ${AREA_LIMIT} characters.`
     if (operationalNotes !== undefined && operationalNotes.length < 3) errors.notes = AT_LEAST_THREE
     if (group) {
       // At an outreach group, as Outreach and the database check: how the person agreed, a guardian for anyone under 18
-      // (or when a guardian agreed), a campaign, and notes of 280 characters at most.
+      // (or when a guardian agreed), a campaign, and notes of OUTREACH_NOTES_LIMIT (1000) characters at most.
       const minor = isMinorAge(age)
       if (!method) errors.method = 'Choose how the person agreed.'
       else if (minor && method !== 'guardian') errors.method = UNDER_18_METHOD
@@ -165,7 +169,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
         : 'You can register people only in a running registration campaign you belong to.'
       if (operationalNotes !== undefined && operationalNotes.length > OUTREACH_NOTES_LIMIT) {
-        errors.notes = `Keep notes to ${OUTREACH_NOTES_LIMIT} characters, and do not write diagnoses.`
+        errors.notes = `Keep notes to ${OUTREACH_NOTES_LIMIT} characters. Record health check results in Health checks, not in the notes.`
       }
     }
     const first = FIELD_ORDER.find(field => errors[field])
@@ -176,7 +180,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       return
     }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    const input: OutreachCaseInput = { campaignId, fullName, sex, ageYears, phone, operationalNotes,
+    const input: OutreachCaseInput = { campaignId, fullName, sex, ageYears, phone, ...(area ? { area } : {}), operationalNotes,
       ...(group && method ? { consent: { textVersion: REGISTRATION_NOTICE_VERSION, language, method, ...(guardianName ? { guardianName } : {}) } } : {}) }
     const signature = JSON.stringify([facilityId, input])
     if (attempt.current?.signature !== signature) {
@@ -265,6 +269,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
           <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
             <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
           </OutreachField>
+          <OutreachField id={FIELD_ID.area} label="Area, town or LGA (optional)" hint="Where they live, so the team can follow up nearby." {...field('area')}>
+            <EhrInput name="area" maxLength={AREA_LIMIT} autoComplete="off" {...controlProps(FIELD_ID.area, fieldError('area'), true)} />
+          </OutreachField>
         </Step>
         <Step n={group ? 4 : 3} title="Campaign and notes">
           {group ? (
@@ -285,7 +292,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
             </OutreachField>
           )}
           <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
-            hint={group ? `Where you met them, what they need next. No diagnoses, test results or other health details. ${notesLength} of ${OUTREACH_NOTES_LIMIT} characters.`
+            hint={group ? `Where you met them, what they need next. Health check results go in Health checks after you save, not here. ${notesLength} of ${OUTREACH_NOTES_LIMIT} characters.`
               : 'Where you met them, what they need next. Not a clinical note.'}>
             <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />

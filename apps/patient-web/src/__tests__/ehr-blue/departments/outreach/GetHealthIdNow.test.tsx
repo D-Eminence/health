@@ -22,7 +22,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
   outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(),
 }))
@@ -37,6 +37,8 @@ const pending = (id: string) => ({ id, campaignId: 'campaign-1', status: 'identi
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Today's Outreach serves no health checks (0118): the section is not shown.
+  api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   setOutreachQueueStore(memoryQueueStore())
   api.outreachCampaigns.mockResolvedValue([CAMPAIGN])
   api.outreachCases.mockResolvedValue([])

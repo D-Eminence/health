@@ -27,7 +27,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), lookupPatient: vi.fn(),
   // Campaign management (hid-system#222): asked of a membership that may write campaigns. Today's Outreach answers 404,
   // so these tests keep campaigns read only (OutreachCampaignAdmins.test.tsx has it served).
@@ -80,6 +80,8 @@ let setItem: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Today's Outreach serves no health checks (0118): the section is not shown.
+  api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   unprovided.clear()
   session.permissions = ALL
   session.facility = 'hospital'

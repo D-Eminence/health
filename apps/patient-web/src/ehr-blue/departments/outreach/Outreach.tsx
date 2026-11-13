@@ -202,7 +202,7 @@ export function Outreach() {
     const settled = canReadCases && cases.value !== null && !cases.loading && !cases.error
     const item = listed ?? (view.created || !settled ? view.snapshot : null)
     content = item
-      ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite && !group} group={group}
+      ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite && !group} canWrite={canWrite} group={group}
         created={view.created} listError={cases.error} onBack={() => backToList(`outreach-case-${item.id}-open`)}
         onNew={canWrite ? () => show({ kind: 'new' }) : undefined}
         onChanged={cases.refresh} onFocusHeading={focusHeadingIfLost} />
@@ -426,6 +426,7 @@ function CaseCard({ item, campaign, canLink, group, onOpen }: {
           <Badge size="sm" tone={caseTone(item.status)}>{statusLabel(item.status)}</Badge>
         </span>
         <span className="text-[14px] text-ink-2">{ageText(item)} · {sexText(item)}{campaign ? ` · ${campaign.name}` : ''}</span>
+        {item.hasScreening ? <span className="self-start"><Badge size="sm" tone="success">Health checks recorded</Badge></span> : null}
         <span className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2 text-[13px]">
           <span className={waiting ? 'inline-flex items-center gap-1 font-medium text-brand-ink' : 'text-ink-3'}>
             {nextStepText(item, canLink, group)}{waiting && canLink ? <ArrowRight className="size-3.5" aria-hidden /> : null}

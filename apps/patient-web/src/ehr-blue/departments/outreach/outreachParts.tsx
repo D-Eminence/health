@@ -225,6 +225,7 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Age', value: ageText(item) },
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
+    ...(item.area !== undefined ? [{ label: 'Area, town or LGA', value: item.area?.trim() || 'Not recorded' }] : []),
     { label: 'Status', value: statusLabel(item.status) },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
