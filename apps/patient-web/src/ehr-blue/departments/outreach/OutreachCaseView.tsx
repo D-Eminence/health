@@ -96,7 +96,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const asking = useRef(false)
   const doneId = `outreach-case-${item.id}-done`
   const { facility, actorId } = useDeptAccess()
-  // The Health ID made here just now, with its claim code when made with no email or phone, for the slip. After a reload
+  // The Health ID made here just now, with its claim code when made with no email, for the slip. After a reload
   // the claim code is printed for 15 minutes from this tab's own copy (tabMemory.ts), never shown on screen again.
   const [madeHere, setMadeHere] = useState<MadeHere | null>(null)
   const { print, area: slipArea } = useSlipPrint()

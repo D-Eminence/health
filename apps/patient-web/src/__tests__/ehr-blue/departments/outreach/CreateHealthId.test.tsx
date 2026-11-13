@@ -8,7 +8,7 @@ import {
 
 /*
  * "Create Health ID" at an outreach event (outreach-api 0119, proposed): only where Outreach serves it, only once the
- * person wants one, by email code or unverified with a claim code; text messages not yet. Fictional data only.
+ * person wants one, by email code or with no email (a claim code); text messages not yet. Fictional data only.
  */
 
 const GROUP_ID = '0e7c0000-0000-4000-8000-000000000001'
@@ -53,16 +53,17 @@ describe('Create Health ID', () => {
     expect(screen.queryByRole('region', { name: 'Create Health ID' })).toBeNull()
   })
 
-  it('offers nothing until they want a Health ID, then Email first, No email or phone, and Text message disabled', async () => {
+  it('offers nothing until they want a Health ID, then Email first, No email (even with a phone), and Text message disabled', async () => {
     renderSection()
     expect(within(region()).queryByRole('radio')).toBeNull()
     const box = within(region()).getByRole('checkbox', { name: /They want a Health ID/ }) as HTMLInputElement
     expect(box.checked).toBe(false)
     await want()
+    expect(within(region()).getByRole('group', { name: 'How should we make their Health ID?' })).toBeTruthy()
     const radios = within(region()).getAllByRole('radio') as HTMLInputElement[]
     expect(radios.map(radio => radio.labels?.[0]?.textContent)).toEqual([
-      'EmailThey read you the code from the email.', 'No email or phoneA Health ID with a claim code for their slip.',
-      'Text messageText messages aren’t available yet.'])
+      'EmailWe send a 6-digit code. They read it to you.', 'No emailEven if they have a phone. They get a claim code on their slip.',
+      'Text messageNot available yet.'])
     expect(radios[0]!.checked).toBe(true)
     expect(radios[2]!.disabled).toBe(true)
     const email = within(region()).getByRole('textbox', { name: /Their email address/ }) as HTMLInputElement
@@ -135,7 +136,7 @@ describe('Create Health ID', () => {
     api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', registration: { ...ITEM, healthId: 'HID-UNVER1' } })
     renderSection()
     await want()
-    await press(within(region()).getByRole('radio', { name: /No email or phone/ }))
+    await press(within(region()).getByRole('radio', { name: /^No email/ }))
     await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
     expect(await within(region()).findByText('HID-UNVER1')).toBeTruthy()
     expect(within(region()).getByText('K7Q-4MZ')).toBeTruthy()
@@ -179,7 +180,8 @@ describe('Create Health ID', () => {
     renderSection()
     await sendEmail()
     await waitFor(() => expect(within(region()).queryByRole('radio', { name: /^Email/ })).toBeNull())
-    expect((within(region()).getByRole('radio', { name: /No email or phone/ }) as HTMLInputElement).checked).toBe(true)
+    expect((within(region()).getByRole('radio', { name: /^No email/ }) as HTMLInputElement).checked).toBe(true)
+    expect(region().textContent).toContain('Email codes aren’t available yet. Choose “No email”, or give them the slip.')
     await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Create Health ID' })).toBeNull())
   })

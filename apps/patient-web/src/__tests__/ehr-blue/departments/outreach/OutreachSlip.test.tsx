@@ -10,7 +10,7 @@ import {
 
 /*
  * The slip a person takes home from an outreach: group, campaign, event date, who, when registered, their Health ID
- * when they have one, and the claim code only straight after "No email or phone" made it here (or, for 15 minutes, after
+ * when they have one, and the claim code only straight after "No email" made it here (or, for 15 minutes, after
  * a reload of that tab). Never a health value, and the claim code is never shown on screen again. Fictional data only.
  */
 
@@ -140,12 +140,12 @@ describe('Print slip on a registration', () => {
     expect(slip()!.textContent).not.toContain('Claim code')
   })
 
-  it('prints the claim code right after "No email or phone", from the claim-code display, and on the slip only after a reload', async () => {
+  it('prints the claim code right after "No email", from the claim-code display, and on the slip only after a reload', async () => {
     api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', registration: { ...ITEM, healthId: 'HID-UNVER1' } })
     const view = renderCase()
     const region = screen.getByRole('region', { name: 'Create Health ID' })
     await press(within(region).getByRole('checkbox', { name: /They want a Health ID/ }))
-    await press(within(region).getByRole('radio', { name: /No email or phone/ }))
+    await press(within(region).getByRole('radio', { name: /^No email/ }))
     await press(within(region).getByRole('button', { name: 'Create Health ID' }))
     expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
     await press(within(region).getByRole('button', { name: 'Print slip' }))

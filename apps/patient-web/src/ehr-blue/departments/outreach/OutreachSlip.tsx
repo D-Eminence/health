@@ -63,7 +63,7 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, b
   readonly item: OutreachCase
   /** Their Health ID, when they have one. */
   readonly healthId: string | null | undefined
-  /** Only straight after a Health ID was made here with no email or phone. */
+  /** Only straight after a Health ID was made here with no email (“No email”). */
   readonly claimCode?: string
   /** The Health ID was made at outreach by email: it has no password yet. */
   readonly byEmail?: boolean

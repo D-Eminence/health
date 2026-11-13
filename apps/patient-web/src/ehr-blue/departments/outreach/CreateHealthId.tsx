@@ -14,8 +14,8 @@ import { keepClaimCode, readTab, writeTab } from './tabMemory'
 /*
  * "Create Health ID" at an outreach event (outreach-api 0119, proposed; owner decisions of 13 November 2026): once the
  * person says they want one (separately from agreeing to be registered), the volunteer makes their Health ID from the
- * registration, confirmed by a code sent to the email the person gives, or, with no email or phone, unverified with a
- * claim code for their slip. Text messages are not available yet. Shown only where Outreach serves it: a registration
+ * registration, confirmed by a code sent to the email the person gives, or, with no email (phone or not), unverified
+ * with a claim code for their slip. Text messages are not available yet. Shown only where Outreach serves it: a registration
  * from such an Outreach carries `healthId` (null while none), and a 404 route-not-served from any of its calls hides it.
  * Under 18: no Health ID here yet (Outreach refuses it).
  *
@@ -66,7 +66,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /** What the section shows once a Health ID is made: the claim code only from the answer that made it, once. */
 interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean }
 
-/** A Health ID made here just now, its claim code when it was made with no email or phone, and whether by email. */
+/** A Health ID made here just now, its claim code when it was made with no email, and whether by email. */
 export interface MadeHere { readonly healthId: string; readonly claimCode?: string; readonly byEmail?: boolean }
 
 /**
@@ -177,8 +177,8 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       if (next.size < 2) {
         const other = way === 'email' ? 'unverified' : 'email'
         setMethod(other)
-        setError(way === 'email' ? 'Email codes aren’t available yet. Choose “No email or phone”, or give them the slip.'
-          : '“No email or phone” isn’t available yet. Use their email, or give them the slip.')
+        setError(way === 'email' ? 'Email codes aren’t available yet. Choose “No email”, or give them the slip.'
+          : '“No email” isn’t available yet. Use their email, or give them the slip.')
       }
       return
     }
@@ -345,10 +345,11 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
         </label>
         {wanted && !sent ? <>
           <fieldset className="hid-ehr-field m-0 border-0 p-0">
-            <legend className="hid-ehr-label">Send the code by</legend>
-            {([['email', 'Email', 'They read you the code from the email.'],
-              ['unverified', 'No email or phone', 'A Health ID with a claim code for their slip.'],
-              ['sms', 'Text message', 'Text messages aren’t available yet.']] as const)
+            <legend className="hid-ehr-label">How should we make their Health ID?</legend>
+            {/* "No email" is for anyone without an email, phone or not: a phone alone can't get a code yet. */}
+            {([['email', 'Email', 'We send a 6-digit code. They read it to you.'],
+              ['unverified', 'No email', 'Even if they have a phone. They get a claim code on their slip.'],
+              ['sms', 'Text message', 'Not available yet.']] as const)
               .filter(([value]) => value === 'sms' || !unserved.has(value)).map(([value, label, hint]) => (
               <label key={value} className="flex items-start gap-2 py-1" htmlFor={id(`method-${value}`)}>
                 <input id={id(`method-${value}`)} type="radio" name={id('method')} value={value} checked={method === value}
