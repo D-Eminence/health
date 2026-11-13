@@ -110,6 +110,8 @@ export const READING_LONG = 'Reading the page. Hard handwriting can take a few m
 export const STILL_READING = 'Still reading. Check again in a few minutes.'
 /** The job states Read again is offered in: nothing of the reading is saved yet (no check, no publication). */
 const READ_AGAIN_STATUSES: ReadonlySet<string> = new Set(['awaiting_validation', 'failed', 'rejected'])
+/** Said where Check and save would be, to someone whose role may not check a reading (no ocr.validation.write). */
+export const CHECK_NEEDS_CHECKER = 'Ready to check. A doctor, clinician, nurse or lab scientist at this facility must check and save it.'
 
 /** Why the page stopped reading a job again by itself: it took too long, or a read did not answer. */
 interface PollStop { readonly jobId: string; readonly reason: 'slow' | 'failed' }
@@ -766,6 +768,8 @@ export function Migrate() {
   function jobRecord(shown: OcrJob) {
     const canRetry = canRetryJob && permissions.includes('ocr.job.write')
     const canReview = shown.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions !== null
+    // A reading ready to check, shown to someone who may not check it: say who can, instead of showing nothing.
+    const waitsForChecker = shown.status === 'awaiting_validation' && !permissions.includes('ocr.validation.write')
     const canConfirm = shown.status === 'validated' && !shown.patientConfirmation && permissions.includes('ocr.patient.confirm')
     const retrying = action === 'retry' && canRetry
     // Reject reading is a review of its own, and shares the check's fields: while it is open, the check waits.
@@ -818,6 +822,9 @@ export function Migrate() {
             permissions={permissions} disposition="validated" onChanged={() =>
               // The next step, confirming the source patient, is then on the page where the work continues.
               afterStep(['ocr-confirm-title', 'ocr-job-title'], 'Review recorded.', true)} />}
+      </DeptSection>}
+      {waitsForChecker && <DeptSection title="Check and save" headingId="ocr-check-title">
+        <p id="ocr-check-waits" role="note" className="hid-ehr-dept-muted">{CHECK_NEEDS_CHECKER}</p>
       </DeptSection>}
       {canConfirm && <DeptSection title="Confirm the patient" headingId="ocr-confirm-title">
         <ConfirmForm key={`confirm-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} permissions={permissions} onChanged={async message => {

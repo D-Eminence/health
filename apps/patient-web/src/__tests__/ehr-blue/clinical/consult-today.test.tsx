@@ -13,6 +13,7 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, pa
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), records: vi.fn(), noteRevisions: vi.fn(),
   documents: vi.fn(), reportedHealthProfile: vi.fn(), importedHistory: vi.fn(), importedRecords: vi.fn(), recordChatAvailability: vi.fn(),
+  labImports: vi.fn(), pharmacyImports: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 const builds = vi.hoisted(() => ({ chat: false, importedRecords: false }))
@@ -61,6 +62,8 @@ beforeEach(() => {
   api.importedHistory.mockReturnValue(new Promise(() => {}))
   api.importedRecords.mockReturnValue(new Promise(() => {}))
   api.recordChatAvailability.mockReturnValue(new Promise(() => {}))
+  api.labImports.mockResolvedValue({ items: [], nextCursor: null })
+  api.pharmacyImports.mockResolvedValue({ items: [], nextCursor: null })
 })
 
 async function openEncounter() {
@@ -196,5 +199,68 @@ describe('Consultation record: today’s chart sections', () => {
     expect(await screen.findByText('Emergency access shows the emergency summary only')).toBeTruthy()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
     expect(api.importedHistory).not.toHaveBeenCalled()
+  })
+})
+
+/** The Lab results and medicines read from the patient's paper records, beside the imported medical history. */
+describe('Consultation record: imported from paper', () => {
+  const CONSENT = 'The patient has not given consent for this facility to read their record.'
+  const LAB_IMPORT = { id: 'lab-import-1', patientId: PATIENT_ID, status: 'accepted', externalLabName: 'Demo Diagnostics',
+    reportedAt: '2024-02-14', observations: [{ id: 'obs-1', ordinal: 1, testName: 'Haemoglobin', value: '11.2', unit: 'g/dL' }] }
+  const MEDICINE = { id: 'medicine-1', patientId: PATIENT_ID, medicationText: 'Metformin', strengthText: '500 mg' }
+  const part = (kind: 'Lab results' | 'Medicines') => screen.getByRole('region', { name: `${kind} imported from paper (unverified)` })
+
+  it('lists both, each in the chart’s sections, with lab.import.read and pharmacy.import.read', async () => {
+    staff.permissions = [...BASE, 'lab.import.read', 'pharmacy.import.read']
+    api.labImports.mockResolvedValue({ items: [LAB_IMPORT], nextCursor: null })
+    api.pharmacyImports.mockResolvedValue({ items: [MEDICINE], nextCursor: null })
+    await openEncounter()
+    expect(await within(part('Lab results')).findByText('Report date: 14 Feb 2024')).toBeTruthy()
+    expect(await within(part('Medicines')).findByText('Metformin')).toBeTruthy()
+    expect(sections()?.contains(part('Lab results'))).toBe(true)
+    expect(sections()?.contains(part('Medicines'))).toBe(true)
+    expect(api.labImports).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, undefined, expect.any(AbortSignal))
+    expect(api.pharmacyImports).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, undefined, expect.any(AbortSignal))
+  })
+
+  it('shows each only with its own permission', async () => {
+    staff.permissions = [...BASE, 'pharmacy.import.read']
+    await openEncounter()
+    expect(await within(part('Medicines')).findByText('None imported from paper.')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Lab results imported from paper (unverified)' })).toBeNull()
+    expect(api.labImports).not.toHaveBeenCalled()
+  })
+
+  it('reads neither without their permissions', async () => {
+    await openEncounter()
+    expect(screen.queryByRole('heading', { name: /imported from paper/ })).toBeNull()
+    expect(api.labImports).not.toHaveBeenCalled()
+    expect(api.pharmacyImports).not.toHaveBeenCalled()
+  })
+
+  it('says the patient has not given consent on 403 CONSENT_REQUIRED', async () => {
+    staff.permissions = [...BASE, 'lab.import.read']
+    api.labImports.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
+    await openEncounter()
+    expect(await within(part('Lab results')).findByText(CONSENT)).toBeTruthy()
+  })
+
+  it('reads the next page with the cursor on Show more', async () => {
+    staff.permissions = [...BASE, 'lab.import.read']
+    api.labImports.mockResolvedValueOnce({ items: [LAB_IMPORT], nextCursor: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [{ ...LAB_IMPORT, id: 'lab-import-2', reportedAt: '2023-05-01' }], nextCursor: null })
+    await openEncounter()
+    await act(async () => { fireEvent.click(await within(part('Lab results')).findByRole('button', { name: 'Show more' })) })
+    expect(await within(part('Lab results')).findByText('Report date: 1 May 2023')).toBeTruthy()
+    expect(api.labImports).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, 'cursor-1', expect.any(AbortSignal))
+  })
+
+  it('shows neither for an emergency patient', async () => {
+    staff.permissions = [...BASE, 'lab.import.read', 'pharmacy.import.read']
+    staff.activePatient = activePatient('emergency')
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByText('Emergency access shows the emergency summary only')).toBeTruthy()
+    expect(api.labImports).not.toHaveBeenCalled()
+    expect(api.pharmacyImports).not.toHaveBeenCalled()
   })
 })
