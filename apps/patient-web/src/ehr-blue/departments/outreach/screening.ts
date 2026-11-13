@@ -175,8 +175,9 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
     medicinesGiven: medicines.length ? medicines.map(row => ({ name: row.name.trim(), dose: row.dose.trim() || null })) : null,
     referred, referredTo,
   }
-  const typedAnything = FIELD_ORDER.some(field => (form[field] as string).trim() !== '') || medicines.length > 0
-  return { input, errors, empty: !typedAnything }
+  // Nothing to record unless some value reaches Outreach: a unit, timing or hidden clinician name alone is not a check.
+  const recorded = Object.values(input).some(value => value !== null && value !== false)
+  return { input, errors, empty: !recorded }
 }
 
 /** The page's field a refusal's detail names (422 OUTREACH_SCREENING_OUT_OF_RANGE), when it names one. */

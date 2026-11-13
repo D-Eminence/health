@@ -220,14 +220,44 @@ describe('Health checks', () => {
       expect(box(/^Pulse/).value).toBe('75')
       expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1)
       await press(within(region()).getByRole('button', { name: 'Reload' }))
-      await waitFor(() => expect(box(/^Pulse/).value).toBe('90'))
+      // Their checks are read; this volunteer's own change (the pulse) is kept on top, marked, and nothing typed is lost.
+      expect(await within(region()).findByText(/Your changes are kept on top and not saved yet/)).toBeTruthy()
+      expect(box(/^Pulse/).value).toBe('75')
       expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
-      type(/^Pulse/, '95')
       await press(saveButton())
       await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+      // Their malaria result is kept, with this volunteer's pulse, on their version.
+      expect(api.saveOutreachScreening.mock.calls[1]![2]).toEqual({ ...NULLS, pulseBpm: 75, malariaRdt: 'positive' })
       expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
       expect(api.saveOutreachScreening.mock.calls[1]![3].idempotencyKey).not.toBe(api.saveOutreachScreening.mock.calls[0]![3].idempotencyKey)
     })
+
+  it('after a save whose answer was lost, checks what Outreach holds before saving again (no false conflict)', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
+      .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 75 }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 75, temperatureC: 37.2 }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+    type(/^Pulse/, '75')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    // The first save did land (version 2 holds pulse 75): the next one goes on version 2, not as a conflict on 1.
+    type(/^Temperature/, '37.2')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+    expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
+  })
+
+  it('saves nothing when only a unit or timing is chosen', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    const unit = within(region()).getByRole('combobox', { name: /unit/i }) as HTMLSelectElement
+    fireEvent.change(unit, { target: { value: unit.options[1]!.value } })
+    await press(saveButton())
+    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+  })
 
   it('rounds a height to whole centimetres as the field is left', async () => {
     renderChecks()

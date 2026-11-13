@@ -64,6 +64,14 @@ function Group({ id, title, children }: { readonly id: string; readonly title: s
   )
 }
 
+/** Whether a Health checks section on screen has typing not saved yet (read by the case view's Back). */
+export const unsavedHealthChecks = { current: false }
+
+/** Asks before leaving health checks that aren't saved; true when it is fine to leave. */
+export function leaveHealthChecks(): boolean {
+  return !unsavedHealthChecks.current || window.confirm('You have health checks that aren’t saved. Leave anyway?')
+}
+
 export function HealthChecks({ facilityId, caseId, canWrite }: {
   readonly facilityId: string
   readonly caseId: string
@@ -82,6 +90,10 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   // The save last sent, and its key: the same screening sent again (after a lost answer or no signal) reuses the key; any
   // other save gets a new one. Cleared once saved.
   const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // A save whose answer never arrived: it may have been stored. Checked against Outreach before the next save.
+  const unsure = useRef<{ input: OutreachScreeningInput; version: number | undefined } | null>(null)
+  // The form as last read or saved: the volunteer's own changes are the fields that differ from it.
+  const base = useRef<ScreeningForm>(screeningForm(null))
   const focus = useFocusById()
   const id = (field: string) => `outreach-screening-${caseId}-${field}`
   const headingId = id('heading')
@@ -94,6 +106,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       const screening = answer?.screening ?? null
       setRead({ kind: 'ready', screening })
       if (!keepForm) setForm(screeningForm(screening))
+      base.current = screeningForm(screening)
       return screening
     } catch (caught) {
       if (signal?.aborted) return undefined
@@ -111,7 +124,36 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     return () => controller.abort()
   }, [load])
 
+  // Checks typed but not saved: the browser asks before the page is closed or reloaded, and Back asks too.
+  const unsaved = read.kind === 'ready' && JSON.stringify(form) !== JSON.stringify(base.current)
+  useEffect(() => {
+    unsavedHealthChecks.current = unsaved
+    if (!unsaved) return undefined
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => { window.removeEventListener('beforeunload', warn); unsavedHealthChecks.current = false }
+  }, [unsaved])
+
   if (read.kind === 'hidden') return null
+
+  /**
+   * After someone else saved: reads their checks and keeps what this volunteer changed on top, marked, to save again.
+   * Nothing typed is lost.
+   */
+  async function reloadKeeping() {
+    const mine = form
+    const before = base.current
+    setConflict(false)
+    const theirs = await load(undefined, true)
+    if (theirs === undefined) return
+    const merged = { ...screeningForm(theirs) } as Record<keyof ScreeningForm, unknown>
+    let kept = 0
+    for (const key of Object.keys(mine) as (keyof ScreeningForm)[]) {
+      if (JSON.stringify(mine[key]) !== JSON.stringify(before[key])) { merged[key] = mine[key]; kept += 1 }
+    }
+    setForm(merged as unknown as ScreeningForm)
+    setNotice(kept ? 'Their checks are shown. Your changes are kept on top and not saved yet: check them, then save again.' : '')
+  }
 
   function update<K extends keyof ScreeningForm>(field: K, value: ScreeningForm[K]) {
     setForm(current => ({ ...current, [field]: value }))
@@ -142,14 +184,40 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   }
 
   async function send(input: OutreachScreeningInput, version: number | undefined) {
+    if (unsure.current) {
+      // The last save's answer was lost. Read what Outreach holds: if that save landed, carry on from its version
+      // (or stop, when nothing changed since); if not, send this one on the version it was read at.
+      const previous = unsure.current
+      setBusy(true)
+      let current: OutreachScreening | null | undefined
+      try {
+        current = (await staffApi.outreachScreening(facilityId, caseId))?.screening ?? null
+      } catch (caught) {
+        setBusy(false)
+        setFormError(noSignal(caught) ? SCREENING_OFFLINE : errorText(caught, SCREENING_FAILED))
+        focus(errorId)
+        return
+      }
+      setBusy(false)
+      unsure.current = null
+      const held = current ? checkScreening(screeningForm(current)).input : null
+      if (current && (current.version ?? 0) !== (previous.version ?? 0) && JSON.stringify(held) === JSON.stringify(previous.input)) {
+        setRead({ kind: 'ready', screening: current })
+        base.current = screeningForm(current)
+        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(screeningForm(current)); setNotice(SCREENING_SAVED); return }
+        version = current.version
+      }
+    }
     const signature = JSON.stringify([input, version ?? null])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
     try {
       const answer = await staffApi.saveOutreachScreening(facilityId, caseId, input, { idempotencyKey: attempt.current.key, version })
       attempt.current = null
+      unsure.current = null
       setRead({ kind: 'ready', screening: answer.screening })
       setForm(screeningForm(answer.screening))
+      base.current = screeningForm(answer.screening)
       setNotice(SCREENING_SAVED)
     } catch (caught) {
       const code = isHidApiError(caught) ? caught.code : ''
@@ -167,7 +235,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       else if (code === 'IDEMPOTENCY_CONFLICT') { attempt.current = null; setFormError(SCREENING_CLASH) }
       else if (code === 'OUTREACH_REGISTRATION_REDACTED') setRedacted(true)
       else if (code === 'OUTREACH_REGISTRATION_NOT_FOUND') setFormError(SCREENING_NOT_FOUND)
-      else if (noSignal(caught)) setFormError(SCREENING_OFFLINE)
+      else if (noSignal(caught)) { unsure.current = { input, version }; setFormError(SCREENING_OFFLINE) }
       else setFormError(errorText(caught, SCREENING_FAILED))
       if (code !== 'OUTREACH_SCREENING_OUT_OF_RANGE' || !fieldNamedIn(isHidApiError(caught) ? caught.detail : null)) focus(errorId)
     } finally {
@@ -189,7 +257,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   )
   const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
     key: K, options: ReadonlyArray<{ readonly value: string; readonly label: string }>) => (
-    <EhrSelect name={key} value={form[key]} disabled={!canWrite} onChange={event => update(key, event.target.value as ScreeningForm[K])} {...control(key)}>
+    <EhrSelect name={key} value={form[key]} disabled={!canWrite || busy} onChange={event => update(key, event.target.value as ScreeningForm[K])} {...control(key)}>
       <option value="">Not recorded</option>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </EhrSelect>
@@ -292,7 +360,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
         </Group>
         <div id={errorId} tabIndex={-1} className="flex flex-col items-start gap-3 outline-none">
           <ErrorBox message={conflict ? SCREENING_RELOADED : formError} />
-          {conflict ? <Button onClick={() => { if (!busy) { setConflict(false); setRead({ kind: 'loading' }); void load() } }}>Reload</Button> : null}
+          {conflict ? <Button onClick={() => { if (!busy) void reloadKeeping() }}>Reload</Button> : null}
         </div>
         {canWrite ? (
           <FormActions sticky={false}>

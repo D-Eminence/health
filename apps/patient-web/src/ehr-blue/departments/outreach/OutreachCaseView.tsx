@@ -19,7 +19,7 @@ import {
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
 import { GetHealthIdNow } from './GetHealthIdNow'
-import { HealthChecks } from './HealthChecks'
+import { HealthChecks, leaveHealthChecks } from './HealthChecks'
 import { CreateHealthId, type MadeHere } from './CreateHealthId'
 import { OutreachSlip, useSlipPrint } from './OutreachSlip'
 
@@ -186,7 +186,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
 
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
-  const back = () => { if (!busy) onBack() }
+  const back = () => { if (!busy && leaveHealthChecks()) onBack() }
   const facts = caseFacts(item, campaign)
 
   // The one next step, or the done state.
