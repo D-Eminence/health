@@ -17,6 +17,7 @@ import {
   OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
+import { GetHealthIdNow } from './GetHealthIdNow'
 
 type LinkField = 'patient' | 'reason'
 
@@ -261,7 +262,11 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
             phone number, or the same name and age. Check with the person before registering them again.</Alert>
           : null}
         <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
-          <div className="flex min-w-0 flex-col gap-4">{nextStep}</div>
+          <div className="flex min-w-0 flex-col gap-4">
+            {nextStep}
+            {/* While the registration waits for a Health ID: the person can make their own now, on their phone. */}
+            {pending && !linked ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} /> : null}
+          </div>
           <div className="flex min-w-0 flex-col gap-4">
             <Card>
               <CardHeader as="h2" title="Registration" />

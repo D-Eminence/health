@@ -16,6 +16,7 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
+import { GetHealthIdNow } from './GetHealthIdNow'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
 import { useOutreachQueue } from './offlineQueue'
@@ -229,7 +230,11 @@ export function Outreach() {
         group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
-          {queuedNote?.facilityId === facilityId ? <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert> : null}
+          {queuedNote?.facilityId === facilityId ? <>
+            <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
+            {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
+            <GetHealthIdNow id="outreach-queued-health-id" />
+          </> : null}
           <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={() => void queue.sync()}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}

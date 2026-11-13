@@ -250,3 +250,13 @@ export function siteElsewhere(key: StaffProductKey, hostname: string = window.lo
 export function publicSiteHref(hostname: string = window.location.hostname): string {
   return `https://${PUBLIC_SITE_HOSTNAMES[siteOf(hostname)?.deployment ?? 'production']}/`
 }
+
+/**
+ * The patient sign-up on the main site of the deployment this host belongs to: /enroll, which serves the sign-up without
+ * a NIN while Identity's availability read says `signup: true` (routes/Enrollment.tsx), the address the public site's
+ * "Get your Health ID" opens (public-web content/site.ts patientSignUp). Any host that is not a staging site gets
+ * production's. Nothing else is added: no query, no fragment, nothing about anyone.
+ */
+export function patientSignUpHref(hostname: string = window.location.hostname): string {
+  return `https://${SITE_HOSTNAMES[siteOf(hostname)?.deployment ?? 'production'].web}/enroll`
+}
