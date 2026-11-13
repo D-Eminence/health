@@ -17,6 +17,8 @@
  * nothing more than before. Browser storage is allowed in this one module only (eslint.config.js, docs/ARCHITECTURE.md).
  */
 
+import type { Facility, StaffSession } from '../../../staff/api'
+
 const PREFIX = 'hid-outreach:'
 
 function tabStore(): Storage | null {
@@ -25,6 +27,11 @@ function tabStore(): Storage | null {
 
 function sharedStore(): Storage | null {
   try { return globalThis.localStorage ?? null } catch { return null }
+}
+
+/** Whether this tab can keep anything across a reload (a browser that refuses storage cannot). */
+export function tabKeeps(): boolean {
+  return tabStore() !== null
 }
 
 /** The value kept under `key` in this tab, or null (none, unreadable, or not JSON). */
@@ -103,4 +110,27 @@ function parseLock(raw: string | null): { tab: string; until: number } | null {
   } catch {
     return null
   }
+}
+
+/** The roles that exist only at an outreach group's own facility (as outreachGroup.tsx OUTREACH_GROUP_ROLES). */
+const GROUP_ROLES: ReadonlySet<string> = new Set(['outreach_organiser', 'outreach_volunteer'])
+const isGroup = (facility: Pick<Facility, 'roles'> | undefined | null) => facility?.roles.some(role => GROUP_ROLES.has(role)) ?? false
+
+/**
+ * Remembers, for this tab and account, the facility it now works at when that is an outreach group, so a reload lands
+ * back there; any other facility forgets it (a reload then opens where Identity says, as before).
+ */
+export function rememberTabFacility(session: StaffSession): void {
+  const facility = session.actor.facility
+  writeTab(`facility:${session.actor.id}`, facility && isGroup(facility) ? facility.id : null)
+}
+
+/**
+ * The outreach group this tab last chose, when the session read on a reload opened elsewhere and the group is still one
+ * of the account's: the facility to choose again. Null otherwise, and never for anyone who never chose one in this tab.
+ */
+export function tabFacilityToRestore(session: StaffSession): string | null {
+  const id = readTab<string>(`facility:${session.actor.id}`)
+  if (!id || session.actor.facility?.id === id) return null
+  return session.actor.facilities.some(facility => facility.id === id && isGroup(facility)) ? id : null
 }
