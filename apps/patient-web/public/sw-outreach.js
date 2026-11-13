@@ -105,7 +105,9 @@ async function pruneAssets(cache, text) {
 
 /**
  * Keeps the app's page the network gave, in place of the one kept. When it is a new release and it is what the page
- * got (`served`), the files only the old one used are deleted.
+ * got (`served`), the files only the old one used are deleted. A new release the page did NOT get (it arrived too late,
+ * or the worker asked for it itself) replaces the kept page only once every file it names is kept too: otherwise the
+ * next reload with no signal would open a page whose files can't be had, a blank screen.
  */
 async function keepShell(response, served) {
   const text = await shellText(response)
@@ -113,6 +115,12 @@ async function keepShell(response, served) {
   const cache = await caches.open(SHELL_CACHE)
   const previous = await cache.match(SHELL_PATH)
   const changed = !previous || (await previous.text()) !== text
+  if (changed && !served) {
+    const files = namedAssets(text)
+    await Promise.all(files.map(path => keepFromNetwork(cache, path)))
+    const missing = await Promise.all(files.map(async path => !(await cache.match(path))))
+    if (missing.some(Boolean)) return false
+  }
   await cache.put(SHELL_PATH, kept(text, 'text/html; charset=utf-8'))
   if (changed && served) await pruneAssets(cache, text)
   return true

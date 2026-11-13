@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, offlineCampaigns, OUTREACH_SNAPSHOT_KEY, outreachSnapshotOf, readOutreachSnapshot,
-  saveOutreachSnapshot, SNAPSHOT_MAX_AGE_MS,
+  saveOutreachSnapshot, SNAPSHOT_MAX_AGE_MS, touchOutreachSnapshot,
 } from '../../../../ehr-blue/departments/outreach/offlineStart'
 
 /*
@@ -30,9 +30,9 @@ describe('the facts kept', () => {
     expect(JSON.stringify(snapshot)).not.toMatch(/token|email|@|permission|rowVersion/i)
   })
 
-  it('are kept in sessionStorage and localStorage on Outreach\'s site, and read back', () => {
+  it('are kept once, in localStorage, on Outreach\'s site, and read back', () => {
     saveOutreachSnapshot(facts(), OUTREACH)
-    expect(sessionStorage.getItem(OUTREACH_SNAPSHOT_KEY)).not.toBeNull()
+    expect(sessionStorage.getItem(OUTREACH_SNAPSHOT_KEY)).toBeNull()
     expect(localStorage.getItem(OUTREACH_SNAPSHOT_KEY)).not.toBeNull()
     expect(readOutreachSnapshot(NOW + 1000, OUTREACH)).toEqual(facts())
     expect(readOutreachSnapshot(NOW + 1000, 'outreach.staging.healthidentitydirectory.com')).toEqual(facts())
@@ -73,13 +73,35 @@ describe('the facts kept', () => {
 
   it('are deleted on a sign-out, and when another account\'s session is confirmed, not the same one\'s', () => {
     saveOutreachSnapshot(facts(), OUTREACH)
-    clearOutreachSnapshotUnlessFor('staff-demo-1', OUTREACH)
+    clearOutreachSnapshotUnlessFor('staff-demo-1', undefined, OUTREACH)
     expect(readOutreachSnapshot(NOW, OUTREACH)).not.toBeNull()
-    clearOutreachSnapshotUnlessFor('staff-someone-else', OUTREACH)
+    clearOutreachSnapshotUnlessFor('staff-someone-else', undefined, OUTREACH)
     expect(readOutreachSnapshot(NOW, OUTREACH)).toBeNull()
     saveOutreachSnapshot(facts(), OUTREACH)
     clearOutreachSnapshot(OUTREACH)
     expect(sessionStorage.length + localStorage.length).toBe(0)
+  })
+
+  it('are one copy for every tab: an older per-tab copy is deleted and never read', () => {
+    sessionStorage.setItem(OUTREACH_SNAPSHOT_KEY, JSON.stringify(facts()))
+    expect(readOutreachSnapshot(NOW, OUTREACH)).toBeNull()
+    expect(sessionStorage.getItem(OUTREACH_SNAPSHOT_KEY)).toBeNull()
+  })
+
+  it('are deleted when the confirmed session no longer includes their outreach group', () => {
+    saveOutreachSnapshot(facts(), OUTREACH)
+    clearOutreachSnapshotUnlessFor('staff-demo-1', ['group-1', 'hospital-2'], OUTREACH)
+    expect(readOutreachSnapshot(NOW, OUTREACH)).not.toBeNull()
+    clearOutreachSnapshotUnlessFor('staff-demo-1', ['hospital-2'], OUTREACH)
+    expect(readOutreachSnapshot(NOW, OUTREACH)).toBeNull()
+  })
+
+  it('last 24 hours from the last confirmed session, not from when they were first kept', () => {
+    saveOutreachSnapshot(facts(), OUTREACH)
+    touchOutreachSnapshot('staff-demo-1', NOW + 23 * 60 * 60 * 1000, OUTREACH)
+    expect(readOutreachSnapshot(NOW + 25 * 60 * 60 * 1000, OUTREACH)?.actorId).toBe('staff-demo-1')
+    touchOutreachSnapshot('staff-someone-else', NOW + 46 * 60 * 60 * 1000, OUTREACH)
+    expect(readOutreachSnapshot(NOW + 48 * 60 * 60 * 1000, OUTREACH)).toBeNull()
   })
 
   it('give the registration form its campaigns', () => {

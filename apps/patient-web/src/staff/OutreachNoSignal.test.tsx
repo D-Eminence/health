@@ -115,6 +115,12 @@ async function queueWith(entries: Array<Partial<PendingRegistration> & { localCo
 }
 
 describe('an outreach workspace back on screen with no signal', () => {
+  // Health ID Outreach's own site: the only one where no signal keeps the workspace open.
+  const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+  const servedFrom = window.location.href
+  beforeEach(() => { jsdom.reconfigure({ url: 'https://outreach.healthidentitydirectory.com/provider/outreach' }) })
+  afterEach(() => { jsdom.reconfigure({ url: servedFrom }) })
+
   it('stays open with the calm line after five minutes away, instead of hiding as "could not confirm"', async () => {
     serve({ [SESSION]: [sessionOf(), noSignal, noSignal, noSignal] })
     await open('/provider/outreach')
@@ -183,12 +189,12 @@ describe('an outreach workspace back on screen with no signal', () => {
     expect(banner()).toBeNull()
   })
 
-  it('is the outreach. site, wherever on it, and the Outreach pages on another site', async () => {
+  it('is the outreach. site only, wherever on it; never the Outreach pages on another site', async () => {
     const { outreachWorkspaceShown } = await import('./App')
     expect(outreachWorkspaceShown('outreach.healthidentitydirectory.com', '/provider/patients')).toBe(true)
     expect(outreachWorkspaceShown('outreach.staging.healthidentitydirectory.com', '/provider')).toBe(true)
-    expect(outreachWorkspaceShown('ehr.healthidentitydirectory.com', '/provider/outreach')).toBe(true)
-    expect(outreachWorkspaceShown('ehr.healthidentitydirectory.com', '/provider/outreach/campaign-1')).toBe(true)
+    expect(outreachWorkspaceShown('ehr.healthidentitydirectory.com', '/provider/outreach')).toBe(false)
+    expect(outreachWorkspaceShown('ehr.healthidentitydirectory.com', '/provider/outreach/campaign-1')).toBe(false)
     expect(outreachWorkspaceShown('ehr.healthidentitydirectory.com', '/provider/clinical')).toBe(false)
     expect(outreachWorkspaceShown('lab.healthidentitydirectory.com', '/provider/laboratory')).toBe(false)
     expect(outreachWorkspaceShown('ehr.healthidentitydirectory.com', '/provider/outreach-terms')).toBe(false)
@@ -196,6 +202,18 @@ describe('an outreach workspace back on screen with no signal', () => {
 })
 
 describe('every other workspace with no signal, as today', () => {
+  it('locks the EHR site\'s own Outreach page as before when it comes back with no signal', async () => {
+    serve({ [SESSION]: [sessionOf(), noSignal, noSignal, noSignal] })
+    await open('/provider/outreach')
+    online = false
+
+    screenOffFor(5)
+
+    expect(await screen.findByRole('heading', { name: UNCONFIRMED })).toBeTruthy()
+    expect(document.querySelector('.staff-app')?.closest('[hidden]')).toBeTruthy()
+    expect(banner()).toBeNull()
+  })
+
   it('hides the EHR workspace as "We could not confirm your session" with only Try again', async () => {
     serve({ [SESSION]: [sessionOf(), noSignal, noSignal, noSignal] })
     await open('/provider/clinical')

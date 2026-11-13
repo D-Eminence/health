@@ -6,7 +6,7 @@ import { BrandLogo } from '../../../BrandLogo'
 import { Alert, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
 import { DeptPage } from '../parts/DeptPage'
-import { claimSend, noConnection, useOutreachQueue } from './offlineQueue'
+import { claimSend, healthIdUnavailable, noConnection, useOutreachQueue } from './offlineQueue'
 import { offlineCampaigns, type OutreachSnapshot } from './offlineStart'
 import { NoSignalBanner } from './noSignal'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
@@ -105,8 +105,9 @@ function useSignalBack(): boolean {
         await staffApi.session()
         if (!stopped) setBack(true)
       } catch (caught) {
-        // Any answer from Health ID (signed out, say) means there is signal; no answer at all means there still isn't.
-        if (!stopped && !noConnection(caught)) setBack(true)
+        // An answer about the session (signed out, say) means there is signal. No answer at all, or Health ID
+        // unavailable just now (408, 429, 5xx, a gateway page), means "No signal" mode stays: it would only fail again.
+        if (!stopped && !noConnection(caught) && !healthIdUnavailable(caught)) setBack(true)
       } finally {
         asking = false
       }

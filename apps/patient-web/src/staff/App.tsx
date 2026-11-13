@@ -32,10 +32,10 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
-import { noConnection, purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor, sendWaitingOutreachEntriesFor, waitingOutreachEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
-import { forgetOutreachTab, rememberTabFacility, tabFacilityToRestore } from '../ehr-blue/departments/outreach/tabMemory'
+import { healthIdUnavailable, noConnection, purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor, sendWaitingOutreachEntriesFor, waitingOutreachEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
+import { dropExpiredClaimCodes, forgetOutreachTab, rememberTabFacility, tabFacilityToRestore } from '../ehr-blue/departments/outreach/tabMemory'
 import { NoSignalBanner } from '../ehr-blue/departments/outreach/noSignal'
-import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
+import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, touchOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
@@ -88,16 +88,20 @@ const RECHECK_AFTER_HIDDEN_MS = 60_000
 /** How often an outreach workspace with no signal asks again whether the session holds, while the page is shown. */
 export const NO_SIGNAL_RECHECK_MS = 30_000
 
+/** With the last session's facts kept on the outreach. site, a session read still unanswered after this opens "No signal" mode. */
+export const OFFLINE_START_AFTER_MS = 6_000
+
 // The provider page shown, as the router has it (Gate keeps it): the session check reads it as it asks.
 let shownPathname = ''
 
 /**
- * Whether the workspace shown is Outreach: the outreach. site, or the Outreach department's pages on another site. There
- * a session check that gets no answer for want of a signal keeps the workspace open (NoSignalBanner): volunteers
- * register people on phones with patchy signal. Everywhere else the workspace is locked as before.
+ * Whether this is Health ID Outreach's own site (outreach.). Only there does a session check that gets no answer keep
+ * the workspace open (NoSignalBanner): volunteers register people on phones with patchy signal. The EHR's, Lab's and
+ * Pharmacy's sites, their Outreach department pages included, lock as before. `pathname` is kept for callers and tests.
  */
-export function outreachWorkspaceShown(hostname = window.location.hostname, pathname = shownPathname): boolean {
-  return resolveStaffProductHostname(hostname)?.key === 'outreach' || /^\/provider\/outreach(\/|$)/i.test(pathname)
+export function outreachWorkspaceShown(hostname = window.location.hostname, _pathname = shownPathname): boolean {
+  void _pathname
+  return resolveStaffProductHostname(hostname)?.key === 'outreach'
 }
 
 /** Whether the browser knows it is offline: it says so only when it knows. */
@@ -172,6 +176,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const lockRef = useRef<SessionLock>(null)
   // Outreach only: no answer came for want of a signal, so the workspace stays open and the check is made again.
   const [noSignal, setNoSignal] = useState(false)
+  const tabAccount = useRef<string | null>(null)
   // Where focus was when the workspace locked, given back when it opens again.
   const focusBeforeLock = useRef<HTMLElement | null>(null)
   const setLock = useCallback((next: SessionLock) => {
@@ -185,12 +190,25 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
     if (next.status !== 'ready') setNoSignal(false)
+    // Another account confirmed in this tab: what the last one kept in the tab (drafts, claim codes, its group) goes.
+    if (next.status === 'ready') {
+      if (tabAccount.current !== null && tabAccount.current !== next.session.actor.id) forgetOutreachTab()
+      tabAccount.current = next.session.actor.id
+    }
     status.current = next.status; currentSession.current = next.session
     facilityLost.current = next.status === 'ready' && next.facilityLost === true
     setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
     // Outreach's offline facts belong to one account: another account's session confirmed here deletes them.
-    if (next.status === 'ready') clearOutreachSnapshotUnlessFor(next.session.actor.id)
+    // So do the facts of a group this session no longer includes; a confirmed session starts their 24 hours again.
+    if (next.status === 'ready') {
+      clearOutreachSnapshotUnlessFor(next.session.actor.id, next.session.actor.facilities.map(facility => facility.id))
+      touchOutreachSnapshot(next.session.actor.id)
+    }
+    // Claim codes kept for a reload go after 15 minutes, whatever else happens in this tab.
+    dropExpiredClaimCodes()
+    // Health ID answered that the session ended: nothing opens "No signal" mode for it again.
+    if (next.status === 'ended' || next.status === 'signed-out') clearOutreachSnapshot()
     setStaffSessionFacilities(next.status === 'ready' ? next.session.actor.facilities.map(facility => facility.id) : null)
     // A session that becomes ready while the page is hidden (opened in the
     // background, or signed in or restored while away) is away from the start:
@@ -260,7 +278,10 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       return
     }
     if (quiet && asking.current?.sentIn === sentIn) return
-    if (!quiet) setLock('checking')
+    // On Outreach the check never hides the work: the workspace shows at once and the answer is awaited behind it
+    // (a volunteer waking the phone on weak signal is not kept waiting). Elsewhere it locks as before.
+    if (outreach && lockRef.current !== null) setLock(document.visibilityState === 'hidden' ? 'away' : null)
+    if (!quiet && !outreach) setLock('checking')
     if (asking.current?.sentIn === sentIn) { asking.current.again = true; return }
     const question = { sentIn, again: false }
     asking.current = question
@@ -275,7 +296,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         setState({ status: 'ended', session: null, reason: staffSessionEndReason(sentIn) })
         setLock(null)
         announceStaffSessionChange()
-      } else if (answer === 'offline') {
+      } else if (answer === 'offline' || (outreach && answer === 'unknown')) {
         // No signal (outreach only): the workspace stays open with the banner, and is checked again by itself.
         setNoSignal(true)
         if (lockRef.current !== null) setLock(away.current?.sentIn === sentIn ? 'away' : null)
@@ -284,6 +305,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       // nothing: the page is judged again as it comes back.
       else if (answer === 'alive') {
         setNoSignal(false)
+        touchOutreachSnapshot(actor.id)
         if (document.visibilityState === 'hidden' && !away.current) away.current = { since: Date.now(), sentIn, cached: false }
         setLock(away.current?.sentIn === sentIn ? 'away' : null)
       }
@@ -406,6 +428,12 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     }
     setState({ status: 'loading', session: null })
     setLock(null)
+    // Weak signal (the phone says online, nothing gets through): with the last session's facts kept, "No signal" mode
+    // opens after a few seconds while the session read carries on; its answer then takes over.
+    const kept = readOutreachSnapshot()
+    const slow = kept ? window.setTimeout(() => {
+      if (staffSessionGeneration() === sentIn && status.current === 'loading') setState({ status: 'offline', session: null, snapshot: kept })
+    }, OFFLINE_START_AFTER_MS) : undefined
     // A sign-in or sign-out made while the session is read owns the state by the
     // time a late answer arrives: that answer is about the browser's earlier session.
     const current = () => staffSessionGeneration() === sentIn
@@ -417,6 +445,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         if (!endsStaffSession(error) || !current()) throw error
         session = await staffApi.refresh()
       }
+      window.clearTimeout(slow)
       if (!current()) return
       if (session.actor.kind === 'patient') throw new PlainError('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
       // A login that works at a hospital and at an outreach group lands back on the group this tab chose, after a reload,
@@ -432,9 +461,11 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       setState({ status: 'ready', session })
       askIfHeardWhileOpening()
     } catch (error) {
+      window.clearTimeout(slow)
       if (!current()) return
-      // No connection to read it, on Health ID Outreach's own site with the last session's facts: "No signal" mode.
-      const snapshot = !endsStaffSession(error) && noConnection(error) ? readOutreachSnapshot() : null
+      // No connection to read it, or Health ID unavailable just now (408, 429, 5xx), on Health ID Outreach's own site
+      // with the last session's facts: "No signal" mode.
+      const snapshot = !endsStaffSession(error) && (noConnection(error) || healthIdUnavailable(error)) ? readOutreachSnapshot() : null
       if (endsStaffSession(error)) {
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
       } else if (snapshot) {

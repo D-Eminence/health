@@ -146,6 +146,7 @@ const claimKey = (accountId: string, facilityId: string, caseId: string) => `cla
  * it after an accidental reload before it was written down. The screen never shows it again; it is deleted after that.
  */
 export function keepClaimCode(accountId: string, facilityId: string, caseId: string, made: { healthId: string; claimCode: string }, now = Date.now()): void {
+  dropExpiredClaimCodes(now)
   writeTab(claimKey(accountId, facilityId, caseId), { healthId: made.healthId, claimCode: made.claimCode, until: now + CLAIM_CODE_KEEP_MS } satisfies KeptClaimCode)
 }
 

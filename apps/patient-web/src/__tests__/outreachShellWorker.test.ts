@@ -183,8 +183,8 @@ describe('a page opened', () => {
     expect(await (await run.cache().match('/provider/outreach'))!.text()).toBe(shellHtml())
   })
 
-  it('online but slow (over 4 seconds): the app page kept, and the network\'s answer kept for next time', async () => {
-    const run = worker()
+  it('online but slow (over 4 seconds): the app page kept, and the network\'s answer kept for next time with its files', async () => {
+    const run = worker({ [ENTRY]: [js()], [STYLE]: [basic(new Response('body{}', { headers: { 'content-type': 'text/css' } }))] })
     await run.cache().put('/provider/outreach', new Response(shellHtml('/assets/index-OldOld12.js'), { headers: { 'content-type': 'text/html' } }))
     let answerNetwork: (response: Response) => void = () => undefined
     run.network.mockImplementationOnce(() => new Promise<Response>(resolve => { answerNetwork = resolve }))
@@ -196,6 +196,22 @@ describe('a page opened', () => {
     answerNetwork(html(shellHtml()))
     await sent.settled()
     expect(await (await run.cache().match('/provider/outreach'))!.text()).toBe(shellHtml())
+    expect(run.cache().paths()).toEqual(expect.arrayContaining([ENTRY, STYLE]))
+  })
+
+  it('online but slow, a new release whose files can\'t be had: the old app page stays kept (no blank page offline)', async () => {
+    const run = worker()
+    const old = shellHtml('/assets/index-OldOld12.js')
+    await run.cache().put('/provider/outreach', new Response(old, { headers: { 'content-type': 'text/html' } }))
+    let answerNetwork: (response: Response) => void = () => undefined
+    run.network.mockImplementationOnce(() => new Promise<Response>(resolve => { answerNetwork = resolve }))
+    const sent = request(run, '/provider/outreach', { mode: 'navigate' })
+    await flush()
+    run.timers[0]!.fire()
+    expect(await (await sent.answer)!.text()).toBe(old)
+    answerNetwork(html(shellHtml()))
+    await sent.settled()
+    expect(await (await run.cache().match('/provider/outreach'))!.text()).toBe(old)
   })
 
   it('with no signal: the app page kept, whatever page of the site was opened', async () => {

@@ -8,9 +8,10 @@ import type { OutreachCampaign } from '../../../staff/api'
  * health check fields, and the campaigns they may register people into, with their dates. Never a token, a cookie, a
  * permission, an email address or anything about a person registered.
  *
- * Kept in sessionStorage and localStorage (a reload, and a phone that closed the tab), for 24 hours from the last time
- * the session was confirmed; deleted on a deliberate sign-out and when another account signs in on this browser
- * (staff/App.tsx). The only module allowed browser storage for it (eslint.config.js, docs/ARCHITECTURE.md).
+ * Kept in localStorage only, one copy for every tab (a reload, and a phone that closed the tab), for 24 hours from the
+ * last time the session was confirmed (touchOutreachSnapshot); deleted on a deliberate sign-out, when Health ID answers
+ * that the session ended, when another account signs in on this browser, and when the confirmed session no longer
+ * includes the outreach group (staff/App.tsx). An older copy in sessionStorage is deleted when seen. The only module allowed browser storage for it (eslint.config.js, docs/ARCHITECTURE.md).
  *
  * It opens only "No signal" mode (OfflineOutreach.tsx): new registrations kept on this device, and the ones waiting.
  * They go to Health ID only once the session is read again for this same account (offlineQueue.ts).
@@ -44,12 +45,14 @@ export const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const LIMIT = 200
 const text = (value: unknown, max = LIMIT): value is string => typeof value === 'string' && value.length > 0 && value.length <= max
 
+// One copy, in localStorage, so a sign-out or a session end in any tab removes it for every tab.
 function stores(): Storage[] {
-  const found: Storage[] = []
-  for (const read of [() => window.sessionStorage, () => window.localStorage]) {
-    try { const store = read(); if (store) found.push(store) } catch { /* storage refused: none here */ }
-  }
-  return found
+  try { const store = window.localStorage; return store ? [store] : [] } catch { return [] }
+}
+
+// Copies an earlier build kept per tab: deleted, never read.
+function dropTabCopy(): void {
+  try { window.sessionStorage?.removeItem(OUTREACH_SNAPSHOT_KEY) } catch { /* refused: nothing kept there */ }
 }
 
 function parse(raw: string | null, now: number): OutreachSnapshot | null {
@@ -106,10 +109,11 @@ export function saveOutreachSnapshot(snapshot: OutreachSnapshot, hostname = wind
 
 /**
  * The facts kept, when this is Health ID Outreach's own site and they are under 24 hours old; else null (and any
- * expired or unreadable copy is deleted). sessionStorage first, then localStorage.
+ * expired or unreadable copy is deleted).
  */
 export function readOutreachSnapshot(now = Date.now(), hostname = window.location.hostname): OutreachSnapshot | null {
   if (!offlineShellHere(hostname)) return null
+  dropTabCopy()
   let found: OutreachSnapshot | null = null
   let stale = false
   for (const store of stores()) {
@@ -124,25 +128,45 @@ export function readOutreachSnapshot(now = Date.now(), hostname = window.locatio
   return found
 }
 
-/** Deletes the facts: a deliberate sign-out. Never throws. */
+/** Deletes the facts: a deliberate sign-out, or Health ID answering that the session ended. Never throws. */
 export function clearOutreachSnapshot(hostname = window.location.hostname): void {
   if (!offlineShellHere(hostname)) return
+  dropTabCopy()
   for (const store of stores()) {
     try { store.removeItem(OUTREACH_SNAPSHOT_KEY) } catch { /* refused: nothing kept there */ }
   }
 }
 
-/** Deletes the facts when they belong to another account than the one whose session was just confirmed. Never throws. */
-export function clearOutreachSnapshotUnlessFor(actorId: string, hostname = window.location.hostname): void {
+/**
+ * Deletes the facts when they belong to another account than the one whose session was just confirmed, or (with
+ * `facilityIds`) when that session no longer includes the outreach group they name. Never throws.
+ */
+export function clearOutreachSnapshotUnlessFor(actorId: string, facilityIds?: readonly string[], hostname = window.location.hostname): void {
   if (!offlineShellHere(hostname)) return
+  dropTabCopy()
   for (const store of stores()) {
     try {
       const raw = store.getItem(OUTREACH_SNAPSHOT_KEY)
       if (raw === null) continue
-      let owner: unknown
-      try { owner = (JSON.parse(raw) as { actorId?: unknown } | null)?.actorId } catch { owner = undefined }
-      if (owner !== actorId) store.removeItem(OUTREACH_SNAPSHOT_KEY)
+      let kept: { actorId?: unknown; facilityId?: unknown } | null
+      try { kept = JSON.parse(raw) as { actorId?: unknown; facilityId?: unknown } | null } catch { kept = null }
+      const gone = facilityIds !== undefined && !facilityIds.includes(String(kept?.facilityId))
+      if (kept?.actorId !== actorId || gone) store.removeItem(OUTREACH_SNAPSHOT_KEY)
     } catch { /* refused: nothing kept there */ }
+  }
+}
+
+/**
+ * The session was confirmed again for this account: the facts' 24 hours start again from now, so a tab left open
+ * still opens "No signal" mode a day after it was last confirmed. Never throws.
+ */
+export function touchOutreachSnapshot(actorId: string, now = Date.now(), hostname = window.location.hostname): void {
+  if (!offlineShellHere(hostname)) return
+  for (const store of stores()) {
+    try {
+      const kept = parse(store.getItem(OUTREACH_SNAPSHOT_KEY), now)
+      if (kept && kept.actorId === actorId) store.setItem(OUTREACH_SNAPSHOT_KEY, JSON.stringify({ ...kept, savedAt: now }))
+    } catch { /* full or refused: the facts stay as they were */ }
   }
 }
 
