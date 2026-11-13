@@ -47,6 +47,10 @@ export const HEALTH_ID_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_HEALTH_ID_TOO_MANY_TRIES: 'Too many wrong codes. Send a new one.',
 }
 const SMS_UNAVAILABLE = 'Text messages aren’t working right now. Use their email, or give them the slip.'
+/** 409 OUTREACH_HEALTH_ID_REQUEST_USED: the code of that request has ended (its email failed, or it expired), so its key is refused for good. */
+export const REQUEST_USED = 'That code has ended. Press Send code to send a new one.'
+/** 503 at start: the email could not be sent, which ends that code. */
+export const START_UNAVAILABLE = 'The email couldn’t be sent just now. Press Send code again in a minute, or choose “No email”.'
 const FAILED = 'The Health ID could not be created. Please retry.'
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -138,8 +142,9 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   }
 
   /** Says a refusal in plain words, or hides the section when Outreach does not serve the route. */
-  function refused(caught: unknown, codeStep: boolean, way: 'email' | 'unverified'): void {
+  function refused(caught: unknown, call: 'start' | 'confirm' | 'unverified'): void {
     const problem = isHidApiError(caught) ? caught.code : ''
+    const way = call === 'unverified' ? 'unverified' : 'email'
     if (isHidApiError(caught) && caught.status === 404 && ROUTE_NOT_SERVED.has(problem)) {
       const next = new Set(unserved).add(way)
       setUnserved(next)
@@ -162,6 +167,16 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       return
     }
     if (problem === 'OUTREACH_HEALTH_ID_UNAVAILABLE' && method === 'sms') { setError(SMS_UNAVAILABLE); return }
+    // That code has ended (409 REQUEST_USED), or its email could not be sent (503 at start, which ends it): the key is
+    // refused for good, so it is dropped (here and, as `sent` goes, from what a reload keeps) and the next press makes a
+    // new one. The code box goes too: no code of that request can be confirmed.
+    if (problem === 'OUTREACH_HEALTH_ID_REQUEST_USED' || (call === 'start' && problem === 'OUTREACH_HEALTH_ID_UNAVAILABLE')) {
+      attempt.current = null
+      setSent(null)
+      setCode('')
+      setError(problem === 'OUTREACH_HEALTH_ID_REQUEST_USED' ? REQUEST_USED : START_UNAVAILABLE)
+      return
+    }
     if (problem === 'OUTREACH_HEALTH_ID_TOO_MANY_CODES') {
       const after = retryAfterSeconds(caught)
       if (after) setWait(after)
@@ -177,7 +192,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       focus(id('email'))
       return
     }
-    if (codeStep && (problem === 'OUTREACH_HEALTH_ID_CODE_INVALID')) {
+    if (call === 'confirm' && (problem === 'OUTREACH_HEALTH_ID_CODE_INVALID')) {
       setCodeError(HEALTH_ID_PROBLEMS[problem]!)
       focus(id('code'))
       return
@@ -220,7 +235,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
         setError('We couldn’t tell if the code was sent. If an email arrived, ask them for the code. If not, send the code again.')
         return
       }
-      refused(caught, false, 'email')
+      refused(caught, 'start')
     } finally {
       setBusy(false)
     }
@@ -242,7 +257,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       focus(id('made'))
       onCreated({ healthId: answer.healthId })
     } catch (caught) {
-      refused(caught, true, 'email')
+      refused(caught, 'confirm')
     } finally {
       setBusy(false)
     }
@@ -262,7 +277,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       focus(id('made'))
       onCreated({ healthId: answer.healthId, claimCode: answer.claimCode })
     } catch (caught) {
-      refused(caught, false, 'unverified')
+      refused(caught, 'unverified')
     } finally {
       setBusy(false)
     }

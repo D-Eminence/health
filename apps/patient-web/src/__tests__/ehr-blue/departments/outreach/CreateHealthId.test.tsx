@@ -2,7 +2,9 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { CreateHealthId, HEALTH_ID_PROBLEMS, MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
+import {
+  CreateHealthId, HEALTH_ID_PROBLEMS, MADE_BEFORE, REQUEST_USED, START_UNAVAILABLE,
+} from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 
 /*
  * "Create Health ID" at an outreach event (outreach-api 0119, proposed): only where Outreach serves it, only once the
@@ -139,8 +141,8 @@ describe('Create Health ID', () => {
 
   it.each([
     ['OUTREACH_HEALTH_ID_EMAIL_TAKEN', 409], ['OUTREACH_HEALTH_ID_EMAIL_INVALID', 422], ['OUTREACH_HEALTH_ID_TOO_MANY_CODES', 429],
-    ['OUTREACH_HEALTH_ID_UNAVAILABLE', 503], ['OUTREACH_REGISTRATION_REDACTED', 409], ['OUTREACH_REGISTRATION_NOT_FOUND', 404],
-    ['OUTREACH_HEALTH_ID_UNDER_18', 422], ['OUTREACH_HEALTH_ID_NOT_AVAILABLE', 403], ['OUTREACH_HEALTH_ID_PHONE_TAKEN', 409],
+    // 503 OUTREACH_HEALTH_ID_UNAVAILABLE from start has its own words (below): the email couldn't be sent.
+    ['OUTREACH_REGISTRATION_REDACTED', 409], ['OUTREACH_REGISTRATION_NOT_FOUND', 404], ['OUTREACH_HEALTH_ID_UNDER_18', 422], ['OUTREACH_HEALTH_ID_NOT_AVAILABLE', 403], ['OUTREACH_HEALTH_ID_PHONE_TAKEN', 409],
   ])('says %s from start in plain words', async (code, status) => {
     api.startOutreachHealthId.mockRejectedValue(new HidApiError(status, 'x', { code }))
     renderSection()
@@ -243,5 +245,68 @@ describe('Create Health ID through a reload', () => {
     await waitFor(() => expect(keptText()).not.toContain('kemi@example.test'))
     reload()
     expect(within(region()).queryByRole('textbox', { name: /6-digit code/ })).toBeNull()
+  })
+})
+
+/*
+ * A code that has ended (its email could not be sent, or it expired after a lost answer): Health ID refuses its key for
+ * good (409 OUTREACH_HEALTH_ID_REQUEST_USED), so the next Send code must make a new key, here and in what a reload keeps.
+ * A lost answer keeps the key, so the open code is sent again with no second email. Fictional data only.
+ */
+describe('Send code after a code has ended', () => {
+  const keyOf = (call: number) => api.startOutreachHealthId.mock.calls[call]![3] as string
+  const keptText = () => JSON.stringify({ ...sessionStorage })
+
+  it('says the code has ended after REQUEST_USED, and the next Send code uses a new key', async () => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'OUTREACH_HEALTH_ID_REQUEST_USED' })).mockResolvedValueOnce(STARTED)
+    renderSection()
+    await sendEmail()
+    expect(await within(region()).findByText(REQUEST_USED)).toBeTruthy()
+    expect(REQUEST_USED).toBe('That code has ended. Press Send code to send a new one.')
+    await press(within(region()).getByRole('button', { name: 'Send code' }))
+    await waitFor(() => expect(api.startOutreachHealthId).toHaveBeenCalledTimes(2))
+    expect(keyOf(1)).not.toBe(keyOf(0))
+    expect(await within(region()).findByRole('textbox', { name: /6-digit code/ })).toBeTruthy()
+  })
+
+  it('after a lost answer and a reload, REQUEST_USED drops the key from what the tab keeps too', async () => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'OUTREACH_HEALTH_ID_REQUEST_USED' }))
+      .mockResolvedValueOnce(STARTED)
+    renderSection()
+    await sendEmail()
+    const first = keyOf(0)
+    await waitFor(() => expect(keptText()).toContain(first))
+    cleanup()
+    renderSection()
+    await press(within(region()).getByRole('button', { name: 'Send a new code' }))
+    expect(await within(region()).findByText(REQUEST_USED)).toBeTruthy()
+    expect(keyOf(1)).toBe(first)
+    // The code has ended: no code box, and the key is gone from this tab's memory.
+    expect(within(region()).queryByRole('textbox', { name: /6-digit code/ })).toBeNull()
+    await waitFor(() => expect(keptText()).not.toContain(first))
+    await press(within(region()).getByRole('button', { name: 'Send code' }))
+    await waitFor(() => expect(api.startOutreachHealthId).toHaveBeenCalledTimes(3))
+    expect(keyOf(2)).not.toBe(first)
+  })
+
+  it('after a 503 at start (the email couldn’t be sent), says so and the next Send code uses a new key', async () => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'OUTREACH_HEALTH_ID_UNAVAILABLE' })).mockResolvedValueOnce(STARTED)
+    renderSection()
+    await sendEmail()
+    expect(await within(region()).findByText(START_UNAVAILABLE)).toBeTruthy()
+    expect(START_UNAVAILABLE).toBe('The email couldn’t be sent just now. Press Send code again in a minute, or choose “No email”.')
+    await press(within(region()).getByRole('button', { name: 'Send code' }))
+    await waitFor(() => expect(api.startOutreachHealthId).toHaveBeenCalledTimes(2))
+    expect(keyOf(1)).not.toBe(keyOf(0))
+  })
+
+  it.each([[0, 'NETWORK_ERROR'], [408, 'REQUEST_TIMEOUT']])('keeps the key after a lost answer (%s), so the open code is sent again, not a new one', async (status, code) => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new HidApiError(status, 'x', { code })).mockResolvedValueOnce(STARTED)
+    renderSection()
+    await sendEmail()
+    await press(within(region()).getByRole('button', { name: /^Send (code|a new code)$/ }))
+    await waitFor(() => expect(api.startOutreachHealthId).toHaveBeenCalledTimes(2))
+    expect(keyOf(1)).toBe(keyOf(0))
   })
 })
