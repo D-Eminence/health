@@ -81,7 +81,7 @@ export function checkFields(fields: readonly FieldDef[], values: FormValues): Fi
  * the submit button. Checks run on submit; the first problem gets focus; a field's problem clears as it changes.
  * `onSubmit` may answer a form error or field errors from the server, shown in the same places.
  */
-export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy }: {
+export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy, onFieldChange }: {
   fields: readonly FieldDef[]
   /** A page with another primary action makes this form's submit secondary (one focal point per screen). */
   submitVariant?: 'primary' | 'secondary'
@@ -104,6 +104,11 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
   className?: string
   /** The id of what the submit button is described by (a warning about what the change does, as today's status form). */
   describedBy?: string
+  /**
+   * Told of each change as it is made, with the value as kept: a page drops at once what it showed for an earlier value
+   * (an allergy warning for another medicine).
+   */
+  onFieldChange?: (key: string, value: FormValue) => void
 }) {
   const id = useId()
   const [values, setValues] = useState<FormValues>(() => {
@@ -125,6 +130,7 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
       delete next[key]
       return next
     })
+    onFieldChange?.(key, value)
   }
 
   const focusFirst = (problems: FieldErrors) => {

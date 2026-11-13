@@ -97,9 +97,21 @@ const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 
 const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not served by hid-system main, and a backend before 0095 '
   + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
 /** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
-/** Allergies (EHR clinical safety): served from hid-system 0124; a backend before it answers 404, which the chart takes as not offered. */
-const ALLERGIES_0124 = 'Novu: hid-system 0124 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
+/** Allergies (EHR clinical safety): served from hid-system 0117; a backend before it answers 404, which the chart takes as not offered. */
+const ALLERGIES_0117 = 'Novu: hid-system 0117 (allergies); 404 before, when the chart shows the patient-reported allergies only. '
   + 'Direct care only (X-Purpose-Of-Use: direct-care) at the selected facility.'
+/**
+ * The reasons given to go ahead over an allergy warning, stored with a prescription (hid-system#218 at 7fbb04aa). The
+ * website reads them from the existing answers; an EHR before 7fbb04aa sends no such member.
+ */
+const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (0117) each prescription read (every list item, and the '
+  + 'one-prescription GET; never a write answer) also carries allergyAcknowledgements: the reasons given to go ahead over an '
+  + 'allergy warning, oldest first, [] when none, each { id, stage (create, activate, resume, send, or handoff: given when '
+  + 'handing an active prescription to this facility\'s Pharmacy), reason, createdBy (an account id), createdByMembershipId '
+  + '(the membership at this facility: "you" when it is the session\'s membership here), createdAt, '
+  + 'matchedRecordedAllergyIds, patientReportedMatched, patientReportedTerms }. The member absent comes from an '
+  + 'EHR without the allergy check, where no warning can have been overridden, so the page says nothing about overrides; '
+  + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
 /** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
 const PAPER_RECORD_LISTS = 'Not served by hid-system yet (404 until it is). Direct care at the working facility.'
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
@@ -812,15 +824,32 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
   proposed(r('ehr.allergies','ehr','/api/v1/ehr/patients/:patientId/allergies',GP,false,
     {GET:['ehr.note.read'],POST:['ehr.note.write']},
-    `${ALLERGIES_0124} GET { recorded: RecordedAllergy[], patientReported: { allergies, updatedAt } }; POST { substance, reaction?, `
-    + 'severity } with Idempotency-Key, 201 the recorded allergy.')),
+    `${ALLERGIES_0117} GET { recorded: RecordedAllergy[] (each with recordedHere), patientReported: { allergies, updatedAt } }, `
+    + 'in the EHR\'s order: active first, the most serious first (severe, not known, moderate, mild), then newest; at most 200. '
+    + 'POST { substance, reaction?, severity } with Idempotency-Key, 201 the recorded allergy; "NKDA", "No known allergies", '
+    + '"none" and the like are refused with 400 ALLERGY_NOT_A_SUBSTANCE (no errors member).')),
   proposed(r('ehr.allergyEnteredInError','ehr','/api/v1/ehr/patients/:patientId/allergies/:allergyId/entered-in-error',P,false,
     one('POST','ehr.note.write'),
-    `${ALLERGIES_0124} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
-    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 412 VERSION_CONFLICT.')),
+    `${ALLERGIES_0117} { expectedRowVersion, reason } marks a recorded allergy entered in error; only at the facility that `
+    + 'recorded it (409 ALLERGY_RECORDED_ELSEWHERE); 409 ALLERGY_ALREADY_ENTERED_IN_ERROR when it already is; 412 '
+    + 'VERSION_CONFLICT. On either of the last two the chart reads the list again and says so: on the 409 that the allergy '
+    + 'is already marked entered in error, on the 412 that it changed since it was shown.')),
   proposed(r('ehr.allergyCheck','ehr','/api/v1/ehr/patients/:patientId/allergy-check',P,false,one('POST','ehr.prescription.write'),
-    `${ALLERGIES_0124} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired }. A prescription that `
-    + 'matches is refused (409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED) until it carries allergyAcknowledgement { reason }.')),
+    `${ALLERGIES_0117} { medicationDisplay, medicationCode? } answers { matches, acknowledgementRequired, warningToken } `
+    + '(warningToken: 64 lower-case hex, on every answer; kept only when acknowledgementRequired). A prescription create (a '
+    + 'draft too), Activate or Resume (PATCH status active), a send to another facility (of a draft or an active '
+    + 'prescription alike) and the hand-off of an active prescription to this facility\'s Pharmacy (ehr.prescriptionPharmacy) '
+    + 'that match are refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (errors: one '
+    + 'allergyAcknowledgement entry per match, then '
+    + 'allergyAcknowledgement.warningToken with the current token) until the body carries allergyAcknowledgement { reason '
+    + '(10-500, a word of three letters), warningToken }; a token that is not the current warning\'s gets the same 409. From '
+    + 'hid-system#218 at 7fbb04aa the 409 also names each refused part in an allergyAcknowledgement.rejected entry, read by code '
+    + '(never by its sentence or the detail): ALLERGY_ACKNOWLEDGEMENT_MISSING (none sent: the first warning), '
+    + 'ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING, ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID, ALLERGY_WARNING_TOKEN_INVALID (not 64 '
+    + 'lower-case hex) and ALLERGY_WARNING_TOKEN_STALE (another warning\'s: the warning changed); a reason and a token can be '
+    + 'refused together. A reason or token that breaks those rules now gets this 409 with its code instead of a 400; a 400 is '
+    + 'left for a body that is not well formed. An EHR before 7fbb04aa names no refused part. Sent only after a warning: a '
+    + 'backend before 0117 refuses the property (400).')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),
@@ -886,7 +915,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${NOT_ON_MAIN} The chart asks only when VITE_HID_IMPORTED_RECORDS_ENABLED is true. Main serves imported history at ehr.importedHistory instead.`)),
   proposed(r('ehr.importedAttachment','ehr','/api/v1/ehr/patients/:patientId/imported-attachments/:fileId/download',G,false,one('GET','ehr.note.read','ehr.document.read'),
     `${NOT_ON_MAIN} The chart asks only when VITE_HID_IMPORTED_RECORDS_ENABLED is true.`)),
-  r('ehr.emergencyRecords','ehr','/api/v1/ehr/patients/:patientId/emergency-records',G,false,one('GET','ehr.encounter.read','ehr.note.read')),
+  r('ehr.emergencyRecords','ehr','/api/v1/ehr/patients/:patientId/emergency-records',G,false,one('GET','ehr.encounter.read','ehr.note.read'),
+    'From hid-system#218 at 7fbb04aa (0117) the answer also carries allergies { recorded, patientReported }: the active allergies '
+    + 'recorded at every facility, most serious first, each { source, id, substance, reaction, severity, recordedHere, recordedOn }, '
+    + 'and the patient\'s own words { source, allergies, updatedAt } (updatedAt: when the patient last changed any part of their '
+    + 'health profile). Read only, under the same emergency purpose and break-glass check. The member absent (an EHR before '
+    + '7fbb04aa) means the allergies can\'t be shown here, never "none".'),
   r('ehr.encounters','ehr','/api/v1/ehr/patients/:patientId/encounters',GP,false,{GET:['ehr.encounter.read'],POST:['ehr.encounter.write']}),
   r('ehr.encounter','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId',GPA,false,{GET:['ehr.encounter.read'],PATCH:['ehr.encounter.write']}),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
@@ -898,12 +932,19 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.diagnoses','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses',GP,false,{GET:['ehr.diagnosis.read'],POST:['ehr.diagnosis.write']}),
   r('ehr.diagnosis','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses/:diagnosisId',GPA,false,{GET:['ehr.diagnosis.read'],PATCH:['ehr.diagnosis.write']}),
   r('ehr.prescriptions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions',GP,false,{GET:['ehr.prescription.read'],POST:['ehr.prescription.write']},
-    ORDER_LISTS_P4C),
-  r('ehr.prescription','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId',GPA,false,{GET:['ehr.prescription.read'],PATCH:['ehr.prescription.write']}),
+    `${ORDER_LISTS_P4C} ${PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS}`),
+  r('ehr.prescription','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId',GPA,false,{GET:['ehr.prescription.read'],PATCH:['ehr.prescription.write']},
+    PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS),
   r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept'),
     'On Novu since P4c, 409 PRESCRIPTION_ROUTED while the prescription is sent to (or was accepted by) a pharmacy at another facility. '
     + "From hid-system 0100 (#139), Pharmacy's own check of the prescription, passed on by the EHR: 404 PRESCRIPTION_SOURCE_NOT_FOUND, "
-    + '409 PRESCRIPTION_SOURCE_NOT_ACTIVE or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH.'),
+    + '409 PRESCRIPTION_SOURCE_NOT_ACTIVE or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. '
+    + 'From hid-system#218 (0117) the hand-off is checked against the patient\'s allergies as Activate, Resume and a send '
+    + 'are: a match is refused with 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED (the same errors: one allergyAcknowledgement entry '
+    + 'per match, allergyAcknowledgement.warningToken with the current token, and allergyAcknowledgement.rejected entries '
+    + 'read by code) until the body carries the optional allergyAcknowledgement { reason, warningToken }. It is sent only '
+    + 'after a warning, and again under the same Idempotency-Key (nothing is written on the 409); the reason is stored '
+    + 'with the prescription as stage handoff.'),
   r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
     ORDER_LISTS_P4C),
   r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},

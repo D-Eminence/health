@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { consultationLabel } from '../../../plainLabels'
+import { ALLERGIES_NOT_SHOWN, ALLERGIES_UNREAD, NOTHING_REPORTED } from '../../../ehr-blue/clinical/patients/AllergiesCard'
+import { parseAllergyList } from '../../../staff/allergies'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -17,7 +19,7 @@ import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), createEncounter: vi.fn(), updateEncounter: vi.fn(),
   records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), updateDiagnosis: vi.fn(), noteRevisions: vi.fn(), addNoteRevision: vi.fn(),
-  documents: vi.fn(), documentDownload: vi.fn(), uploadDocument: vi.fn(), reportedHealthProfile: vi.fn(),
+  documents: vi.fn(), documentDownload: vi.fn(), uploadDocument: vi.fn(), reportedHealthProfile: vi.fn(), allergies: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 
@@ -65,6 +67,8 @@ beforeEach(() => {
   api.documents.mockResolvedValue({ items: [], nextCursor: null })
   api.noteRevisions.mockResolvedValue([])
   api.reportedHealthProfile.mockResolvedValue(null)
+  // A backend before 0117 by default: the allergy list is not served, so the patient's own text is read instead.
+  api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
   api.createEncounter.mockResolvedValue({ ...ENCOUNTER, id: NEW_ID, chiefComplaint: 'Cough' })
   api.createRecord.mockImplementation(async (_f: string, _p: string, encounterId: string, kind: string) => ({ id: `${kind}-1`, patientId: PATIENT_ID, encounterId, createdAt: '2026-10-30T09:00:00.000Z' }))
 })
@@ -351,6 +355,7 @@ describe('Consultation list', () => {
       // The list is not read on the way, nor the chart sections under it.
       expect(api.encounters).not.toHaveBeenCalled()
       expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+      expect(api.allergies).not.toHaveBeenCalled()
       view.unmount()
     }
   })
@@ -425,7 +430,10 @@ describe('New consultation', () => {
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(patientBanner()).getByText(PATIENT_HID)).toBeTruthy()
     const context = await screen.findByRole('region', { name: 'Allergies' })
-    expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
+    // Before 0117 (the allergy list answers 404): the patient's own words, labelled as theirs.
+    expect(within(context).getByText('Allergies reported by the patient: Penicillin (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    expect(within(context).queryByText(/recorded by clinicians/)).toBeNull()
+    expect(api.allergies).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
@@ -437,47 +445,95 @@ describe('New consultation', () => {
     expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
   })
 
-  it('says no allergies are recorded when the patient reported none', async () => {
-    await openNew()
-    const context = await screen.findByRole('region', { name: 'Allergies' })
-    expect(within(context).getByText('None recorded. Confirm with the patient.')).toBeTruthy()
-  })
+  describe('allergies (hid-system 0117)', () => {
+    const allergy = (id: string, substance: string, severity: string, reaction: string | null, status = 'active') => ({
+      id, substance, reaction, severity, status, rowVersion: 1, createdAt: '2026-10-01T09:00:00.000Z', enteredInErrorReason: null, recordedHere: false,
+    })
+    /** Ola's case: a clinician recorded a severe penicillin allergy and the patient entered nothing. */
+    const severePenicillin = allergy('a0000000-0000-4000-8000-000000000001', 'Penicillin', 'severe', 'Anaphylaxis')
 
-  it('says nothing about allergies when the read is refused, not served or unreadable, as today', async () => {
-    for (const failure of [
-      new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }),
-      new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }),
-      new TypeError('The answer could not be read.'),
-    ]) {
-      api.reportedHealthProfile.mockRejectedValueOnce(failure)
+    it('shows the allergies clinicians recorded, in the EHR’s order, and never "None recorded" when there are some', async () => {
+      api.allergies.mockResolvedValue({ recorded: [
+        severePenicillin,
+        allergy('a0000000-0000-4000-8000-000000000002', 'Latex', 'unknown', null),
+        allergy('a0000000-0000-4000-8000-000000000003', 'Codeine', 'mild', 'Itch'),
+      ], patientReported: { allergies: null, updatedAt: null } })
+      await openNew()
+      const context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText('Allergies recorded by clinicians: Penicillin (severe: Anaphylaxis); Latex (severity not known); Codeine (mild: Itch).')).toBeTruthy()
+      expect(within(context).getByText(NOTHING_REPORTED)).toBeTruthy()
+      expect(context.textContent).not.toMatch(/None recorded/)
+      expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    })
+
+    it('labels what the patient entered as theirs, beside what clinicians recorded', async () => {
+      api.allergies.mockResolvedValue({ recorded: [severePenicillin], patientReported: { allergies: 'Sulfa drugs', updatedAt: null } })
+      await openNew()
+      const context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText('Allergies recorded by clinicians: Penicillin (severe: Anaphylaxis).')).toBeTruthy()
+      expect(within(context).getByText('Allergies reported by the patient: Sulfa drugs (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    })
+
+    it('says "none" only after a read that found none', async () => {
+      api.allergies.mockResolvedValue({ recorded: [], patientReported: { allergies: null, updatedAt: null } })
       const view = open('/new')
-      expect(await screen.findByRole('button', { name: 'Start consultation' })).toBeTruthy()
-      await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalled())
+      let context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText('Allergies recorded by clinicians: none.')).toBeTruthy()
+      expect(within(context).getByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
+      view.unmount()
+
+      // Before 0117 only the patient's text is read: nothing is said about allergies clinicians recorded.
+      api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+      open('/new')
+      context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
+      expect(context.textContent).not.toMatch(/None recorded|recorded by clinicians/)
+    })
+
+    it('never says "None recorded" when the read failed, was refused, is not served or could not be read: it says so', async () => {
+      const cases: Array<[() => void, string]> = [
+        [() => { api.allergies.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
+        [() => { api.allergies.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })) }, ALLERGIES_NOT_SHOWN],
+        [() => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_UNREAD],
+        [() => { api.allergies.mockResolvedValue({ recorded: 'not a list' }) }, ALLERGIES_UNREAD],
+        // One recorded allergy that can't be read fails the whole list (the real parser): never the rest as if complete.
+        [() => { api.allergies.mockImplementation(async () => parseAllergyList({ recorded: [{ id: 'a1240000-0000-4000-8000-000000000051', substance: 'Penicillin', reaction: null, severity: 'severe', status: 'active', rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }, { id: 'a1240000-0000-4000-8000-000000000052', substance: '', severity: 'mild', status: 'active', rowVersion: 1 }], patientReported: { allergies: null, updatedAt: null } })) }, ALLERGIES_UNREAD],
+        [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })) }, ALLERGIES_NOT_SHOWN],
+        [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
+      ]
+      for (const [arrange, words] of cases) {
+        api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+        api.reportedHealthProfile.mockResolvedValue(null)
+        arrange()
+        const view = open('/new')
+        const context = await screen.findByRole('region', { name: 'Allergies' })
+        expect(within(context).getByText(words, { exact: false })).toBeTruthy()
+        expect(context.textContent).not.toMatch(/None recorded|: none\.|not entered any allergies/)
+        expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+        view.unmount()
+      }
+    })
+
+    it('reads again when asked after a failure', async () => {
+      api.allergies.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+        .mockResolvedValueOnce({ recorded: [severePenicillin], patientReported: { allergies: null, updatedAt: null } })
+      await openNew()
+      const context = await screen.findByRole('region', { name: 'Allergies' })
+      fireEvent.click(within(context).getByRole('button', { name: 'Try again' }))
+      expect(await within(context).findByText('Allergies recorded by clinicians: Penicillin (severe: Anaphylaxis).')).toBeTruthy()
+      expect(api.allergies).toHaveBeenCalledTimes(2)
+    })
+
+    it('asks nothing without ehr.note.read, and says the allergies can’t be shown, never that there are none', async () => {
+      staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+      await openNew()
       await act(async () => {})
       expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
-      // A section shows only when it has something to say.
-      expect(screen.queryByRole('region', { name: 'Allergies' })).toBeNull()
-      expect(screen.queryByText(/None recorded|couldn’t be loaded/)).toBeNull()
-      view.unmount()
-      api.reportedHealthProfile.mockClear()
-    }
-  })
-
-  it('says the allergies could not be loaded when the service fails to answer', async () => {
-    api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
-    await openNew()
-    const context = await screen.findByRole('region', { name: 'Allergies' })
-    expect(within(context).getByText('What the patient told us couldn’t be loaded. Confirm with the patient.')).toBeTruthy()
-    expect(screen.queryByText(/None recorded/)).toBeNull()
-  })
-
-  it('reads no allergies and says nothing about them without ehr.note.read', async () => {
-    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
-    await openNew()
-    await act(async () => {})
-    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Allergies' })).toBeNull()
-    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+      const context = screen.getByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText(ALLERGIES_NOT_SHOWN)).toBeTruthy()
+      expect(api.allergies).not.toHaveBeenCalled()
+      expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    })
   })
 
   it('checks required fields on submit and moves focus to the first, calling nothing', async () => {

@@ -5,12 +5,18 @@ import { useNavigate } from 'react-router-dom'
 import {
   orderRoutesApi, staffApi, type ClinicalRecord, type OrderDestination, type OrderRouteSummary, type OrderRouteWithdrawReason,
 } from '../../../../staff/api'
+import { parsePrescriptionAllergyAcknowledgements, type AllergyAcknowledgement } from '../../../../staff/allergies'
 import { refusalText } from '../../../../staff/fieldProblem'
 import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../../../../staff/orderRoutes'
 import { sendLabel, type RouteContext } from '../../../../staff/routes/OrderRoutes'
 import { useLateCorrectionServed } from '../../../../lateCorrectionServed'
 import { routeLabel } from '../../../../plainLabels'
 import { useWrongPatientServed } from '../../../../wrongPatientServed'
+import {
+  ALLERGY_GO_AHEAD_ERROR, acknowledgementRefused, readAllergyRefusal, useAllergyAcknowledgement, withAllergyAcknowledgement,
+  type AllergyAcknowledgementState, type AllergyRefusal,
+} from '../../parts/allergyWarning'
+import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
 import type { Chart } from '../../parts/chart'
 import { LabResultPaper, PrescriptionPaper, drugLine, isPrintable, paperPatient, prescriberName, usePaperPrint } from '../../parts/clinicalPrint'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
@@ -25,6 +31,8 @@ import { RELOAD_FAILED } from '../encounters'
 import {
   KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, sentFrom, text, useFlash, type OrderKind, type Sent,
 } from './orders'
+import { AllergyOverrides, OVERRIDES_NOT_SHOWN, membershipAt } from './AllergyOverrides'
+import { ACK_REFUSED_ERROR, storedMedicine, warnAfterRefusal } from './prescribingAllergies'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
 import {
@@ -287,6 +295,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed && !taken
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed
   const sendElsewhere = rights.canRoute(kind) && mayBeSent(record)
+  // The reasons given on this prescription to go ahead over an allergy warning (7fbb04aa), whatever its status: null
+  // from an EHR before 7fbb04aa, which does not say (the page says plainly it can't show them, never that there are none).
+  const overrides = lab ? null : parsePrescriptionAllergyAcknowledgements(record.allergyAcknowledgements)
   const labNotes = lab && canWrite && !routed
     ? [LAB_NOT_TOLD[status], !rights.canSendToLab ? LAB_SENT_BY_OTHERS[status] : undefined].filter((note): note is string => Boolean(note)) : []
 
@@ -315,7 +326,19 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setFocusIds(sendable ? [actionId('lab'), TITLE_ID] : [TITLE_ID])
   }
 
-  async function changeStatus(next: string, why: string) {
+  /**
+   * After the EHR's 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED on Activate, Resume, a send to another facility (0117; a
+   * draft's send or an active prescription's alike) or Send to Pharmacy (hid-system#218): the warning for the medicine
+   * the prescription holds, shown in the form that was sent, which answers what to say.
+   */
+  const warnAboutAllergies = (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) =>
+    warnAfterRefusal({ ack, refusal, medicine: storedMedicine(record), chart })
+
+  /**
+   * A status change. A prescription's Activate or Resume carries `allergyAcknowledgement` only when sent again after
+   * the EHR's allergy warning, with the same version and reason for the change (nothing was written on the 409).
+   */
+  async function changeStatus(next: string, why: string, allergyAcknowledgement: AllergyAcknowledgement | null = null) {
     const expectedRowVersion = rowVersion(record.rowVersion)
     if (!expectedRowVersion) throw new PlainError('Reload the record before changing its status.')
     const toLab = lab && next === 'active'
@@ -323,7 +346,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     if (toLab) setPageError('')
     await chart.verify()
     const saved = await staffApi.updateRecord(chart.facilityId, chart.patientId, encounterId, info.record, record.id,
-      { expectedRowVersion, changeReason: why, status: next })
+      withAllergyAcknowledgement({ expectedRowVersion, changeReason: why, status: next }, lab ? null : allergyAcknowledgement))
     const outcome = toLab ? labHandoffOutcome(saved?.labHandoff ?? null, record.status === 'on_hold' ? 'resumed' : 'activated', rights.canSendToLab) : null
     if (toLab && saved?.labHandoff?.state === 'accepted') setSent(sentFrom('lab', saved.labWorkItem, rowVersion(saved.rowVersion)))
     if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? (lab ? 'Lab request status updated.' : 'Prescription status updated.'))
@@ -333,16 +356,25 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setFocusIds([ACTIONS_ID])
   }
 
-  async function handoffPrescription(why: string, key: string) {
+  /**
+   * Send to Pharmacy: the active prescription handed to this facility's Pharmacy at the version shown. Checked against
+   * the patient's allergies by the EHR (hid-system#218), as Activate is: it carries `allergyAcknowledgement` only when
+   * sent again after the EHR's warning, under the same key (nothing was written on the 409).
+   */
+  async function handoffPrescription(why: string, key: string, allergyAcknowledgement: AllergyAcknowledgement | null = null) {
     const expectedRowVersion = rowVersion(record.rowVersion)
     if (!expectedRowVersion) throw new PlainError('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await chart.verify()
     let answer: unknown
     try {
-      answer = await staffApi.acceptPrescription(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key)
+      // The acknowledgement goes only when there is one: the first hand-off is sent exactly as before.
+      const handoff = [chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key] as const
+      answer = await (allergyAcknowledgement ? staffApi.acceptPrescription(...handoff, allergyAcknowledgement) : staffApi.acceptPrescription(...handoff))
     } catch (caught) {
       if (!isHidApiError(caught)) throw caught
+      // The allergy warning, and a reason the EHR did not accept, are the form's to show: the order is as it was.
+      if (readAllergyRefusal(caught, false) || (allergyAcknowledgement && acknowledgementRefused(caught))) throw caught
       if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new PlainError(PHARMACY_ALREADY_HOLDS)
       const changed = prescriptionChanged(caught)
       if (!changed) throw caught
@@ -383,7 +415,14 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setFocusIds([ACTIONS_ID])
   }
 
-  async function sendOrder(destination: OrderDestination, attestationTextVersion: string, key: string) {
+  /**
+   * Sends the order to another facility. A prescription's send, a draft's or an active one's, is checked against the
+   * patient's allergies (0117): it carries `allergyAcknowledgement` only when sent again after the EHR's warning, under
+   * the same key (nothing was written on the 409, and the send's digest leaves the acknowledgement out). A lab request
+   * never carries one.
+   */
+  async function sendOrder(destination: OrderDestination, attestationTextVersion: string, key: string,
+    allergyAcknowledgement: AllergyAcknowledgement | null = null) {
     const expectedRowVersion = rowVersion(record.rowVersion)
     if (!expectedRowVersion) throw new PlainError('Reload the list before sending it.')
     setSuccess('')
@@ -391,8 +430,11 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     await chart.verify()
     try {
       await orderRoutesApi.send(chart.facilityId, chart.patientId, encounterId, info.route, record.id,
-        { expectedRowVersion, receivingFacilityId: destination.facilityId, attestationTextVersion }, key)
+        withAllergyAcknowledgement({ expectedRowVersion, receivingFacilityId: destination.facilityId, attestationTextVersion },
+          lab ? null : allergyAcknowledgement), key)
     } catch (caught) {
+      // The allergy warning, and a reason the EHR did not accept, are the send form's to show: the order is as it was.
+      if (!lab && (readAllergyRefusal(caught, false) || (allergyAcknowledgement && acknowledgementRefused(caught)))) throw caught
       const refusal = sendRefusal(caught, info.route, destination.facilityName, patient)
       if (!refusal.reload) throw caught
       setSelected(null)
@@ -425,63 +467,23 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setFocusIds([actionId('route'), TITLE_ID])
   }
 
-  const statusForm = (option: StatusOption) => {
-    const label = statusLabel(option)
-    const warningId = `order-status-${option.value}-warning`
-    const submit = async (values: FormValues): Promise<SubmitOutcome> => {
+  const statusForm = (option: StatusOption) => (
+    <StatusChange key={`status-${option.value}-${version}`} option={option} lab={lab} notice={warning} disabled={reloading}
       // "Cancel order?" says the form's warning (Pharmacy not told, or the other facility's change), when it has one.
-      if (option.value === 'cancelled' && !(await confirm(label, warning))) return false
-      try {
-        await changeStatus(option.value, reason(values))
-      } catch (caught) {
-        return { formError: refusalText(caught, 'Status could not be changed.') }
-      }
-    }
-    // Today's status form's title, "New status" and button (Clinical.tsx:1819, :1830, :612-618). The new status is the
-    // action pressed above, so the form names it, with today's choice label, rather than asking for it again.
-    return (
-      <div className="hid-ehr-clinical-orders-action-form">
-        <p className="hid-ehr-clinical-orders-lead"><strong>{lab ? 'Lab request status' : 'Prescription status'}</strong></p>
-        <p>New status: {option.label}</p>
-        <RecordForm
-          key={`status-${option.value}-${version}`}
-          fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
-          validate={values => minimum(values, 3)}
-          submitLabel="Update status"
-          busyLabel="Updating…"
-          disabled={reloading}
-          // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:617-620).
-          describedBy={warning ? warningId : undefined}
-          onSubmit={submit}
-        >
-          {warning ? <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
-        </RecordForm>
-      </div>
-    )
-  }
+      confirmCancel={() => confirm(statusLabel(option), warning)} onChange={changeStatus}
+      // A prescription's Activate and Resume are checked against the patient's allergies by the EHR (0117).
+      warnAboutAllergies={!lab && option.value === 'active' ? warnAboutAllergies : undefined} />
+  )
 
   const pharmacyForm = (
-    <div className="hid-ehr-clinical-orders-action-form">
-      <p className="hid-ehr-clinical-orders-lead"><strong>Send active prescription to Pharmacy</strong></p>
-      <RecordForm
-        key={`pharmacy-${version}`}
-        fields={[{ key: 'reason', label: 'Reason', required: true, maxLength: 500 }]}
-        validate={values => minimum(values, 8)}
-        submitLabel="Send to Pharmacy"
-        busyLabel="Working…"
-        disabled={reloading}
-        onSubmit={async values => {
-          const why = reason(values)
-          if (pharmacyAttempt.current?.reason !== why) pharmacyAttempt.current = { reason: why, key: crypto.randomUUID() }
-          try {
-            await handoffPrescription(why, pharmacyAttempt.current.key)
-            pharmacyAttempt.current = null
-          } catch (caught) {
-            return { formError: refusalText(caught, 'Send to Pharmacy could not be completed.') }
-          }
-        }}
-      />
-    </div>
+    <PharmacyHandoff key={`pharmacy-${version}`} disabled={reloading} warnAboutAllergies={warnAboutAllergies}
+      onSend={async (why, allergyAcknowledgement) => {
+        // One key per reason: sent again after no answer, or with the reason to go ahead after the allergy warning, it is
+        // the same hand-off.
+        if (pharmacyAttempt.current?.reason !== why) pharmacyAttempt.current = { reason: why, key: crypto.randomUUID() }
+        await handoffPrescription(why, pharmacyAttempt.current.key, allergyAcknowledgement)
+        pharmacyAttempt.current = null
+      }} />
   )
 
   const labForm = (
@@ -517,7 +519,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     if (selected === 'lab' && sendLab) return labForm
     if (selected === 'route' && sendElsewhere) {
       return <SendElsewhere key={`route-${version}`} kind={info.route} context={context} priority={lab ? text(record.priority) || undefined : undefined}
-        onSend={sendOrder} onCancel={() => { setSelected(null); setFocusIds([actionId('route')]) }} />
+        onSend={sendOrder} onCancel={() => { setSelected(null); setFocusIds([actionId('route')]) }}
+        warnAboutAllergies={lab ? undefined : warnAboutAllergies} />
     }
     return null
   })()
@@ -550,6 +553,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       <DetailGrid>
         <SavedRecord items={items} />
         <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
+          {lab || record.allergyAcknowledgements === undefined ? null
+            : !overrides ? <p className="hid-ehr-clinical-orders-muted hid-ehr-clinical-allergy-override-unknown">{OVERRIDES_NOT_SHOWN}</p>
+            : overrides.items.length > 0 || overrides.unread > 0
+              ? <AllergyOverrides chart={chart} overrides={overrides} membershipId={membershipAt(actor, chart.facilityId)} /> : null}
           {actions.length > 0 ? (
             <div className="hid-ehr-clinical-orders-actions">
               <ActionList>
@@ -604,6 +611,124 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       />
       {printArea}
     </>
+  )
+}
+
+/**
+ * One status change: today's status form (Clinical.tsx:1819, :1830, :612-618), its title, "New status" and button. The
+ * new status is the action pressed above, so the form names it, with today's choice label, rather than asking for it
+ * again.
+ *
+ * A prescription's Activate or Resume (`warnAboutAllergies`) is checked against the patient's allergies by the EHR
+ * (0117), which knows the reasons already given for this prescription: it is sent first with no acknowledgement (never
+ * one without a warning shown), and on the EHR's 409 the allergy warning appears here, with the tick and "Why is it
+ * safe to go ahead?", apart from the reason for the change. Sent again with both, it carries the same reason for the
+ * change and version. Closing the form leaves the order as it was, and drops the warning.
+ */
+function StatusChange({ option, lab, notice, disabled, confirmCancel, onChange, warnAboutAllergies }: {
+  option: StatusOption
+  lab: boolean
+  /** What the change does that the prescriber must know (Pharmacy not told, or the other facility's change). */
+  notice: string | undefined
+  disabled: boolean
+  confirmCancel: () => Promise<boolean>
+  onChange: (next: string, why: string, allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<void>
+  warnAboutAllergies?: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
+}) {
+  const ack = useAllergyAcknowledgement()
+  const noticeId = `order-status-${option.value}-warning`
+
+  const submit = async (values: FormValues): Promise<SubmitOutcome> => {
+    if (option.value === 'cancelled' && !(await confirmCancel())) return false
+    // A warning shown: the tick and the reason first, each with its own error; nothing is sent without both.
+    const shown = ack.warning !== null
+    const acknowledgement = shown ? ack.acknowledgement() : null
+    if (shown && !acknowledgement) return { formError: ALLERGY_GO_AHEAD_ERROR }
+    try {
+      await onChange(option.value, reason(values), acknowledgement)
+    } catch (caught) {
+      const refusal = warnAboutAllergies ? readAllergyRefusal(caught, acknowledgement !== null) : null
+      if (refusal && warnAboutAllergies) return { formError: await warnAboutAllergies(ack, refusal) }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        return { formError: ACK_REFUSED_ERROR }
+      }
+      return { formError: refusalText(caught, 'Status could not be changed.') }
+    }
+  }
+
+  return (
+    <div className="hid-ehr-clinical-orders-action-form">
+      <p className="hid-ehr-clinical-orders-lead"><strong>{lab ? 'Lab request status' : 'Prescription status'}</strong></p>
+      <p>New status: {option.label}</p>
+      <RecordForm
+        fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
+        validate={values => minimum(values, 3)}
+        submitLabel="Update status"
+        busyLabel="Updating…"
+        disabled={disabled}
+        // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:617-620).
+        describedBy={notice ? noticeId : undefined}
+        onSubmit={submit}
+      >
+        {notice ? <div id={noticeId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{notice}</div> : null}
+        {ack.warning ? <AllergyWarningPanel idPrefix="rx-status" headingLevel={3} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
+          errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+      </RecordForm>
+    </div>
+  )
+}
+
+/**
+ * Send to Pharmacy: today's form (a reason of at least 8 characters, "Send to Pharmacy"), handing the active
+ * prescription to this facility's Pharmacy.
+ *
+ * The EHR checks the hand-off against the patient's allergies (hid-system#218), as it checks Activate and Resume: it is
+ * sent first with no acknowledgement (never one without a warning shown), and on the EHR's 409 the allergy warning
+ * appears here, with the tick and "Why is it safe to go ahead?", apart from the reason for the hand-off. Sent again with
+ * both, it carries the same reason and version under the same key. Closing the form leaves the order as it was, and
+ * drops the warning.
+ */
+function PharmacyHandoff({ disabled, onSend, warnAboutAllergies }: {
+  disabled: boolean
+  onSend: (why: string, allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<void>
+  warnAboutAllergies: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
+}) {
+  const ack = useAllergyAcknowledgement()
+
+  const submit = async (values: FormValues): Promise<SubmitOutcome> => {
+    // A warning shown: the tick and the reason first, each with its own error; nothing is sent without both.
+    const shown = ack.warning !== null
+    const acknowledgement = shown ? ack.acknowledgement() : null
+    if (shown && !acknowledgement) return { formError: ALLERGY_GO_AHEAD_ERROR }
+    try {
+      await onSend(reason(values), acknowledgement)
+    } catch (caught) {
+      const refusal = readAllergyRefusal(caught, acknowledgement !== null)
+      if (refusal) return { formError: await warnAboutAllergies(ack, refusal) }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        return { formError: ACK_REFUSED_ERROR }
+      }
+      return { formError: refusalText(caught, 'Send to Pharmacy could not be completed.') }
+    }
+  }
+
+  return (
+    <div className="hid-ehr-clinical-orders-action-form">
+      <p className="hid-ehr-clinical-orders-lead"><strong>Send active prescription to Pharmacy</strong></p>
+      <RecordForm
+        fields={[{ key: 'reason', label: 'Reason', required: true, maxLength: 500 }]}
+        validate={values => minimum(values, 8)}
+        submitLabel="Send to Pharmacy"
+        busyLabel="Working…"
+        disabled={disabled}
+        onSubmit={submit}
+      >
+        {ack.warning ? <AllergyWarningPanel idPrefix="rx-pharmacy" headingLevel={3} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
+          errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+      </RecordForm>
+    </div>
   )
 }
 

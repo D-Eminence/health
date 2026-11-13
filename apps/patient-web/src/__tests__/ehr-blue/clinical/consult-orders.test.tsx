@@ -4,8 +4,19 @@ import { Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RELOAD_FAILED } from '../../../ehr-blue/clinical/consult/encounters'
 import { CONNECTED_ORDERS_NOTE, EncounterOrderPages, EncounterOrders, orderPath } from '../../../ehr-blue/clinical/consult/orders'
+import { OVERRIDES_NOT_SHOWN } from '../../../ehr-blue/clinical/consult/orders/AllergyOverrides'
 import { learnFrom } from '../../../ehr-blue/clinical/consult/orders/orders'
+import {
+  ACK_REFUSED_ERROR, ALLERGY_CHANGED_ERROR, ALLERGY_TICK_AGAIN_ERROR, ALLERGY_TICK_AND_REASON_ERROR, MEDICINE_CHANGED_ERROR,
+} from '../../../ehr-blue/clinical/consult/orders/prescribingAllergies'
+import { PHARMACY_NOT_TOLD } from '../../../ehr-blue/clinical/consult/orders/words'
+import { parseAllergyList } from '../../../staff/allergies'
+import { ALLERGIES_NOT_SHOWN, ALLERGIES_UNREAD, NOTHING_REPORTED } from '../../../ehr-blue/clinical/patients/AllergiesCard'
 import { useRecordList } from '../../../ehr-blue/clinical/consult/records'
+import {
+  ACK_NOT_ACCEPTED, ACK_REASON_HINT, ACK_REASON_LONG, ACK_REASON_NO_WORD, ACK_REASON_SHORT, ALLERGY_GO_AHEAD_ERROR, ALLERGY_WARNING_CHANGED,
+  ALLERGY_WARNING_UNREAD, NO_WARNING_NOT_SAFE, tickError, tickLabel,
+} from '../../../ehr-blue/clinical/parts/allergyWarning'
 import type { Chart } from '../../../ehr-blue/clinical/parts/chart'
 import { ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/parts/chart'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
@@ -98,7 +109,7 @@ beforeEach(() => {
   api.createRecord.mockResolvedValue(prescription())
   api.updateRecord.mockResolvedValue(prescription())
   api.reportedHealthProfile.mockResolvedValue(null)
-  // A backend before hid-system 0124 (allergies): both allergy routes answer 404.
+  // A backend before hid-system 0117 (allergies): both allergy routes answer 404.
   api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
   api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
   routes.attestation.mockImplementation(async (_facility: string, kind: string) => kind === 'lab_request'
@@ -2025,9 +2036,15 @@ function options(label: string) {
   return Array.from((field(label) as unknown as HTMLSelectElement).options).map(option => option.textContent)
 }
 
-const ALLERGIES = 'Recorded allergies: Penicillin (patient-reported: entered by the patient in their Health ID portal, not clinically verified).'
-const NONE_RECORDED = 'Recorded allergies: None recorded. Confirm with the patient.'
-const NOT_LOADED = 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
+// The prescribing form's allergy lines are triage's and a new consultation's (AllergyLines). Before 0117 (the allergy
+// list answers 404, as in beforeEach) only the patient's own text is read, labelled as theirs, never "None recorded".
+const ALLERGIES = 'Allergies reported by the patient: Penicillin (entered by the patient in their Health ID portal, not clinically verified).'
+const NONE_REPORTED = `${NOTHING_REPORTED} Confirm allergies with the patient.`
+
+/** No allergy line of any kind on the page. */
+function noAllergyLines() {
+  expect(document.body.textContent).not.toMatch(/Recorded allergies|Allergies reported by the patient|recorded by clinicians|not entered any allergies|allergies can’t be shown|allergies could not be loaded/)
+}
 
 /**
  * Hand-off 06, as the redesign settled it: the one-option "Patient *" and "Encounter *" selects are gone. The patient is
@@ -2057,7 +2074,8 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     open(`${ENCOUNTER_ID}/orders/new/laboratory`)
     await screen.findByRole('button', { name: 'Create lab request' })
     await act(async () => {})
-    expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
+    noAllergyLines()
+    expect(api.allergies).not.toHaveBeenCalled()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
   })
 
@@ -2133,7 +2151,7 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
     await screen.findByRole('button', { name: 'Save draft' })
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
+    noAllergyLines()
     // The read starts in an effect after the form is drawn: wait for it to be asked for before answering it.
     await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal)))
     await act(async () => { answer({ allergies: 'Penicillin', bloodGroup: null, genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }) })
@@ -2144,36 +2162,39 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
   })
 
   it.each([
-    ['an answer with no allergies', () => api.reportedHealthProfile.mockResolvedValue({ allergies: null }), NONE_RECORDED],
-    ['no profile', () => api.reportedHealthProfile.mockResolvedValue(null), NONE_RECORDED],
-    ['an outage (503)', () => api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })), NOT_LOADED],
-  ])('06: New prescription’s allergies after %s say today’s sentence', async (_label, arrange, sentence) => {
+    ['an answer with no allergies', () => api.reportedHealthProfile.mockResolvedValue({ allergies: null }), NONE_REPORTED],
+    ['no profile', () => api.reportedHealthProfile.mockResolvedValue(null), NONE_REPORTED],
+    ['an outage (503)', () => api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })), ALLERGIES_UNREAD],
+  ])('06: New prescription’s allergies after %s say so, as triage does, and never "None recorded"', async (_label, arrange, sentence) => {
     staff.permissions = [...READ_WRITE, 'ehr.note.read']
     arrange()
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
-    expect(await screen.findByText(sentence)).toBeTruthy()
+    expect(await screen.findByText(sentence, { exact: false })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/None recorded|recorded by clinicians/)
   })
 
   it.each([
     ['a refusal (403)', new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })],
     ['a route EHR does not serve (404)', new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })],
-  ])('06: New prescription says nothing of allergies after %s', async (_label, refusal) => {
+  ])('06: New prescription says the allergies can’t be shown after %s, never "none"', async (_label, refusal) => {
     staff.permissions = [...READ_WRITE, 'ehr.note.read']
     api.reportedHealthProfile.mockRejectedValue(refusal)
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
     await screen.findByRole('button', { name: 'Save draft' })
     await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalled())
-    await act(async () => {})
-    expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
+    expect(await screen.findByText(ALLERGIES_NOT_SHOWN)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/None recorded|: none\.|not entered any allergies/)
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
   })
 
-  it('06: New prescription reads no allergies without ehr.note.read, as today’s chart', async () => {
+  it('06: New prescription reads no allergies without ehr.note.read, as today’s chart, and says they can’t be shown', async () => {
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
     await screen.findByRole('button', { name: 'Save draft' })
     await act(async () => {})
+    expect(api.allergies).not.toHaveBeenCalled()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
-    expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
+    expect(screen.getByText(ALLERGIES_NOT_SHOWN)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/None recorded|: none\./)
   })
 
   it('06: no form or allergies show without the write permission, under read-only access or for an emergency patient', async () => {
@@ -2187,7 +2208,7 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     const readOnly = open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
     expect(screen.queryByLabelText(labelled('Medication'))).toBeNull()
-    expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
+    noAllergyLines()
     readOnly.unmount()
     api.reportedHealthProfile.mockClear()
     staff.activePatient = activePatient('emergency')
@@ -2450,14 +2471,139 @@ describe('"Try again" beside "The change was saved, but the records could not be
   })
 })
 
-describe('Allergies on a new prescription (hid-system 0124)', () => {
-  const WARNING = 'This medicine is in the same group (penicillins) as a recorded allergy to Penicillin.'
-  const recordedPenicillin = { id: 'a1240000-0000-4000-8000-000000000001', substance: 'Penicillin', reaction: 'Hives',
-    severity: 'severe' as const, status: 'active' as const, rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }
+
+/**
+ * The allergy warning at prescribing (hid-system#218 at 7fbb04aa; an EHR at 76283f57 where it differs): the check's
+ * answer and the 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED in the EHR's own format, word for word. Every id, token, name and
+ * date is fictional.
+ */
+const TOKEN_A = 'a'.repeat(64)
+const TOKEN_B = 'b'.repeat(64)
+const TOKEN_C = 'c'.repeat(64)
+const ALLERGY_1 = 'a1240000-0000-4000-8000-000000000001'
+const ALLERGY_2 = 'a1240000-0000-4000-8000-000000000002'
+const ALLERGY_3 = 'a1240000-0000-4000-8000-000000000003'
+
+const SEVERE_PENICILLIN = {
+  source: 'recorded', allergyId: ALLERGY_1, allergyIds: [ALLERGY_1, ALLERGY_3], substance: 'Penicillin', reaction: 'Anaphylaxis', severity: 'severe',
+  matchKind: 'same_class', className: 'penicillins', recordedHere: true, recordedOn: '2026-04-20T10:00:00.000Z',
+  message: 'Penicillin allergy: SEVERE (Anaphylaxis). This medicine is one of the penicillins, the same group. Recorded by clinicians (recorded at 2 facilities), most recently on 20 Apr 2026.',
+}
+const MILD_PENICILLIN = {
+  source: 'recorded', allergyId: ALLERGY_2, allergyIds: [ALLERGY_2], substance: 'Penicillin', reaction: 'Rash', severity: 'mild',
+  matchKind: 'same_class', className: 'penicillins', recordedHere: false, recordedOn: '2026-02-10T23:30:00.000Z',
+  message: 'Penicillin allergy: mild (Rash). This medicine is one of the penicillins, the same group. Recorded by a clinician at another facility on 11 Feb 2026.',
+}
+/** A term the patient wrote in their Health ID portal (a brand of the same medicine). */
+const AUGMENTIN_TERM = {
+  source: 'patient_reported', substance: 'Augmentin', reaction: null, severity: null, matchKind: 'same_medicine',
+  message: 'Patient-reported allergy: “Augmentin”. This medicine may be, or may contain, the same medicine. Entered by the patient in their Health ID portal, not checked by a clinician.',
+}
+/** A term the patient added later. */
+const AMOXIL_TERM = {
+  source: 'patient_reported', substance: 'Amoxil', reaction: null, severity: null, matchKind: 'same_medicine',
+  message: 'Patient-reported allergy: “Amoxil”. This medicine may be, or may contain, the same medicine. Entered by the patient in their Health ID portal, not checked by a clinician.',
+}
+
+const REQUIRED_DETAIL = 'This medicine may match an allergy on the patient\'s record. Check the allergies and give a reason to go ahead.'
+const CHANGED_DETAIL = 'The allergy warning changed since it was shown. Check the allergies again and give a reason to go ahead.'
+const NOT_ACCEPTED_DETAIL = 'The reason to go ahead after the allergy warning was not accepted. Check the allergies and give a reason to go ahead.'
+const MISSING = 'ALLERGY_ACKNOWLEDGEMENT_MISSING'
+const REASON_MISSING = 'ALLERGY_ACKNOWLEDGEMENT_REASON_MISSING'
+const REASON_INVALID = 'ALLERGY_ACKNOWLEDGEMENT_REASON_INVALID'
+const TOKEN_INVALID = 'ALLERGY_WARNING_TOKEN_INVALID'
+const TOKEN_STALE = 'ALLERGY_WARNING_TOKEN_STALE'
+/** The EHR's own sentence for each refused part (7fbb04aa): never shown, the code is read. */
+const REJECTED_SENTENCES: Readonly<Record<string, string>> = {
+  [MISSING]: 'Check the allergies and give a reason to go ahead.',
+  [REASON_MISSING]: 'Give a reason to go ahead with this medicine.',
+  [REASON_INVALID]: 'The reason must be 10 to 500 characters, with at least one word, and no control characters other than new lines.',
+  [TOKEN_INVALID]: 'The allergy warning was not identified. Check the allergies again.',
+  [TOKEN_STALE]: CHANGED_DETAIL,
+}
+
+/** The allergy check's answer: a token on every answer, a match or not. */
+function checkAnswer(matches: readonly object[], warningToken: string) {
+  return { matches, acknowledgementRequired: matches.length > 0, warningToken }
+}
+
+/**
+ * The EHR's 409 at 7fbb04aa as the http client gives it: one errors entry per match, the token's, then one per refused
+ * part (allergyAcknowledgement.rejected) with its code, the reason's before the token's.
+ */
+function rejectedRefusal(matches: readonly { message: string }[], token: string, codes: readonly string[]) {
+  const detail = codes.includes(TOKEN_STALE) ? CHANGED_DETAIL : codes.length === 1 && codes[0] === MISSING ? REQUIRED_DETAIL : NOT_ACCEPTED_DETAIL
+  return new HidApiError(409, detail, {
+    code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED', detail,
+    details: [...matches.map(match => ({ field: 'allergyAcknowledgement', messages: [match.message] })),
+      { field: 'allergyAcknowledgement.warningToken', messages: [token] },
+      ...codes.map(code => ({ field: 'allergyAcknowledgement.rejected', code, messages: [REJECTED_SENTENCES[code]] }))],
+  })
+}
+
+/** The first warning (none sent), or, `changed`, a token for another warning (a stale one). */
+function allergyRefused(matches: readonly { message: string }[], token: string, changed = false) {
+  return rejectedRefusal(matches, token, [changed ? TOKEN_STALE : MISSING])
+}
+
+/** The same 409 from an EHR at 76283f57: no refused part named (only the detail, never read, says "changed"). */
+function legacyRefused(matches: readonly { message: string }[], token: string, changed = false) {
+  const detail = changed ? CHANGED_DETAIL : REQUIRED_DETAIL
+  return new HidApiError(409, detail, {
+    code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED', detail,
+    details: [...matches.map(match => ({ field: 'allergyAcknowledgement', messages: [match.message] })),
+      { field: 'allergyAcknowledgement.warningToken', messages: [token] }],
+  })
+}
+
+const REASON_LABEL = 'Why is it safe to go ahead?'
+const GOOD_REASON = 'Tolerated amoxicillin in 2025 with no reaction; observe for 30 minutes.'
+/** A reason written again, for a warning that changed since the first was read. */
+const NEW_REASON = 'Checked the new allergy with the patient; first dose under observation.'
+/** The EHR's 400 when it did not accept the acknowledgement (it does not say which part). */
+const ACK_400 = () => new HidApiError(400, 'One or more request fields are invalid.', {
+  code: 'VALIDATION_FAILED', details: [{ field: 'allergyAcknowledgement', messages: [] }],
+})
+
+function warningPanel(name: string) {
+  return screen.getByRole('region', { name })
+}
+
+function lines(panel: HTMLElement) {
+  return within(panel).getAllByRole('listitem').map(item => item.textContent)
+}
+
+function tickBox() {
+  return screen.getByRole('checkbox', { name: /^I have checked (this allergy|these allergies) with the patient/ }) as HTMLInputElement
+}
+
+function ackReason() {
+  return screen.getByRole('textbox', { name: REASON_LABEL }) as HTMLTextAreaElement
+}
+
+function giveReason(text: string) {
+  fireEvent.change(ackReason(), { target: { value: text } })
+}
+
+/** Nothing the EHR said in its own words is on the screen. */
+function noServerWords() {
+  expect(document.body.textContent).not.toContain('Check the allergies')
+  expect(document.body.textContent).not.toContain(TOKEN_A)
+  expect(document.body.textContent).not.toContain(TOKEN_B)
+  for (const sentence of Object.values(REJECTED_SENTENCES)) expect(document.body.textContent).not.toContain(sentence)
+}
+
+describe('Allergies on a new prescription (hid-system 0117)', () => {
+  const recordedPenicillin = { id: 'a1240000-0000-4000-8000-000000000011', substance: 'Penicillin', reaction: 'Hives',
+    severity: 'severe' as const, status: 'active' as const, rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: true }
+  const recordedLatex = { id: 'a1240000-0000-4000-8000-000000000012', substance: 'Latex', reaction: null,
+    severity: 'unknown' as const, status: 'active' as const, rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: false }
+  const MEDICINE = 'Amoxicillin 500 mg'
+  const SAVE_WARNED = (medicine = MEDICINE) => `${SAVE_RX(medicine)} It may match an allergy. Your reason for going ahead will be saved with it.`
 
   beforeEach(() => {
     staff.permissions = [...READ_WRITE, 'ehr.note.read']
-    api.allergies.mockResolvedValue({ recorded: [recordedPenicillin], patientReported: { allergies: 'Peanuts', updatedAt: null } })
+    api.allergies.mockResolvedValue({ recorded: [recordedPenicillin, recordedLatex], patientReported: { allergies: 'Peanuts', updatedAt: null } })
   })
 
   async function form() {
@@ -2465,73 +2611,1502 @@ describe('Allergies on a new prescription (hid-system 0124)', () => {
     return screen.findByRole('button', { name: 'Save draft' })
   }
 
-  function fill(medicine = 'Amoxicillin 500 mg') {
+  function fill(medicine = MEDICINE) {
     change('Medication', medicine)
     change('Frequency', 'Three times daily')
     change('Instructions', 'After meals')
   }
 
-  it('shows the recorded and the patient-reported allergies apart, each labelled', async () => {
+  const BODY = { medicationDisplay: MEDICINE, doseQuantity: undefined, doseUnit: undefined, routeCode: undefined,
+    frequency: 'Three times daily', instructions: 'After meals', status: 'draft' }
+
+  function sentBody(call: number) {
+    return api.createRecord.mock.calls[call]![4] as Record<string, unknown>
+  }
+
+  /** Save draft over a warning, the patient confirmed: refused at the form, the tick and the reason each with its own error. */
+  async function saveRefused({ tick, reason, count = 1 }: { tick: boolean; reason: string | null; count?: number }) {
+    const calls = api.createRecord.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(ALLERGY_GO_AHEAD_ERROR))
+    if (tick) {
+      expect(screen.getByText(tickError(count))).toBeTruthy()
+      expect(tickBox().getAttribute('aria-invalid')).toBe('true')
+    } else {
+      expect(screen.queryByText(tickError(count))).toBeNull()
+      expect(tickBox().getAttribute('aria-invalid')).toBeNull()
+    }
+    for (const said of [ACK_REASON_SHORT, ACK_REASON_NO_WORD, ACK_REASON_LONG]) {
+      if (said === reason) expect(screen.getByText(said)).toBeTruthy()
+      else expect(screen.queryByText(said)).toBeNull()
+    }
+    expect(ackReason().getAttribute('aria-invalid')).toBe(reason ? 'true' : null)
+    // The first answer refused takes focus, so its own error is read: the tick, else the reason.
+    if (tick) expect(document.activeElement).toBe(tickBox())
+    else if (reason) expect(document.activeElement).toBe(ackReason())
+    expect(api.createRecord).toHaveBeenCalledTimes(calls)
+  }
+
+  it('shows the recorded allergies (the EHR’s order, most serious first) and the patient’s apart, and that no warning is not safe', async () => {
     await form()
-    expect(await screen.findByText('Allergies recorded by clinicians: Penicillin (severe).')).toBeTruthy()
+    expect(await screen.findByText('Allergies recorded by clinicians: Penicillin (severe: Hives); Latex (severity not known).')).toBeTruthy()
     expect(screen.getByText('Allergies reported by the patient: Peanuts (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    expect(screen.getByText(NO_WARNING_NOT_SAFE)).toBeTruthy()
     expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
   })
 
-  it('warns before saving a medicine that matches an allergy, and saves only with a tick and a reason', async () => {
-    api.allergyCheck.mockResolvedValue({ matches: [{ source: 'recorded', substance: 'Penicillin', message: WARNING }] })
+  it('says the allergies could not be loaded when one recorded allergy can’t be read, never the rest as if they were all (L9)', async () => {
+    // The real parser: Latex's entry has no version, so the whole list is unread.
+    api.allergies.mockImplementationOnce(async () => parseAllergyList({
+      recorded: [recordedPenicillin, { ...recordedLatex, rowVersion: undefined }], patientReported: { allergies: 'Peanuts', updatedAt: null } }))
+    await form()
+    expect(await screen.findByText(ALLERGIES_UNREAD)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Allergies recorded by clinicians|Penicillin \(severe|: none\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Allergies recorded by clinicians: Penicillin (severe: Hives); Latex (severity not known).')).toBeTruthy()
+  })
+
+  it('warns before saving, titles a severe match, and saves only with the tick and a real reason, sending { reason, warningToken }', async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([MILD_PENICILLIN, AUGMENTIN_TERM, SEVERE_PENICILLIN], TOKEN_A))
     const save = await form()
     fill()
     fireEvent.click(save)
-    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
-    expect(await screen.findByText(WARNING)).toBeTruthy()
-    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin 500 mg' })
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: MEDICINE })
     expect(api.createRecord).not.toHaveBeenCalled()
-    // Saving again without the tick and a reason is refused at the form.
+    // The EHR's sentences whole, the most serious first; a grouped line is one line; nothing is added beside them.
+    const panel = warningPanel(`Severe allergy warning for ${MEDICINE}`)
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message, MILD_PENICILLIN.message, AUGMENTIN_TERM.message])
+    expect(within(panel).queryByText('Severe')).toBeNull()
+    expect(within(panel).queryByText(/Reaction:/)).toBeNull()
+    expect(tickBox().checked).toBe(false)
+    expect(screen.getByRole('checkbox', { name: tickLabel(MEDICINE, 3) })).toBeTruthy()
+    expect(ackReason().tagName).toBe('TEXTAREA')
+    expect(screen.getByText(ACK_REASON_HINT)).toBeTruthy()
+    noServerWords()
+
+    // The tick and the reason are each required, each with its own error; a reason needs 10 characters and a real word.
+    await saveRefused({ tick: true, reason: ACK_REASON_SHORT, count: 3 })
+    fireEvent.click(tickBox())
+    await saveRefused({ tick: false, reason: ACK_REASON_SHORT, count: 3 })
+    giveReason('ok')
+    await saveRefused({ tick: false, reason: ACK_REASON_SHORT, count: 3 })
+    giveReason('1234567890')
+    await saveRefused({ tick: false, reason: ACK_REASON_NO_WORD, count: 3 })
+    giveReason('ok ok ok ok ok')
+    await saveRefused({ tick: false, reason: ACK_REASON_NO_WORD, count: 3 })
+    giveReason(`Tolerated ${'x'.repeat(491)}`)
+    await saveRefused({ tick: false, reason: ACK_REASON_LONG, count: 3 })
+    fireEvent.click(tickBox())
+    giveReason(`  ${GOOD_REASON}  `)
+    await saveRefused({ tick: true, reason: null, count: 3 })
+
+    fireEvent.click(tickBox())
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
-    expect(await screen.findByText('Tick the box and give a reason (at least 3 characters) to go ahead with this medicine.')).toBeTruthy()
-    expect(api.createRecord).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByLabelText('I have checked these allergies and want to go ahead with this prescription.'))
-    change('Reason for going ahead', 'Tolerated amoxicillin last year; will monitor')
-    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
-    const body = api.createRecord.mock.calls[0]![4] as Record<string, unknown>
-    expect(body.allergyAcknowledgement).toEqual({ reason: 'Tolerated amoxicillin last year; will monitor' })
+    expect(sentBody(0)).toEqual({ ...BODY, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_A } })
     expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Amoxicillin' })).toBeTruthy()
   })
 
-  it('shows the warning the EHR gives when it refuses the save, and checks a changed medicine afresh', async () => {
-    api.allergyCheck.mockResolvedValue({ matches: [] })
-    api.createRecord.mockRejectedValueOnce(new HidApiError(409, 'This medicine may match an allergy.', {
-      code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED', details: [{ field: 'allergyAcknowledgement', messages: [WARNING] }],
+  it('sends no acknowledgement when the check finds nothing, though its answer has a token', async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([], TOKEN_A))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(sentBody(0)).toEqual(BODY)
+    expect('allergyAcknowledgement' in sentBody(0)).toBe(false)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+  })
+
+  it('drops the warning, the tick, the reason and the token as soon as the medicine is edited, and checks the new one', async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    expect(await screen.findByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })).toBeTruthy()
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    // Spaces round the name are the same medicine: the warning stays.
+    change('Medication', `${MEDICINE} `)
+    expect(tickBox().checked).toBe(true)
+    // Another medicine: gone at once, before anything is saved.
+    change('Medication', 'Paracetamol 500 mg')
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: REASON_LABEL })).toBeNull()
+    // Back to the first medicine: nothing comes back; it is checked again.
+    change('Medication', MEDICINE)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    change('Medication', 'Paracetamol 500 mg')
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([], TOKEN_C))
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Paracetamol 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(api.allergyCheck).toHaveBeenCalledTimes(2)
+    expect(api.allergyCheck).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Paracetamol 500 mg' })
+    expect(sentBody(0)).toEqual({ ...BODY, medicationDisplay: 'Paracetamol 500 mg' })
+  })
+
+  it('never shows a late answer for a medicine since changed, and saves nothing on it', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    api.allergyCheck.mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await waitFor(() => expect(api.allergyCheck).toHaveBeenCalledTimes(1))
+    // The prescriber changes the medicine while the first is still being checked; then its answer comes.
+    change('Medication', 'Paracetamol 500 mg')
+    await act(async () => { answer(checkAnswer([SEVERE_PENICILLIN], TOKEN_A)) })
+    expect((await screen.findByRole('alert')).textContent).toBe(MEDICINE_CHANGED_ERROR)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    // Saved again, the new medicine is checked, and saved with no acknowledgement.
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([], TOKEN_C))
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX('Paracetamol 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(api.allergyCheck).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Paracetamol 500 mg' })
+    expect(sentBody(0)).toEqual({ ...BODY, medicationDisplay: 'Paracetamol 500 mg' })
+  })
+
+  it('on a 409 that says the warning changed since it was shown: the new warning, the box unticked, and the retry with the new token', async () => {
+    api.allergyCheck
+      .mockResolvedValueOnce(checkAnswer([MILD_PENICILLIN], TOKEN_A))
+      .mockResolvedValueOnce(checkAnswer([MILD_PENICILLIN, SEVERE_PENICILLIN], TOKEN_B))
+    api.createRecord.mockRejectedValueOnce(allergyRefused([MILD_PENICILLIN, SEVERE_PENICILLIN], TOKEN_B, true))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    expect(await screen.findByRole('region', { name: `Allergy warning for ${MEDICINE}` })).toBeTruthy()
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_CHANGED_ERROR)
+    expect(sentBody(0).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_A })
+    // The new warning (from the check run after it, for each line's severity), said to have changed; the box unticked.
+    const panel = warningPanel(`Severe allergy warning for ${MEDICINE}`)
+    expect(within(panel).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message, MILD_PENICILLIN.message])
+    expect(tickBox().checked).toBe(false)
+    // The reason was written for the older warning: emptied, to be written for this one (Ola, bypass #3).
+    expect(ackReason().value).toBe('')
+    expect(api.allergyCheck).toHaveBeenCalledTimes(2)
+    noServerWords()
+    expect(document.body.textContent).not.toContain(CHANGED_DETAIL)
+    // Unticked and with no reason, it is refused at the form; ticked again with a reason, it goes with the new token.
+    await saveRefused({ tick: true, reason: ACK_REASON_SHORT, count: 2 })
+    fireEvent.click(tickBox())
+    giveReason(NEW_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: NEW_REASON, warningToken: TOKEN_B })
+    // Another body is another create (the EHR's digest covers the acknowledgement).
+    expect(api.createRecord.mock.calls[1]![5]).not.toBe(api.createRecord.mock.calls[0]![5])
+    expect(api.allergyCheck).toHaveBeenCalledTimes(2)
+  })
+
+  it('on a 409 when the check could not be read: the EHR’s own sentences, the severe title from them, and their token', async () => {
+    api.allergyCheck.mockRejectedValue(new HidApiError(503, 'Unavailable'))
+    api.createRecord.mockRejectedValueOnce(allergyRefused([AUGMENTIN_TERM, SEVERE_PENICILLIN], TOKEN_B))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    expect('allergyAcknowledgement' in sentBody(0)).toBe(false)
+    const panel = warningPanel(`Severe allergy warning for ${MEDICINE}`)
+    // In the EHR's order (a 409 alone gives nothing to order them by); not said to have changed (none was sent).
+    expect(lines(panel)).toEqual([AUGMENTIN_TERM.message, SEVERE_PENICILLIN.message])
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    noServerWords()
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_B })
+  })
+
+  it('says on the reason when the EHR did not accept it, keeping the warning', async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+    api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
+      code: 'VALIDATION_FAILED', details: [{ field: 'allergyAcknowledgement', messages: [] }],
     }))
     const save = await form()
     fill()
     fireEvent.click(save)
-    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
-    expect(await screen.findByText(WARNING)).toBeTruthy()
-    // A different medicine: the warning goes, the check runs again, and nothing is acknowledged.
-    change('Medication', 'Paracetamol 500 mg')
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await screen.findByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    await confirmPatient(SAVE_RX('Paracetamol 500 mg'), 'Save prescription')
-    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
-    expect((api.createRecord.mock.calls[1]![4] as Record<string, unknown>).allergyAcknowledgement).toBeUndefined()
-    expect(api.allergyCheck).toHaveBeenCalledTimes(2)
-    expect(screen.queryByText(WARNING)).toBeNull()
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    expect((await screen.findByRole('alert')).textContent).toBe(ACK_REFUSED_ERROR)
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('request fields are invalid')
   })
 
-  it('saves as before when the EHR has no allergy check (404), sending no acknowledgement', async () => {
+  it('saves as before when the EHR has no allergy check (404, before 0117), sending no acknowledgement', async () => {
     api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
     api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
     const save = await form()
-    expect(await screen.findByText('Recorded allergies: None recorded. Confirm with the patient.')).toBeTruthy()
+    expect(await screen.findByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/None recorded|recorded by clinicians/)
+    // The EHR checks nothing here, so the form does not say it does.
+    expect(screen.queryByText(NO_WARNING_NOT_SAFE)).toBeNull()
     fill()
     fireEvent.click(save)
-    await confirmPatient(SAVE_RX('Amoxicillin 500 mg'), 'Save prescription')
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
-    expect((api.createRecord.mock.calls[0]![4] as Record<string, unknown>).allergyAcknowledgement).toBeUndefined()
+    expect(sentBody(0)).toEqual(BODY)
+    expect('allergyAcknowledgement' in sentBody(0)).toBe(false)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+  })
+
+  it('never shows a late 409 for a medicine since changed: nothing is shown or acknowledged, and the new medicine is checked', async () => {
+    let refuse: (reason: unknown) => void = () => undefined
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([], TOKEN_A)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    api.createRecord.mockImplementationOnce(() => new Promise((_resolve, reject) => { refuse = reject }))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    // The prescriber changes the medicine while the save is out; then the EHR refuses it for the first medicine.
+    change('Medication', 'Paracetamol 500 mg')
+    await act(async () => { refuse(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)) })
+    expect((await screen.findByRole('alert')).textContent).toBe(MEDICINE_CHANGED_ERROR)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(document.body.textContent).not.toContain(`for ${MEDICINE}`)
+    // Saved again: the new medicine is checked, and saved with no acknowledgement (no token of the old one).
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([], TOKEN_C))
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX('Paracetamol 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect(api.allergyCheck).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Paracetamol 500 mg' })
+    expect(sentBody(1)).toEqual({ ...BODY, medicationDisplay: 'Paracetamol 500 mg' })
+  })
+
+  it('on a 409 with no token it can read, and no check after it: says the warning could not be loaded, drops the old one, and sends no old token', async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A)).mockRejectedValue(new HidApiError(503, 'Unavailable'))
+    // The EHR's 409 with its sentences but no allergyAcknowledgement.warningToken entry.
+    api.createRecord.mockRejectedValueOnce(new HidApiError(409, REQUIRED_DETAIL, {
+      code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED', detail: REQUIRED_DETAIL,
+      details: [{ field: 'allergyAcknowledgement', messages: [SEVERE_PENICILLIN.message] }],
+    }))
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await screen.findByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_WARNING_UNREAD)
+    expect(sentBody(0).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_A })
+    // The older warning, its tick, reason and token are gone: none of them can be sent again.
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    noServerWords()
+    // The next save checks again (it fails) and goes with no acknowledgement, for the EHR to warn afresh.
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect('allergyAcknowledgement' in sentBody(1)).toBe(false)
+  })
+
+  it('a save over a warning that comes back with no id clears the form and the warning, ready for the next prescription', async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+    api.createRecord.mockResolvedValueOnce({})
+    const save = await form()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    await screen.findByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
+    expect(sentBody(0).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_A })
+    expect(field('Medication').value).toBe('')
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: REASON_LABEL })).toBeNull()
+    // The next prescription is checked afresh, and saved with no acknowledgement when nothing matches.
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([], TOKEN_C))
+    fill('Paracetamol 500 mg')
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_RX('Paracetamol 500 mg'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect(sentBody(1)).toEqual({ ...BODY, medicationDisplay: 'Paracetamol 500 mg' })
+  })
+
+  it('reads the allergies above the form again whenever a warning is shown, so they never miss one the warning names', async () => {
+    api.allergies
+      .mockResolvedValueOnce({ recorded: [recordedLatex], patientReported: { allergies: null, updatedAt: null } })
+      .mockResolvedValueOnce({ recorded: [recordedPenicillin, recordedLatex], patientReported: { allergies: null, updatedAt: null } })
+      .mockResolvedValueOnce({ recorded: [recordedPenicillin, recordedLatex], patientReported: { allergies: 'Augmentin', updatedAt: null } })
+    api.allergyCheck
+      .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+      .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B))
+    api.createRecord.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B, true))
+    const save = await form()
+    expect(await screen.findByText('Allergies recorded by clinicians: Latex (severity not known).')).toBeTruthy()
+    fill()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+    // The warning from the check: the allergy recorded since the form opened is in the lines too.
+    await screen.findByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })
+    expect(await screen.findByText('Allergies recorded by clinicians: Penicillin (severe: Hives); Latex (severity not known).')).toBeTruthy()
+    expect(api.allergies).toHaveBeenCalledTimes(2)
+    // The warning from the EHR's 409: read again too.
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_WARNED(), 'Save prescription')
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_CHANGED_ERROR)
+    expect(await screen.findByText('Allergies reported by the patient: Augmentin (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    expect(api.allergies).toHaveBeenCalledTimes(3)
+  })
+
+  describe('the part the EHR refused (7fbb04aa: allergyAcknowledgement.rejected, read by its code)', () => {
+    /** The check's warning, ticked, with a reason, saved; the save refused with `refusal`. Answers the form's error. */
+    async function saveOver(refusal: HidApiError) {
+      api.createRecord.mockRejectedValueOnce(refusal)
+      const save = await form()
+      fill()
+      fireEvent.click(save)
+      await confirmPatient(SAVE_RX(MEDICINE), 'Save prescription')
+      await screen.findByRole('region', { name: `Severe allergy warning for ${MEDICINE}` })
+      fireEvent.click(tickBox())
+      giveReason(GOOD_REASON)
+      fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+      await confirmPatient(SAVE_WARNED(), 'Save prescription')
+      await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+      expect(sentBody(0).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_A })
+      return (await screen.findByRole('alert')).textContent
+    }
+
+    async function saveAgain(count: number) {
+      fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+      await confirmPatient(SAVE_WARNED(), 'Save prescription')
+      await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(count))
+    }
+
+    it.each([
+      [REASON_INVALID, ACK_NOT_ACCEPTED],
+      [REASON_MISSING, ACK_REASON_SHORT],
+    ])('%s: the warning did not change, so it stays ticked with its token; the reason as written is marked and takes focus', async (code, said) => {
+      api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+      expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_A, [code]))).toBe(ACK_REFUSED_ERROR)
+      const panel = warningPanel(`Severe allergy warning for ${MEDICINE}`)
+      expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message])
+      // Not "changed": the reason was refused, not the warning.
+      expect(within(panel).queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+      expect(tickBox().checked).toBe(true)
+      expect(ackReason().value).toBe(GOOD_REASON)
+      expect(screen.getByText(said)).toBeTruthy()
+      expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+      expect(document.activeElement).toBe(ackReason())
+      expect(tickBox().getAttribute('aria-invalid')).toBeNull()
+      // Nothing is checked again: the warning shown is the EHR's current one.
+      expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+      noServerWords()
+      giveReason(NEW_REASON)
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: NEW_REASON, warningToken: TOKEN_A })
+    })
+
+    it(`${TOKEN_INVALID}: the warning stays, with the 409’s token, unticked; the reason stays, and the prescriber is asked to tick again`, async () => {
+      api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+      expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [TOKEN_INVALID]))).toBe(ALLERGY_TICK_AGAIN_ERROR)
+      const panel = warningPanel(`Severe allergy warning for ${MEDICINE}`)
+      expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message])
+      expect(within(panel).queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+      expect(tickBox().checked).toBe(false)
+      expect(ackReason().value).toBe(GOOD_REASON)
+      expect(ackReason().getAttribute('aria-invalid')).toBeNull()
+      noServerWords()
+      fireEvent.click(tickBox())
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_B })
+    })
+
+    it(`${TOKEN_INVALID} for the very warning ticked (the same token again): the box is unticked all the same`, async () => {
+      // The page sends only a token it was given, so a refusal for it names the same warning: nothing but the refusal
+      // itself unticks the box here.
+      api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+      expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_A, [TOKEN_INVALID]))).toBe(ALLERGY_TICK_AGAIN_ERROR)
+      expect(lines(warningPanel(`Severe allergy warning for ${MEDICINE}`))).toEqual([SEVERE_PENICILLIN.message])
+      expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+      expect(tickBox().checked).toBe(false)
+      expect(ackReason().value).toBe(GOOD_REASON)
+      fireEvent.click(tickBox())
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: GOOD_REASON, warningToken: TOKEN_A })
+    })
+
+    it('a reason and a token refused together: unticked, the reason kept and marked, and both said', async () => {
+      api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+      expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [REASON_INVALID, TOKEN_INVALID]))).toBe(ALLERGY_TICK_AND_REASON_ERROR)
+      expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+      expect(tickBox().checked).toBe(false)
+      expect(ackReason().value).toBe(GOOD_REASON)
+      expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+      expect(document.activeElement).toBe(ackReason())
+      noServerWords()
+      fireEvent.click(tickBox())
+      giveReason(NEW_REASON)
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: NEW_REASON, warningToken: TOKEN_B })
+    })
+
+    it(`${TOKEN_STALE} wins over a reason refused with it: the new warning, said to have changed, unticked, and the reason emptied`, async () => {
+      api.allergyCheck
+        .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+        .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B))
+      expect(await saveOver(rejectedRefusal([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B, [REASON_INVALID, TOKEN_STALE]))).toBe(ALLERGY_CHANGED_ERROR)
+      const panel = warningPanel(`Severe allergy warning for ${MEDICINE}`)
+      expect(within(panel).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+      expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message, AUGMENTIN_TERM.message])
+      expect(tickBox().checked).toBe(false)
+      expect(ackReason().value).toBe('')
+      expect(screen.queryByText(ACK_NOT_ACCEPTED)).toBeNull()
+      noServerWords()
+      fireEvent.click(tickBox())
+      giveReason(NEW_REASON)
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: NEW_REASON, warningToken: TOKEN_B })
+    })
+
+    it('from an EHR at 76283f57 (no refused part named): a refused save that carried a reason reads as changed, as before', async () => {
+      api.allergyCheck
+        .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_A))
+        .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B))
+      expect(await saveOver(legacyRefused([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B, true))).toBe(ALLERGY_CHANGED_ERROR)
+      expect(within(warningPanel(`Severe allergy warning for ${MEDICINE}`)).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+      expect(tickBox().checked).toBe(false)
+      expect(ackReason().value).toBe('')
+      fireEvent.click(tickBox())
+      giveReason(NEW_REASON)
+      await saveAgain(2)
+      expect(sentBody(1).allergyAcknowledgement).toEqual({ reason: NEW_REASON, warningToken: TOKEN_B })
+    })
+  })
+})
+
+describe('Allergies on Activate and Resume (hid-system 0117)', () => {
+  const CHANGE = { expectedRowVersion: 1, changeReason: 'Treatment starts today', status: 'active' }
+
+  function submitStatus() {
+    fireEvent.submit(field('Reason for change').closest('form')!)
+  }
+
+  function patched(call: number) {
+    return api.updateRecord.mock.calls[call]![5] as Record<string, unknown>
+  }
+
+  it('Activate: sent first with no acknowledgement; on the EHR’s 409 the warning, then the same change with the tick, a reason and its token', async () => {
+    api.updateRecord.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B))
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    // Not checked first: the EHR knows the reasons already given for this prescription; the check does not.
+    expect(patched(0)).toEqual(CHANGE)
+    expect(api.updateRecord.mock.invocationCallOrder[0]!).toBeLessThan(api.allergyCheck.mock.invocationCallOrder[0]!)
+    // The check is run for the medicine the prescription holds, for the title and the order of the lines.
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin' })
+    const panel = warningPanel('Severe allergy warning for Amoxicillin')
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message])
+    expect(document.activeElement).toBe(within(panel).getByRole('heading', { level: 3 }))
+    // The reason for the change and the reason to go ahead are apart.
+    expect(field('Reason for change').value).toBe('Treatment starts today')
+    expect(ackReason().value).toBe('')
+    noServerWords()
+
+    // Without the tick and a reason, nothing is sent; the tick takes focus, then the reason, each read with its error.
+    submitStatus()
+    await waitFor(() => expect(screen.getByText(tickError(1))).toBeTruthy())
+    expect(screen.getByText(ACK_REASON_SHORT)).toBeTruthy()
+    expect(document.activeElement).toBe(tickBox())
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+    giveReason('1234567890')
+    fireEvent.click(tickBox())
+    submitStatus()
+    await waitFor(() => expect(screen.getByText(ACK_REASON_NO_WORD)).toBeTruthy())
+    expect(screen.queryByText(tickError(1))).toBeNull()
+    expect(document.activeElement).toBe(ackReason())
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+
+    giveReason(GOOD_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(1)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+    expect(await screen.findByRole('button', { name: 'Put on hold' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+  })
+
+  it('Activate after the patient added a term to their own text: warned for it, and warned again, unticked, when it changed before the retry', async () => {
+    // The recorded allergy was acknowledged when the draft was saved; the patient wrote "Augmentin" since, then "Amoxil".
+    api.updateRecord
+      .mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B))
+      .mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN, AUGMENTIN_TERM, AMOXIL_TERM], TOKEN_C, true))
+    api.allergyCheck
+      .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_B))
+      .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM, AMOXIL_TERM], TOKEN_C))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    const panel = await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message, AUGMENTIN_TERM.message])
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    submitStatus()
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_CHANGED_ERROR)
+    expect(patched(1)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+    const changed = warningPanel('Severe allergy warning for Amoxicillin')
+    expect(within(changed).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+    expect(lines(changed)).toEqual([SEVERE_PENICILLIN.message, AUGMENTIN_TERM.message, AMOXIL_TERM.message])
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe('')
+    expect(field('Reason for change').value).toBe('Treatment starts today')
+    expect(document.body.textContent).not.toContain(CHANGED_DETAIL)
+    fireEvent.click(tickBox())
+    giveReason(NEW_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(2)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: NEW_REASON, warningToken: TOKEN_C } })
+  })
+
+  it('Resume (on hold): the warning from the 409 alone when the check fails, Pharmacy’s notice kept, then resumed with the reason', async () => {
+    setLists([prescription({ status: 'on_hold', rowVersion: 4 })], [])
+    api.updateRecord.mockRejectedValueOnce(allergyRefused([AUGMENTIN_TERM], TOKEN_B))
+    api.allergyCheck.mockRejectedValue(new HidApiError(503, 'Unavailable'))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    expect(screen.getByText(PHARMACY_NOT_TOLD)).toBeTruthy()
+    change('Reason for change', 'Results are back')
+    submitStatus()
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    expect(patched(0)).toEqual({ expectedRowVersion: 4, changeReason: 'Results are back', status: 'active' })
+    // A patient-reported line is never "severe".
+    expect(lines(warningPanel('Allergy warning for Amoxicillin'))).toEqual([AUGMENTIN_TERM.message])
+    expect(screen.getByText(PHARMACY_NOT_TOLD)).toBeTruthy()
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 5 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(1)).toEqual({ expectedRowVersion: 4, changeReason: 'Results are back', status: 'active',
+      allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+  })
+
+  it('closing the form after the warning leaves the order as it was, and the form opened again has no warning', async () => {
+    api.updateRecord.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B))
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await openOrder('pharmacy', RX)
+    const activate = screen.getByRole('button', { name: 'Activate' })
+    fireEvent.click(activate)
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(activate)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Draft')).toBeTruthy()
+    // Opened again: no warning, and the change is sent first with no acknowledgement.
+    fireEvent.click(activate)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledTimes(2))
+    expect(patched(1)).toEqual(CHANGE)
+  })
+
+  it('says on the reason when the EHR did not accept it (400), keeping the warning, the tick and both reasons', async () => {
+    api.updateRecord.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockRejectedValueOnce(ACK_400())
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    submitStatus()
+    expect((await screen.findByRole('alert')).textContent).toBe(ACK_REFUSED_ERROR)
+    expect(patched(1)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+    // The reason is marked, with its own words, and takes focus; the tick has no error.
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(ackReason())
+    expect(tickBox().getAttribute('aria-invalid')).toBeNull()
+    expect(tickBox().checked).toBe(true)
+    expect(screen.getByRole('region', { name: 'Severe allergy warning for Amoxicillin' })).toBeTruthy()
+    expect(field('Reason for change').value).toBe('Treatment starts today')
+    expect(screen.getByText('Draft')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    expect(document.body.textContent).not.toContain('Status could not be changed')
+    noServerWords()
+  })
+
+  it('checks the medicine the prescription holds with its code, and sends again with that check’s token', async () => {
+    setLists([prescription({ medicationCode: '723' })], [])
+    api.updateRecord.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_A))
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    // The EHR's token covers the medicine's text and code: a check without the code would give another token.
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin', medicationCode: '723' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 2, medicationCode: '723' })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(1)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+  })
+
+  it('sends no acknowledgement with any other change, and checks nothing', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    change('Reason for change', 'Waiting for results')
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(0)).toEqual({ expectedRowVersion: 3, changeReason: 'Waiting for results', status: 'on_hold' })
+    expect(api.allergyCheck).not.toHaveBeenCalled()
+  })
+
+  /** Activate refused with the first warning (`first`), then sent again ticked with a reason and refused with `second`. */
+  async function activateAgain(second: HidApiError, said: string, first = allergyRefused([SEVERE_PENICILLIN], TOKEN_B)) {
+    api.updateRecord.mockRejectedValueOnce(first).mockRejectedValueOnce(second)
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    submitStatus()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    submitStatus()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(said))
+    expect(patched(1)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+  }
+
+  it(`Activate refused for its reason alone (${REASON_INVALID}): the warning, the tick and both reasons stay, the reason is marked, and nothing is checked again`, async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await activateAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [REASON_INVALID]), ACK_REFUSED_ERROR)
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(ackReason())
+    expect(tickBox().checked).toBe(true)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    expect(field('Reason for change').value).toBe('Treatment starts today')
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Draft')).toBeTruthy()
+    noServerWords()
+    giveReason(NEW_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(2)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: NEW_REASON, warningToken: TOKEN_B } })
+  })
+
+  it(`Activate refused for its token (${TOKEN_INVALID}): the warning stays with the 409’s token, unticked, the reason kept; ticked again it goes`, async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_C))
+    await activateAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_C, [TOKEN_INVALID]), ALLERGY_TICK_AGAIN_ERROR)
+    expect(lines(warningPanel('Severe allergy warning for Amoxicillin'))).toEqual([SEVERE_PENICILLIN.message])
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    expect(ackReason().getAttribute('aria-invalid')).toBeNull()
+    noServerWords()
+    fireEvent.click(tickBox())
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(2)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_C } })
+  })
+
+  it(`Activate refused for its token (${TOKEN_INVALID}) with the same token as the warning ticked: unticked all the same`, async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await activateAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [TOKEN_INVALID]), ALLERGY_TICK_AGAIN_ERROR)
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    fireEvent.click(tickBox())
+    setLists([prescription({ status: 'active', rowVersion: 2 })], [])
+    submitStatus()
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    expect(patched(2)).toEqual({ ...CHANGE, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+  })
+
+  it(`Activate refused for its reason and its token (${REASON_MISSING} and ${TOKEN_INVALID}): unticked, the reason kept and marked, both said`, async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_C))
+    await activateAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_C, [REASON_MISSING, TOKEN_INVALID]), ALLERGY_TICK_AND_REASON_ERROR)
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    expect(screen.getByText(ACK_REASON_SHORT)).toBeTruthy()
+    expect(document.activeElement).toBe(ackReason())
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    noServerWords()
+  })
+
+  it('Activate on an EHR at 76283f57 (no refused part named): refused with a reason, it reads as changed, as before', async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_C))
+    await activateAgain(legacyRefused([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_C, true), ALLERGY_CHANGED_ERROR, legacyRefused([SEVERE_PENICILLIN], TOKEN_B))
+    expect(within(warningPanel('Severe allergy warning for Amoxicillin')).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe('')
+  })
+})
+
+describe('Allergies on sending a prescription, a draft or an active one, to another pharmacy (hid-system 0117)', () => {
+  const SENT = { expectedRowVersion: 1, receivingFacilityId: PHARMACY_ID, attestationTextVersion: 'order-route-prescription-attestation-v1' }
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([prescription({ orderRoute: null })], [], { crossFacilityOrders: true })
+  })
+
+  async function sendForm() {
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to a pharmacy' }))
+    change('Search for the pharmacy', 'Demo Pharmacy')
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByRole('radio', { name: /^Demo Pharmacy/ }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: /^I confirm that Patient One agreed/ }))
+  }
+
+  function sent(call: number) {
+    return routes.send.mock.calls[call]![5] as Record<string, unknown>
+  }
+
+  it('on the EHR’s 409 for a term the patient added after the draft: the warning in the send form, then the same send, same key, with the reason', async () => {
+    routes.send.mockRejectedValueOnce(allergyRefused([AUGMENTIN_TERM], TOKEN_B)).mockResolvedValueOnce({})
+    api.allergyCheck.mockResolvedValue(checkAnswer([AUGMENTIN_TERM], TOKEN_B))
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    // Sent first with no acknowledgement; the check comes after, for the medicine the prescription holds.
+    expect(sent(0)).toEqual(SENT)
+    expect(routes.send.mock.invocationCallOrder[0]!).toBeLessThan(api.allergyCheck.mock.invocationCallOrder[0]!)
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin' })
+    const panel = warningPanel('Allergy warning for Amoxicillin')
+    expect(lines(panel)).toEqual([AUGMENTIN_TERM.message])
+    // The send form stays open; the order is not read again, and nothing says it was not sent "as it is".
+    expect(screen.getByRole('button', { name: 'Send to Demo Pharmacy' })).toBeTruthy()
+    expect(screen.queryByText(/could not be sent/)).toBeNull()
+    noServerWords()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await waitFor(() => expect(screen.getByText(tickError(1))).toBeTruthy())
+    expect(screen.getByText(ACK_REASON_SHORT)).toBeTruthy()
+    expect(routes.send).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 2, orderRoute: route({ kind: 'prescription', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    expect(await screen.findByText('Prescription sent to Demo Pharmacy. It waits there until Demo Pharmacy accepts it, and Patient One is told in the Health ID app.')).toBeTruthy()
+    expect(sent(1)).toEqual({ ...SENT, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+    // Nothing was written on the 409, and the send's digest leaves the acknowledgement out: the same send.
+    expect(routes.send.mock.calls[1]![6]).toBe(routes.send.mock.calls[0]![6])
+  })
+
+  it('a send whose warning changed since it was shown: the new warning, unticked, and the newest token', async () => {
+    routes.send
+      .mockRejectedValueOnce(allergyRefused([MILD_PENICILLIN], TOKEN_A))
+      .mockRejectedValueOnce(allergyRefused([MILD_PENICILLIN, SEVERE_PENICILLIN], TOKEN_B, true))
+      .mockResolvedValueOnce({})
+    api.allergyCheck
+      .mockResolvedValueOnce(checkAnswer([MILD_PENICILLIN], TOKEN_A))
+      .mockResolvedValueOnce(checkAnswer([MILD_PENICILLIN, SEVERE_PENICILLIN], TOKEN_B))
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await screen.findByRole('region', { name: 'Allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_CHANGED_ERROR)
+    expect(sent(1)).toEqual({ ...SENT, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_A } })
+    const panel = warningPanel('Severe allergy warning for Amoxicillin')
+    expect(within(panel).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message, MILD_PENICILLIN.message])
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe('')
+    fireEvent.click(tickBox())
+    giveReason(NEW_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await waitFor(() => expect(routes.send).toHaveBeenCalledTimes(3))
+    expect(sent(2)).toEqual({ ...SENT, allergyAcknowledgement: { reason: NEW_REASON, warningToken: TOKEN_B } })
+    expect(new Set(routes.send.mock.calls.map(call => call[6])).size).toBe(1)
+  })
+
+  it('says on the reason when the EHR did not accept it (400): the send form, its warning and its key stay, and nothing is read again', async () => {
+    routes.send.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockRejectedValueOnce(ACK_400())
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    const reads = api.records.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(ACK_REFUSED_ERROR)
+    expect(sent(1)).toEqual({ ...SENT, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(ackReason())
+    // Still open, as it was: the form, the warning, the tick and the reason; the order is not read again.
+    expect(screen.getByRole('button', { name: 'Send to Demo Pharmacy' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Severe allergy warning for Amoxicillin' })).toBeTruthy()
+    expect(tickBox().checked).toBe(true)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    expect(api.records.mock.calls.length).toBe(reads)
+    expect(screen.queryByText(/could not be sent/)).toBeNull()
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    expect(routes.send.mock.calls[1]![6]).toBe(routes.send.mock.calls[0]![6])
+  })
+
+  it('an active prescription’s send is checked too (#218): the same warning in the send form, then the same send, same key, with the reason', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 4, orderRoute: null })], [], { crossFacilityOrders: true })
+    routes.send.mockRejectedValueOnce(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [MISSING])).mockResolvedValueOnce({})
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    expect(sent(0)).toEqual({ ...SENT, expectedRowVersion: 4 })
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin' })
+    expect(lines(warningPanel('Severe allergy warning for Amoxicillin'))).toEqual([SEVERE_PENICILLIN.message])
+    expect(screen.queryByText(/could not be sent/)).toBeNull()
+    noServerWords()
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 5, orderRoute: route({ kind: 'prescription', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    expect(await screen.findByText('Prescription sent to Demo Pharmacy. It waits there until Demo Pharmacy accepts it, and Patient One is told in the Health ID app.')).toBeTruthy()
+    expect(sent(1)).toEqual({ ...SENT, expectedRowVersion: 4, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+    expect(routes.send.mock.calls[1]![6]).toBe(routes.send.mock.calls[0]![6])
+  })
+
+  it(`an active prescription’s send refused for its reason alone (${REASON_INVALID}): the reason is marked, as for a draft`, async () => {
+    setLists([prescription({ status: 'active', rowVersion: 4, orderRoute: null })], [], { crossFacilityOrders: true })
+    routes.send.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B))
+      .mockRejectedValueOnce(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [REASON_INVALID]))
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(ACK_REFUSED_ERROR))
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(document.activeElement).toBe(ackReason())
+    expect(tickBox().checked).toBe(true)
+    expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+    noServerWords()
+  })
+
+  it('Cancel after the warning leaves the order as it was; the send opened again has no warning', async () => {
+    routes.send.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B))
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(routes.send).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Draft')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to a pharmacy' }))
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+  })
+  /** The send refused with the first warning, then sent again ticked with a reason and refused with `second`. */
+  async function sendAgain(second: HidApiError, said: string) {
+    routes.send.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockRejectedValueOnce(second).mockResolvedValueOnce({})
+    await sendForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(said))
+    expect(sent(1)).toEqual({ ...SENT, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_B } })
+  }
+
+  it(`a send refused for its reason alone (${REASON_INVALID}): the form, its warning, the tick and the key stay; the reason is marked`, async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await sendAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [REASON_INVALID]), ACK_REFUSED_ERROR)
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(ackReason())
+    expect(tickBox().checked).toBe(true)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send to Demo Pharmacy' })).toBeTruthy()
+    expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+    noServerWords()
+    giveReason(NEW_REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await waitFor(() => expect(routes.send).toHaveBeenCalledTimes(3))
+    expect(sent(2)).toEqual({ ...SENT, allergyAcknowledgement: { reason: NEW_REASON, warningToken: TOKEN_B } })
+    expect(new Set(routes.send.mock.calls.map(call => call[6])).size).toBe(1)
+  })
+
+  it(`a send refused for its token (${TOKEN_INVALID}): the warning stays with the 409’s token, unticked, the reason kept; ticked again, the same send goes`, async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_C))
+    await sendAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_C, [TOKEN_INVALID]), ALLERGY_TICK_AGAIN_ERROR)
+    expect(lines(warningPanel('Severe allergy warning for Amoxicillin'))).toEqual([SEVERE_PENICILLIN.message])
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    noServerWords()
+    fireEvent.click(tickBox())
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }))
+    await waitFor(() => expect(routes.send).toHaveBeenCalledTimes(3))
+    expect(sent(2)).toEqual({ ...SENT, allergyAcknowledgement: { reason: GOOD_REASON, warningToken: TOKEN_C } })
+    expect(new Set(routes.send.mock.calls.map(call => call[6])).size).toBe(1)
+  })
+})
+
+describe('Allergies on Send to Pharmacy, the hand-off to this facility’s Pharmacy (hid-system#218)', () => {
+  const WHY = 'Patient collecting today'
+  const ACCEPTED = { id: 'pw-1', sourceEhrPrescriptionVersion: 3, status: 'accepted', acceptedAt: '2026-11-12T08:00:00.000Z', dispensing: null }
+
+  beforeEach(() => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+  })
+
+  // An answer queued for a hand-off a test did not send is never left for the next test.
+  afterEach(() => {
+    api.acceptPrescription.mockReset()
+  })
+
+  async function handoffForm() {
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', WHY)
+  }
+
+  function submit() {
+    fireEvent.submit(field('Reason').closest('form')!)
+  }
+
+  /** The arguments of a call to staffApi.acceptPrescription, as sent. */
+  function handedOff(call: number) {
+    return api.acceptPrescription.mock.calls[call]!
+  }
+
+  it('sent first with no acknowledgement; on the EHR’s 409 the warning, then the same hand-off, same key, with the tick and a reason', async () => {
+    api.acceptPrescription.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(ACCEPTED)
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await handoffForm()
+    submit()
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    // Sent first with no acknowledgement (never one without a warning shown): no eighth argument at all.
+    expect(handedOff(0)).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 3, WHY, expect.any(String)])
+    // The check comes after, for the medicine the prescription holds.
+    expect(api.acceptPrescription.mock.invocationCallOrder[0]!).toBeLessThan(api.allergyCheck.mock.invocationCallOrder[0]!)
+    expect(api.allergyCheck).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { medicationDisplay: 'Amoxicillin' })
+    const panel = warningPanel('Severe allergy warning for Amoxicillin')
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message])
+    expect(tickBox().checked).toBe(false)
+    // The form stays as it was, its reason for the hand-off apart from the reason to go ahead; the order is not read again.
+    expect(field('Reason').value).toBe(WHY)
+    expect(ackReason().value).toBe('')
+    expect(screen.queryByText(/could not be completed|did not accept|The list was reloaded/)).toBeNull()
+    noServerWords()
+
+    // Nothing is sent without the tick and a reason, each with its own error.
+    submit()
+    await waitFor(() => expect(screen.getByText(tickError(1))).toBeTruthy())
+    expect(screen.getByText(ACK_REASON_SHORT)).toBeTruthy()
+    expect(document.activeElement).toBe(tickBox())
+    expect(api.acceptPrescription).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    submit()
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    // The same hand-off: the same version and reason, under the same key, now with the acknowledgement.
+    expect(handedOff(1)).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 3, WHY, handedOff(0)[6],
+      { reason: GOOD_REASON, warningToken: TOKEN_B }])
+    expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+  })
+
+  it('a hand-off with no match sends no acknowledgement, and checks nothing', async () => {
+    api.acceptPrescription.mockResolvedValueOnce(ACCEPTED)
+    await handoffForm()
+    submit()
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(handedOff(0)).toHaveLength(7)
+    expect(api.allergyCheck).not.toHaveBeenCalled()
+  })
+
+  /** Refused with the first warning, then sent again ticked with a reason and refused with `second`. */
+  async function handoffAgain(second: HidApiError, said: string) {
+    api.acceptPrescription.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockRejectedValueOnce(second).mockResolvedValueOnce(ACCEPTED)
+    await handoffForm()
+    submit()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    submit()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(said))
+    expect(handedOff(1)).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 3, WHY, handedOff(0)[6], { reason: GOOD_REASON, warningToken: TOKEN_B }])
+  }
+
+  it(`refused for its reason alone (${REASON_INVALID}): the warning, the tick and both reasons stay, the reason is marked; corrected, the same hand-off goes`, async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await handoffAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_B, [REASON_INVALID]), ACK_REFUSED_ERROR)
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(ackReason())
+    expect(tickBox().checked).toBe(true)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    expect(field('Reason').value).toBe(WHY)
+    expect(screen.queryByText(ALLERGY_WARNING_CHANGED)).toBeNull()
+    expect(api.allergyCheck).toHaveBeenCalledTimes(1)
+    noServerWords()
+    giveReason(NEW_REASON)
+    submit()
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(handedOff(2)).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 3, WHY, handedOff(0)[6], { reason: NEW_REASON, warningToken: TOKEN_B }])
+  })
+
+  it(`refused for its token (${TOKEN_INVALID}): the warning stays with the newest token, unticked, the reason kept; ticked again it goes`, async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_C))
+    await handoffAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_C, [TOKEN_INVALID]), ALLERGY_TICK_AGAIN_ERROR)
+    expect(lines(warningPanel('Severe allergy warning for Amoxicillin'))).toEqual([SEVERE_PENICILLIN.message])
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe(GOOD_REASON)
+    noServerWords()
+    fireEvent.click(tickBox())
+    submit()
+    await waitFor(() => expect(api.acceptPrescription).toHaveBeenCalledTimes(3))
+    expect(handedOff(2)).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 3, WHY, handedOff(0)[6], { reason: GOOD_REASON, warningToken: TOKEN_C }])
+  })
+
+  it(`refused because the warning changed since it was shown (${TOKEN_STALE}): the new warning, unticked, the reason emptied`, async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+      .mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_C))
+    await handoffAgain(rejectedRefusal([SEVERE_PENICILLIN, AUGMENTIN_TERM], TOKEN_C, [TOKEN_STALE]), ALLERGY_CHANGED_ERROR)
+    const panel = warningPanel('Severe allergy warning for Amoxicillin')
+    expect(within(panel).getByText(ALLERGY_WARNING_CHANGED)).toBeTruthy()
+    expect(lines(panel)).toEqual([SEVERE_PENICILLIN.message, AUGMENTIN_TERM.message])
+    expect(tickBox().checked).toBe(false)
+    expect(ackReason().value).toBe('')
+    noServerWords()
+    fireEvent.click(tickBox())
+    giveReason(NEW_REASON)
+    submit()
+    await waitFor(() => expect(api.acceptPrescription).toHaveBeenCalledTimes(3))
+    expect(handedOff(2)[7]).toEqual({ reason: NEW_REASON, warningToken: TOKEN_C })
+    expect(handedOff(2)[6]).toBe(handedOff(0)[6])
+  })
+
+  it(`refused for its reason and its token (${REASON_MISSING} and ${TOKEN_INVALID}): unticked, the reason kept and marked, both said`, async () => {
+    api.allergyCheck.mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(checkAnswer([SEVERE_PENICILLIN], TOKEN_C))
+    await handoffAgain(rejectedRefusal([SEVERE_PENICILLIN], TOKEN_C, [REASON_MISSING, TOKEN_INVALID]), ALLERGY_TICK_AND_REASON_ERROR)
+    expect(tickBox().checked).toBe(false)
+    expect(screen.getByText(ACK_REASON_SHORT)).toBeTruthy()
+    expect(ackReason().getAttribute('aria-invalid')).toBe('true')
+    noServerWords()
+  })
+
+  it('says on the reason when the EHR did not accept it (400): the form, its warning, the tick and the key stay; nothing is read again', async () => {
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    const reads = () => api.records.mock.calls.length
+    await openOrder('pharmacy', RX)
+    const before = reads()
+    api.acceptPrescription.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockRejectedValueOnce(ACK_400())
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', WHY)
+    submit()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    submit()
+    expect((await screen.findByRole('alert')).textContent).toBe(ACK_REFUSED_ERROR)
+    expect(screen.getByText(ACK_NOT_ACCEPTED)).toBeTruthy()
+    expect(document.activeElement).toBe(ackReason())
+    expect(tickBox().checked).toBe(true)
+    expect(handedOff(1)[6]).toBe(handedOff(0)[6])
+    expect(reads()).toBe(before)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    expect(document.body.textContent).not.toContain('Send to Pharmacy could not be completed')
+  })
+
+  it('closing the form after the warning leaves the order as it was; opened again it has no warning and sends none', async () => {
+    api.acceptPrescription.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B)).mockResolvedValueOnce(ACCEPTED)
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await handoffForm()
+    submit()
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    const send = screen.getByRole('button', { name: 'Send to Pharmacy', expanded: true })
+    fireEvent.click(send)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(api.acceptPrescription).toHaveBeenCalledTimes(1)
+    fireEvent.click(send)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    change('Reason', WHY)
+    submit()
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(handedOff(1)).toHaveLength(7)
+  })
+
+  it('a 409 whose warning can’t be read (no token, and the check failed) says so, and sends nothing more', async () => {
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Conflict', { code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED',
+      details: [{ field: 'allergyAcknowledgement', messages: [SEVERE_PENICILLIN.message] }] }))
+    api.allergyCheck.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    await handoffForm()
+    submit()
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_WARNING_UNREAD)
+    expect(screen.queryByRole('region', { name: /allergy warning/i })).toBeNull()
+    expect(api.acceptPrescription).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Reasons given to go ahead over an allergy warning, on a prescription’s page (hid-system#218 at 7fbb04aa)', () => {
+  const PENICILLIN_ID = 'a1240000-0000-4000-8000-000000000021'
+  const LATEX_ID = 'a1240000-0000-4000-8000-000000000022'
+  /** A recorded allergy no longer on the patient's list (marked entered in error since, most likely). */
+  const GONE_ID = 'a1240000-0000-4000-8000-000000000029'
+  const PENICILLIN = { id: PENICILLIN_ID, substance: 'Penicillin', reaction: 'Anaphylaxis', severity: 'severe' as const, status: 'active' as const,
+    rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: false }
+  const LATEX = { id: LATEX_ID, substance: 'Latex', reaction: null, severity: 'unknown' as const, status: 'active' as const,
+    rowVersion: '1', createdAt: null, enteredInErrorReason: null, recordedHere: true }
+  /**
+   * Who gave a reason, as the EHR stores it: the account id (createdBy) and the membership at this facility
+   * (createdByMembershipId). The signed-in member is the harness's actor: its session id ('staff-1') is the sign-in's
+   * subject, not an account id, and its membership here is 'member-1'. "You" is said from the membership alone.
+   */
+  const SESSION_ID = 'staff-1'
+  const MY_ACCOUNT = 'e0000000-0000-4000-8000-0000000000a1'
+  const MY_MEMBERSHIP = 'member-1'
+  const COLLEAGUE = 'e0000000-0000-4000-8000-0000000000c2'
+  const COLLEAGUE_MEMBERSHIP = 'e0000000-0000-4000-8000-0000000000f2'
+  const WHEN = '2026-11-10T09:00:00.000Z'
+
+  function override(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'e1240000-0000-4000-8000-000000000001', stage: 'create', reason: 'Has taken amoxicillin since 2024 with no reaction',
+      createdBy: MY_ACCOUNT, createdByMembershipId: MY_MEMBERSHIP, createdAt: WHEN, matchedRecordedAllergyIds: [PENICILLIN_ID],
+      patientReportedMatched: false, patientReportedTerms: [], ...overrides,
+    }
+  }
+
+  /** Each override's lines, in order. */
+  function entries(panel: HTMLElement) {
+    return within(panel).getAllByRole('listitem').map(item => [...item.querySelectorAll('p')].map(line => line.textContent))
+  }
+
+  beforeEach(() => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    api.allergies.mockResolvedValue({ recorded: [PENICILLIN, LATEX], patientReported: { allergies: 'Penicillin, Augmentin', updatedAt: null } })
+  })
+
+  it('shows one above the actions: by you, when, at which step, the reason as written, the allergy it covered by name, and the patient’s own words', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 3,
+      allergyAcknowledgements: [override({ patientReportedMatched: true, patientReportedTerms: ['penicillin'] })] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    expect(within(panel).getByRole('heading', { level: 3, name: 'Allergy warning overridden' })).toBeTruthy()
+    await waitFor(() => expect(entries(panel)).toEqual([[
+      `By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      'Reason given: “Has taken amoxicillin since 2024 with no reaction”.',
+      'Recorded allergy it covered: Penicillin (severe: Anaphylaxis).',
+      'The patient’s own words it covered, from their Health ID portal: “penicillin”.',
+    ]]))
+    // In the Actions card, above its buttons, whatever the status.
+    expect(panel.compareDocumentPosition(screen.getByRole('button', { name: 'Put on hold' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(api.allergies).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+    // Ids are never shown.
+    for (const id of [MY_ACCOUNT, MY_MEMBERSHIP, PENICILLIN_ID, 'e1240000-0000-4000-8000-000000000001']) expect(document.body.textContent).not.toContain(id)
+  })
+
+  it('shows several oldest first, as served, each with who and its step, and says plainly of an allergy no longer on the patient’s list', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 5, allergyAcknowledgements: [
+      override({ id: 'e1240000-0000-4000-8000-000000000011', createdBy: COLLEAGUE, createdByMembershipId: COLLEAGUE_MEMBERSHIP, createdAt: '2026-11-08T08:00:00.000Z',
+        matchedRecordedAllergyIds: [PENICILLIN_ID, GONE_ID] }),
+      override({ id: 'e1240000-0000-4000-8000-000000000012', stage: 'activate', createdAt: '2026-11-09T10:30:00.000Z',
+        reason: 'Checked the latex allergy with the patient; no latex in this medicine', matchedRecordedAllergyIds: [LATEX_ID] }),
+      override({ id: 'e1240000-0000-4000-8000-000000000013', stage: 'resume', createdBy: COLLEAGUE, createdByMembershipId: COLLEAGUE_MEMBERSHIP, createdAt: '2026-11-10T07:15:00.000Z',
+        reason: 'Patient took Augmentin last month with no reaction', matchedRecordedAllergyIds: [], patientReportedMatched: true,
+        patientReportedTerms: ['augmentin', 'amoxil'] }),
+    ] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warnings overridden' })
+    await waitFor(() => expect(entries(panel)).toEqual([
+      [`By a clinician at this facility on ${formatWhen('2026-11-08T08:00:00.000Z')}, when it was prescribed.`,
+        'Reason given: “Has taken amoxicillin since 2024 with no reaction”.',
+        'Recorded allergies it covered: Penicillin (severe: Anaphylaxis); 1 more recorded allergy no longer on the patient’s list (it may have been marked entered in error).'],
+      [`By you on ${formatWhen('2026-11-09T10:30:00.000Z')}, when it was activated.`,
+        'Reason given: “Checked the latex allergy with the patient; no latex in this medicine”.',
+        'Recorded allergy it covered: Latex (severity not known).'],
+      [`By a clinician at this facility on ${formatWhen('2026-11-10T07:15:00.000Z')}, when it was resumed.`,
+        'Reason given: “Patient took Augmentin last month with no reaction”.',
+        'The patient’s own words it covered, from their Health ID portal: “augmentin”, “amoxil”.'],
+    ]))
+    // One read of the allergies names them all.
+    expect(api.allergies).toHaveBeenCalledTimes(1)
+    expect(document.body.textContent).not.toContain(COLLEAGUE)
+  })
+
+  it('says “you” only for the signed-in member’s membership at this facility, never from the account or session id', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 4, allergyAcknowledgements: [
+      // Given with this membership: you, whatever the account id.
+      override({ id: 'e1240000-0000-4000-8000-000000000021', matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }),
+      // An account id that happens to equal the session's id, with another membership: someone else.
+      override({ id: 'e1240000-0000-4000-8000-000000000022', createdBy: SESSION_ID, createdByMembershipId: COLLEAGUE_MEMBERSHIP,
+        matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }),
+      // No membership said: never "you".
+      override({ id: 'e1240000-0000-4000-8000-000000000023', createdByMembershipId: undefined,
+        matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }),
+    ] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warnings overridden' })
+    expect(entries(panel).map(lines => lines[0])).toEqual([
+      `By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      `By a clinician at this facility on ${formatWhen(WHEN)}, when it was prescribed.`,
+      `By a clinician at this facility on ${formatWhen(WHEN)}, when it was prescribed.`,
+    ])
+    for (const id of [MY_ACCOUNT, MY_MEMBERSHIP, COLLEAGUE_MEMBERSHIP]) expect(document.body.textContent).not.toContain(id)
+  })
+
+  it.each([
+    ['create', 'when it was prescribed'],
+    ['activate', 'when it was activated'],
+    ['resume', 'when it was resumed'],
+    ['send', 'when it was sent to a pharmacy'],
+    ['handoff', 'when it was sent to this facility’s Pharmacy'],
+  ])('says the step %s in plain words', async (stage, words) => {
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override({ stage, matchedRecordedAllergyIds: [GONE_ID] })] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(panel)[0]).toEqual([`By you on ${formatWhen(WHEN)}, ${words}.`,
+      'Reason given: “Has taken amoxicillin since 2024 with no reaction”.',
+      'Recorded allergy it covered: one no longer on the patient’s list (it may have been marked entered in error).']))
+  })
+
+  it.each([
+    [[{ id: 'e1240000-0000-4000-8000-000000000031' }], 'Allergy warning overridden', 'An allergy warning override on this prescription can’t be shown here.'],
+    [['x', { reason: 'Has taken amoxicillin since 2024 with no reaction' }], 'Allergy warnings overridden', '2 allergy warning overrides on this prescription can’t be shown here.'],
+  ])('when no stored reason can be read, says one exists and can’t be shown, never “more”', async (stored, title, said) => {
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: stored })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: title })
+    expect(within(panel).queryAllByRole('listitem')).toEqual([])
+    expect([...panel.querySelectorAll('p')].map(line => line.textContent)).toEqual([said])
+    expect(document.body.textContent).not.toMatch(/\bmore allergy warning/)
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it('after the reasons it can show, counts those it can’t as “more”', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [
+      override({ matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] }), { id: 'e1240000-0000-4000-8000-000000000032' },
+    ] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warnings overridden' })
+    expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(panel).getByText('1 more allergy warning override can’t be shown here.')).toBeTruthy()
+  })
+
+  it('shows the reason as text, never as markup, with its own line breaks', async () => {
+    const reason = 'Tolerated <b>amoxicillin</b> & penicillin V in 2024.\nFirst dose under observation.'
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override({ reason, matchedRecordedAllergyIds: [], patientReportedMatched: true, patientReportedTerms: ['penicillin'] })] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    expect(panel.querySelector('b')).toBeNull()
+    const line = [...panel.querySelectorAll('p')].find(item => item.textContent?.startsWith('Reason given'))!
+    expect(line.textContent).toBe(`Reason given: “${reason}”.`)
+    expect(line.className).toContain('hid-ehr-clinical-allergy-override-reason')
+    // No allergy to name: the allergies are not read.
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it('says the allergies it covered can’t be named without ehr.note.read, and reads none', async () => {
+    staff.permissions = [...READ_WRITE]
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override({ matchedRecordedAllergyIds: [PENICILLIN_ID, LATEX_ID] })] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    expect(entries(panel)[0]![2]).toBe('Recorded allergies it covered: 2 (their names can’t be shown here).')
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it('says the allergies it covered could not be loaded when one on the list can’t be read, never naming the rest (L9)', async () => {
+    api.allergies.mockImplementationOnce(async () => parseAllergyList({
+      recorded: [PENICILLIN, { ...LATEX, substance: '' }], patientReported: { allergies: null, updatedAt: null } }))
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override({ matchedRecordedAllergyIds: [PENICILLIN_ID, LATEX_ID] })] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(panel)[0]![2]).toBe('Recorded allergies it covered: 2 (their names could not be loaded).'))
+    expect(panel.textContent).not.toContain('Penicillin (severe')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(entries(panel)[0]![2]).toBe('Recorded allergies it covered: Penicillin (severe: Anaphylaxis); Latex (severity not known).'))
+  })
+
+  it('says when the allergies it covered could not be loaded, and names them after Try again', async () => {
+    api.allergies.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override()] })], [])
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(panel)[0]![2]).toBe('Recorded allergy it covered: 1 (their names could not be loaded).'))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(entries(panel)[0]![2]).toBe('Recorded allergy it covered: Penicillin (severe: Anaphylaxis).'))
+    expect(api.allergies).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['a draft', { status: 'draft' }, 'Activate'],
+    ['an active one', { status: 'active', rowVersion: 2 }, 'Put on hold'],
+  ])('says nothing about overrides on %s from an EHR without the allergy check (no allergyAcknowledgements)', async (_label, fields, action) => {
+    // The website goes live before hid-system#218: no warning can have been overridden there, so no line on every page.
+    setLists([prescription(fields)], [])
+    await openOrder('pharmacy', RX)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: action })).toBeTruthy()
+    expect(screen.queryByText(OVERRIDES_NOT_SHOWN)).toBeNull()
+    expect(screen.queryByRole('region', { name: /overridden/i })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/overrid/i)
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a draft', { status: 'draft', allergyAcknowledgements: { items: [] } }, 'Activate'],
+    ['an active one', { status: 'active', rowVersion: 2, allergyAcknowledgements: 'stored' }, 'Put on hold'],
+  ])('says plainly on %s whose allergyAcknowledgements can’t be read that overrides can’t be shown, never that there are none', async (_label, fields, action) => {
+    setLists([prescription(fields)], [])
+    await openOrder('pharmacy', RX)
+    await act(async () => {})
+    const note = screen.getByText(OVERRIDES_NOT_SHOWN)
+    // Above the actions, where the reasons would be.
+    expect(note.compareDocumentPosition(screen.getByRole('button', { name: action })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('region', { name: /overridden/i })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/no reason|none given|no allergy warning|not overridden|no override/i)
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it('does not say it on a prescription that says none were given ([])', async () => {
+    setLists([prescription({ allergyAcknowledgements: [] })], [])
+    await openOrder('pharmacy', RX)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeTruthy()
+    expect(screen.queryByText(OVERRIDES_NOT_SHOWN)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/overrid/i)
+  })
+
+  it('does not say it on a lab test, which has no allergy warning', async () => {
+    setLists([], [labRequest()])
+    await openOrder('laboratory', LAB)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: 'Cancel order' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/overrid/i)
+  })
+
+  it.each([
+    ['a draft, above Activate', { status: 'draft' }, 'Activate', {}],
+    ['one on hold, above Resume', { status: 'on_hold' }, 'Resume', {}],
+    ['a draft, above its send to another pharmacy', { status: 'draft', orderRoute: null }, 'Send to a pharmacy', { crossFacilityOrders: true }],
+  ])('shows no allergy lines on %s any more (the interim lines are gone) when no reason was given ([]), and reads no allergies', async (_label, fields, action, extra) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.note.read', 'ehr.order-route.send']
+    setLists([prescription({ ...fields, allergyAcknowledgements: [] })], [], extra)
+    await openOrder('pharmacy', RX)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: action })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: /overridden/i })).toBeNull()
+    expect(screen.queryByText(/^Allergies (recorded by clinicians|reported by the patient)/)).toBeNull()
+    expect(screen.queryByText(NO_WARNING_NOT_SAFE)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/overrid/i)
+    expect(api.allergies).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a draft, above Activate', { status: 'draft' }, 'Activate', {}],
+    ['one on hold, above Resume', { status: 'on_hold' }, 'Resume', {}],
+    ['a draft, above its send to another pharmacy', { status: 'draft', orderRoute: null }, 'Send to a pharmacy', { crossFacilityOrders: true }],
+  ])('shows a reason already given on %s, with the reason and the allergy it covered, before the button is pressed', async (_label, fields, action, extra) => {
+    // The EHR may let the step go ahead with no new warning when this reason covers the allergies: whoever presses sees it first.
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.note.read', 'ehr.order-route.send']
+    setLists([prescription({ ...fields, allergyAcknowledgements: [override()] })], [], extra)
+    await openOrder('pharmacy', RX)
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(panel)).toEqual([[`By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      'Reason given: “Has taken amoxicillin since 2024 with no reaction”.', 'Recorded allergy it covered: Penicillin (severe: Anaphylaxis).']]))
+    expect(panel.compareDocumentPosition(screen.getByRole('button', { name: action })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('Activate that the EHR lets go ahead with no new warning (a reason given already covers it): the reason stays shown above the actions', async () => {
+    setLists([prescription({ allergyAcknowledgements: [override()] })], [])
+    await openOrder('pharmacy', RX)
+    const before = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    expect(before.compareDocumentPosition(screen.getByRole('button', { name: 'Activate' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    setLists([prescription({ status: 'active', rowVersion: 2, allergyAcknowledgements: [override()] })], [])
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    // No 409, so no warning, no check, and nothing acknowledged: the EHR's stored reason covered it.
+    expect(screen.queryByRole('region', { name: /allergy warning for/i })).toBeNull()
+    expect(api.allergyCheck).not.toHaveBeenCalled()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+    expect(api.updateRecord.mock.calls[0]![5]).toEqual({ expectedRowVersion: 1, changeReason: 'Treatment starts today', status: 'active' })
+    const after = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(after)).toEqual([[`By you on ${formatWhen(WHEN)}, when it was prescribed.`,
+      'Reason given: “Has taken amoxicillin since 2024 with no reaction”.', 'Recorded allergy it covered: Penicillin (severe: Anaphylaxis).']]))
+    expect(after.compareDocumentPosition(screen.getByRole('button', { name: 'Put on hold' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('after Activate with a reason, the prescription read again shows it, by you, when it was activated', async () => {
+    setLists([prescription({ allergyAcknowledgements: [] })], [])
+    api.updateRecord.mockRejectedValueOnce(allergyRefused([SEVERE_PENICILLIN], TOKEN_B))
+    api.allergyCheck.mockResolvedValue(checkAnswer([SEVERE_PENICILLIN], TOKEN_B))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    await screen.findByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    expect(screen.queryByRole('region', { name: /overridden/i })).toBeNull()
+    fireEvent.click(tickBox())
+    giveReason(GOOD_REASON)
+    setLists([prescription({ status: 'active', rowVersion: 2,
+      allergyAcknowledgements: [override({ stage: 'activate', reason: GOOD_REASON })] })], [])
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    const panel = await screen.findByRole('region', { name: 'Allergy warning overridden' })
+    await waitFor(() => expect(entries(panel)).toEqual([[`By you on ${formatWhen(WHEN)}, when it was activated.`,
+      `Reason given: “${GOOD_REASON}”.`, 'Recorded allergy it covered: Penicillin (severe: Anaphylaxis).']]))
   })
 })
 

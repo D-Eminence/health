@@ -219,7 +219,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The Overview's orders that the receiver ended as accepted for the wrong person (item 3, D10; proposed, 404 until served).
       'ehr.orderRoutesWrongPatient',
       // The health information the patient entered, on the chart as reported by the patient (hid-system 0094; 404 until served).
-      'ehr.patientReportedHealthProfile'],
+      'ehr.patientReportedHealthProfile',
+      // Allergies on the chart and the allergy check at prescribing (hid-system 0117; 404 until served, which the chart
+      // takes as not offered). Without these the staff client refuses the calls before they are sent.
+      'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

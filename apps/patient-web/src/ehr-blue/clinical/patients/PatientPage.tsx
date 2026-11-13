@@ -291,7 +291,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
             ? `${READ_ONLY} ${READ_ONLY_HOW}` : chart.writeNotice}</Alert> : null}
         {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
-        {/* Allergies, recorded by clinicians and reported by the patient, each labelled (hid-system 0124; patient-reported only before it). */}
+        {/* Allergies, recorded by clinicians and reported by the patient, each labelled (hid-system 0117; patient-reported only before it). */}
         {!emergency ? <AllergiesCard chart={chart} /> : null}
 
         {!emergency ? <Card>

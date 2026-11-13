@@ -1,6 +1,5 @@
-import { isHidApiError } from '@hid/http'
 import { EhrCard } from '@hid/ui/ehr'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
@@ -8,6 +7,7 @@ import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { RecordHeading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { AllergyLines, useAllergies } from '../patients/AllergiesCard'
 import {
   ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
   composeNote, encounterTypeLabel, isoNow, newDiagnosisBody, newDiagnosisCheck, refusedFieldErrors, text,
@@ -167,46 +167,20 @@ function noteContent(values: FormValues): string {
   ])
 }
 
-type Reported = { readonly state: 'loading' | 'hidden' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
-
 /**
- * The design's "Patient context": the patient and their allergies. Today's only allergy record is what the patient
- * reported in their Health ID portal (read for direct care, with ehr.note.read), so it is labelled as such. As today's
- * "Reported by the patient" (staff/routes/PatientReportedHealth.tsx): nothing is said while it loads, without
- * ehr.note.read, or when EHR refuses (403) or does not serve it (404); "None recorded" only after a read that answered.
+ * The design's "Patient context": the patient and their allergies, the chart's (useAllergies, read for direct care with
+ * ehr.note.read): those clinicians recorded, most serious first, and what the patient entered in their Health ID portal,
+ * each labelled; on a backend before 0117, the patient's text alone. Nothing while it loads; then always a line, so a
+ * read that failed, was refused or is not served is never silence a reader could take for "no allergies". "None" is
+ * said only after a read that found none.
  */
 function PatientContext({ chart }: { chart: Chart }) {
-  const { facilityId, patientId } = chart
-  const reads = chart.can('ehr.note.read')
-  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'hidden' })
-
-  useEffect(() => {
-    if (!reads) return
-    const controller = new AbortController()
-    staffApi.reportedHealthProfile(facilityId, patientId, controller.signal).then(
-      profile => controller.signal.aborted ? undefined : setReported(profile?.allergies ? { state: 'shown', allergies: profile.allergies } : { state: 'none' }),
-      caught => {
-        if (controller.signal.aborted) return
-        const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
-        setReported({ state: hidden ? 'hidden' : 'failed' })
-      },
-    )
-    return () => controller.abort()
-  }, [facilityId, patientId, reads])
-
+  const { state: allergies } = useAllergies(chart)
+  if (allergies.status === 'loading') return null
   return (
-    // A section shows only when it has something to say (rule B): nothing while it loads or when it isn't served.
-    reported.state === 'loading' || reported.state === 'hidden' ? null : (
     <section className="hid-ehr-clinical-context-block" aria-labelledby="consult-patient-context">
       <h2 id="consult-patient-context">Allergies</h2>
-      <p>
-        {reported.state === 'shown'
-          ? `${reported.allergies} (told us by the patient, not checked by a clinician).`
-          : reported.state === 'failed'
-            ? 'What the patient told us couldn’t be loaded. Confirm with the patient.'
-            : 'None recorded. Confirm with the patient.'}
-      </p>
+      <AllergyLines allergies={allergies} />
     </section>
-    )
   )
 }

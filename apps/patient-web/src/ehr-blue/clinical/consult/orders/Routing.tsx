@@ -11,8 +11,15 @@ import {
   withdrawRefusal, wrongPatientNotice,
 } from '../../../../staff/orderRoutes'
 import { choiceProblem, NO_DESTINATION, sendLabel, type DestinationChoice, type RouteContext } from '../../../../staff/routes/OrderRoutes'
+import type { AllergyAcknowledgement } from '../../../../staff/allergies'
 import { learnLateCorrectionFrom, useLateCorrectionServed, wrongPatientReportOf } from '../../../../lateCorrectionServed'
+import {
+  ALLERGY_GO_AHEAD_ERROR, acknowledgementRefused, readAllergyRefusal, useAllergyAcknowledgement,
+  type AllergyAcknowledgementState, type AllergyRefusal,
+} from '../../parts/allergyWarning'
+import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
 import { ErrorBox } from '../../parts/Notices'
+import { ACK_REFUSED_ERROR } from './prescribingAllergies'
 import { attestationProblem, dispensingLines, resultLines, viewProblem, withdrawnResultLines, type WithdrawnLine } from './routeLines'
 
 /**
@@ -190,13 +197,21 @@ export function DestinationFields({ context, kind, priority, value, onChange, re
 /**
  * Today's SendToFacility, opened from its action button: the facility, the attestation, then "Send to {facility}".
  * `onSend` sends at the order's version; a refusal that means the wording changed reloads it, cleared.
+ *
+ * A prescription's send, a draft's or an active one's, is checked against the patient's allergies by the EHR (0117;
+ * `warnAboutAllergies`): it is sent first with no acknowledgement (never one without a warning shown), and on the
+ * EHR's 409 the allergy warning appears here with the tick and "Why is it safe to go ahead?". Sent again with both, it
+ * is the same send under the same key. Cancel leaves the order as it was, and drops the warning. A lab request is never
+ * checked.
  */
-export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
+export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnAboutAllergies }: {
   kind: OrderRouteKind
   context: RouteContext
   priority?: string
-  onSend: (destination: OrderDestination, attestationTextVersion: string, key: string) => Promise<void>
+  onSend: (destination: OrderDestination, attestationTextVersion: string, key: string, allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<void>
   onCancel: () => void
+  /** A prescription's send: after the EHR's allergy 409, shows its warning and answers what the form says. */
+  warnAboutAllergies?: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
 }) {
   const titleId = useId()
   const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
@@ -207,6 +222,7 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const queryRef = useRef<HTMLInputElement>(null)
   const attestedRef = useRef<HTMLInputElement>(null)
+  const ack = useAllergyAcknowledgement()
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -219,15 +235,33 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
       ;(problem.field === 'destination' ? queryRef.current : attestedRef.current ?? queryRef.current)?.focus()
       return
     }
+    // A warning shown: the tick and the reason first, each with its own error; nothing is sent without both.
+    const shown = warnAboutAllergies !== undefined && ack.warning !== null
+    const acknowledgement = shown ? ack.acknowledgement() : null
+    if (shown && !acknowledgement) {
+      setError(ALLERGY_GO_AHEAD_ERROR)
+      return
+    }
     const destination = choice.destination!
     const version = choice.attestation!.version
     const signature = JSON.stringify([destination.facilityId, version])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
     try {
-      await onSend(destination, version, attempt.current.key)
+      await onSend(destination, version, attempt.current.key, acknowledgement)
       attempt.current = null
     } catch (caught) {
+      // The EHR's allergy warning: shown here, and the key kept, so the send again with the reason is the same send.
+      const allergy = warnAboutAllergies ? readAllergyRefusal(caught, acknowledgement !== null) : null
+      if (allergy && warnAboutAllergies) {
+        setError(await warnAboutAllergies(ack, allergy))
+        return
+      }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        setError(ACK_REFUSED_ERROR)
+        return
+      }
       const refusal = sendRefusal(caught, kind, destination.facilityName, context.patient)
       // A refusal that settles the attempt frees its key; only an unanswered one keeps it for the same send.
       if (isHidApiError(caught) && caught.status < 500 && caught.status !== 0 && caught.status !== 408) attempt.current = null
@@ -243,6 +277,8 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
       <p className="hid-ehr-clinical-orders-lead"><strong id={titleId}>{sendLabel(kind)}</strong></p>
       <DestinationFields context={context} kind={kind} priority={priority} value={choice} onChange={setChoice}
         reloadAttestation={reload} errors={errors} queryRef={queryRef} attestedRef={attestedRef} />
+      {warnAboutAllergies && ack.warning ? <AllergyWarningPanel idPrefix="rx-send" headingLevel={3} warning={ack.warning} ticked={ack.ticked}
+        reason={ack.reason} errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       <div className="hid-ehr-clinical-form-footer">
         <EhrButton variant="secondary" onClick={onCancel}>Cancel</EhrButton>
