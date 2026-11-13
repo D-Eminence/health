@@ -4,8 +4,8 @@ import { HidApiError } from '@hid/http'
 const api = vi.hoisted(() => ({ createOutreachCase: vi.fn() }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
 import {
-  claimSend, healthIdUnavailable, indexedDbQueueStore, memoryQueueStore, noConnection, purgeExpiredOutreachQueue, QUEUE_MAX_AGE_MS, QUEUE_RETRY_MS,
-  removeOutreachQueueEntriesFor, removeRefusedOutreachEntriesFor, setOutreachQueueStore, useOutreachQueue, waitingOutreachEntriesFor, waitsForNetwork,
+  claimSend, forgetOutreachSendOrder, healthIdUnavailable, indexedDbQueueStore, memoryQueueStore, noConnection, purgeExpiredOutreachQueue, QUEUE_MAX_AGE_MS, QUEUE_RETRY_MS,
+  removeOutreachQueueEntriesFor, removeRefusedOutreachEntriesFor, sendWaitingOutreachEntriesFor, setOutreachQueueStore, useOutreachQueue, waitingOutreachEntriesFor, waitsForNetwork,
   waitsForSignIn, type OutreachQueueStore, type PendingRegistration, type QueueSyncResult,
 } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { STORAGE_LOCK_MS, tabId } from '../../../../ehr-blue/departments/outreach/tabMemory'
@@ -162,7 +162,7 @@ describe('sending what waits', () => {
   function useQueue() {
     return renderHook(() => useOutreachQueue(ACCOUNT, FACILITY, () => undefined))
   }
-  beforeEach(() => { api.createOutreachCase.mockReset() })
+  beforeEach(() => { api.createOutreachCase.mockReset(); forgetOutreachSendOrder() })
   afterEach(() => {
     setOutreachQueueStore(null)
     vi.useRealTimers()
@@ -276,6 +276,22 @@ describe('sending what waits', () => {
     await act(async () => { outcome = await result.current.sync() })
     expect(sentNames()).toEqual(['Chika Obi', 'Dayo Bello', 'Amaka Nwosu', 'Bola Ade'])
     expect(said(outcome)).toEqual({ sent: 3, waiting: 1, refused: 0, reason: 'unavailable', left: ['Amaka Nwosu (waiting)'] })
+  })
+
+  it('the sign-out question’s “Send now” also tries the ones Health ID couldn’t take after the others next time', async () => {
+    const store = await queueOf(entry(1, 'Amaka Nwosu', at(0)), entry(2, 'Bola Ade', at(1)), entry(3, 'Chika Obi', at(2)))
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+      .mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'SERVICE_UNAVAILABLE' }))
+    expect(await sendWaitingOutreachEntriesFor(ACCOUNT)).toBe(3)
+    expect(sentNames()).toEqual(['Amaka Nwosu', 'Bola Ade'])
+
+    api.createOutreachCase.mockReset()
+    api.createOutreachCase.mockResolvedValueOnce(created('case-3', 'Chika Obi'))
+      .mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+      .mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+    expect(await sendWaitingOutreachEntriesFor(ACCOUNT)).toBe(2)
+    expect(sentNames()[0]).toBe('Chika Obi')
+    expect((await store.list()).map(item => item.input.fullName).sort()).toEqual(['Amaka Nwosu', 'Bola Ade'])
   })
 
   it('goes on when Health ID answers between two it couldn’t take (here, a refusal)', async () => {
@@ -418,6 +434,24 @@ describe('sending what waits', () => {
       expect(await store.list()).toEqual([])
       // Let go once sent: nothing is left in the browser's storage.
       expect(localStorage.getItem(lock)).toBeNull()
+    } finally {
+      localStorage.removeItem(lock)
+    }
+  })
+
+  it('counts one another tab is sending as still waiting, so “Send now” never says nothing was waiting beside it', async () => {
+    const waiting = entry(1, 'Amaka Nwosu', at(0))
+    await queueOf(waiting)
+    const lock = `hid-outreach:lock:hid-outreach-send:${waiting.localCommandId}`
+    localStorage.setItem(lock, JSON.stringify({ tab: 'another-tab', until: Date.now() + STORAGE_LOCK_MS }))
+    try {
+      const { result } = useQueue()
+      await waitFor(() => expect(result.current.entries).toHaveLength(1))
+      await waitFor(() => expect(result.current.syncing).toBe(false))
+      let outcome: Awaited<ReturnType<typeof result.current.sync>> = null
+      await act(async () => { outcome = await result.current.sync() })
+      expect(api.createOutreachCase).not.toHaveBeenCalled()
+      expect(said(outcome)).toMatchObject({ sent: 0, waiting: 1, refused: 0, left: ['Amaka Nwosu (waiting)'] })
     } finally {
       localStorage.removeItem(lock)
     }

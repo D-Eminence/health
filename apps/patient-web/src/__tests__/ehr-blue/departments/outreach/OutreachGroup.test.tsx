@@ -231,6 +231,63 @@ describe('registering someone at an outreach group', () => {
     expect((screen.getByRole('radio', { name: /They read it themselves and agreed/ }) as HTMLInputElement).checked).toBe(true)
   })
 
+  it('a guardian the volunteer chose for an adult stays chosen when the age is typed', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-80', 'Ada Elder'), possibleDuplicate: false })
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }))
+    fireEvent.change(textbox(/Parent or guardian’s name/), { target: { value: 'Ngozi Elder' } })
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Ada Elder' } })
+    const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(ageBox, { target: { value: '80' } })
+    fireEvent.blur(ageBox)
+    expect((screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement).checked).toBe(true)
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14b', language: 'en',
+      method: 'guardian', guardianName: 'Ngozi Elder' })
+  })
+
+  it('never saves a guardian’s name beside “they agreed” for the person themselves', async () => {
+    await openNewRegistration()
+    const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Ada Obi' } })
+    fireEvent.change(ageBox, { target: { value: '15' } })
+    fireEvent.blur(ageBox)
+    fireEvent.change(textbox(/Parent or guardian’s name/), { target: { value: 'Ngozi Obi' } })
+    // The age was wrong: 35. How they agreed goes back to read aloud, and the guardian's name no longer fits.
+    fireEvent.change(ageBox, { target: { value: '35' } })
+    fireEvent.blur(ageBox)
+    expect((screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement).checked).toBe(true)
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(screen.getByText('You entered a parent or guardian’s name. Choose “Their parent or guardian agreed for them”, or clear the name.')).toBeTruthy()
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+
+  it('saved without leaving the age box (Enter), an age under 18 asks only for the guardian’s name', async () => {
+    await openNewRegistration()
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Ada Child' } })
+    const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(ageBox, { target: { value: '15' } })
+    fireEvent.submit(ageBox.closest('form')!)
+    expect(await screen.findByText('This person is under 18. Enter the name of the parent or guardian who agreed.')).toBeTruthy()
+    expect(screen.queryByText('This person is under 18. Choose “Their parent or guardian agreed for them”.')).toBeNull()
+    expect((screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement).checked).toBe(true)
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+
+  it('saved without leaving the age box, an age corrected from 15 to 35 saves as read aloud', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-35b', 'Kemi Balogun'), possibleDuplicate: false })
+    await openNewRegistration()
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Kemi Balogun' } })
+    const ageBox = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(ageBox, { target: { value: '15' } })
+    fireEvent.blur(ageBox)
+    fireEvent.change(ageBox, { target: { value: '35' } })
+    fireEvent.submit(ageBox.closest('form')!)
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14b', language: 'en', method: 'verbal_read_aloud' })
+  })
+
   it('needs a parent or guardian’s name for anyone under 18', async () => {
     api.createOutreachCase.mockResolvedValue(pending('case-2', 'Ada Child'))
     await openNewRegistration()

@@ -45,7 +45,7 @@ export function OutreachOrganiserSignUp() {
 
 function OutreachFooter() {
   return <p>Starting an outreach group sets up your group’s own private Outreach space and the organiser’s login. Health
-    ID does not check your group, so the people you register are told you are an unverified organiser.</p>
+    ID does not check your group before you start.</p>
 }
 
 function OpenOnOutreach({ href }: { readonly href: string }) {

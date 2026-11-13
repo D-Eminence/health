@@ -6,7 +6,7 @@ import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useRe
 /**
  * Support's "Outreach organisers" (open sign-up on outreach., owner decisions of 11 November 2026). Anyone can sign up to
  * run outreach, and Health ID does not check a group before its campaigns go live (decision Q38): a new group can open a
- * campaign at once, and the people it registers are told it is an "Unverified organiser". Support can pause a group,
+ * campaign at once; Health ID does not check it, so it shows as an "Unverified organiser" here. Support can pause a group,
  * close a campaign whose only admin has gone, or make another member its admin, and delete one person's details sooner
  * when they ask (as the registration notice and the organiser terms promise). There are no limits to raise (decision 2)
  * and nothing to bill (decision 6).
@@ -55,8 +55,8 @@ export function OutreachOrganisersPage({ actor }: { actor: AdminActor }) {
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <section className="admin-panel" aria-labelledby="outreach-organisers-what-title">
       <div className="admin-panel-head"><div><h2 id="outreach-organisers-what-title">What to look out for</h2>
-        <p>A new group can open a campaign and register people straight away. The people it registers are told it is an
-          unverified organiser. Pause a group if something is wrong.</p></div></div>
+        <p>A new group can open a campaign and register people straight away. Health ID does not check the group first.
+          Pause a group if something is wrong.</p></div></div>
       <ul className="admin-notes">
         <li>If people report a group, call the organiser on the phone number they gave. Ask what events they run, where, and who helps them.</li>
         <li>A group whose name pretends to be a hospital, a ministry or another official body: pause it and write down why.</li>

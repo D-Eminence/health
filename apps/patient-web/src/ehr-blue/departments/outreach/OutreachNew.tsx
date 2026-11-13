@@ -55,6 +55,7 @@ const AREA_LIMIT = 100
 /** A parent or guardian's name, as Outreach and the database take it: 2 to 120 characters. */
 const GUARDIAN_NAME_LIMIT = 120
 const UNDER_18_METHOD = 'This person is under 18. Choose “Their parent or guardian agreed for them”.'
+const GUARDIAN_NAME_WITHOUT_GUARDIAN = 'You entered a parent or guardian’s name. Choose “Their parent or guardian agreed for them”, or clear the name.'
 /** An age entered as a whole number under 18. */
 const isMinorAge = (age: string) => age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) < 18
 
@@ -133,9 +134,14 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
   const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
   // Read aloud is chosen by default (Q76); a guardian is chosen for an age under 18, and the volunteer's own choice
-  // comes back if the age is corrected to 18 or over.
-  const [method, setMethod] = useState<OutreachConsentMethod | ''>('verbal_read_aloud')
+  // (a guardian too, for an adult a guardian agreed for) comes back if the age is corrected to 18 or over.
+  const [shownMethod, setMethod] = useState<OutreachConsentMethod | ''>('verbal_read_aloud')
   const chosenMethod = useRef<OutreachConsentMethod>('verbal_read_aloud')
+  /** How the person agreed, for the age typed: a guardian under 18, else what the volunteer chose. */
+  const methodForAge = (ageText: string, current: OutreachConsentMethod | ''): OutreachConsentMethod | '' => {
+    if (isMinorAge(ageText)) return 'guardian'
+    return current === '' || current === 'guardian' ? chosenMethod.current : current
+  }
   // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
   const [minorAge, setMinorAge] = useState(false)
   const [notesLength, setNotesLength] = useState(0)
@@ -164,6 +170,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
 
   async function send(element: HTMLFormElement) {
     if (busy) return
+    const chosenOrShown = shownMethod
     const form = new FormData(element)
     const campaignId = String(form.get('campaignId') ?? '') || undefined
     const fullName = String(form.get('fullName') ?? '').trim()
@@ -174,6 +181,12 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
     const area = healthChecksServed ? String(form.get('area') ?? '').trim().replace(/\s+/g, ' ') || undefined : undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
     const guardianName = String(form.get('guardianName') ?? '').trim().replace(/\s+/g, ' ') || undefined
+    // Saved without leaving the age box (Enter): how the person agreed follows the age sent, as leaving the box does.
+    const method = group ? methodForAge(age, chosenOrShown) : chosenOrShown
+    if (group) {
+      setMinorAge(isMinorAge(age))
+      if (method !== chosenOrShown) setMethod(method)
+    }
     // The last answer no longer applies.
     setError('')
     setRefusedBy(null)
@@ -196,6 +209,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
       if (!guardianName && (minor || method === 'guardian')) errors.guardian = minor
         ? 'This person is under 18. Enter the name of the parent or guardian who agreed.'
         : 'Enter the name of the parent or guardian who agreed.'
+      // A guardian's name is kept only when a guardian agreed: never beside "they agreed" for the person themselves.
+      else if (guardianName && method !== 'guardian') errors.guardian = GUARDIAN_NAME_WITHOUT_GUARDIAN
       else if (guardianName && guardianName.length < 2) errors.guardian = 'Enter at least 2 characters.'
       else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
@@ -306,8 +321,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
       <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}>
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
-        {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage}
-          onMethod={choice => { setMethod(choice); if (choice !== 'guardian') chosenMethod.current = choice }}
+        {group ? <ConsentStep group={group.name} language={language} method={shownMethod} minor={minorAge} onLanguage={setLanguage}
+          onMethod={choice => { setMethod(choice); chosenMethod.current = choice }}
           methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
         <Step n={group ? 2 : 1} title="Who they are" hint={group ? 'As they say it.' : 'As they say it. You can correct it when you link their Health ID.'}>
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
@@ -326,10 +341,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
               <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
                 onBlur={group ? event => {
                   // Decided once the age is typed, not on each keystroke: "35" passes through "3" on the way.
-                  const minor = isMinorAge(event.target.value.trim())
-                  setMinorAge(minor)
-                  if (minor) setMethod('guardian')
-                  else setMethod(current => (current === 'guardian' || current === '') ? chosenMethod.current : current)
+                  const ageText = event.target.value.trim()
+                  setMinorAge(isMinorAge(ageText))
+                  setMethod(current => methodForAge(ageText, current))
                 } : undefined} />
             </OutreachField>
           </div>
@@ -391,8 +405,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
 }
 
 /**
- * The person's agreement, before anything about them is written down (open sign-up on outreach.): that the group is an
- * unverified organiser, and the notice, read to them or read by them, in the language chosen (any but English means it
+ * The person's agreement, before anything about them is written down (open sign-up on outreach.): the owner's one-line
+ * notice (Q76), read to them or read by them, in the language chosen (any but English means it
  * was read aloud in that language), how they agreed, and the name of the parent or guardian who agreed for anyone under
  * 18.
  */
