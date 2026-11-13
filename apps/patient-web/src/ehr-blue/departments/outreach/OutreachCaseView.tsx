@@ -303,7 +303,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}
         {created && !linked
           ? <Alert intent="success" title="Registration saved">{pending ? group ? makesHealthIds
-            ? 'Next: their health checks, then a Health ID if they want one.'
+            // Under 18 no Health ID is made at outreach: a parent or guardian gets one later.
+            ? typeof item.ageYears === 'number' && item.ageYears < 18 ? 'Next: their health checks.' : 'Next: their health checks, then a Health ID if they want one.'
             : 'They have a temporary record. They can link their own Health ID to it later.'
             : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}
@@ -314,7 +315,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
           <div className="flex min-w-0 flex-col gap-4">
             {nextStep}
-            <HealthChecks facilityId={facilityId} caseId={item.id} canWrite={canWrite} onSaved={() => { void onChanged() }} />
+            <HealthChecks facilityId={facilityId} caseId={item.id} canWrite={canWrite} ageYears={item.ageYears} onSaved={() => { void onChanged() }} />
             {/* While the registration waits for a Health ID: the person can make their own now, on their phone. */}
             {/* Where Outreach can make the Health ID (its registrations carry healthId), that comes first, and the person's own
                 sign-up is the fallback; elsewhere the sign-up is the way, while the registration waits for a Health ID. */}

@@ -8,6 +8,7 @@ import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/de
 import { QrCode } from '../../../../mfa/OtpauthQr'
 import { patientSignUpHref } from '../../../../productSites'
 import { LINKS_LATER } from '../../../../ehr-blue/departments/outreach/outreachGroup'
+import { ONE_WAY_QUEUED } from '../../../../ehr-blue/departments/outreach/GetHealthIdNow'
 
 /*
  * "Get a Health ID now": after a registration is saved, on its case view, and while a registration waits on this device,
@@ -210,7 +211,7 @@ describe('the sign-up as the fallback', () => {
     renderDept(<Outreach />)
     await press(await screen.findByRole('button', { name: new RegExp(NAME) }))
     await screen.findByRole('heading', { level: 1, name: NAME })
-    const details = screen.getByText(/they can sign up on their own phone/).closest('details')!
+    const details = screen.getByText('Or a parent or guardian can get them a Health ID on their own phone').closest('details')!
     expect(details.textContent).not.toContain('Use one way only')
   })
 })
@@ -244,7 +245,7 @@ describe('under-18s and the sign-up QR code', () => {
 
   it('at 17, under “Create Health ID” too, where it can’t be made here for them', async () => {
     await openCase({ ...pending('case-17b'), ageYears: 17, healthId: null })
-    const details = screen.getByText(/they can sign up on their own phone/).closest('details')!
+    const details = screen.getByText('Or a parent or guardian can get them a Health ID on their own phone').closest('details')!
     expect(details.textContent).toContain(GUARDIAN_WORDS)
     expect(details.textContent).not.toContain(CHILD_STEP)
     expect(within(details).getByRole('img', { name: 'QR code that opens the Health ID sign-up page', hidden: true })).toBeTruthy()
@@ -268,6 +269,9 @@ describe('under-18s and the sign-up QR code', () => {
     const region = screen.getByRole('region', { name: 'Get a Health ID now' })
     expect(region.textContent).not.toContain(GUARDIAN_WORDS)
     expect(region.textContent).toContain(CHILD_STEP)
+    // Both ways are offered here (sign up now, or Create Health ID once sent): only one may be used.
+    expect(region.textContent).toContain(ONE_WAY_QUEUED)
+    expect(ONE_WAY_QUEUED).toBe('Use one way only: if they sign up on their phone now, don’t press Create Health ID once it is sent.')
   })
 })
 
@@ -325,6 +329,15 @@ describe('a registration with a Health ID made at outreach', () => {
     await openCard(card)
     expect(document.body.textContent).toContain(LINKS_LATER)
     expect(document.body.textContent).not.toContain('No Health ID yet')
+  })
+
+  it('after saving an under-18, says only health checks come next, and offers the sign-up for a parent or guardian', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...pending('case-h7'), ageYears: 15, healthId: null })
+    await register('15')
+    const saved = (await screen.findByText('Registration saved')).closest('[role]')!
+    expect(saved.textContent).toContain('Next: their health checks.')
+    expect(saved.textContent).not.toContain('then a Health ID if they want one')
+    expect(document.body.textContent).not.toContain('Or, instead, they can sign up on their own phone')
   })
 
   it('after saving, says the next steps are health checks then a Health ID, where Outreach makes them', async () => {
