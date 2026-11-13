@@ -439,6 +439,26 @@ describe('Health checks', () => {
     expect(region().textContent).toContain('Whole centimetres')
   })
 
+  it('says the hearing results, the meter’s unit and HI or LO, and an invalid malaria test in plain words', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    const left = within(region()).getByRole('combobox', { name: /Left ear/ })
+    expect(within(left).getAllByRole('option').map(option => option.textContent)).toEqual(
+      expect.arrayContaining(['Passed', 'Didn’t pass (needs a full hearing test)', 'Not done']))
+    expect(region().textContent).toContain('Choose the unit shown on the meter. If it shows HI or LO, leave the reading empty, write HI or LO in Outcome or advice and tell a clinician.')
+    expect(region().textContent).toContain('If the test was invalid (no control line), do it again with a new test. If you can’t, choose Not done.')
+  })
+
+  it('saved checks emptied are not sent: it says how to mark checks entered on the wrong person', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('80'))
+    type(/^Pulse/, '')
+    await press(saveButton())
+    expect(await within(region()).findByText('To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.')).toBeTruthy()
+    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+  })
+
   it('tells the case view once saved, so the list and the slip know health checks were recorded', async () => {
     const onSaved = vi.fn()
     api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })

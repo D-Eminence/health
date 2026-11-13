@@ -47,6 +47,9 @@ export const SCREENING_INVALID = 'Health ID couldn’t accept these health check
 export const SCREENING_CLASH = 'This save clashed with an earlier one. Check the health checks, then press Save again.'
 export const SCREENING_FAILED = 'The health checks could not be saved. Please retry.'
 export const SCREENING_NOT_LOADED = 'Health checks could not be loaded.'
+export const SCREENING_CLEAR_HOW = 'To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.'
+export const GLUCOSE_HINT = 'Like 5.6 mmol/L or 101 mg/dL. Choose the unit shown on the meter. If it shows HI or LO, leave the reading empty, write HI or LO in Outcome or advice and tell a clinician.'
+export const MALARIA_HINT = 'If the test was invalid (no control line), do it again with a new test. If you can’t, choose Not done.'
 export const SCREENING_KEPT = 'Your health checks that weren’t saved are back. Check them, then save.'
 
 /** What a reload needs to bring back: the fields changed and not saved, and a save whose answer was lost, with its key. */
@@ -74,7 +77,7 @@ type Read =
 const GLUCOSE_UNITS = [{ value: 'mmol/L', label: 'mmol/L' }, { value: 'mg/dL', label: 'mg/dL' }] as const
 const GLUCOSE_TIMINGS = [{ value: 'fasting', label: 'Fasting' }, { value: 'random', label: 'Random' }] as const
 const MALARIA = [{ value: 'positive', label: 'Positive' }, { value: 'negative', label: 'Negative' }, { value: 'not_done', label: 'Not done' }] as const
-const HEARING = [{ value: 'pass', label: 'Pass' }, { value: 'refer', label: 'Refer' }, { value: 'not_done', label: 'Not done' }] as const
+const HEARING = [{ value: 'pass', label: 'Passed' }, { value: 'refer', label: 'Didn’t pass (needs a full hearing test)' }, { value: 'not_done', label: 'Not done' }] as const
 const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] as const
 
 /** One group of the form, headed for a screen reader and a quick glance. */
@@ -249,7 +252,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
     const { input, errors, empty } = checkScreening(form)
     if (Object.keys(errors).length) { refuse(errors); return }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    if (empty) { setFormError(NOTHING_RECORDED); focus(errorId); return }
+    // Saved checks can't be cleared here (Outreach keeps a screening once recorded): say how to mark them instead.
+    if (empty) { setFormError(read.screening ? SCREENING_CLEAR_HOW : NOTHING_RECORDED); focus(errorId); return }
     void send(input, read.screening?.version)
   }
 
@@ -366,13 +370,13 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
         </Group>
         <Group id={id('glucose')} title="Blood sugar">
           <div className="grid gap-3 @md:grid-cols-3">
-            <OutreachField id={id('glucoseValue')} label="Reading" hint="Like 5.6 mmol/L or 101 mg/dL." {...field('glucoseValue')}>{numberInput('glucoseValue', true, true)}</OutreachField>
+            <OutreachField id={id('glucoseValue')} label="Reading" hint={GLUCOSE_HINT} {...field('glucoseValue')}>{numberInput('glucoseValue', true, true)}</OutreachField>
             <OutreachField id={id('glucoseUnit')} label="Unit" {...field('glucoseUnit')}>{choice('glucoseUnit', GLUCOSE_UNITS)}</OutreachField>
             <OutreachField id={id('glucoseTiming')} label="Fasting or random" {...field('glucoseTiming')}>{choice('glucoseTiming', GLUCOSE_TIMINGS)}</OutreachField>
           </div>
         </Group>
         <Group id={id('malaria')} title="Malaria test">
-          <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
+          <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" hint={MALARIA_HINT} {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
         </Group>
         <Group id={id('hearing')} title="Hearing">
           <div className="grid grid-cols-2 gap-3">
