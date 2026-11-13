@@ -202,10 +202,12 @@ export function queueSyncText({ sent, waiting, refused, reason }: QueueSyncResul
  * The registrations kept on this device, waiting for the network, or refused by Health ID once sent: "Send now", and
  * for a refused one what Health ID said and "Remove from this device".
  */
-export function OutreachQueuePanel({ entries, durable, syncing, onSync, onDiscard }: {
+export function OutreachQueuePanel({ entries, durable, syncing, offline = false, onSync, onDiscard }: {
   readonly entries: readonly PendingRegistration[]
   readonly durable: boolean
   readonly syncing: boolean
+  /** "No signal" mode (OfflineOutreach.tsx): nothing can be sent until the session is read again, so no "Send now". */
+  readonly offline?: boolean
   readonly onSync: () => void
   readonly onDiscard: (localCommandId: string) => void
 }) {
@@ -234,7 +236,8 @@ export function OutreachQueuePanel({ entries, durable, syncing, onSync, onDiscar
               </li>
             ))}
           </ul>
-          {waiting > 0 ? <EhrButton variant="secondary" busy={syncing} onClick={() => { if (!syncing) onSync() }}>{syncing ? 'Sending…' : 'Send now'}</EhrButton> : null}
+          {waiting > 0 && offline ? <p className="m-0 text-body text-ink-2">Needs signal to send. They are sent by themselves once you have signal.</p> : null}
+          {waiting > 0 && !offline ? <EhrButton variant="secondary" busy={syncing} onClick={() => { if (!syncing) onSync() }}>{syncing ? 'Sending…' : 'Send now'}</EhrButton> : null}
         </div>
       </Card>
     </section>

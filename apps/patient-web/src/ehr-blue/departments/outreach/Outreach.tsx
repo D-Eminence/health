@@ -22,6 +22,8 @@ import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
 import { noConnection, useOutreachQueue, type QueueSyncResult } from './offlineQueue'
+import { outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
+import { offlineShellHere } from '../../../productHostname'
 import {
   campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, servicesText, type CampaignsUnread, type MembersRead,
@@ -100,7 +102,8 @@ interface Governance {
  */
 export function Outreach() {
   const { facility, facilityId, membershipId, permissions, actorId } = useDeptAccess()
-  const { lock } = useStaff()
+  const { lock, state } = useStaff()
+  const displayName = state.status === 'ready' ? state.session.actor.displayName : undefined
   // An outreach group's own facility (open sign-up on outreach.), as its roles say; a hospital's outreach team is not one.
   const group = isOutreachGroup(facility)
   const organiser = group && isOrganiser(facility)
@@ -145,6 +148,20 @@ export function Outreach() {
   const runningCampaigns = (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
     && campaign.services.includes('registration') && campaignOpenNow(campaign))
   const caseCampaigns = runningCampaigns.filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
+
+  // Outreach with no signal (offlineStart.ts), on Health ID Outreach's own site, at an outreach group: the confirmed
+  // session's few facts, kept for a reload or a start with no signal, with the campaigns this volunteer is in.
+  const healthChecksServed = Boolean(cases.value?.some(item => 'hasScreening' in item))
+  const memberCampaigns = (campaigns.value ?? []).filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
+  const offlineFacts = group && facility && facilityId && actorId && state.status === 'ready' && campaigns.value !== null && offlineShellHere(window.location.hostname)
+    ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: memberCampaigns })
+    : null
+  useEffect(() => {
+    if (!offlineFacts) return
+    saveOutreachSnapshot(outreachSnapshotOf(JSON.parse(offlineFacts) as Parameters<typeof outreachSnapshotOf>[0]))
+    // The "No signal" page and the build files this page loaded are kept by the offline app shell while there is signal.
+    void import('./OfflineOutreach').then(() => import('../../../outreachShell')).then(shell => shell.keepLoadedAssets(), () => undefined)
+  }, [offlineFacts])
 
   // The view belongs to the facility it was opened at; another facility opens on its lists.
   const [place, setPlace] = useState<{ facilityId: string | undefined; view: View }>({ facilityId, view: { kind: 'list' } })

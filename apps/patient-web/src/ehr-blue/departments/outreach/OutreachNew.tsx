@@ -34,6 +34,9 @@ function campaignRefused(caught: unknown): boolean {
   return CAMPAIGN_REFUSALS.some(([status, code]) => caught.status === status && caught.code === code)
 }
 
+/** "No signal" mode, when this device could not keep the registration. */
+const KEEP_FAILED = 'This registration couldn’t be saved on this device. Try again.'
+
 const CAMPAIGN_FIELD = 'outreach-case-campaign'
 const CAMPAIGN_REFUSED_ID = 'outreach-case-campaign-refused'
 const SAVE_ID = 'outreach-case-save'
@@ -87,7 +90,7 @@ const GROUP_CAMPAIGNS_UNREAD: Readonly<Record<CampaignsUnread, string>> = {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, offline = false, onBack, onSending, onCreated }: {
   readonly facilityId: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
@@ -107,6 +110,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
    * OUTREACH_NOTES_LIMIT characters; before it, no area and the earlier 280.
    */
   readonly healthChecksServed?: boolean
+  /**
+   * "No signal" mode (OfflineOutreach.tsx), at an outreach group: the session could not be read, so nothing is sent; the
+   * registration is kept on this device at once, with its command, and sent once the session is read again.
+   */
+  readonly offline?: boolean
   readonly onBack: () => void
   /** A case is being sent: what the last one said no longer applies. */
   readonly onSending: () => void
@@ -205,25 +213,33 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
     const { command } = attempt.current
     onSending()
     setBusy(true)
+    // Kept on this device with its command, and sent again when the network is back. The same command is sent, so it is
+    // registered once. False when the device could not keep it.
+    const keep = async (queue: OutreachGroupForm['queue'], reason: WaitReason, onQueued: OutreachGroupForm['onQueued']) => {
+      try {
+        await queue({ ...command, input })
+      } catch {
+        return false
+      }
+      attempt.current = null
+      element.reset()
+      resetConsent()
+      onQueued({ fullName, localCommandId: command.localCommandId, reason })
+      return true
+    }
     try {
+      if (group && offline) {
+        if (!(await keep(group.queue, 'connection', group.onQueued))) setError(KEEP_FAILED)
+        return
+      }
       const created = await staffApi.createOutreachCase(facilityId, input, command)
       attempt.current = null
       element.reset()
       resetConsent()
       onCreated(created)
     } catch (caught) {
-      if (group && waitsForNetwork(caught)) {
-        // Not reached Health ID, or it could not take it just now: kept on this device with its command, and sent again
-        // when the network is back. The same command is sent, so it is registered once.
-        try {
-          await group.queue({ ...command, input })
-          attempt.current = null
-          element.reset()
-          resetConsent()
-          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: waitReason(caught) })
-          return
-        } catch { /* the device could not keep it: said as the refusal below */ }
-      }
+      // Not reached Health ID, or it could not take it just now. The device could not keep it: said as the refusal below.
+      if (group && waitsForNetwork(caught) && await keep(group.queue, waitReason(caught), group.onQueued)) return
       if (!group && campaignId && campaignRefused(caught)) {
         // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
         // outreach group, whose registrations always need their campaign.

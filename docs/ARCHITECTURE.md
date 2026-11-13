@@ -909,8 +909,9 @@ notifications (B6, below). ESLint enforces each where it is used plainly,
 through a property or by destructuring (`eslint.config.js`:
 `NO_BROWSER_STORAGE`, `NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`);
 computed or aliased access is left to review. `NO_SERVICE_WORKER` is lifted for
-exactly two files, `apps/patient-web/src/pushDevice.ts` and
-`apps/patient-web/public/sw.js`; every other rule stays on in both. `NO_INDEXED_DB` is lifted
+exactly three files, `apps/patient-web/src/pushDevice.ts`,
+`apps/patient-web/src/outreachShell.ts` and `apps/patient-web/public/sw.js`;
+every other rule stays on in each. `NO_INDEXED_DB` is lifted
 for exactly one file, `apps/patient-web/src/ehr-blue/departments/outreach/offlineQueue.ts`
 (open sign-up on outreach., plan PR-5): at an outreach group only, a registration
 that could not be sent (no network, a timeout, or Health ID briefly unavailable)
@@ -928,7 +929,19 @@ it signs out on that browser, and after 14 days in any case: the staff app
 sweeps entries older than 14 days as it starts and on every session change,
 whatever page is open, and only opens the database where one already exists.
 Hospitals' outreach teams keep today's behaviour:
-nothing is kept. This is a reviewed exception for field work with patchy
+nothing is kept. Outreach with no signal (owner, 13 November 2026): on Health ID
+Outreach's own site only, `NO_BROWSER_STORAGE` is lifted for exactly one more
+file, `apps/patient-web/src/ehr-blue/departments/outreach/offlineStart.ts`,
+which keeps in sessionStorage and localStorage the last confirmed session's few
+facts that open Outreach in "No signal" mode when the session can't be read for
+want of a connection: the account id and display name, the outreach group's id
+and name, whether Outreach takes the health check fields, and the running or
+coming registration campaigns the volunteer is in, with their dates. Never a
+token, a cookie, an email address, a permission or anyone registered. They are
+deleted after 24 hours, on a deliberate sign-out, and when another account's
+session is confirmed on that browser. "No signal" mode sends nothing: new
+registrations go to the queue above, and are sent once the session is read
+again for that same account. This is a reviewed exception for field work with patchy
 networks; it needs the owner's sign-off before release. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
@@ -945,8 +958,18 @@ home screen, and 192, 512 and maskable 512 icons for installing it as an app
 continues the identity of an earlier HID app installed on the same host.
 The Notifications page offers "Install the Health ID app" where the browser has offered
 installing (`beforeinstallprompt`, held in memory), and the Home Screen steps on
-iPhone and iPad. Nothing is available offline: an installed app that cannot
-reach the network shows the browser's own offline page. Each app also serves
+iPhone and iPad. Nothing is available offline, except on Health ID Outreach's
+own site: an installed app that cannot reach the network shows the browser's
+own offline page. On Outreach's site (outreach. in production and staging), the
+page registers `/sw.js` as it starts (`outreachShell.ts`, a chunk of its own
+loaded there only), and the worker adds `/sw-outreach.js`, the offline app
+shell: a page opened is the network's own answer whenever it comes within 4
+seconds, else the app's page last kept; the build's content-hashed `/assets/`
+files are kept as they load and served from that copy. It keeps nothing else,
+never an `/api/` answer or another site's page, in one versioned cache whose
+older versions are deleted as a new worker starts; a new release's page
+replaces the one kept, and the files only the old one used are then deleted.
+The launch build check (`inspectOutreachShell`) refuses a shell that does more. Each app also serves
 `/service-worker.js`, which no
 Health ID page registers: when the browser checks a worker that hid-system's
 earlier apps registered on a host (scope `/`, caches named `hid-…`) for an

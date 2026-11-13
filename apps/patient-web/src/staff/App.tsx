@@ -32,7 +32,8 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
-import { purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
+import { noConnection, purgeExpiredOutreachQueue, removeOutreachQueueEntriesFor } from '../ehr-blue/departments/outreach/offlineQueue'
+import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
@@ -41,6 +42,9 @@ import './style.css'
 const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
 // The blue EHR's sign-in, once the clinic switch is on (blueForAll): today's steps and words, in the design's look.
 const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame/auth/BlueSignIn')).BlueSignIn }))
+// Outreach with no signal, on Health ID Outreach's own site only: loaded (and so kept by the offline app shell) while
+// there is signal, by the Outreach page itself (Outreach.tsx), and opened from here when the session can't be read.
+const OfflineOutreach = lazy(() => import('../ehr-blue/departments/outreach/OfflineOutreach'))
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
@@ -55,6 +59,12 @@ type SessionState =
    * must be chosen again before any page opens.
    */
   | { status: 'ready'; session: StaffSession; facilityLost?: boolean }
+  /**
+   * Outreach with no signal, on Health ID Outreach's own site only (ehr-blue/departments/outreach/offlineStart.ts): the
+   * session could not be read for want of a connection, and the last confirmed one's facts, under 24 hours old, open
+   * Outreach in "No signal" mode. No session is in use: nothing protected is sent.
+   */
+  | { status: 'offline'; session: null; snapshot: OutreachSnapshot }
 
 export interface ActivePatient {
   hid: string
@@ -142,6 +152,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     facilityLost.current = next.status === 'ready' && next.facilityLost === true
     setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
+    // Outreach's offline facts belong to one account: another account's session confirmed here deletes them.
+    if (next.status === 'ready') clearOutreachSnapshotUnlessFor(next.session.actor.id)
     setStaffSessionFacilities(next.status === 'ready' ? next.session.actor.facilities.map(facility => facility.id) : null)
     // A session that becomes ready while the page is hidden (opened in the
     // background, or signed in or restored while away) is away from the start:
@@ -314,6 +326,13 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     const sentIn = staffSessionGeneration()
     startPeriod()
     away.current = null
+    // On Health ID Outreach's own site, a phone that knows it has no connection opens "No signal" mode at once.
+    const offline = navigator.onLine === false ? readOutreachSnapshot() : null
+    if (offline) {
+      setState({ status: 'offline', session: null, snapshot: offline })
+      setLock(null)
+      return
+    }
     setState({ status: 'loading', session: null })
     setLock(null)
     // A sign-in or sign-out made while the session is read owns the state by the
@@ -333,8 +352,12 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       askIfHeardWhileOpening()
     } catch (error) {
       if (!current()) return
+      // No connection to read it, on Health ID Outreach's own site with the last session's facts: "No signal" mode.
+      const snapshot = !endsStaffSession(error) && noConnection(error) ? readOutreachSnapshot() : null
       if (endsStaffSession(error)) {
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
+      } else if (snapshot) {
+        setState({ status: 'offline', session: null, snapshot })
       } else {
         setState({ status: 'error', session: null, error: plainErrorText(error, 'We couldn’t check that you’re signed in. Please try again.', { audience: 'facility' }) })
       }
@@ -396,6 +419,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
     // Registrations this login kept on this device and never sent go with it: the queue's page says so before.
     if (signedOut) await removeOutreachQueueEntriesFor(signedOut)
+    // So do Outreach's offline facts (offlineStart.ts): nothing opens "No signal" mode after a sign-out.
+    clearOutreachSnapshot()
     startStaffSessionGeneration()
     startPeriod()
     away.current = null
@@ -476,6 +501,12 @@ function Gate({ children }: { children: ReactNode }) {
   const { state, lock, refresh } = useStaff()
   const { pathname } = useLocation()
   if (state.status === 'ended') return <SessionEnded reason={state.reason} />
+  // Outreach with no signal: its own page, from the last session's facts, until Health ID answers again.
+  if (state.status === 'offline') {
+    return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Outreach…</p></main>}>
+      <OfflineOutreach snapshot={state.snapshot} onSignal={() => void refresh()} />
+    </Suspense>
+  }
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
   if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
@@ -624,6 +655,7 @@ function ProviderTitle() {
     : state.status === 'ended' ? 'Session ended'
       : state.status === 'loading' || lock === 'checking' ? 'Checking your session'
         : state.status === 'error' ? 'Session unavailable'
+          : state.status === 'offline' ? 'Outreach (no signal)'
           : lock === 'unconfirmed' ? 'Session not confirmed'
             : state.status === 'ready' && state.session.actor.facilities.length === 0 ? 'No facility assignment'
               // The question holds the page back (Shell shows it in the page's place), so it names the tab.
