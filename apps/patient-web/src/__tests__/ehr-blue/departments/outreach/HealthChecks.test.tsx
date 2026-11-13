@@ -534,13 +534,20 @@ describe('Health checks through a reload', () => {
     expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBe(1)
   })
 
-  it('does not ask before a reload, since nothing typed is lost', async () => {
+  it('asks before the page closes or reloads while checks aren’t saved (closing the tab loses what it keeps), and not once saved', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
     type(/^Pulse/, '80')
+    await waitFor(() => expect(kept()).toHaveLength(1))
     const leaving = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(leaving)
-    expect(leaving.defaultPrevented).toBe(false)
+    expect(leaving.defaultPrevented).toBe(true)
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    const after = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(after)
+    expect(after.defaultPrevented).toBe(false)
   })
 
   it('after a reload, still checks a save whose answer was lost before saving again', async () => {

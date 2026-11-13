@@ -14,7 +14,7 @@ import {
   bmiOf, checkScreening, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type ScreeningField, type ScreeningForm,
 } from './screening'
-import { readTab, tabKeeps, writeTab } from './tabMemory'
+import { readTab, writeTab } from './tabMemory'
 
 /*
  * "Health checks" on a registration (outreach-api 0118, proposed): vital signs, blood sugar, a malaria rapid test,
@@ -175,15 +175,15 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     writeTab(draftKey, Object.keys(changes).length || unsure.current
       ? { changes, unsure: unsure.current, attempt: attempt.current } satisfies Draft : null)
   }, [draftKey, read, form, busy])
-  // Back asks before leaving checks not saved. A reload or a closed page asks too, but only where this tab can't keep them.
-  const keptForReload = draftKey !== null && tabKeeps()
+  // Back asks before leaving checks not saved, and so does closing or reloading the page: what this tab keeps is lost
+  // when the tab is closed, and the browser can't tell a reload from a close.
   useEffect(() => {
     unsavedHealthChecks.current = unsaved
     if (!unsaved) return undefined
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
-    if (!keptForReload) window.addEventListener('beforeunload', warn)
+    window.addEventListener('beforeunload', warn)
     return () => { window.removeEventListener('beforeunload', warn); unsavedHealthChecks.current = false }
-  }, [unsaved, keptForReload])
+  }, [unsaved])
 
   if (read.kind === 'hidden') return null
 
