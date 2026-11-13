@@ -404,6 +404,23 @@ describe('Create Health ID with no email: a lost answer', () => {
     expect(region().textContent).not.toContain('Write this on their slip.')
   })
 
+  it('for an under-18, does not say “Make their Health ID now” above the refusal', () => {
+    renderSection({ ...ITEM, ageYears: 15 })
+    expect(region().textContent).not.toContain('Make their Health ID now from this registration.')
+    renderSection({ ...ITEM, id: 'case-2', ageYears: 18 })
+    expect(screen.getAllByRole('region', { name: 'Create Health ID' })[1]!.textContent).toContain('Make their Health ID now from this registration.')
+  })
+
+  it('a refusal goes when “They want a Health ID” is unticked', async () => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'OUTREACH_HEALTH_ID_UNAVAILABLE' }))
+    renderSection()
+    await sendEmail()
+    await waitFor(() => expect(region().querySelector('[role="alert"]')).toBeTruthy())
+    const said = region().querySelector('[role="alert"]')!.textContent!
+    await press(within(region()).getByRole('checkbox', { name: /They want a Health ID/ }))
+    expect(region().textContent).not.toContain(said)
+  })
+
   it('for an unclaimed Health ID with no code in this tab (another phone, or later), says to check the slip, not that the code was lost', () => {
     renderSection({ ...ITEM, healthId: 'HID-UNVER1', healthIdCreatedByOutreach: true, healthIdStatus: 'unclaimed' })
     expect(region().textContent).toContain(CLAIM_CODE_ON_SLIP)

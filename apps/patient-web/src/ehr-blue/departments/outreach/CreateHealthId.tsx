@@ -441,7 +441,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       <div className="flex flex-col gap-4">
         <label className="flex items-start gap-3 text-body text-ink" htmlFor={id('wanted')}>
           <input id={id('wanted')} type="checkbox" className="mt-1 size-5" checked={wanted} disabled={busy || sent !== null}
-            onChange={event => setWanted(event.target.checked)} />
+            onChange={event => { setWanted(event.target.checked); if (!event.target.checked) setError('') }} />
           <span>They want a Health ID<span className="block text-caption text-ink-3">Ask them. Agreeing to be registered is not agreeing to a Health ID.</span></span>
         </label>
         {wanted && !sent ? <>
@@ -497,7 +497,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   return (
     <Card aria-labelledby={id('heading')}>
       <CardHeader as="h2" titleId={id('heading')} icon={IdCard} iconTone="brand" title="Create Health ID"
-        description={made ? undefined : 'Make their Health ID now from this registration.'} />
+        description={made || minor ? undefined : 'Make their Health ID now from this registration.'} />
       <div className="p-5">{body}</div>
     </Card>
   )
