@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { EhrBadge, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { Users } from 'lucide-react'
@@ -50,7 +50,7 @@ type ActionField = 'reason' | 'person'
  * has started), close it (for good, after a confirmation) and add people to it, each with what Outreach asks for; its
  * other members and staff are told that only its admins change it. Elsewhere it is read only, as before.
  */
-export function OutreachCampaignView({ facilityId, campaign, members, manage, created = false, onBack, onChanged }: {
+export function OutreachCampaignView({ facilityId, campaign, members, manage, created = false, exportAction, onBack, onChanged }: {
   readonly facilityId: string
   readonly campaign: OutreachCampaign
   readonly members: MembersRead | undefined
@@ -58,6 +58,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   readonly manage: boolean
   /** Opened from "New campaign", which made it. */
   readonly created?: boolean
+  /** "Export" for this campaign's registrations (OutreachExport.tsx), for those who can read them. */
+  readonly exportAction?: ReactNode
   readonly onBack: () => void
   /** Reads the campaigns again. */
   readonly onChanged: () => Promise<void>
@@ -260,7 +262,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const items = members?.items ?? null
   const loading = !members || (members.loading && !items)
   return (
-    <DeptPage title={campaign.name} onBack={onBack} backUnavailable={manage ? busy : undefined}>
+    <DeptPage title={campaign.name} onBack={onBack} backUnavailable={manage ? busy : undefined} secondaryActions={exportAction}>
       <DeptContextLine status={campaignStatusLabel(campaign.status)}
         items={[servicesText(campaign.services), `Starts ${dateText(campaign.startsAt)}`]} />
       {/* Mounted throughout, so what was done is announced. */}

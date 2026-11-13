@@ -16,6 +16,7 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
+import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
 import { useOutreachQueue } from './offlineQueue'
@@ -221,6 +222,7 @@ export function Outreach() {
     content = campaign
       ? <OutreachCampaignView key={campaign.id} facilityId={facilityId} campaign={campaign} members={membersOf(campaign.id)}
         manage={canManage} created={view.created} onChanged={campaigns.refresh}
+        exportAction={canReadCases ? <OutreachExport cases={cases.value} campaign={campaign} campaignOf={campaignOf} /> : undefined}
         onBack={() => backToList(`outreach-campaign-${campaign.id}-open`)} />
       : <RecordNotFound onBack={() => backToList()} />
   } else {
@@ -322,7 +324,10 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
 
   return (
     <DeptPage title="Outreach" description="People registered in the field, and what each one needs next." primaryAction={newButton ?? undefined}
-      secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>}>
+      secondaryActions={<>
+        {canReadCases ? <OutreachExport cases={cases.value} campaignOf={campaignOf} /> : null}
+        <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>
+      </>}>
       <div className="flex flex-col gap-6">
         {top}
         {canReadCases ? (

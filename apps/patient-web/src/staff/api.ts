@@ -1406,6 +1406,12 @@ export interface OutreachCase {
   possibleDuplicate?: boolean
 }
 
+/** A page of registration cases (outreachCasesPage), with the cursor of the next page; null on the last. */
+export interface OutreachCasesPage {
+  readonly items: OutreachCase[]
+  readonly nextCursor: string | null
+}
+
 /** The languages the registration notice is given in; any but English means it was read aloud in that language. */
 export type OutreachConsentLanguage = 'en' | 'yo' | 'ha' | 'ig' | 'pcm'
 /** How the person agreed: read aloud to them, ticked by them, or agreed by their parent or guardian. */
@@ -2618,6 +2624,28 @@ export const staffApi = {
       { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),
+  /**
+   * One page of registration cases, for an export (hid-system#247): up to `limit` (1 to 500), older than the cursor
+   * `before`, of one campaign when `campaignId` is given. The answer is the list's own array; X-Next-Cursor, when sent,
+   * names the next page. An Outreach before paging ignores the query and sends its newest 100 with no cursor.
+   */
+  outreachCasesPage: async (facilityId: string, query: { campaignId?: string; limit: number; before?: string }): Promise<OutreachCasesPage> => {
+    let cursor: string | null = null
+    const items = await client.get<unknown>('/api/v1/outreach/registration-cases', {
+      headers: facilityHeaders(facilityId), query: { limit: query.limit, campaignId: query.campaignId, before: query.before }, dedupe: false,
+      onResponseHeaders: headers => { cursor = headers.get('X-Next-Cursor')?.trim() || null },
+    })
+    if (!Array.isArray(items) || items.some(item => !item || typeof item !== 'object' || typeof (item as OutreachCase).id !== 'string')) {
+      throw new Error('The registrations answered in a shape this page does not read.')
+    }
+    return { items: items as OutreachCase[], nextCursor: cursor }
+  },
+  /**
+   * Records that registrations were exported (an audit row; Outreach answers 204). Sent after the file is saved, and never
+   * waited on: an Outreach without the route answers 404 or 405.
+   */
+  recordOutreachExport: (facilityId: string, input: { format: 'csv' | 'xlsx' | 'docx' | 'pdf'; count: number; campaignId?: string }) =>
+    client.post<void>('/api/v1/outreach/registration-cases/exports', input, { headers: facilityHeaders(facilityId) }),
   linkExistingOutreachCase: (facilityId: string, registrationCase: OutreachCase, canonicalPatientId: string, reason: string) =>
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
