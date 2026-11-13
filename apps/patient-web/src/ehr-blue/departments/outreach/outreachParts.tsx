@@ -260,7 +260,7 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     ...(item.area !== undefined ? [{ label: 'Area, town or LGA', value: item.area?.trim() || 'Not recorded' }] : []),
-    { label: 'Status', value: statusLabel(item.status) },
+    { label: 'Status', value: caseBadgeText(item) },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined
@@ -379,9 +379,29 @@ export function caseTone(status: string): Tone {
   return LINKED_STATUSES.has(status) ? 'success' : 'neutral'
 }
 
+/** Said of a registration that has a Health ID made at outreach (0119), which stays pending identity all the same. */
+export const HAS_HEALTH_ID = 'Has a Health ID'
+/** A registration's Health ID made at outreach, as its card and case view say it. */
+export const healthIdMadeText = (healthId: string) => `Health ID made: ${healthId}`
+/** Where Outreach makes Health IDs (its reads carry `healthId`) and this registration has none yet. */
+export const NO_HEALTH_ID_YET = 'No Health ID yet'
+
+/** A case's status in words, or that it has a Health ID made at outreach. */
+export function caseBadgeText(item: OutreachCase): string {
+  return item.status === PENDING && item.healthId ? HAS_HEALTH_ID : statusLabel(item.status)
+}
+/** A case's badge tone: green once it has a Health ID made at outreach. */
+export function caseBadgeTone(item: OutreachCase): Tone {
+  return item.status === PENDING && item.healthId ? 'success' : caseTone(item.status)
+}
+
 /** What happens next on a case, said on its card: the one next step, or that it is done. */
 export function nextStepText(item: OutreachCase, canLink: boolean, group = false): string {
   if (item.status !== PENDING) return Object.hasOwn(STATUS_LABEL, item.status) ? 'Done: nothing more to do' : 'Nothing else to do here.'
+  // A Health ID made at outreach (0119): the registration stays pending identity, but there is nothing to link.
+  if (item.healthId) return healthIdMadeText(item.healthId)
+  // Where Outreach makes Health IDs (its reads carry healthId), one can still be made from the case view.
+  if (group && 'healthId' in item) return NO_HEALTH_ID_YET
   // At an outreach group nobody here links it: the person links their own Health ID later.
   if (group) return 'They link their own Health ID later'
   return canLink ? 'Next: link their Health ID' : 'Waiting for someone to link their Health ID'

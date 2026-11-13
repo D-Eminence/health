@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { outreachPage } from '../../../../ehr-blue/departments/outreach/page'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_NETWORK, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
@@ -79,6 +80,8 @@ const LOOKED_UP = { authorization: { decision: 'allow', scope: 'read_records' },
 let setItem: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
   // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
   api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()

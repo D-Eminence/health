@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import type * as ProductHostname from '../../../../productHostname'
 import { renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { OUTREACH_SNAPSHOT_KEY, readOutreachSnapshot } from '../../../../ehr-blue/departments/outreach/offlineStart'
 
@@ -35,6 +36,8 @@ const MEMBER = { id: 'c-member', name: 'Ilorin health day', status: 'active', se
 const NOT_MEMBER = { ...MEMBER, id: 'c-other', name: 'Another group day' }
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
   vi.clearAllMocks()
   where.outreach = true
   where.roles = ['outreach_volunteer']

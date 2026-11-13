@@ -2,9 +2,10 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { HealthChecks, SCREENING_CLASH, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
+import { CHECK_WEIGHT_HEIGHT, HealthChecks, leaveHealthChecks, SEE_CLINICIAN, SCREENING_CLASH, SCREENING_MERGED, SCREENING_NO_SIGNAL, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { REGISTRATION_NOTICE_VERSION, registrationNotice, registrationNotice20261114, registrationNotice20261101 } from '../../../../outreachTerms'
 
@@ -45,6 +46,8 @@ const saved = (version: number, values: Record<string, unknown>) => ({ ...NULLS,
   recordedAt: '2026-11-14T09:30:00.000Z', recordedByMembershipId: 'membership-demo-1', updatedAt: '2026-11-14T09:30:00.000Z' })
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
   // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
   api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
@@ -97,6 +100,36 @@ describe('Health checks', () => {
     await within(region()).findByRole('button', { name: 'Save health checks' })
     for (const group of ['Vital signs', 'Blood sugar', 'Malaria test', 'Hearing', 'Consultation', 'Medicines given', 'Referral']) {
       expect(within(region()).getByRole('group', { name: group })).toBeTruthy()
+    }
+  })
+
+  it('“Register another person” asks first while health checks aren’t saved, and stays if the volunteer says no', async () => {
+    api.createOutreachCase.mockResolvedValue(pending(CASE_ID))
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: 'New registration' }))
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
+    fireEvent.change(screen.getByRole('textbox', { name: /Full name/ }), { target: { value: 'Kemi Balogun' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: '30' } })
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await within(region()).findByRole('button', { name: 'Save health checks' })
+    type(/top number/, '182')
+    type(/bottom number/, '117')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    try {
+      for (const button of screen.getAllByRole('button', { name: 'Register another person' })) {
+        await press(button)
+        expect(confirm).toHaveBeenCalledTimes(1)
+        confirm.mockClear()
+        // Still on the case, with the readings.
+        expect(box(/top number/).value).toBe('182')
+        expect(screen.queryByRole('heading', { level: 1, name: 'New registration' })).toBeNull()
+      }
+      confirm.mockReturnValue(true)
+      await press(screen.getAllByRole('button', { name: 'Register another person' })[0]!)
+      expect(await screen.findByRole('heading', { level: 1, name: 'New registration' })).toBeTruthy()
+    } finally {
+      confirm.mockRestore()
     }
   })
 
@@ -188,6 +221,13 @@ describe('Health checks', () => {
     expect(within(within(region()).getByRole('list', { name: 'Medicines given' })).getAllByRole('listitem')).toHaveLength(9)
   })
 
+  it('a case opened with no signal says so, and to write the readings on paper', async () => {
+    api.outreachScreening.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    renderChecks()
+    expect(await screen.findByText(SCREENING_NO_SIGNAL)).toBeTruthy()
+    expect(SCREENING_NO_SIGNAL).toBe('Health checks can’t be opened without signal. Write the readings on paper and add them here when you have signal.')
+  })
+
   it('without signal, says so, keeps everything typed, and sends the same key when saved again', async () => {
     api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
       .mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
@@ -196,7 +236,7 @@ describe('Health checks', () => {
     type(/^Pulse/, '80')
     await press(saveButton())
     expect(await within(region()).findByText(SCREENING_OFFLINE)).toBeTruthy()
-    expect(SCREENING_OFFLINE).toContain('Save again when you have signal.')
+    expect(SCREENING_OFFLINE).toBe('No signal, so we can’t tell if the health checks were saved. Your typing is still here while this page stays open. Write the readings on paper before you move on. Press Save again when you have signal. Nothing is saved twice.')
     expect(box(/^Pulse/).value).toBe('80')
     await press(saveButton())
     await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
@@ -215,15 +255,15 @@ describe('Health checks', () => {
       type(/^Pulse/, '75')
       await press(saveButton())
       expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
-      expect(SCREENING_RELOADED).toBe('Someone else just saved this person’s checks. Reload to see them.')
+      expect(SCREENING_RELOADED).toBe('Someone else saved checks for this person while you were typing. Press Show their checks: your typing stays.')
       // Every field is sent back, so one station never erases another's entries.
       expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual({ ...NULLS, pulseBpm: 75, malariaRdt: 'negative' })
       expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBe(1)
       expect(box(/^Pulse/).value).toBe('75')
       expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1)
-      await press(within(region()).getByRole('button', { name: 'Reload' }))
+      await press(within(region()).getByRole('button', { name: 'Show their checks' }))
       // Their checks are read; this volunteer's own change (the pulse) is kept on top, marked, and nothing typed is lost.
-      expect(await within(region()).findByText(/Your changes are kept on top and not saved yet/)).toBeTruthy()
+      expect(await within(region()).findByText(SCREENING_MERGED)).toBeTruthy()
       expect(box(/^Pulse/).value).toBe('75')
       expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
       await press(saveButton())
@@ -232,6 +272,138 @@ describe('Health checks', () => {
       expect(api.saveOutreachScreening.mock.calls[1]![2]).toEqual({ ...NULLS, pulseBpm: 75, malariaRdt: 'positive' })
       expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
       expect(api.saveOutreachScreening.mock.calls[1]![3].idempotencyKey).not.toBe(api.saveOutreachScreening.mock.calls[0]![3].idempotencyKey)
+    })
+
+  it('after a clash, a failed read of their checks keeps the typing and the way to try again', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70, malariaRdt: 'negative' }) })
+      .mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 90, malariaRdt: 'positive' }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 75, malariaRdt: 'positive' }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+    type(/^Pulse/, '75')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
+    expect(await within(region()).findByText(SCREENING_RELOAD_OFFLINE)).toBeTruthy()
+    // Nothing replaced: the typing and the form are still here, and leaving still asks.
+    expect(box(/^Pulse/).value).toBe('75')
+    expect(saveButton()).toBeTruthy()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(leaveHealthChecks()).toBe(false)
+    confirm.mockRestore()
+    // With signal again, their checks come in under the typing.
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
+    expect(await within(region()).findByText(SCREENING_MERGED)).toBeTruthy()
+    expect(box(/^Pulse/).value).toBe('75')
+    expect((within(region()).getByRole('combobox', { name: /Malaria rapid test/ }) as HTMLSelectElement).value).toBe('positive')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![2]).toEqual({ ...NULLS, pulseBpm: 75, malariaRdt: 'positive' })
+    expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+  })
+
+  it('after a clash, keeps the other station’s medicines: this station saved a medicine earlier, then only typed a pulse', async () => {
+    const paracetamol = { name: 'Paracetamol', dose: '1 g' }
+    const antimalarial = { name: 'Artemether-lumefantrine', dose: '4 tablets twice a day' }
+    api.outreachScreening.mockResolvedValueOnce({ screening: null })
+      .mockResolvedValueOnce({ screening: saved(2, { medicinesGiven: [paracetamol, antimalarial] }) })
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { medicinesGiven: [paracetamol] }) })
+      .mockRejectedValueOnce(new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 88, medicinesGiven: [paracetamol, antimalarial] }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 1/, 'Paracetamol')
+    type(/^Dose of medicine 1/, '1 g')
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    // Meanwhile another station adds an antimalarial (version 2). This station types a pulse only.
+    type(/^Pulse/, '88')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
+    await waitFor(() => expect(box(/^Medicine 2/).value).toBe('Artemether-lumefantrine'))
+    expect(box(/^Pulse/).value).toBe('88')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(3))
+    expect(api.saveOutreachScreening.mock.calls[2]![2]).toEqual({ ...NULLS, pulseBpm: 88, medicinesGiven: [paracetamol, antimalarial] })
+  })
+
+  it('after a clash, keeps the medicines both stations added', async () => {
+    const paracetamol = { name: 'Paracetamol', dose: '1 g' }
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { medicinesGiven: [paracetamol] }) })
+      .mockResolvedValueOnce({ screening: saved(2, { medicinesGiven: [paracetamol, { name: 'Artemether-lumefantrine', dose: null }] }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(412, 'x', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValueOnce({ screening: saved(3, {}) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Paracetamol'))
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 2/, 'ORS')
+    await press(saveButton())
+    expect(await within(region()).findByText(SCREENING_RELOADED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: 'Show their checks' }))
+    await waitFor(() => expect(box(/^Medicine 3/).value).toBe('ORS'))
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![2].medicinesGiven).toEqual([paracetamol, { name: 'Artemether-lumefantrine', dose: null }, { name: 'ORS', dose: null }])
+  })
+
+  it('a case with a saved medicine is not “not saved”: after loading it, and after saving', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    try {
+      api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { medicinesGiven: [{ name: 'Paracetamol', dose: '1 g' }] }) })
+      renderChecks()
+      await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Paracetamol'))
+      expect(leaveHealthChecks()).toBe(true)
+      type(/^Pulse/, '72')
+      api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 72, medicinesGiven: [{ name: 'Paracetamol', dose: '1 g' }] }) })
+      await press(saveButton())
+      expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+      await act(async () => { await Promise.resolve() })
+      expect(leaveHealthChecks()).toBe(true)
+      expect(confirm).not.toHaveBeenCalled()
+    } finally {
+      confirm.mockRestore()
+    }
+  })
+
+  it('after a lost answer, a line break or double space in a text is no false clash: text is sent as Outreach keeps it', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
+      .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 70, outcome: 'Rest and fluids. Come back if worse.' }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 72, outcome: 'Rest and fluids. Come back if worse.' }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+    type(/Outcome or advice/, 'Rest and fluids.\nCome back  if worse.')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2].outcome).toBe('Rest and fluids. Come back if worse.')
+    // That save did land (version 2): the next one goes on version 2, not as a clash on 1.
+    type(/^Pulse/, '72')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+    expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
+  })
+
+  it.each([[503, 'SERVICE_UNAVAILABLE'], [502, 'BAD_GATEWAY'], [408, 'REQUEST_TIMEOUT'], [429, 'RATE_LIMITED']])(
+    'after %s %s on a save that Outreach did store, the next save is no false clash', async (status, code) => {
+      api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
+        .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 75 }) })
+      api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(status, 'x', { code }))
+        .mockResolvedValueOnce({ screening: saved(3, { pulseBpm: 75, temperatureC: 37.2 }) })
+      renderChecks()
+      await waitFor(() => expect(box(/^Pulse/).value).toBe('70'))
+      type(/^Pulse/, '75')
+      await press(saveButton())
+      await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+      type(/^Temperature/, '37.2')
+      await press(saveButton())
+      await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+      expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(2)
+      expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
     })
 
   it('after a save whose answer was lost, checks what Outreach holds before saving again (no false conflict)', async () => {
@@ -268,6 +440,106 @@ describe('Health checks', () => {
     fireEvent.blur(box(/^Height/))
     expect(box(/^Height/).value).toBe('166')
     expect(region().textContent).toContain('Whole centimetres')
+  })
+
+  it('says the hearing results, the meter’s unit and HI or LO, and an invalid malaria test in plain words', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    const left = within(region()).getByRole('combobox', { name: /Left ear/ })
+    expect(within(left).getAllByRole('option').map(option => option.textContent)).toEqual(
+      expect.arrayContaining(['Passed', 'Didn’t pass (needs a full hearing test)', 'Not done']))
+    expect(region().textContent).toContain('Choose the unit shown on the meter. If it shows HI or LO, leave the reading empty, write HI or LO in Outcome or advice and tell a clinician.')
+    expect(region().textContent).toContain('If the test was invalid (no control line), do it again with a new test. If you can’t, choose Not done.')
+  })
+
+  it('saved checks emptied are not sent: it says how to mark checks entered on the wrong person', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('80'))
+    type(/^Pulse/, '')
+    await press(saveButton())
+    expect(await within(region()).findByText('To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.')).toBeTruthy()
+    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a blood pressure of 182/117', (t: typeof type) => { t(/top number/, '182'); t(/bottom number/, '117') }],
+    ['a pulse of 130', (t: typeof type) => t(/^Pulse/, '130')],
+    ['a temperature of 38.6', (t: typeof type) => t(/^Temperature/, '38.6')],
+    ['a blood sugar of 2.8 mmol/L', (t: typeof type) => { t(/^Reading/, '2.8'); choose(/^Unit/, 'mmol/L') }],
+    ['a blood sugar of 250 mg/dL', (t: typeof type) => { t(/^Reading/, '250'); choose(/^Unit/, 'mg/dL') }],
+  ])('asks for a clinician to see the person after %s, and not for usual readings', async (_name, enter) => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/top number/, '124')
+    type(/bottom number/, '78')
+    type(/^Pulse/, '72')
+    type(/^Temperature/, '36.8')
+    expect(within(region()).queryByText(SEE_CLINICIAN)).toBeNull()
+    enter(type)
+    expect(within(region()).getByText(SEE_CLINICIAN)).toBeTruthy()
+    expect(SEE_CLINICIAN).toBe('This reading is outside the usual range. Make sure a clinician sees this person before they leave.')
+  })
+
+  it('never asks for a clinician while a usual reading is being typed, nor for 70 mg/dL', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    const steps: Array<[RegExp, string]> = [[/top number/, '1'], [/top number/, '12'], [/top number/, '120'], [/bottom number/, '8'], [/bottom number/, '80'],
+      [/^Pulse/, '7'], [/^Pulse/, '72'], [/^Temperature/, '3'], [/^Temperature/, '36'], [/^Temperature/, '36.8']]
+    for (const [name, value] of steps) {
+      type(name, value)
+      expect(within(region()).queryByText(SEE_CLINICIAN)).toBeNull()
+    }
+    choose(/^Unit/, 'mg/dL')
+    type(/^Reading/, '70')
+    expect(within(region()).queryByText(SEE_CLINICIAN)).toBeNull()
+    type(/^Reading/, '69')
+    expect(within(region()).getByText(SEE_CLINICIAN)).toBeTruthy()
+  })
+
+  it('shows a baby’s BMI as it is: the weight-and-height check is for adults', async () => {
+    renderDept(<HealthChecks facilityId={GROUP_ID} caseId={CASE_ID} canWrite ageYears={0} />)
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Weight/, '2.2')
+    type(/^Height/, '50')
+    expect(region().textContent).toContain('BMI about')
+    expect(within(region()).queryByText(CHECK_WEIGHT_HEIGHT)).toBeNull()
+  })
+
+  it('says to check weight and height when they give a BMI no one has, instead of showing it', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Weight/, '165')
+    type(/^Height/, '64')
+    expect(region().textContent).not.toContain('BMI about')
+    expect(within(region()).getByText(CHECK_WEIGHT_HEIGHT)).toBeTruthy()
+    type(/^Weight/, '64')
+    type(/^Height/, '165')
+    expect(region().textContent).toContain('BMI about')
+    expect(within(region()).queryByText(CHECK_WEIGHT_HEIGHT)).toBeNull()
+  })
+
+  it('tells the case view once saved, so the list and the slip know health checks were recorded', async () => {
+    const onSaved = vi.fn()
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
+    renderDept(<HealthChecks facilityId={GROUP_ID} caseId={CASE_ID} canWrite onSaved={onSaved} />)
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Pulse/, '80')
+    expect(onSaved).not.toHaveBeenCalled()
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a height typed in metres as typed, and says to use centimetres', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Height/, '1.65')
+    fireEvent.blur(box(/^Height/))
+    expect(box(/^Height/).value).toBe('1.65')
+    await press(saveButton())
+    expect(await within(region()).findByText('Enter a height from 30 to 250 cm, in whole numbers. In centimetres: 1.65 m is 165.')).toBeTruthy()
+    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
   })
 
   it('marks the field a 422 OUTREACH_SCREENING_OUT_OF_RANGE names', async () => {
@@ -367,6 +639,46 @@ describe('Health checks through a reload', () => {
     expect(within(region()).queryByText(SCREENING_KEPT)).toBeNull()
   })
 
+  it('brings back medicines typed before a reload merged with medicines someone else saved meanwhile', async () => {
+    const paracetamol = { name: 'Paracetamol', dose: '1 g' }
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { medicinesGiven: [paracetamol] }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Paracetamol'))
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 2/, 'ORS')
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    // Meanwhile another station saves an antimalarial (version 2); then this tab reloads.
+    api.outreachScreening.mockResolvedValue({ screening: saved(2, { medicinesGiven: [paracetamol, { name: 'Artemether-lumefantrine', dose: null }] }) })
+    reload()
+    await waitFor(() => expect(box(/^Medicine 3/).value).toBe('ORS'))
+    expect(box(/^Medicine 2/).value).toBe('Artemether-lumefantrine')
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(3, {}) })
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2].medicinesGiven).toEqual([paracetamol,
+      { name: 'Artemether-lumefantrine', dose: null }, { name: 'ORS', dose: null }])
+  })
+
+  it('a medicine added after a reload is its own row, not tied to one brought back', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 1/, 'Amoxicillin')
+    type(/^Dose of medicine 1/, '250 mg')
+    await waitFor(() => expect(kept()).toHaveLength(1))
+    // A real reload starts the row counter again, so a kept row's key is one a new row may get: give it such a key.
+    const stored = kept()[0]!
+    sessionStorage.setItem(stored, sessionStorage.getItem(stored)!.replace(/"key":"m\d+"/, '"key":"m1"'))
+    reload()
+    await waitFor(() => expect(box(/^Medicine 1/).value).toBe('Amoxicillin'))
+    expect(document.getElementById(`outreach-screening-${CASE_ID}-medicine-m1-name`)).toBeNull()
+    await press(within(region()).getByRole('button', { name: 'Add a medicine' }))
+    type(/^Medicine 2/, 'Paracetamol')
+    expect(box(/^Medicine 1/).value).toBe('Amoxicillin')
+    expect(box(/^Dose of medicine 1/).value).toBe('250 mg')
+    expect(box(/^Medicine 2/).value).toBe('Paracetamol')
+  })
+
   it('brings typing back on top of checks someone else saved meanwhile', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
@@ -383,13 +695,20 @@ describe('Health checks through a reload', () => {
     expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBe(1)
   })
 
-  it('does not ask before a reload, since nothing typed is lost', async () => {
+  it('asks before the page closes or reloads while checks aren’t saved (closing the tab loses what it keeps), and not once saved', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
     type(/^Pulse/, '80')
+    await waitFor(() => expect(kept()).toHaveLength(1))
     const leaving = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(leaving)
-    expect(leaving.defaultPrevented).toBe(false)
+    expect(leaving.defaultPrevented).toBe(true)
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 80 }) })
+    await press(saveButton())
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    const after = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(after)
+    expect(after.defaultPrevented).toBe(false)
   })
 
   it('after a reload, still checks a save whose answer was lost before saving again', async () => {

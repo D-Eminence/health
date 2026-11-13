@@ -181,6 +181,13 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
  * session ended before it could be sent.
  */
 export function queuedText(fullName: string, reason: WaitReason | 'session'): string {
+  return `${queuedWhy(fullName, reason)} ${CHECKS_AFTER_SENT}`
+}
+
+/** A registration kept on this device has no case yet, so its health checks can't be recorded until it is sent. */
+const CHECKS_AFTER_SENT = 'Health checks can be added once it is sent. Write the readings on paper until then.'
+
+function queuedWhy(fullName: string, reason: WaitReason | 'session'): string {
   if (reason === 'session') return `${fullName}’s registration is saved on this device. It is sent once you are signed in again.`
   return reason === 'unavailable'
     ? `Health ID isn’t available right now. ${fullName}’s registration is saved on this device and will be sent automatically.`

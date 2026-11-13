@@ -5,8 +5,8 @@ const api = vi.hoisted(() => ({ createOutreachCase: vi.fn() }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
 import {
   claimSend, forgetOutreachSendOrder, healthIdUnavailable, indexedDbQueueStore, memoryQueueStore, noConnection, purgeExpiredOutreachQueue, QUEUE_MAX_AGE_MS, QUEUE_RETRY_MS,
-  removeOutreachQueueEntriesFor, removeRefusedOutreachEntriesFor, sendWaitingOutreachEntriesFor, setOutreachQueueStore, useOutreachQueue, waitingOutreachEntriesFor, waitsForNetwork,
-  waitsForSignIn, type OutreachQueueStore, type PendingRegistration, type QueueSyncResult,
+  removeOutreachQueueEntriesFor, removeRefusedOutreachEntriesFor, sendWaitingOutreachEntriesFor, setOutreachQueueStore, useOutreachQueue,
+  waitingOutreachEntriesFor, waitsForNetwork, waitsForSignIn, type OutreachQueueStore, type PendingRegistration, type QueueSyncResult,
 } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { STORAGE_LOCK_MS, tabId } from '../../../../ehr-blue/departments/outreach/tabMemory'
 
@@ -322,6 +322,21 @@ describe('sending what waits', () => {
     expect(sentNames()).toEqual(['Amaka Nwosu', 'Bola Ade', 'Chika Obi'])
   })
 
+  it('goes as easy on a struggling Health ID when the sign-out question’s “Send now” sends what waits', async () => {
+    const store = await queueOf(entry(1, 'Amaka Nwosu', at(0)), entry(2, 'Bola Ade', at(1)), entry(3, 'Chika Obi', at(2)))
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(429, 'x', { code: 'RATE_LIMITED' }))
+    expect(await sendWaitingOutreachEntriesFor(ACCOUNT)).toBe(3)
+    expect(sentNames()).toEqual(['Amaka Nwosu'])
+
+    api.createOutreachCase.mockReset()
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'SERVER_ERROR' }))
+      .mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'SERVICE_UNAVAILABLE' }))
+    expect(await sendWaitingOutreachEntriesFor(ACCOUNT)).toBe(3)
+    // The one Health ID couldn't take last time goes after the others.
+    expect(sentNames()).toEqual(['Bola Ade', 'Chika Obi'])
+    expect((await store.list()).every(item => item.state === 'waiting')).toBe(true)
+  })
+
   it('names one reason for what still waits only when they share it, and signing in again before any other', async () => {
     await queueOf(entry(1, 'Amaka Nwosu', at(0)), entry(2, 'Bola Ade', at(1)), entry(3, 'Chika Obi', at(2)))
     api.createOutreachCase.mockRejectedValue(new HidApiError(0, 'x', { code: 'NETWORK_ERROR' }))
@@ -430,7 +445,7 @@ describe('sending what waits', () => {
       localStorage.setItem(lock, JSON.stringify({ tab: 'another-tab', until: Date.now() - 1 }))
       let outcome: Awaited<ReturnType<typeof result.current.sync>> = null
       await act(async () => { outcome = await result.current.sync() })
-      expect(outcome).toEqual({ sent: 1, waiting: 0, refused: 0, reason: undefined, left: [] })
+      expect(said(outcome)).toEqual({ sent: 1, waiting: 0, refused: 0, reason: undefined, left: [] })
       expect(await store.list()).toEqual([])
       // Let go once sent: nothing is left in the browser's storage.
       expect(localStorage.getItem(lock)).toBeNull()

@@ -289,13 +289,9 @@ function oneReason(reasons: ReadonlySet<WaitReason | 'session'>): QueueSyncResul
   return reasons.size === 1 ? [...reasons][0] : undefined
 }
 
-/**
- * Sends what waits in `store` for the entries `mine` picks, oldest first (one Health ID couldn't take in an earlier round
- * after the others, by `unavailableAt`), one at a time. No connection, a sign-in needed or a send stopped as the session
- * ended stops the round; Health ID unavailable for one moves on to the next, unless Health ID asked for fewer requests
- * (429) or answered so twice in a row: the rest then wait for the next round. Anything else is Health ID's answer, kept
- * as refused.
- */
+/** What one round of sending did, before the page reads its list again. */
+type RoundCounts = Omit<QueueSyncResult, 'left'>
+
 // When each registration Health ID couldn't take was last tried on this page, by round: tried after the others next
 // time, by every sender on the page (Outreach's rounds and the sign-out question's "Send now", which runs on any page).
 const triedUnavailable = new Map<string, number>()
@@ -307,17 +303,23 @@ export function forgetOutreachSendOrder(): void {
   sendRounds = 0
 }
 
+/**
+ * Sends what waits in `store` for the entries `mine` picks, oldest first, one at a time; one Health ID couldn't take in
+ * an earlier round goes after the others (`tried`, by default the page's one memory for every sender, holds by command
+ * id the round it was last tried in, and this is round `round`). No connection, a sign-in needed or a send stopped as
+ * the session ended stops the round; Health ID unavailable for one moves on to the next, unless Health ID asked for
+ * fewer requests (429) or answered so twice in a row: the rest then wait for the next round. Anything else is Health
+ * ID's answer, kept as refused.
+ */
 async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegistration) => boolean,
-  onCreated: (created: OutreachCase) => void): Promise<Omit<QueueSyncResult, 'left'>> {
-  const unavailableAt = triedUnavailable
-  const thisRound = ++sendRounds
+  onCreated: (created: OutreachCase) => void, tried: Map<string, number> = triedUnavailable, round = ++sendRounds): Promise<RoundCounts> {
   let sent = 0
   let waiting = 0
   let refused = 0
   let unavailableInARow = 0
   const reasons = new Set<WaitReason | 'session'>()
   const queued = (await store.list().catch(() => [] as PendingRegistration[])).filter(entry => mine(entry) && entry.state === 'waiting')
-    .sort((a, b) => (unavailableAt.get(a.localCommandId) ?? 0) - (unavailableAt.get(b.localCommandId) ?? 0) || a.savedAt.localeCompare(b.savedAt))
+    .sort((a, b) => (tried.get(a.localCommandId) ?? 0) - (tried.get(b.localCommandId) ?? 0) || a.savedAt.localeCompare(b.savedAt))
   for (const [index, entry] of queued.entries()) {
     // Being sent already, from the form or another tab: left to that send.
     const release = await claimSend(entry.localCommandId)
@@ -326,10 +328,10 @@ async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegist
       // Sent and taken off this device since the round began (by the form, or another tab): nothing to send.
       const still = await store.list().then(all => all.some(other => other.localCommandId === entry.localCommandId && other.state === 'waiting'),
         () => true)
-      if (!still) continue
+      if (!still) { tried.delete(entry.localCommandId); continue }
       const created = await staffApi.createOutreachCase(entry.facilityId, entry.input,
         { localCommandId: entry.localCommandId, temporaryPatientId: entry.temporaryPatientId })
-      unavailableAt.delete(entry.localCommandId)
+      tried.delete(entry.localCommandId)
       unavailableInARow = 0
       await store.remove(entry.localCommandId)
       sent += 1
@@ -347,7 +349,7 @@ async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegist
       if (healthIdUnavailable(caught)) {
         waiting += 1
         reasons.add('unavailable')
-        unavailableAt.set(entry.localCommandId, thisRound)
+        tried.set(entry.localCommandId, round)
         unavailableInARow += 1
         if ((isHidApiError(caught) && caught.status === 429) || unavailableInARow >= 2) {
           waiting += queued.length - index - 1
@@ -355,7 +357,7 @@ async function sendQueued(store: OutreachQueueStore, mine: (entry: PendingRegist
         }
         continue
       }
-      unavailableAt.delete(entry.localCommandId)
+      tried.delete(entry.localCommandId)
       unavailableInARow = 0
       await store.put({ ...entry, state: 'refused', refusal: outreachProblemText(caught, REFUSED_FALLBACK) })
       refused += 1
@@ -398,8 +400,8 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
   const [entries, setEntries] = useState<PendingRegistration[]>([])
   const [durable, setDurable] = useState(true)
   const [syncing, setSyncing] = useState(false)
-  // One round at a time on this page (a second page of Outreach, opened while a round runs, may run its own: both send
-  // the same commands, which Outreach takes once).
+  // One round at a time on this page (a second page of Outreach, opened while a round runs, may run its own: each
+  // registration is claimed before it is sent, so the two never send the same one at once).
   const busy = useRef(false)
   const synced = useRef(onSynced)
   synced.current = onSynced
@@ -427,14 +429,11 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     if (busy.current || !accountId || offline) return null
     busy.current = true
     setSyncing(true)
-    let sent = 0
-    let waiting = 0
-    let refused = 0
-    let reason: QueueSyncResult['reason']
+    let counts: RoundCounts = { sent: 0, waiting: 0, refused: 0 }
     let left: readonly PendingRegistration[] = []
     try {
       const store = await outreachQueueStore()
-      ;({ sent, waiting, refused, reason } = await sendQueued(store, mine, created => synced.current(created)))
+      counts = await sendQueued(store, mine, created => synced.current(created))
     } finally {
       busy.current = false
       setSyncing(false)
@@ -442,9 +441,8 @@ export function useOutreachQueue(accountId: string | undefined, facilityId: stri
     }
     // What still waits is what the page lists now: one another tab or the form was sending is counted, and one sent
     // meanwhile is not, so what "Send now" says matches the list.
-    waiting = left.filter(entry => entry.state === 'waiting').length
-    if (!waiting) reason = undefined
-    return { sent, waiting, refused, reason, left }
+    const waiting = left.filter(entry => entry.state === 'waiting').length
+    return { ...counts, waiting, reason: waiting ? counts.reason : undefined, left }
   }, [accountId, mine, reload, offline])
 
   const add = useCallback(async (entry: Omit<PendingRegistration, 'accountId' | 'facilityId' | 'savedAt' | 'state'>) => {

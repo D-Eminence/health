@@ -1966,6 +1966,14 @@ export interface ProviderEnrollmentProfile {
  * answers 503 UPSTREAM_UNAVAILABLE, so this only bounds a hung connection.
  */
 export const PROVIDER_ENROLLMENT_START_TIMEOUT_MS = 35_000
+/**
+ * How long outreach waits (health #243 review): the gateway allows 60 s on the Health ID routes and outreach-api answers
+ * within about 35 s, so a code sent or confirmed (safe to send again with its key) waits 40 s, and an unverified Health
+ * ID, whose claim code is answered once only, 45 s. The health-checks read gives up after 10 s.
+ */
+const OUTREACH_HEALTH_ID_TIMEOUT_MS = 40_000
+const OUTREACH_UNVERIFIED_HEALTH_ID_TIMEOUT_MS = 45_000
+const OUTREACH_SCREENING_READ_TIMEOUT_MS = 10_000
 
 export const providerEnrollmentApi = {
   /**
@@ -2776,7 +2784,8 @@ export const staffApi = {
    */
   outreachScreening: (facilityId: string, caseId: string, signal?: AbortSignal) =>
     client.get<{ screening: OutreachScreening | null }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,
-      { headers: facilityHeaders(facilityId), signal, dedupe: false }),
+      // Tried once for 10 s: a case opened with no signal says so quickly, and Try again is on the page.
+      { headers: facilityHeaders(facilityId), signal, dedupe: false, retry: NO_RETRY, timeoutMs: OUTREACH_SCREENING_READ_TIMEOUT_MS }),
   /**
    * Saves the whole screening: 201 the first time (no If-Match), 200 after, against the version read (If-Match, 412
    * VERSION_CONFLICT when it changed since). The caller holds the Idempotency-Key, one per save attempt and the same on a
@@ -2797,13 +2806,14 @@ export const staffApi = {
    */
   startOutreachHealthId: (facilityId: string, caseId: string, body: { channel: 'email'; email: string } | { channel: 'sms' }, idempotencyKey: string) =>
     client.post<OutreachHealthIdStart>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/start`, body,
-      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_HEALTH_ID_TIMEOUT_MS }),
   confirmOutreachHealthId: (facilityId: string, caseId: string, code: string, idempotencyKey: string) =>
     client.post<OutreachHealthIdCreated>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/confirm`, { code },
-      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_HEALTH_ID_TIMEOUT_MS }),
   createUnverifiedOutreachHealthId: (facilityId: string, caseId: string, idempotencyKey: string) =>
     client.post<OutreachUnverifiedHealthId>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/create-unverified`, {},
-      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+      // Its claim code is answered this once only, so the website waits longer than outreach-api does (about 35 s).
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_UNVERIFIED_HEALTH_ID_TIMEOUT_MS }),
 
   /*
    * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach

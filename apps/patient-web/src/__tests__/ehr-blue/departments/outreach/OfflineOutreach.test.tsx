@@ -124,7 +124,7 @@ describe('opening Outreach with no signal', () => {
     fireEvent.change(document.getElementById('outreach-case-age')!, { target: { value: '34' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save registration' })) })
 
-    expect(await screen.findByText('No connection: Ada Bello’s registration is saved on this device. It is sent when you are back online.')).toBeTruthy()
+    expect(await screen.findByText('No connection: Ada Bello’s registration is saved on this device. It is sent when you are back online. Health checks can be added once it is sent. Write the readings on paper until then.')).toBeTruthy()
     const after = screen.getByRole('region', { name: 'Saved on this device' })
     expect(within(after).getByText('Ada Bello')).toBeTruthy()
     expect(within(after).getByText('Bola Adewale')).toBeTruthy()

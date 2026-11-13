@@ -11,10 +11,10 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, checkScreening, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, NOTHING_RECORDED, screeningForm,
-  type ScreeningField, type ScreeningForm,
+  bmiOf, checkScreening, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
+  type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
-import { readTab, tabKeeps, writeTab } from './tabMemory'
+import { readTab, writeTab } from './tabMemory'
 
 /*
  * "Health checks" on a registration (outreach-api 0118, proposed): vital signs, blood sugar, a malaria rapid test,
@@ -35,8 +35,11 @@ function noSignal(error: unknown): boolean {
 }
 
 export const SCREENING_SAVED = 'Health checks saved.'
-export const SCREENING_RELOADED = 'Someone else just saved this person’s checks. Reload to see them.'
-export const SCREENING_OFFLINE = 'No signal: the health checks were not saved. Everything you typed is still here. Save again when you have signal.'
+export const SCREENING_RELOADED = 'Someone else saved checks for this person while you were typing. Press Show their checks: your typing stays.'
+export const SCREENING_RELOAD_OFFLINE = 'No signal: their checks couldn’t be loaded. Your typing is still here. Press Show their checks again when you have signal.'
+export const SCREENING_MERGED = 'Their checks are shown, with your changes put back in. Nothing is saved yet: check them, then press Save health checks.'
+export const SCREENING_OFFLINE = 'No signal, so we can’t tell if the health checks were saved. Your typing is still here while this page stays open. Write the readings on paper before you move on. Press Save again when you have signal. Nothing is saved twice.'
+export const SCREENING_NO_SIGNAL = 'Health checks can’t be opened without signal. Write the readings on paper and add them here when you have signal.'
 export const SCREENING_REDACTED = 'This person’s details were deleted, so health checks can’t be saved for them.'
 export const SCREENING_NOT_FOUND = 'This registration can’t be found. It may have been deleted. Go back to the list.'
 export const SCREENING_INCOMPLETE = 'Some health checks are incomplete. Blood pressure needs both numbers, a blood sugar reading needs its unit and fasting or random, and a referral needs where to.'
@@ -44,11 +47,18 @@ export const SCREENING_INVALID = 'Health ID couldn’t accept these health check
 export const SCREENING_CLASH = 'This save clashed with an earlier one. Check the health checks, then press Save again.'
 export const SCREENING_FAILED = 'The health checks could not be saved. Please retry.'
 export const SCREENING_NOT_LOADED = 'Health checks could not be loaded.'
+export const SCREENING_CLEAR_HOW = 'To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.'
+export const GLUCOSE_HINT = 'Like 5.6 mmol/L or 101 mg/dL. Choose the unit shown on the meter. If it shows HI or LO, leave the reading empty, write HI or LO in Outcome or advice and tell a clinician.'
+export const MALARIA_HINT = 'If the test was invalid (no control line), do it again with a new test. If you can’t, choose Not done.'
+export const SEE_CLINICIAN = 'This reading is outside the usual range. Make sure a clinician sees this person before they leave.'
+export const CHECK_WEIGHT_HEIGHT = 'Check weight and height: they give a BMI no one has.'
 export const SCREENING_KEPT = 'Your health checks that weren’t saved are back. Check them, then save.'
 
 /** What a reload needs to bring back: the fields changed and not saved, and a save whose answer was lost, with its key. */
 interface Draft {
   readonly changes: Partial<ScreeningForm>
+  /** The medicines as read when the medicines in `changes` were typed: what was added and removed is worked out from them. */
+  readonly baseMedicines?: ReadonlyArray<{ readonly name: string; readonly dose: string }>
   readonly unsure: { readonly input: OutreachScreeningInput; readonly version: number | undefined } | null
   readonly attempt: { readonly signature: string; readonly key: string } | null
 }
@@ -57,7 +67,7 @@ interface Draft {
 function changesFrom(form: ScreeningForm, base: ScreeningForm): Partial<ScreeningForm> {
   const changes: Record<string, unknown> = {}
   for (const key of Object.keys(form) as (keyof ScreeningForm)[]) {
-    if (JSON.stringify(form[key]) !== JSON.stringify(base[key])) changes[key] = form[key]
+    if (!sameField(key, form[key], base[key])) changes[key] = form[key]
   }
   return changes as Partial<ScreeningForm>
 }
@@ -71,7 +81,7 @@ type Read =
 const GLUCOSE_UNITS = [{ value: 'mmol/L', label: 'mmol/L' }, { value: 'mg/dL', label: 'mg/dL' }] as const
 const GLUCOSE_TIMINGS = [{ value: 'fasting', label: 'Fasting' }, { value: 'random', label: 'Random' }] as const
 const MALARIA = [{ value: 'positive', label: 'Positive' }, { value: 'negative', label: 'Negative' }, { value: 'not_done', label: 'Not done' }] as const
-const HEARING = [{ value: 'pass', label: 'Pass' }, { value: 'refer', label: 'Refer' }, { value: 'not_done', label: 'Not done' }] as const
+const HEARING = [{ value: 'pass', label: 'Passed' }, { value: 'refer', label: 'Didn’t pass (needs a full hearing test)' }, { value: 'not_done', label: 'Not done' }] as const
 const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] as const
 
 /** One group of the form, headed for a screen reader and a quick glance. */
@@ -93,11 +103,15 @@ export function leaveHealthChecks(): boolean {
   return !unsavedHealthChecks.current || window.confirm('You have health checks that aren’t saved. Leave anyway?')
 }
 
-export function HealthChecks({ facilityId, caseId, canWrite }: {
+export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }: {
   readonly facilityId: string
   readonly caseId: string
   /** Whether this membership may write registrations (outreach.registration.write); otherwise the checks are read only. */
   readonly canWrite: boolean
+  /** The person's age, when known: the weight-and-height check is for adults (a newborn's BMI can be under 10). */
+  readonly ageYears?: number
+  /** Told once checks are saved, so the registration is read again (its "Health checks recorded", and the slip's line). */
+  readonly onSaved?: () => void
 }) {
   const [read, setRead] = useState<Read>({ kind: 'loading' })
   const [form, setForm] = useState<ScreeningForm>(() => screeningForm(null))
@@ -106,8 +120,10 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [redacted, setRedacted] = useState(false)
-  // Someone else saved this person's checks since they were read: said with Reload, the typing kept until then.
+  // Someone else saved this person's checks since they were read: said with "Show their checks", the typing kept until
+  // then. If reading their checks fails, the typing and this state stay, with why.
   const [conflict, setConflict] = useState(false)
+  const [reloadError, setReloadError] = useState('')
   // The save last sent, and its key: the same screening sent again (after a lost answer or no signal) reuses the key; any
   // other save gets a new one. Cleared once saved.
   const attempt = useRef<{ signature: string; key: string } | null>(null)
@@ -135,12 +151,22 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
         const draft = draftKey ? readTab<Draft>(draftKey) : null
         const changes = draft?.changes && typeof draft.changes === 'object' ? draft.changes : {}
         const kept = Object.keys(changes).filter(key => key in base.current
-          && JSON.stringify(changes[key as keyof ScreeningForm]) !== JSON.stringify(base.current[key as keyof ScreeningForm]))
+          && !sameField(key as keyof ScreeningForm, changes[key as keyof ScreeningForm] as never, base.current[key as keyof ScreeningForm] as never))
         if (draft) {
           unsure.current = draft.unsure ?? null
           attempt.current = draft.attempt ?? null
         }
-        setForm(kept.length ? { ...base.current, ...Object.fromEntries(kept.map(key => [key, changes[key as keyof ScreeningForm]])) } : base.current)
+        let restored = { ...base.current, ...Object.fromEntries(kept.map(key => [key, changes[key as keyof ScreeningForm]])) } as ScreeningForm
+        if (kept.includes('medicines')) {
+          // New keys for the rows brought back (the row counter starts again on a reload), and merged with the medicines
+          // read now, as after a clash: someone else's medicines saved meanwhile stay.
+          const rows = (list: unknown) => (Array.isArray(list) ? list : [])
+            .map(row => medicineRow(String((row as MedicineRow).name ?? ''), String((row as MedicineRow).dose ?? '')))
+          const typed = rows(changes.medicines)
+          restored = { ...restored, medicines: Array.isArray(draft?.baseMedicines)
+            ? mergeMedicines(base.current.medicines, typed, rows(draft.baseMedicines)) : typed }
+        }
+        setForm(kept.length ? restored : base.current)
         if (kept.length) setNotice(SCREENING_KEPT)
       }
       return screening
@@ -149,6 +175,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       if (isHidApiError(caught) && caught.status === 404 && ROUTE_NOT_SERVED.has(caught.code)) setRead({ kind: 'hidden' })
       else if (isHidApiError(caught) && caught.code === 'OUTREACH_REGISTRATION_NOT_FOUND') setRead({ kind: 'failed', text: SCREENING_NOT_FOUND })
       else if (isHidApiError(caught) && caught.code === 'OUTREACH_REGISTRATION_REDACTED') { setRedacted(true); setRead({ kind: 'failed', text: SCREENING_REDACTED }) }
+      else if (noSignal(caught)) setRead({ kind: 'failed', text: SCREENING_NO_SIGNAL })
       else setRead({ kind: 'failed', text: errorText(caught, SCREENING_NOT_LOADED) })
       return undefined
     }
@@ -162,22 +189,23 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
 
   // Checks typed but not saved are kept for this tab as they change (and a save whose answer was lost, so it is checked
   // after a reload too), and dropped once nothing is left to save.
-  const unsaved = read.kind === 'ready' && JSON.stringify(form) !== JSON.stringify(base.current)
+  const unsaved = read.kind === 'ready' && !sameForm(form, base.current)
   useEffect(() => {
     if (!draftKey || read.kind !== 'ready' || busy) return
     const changes = changesFrom(form, base.current)
     writeTab(draftKey, Object.keys(changes).length || unsure.current
-      ? { changes, unsure: unsure.current, attempt: attempt.current } satisfies Draft : null)
+      ? { changes, unsure: unsure.current, attempt: attempt.current,
+        ...('medicines' in changes ? { baseMedicines: base.current.medicines.map(({ name, dose }) => ({ name, dose })) } : {}) } satisfies Draft : null)
   }, [draftKey, read, form, busy])
-  // Back asks before leaving checks not saved. A reload or a closed page asks too, but only where this tab can't keep them.
-  const keptForReload = draftKey !== null && tabKeeps()
+  // Back asks before leaving checks not saved, and so does closing or reloading the page: what this tab keeps is lost
+  // when the tab is closed, and the browser can't tell a reload from a close.
   useEffect(() => {
     unsavedHealthChecks.current = unsaved
     if (!unsaved) return undefined
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
-    if (!keptForReload) window.addEventListener('beforeunload', warn)
+    window.addEventListener('beforeunload', warn)
     return () => { window.removeEventListener('beforeunload', warn); unsavedHealthChecks.current = false }
-  }, [unsaved, keptForReload])
+  }, [unsaved])
 
   if (read.kind === 'hidden') return null
 
@@ -188,16 +216,32 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
   async function reloadKeeping() {
     const mine = form
     const before = base.current
+    setReloadError('')
+    setBusy(true)
+    let theirs: OutreachScreening | null
+    try {
+      theirs = (await staffApi.outreachScreening(facilityId, caseId))?.screening ?? null
+    } catch (caught) {
+      // Nothing is replaced: the typing, and the way to try again, stay on the page.
+      setReloadError(noSignal(caught) ? SCREENING_RELOAD_OFFLINE : errorText(caught, SCREENING_NOT_LOADED))
+      focus(errorId)
+      return
+    } finally {
+      setBusy(false)
+    }
     setConflict(false)
-    const theirs = await load(undefined, true)
-    if (theirs === undefined) return
-    const merged = { ...screeningForm(theirs) } as Record<keyof ScreeningForm, unknown>
+    setRead({ kind: 'ready', screening: theirs })
+    base.current = screeningForm(theirs)
+    const merged = { ...base.current } as Record<keyof ScreeningForm, unknown>
     let kept = 0
     for (const key of Object.keys(mine) as (keyof ScreeningForm)[]) {
-      if (JSON.stringify(mine[key]) !== JSON.stringify(before[key])) { merged[key] = mine[key]; kept += 1 }
+      if (sameField(key, mine[key], before[key])) continue
+      // Medicines are merged, not replaced: their medicines stay, with this volunteer's added and removed ones applied.
+      merged[key] = key === 'medicines' ? mergeMedicines(base.current.medicines, mine.medicines, before.medicines) : mine[key]
+      kept += 1
     }
     setForm(merged as unknown as ScreeningForm)
-    setNotice(kept ? 'Their checks are shown. Your changes are kept on top and not saved yet: check them, then save again.' : '')
+    setNotice(kept ? SCREENING_MERGED : '')
   }
 
   function update<K extends keyof ScreeningForm>(field: K, value: ScreeningForm[K]) {
@@ -220,11 +264,13 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     if (busy || read.kind !== 'ready') return
     setFormError('')
     setConflict(false)
+    setReloadError('')
     setNotice('')
     const { input, errors, empty } = checkScreening(form)
     if (Object.keys(errors).length) { refuse(errors); return }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    if (empty) { setFormError(NOTHING_RECORDED); focus(errorId); return }
+    // Saved checks can't be cleared here (Outreach keeps a screening once recorded): say how to mark them instead.
+    if (empty) { setFormError(read.screening ? SCREENING_CLEAR_HOW : NOTHING_RECORDED); focus(errorId); return }
     void send(input, read.screening?.version)
   }
 
@@ -249,7 +295,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       if (current && (current.version ?? 0) !== (previous.version ?? 0) && JSON.stringify(held) === JSON.stringify(previous.input)) {
         setRead({ kind: 'ready', screening: current })
         base.current = screeningForm(current)
-        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(screeningForm(current)); setNotice(SCREENING_SAVED); return }
+        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(base.current); setNotice(SCREENING_SAVED); onSaved?.(); return }
         version = current.version
       }
     }
@@ -261,9 +307,10 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       attempt.current = null
       unsure.current = null
       setRead({ kind: 'ready', screening: answer.screening })
-      setForm(screeningForm(answer.screening))
       base.current = screeningForm(answer.screening)
+      setForm(base.current)
       setNotice(SCREENING_SAVED)
+      onSaved?.()
     } catch (caught) {
       const code = isHidApiError(caught) ? caught.code : ''
       if (code === 'OUTREACH_SCREENING_EXISTS' || code === 'VERSION_CONFLICT' || code === 'IF_MATCH_REQUIRED') {
@@ -281,7 +328,11 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
       else if (code === 'OUTREACH_REGISTRATION_REDACTED') setRedacted(true)
       else if (code === 'OUTREACH_REGISTRATION_NOT_FOUND') setFormError(SCREENING_NOT_FOUND)
       else if (noSignal(caught)) { unsure.current = { input, version }; setFormError(SCREENING_OFFLINE) }
-      else setFormError(errorText(caught, SCREENING_FAILED))
+      else {
+        // A timeout, too many requests or a server fault may come after Outreach stored the save: checked before the next.
+        if (isHidApiError(caught) && (caught.status === 408 || caught.status === 429 || caught.status >= 500)) unsure.current = { input, version }
+        setFormError(errorText(caught, SCREENING_FAILED))
+      }
       if (code !== 'OUTREACH_SCREENING_OUT_OF_RANGE' || !fieldNamedIn(isHidApiError(caught) ? caught.detail : null)) focus(errorId)
     } finally {
       setBusy(false)
@@ -295,9 +346,12 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     <EhrInput name={key} value={form[key]} readOnly={readOnly} inputMode={decimals ? 'decimal' : 'numeric'} autoComplete="off" maxLength={7}
       onChange={event => update(key, event.target.value)} {...control(key, hint)}
       onBlur={key === 'heightCm' ? event => {
-        // Whole centimetres only (Outreach takes an integer): a decimal typed is rounded as the field is left.
+        // Whole centimetres only (Outreach takes an integer): a decimal typed is rounded as the field is left, but only
+        // when the rounded height is one Outreach takes. A height in metres ("1.65") stays as typed, to be refused with
+        // how to write it in centimetres, instead of becoming "2".
         const typed = event.target.value.trim().replace(',', '.')
-        if (/^\d{1,4}\.\d+$/.test(typed)) update('heightCm', String(Math.round(Number(typed))))
+        const rounded = Math.round(Number(typed))
+        if (/^\d{1,4}\.\d+$/.test(typed) && rounded >= 30 && rounded <= 250) update('heightCm', String(rounded))
       } : undefined} />
   )
   const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
@@ -308,6 +362,7 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     </EhrSelect>
   )
   const bmi = bmiOf(form)
+  const bmiImplausible = (ageYears === undefined || ageYears >= 18) && implausibleBmi(form)
   const saved = read.kind === 'ready' ? read.screening : null
 
   let body: ReactNode
@@ -329,17 +384,20 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
             <OutreachField id={id('weightKg')} label="Weight" hint="kg, like 64.5." {...field('weightKg')}>{numberInput('weightKg', true, true)}</OutreachField>
             <OutreachField id={id('heightCm')} label="Height" hint="Whole centimetres, like 165." {...field('heightCm')}>{numberInput('heightCm', false, true)}</OutreachField>
           </div>
-          {bmi ? <p id={id('bmi')} className="m-0 text-body text-ink-2" aria-live="polite">BMI about <strong>{bmi}</strong> (worked out from weight and height; not saved).</p> : null}
+          {bmi && !bmiImplausible ? <p id={id('bmi')} className="m-0 text-body text-ink-2" aria-live="polite">BMI about <strong>{bmi}</strong> (worked out from weight and height; not saved).</p> : null}
+          {bmiImplausible ? <p id={id('bmi')} className="m-0 text-body text-ink-1" aria-live="polite">{CHECK_WEIGHT_HEIGHT}</p> : null}
         </Group>
         <Group id={id('glucose')} title="Blood sugar">
           <div className="grid gap-3 @md:grid-cols-3">
-            <OutreachField id={id('glucoseValue')} label="Reading" hint="Like 5.6 mmol/L or 101 mg/dL." {...field('glucoseValue')}>{numberInput('glucoseValue', true, true)}</OutreachField>
+            <OutreachField id={id('glucoseValue')} label="Reading" hint={GLUCOSE_HINT} {...field('glucoseValue')}>{numberInput('glucoseValue', true, true)}</OutreachField>
             <OutreachField id={id('glucoseUnit')} label="Unit" {...field('glucoseUnit')}>{choice('glucoseUnit', GLUCOSE_UNITS)}</OutreachField>
             <OutreachField id={id('glucoseTiming')} label="Fasting or random" {...field('glucoseTiming')}>{choice('glucoseTiming', GLUCOSE_TIMINGS)}</OutreachField>
           </div>
         </Group>
+        {/* A prompt, not a diagnosis, and never saved: shown while a reading typed is outside the usual range. */}
+        <div aria-live="polite">{canWrite && outsideUsualRange(form) ? <Alert intent="warning" live={false} title={SEE_CLINICIAN}>{null}</Alert> : null}</div>
         <Group id={id('malaria')} title="Malaria test">
-          <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
+          <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" hint={MALARIA_HINT} {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
         </Group>
         <Group id={id('hearing')} title="Hearing">
           <div className="grid grid-cols-2 gap-3">
@@ -404,8 +462,8 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
           ) : null}
         </Group>
         <div id={errorId} tabIndex={-1} className="flex flex-col items-start gap-3 outline-none">
-          <ErrorBox message={conflict ? SCREENING_RELOADED : formError} />
-          {conflict ? <Button onClick={() => { if (!busy) void reloadKeeping() }}>Reload</Button> : null}
+          <ErrorBox message={conflict ? reloadError || SCREENING_RELOADED : formError} />
+          {conflict ? <Button aria-busy={busy || undefined} onClick={() => { if (!busy) void reloadKeeping() }}>Show their checks</Button> : null}
         </div>
         {canWrite ? (
           <FormActions sticky={false}>

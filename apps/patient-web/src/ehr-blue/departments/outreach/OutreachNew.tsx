@@ -6,7 +6,7 @@ import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
 import { Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
-import { outreachProblemText } from '../../../outreachProblems'
+import { isOutreachProblem, outreachProblemText } from '../../../outreachProblems'
 import { waitReason, waitsForNetwork, waitsForSignIn, type PendingRegistration, type WaitReason } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
 import { errorText } from '../parts/errors'
@@ -80,7 +80,13 @@ export interface OutreachGroupForm {
   /** Claims a registration for sending (offlineQueue.ts claimSend): null while another sender has it. */
   readonly claim: (localCommandId: string) => Promise<(() => void) | null>
   /** A registration was kept on this device, and why it could not be sent: the form is cleared for the next person. */
-  readonly onQueued: (queued: { readonly fullName: string; readonly localCommandId: string; readonly reason: WaitReason | 'session' }) => void
+  readonly onQueued: (queued: {
+    readonly fullName: string
+    readonly localCommandId: string
+    readonly reason: WaitReason | 'session'
+    /** Their age as entered: under 18, the sign-up shown meanwhile says a parent or guardian must agree. */
+    readonly ageYears: number
+  }) => void
 }
 
 /** Why no campaign is listed, at an outreach group, when it isn't that the person is in none. */
@@ -244,7 +250,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
         attempt.current = null
         element.reset()
         resetConsent()
-        group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection' })
+        group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection', ageYears })
       } catch {
         setError(KEEP_FAILED)
       } finally {
@@ -281,14 +287,19 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
           attempt.current = null
           element.reset()
           resetConsent()
-          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught) })
+          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught), ageYears })
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
       }
       // Health ID's answer (a refusal to correct here, with everything typed still on the form): not left waiting on the
       // device, where it would be sent again as it is.
       if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
-      if (!group && campaignId && campaignRefused(caught)) {
+      if (area !== undefined && isOutreachProblem(caught, 'OUTREACH_AREA_INVALID')) {
+        // Said on the area field, with focus there (or an alert, when focus is in it already), as the form's own checks are.
+        const here = document.activeElement?.id === FIELD_ID.area
+        setProblems(previous => ({ errors: { area: outreachProblemText(caught, CREATE_FAILED) }, alert: here ? 'area' : undefined, seq: previous.seq + 1 }))
+        if (!here) focus(FIELD_ID.area)
+      } else if (!group && campaignId && campaignRefused(caught)) {
         // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
         // outreach group, whose registrations always need their campaign.
         setRefusedBy({ name: campaigns.find(campaign => campaign.id === campaignId)?.name })
@@ -380,7 +391,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
             </OutreachField>
           )}
           <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
-            hint={group ? `Where you met them, what they need next. Health check results go in Health checks after you save, not here. ${notesLength} of ${groupNotesLimit} characters.`
+            hint={group ? `Where you met them, what they need next.${healthChecksServed ? ' Health check results go in Health checks once the registration is sent, not here.' : ''} ${notesLength} of ${groupNotesLimit} characters.`
               : 'Where you met them, what they need next. Not a clinical note.'}>
             <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />

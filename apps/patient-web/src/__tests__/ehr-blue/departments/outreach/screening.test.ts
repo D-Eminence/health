@@ -85,6 +85,17 @@ describe('checkScreening', () => {
   })
 })
 
+describe('text as Outreach keeps it', () => {
+  it('sends text trimmed, each run of spaces and line breaks one space, medicines too', () => {
+    const form = { ...screeningForm(null), mainComplaint: '  Headache\n\nfor  3 days ', outcome: 'Rest.\r\nFluids.',
+      seenByClinician: 'yes' as const, clinicianName: 'Dr  Ada\tTestperson', referred: 'yes' as const, referredTo: 'General\nHospital  Ilorin',
+      medicines: [medicineRow('  Paracetamol\n500 mg ', '1  tablet\nthree times a day')] }
+    const { input } = checkScreening(form)
+    expect(input).toMatchObject({ mainComplaint: 'Headache for 3 days', outcome: 'Rest. Fluids.', clinicianName: 'Dr Ada Testperson',
+      referredTo: 'General Hospital Ilorin', medicinesGiven: [{ name: 'Paracetamol 500 mg', dose: '1 tablet three times a day' }] })
+  })
+})
+
 describe('the helpers', () => {
   it('works out BMI from weight and height, for display only', () => {
     expect(bmiOf({ weightKg: '64.5', heightCm: '165' })).toBe('23.7')

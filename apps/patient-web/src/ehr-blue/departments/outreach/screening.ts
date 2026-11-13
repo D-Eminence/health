@@ -67,6 +67,49 @@ export function medicineRow(name = '', dose = ''): MedicineRow {
   return { key: `m${rowSeq}`, name, dose }
 }
 
+/** A medicine as written, for comparing: its name and dose, ignoring case and spacing. The row's key is never compared. */
+const medicineId = (row: Pick<MedicineRow, 'name' | 'dose'>) =>
+  `${row.name.trim().replace(/\s+/g, ' ').toLowerCase()}\u0000${row.dose.trim().replace(/\s+/g, ' ').toLowerCase()}`
+
+/**
+ * Whether one field holds the same in two forms. Medicines are compared by name and dose, in order: each read of a
+ * screening gives its rows new keys, so comparing keys would make every saved medicine look like a change.
+ */
+export function sameField<K extends keyof ScreeningForm>(key: K, a: ScreeningForm[K], b: ScreeningForm[K]): boolean {
+  if (key === 'medicines') {
+    const left = a as readonly MedicineRow[]
+    const right = b as readonly MedicineRow[]
+    return left.length === right.length && left.every((row, index) => medicineId(row) === medicineId(right[index]!))
+  }
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** Whether two forms hold the same health checks (see sameField). */
+export function sameForm(a: ScreeningForm, b: ScreeningForm): boolean {
+  return (Object.keys(a) as (keyof ScreeningForm)[]).every(key => sameField(key, a[key], b[key]))
+}
+
+/**
+ * The medicines after someone else saved: theirs, without those this volunteer removed since the last read, and with those
+ * this volunteer added, so neither station's medicines are lost.
+ */
+export function mergeMedicines(theirs: readonly MedicineRow[], mine: readonly MedicineRow[], before: readonly MedicineRow[]): MedicineRow[] {
+  const ids = (rows: readonly MedicineRow[]) => new Set(rows.map(medicineId))
+  const mineIds = ids(mine)
+  const beforeIds = ids(before)
+  const removed = new Set([...beforeIds].filter(id => !mineIds.has(id)))
+  const merged = theirs.filter(row => !removed.has(medicineId(row)))
+  const present = ids(merged)
+  for (const row of mine) {
+    const id = medicineId(row)
+    if (!beforeIds.has(id) && !present.has(id)) { merged.push(row); present.add(id) }
+  }
+  return merged
+}
+
+/** Text as Outreach keeps it: trimmed, each run of spaces and line breaks one space. */
+const squeeze = (value: string) => value.trim().replace(/\s+/g, ' ')
+
 const text = (value: number | null | undefined) => value === null || value === undefined ? '' : String(value)
 const yesNo = (value: boolean | null | undefined): YesNo => value === true ? 'yes' : value === false ? 'no' : ''
 
@@ -91,6 +134,37 @@ export function parseNumber(typed: string, decimals: number): number | undefined
   const value = typed.trim().replace(',', '.')
   const pattern = decimals > 0 ? new RegExp(`^\\d{1,4}(\\.\\d{1,${decimals}})?$`) : /^\d{1,4}$/
   return pattern.test(value) ? Number(value) : undefined
+}
+
+/**
+ * Whether a reading typed is outside the usual range, so a clinician should see the person before they leave. Not a
+ * diagnosis and never saved: a prompt only (clinical owner, 13 Nov). Blood pressure 180 or more over anything, or 110 or
+ * more underneath, or a top number under 90; pulse over 120 or under 50; temperature 38.0 °C or more, or under 35.5 °C;
+ * blood sugar under 3.9 or 11.1 mmol/L or more (under 70 or 200 mg/dL or more).
+ */
+export function outsideUsualRange(form: ScreeningForm): boolean {
+  // Only readings Outreach takes are judged, so a number part-typed ("1" on the way to "120") never prompts.
+  const value = (typed: string, decimals: number, low: number, high: number) => {
+    const read = parseNumber(typed, decimals)
+    return read !== undefined && read >= low && read <= high ? read : undefined
+  }
+  const top = value(form.bpSystolic, 0, 50, 300)
+  const bottom = value(form.bpDiastolic, 0, 20, 200)
+  const pulse = value(form.pulseBpm, 0, 20, 250)
+  const temperature = value(form.temperatureC, 1, 30, 45)
+  const mmol = form.glucoseUnit === 'mmol/L' ? value(form.glucoseValue, 1, 1, 40) : undefined
+  const mgdl = form.glucoseUnit === 'mg/dL' ? value(form.glucoseValue, 1, 18, 720) : undefined
+  return (top !== undefined && (top >= 180 || top < 90)) || (bottom !== undefined && bottom >= 110)
+    || (pulse !== undefined && (pulse > 120 || pulse < 50))
+    || (temperature !== undefined && (temperature >= 38 || temperature < 35.5))
+    || (mmol !== undefined && (mmol < 3.9 || mmol >= 11.1))
+    || (mgdl !== undefined && (mgdl < 70 || mgdl >= 200))
+}
+
+/** Whether weight and height give a BMI no one has (under 10 or over 70): most likely swapped or mistyped. */
+export function implausibleBmi(form: Pick<ScreeningForm, 'weightKg' | 'heightCm'>): boolean {
+  const bmi = bmiOf(form)
+  return bmi !== null && (Number(bmi) < 10 || Number(bmi) > 70)
 }
 
 /** BMI from weight and height, to one decimal place, when both are typed and in range; for display only. */
@@ -133,7 +207,7 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
   const pulseBpm = number('pulseBpm', 0, 20, 250, 'Enter a pulse from 20 to 250 beats a minute, in whole numbers.')
   const temperatureC = number('temperatureC', 1, 30, 45, 'Enter a temperature from 30.0 to 45.0 °C, with one decimal place at most.')
   const weightKg = number('weightKg', 1, 0.5, 400, 'Enter a weight from 0.5 to 400 kg, with one decimal place at most.')
-  const heightCm = number('heightCm', 0, 30, 250, 'Enter a height from 30 to 250 cm, in whole numbers.')
+  const heightCm = number('heightCm', 0, 30, 250, 'Enter a height from 30 to 250 cm, in whole numbers. In centimetres: 1.65 m is 165.')
 
   let glucoseValue: number | null = null
   const glucoseTyped = form.glucoseValue.trim()
@@ -147,8 +221,10 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
     else glucoseValue = value
   }
 
+  // Text is sent as Outreach keeps it: trimmed, with each run of spaces and line breaks made one space. Otherwise, after a
+  // lost answer, what Outreach holds never matches what was sent, and the next save looks like someone else's.
   const words = (field: 'mainComplaint' | 'clinicianName' | 'outcome' | 'referredTo', limit: number) => {
-    const value = form[field].trim()
+    const value = squeeze(form[field])
     if (value.length > limit) errors[field] = `Keep this to ${limit} characters.`
     return value || null
   }
@@ -159,11 +235,11 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
   const referred = form.referred === '' ? null : form.referred === 'yes'
   const referredTo = referred ? words('referredTo', 200) : null
 
-  const medicines = form.medicines.filter(row => row.name.trim() || row.dose.trim())
+  const medicines = form.medicines.filter(row => squeeze(row.name) || squeeze(row.dose))
   for (const row of medicines) {
-    if (!row.name.trim()) errors[`medicine-${row.key}-name`] = 'Enter the medicine’s name, as given.'
-    else if (row.name.trim().length > 100) errors[`medicine-${row.key}-name`] = 'Keep the name to 100 characters.'
-    if (row.dose.trim().length > 200) errors[`medicine-${row.key}-dose`] = 'Keep the dose to 200 characters.'
+    if (!squeeze(row.name)) errors[`medicine-${row.key}-name`] = 'Enter the medicine’s name, as given.'
+    else if (squeeze(row.name).length > 100) errors[`medicine-${row.key}-name`] = 'Keep the name to 100 characters.'
+    if (squeeze(row.dose).length > 200) errors[`medicine-${row.key}-dose`] = 'Keep the dose to 200 characters.'
   }
 
   const input: OutreachScreeningInput = {
@@ -172,7 +248,7 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
     glucoseTiming: glucoseTyped && form.glucoseTiming ? form.glucoseTiming : null,
     malariaRdt: form.malariaRdt || null, hearingLeft: form.hearingLeft || null, hearingRight: form.hearingRight || null,
     mainComplaint, seenByClinician: seen, clinicianName, outcome,
-    medicinesGiven: medicines.length ? medicines.map(row => ({ name: row.name.trim(), dose: row.dose.trim() || null })) : null,
+    medicinesGiven: medicines.length ? medicines.map(row => ({ name: squeeze(row.name), dose: squeeze(row.dose) || null })) : null,
     referred, referredTo,
   }
   // Nothing to record unless some value reaches Outreach: a unit, timing or hidden clinician name alone is not a check.

@@ -13,14 +13,14 @@ import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import {
-  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
-  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
-  OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
+  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HAS_HEALTH_ID, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
+  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, healthIdMadeText, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
+  NO_HEALTH_ID_YET, OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
-import { GetHealthIdNow } from './GetHealthIdNow'
+import { GetHealthIdNow, GUARDIAN_MUST_AGREE } from './GetHealthIdNow'
 import { HealthChecks, leaveHealthChecks } from './HealthChecks'
-import { CreateHealthId, type MadeHere } from './CreateHealthId'
+import { CreateHealthId, healthIdMadeByEmail, type HealthIdHold, type MadeHere } from './CreateHealthId'
 import { OutreachSlip, useSlipPrint } from './OutreachSlip'
 import { keptClaimCode } from './tabMemory'
 
@@ -96,14 +96,19 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const asking = useRef(false)
   const doneId = `outreach-case-${item.id}-done`
   const { facility, actorId } = useDeptAccess()
-  // The Health ID made here just now, with its claim code when made with no email or phone, for the slip. After a reload
+  // The Health ID made here just now, with its claim code when made with no email, for the slip. After a reload
   // the claim code is printed for 15 minutes from this tab's own copy (tabMemory.ts), never shown on screen again.
   const [madeHere, setMadeHere] = useState<MadeHere | null>(null)
+  // A Health ID being made, or a claim code shown and not yet printed or written down: nothing here leaves the view.
+  const [healthIdHold, setHealthIdHold] = useState<HealthIdHold>(null)
   const { print, area: slipArea } = useSlipPrint()
   const printSlip = () => {
+    if (healthIdHold === 'claim') setHealthIdHold(null)
     const healthId = madeHere?.healthId ?? item.healthId
     print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
-      healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)} />)
+      healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)}
+      claimExpiresAt={madeHere?.claimCode ? madeHere.claimExpiresAt : undefined}
+      byEmail={madeHere?.byEmail ?? healthIdMadeByEmail(item)} />)
   }
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
@@ -191,8 +196,25 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
 
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
-  const back = () => { if (!busy && leaveHealthChecks()) onBack() }
+  /**
+   * Leaves the view, unless something must be finished first: a Health ID being made waits for its answer, and a claim
+   * code shown is brought back into view until it is printed or written down.
+   */
+  const leave = (go: () => void) => {
+    if (healthIdHold === 'claim') focus(`outreach-health-id-${item.id}-made`)
+    if (!healthIdHold && !busy && leaveHealthChecks()) go()
+  }
+  // Held (said with aria-disabled on every way out): a send in flight, a Health ID being made, or a claim code not noted.
+  const held = busy || healthIdHold !== null
+  const back = () => leave(onBack)
+  const registerAnother = onNew ? () => leave(onNew) : undefined
   const facts = caseFacts(item, campaign)
+  // The Health ID made at outreach (0119): just now in this view, or as the registration says. The registration stays
+  // pending identity all the same, so it is said in place of "Waiting to link" and "comes later".
+  const healthIdMade = madeHere?.healthId ?? item.healthId ?? null
+  // Outreach makes Health IDs (its registrations carry healthId): one can still be made here, below.
+  const makesHealthIds = 'healthId' in item
+  const minor = typeof item.ageYears === 'number' && item.ageYears < 18
 
   // The one next step, or the done state.
   let nextStep
@@ -206,8 +228,9 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             ? 'This registration is now joined to the verified Health ID patient. Their care continues under their Health ID.'
             : `This registration is ${statusLabel(item.status).toLowerCase()}. No further step is needed here.`}</p>
           <FormActions sticky={false} align="start" className="mt-2">
-            {onNew ? <Button variant="primary" icon={UserPlus} onClick={onNew}>Register another person</Button> : null}
-            <Button onClick={back}>Back to list</Button>
+            {registerAnother ? <Button variant="primary" icon={UserPlus} className="hid-ehr-dept-outreach-unavailable" aria-disabled={held || undefined}
+              onClick={registerAnother}>Register another person</Button> : null}
+            <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={held || undefined} onClick={back}>Back to list</Button>
           </FormActions>
         </div>
       </Card>
@@ -240,6 +263,13 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         </div>
       </Card>
     )
+  } else if (healthIdMade) {
+    nextStep = <Alert intent="success" title={healthIdMadeText(healthIdMade)} />
+  } else if (group && makesHealthIds) {
+    // A Health ID can't be made at outreach for under-18s: their parent or guardian makes it with them.
+    nextStep = (
+      <Alert intent="info" title={`${NO_HEALTH_ID_YET}.`}>{minor ? GUARDIAN_MUST_AGREE : 'If they want one, use Create Health ID below.'}</Alert>
+    )
   } else if (group) {
     nextStep = (
       <Alert intent="info" title="Their Health ID comes later">{LINKS_LATER}</Alert>
@@ -255,11 +285,12 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   return (
     <DeptPage title={caseName(item)} secondaryActions={<Button icon={Printer} onClick={printSlip}>Print slip</Button>} primaryAction={(
       // Unavailable while the link is sent, so its answer is not lost.
-      <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>
+      <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || healthIdHold !== null || undefined} onClick={back}>Back to list</Button>
     )}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
-          <Badge tone={linked ? 'success' : caseTone(item.status)}>{linked ? 'Linked' : statusLabel(item.status)}</Badge>
+          <Badge tone={linked || (pending && healthIdMade) ? 'success' : caseTone(item.status)}>
+            {linked ? 'Linked' : pending && healthIdMade ? HAS_HEALTH_ID : statusLabel(item.status)}</Badge>
           <span>{ageText(item)} · {sexText(item)}</span>
           <span className="text-ink-3">Registered {dateText(item.createdAt)}</span>
         </div>
@@ -271,7 +302,10 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
         {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}
         {created && !linked
-          ? <Alert intent="success" title="Registration saved">{pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
+          ? <Alert intent="success" title="Registration saved">{pending ? group ? makesHealthIds
+            // Under 18 no Health ID is made at outreach: a parent or guardian gets one later.
+            ? typeof item.ageYears === 'number' && item.ageYears < 18 ? 'Next: their health checks.' : 'Next: their health checks, then a Health ID if they want one.'
+            : 'They have a temporary record. They can link their own Health ID to it later.'
             : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}
         {created && item.possibleDuplicate
@@ -281,15 +315,16 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
           <div className="flex min-w-0 flex-col gap-4">
             {nextStep}
-            <HealthChecks facilityId={facilityId} caseId={item.id} canWrite={canWrite} />
+            <HealthChecks facilityId={facilityId} caseId={item.id} canWrite={canWrite} ageYears={item.ageYears} onSaved={() => { void onChanged() }} />
             {/* While the registration waits for a Health ID: the person can make their own now, on their phone. */}
             {/* Where Outreach can make the Health ID (its registrations carry healthId), that comes first, and the person's own
                 sign-up is the fallback; elsewhere the sign-up is the way, while the registration waits for a Health ID. */}
             {(pending && !linked) || item.healthId
-              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip}
+              ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip} onHold={setHealthIdHold}
                 onCreated={made => { if (made) setMadeHere(made); void onChanged() }} /> : null}
-            {pending && !linked && !item.healthId
-              ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} /> : null}
+            {/* Not once they have a Health ID, made here just now or before: signing up too would make them a second one. */}
+            {pending && !linked && !healthIdMade
+              ? <GetHealthIdNow id={`outreach-case-${item.id}-health-id`} fallback={'healthId' in item} ageYears={item.ageYears} /> : null}
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             <Card>
@@ -298,7 +333,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
             </Card>
           </div>
         </div>
-        {onNew && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={onNew}>Register another person</Button> : null}
+        {registerAnother && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="hid-ehr-dept-outreach-unavailable self-start"
+          aria-disabled={held || undefined} onClick={registerAnother}>Register another person</Button> : null}
       </div>
       {sheet}
       {slipArea}

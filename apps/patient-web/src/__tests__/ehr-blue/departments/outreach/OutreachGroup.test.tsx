@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { queueSyncText } from '../../../../ehr-blue/departments/outreach/outreachGroup'
 
@@ -37,6 +38,8 @@ const pending = (id: string, fullName: string) => ({ id, campaignId: 'campaign-1
   temporaryPatientId: `tmp_${id}`, createdAt: '2026-11-11T09:00:00.000Z', rowVersion: 1 })
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
   // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
   api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
@@ -321,6 +324,57 @@ describe('registering someone at an outreach group', () => {
     expect(api.createOutreachCase.mock.calls[0]![1].consent).toMatchObject({ method: 'guardian', guardianName: 'Ngozi Obi' })
   })
 
+  it('typing an adult’s age key by key keeps the way they agreed (“3” on the way to “35” is not an under-18)', async () => {
+    api.createOutreachCase.mockResolvedValue(pending('case-5', 'Kemi Balogun'))
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /I read it to them and they said yes/ }))
+    fireEvent.change(textbox(/Full name/), { target: { value: 'Kemi Balogun' } })
+    const age = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(age, { target: { value: '3' } })
+    fireEvent.change(age, { target: { value: '35' } })
+    fireEvent.blur(age)
+    const readAloud = screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement
+    const guardian = screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement
+    expect(readAloud.checked).toBe(true)
+    expect(readAloud.disabled).toBe(false)
+    expect(guardian.checked).toBe(false)
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalled())
+    expect(api.createOutreachCase.mock.calls[0]![1].consent).toEqual({ textVersion: 'outreach-notice-2026-11-14b', language: 'en',
+      method: 'verbal_read_aloud' })
+  })
+
+  it('an age changed from 17 to 18 gives back the way they agreed that the volunteer chose (decided as the age box is left)', async () => {
+    await openNewRegistration()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    const age = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(age, { target: { value: '1' } })
+    fireEvent.change(age, { target: { value: '17' } })
+    fireEvent.blur(age)
+    const self = () => screen.getByRole('radio', { name: /They read it themselves and agreed/ }) as HTMLInputElement
+    const guardian = () => screen.getByRole('radio', { name: /Their parent or guardian agreed for them/ }) as HTMLInputElement
+    expect(guardian().checked).toBe(true)
+    expect(self().disabled).toBe(true)
+    fireEvent.change(age, { target: { value: '1' } })
+    fireEvent.change(age, { target: { value: '18' } })
+    fireEvent.blur(age)
+    expect(self().checked).toBe(true)
+    expect(guardian().checked).toBe(false)
+    expect(self().disabled).toBe(false)
+  })
+
+  it('an adult’s age typed before any choice keeps the default, read aloud (Q76)', async () => {
+    await openNewRegistration()
+    const age = screen.getByRole('spinbutton', { name: /Age in years/ })
+    fireEvent.change(age, { target: { value: '4' } })
+    fireEvent.change(age, { target: { value: '42' } })
+    fireEvent.blur(age)
+    expect((screen.getByRole('radio', { name: /I read it to them and they said yes/ }) as HTMLInputElement).checked).toBe(true)
+    for (const name of [/They read it themselves and agreed/, /Their parent or guardian agreed for them/]) {
+      expect((screen.getByRole('radio', { name }) as HTMLInputElement).checked).toBe(false)
+    }
+  })
+
   it('keeps a parent or guardian’s name to 120 characters, as Outreach does', async () => {
     await openNewRegistration()
     const guardian = textbox(/Parent or guardian’s name/)
@@ -338,12 +392,13 @@ describe('registering someone at an outreach group', () => {
     const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
     expect(notes.maxLength).toBe(280)
     expect(screen.queryByRole('textbox', { name: /Area, town or LGA/ })).toBeNull()
+    expect(document.body.textContent).not.toContain('Health check results go')
   })
 
   it('keeps notes to 1000 characters, with health check results kept out of them', async () => {
     api.outreachCases.mockResolvedValue([{ ...pending('case-0', 'Ada Obi'), hasScreening: false }])
     await openNewRegistration()
-    expect(document.body.textContent).toContain('Health check results go in Health checks after you save, not here.')
+    expect(document.body.textContent).toContain('Health check results go in Health checks once the registration is sent, not here.')
     const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
     expect(notes.maxLength).toBe(1000)
     fireEvent.change(notes, { target: { value: 'x'.repeat(1001) } })
@@ -487,7 +542,7 @@ describe('the offline queue', () => {
     await press(screen.getByRole('button', { name: 'Save registration' }))
     const queue = await screen.findByRole('region', { name: 'Saved on this device' })
     expect(within(queue).getByText('Waiting to send')).toBeTruthy()
-    expect(document.body.textContent).toContain('Health ID isn’t available right now. Kemi Balogun’s registration is saved on this device and will be sent automatically.')
+    expect(document.body.textContent).toContain('Health ID isn’t available right now. Kemi Balogun’s registration is saved on this device and will be sent automatically. Health checks can be added once it is sent. Write the readings on paper until then.')
     expect(document.body.textContent).not.toContain('No connection')
   })
 

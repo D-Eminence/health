@@ -23,6 +23,7 @@ import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './Outreac
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
 import { claimSend, noConnection, useOutreachQueue, type PendingRegistration, type QueueSyncResult } from './offlineQueue'
 import { outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
+import { noteOutreachRegistrations, outreachServed } from './outreachServed'
 import { offlineShellHere } from '../../../productHostname'
 import {
   campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
@@ -111,10 +112,11 @@ export function Outreach() {
   const group = isOutreachGroup(facility)
   const organiser = group && isOrganiser(facility)
   const canReadCases = permissions.includes('outreach.registration.read')
-  // At an outreach group only its organiser downloads the list (the file holds personal details); helpers never see Export.
-  const canExport = canReadCases && (!group || organiser)
   const canReadCampaigns = permissions.includes('outreach.campaign.read')
   const canWrite = permissions.includes('outreach.registration.write')
+  // Export puts every registration's personal and health details in a file: at an outreach group, for its organiser only
+  // (as the session's roles say it), never a helper; a hospital's outreach team keeps it with reading registrations.
+  const canExport = canReadCases && (!group || organiser)
   // Campaign management is offered only where Outreach says it serves it, and is never asked of anyone who may not use it.
   // At an outreach group every member reading campaigns asks too, for where the group stands with Health ID.
   const askGovernance = canReadCampaigns && (permissions.includes('outreach.campaign.write') || group)
@@ -156,7 +158,11 @@ export function Outreach() {
 
   // Outreach with no signal (offlineStart.ts), on Health ID Outreach's own site, at an outreach group: the confirmed
   // session's few facts, kept for a reload or a start with no signal, with the campaigns this volunteer is in.
-  const healthChecksServed = Boolean(cases.value?.some(item => 'hasScreening' in item))
+  // What Outreach serves, as its registrations show it, remembered for the session (outreachServed.ts): the day's first
+  // registration, and a list that can't be read, keep what was seen before.
+  noteOutreachRegistrations(cases.value)
+  const served = outreachServed()
+  const healthChecksServed = served.healthChecks
   const memberCampaigns = (campaigns.value ?? []).filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
   const offlineFacts = group && facility && facilityId && actorId && state.status === 'ready' && campaigns.value !== null && offlineShellHere(window.location.hostname)
     ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: memberCampaigns })
@@ -201,12 +207,14 @@ export function Outreach() {
 
   // At an outreach group, a registration that could not be sent waits on this device and is sent again (offlineQueue.ts).
   const queue = useOutreachQueue(group ? actorId : undefined, facilityId ?? '', useCallback((created: OutreachCase) => {
+    noteOutreachRegistrations([created])
     if (facilityId) setCreatedNote({ facilityId, text: `${createdText(created)} It was sent from this device.` })
     void refreshCases()
   }, [facilityId, refreshCases]))
   const syncQueue = queue.sync
 
   const onCreated = useCallback((created: OutreachCase) => {
+    noteOutreachRegistrations([created])
     if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
     void refreshCases()
     // Health ID just took a registration: what waits on this device is sent too, without waiting for an online event.
@@ -216,7 +224,7 @@ export function Outreach() {
   }, [facilityId, refreshCases, show, syncQueue])
 
   // The registration just kept on this device, and why: said until it is sent (or refused, which the queue then shows).
-  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string } | null>(null)
+  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string; ageYears: number } | null>(null)
   const queuedShown = queuedNote !== null && queuedNote.facilityId === facilityId
     && queue.entries.some(entry => entry.localCommandId === queuedNote.localCommandId && entry.state === 'waiting')
   // What "Send now" did, while the list is as that round left it: once another round sends one (or one is kept, removed or
@@ -236,8 +244,8 @@ export function Outreach() {
     queue: entry => queue.add(entry),
     dequeue: localCommandId => queue.discard(localCommandId),
     claim: claimSend,
-    onQueued: ({ fullName, localCommandId, reason }) => {
-      if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason) })
+    onQueued: ({ fullName, localCommandId, reason, ageYears }) => {
+      if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason), ageYears })
       show({ kind: 'list' })
     },
   } : undefined
@@ -276,7 +284,7 @@ export function Outreach() {
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
     content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} campaignsUnread={campaignsUnread}
-      attempt={caseAttempt} group={groupForm} healthChecksServed={Boolean(cases.value?.some(item => 'hasScreening' in item))}
+      attempt={caseAttempt} group={groupForm} healthChecksServed={healthChecksServed}
       onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null); setSendNote(null) }} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
@@ -317,14 +325,16 @@ export function Outreach() {
       : <RecordNotFound onBack={() => backToList()} />
   } else {
     content = (
-      <OutreachList canReadCases={canReadCases} canExport={canExport} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
+      <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} canExport={canExport} cases={cases} campaigns={campaigns}
         refreshMembers={refreshMembers} group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
           {queuedShown ? <>
             <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
             {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
-            <GetHealthIdNow id="outreach-queued-health-id" />
+            {/* "Open it to create their Health ID", unless Outreach is known to make none (not from the list alone, which a
+                page opened with no signal has not read). */}
+            <GetHealthIdNow id="outreach-queued-health-id" queued={served.emailHealthId !== false} ageYears={queuedNote.ageYears} />
           </> : null}
           {sendShown && sendNote ? (
             <Alert intent={sendDone ? 'success' : 'warning'}
@@ -376,10 +386,10 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
-function OutreachList({ canReadCases, canExport, canReadCampaigns, canWrite, cases, campaigns, refreshMembers, group, top, bottom, campaignOf, onNew,
-  onNewCampaign, onOpenCase, onOpenCampaign }: {
+function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cases, campaigns, refreshMembers, group, top, bottom, campaignOf, onNew, onNewCampaign,
+  onOpenCase, onOpenCampaign }: {
   readonly canReadCases: boolean
-  /** Export is shown: everyone who reads registrations, except an outreach group's helpers (only its organiser). */
+  /** Export is offered: reading registrations, and at an outreach group, its organiser. */
   readonly canExport: boolean
   /** An outreach group's own Outreach (open sign-up on outreach.): nobody here links a Health ID. */
   readonly group: boolean

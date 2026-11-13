@@ -3,14 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import { OutreachCaseView } from '../../../../ehr-blue/departments/outreach/OutreachCaseView'
-import { MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
+import { forgetUnservedHealthIdWays, MADE_BEFORE } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 import {
-  CHECKS_RECORDED, eventDateText, GET_HEALTH_ID_LATER, KEEP_SLIP, OutreachSlip,
+  CHECKS_RECORDED, eventDateText, FORGOT_PASSWORD, GET_HEALTH_ID_LATER, GET_HEALTH_ID_LATER_MINOR, KEEP_SLIP, OutreachSlip,
 } from '../../../../ehr-blue/departments/outreach/OutreachSlip'
 
 /*
  * The slip a person takes home from an outreach: group, campaign, event date, who, when registered, their Health ID
- * when they have one, and the claim code only straight after "No email or phone" made it here (or, for 15 minutes, after
+ * when they have one, and the claim code only straight after "No email" made it here (or, for 15 minutes, after
  * a reload of that tab). Never a health value, and the claim code is never shown on screen again. Fictional data only.
  */
 
@@ -39,6 +39,7 @@ beforeEach(() => {
   vi.stubGlobal('print', print)
   api.outreachScreening.mockResolvedValue(SCREENING)
   sessionStorage.clear()
+  forgetUnservedHealthIdWays()
   setItem = vi.spyOn(Storage.prototype, 'setItem')
 })
 
@@ -82,12 +83,40 @@ describe('the outreach slip', () => {
     expect(text).not.toContain('Claim code')
   })
 
+  it('says a parent or guardian can get a Health ID later for anyone under 18 (17), and the person themselves at 18', () => {
+    expect(GET_HEALTH_ID_LATER_MINOR).toBe('A parent or guardian can get them a Health ID later at app.healthidentitydirectory.com.')
+    const minor = render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={{ ...ITEM, ageYears: 17 } as never} healthId={null} />)
+    expect(minor.container.textContent).toContain(GET_HEALTH_ID_LATER_MINOR)
+    expect(minor.container.textContent).not.toContain(GET_HEALTH_ID_LATER)
+    minor.unmount()
+    const adult = render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={{ ...ITEM, ageYears: 18 } as never} healthId={null} />)
+    expect(adult.container.textContent).toContain(GET_HEALTH_ID_LATER)
+    expect(adult.container.textContent).not.toContain(GET_HEALTH_ID_LATER_MINOR)
+  })
+
   it('prints the claim code only when it is passed in', () => {
     render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-UNVER1" claimCode="K7Q-4MZ" />)
     const text = document.body.textContent ?? ''
     expect(text).toContain('Claim code')
     expect(text).toContain('K7Q-4MZ')
     expect(text).toContain(KEEP_SLIP)
+  })
+
+  it('says how to start using a Health ID made by email: "Forgot password" with the email they gave', () => {
+    expect(FORGOT_PASSWORD).toBe('To start using your Health ID, open the Health ID app, tap “Forgot password” and use the email you gave today.')
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-ZDEMAA" byEmail />)
+    expect(document.body.textContent).toContain(FORGOT_PASSWORD)
+  })
+
+  it('says nothing of "Forgot password" for a Health ID not made by email', () => {
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-UNVER1" claimCode="K7Q-4MZ" />)
+    expect(document.body.textContent).not.toContain(FORGOT_PASSWORD)
+  })
+
+  it('says until when the claim code works, from claimExpiresAt', () => {
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-UNVER1" claimCode="K7Q-4MZ"
+      claimExpiresAt="2027-05-14T12:00:00.000Z" />)
+    expect(document.body.textContent).toContain('Keep this slip. You’ll need your Health ID and this code to start using it. The code works until 14 May 2027.')
   })
 
   it('writes an event over more than one day as its first and last day', () => {
@@ -118,12 +147,12 @@ describe('Print slip on a registration', () => {
     expect(slip()!.textContent).not.toContain('Claim code')
   })
 
-  it('prints the claim code right after "No email or phone", from the claim-code display, and on the slip only after a reload', async () => {
+  it('prints the claim code right after "No email", from the claim-code display, and on the slip only after a reload', async () => {
     api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', registration: { ...ITEM, healthId: 'HID-UNVER1' } })
     const view = renderCase()
     const region = screen.getByRole('region', { name: 'Create Health ID' })
     await press(within(region).getByRole('checkbox', { name: /They want a Health ID/ }))
-    await press(within(region).getByRole('radio', { name: /No email or phone/ }))
+    await press(within(region).getByRole('radio', { name: /^No email/ }))
     await press(within(region).getByRole('button', { name: 'Create Health ID' }))
     expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
     await press(within(region).getByRole('button', { name: 'Print slip' }))
@@ -166,6 +195,18 @@ describe('Print slip on a registration', () => {
     await act(async () => { window.dispatchEvent(new Event('afterprint')) })
   })
 
+  it.each([
+    ['made by email at outreach (0119)', { healthIdCreatedByOutreach: true }, true],
+    ['made by email, as 0120 says', { healthIdCreatedByOutreach: true, healthIdStatus: 'verified' }, true],
+    ['made with no email (0120)', { healthIdCreatedByOutreach: true, healthIdStatus: 'unclaimed' }, false],
+    ['their own, linked', { healthIdCreatedByOutreach: false }, false],
+  ])('prints the "Forgot password" line for a Health ID %s: %s', async (_name, fields, shown) => {
+    renderCase({ ...ITEM, healthId: 'HID-ABC123', ...fields })
+    await press(screen.getAllByRole('button', { name: 'Print slip' })[0]!)
+    expect(slip()!.textContent?.includes(FORGOT_PASSWORD)).toBe(shown)
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
+  })
+
   it('never prints a claim code kept for another Health ID or another account', async () => {
     sessionStorage.setItem(`hid-outreach:claim:someone-else:${GROUP_ID}:case-1`, JSON.stringify({ healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', until: Date.now() + 60_000 }))
     renderCase({ ...ITEM, healthId: 'HID-UNVER1' })
@@ -179,5 +220,75 @@ describe('Print slip on a registration', () => {
     renderCase({ ...ITEM, hasScreening: false })
     await press(screen.getByRole('button', { name: 'Print slip' }))
     expect(slip()!.textContent).not.toContain(CHECKS_RECORDED)
+  })
+})
+
+/*
+ * A claim code is answered once (0120): nothing on the case view may leave it behind. Back to list and "Register another
+ * person" wait while a Health ID is being made, and after a claim code is shown until the slip is printed or the
+ * volunteer says it is written down. Fictional data only.
+ */
+describe('leaving the case view while a Health ID is made', () => {
+  const MADE = { healthId: 'HID-UNVER1', claimCode: 'K7Q-4MZ', claimExpiresAt: '2027-05-14T12:00:00.000Z', registration: { ...ITEM, healthId: 'HID-UNVER1' } }
+  function renderWithWaysOut() {
+    const onBack = vi.fn()
+    const onNew = vi.fn()
+    renderDept(<OutreachCaseView facilityId={GROUP_ID} item={ITEM as never} campaign={CAMPAIGN} canLink={false} canWrite group created={false}
+      listError="" onBack={onBack} onNew={onNew} onChanged={async () => undefined} onFocusHeading={() => undefined} />)
+    return { onBack, onNew }
+  }
+  async function createWithNoEmail() {
+    const region = screen.getByRole('region', { name: 'Create Health ID' })
+    await press(within(region).getByRole('checkbox', { name: /They want a Health ID/ }))
+    await press(within(region).getByRole('radio', { name: /^No email/ }))
+    await press(within(region).getByRole('button', { name: 'Create Health ID' }))
+    return region
+  }
+  const backButton = () => screen.getAllByRole('button', { name: 'Back to list' })[0]!
+
+  it('holds Back while creating, and after the claim code is shown until “I’ve written it down”', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    api.createUnverifiedOutreachHealthId.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    const { onBack, onNew } = renderWithWaysOut()
+    const region = await createWithNoEmail()
+    expect(backButton().getAttribute('aria-disabled')).toBe('true')
+    // "Register another person" says it is held too, as Back does.
+    expect(screen.getByRole('button', { name: 'Register another person' }).getAttribute('aria-disabled')).toBe('true')
+    await press(backButton())
+    await press(screen.getByRole('button', { name: 'Register another person' }))
+    expect(onBack).not.toHaveBeenCalled()
+    expect(onNew).not.toHaveBeenCalled()
+    // Closing or reloading the page asks first while the answer is awaited.
+    const leaving = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(leaving)
+    expect(leaving.defaultPrevented).toBe(true)
+
+    await act(async () => { answer(MADE) })
+    expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
+    await press(backButton())
+    await press(screen.getByRole('button', { name: 'Register another person' }))
+    expect(onBack).not.toHaveBeenCalled()
+    expect(onNew).not.toHaveBeenCalled()
+
+    await press(within(region).getByRole('button', { name: 'I’ve written it down' }))
+    expect(backButton().getAttribute('aria-disabled')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Register another person' }).getAttribute('aria-disabled')).toBeNull()
+    await press(backButton())
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets Back go once the slip is printed, and the slip says until when the claim code works', async () => {
+    api.createUnverifiedOutreachHealthId.mockResolvedValue(MADE)
+    const { onBack } = renderWithWaysOut()
+    const region = await createWithNoEmail()
+    expect(await within(region).findByText('K7Q-4MZ')).toBeTruthy()
+    await press(backButton())
+    expect(onBack).not.toHaveBeenCalled()
+    await press(within(region).getByRole('button', { name: 'Print slip' }))
+    expect(slip()!.textContent).toContain('K7Q-4MZ')
+    expect(slip()!.textContent).toContain('The code works until 14 May 2027.')
+    await act(async () => { window.dispatchEvent(new Event('afterprint')) })
+    await press(backButton())
+    expect(onBack).toHaveBeenCalledTimes(1)
   })
 })
