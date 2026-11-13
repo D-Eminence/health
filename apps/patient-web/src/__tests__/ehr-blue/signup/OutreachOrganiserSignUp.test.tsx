@@ -73,7 +73,9 @@ describe('Start running outreach', () => {
     const terms = document.body.textContent ?? ''
     expect(terms).toContain('joint controllers')
     expect(terms).toContain('within 24 hours')
-    expect(terms).toContain('It is free for now.')
+    expect(terms).toContain('A parent or guardian agrees for anyone under 18.')
+    // The owner kept three points beside the box (13 Nov); the rest is in the full terms a link away.
+    expect(terms).not.toContain('No diagnoses or test results in the notes.')
     await press('Accept and continue')
     expect(screen.getByText('Tick the box to accept the organiser terms.')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /accept the organiser terms/ })) })

@@ -84,11 +84,7 @@ export const ORGANISER_TERMS: readonly TermsSection[] = [
 export const ORGANISER_TERMS_SUMMARY: readonly string[] = [
   'Your group and Health ID are joint controllers of the details you collect: you both look after them.',
   'Read the notice to each person and record how they agreed. A parent or guardian agrees for anyone under 18.',
-  'No diagnoses or test results in the notes.',
   'Tell Health ID support within 24 hours if details may have been seen by the wrong person.',
-  'Health ID does not check your group: people you register are told you are an unverified organiser.',
-  `Details never linked to a Health ID are deleted ${RETENTION_WORDS}.`,
-  'It is free for now.',
 ]
 
 /**
