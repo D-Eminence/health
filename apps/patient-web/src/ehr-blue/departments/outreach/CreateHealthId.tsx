@@ -78,7 +78,8 @@ const FAILED = 'The Health ID could not be created. Please retry.'
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /** What the section shows once a Health ID is made: the claim code only from the answer that made it, once. */
-interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail: boolean; readonly codeLost?: boolean }
+/** byEmail is unknown (undefined) when Health ID only said one was made already: the registration, read again, says. */
+interface Made { readonly healthId: string; readonly claimCode?: string; readonly byEmail?: boolean; readonly codeLost?: boolean }
 
 /** A Health ID made here just now, its claim code when it was made with no email, and whether by email. */
 export interface MadeHere {
@@ -121,6 +122,7 @@ export const CREATE_UNANSWERED = 'We couldn’t tell if the Health ID was made. 
 export const CLAIM_CODE_LOST = 'This Health ID was made, but its claim code can’t be shown again. Write the Health ID on their slip. They will need Health ID support to start using it. Don’t ask them to sign up again.'
 
 /** Said once a Health ID made before (or before a reload) is shown: the claim code is never shown again. */
+export const CLAIM_CODE_ON_SLIP = 'Made with no email. Its claim code was shown once, when it was made. Check it is on their slip.'
 export const MADE_BEFORE = 'Their Health ID has been made. Print their slip, or write the Health ID on it.'
 
 /** What a reload needs to keep the code box: never the code itself. */
@@ -220,10 +222,13 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   const minor = typeof item.ageYears === 'number' && item.ageYears < 18
   // Made here just now (with its claim code, shown this once), or made before, as the registration says.
   const made: Made | null = justMade ?? (item.healthId ? { healthId: item.healthId, byEmail: healthIdMadeByEmail(item) } : null)
-  // No claim code in this page or in this tab's copy for the slip, for a Health ID made with no email (0120 says so).
+  // Lost only when this view knows the code never arrived (its own create went unanswered). A Health ID made with no
+  // email that this page holds no code for was most likely shown, and printed, elsewhere or earlier: say to check the slip.
   const unclaimed = (item as { readonly healthIdStatus?: unknown }).healthIdStatus === 'unclaimed'
-  const codeLost = made !== null && !made.claimCode && (made.codeLost === true
-    || (unclaimed && made.healthId === item.healthId && !keptClaimCode(actorId, facilityId, item.id, item.healthId)))
+  const codeLost = made !== null && !made.claimCode && made.codeLost === true
+  const codeOnSlip = made !== null && !made.claimCode && !codeLost && unclaimed && made.healthId === item.healthId
+    && !keptClaimCode(actorId, facilityId, item.id, item.healthId)
+  const madeByEmail = made !== null && (made.byEmail ?? healthIdMadeByEmail(item))
 
   function keyFor(signature: string): string {
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
@@ -250,9 +255,10 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     if (problem === 'OUTREACH_HEALTH_ID_ALREADY_CREATED') {
       const details = isHidApiError(caught) ? caught.details as { healthId?: unknown } | null : null
       const existing = typeof details?.healthId === 'string' ? details.healthId : null
-      // At confirm, it was made from the code just proved (a retry after a lost answer): by email. After this view's own
-      // create with no email went unanswered, it was made then, and its claim code is never answered again.
-      const byEmail = call === 'confirm'
+      // At confirm, it was made from the code just proved (a retry after a lost answer): by email. Anywhere else it is not
+      // known how it was made (a confirm whose answer was lost, another station): the registration read again says. After
+      // this view's own create with no email went unanswered, it was made then, and its claim code is never answered again.
+      const byEmail = call === 'confirm' ? true : undefined
       const lost = call === 'unverified' && unanswered.current
       if (existing) setMade({ healthId: existing, byEmail, codeLost: lost })
       else if (lost) setError(CLAIM_CODE_LOST)
@@ -386,8 +392,11 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       const until = (answer as { readonly claimExpiresAt?: unknown }).claimExpiresAt
       onCreated({ healthId: answer.healthId, claimCode: answer.claimCode, claimExpiresAt: typeof until === 'string' ? until : undefined })
     } catch (caught) {
-      // The answer was lost (no signal, or a timeout): it may have been made, and its claim code with it.
-      if (!isHidApiError(caught) || caught.status === 0 || caught.status === 408 || caught.status === 504) {
+      // The answer was lost (no signal, or a timeout): it may have been made, and its claim code with it. outreach-api
+      // answers 503 OUTREACH_HEALTH_ID_UNAVAILABLE (or the gateway 502) when Identity did not answer in time, which may
+      // also come after it was made.
+      if (!isHidApiError(caught) || caught.status === 0 || caught.status === 408 || caught.status === 502 || caught.status === 504
+        || caught.code === 'OUTREACH_HEALTH_ID_UNAVAILABLE') {
         unanswered.current = true
         setError(CREATE_UNANSWERED)
         return
@@ -410,9 +419,10 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
           <p className="m-0 font-mono text-[32px] font-semibold tracking-wide break-all text-ink" aria-label={`Claim code ${made.claimCode.split('').join(' ')}`}>{made.claimCode}</p>
           <Alert intent="warning" title="Write this on their slip.">They’ll need the Health ID and this code to start using it later. The code isn’t shown again.</Alert>
         </> : codeLost ? <Alert intent="warning">{CLAIM_CODE_LOST}</Alert>
+          : codeOnSlip ? <p className="m-0 text-body text-ink">{CLAIM_CODE_ON_SLIP}</p>
           : justMade ? <p className="m-0 text-body text-ink"><strong>Write this on their slip.</strong></p>
           : <p className="m-0 text-body text-ink">{MADE_BEFORE}</p>}
-        {made.byEmail ? <p className="m-0 text-body text-ink-2">{NO_PASSWORD_YET}</p> : null}
+        {madeByEmail ? <p className="m-0 text-body text-ink-2">{NO_PASSWORD_YET}</p> : null}
         <div className="flex flex-wrap gap-2">
           {onPrintSlip ? <Button icon={Printer} variant={made.claimCode ? 'primary' : undefined} onClick={() => { setNoted(true); onPrintSlip() }}>Print slip</Button> : null}
           {made.claimCode && !noted ? <Button onClick={() => setNoted(true)}>I’ve written it down</Button> : null}

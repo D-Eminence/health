@@ -108,7 +108,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
     print(<OutreachSlip groupName={facility?.name} campaign={campaign} item={item}
       healthId={healthId} claimCode={madeHere?.claimCode ?? keptClaimCode(actorId, facilityId, item.id, healthId)}
       claimExpiresAt={madeHere?.claimCode ? madeHere.claimExpiresAt : undefined}
-      byEmail={madeHere ? madeHere.byEmail === true : healthIdMadeByEmail(item)} />)
+      byEmail={madeHere?.byEmail ?? healthIdMadeByEmail(item)} />)
   }
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {

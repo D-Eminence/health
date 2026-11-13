@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import {
-  CLAIM_CODE_LOST, CONFIRM_UNANSWERED, CREATE_UNANSWERED, CreateHealthId, forgetUnservedHealthIdWays, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET,
+  CLAIM_CODE_LOST, CLAIM_CODE_ON_SLIP, CONFIRM_UNANSWERED, CREATE_UNANSWERED, CreateHealthId, forgetUnservedHealthIdWays, HEALTH_ID_PROBLEMS, MADE_BEFORE, NO_PASSWORD_YET,
   REQUEST_USED, START_UNAVAILABLE,
 } from '../../../../ehr-blue/departments/outreach/CreateHealthId'
 
@@ -404,10 +404,33 @@ describe('Create Health ID with no email: a lost answer', () => {
     expect(region().textContent).not.toContain('Write this on their slip.')
   })
 
-  it('says the claim code was lost for an unclaimed Health ID with no code in this tab', () => {
+  it('for an unclaimed Health ID with no code in this tab (another phone, or later), says to check the slip, not that the code was lost', () => {
     renderSection({ ...ITEM, healthId: 'HID-UNVER1', healthIdCreatedByOutreach: true, healthIdStatus: 'unclaimed' })
-    expect(region().textContent).toContain(CLAIM_CODE_LOST)
+    expect(region().textContent).toContain(CLAIM_CODE_ON_SLIP)
+    expect(CLAIM_CODE_ON_SLIP).toBe('Made with no email. Its claim code was shown once, when it was made. Check it is on their slip.')
+    expect(region().textContent).not.toContain(CLAIM_CODE_LOST)
     expect(region().textContent).not.toContain(MADE_BEFORE)
+  })
+
+  it('a 503 from Outreach when Identity did not answer in time counts as unanswered: “already created” next says the code was lost', async () => {
+    api.createUnverifiedOutreachHealthId.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'OUTREACH_HEALTH_ID_UNAVAILABLE' }))
+      .mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'OUTREACH_HEALTH_ID_ALREADY_CREATED', details: { healthId: 'HID-UNVER1' } }))
+    renderSection()
+    await want()
+    await press(within(region()).getByRole('radio', { name: /^No email/ }))
+    await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
+    expect(await within(region()).findByText(CREATE_UNANSWERED)).toBeTruthy()
+    await press(within(region()).getByRole('button', { name: 'Create Health ID' }))
+    expect(await within(region()).findByText(CLAIM_CODE_LOST)).toBeTruthy()
+  })
+
+  it('“already created” at Send code leaves how it was made to the registration read again (by email: the Forgot password line)', async () => {
+    api.startOutreachHealthId.mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'OUTREACH_HEALTH_ID_ALREADY_CREATED', details: { healthId: 'HID-ZDEMAA' } }))
+    renderSection()
+    await sendEmail()
+    await waitFor(() => expect(region().textContent).toContain('HID-ZDEMAA'))
+    // Not "made with no email": the case view's slip takes how it was made from the registration read again.
+    expect(onCreated).toHaveBeenLastCalledWith({ healthId: 'HID-ZDEMAA', byEmail: undefined })
   })
 
   it('says nothing of a lost code for a Health ID made by email', () => {
