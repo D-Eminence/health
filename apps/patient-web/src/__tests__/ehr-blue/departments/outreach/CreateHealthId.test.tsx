@@ -63,7 +63,8 @@ describe('Create Health ID', () => {
     expect(radios[2]!.disabled).toBe(true)
     const email = within(region()).getByRole('textbox', { name: /Their email address/ }) as HTMLInputElement
     expect(email.type).toBe('email')
-    expect(email.autocomplete).toBe('email')
+    // Not remembered by the volunteer's device, nor offered for the next person.
+    expect(email.autocomplete).toBe('off')
   })
 
   it('says under-18s get no Health ID here', () => {

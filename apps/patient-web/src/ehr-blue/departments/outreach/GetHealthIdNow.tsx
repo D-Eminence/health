@@ -1,5 +1,5 @@
-import { ExternalLink, IdCard } from 'lucide-react'
-import { Button, Card, CardHeader } from '../../../kasuwa/ui'
+import { IdCard } from 'lucide-react'
+import { Card, CardHeader } from '../../../kasuwa/ui'
 import { QrCode } from '../../../mfa/OtpauthQr'
 import { patientSignUpHref } from '../../../productSites'
 
@@ -21,7 +21,6 @@ export function GetHealthIdNow({ id, fallback = false }: {
 }) {
   const href = patientSignUpHref()
   const headingId = `${id}-heading`
-  const newTabId = `${id}-new-tab`
   const content = (
       <div className="flex flex-col gap-4 p-5 @md:flex-row @md:items-start">
         <QrCode text={href} label="QR code that opens the Health ID sign-up page" size={220}
@@ -33,10 +32,7 @@ export function GetHealthIdNow({ id, fallback = false }: {
             <li>Their Health ID appears on screen. Write it on their slip.</li>
           </ol>
           {fallback ? null : <p className="m-0 text-body text-ink-2"><strong>They own their Health ID.</strong> Your team can’t create it for them.</p>}
-          <div className="flex flex-col items-start gap-1">
-            <Button href={href} variant="primary" size="lg" icon={ExternalLink} aria-describedby={newTabId}>Open sign-up on this phone</Button>
-            <span id={newTabId} className="text-caption text-ink-3">Opens in a new tab.</span>
-          </div>
+          <p className="m-0 text-body text-ink-2">Let them use their own phone. Don’t open sign-up on yours: they would type their password on your device.</p>
         </div>
       </div>
   )

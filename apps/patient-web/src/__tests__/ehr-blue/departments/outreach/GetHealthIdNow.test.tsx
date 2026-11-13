@@ -69,12 +69,9 @@ async function register() {
 /** The panel's region, its link and its QR code, checked the same way wherever it is shown. */
 function expectPanel(region: HTMLElement) {
   expect(within(region).getByRole('heading', { level: 2, name: 'Get a Health ID now' })).toBeTruthy()
-  const link = within(region).getByRole('link', { name: 'Open sign-up on this phone' }) as HTMLAnchorElement
-  expect(link.getAttribute('href')).toBe(SIGN_UP)
-  expect(link.target).toBe('_blank')
-  expect(link.rel).toContain('noopener')
-  expect(link.getAttribute('aria-describedby')).toBeTruthy()
-  expect(document.getElementById(link.getAttribute('aria-describedby')!)?.textContent).toBe('Opens in a new tab.')
+  // No link that opens sign-up on the volunteer's own (signed-in) device: the person would type their password there.
+  expect(within(region).queryByRole('link', { name: /sign-up/i })).toBeNull()
+  expect(region.textContent).toContain('Don’t open sign-up on yours')
   const qr = within(region).getByRole('img', { name: 'QR code that opens the Health ID sign-up page' })
   // The QR code is drawn from exactly the sign-up address: the same modules as a QR code of that address alone.
   const reference = render(<QrCode text={SIGN_UP} label="reference" />)
@@ -125,13 +122,12 @@ describe('Get a Health ID now', () => {
     api.createOutreachCase.mockResolvedValue(pending('case-4'))
     await register()
     const region = await screen.findByRole('region', { name: 'Get a Health ID now' })
-    const href = within(region).getByRole('link', { name: 'Open sign-up on this phone' }).getAttribute('href')!
-    const url = new URL(href)
+    const url = new URL(SIGN_UP)
     expect(url.search).toBe('')
     expect(url.hash).toBe('')
-    for (const personal of [NAME, 'Kemi', 'Balogun', PHONE, '8031234567', 'tmp_case-4', 'case-4', 'campaign-1', GROUP_ID]) {
-      expect(decodeURIComponent(href)).not.toContain(personal)
-    }
+    // The QR code is drawn from exactly the sign-up address (expectPanel), so it carries nothing about the person.
+    expectPanel(region)
+    for (const personal of [NAME, PHONE, 'tmp_case-4', 'case-4', 'campaign-1', GROUP_ID]) expect(SIGN_UP).not.toContain(personal)
   })
 })
 
@@ -144,7 +140,8 @@ describe('the sign-up as the fallback', () => {
     expect(screen.queryByRole('region', { name: 'Get a Health ID now' })).toBeNull()
     const summary = screen.getByText('Or they can sign up on their own phone')
     const details = summary.closest('details')!
-    expect(within(details).getByRole('link', { name: 'Open sign-up on this phone', hidden: true }).getAttribute('href')).toBe(SIGN_UP)
+    expect(within(details).queryByRole('link', { name: /sign-up/i, hidden: true })).toBeNull()
+    expect(within(details).getByRole('img', { name: 'QR code that opens the Health ID sign-up page', hidden: true })).toBeTruthy()
     expect(details.textContent).not.toContain('Your team can’t create it for them.')
   })
 

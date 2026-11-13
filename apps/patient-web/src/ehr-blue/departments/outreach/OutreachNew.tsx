@@ -80,7 +80,7 @@ export interface OutreachGroupForm {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, group, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, group, healthChecksServed = false, onBack, onSending, onCreated }: {
   readonly facilityId: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
@@ -93,6 +93,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
    * not be sent waits on this device. Absent at a hospital, where the form is today's.
    */
   readonly group?: OutreachGroupForm
+  /**
+   * Outreach serves 0118 (its registrations carry `hasScreening`): only then the area field and notes of
+   * OUTREACH_NOTES_LIMIT characters; before it, no area and the earlier 280.
+   */
+  readonly healthChecksServed?: boolean
   readonly onBack: () => void
   /** A case is being sent: what the last one said no longer applies. */
   readonly onSending: () => void
@@ -110,7 +115,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   const [minorAge, setMinorAge] = useState(false)
   const [notesLength, setNotesLength] = useState(0)
   const focus = useFocusById()
-  const notesLimit = group ? OUTREACH_NOTES_LIMIT : 2000
+  const groupNotesLimit = healthChecksServed ? OUTREACH_NOTES_LIMIT : 280
+  const notesLimit = group ? groupNotesLimit : 2000
 
   function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -140,7 +146,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     const age = String(form.get('ageYears') ?? '').trim()
     const ageYears = Number(age)
     const phone = String(form.get('phone') ?? '').trim() || undefined
-    const area = String(form.get('area') ?? '').trim().replace(/\s+/g, ' ') || undefined
+    const area = healthChecksServed ? String(form.get('area') ?? '').trim().replace(/\s+/g, ' ') || undefined : undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
     const guardianName = String(form.get('guardianName') ?? '').trim().replace(/\s+/g, ' ') || undefined
     // The last answer no longer applies.
@@ -168,8 +174,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
         : 'You can register people only in a running registration campaign you belong to.'
-      if (operationalNotes !== undefined && operationalNotes.length > OUTREACH_NOTES_LIMIT) {
-        errors.notes = `Keep notes to ${OUTREACH_NOTES_LIMIT} characters. Record health check results in Health checks, not in the notes.`
+      if (operationalNotes !== undefined && operationalNotes.length > groupNotesLimit) {
+        errors.notes = `Keep notes to ${groupNotesLimit} characters. Record health check results in Health checks, not in the notes.`
       }
     }
     const first = FIELD_ORDER.find(field => errors[field])
@@ -269,9 +275,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
           <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
             <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
           </OutreachField>
-          <OutreachField id={FIELD_ID.area} label="Area, town or LGA (optional)" hint="Where they live, so the team can follow up nearby." {...field('area')}>
-            <EhrInput name="area" maxLength={AREA_LIMIT} autoComplete="off" {...controlProps(FIELD_ID.area, fieldError('area'), true)} />
-          </OutreachField>
+          {healthChecksServed ? (
+            <OutreachField id={FIELD_ID.area} label="Area, town or LGA (optional)" hint="Where they live, so the team can follow up nearby." {...field('area')}>
+              <EhrInput name="area" maxLength={AREA_LIMIT} autoComplete="off" {...controlProps(FIELD_ID.area, fieldError('area'), true)} />
+            </OutreachField>
+          ) : null}
         </Step>
         <Step n={group ? 4 : 3} title="Campaign and notes">
           {group ? (
@@ -292,7 +300,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
             </OutreachField>
           )}
           <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
-            hint={group ? `Where you met them, what they need next. Health check results go in Health checks after you save, not here. ${notesLength} of ${OUTREACH_NOTES_LIMIT} characters.`
+            hint={group ? `Where you met them, what they need next. Health check results go in Health checks after you save, not here. ${notesLength} of ${groupNotesLimit} characters.`
               : 'Where you met them, what they need next. Not a clinical note.'}>
             <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />

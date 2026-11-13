@@ -298,7 +298,16 @@ describe('Health checks', () => {
 })
 
 describe('the registration’s area and the list', () => {
+  it('asks for no area while Outreach does not serve health checks yet (its registrations carry no hasScreening)', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-old')])
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: 'New registration' }))
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
+    expect(screen.queryByRole('textbox', { name: /Area, town or LGA/ })).toBeNull()
+  })
+
   it('sends the area typed, and shows it on the case', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-old', { hasScreening: false })])
     api.createOutreachCase.mockResolvedValue(pending(CASE_ID, { area: 'Ajegunle, Ajeromi-Ifelodun' }))
     renderDept(<Outreach />)
     await press(await screen.findByRole('button', { name: 'New registration' }))

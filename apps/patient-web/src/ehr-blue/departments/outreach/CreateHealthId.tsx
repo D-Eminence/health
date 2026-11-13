@@ -78,6 +78,8 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   // One key per attempt: a new one for each code sent, each code confirmed and each unverified Health ID; the same on a
   // retry of that attempt (the same body).
   const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // Codes sent so far in this view: part of the start request's identity, so a retry reuses its key.
+  const sends = useRef(0)
   const focus = useFocusById()
   const id = (part: string) => `outreach-health-id-${item.id}-${part}`
 
@@ -126,6 +128,11 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     if (problem === 'OUTREACH_HEALTH_ID_TOO_MANY_CODES') {
       const after = retryAfterSeconds(caught)
       if (after) setWait(after)
+      // A short wait is a cooldown between codes, not the daily limit.
+      if (after && after < 3600) {
+        setError(after <= 90 ? `Wait ${after} seconds, then send the code again.` : `Wait ${Math.ceil(after / 60)} minutes, then send the code again.`)
+        return
+      }
     }
     if (problem === 'OUTREACH_HEALTH_ID_EMAIL_INVALID' || problem === 'OUTREACH_HEALTH_ID_EMAIL_TAKEN') {
       setEmailError(HEALTH_ID_PROBLEMS[problem]!)
@@ -153,18 +160,25 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
       if (!EMAIL_PATTERN.test(typed)) { setEmailError('Enter their email address, like name@example.com.'); focus(id('email')); return }
       body = { channel: 'email', email: typed }
     } else body = { channel: 'sms' }
-    // A new key for each code sent, including a resend.
-    attempt.current = null
-    const key = keyFor(JSON.stringify(['start', body, Date.now()]))
+    // The same key when the same request is tried again (an answer that never arrived must not cost a second code);
+    // a new key once a code was sent, so "send again" asks for a new code, and for a different email.
+    const key = keyFor(JSON.stringify(['start', body, sends.current]))
     setBusy(true)
     try {
       const answer = await staffApi.startOutreachHealthId(facilityId, item.id, body, key)
       attempt.current = null
+      sends.current += 1
       setSent({ hint: answer.destinationHint, channel: answer.channel })
       setCode('')
       setWait(Math.max(0, Math.round(answer.resendAfterSeconds || 0)))
       focus(id('code'))
     } catch (caught) {
+      if (!isHidApiError(caught) && method === 'email') {
+        // The answer was lost: the code may have been sent. Let them type it, or try again with the same request.
+        setSent({ hint: body.channel === 'email' ? body.email : '', channel: 'email' })
+        setError('We couldn’t tell if the code was sent. If an email arrived, ask them for the code. If not, send the code again.')
+        return
+      }
       refused(caught, false, 'email')
     } finally {
       setBusy(false)
@@ -258,7 +272,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
           </fieldset>
           {method === 'email' ? <>
             <OutreachField id={id('email')} label="Their email address" required error={emailError || undefined} hint="We send a 6-digit code here.">
-              <EhrInput type="email" autoComplete="email" inputMode="email" maxLength={254} value={email} onChange={event => { setEmail(event.target.value); setEmailError('') }}
+              <EhrInput type="email" autoComplete="off" name="person-email-at-outreach" inputMode="email" maxLength={254} value={email} onChange={event => { setEmail(event.target.value); setEmailError('') }}
                 {...controlProps(id('email'), emailError || undefined, true)} />
             </OutreachField>
             <Button variant="primary" size="lg" className="self-start hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}

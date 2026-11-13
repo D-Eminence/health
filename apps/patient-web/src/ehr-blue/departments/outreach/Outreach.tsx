@@ -197,7 +197,7 @@ export function Outreach() {
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
     content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} attempt={caseAttempt}
-      group={groupForm} onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null) }} onCreated={onCreated} />
+      group={groupForm} healthChecksServed={Boolean(cases.value?.some(item => 'hasScreening' in item))} onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null) }} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
     // A record the list no longer holds is not shown from memory, unless the list cannot say (not read, being read,

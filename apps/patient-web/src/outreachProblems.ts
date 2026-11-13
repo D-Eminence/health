@@ -69,7 +69,7 @@ const OUTREACH_PROBLEMS: Readonly<Record<string, string>> = {
   OUTREACH_CONSENT_GUARDIAN_REQUIRED: 'This person is under 18. Enter the name of the parent or guardian who agreed.',
   OUTREACH_CONSENT_REQUIRED: 'Read the notice to the person and record how they agreed before registering them.',
   OUTREACH_CAMPAIGN_REQUIRED: 'Choose the campaign this person is being registered in.',
-  OUTREACH_NOTES_TOO_LONG: 'Keep notes to 1000 characters. Record health check results in Health checks, not in the notes.',
+  OUTREACH_NOTES_TOO_LONG: 'Those notes are too long. Shorten them and save again. Record health check results in Health checks, not in the notes.',
 }
 
 /** Whether a refusal says open sign-up is closed: switched off (423), or not served by this Health ID (404). */

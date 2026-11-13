@@ -231,7 +231,15 @@ describe('registering someone at an outreach group', () => {
     expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 
+  it('keeps notes to 280 characters while Outreach does not serve health checks yet', async () => {
+    await openNewRegistration()
+    const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
+    expect(notes.maxLength).toBe(280)
+    expect(screen.queryByRole('textbox', { name: /Area, town or LGA/ })).toBeNull()
+  })
+
   it('keeps notes to 1000 characters, with health check results kept out of them', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pending('case-0', 'Ada Obi'), hasScreening: false }])
     await openNewRegistration()
     expect(document.body.textContent).toContain('Health check results go in Health checks after you save, not here.')
     const notes = screen.getByRole('textbox', { name: /Notes for the team/ }) as HTMLTextAreaElement
