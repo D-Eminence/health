@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
-import { HealthChecks, leaveHealthChecks, SCREENING_CLASH, SCREENING_MERGED, SCREENING_NO_SIGNAL, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
+import { CHECK_WEIGHT_HEIGHT, HealthChecks, leaveHealthChecks, SEE_CLINICIAN, SCREENING_CLASH, SCREENING_MERGED, SCREENING_NO_SIGNAL, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
   SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
@@ -457,6 +457,38 @@ describe('Health checks', () => {
     await press(saveButton())
     expect(await within(region()).findByText('To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.')).toBeTruthy()
     expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a blood pressure of 182/117', (t: typeof type) => { t(/top number/, '182'); t(/bottom number/, '117') }],
+    ['a pulse of 130', (t: typeof type) => t(/^Pulse/, '130')],
+    ['a temperature of 38.6', (t: typeof type) => t(/^Temperature/, '38.6')],
+    ['a blood sugar of 2.8 mmol/L', (t: typeof type) => { t(/^Reading/, '2.8'); choose(/^Unit/, 'mmol/L') }],
+    ['a blood sugar of 250 mg/dL', (t: typeof type) => { t(/^Reading/, '250'); choose(/^Unit/, 'mg/dL') }],
+  ])('asks for a clinician to see the person after %s, and not for usual readings', async (_name, enter) => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/top number/, '124')
+    type(/bottom number/, '78')
+    type(/^Pulse/, '72')
+    type(/^Temperature/, '36.8')
+    expect(within(region()).queryByText(SEE_CLINICIAN)).toBeNull()
+    enter(type)
+    expect(within(region()).getByText(SEE_CLINICIAN)).toBeTruthy()
+    expect(SEE_CLINICIAN).toBe('This reading is outside the usual range. Make sure a clinician sees this person before they leave.')
+  })
+
+  it('says to check weight and height when they give a BMI no one has, instead of showing it', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Weight/, '165')
+    type(/^Height/, '64')
+    expect(region().textContent).not.toContain('BMI about')
+    expect(within(region()).getByText(CHECK_WEIGHT_HEIGHT)).toBeTruthy()
+    type(/^Weight/, '64')
+    type(/^Height/, '165')
+    expect(region().textContent).toContain('BMI about')
+    expect(within(region()).queryByText(CHECK_WEIGHT_HEIGHT)).toBeNull()
   })
 
   it('tells the case view once saved, so the list and the slip know health checks were recorded', async () => {

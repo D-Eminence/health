@@ -136,6 +136,32 @@ export function parseNumber(typed: string, decimals: number): number | undefined
   return pattern.test(value) ? Number(value) : undefined
 }
 
+/**
+ * Whether a reading typed is outside the usual range, so a clinician should see the person before they leave. Not a
+ * diagnosis and never saved: a prompt only (clinical owner, 13 Nov). Blood pressure 180 or more over anything, or 110 or
+ * more underneath, or a top number under 90; pulse over 120 or under 50; temperature 38.0 °C or more, or under 35.5 °C;
+ * blood sugar under 3.9 or 11.1 mmol/L or more (under 70 or 200 mg/dL or more).
+ */
+export function outsideUsualRange(form: ScreeningForm): boolean {
+  const value = (typed: string, decimals: number) => parseNumber(typed, decimals)
+  const top = value(form.bpSystolic, 0)
+  const bottom = value(form.bpDiastolic, 0)
+  const pulse = value(form.pulseBpm, 0)
+  const temperature = value(form.temperatureC, 1)
+  const glucose = value(form.glucoseValue, 1)
+  const mmol = form.glucoseUnit === 'mg/dL' ? (glucose === undefined ? undefined : glucose / 18) : form.glucoseUnit === 'mmol/L' ? glucose : undefined
+  return (top !== undefined && (top >= 180 || top < 90)) || (bottom !== undefined && bottom >= 110)
+    || (pulse !== undefined && (pulse > 120 || pulse < 50))
+    || (temperature !== undefined && (temperature >= 38 || temperature < 35.5))
+    || (mmol !== undefined && (mmol < 3.9 || mmol >= 11.1))
+}
+
+/** Whether weight and height give a BMI no one has (under 10 or over 70): most likely swapped or mistyped. */
+export function implausibleBmi(form: Pick<ScreeningForm, 'weightKg' | 'heightCm'>): boolean {
+  const bmi = bmiOf(form)
+  return bmi !== null && (Number(bmi) < 10 || Number(bmi) > 70)
+}
+
 /** BMI from weight and height, to one decimal place, when both are typed and in range; for display only. */
 export function bmiOf(form: Pick<ScreeningForm, 'weightKg' | 'heightCm'>): string | null {
   const weight = parseNumber(form.weightKg, 1)

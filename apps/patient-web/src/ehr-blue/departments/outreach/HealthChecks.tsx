@@ -11,7 +11,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, checkScreening, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
+  bmiOf, checkScreening, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type ScreeningField, type ScreeningForm,
 } from './screening'
 import { readTab, writeTab } from './tabMemory'
@@ -50,6 +50,8 @@ export const SCREENING_NOT_LOADED = 'Health checks could not be loaded.'
 export const SCREENING_CLEAR_HOW = 'To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.'
 export const GLUCOSE_HINT = 'Like 5.6 mmol/L or 101 mg/dL. Choose the unit shown on the meter. If it shows HI or LO, leave the reading empty, write HI or LO in Outcome or advice and tell a clinician.'
 export const MALARIA_HINT = 'If the test was invalid (no control line), do it again with a new test. If you can’t, choose Not done.'
+export const SEE_CLINICIAN = 'This reading is outside the usual range. Make sure a clinician sees this person before they leave.'
+export const CHECK_WEIGHT_HEIGHT = 'Check weight and height: they give a BMI no one has.'
 export const SCREENING_KEPT = 'Your health checks that weren’t saved are back. Check them, then save.'
 
 /** What a reload needs to bring back: the fields changed and not saved, and a save whose answer was lost, with its key. */
@@ -366,7 +368,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
             <OutreachField id={id('weightKg')} label="Weight" hint="kg, like 64.5." {...field('weightKg')}>{numberInput('weightKg', true, true)}</OutreachField>
             <OutreachField id={id('heightCm')} label="Height" hint="Whole centimetres, like 165." {...field('heightCm')}>{numberInput('heightCm', false, true)}</OutreachField>
           </div>
-          {bmi ? <p id={id('bmi')} className="m-0 text-body text-ink-2" aria-live="polite">BMI about <strong>{bmi}</strong> (worked out from weight and height; not saved).</p> : null}
+          {bmi && !implausibleBmi(form) ? <p id={id('bmi')} className="m-0 text-body text-ink-2" aria-live="polite">BMI about <strong>{bmi}</strong> (worked out from weight and height; not saved).</p> : null}
+          {implausibleBmi(form) ? <p id={id('bmi')} className="m-0 text-body text-ink-1" aria-live="polite">{CHECK_WEIGHT_HEIGHT}</p> : null}
         </Group>
         <Group id={id('glucose')} title="Blood sugar">
           <div className="grid gap-3 @md:grid-cols-3">
@@ -375,6 +378,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, onSaved }: {
             <OutreachField id={id('glucoseTiming')} label="Fasting or random" {...field('glucoseTiming')}>{choice('glucoseTiming', GLUCOSE_TIMINGS)}</OutreachField>
           </div>
         </Group>
+        {/* A prompt, not a diagnosis, and never saved: shown while a reading typed is outside the usual range. */}
+        <div aria-live="polite">{canWrite && outsideUsualRange(form) ? <Alert intent="warning" live={false} title={SEE_CLINICIAN}>{null}</Alert> : null}</div>
         <Group id={id('malaria')} title="Malaria test">
           <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" hint={MALARIA_HINT} {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
         </Group>
