@@ -176,7 +176,7 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
   const pulseBpm = number('pulseBpm', 0, 20, 250, 'Enter a pulse from 20 to 250 beats a minute, in whole numbers.')
   const temperatureC = number('temperatureC', 1, 30, 45, 'Enter a temperature from 30.0 to 45.0 °C, with one decimal place at most.')
   const weightKg = number('weightKg', 1, 0.5, 400, 'Enter a weight from 0.5 to 400 kg, with one decimal place at most.')
-  const heightCm = number('heightCm', 0, 30, 250, 'Enter a height from 30 to 250 cm, in whole numbers.')
+  const heightCm = number('heightCm', 0, 30, 250, 'Enter a height from 30 to 250 cm, in whole numbers. In centimetres: 1.65 m is 165.')
 
   let glucoseValue: number | null = null
   const glucoseTyped = form.glucoseValue.trim()

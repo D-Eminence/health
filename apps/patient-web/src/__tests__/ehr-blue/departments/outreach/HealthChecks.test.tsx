@@ -439,6 +439,17 @@ describe('Health checks', () => {
     expect(region().textContent).toContain('Whole centimetres')
   })
 
+  it('leaves a height typed in metres as typed, and says to use centimetres', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Height/, '1.65')
+    fireEvent.blur(box(/^Height/))
+    expect(box(/^Height/).value).toBe('1.65')
+    await press(saveButton())
+    expect(await within(region()).findByText('Enter a height from 30 to 250 cm, in whole numbers. In centimetres: 1.65 m is 165.')).toBeTruthy()
+    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+  })
+
   it('marks the field a 422 OUTREACH_SCREENING_OUT_OF_RANGE names', async () => {
     api.saveOutreachScreening.mockRejectedValue(new HidApiError(422, 'x', { code: 'OUTREACH_SCREENING_OUT_OF_RANGE', detail: 'heightCm is out of range' }))
     renderChecks()

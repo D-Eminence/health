@@ -322,9 +322,12 @@ export function HealthChecks({ facilityId, caseId, canWrite }: {
     <EhrInput name={key} value={form[key]} readOnly={readOnly} inputMode={decimals ? 'decimal' : 'numeric'} autoComplete="off" maxLength={7}
       onChange={event => update(key, event.target.value)} {...control(key, hint)}
       onBlur={key === 'heightCm' ? event => {
-        // Whole centimetres only (Outreach takes an integer): a decimal typed is rounded as the field is left.
+        // Whole centimetres only (Outreach takes an integer): a decimal typed is rounded as the field is left, but only
+        // when the rounded height is one Outreach takes. A height in metres ("1.65") stays as typed, to be refused with
+        // how to write it in centimetres, instead of becoming "2".
         const typed = event.target.value.trim().replace(',', '.')
-        if (/^\d{1,4}\.\d+$/.test(typed)) update('heightCm', String(Math.round(Number(typed))))
+        const rounded = Math.round(Number(typed))
+        if (/^\d{1,4}\.\d+$/.test(typed) && rounded >= 30 && rounded <= 250) update('heightCm', String(rounded))
       } : undefined} />
   )
   const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
