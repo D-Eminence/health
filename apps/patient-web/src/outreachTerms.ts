@@ -45,8 +45,7 @@ export const ORGANISER_TERMS: readonly TermsSection[] = [
   { heading: 'What you agree to do', paragraphs: [], points: [
     'Read the registration notice to each person (or let them read it) before you register them, and record how they agreed.',
     'For anyone under 18, register them only with their parent or guardian’s agreement, and record the guardian’s name.',
-    'Collect only what the form asks for.',
-    'Record health check results only in the Health checks section, never in the notes. Medicines given must be named as given.',
+    'Collect only what the form asks for. Do not write diagnoses, test results or other health details in the notes.',
     'Use Health ID Outreach only for real outreach work. Do not use it to collect phone numbers for marketing, politics, '
       + 'religion or anything else.',
     'Invite only people you know and trust to your team, and remove anyone who stops helping.',
