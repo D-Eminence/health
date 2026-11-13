@@ -86,6 +86,9 @@ async function press(button: HTMLElement) {
 }
 
 const focused = () => document.activeElement
+/** The summary over Save of a check not saved yet, which takes focus: its lines, after "Not saved yet.". */
+const notSaved = () => document.getElementById('ocr-review-not-saved')
+const notSavedLines = () => [...(notSaved()?.querySelectorAll('[data-not-saved-line]') ?? [])].map(line => line.textContent)
 /** What describes a control, in order: a refused control's error first, then anything else that describes it. */
 const descriptions = (control: HTMLElement) =>
   (control.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
@@ -939,7 +942,7 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     expect(api.validateOcrJob.mock.calls[0]![2]).toMatchObject({ disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified' })
   })
 
-  it('review: an item left undecided, then a short reason, take focus at their fields, and nothing is sent', async () => {
+  it('review: a blocked Save says over Save, with focus, everything still to fix, and keeps each field’s error; nothing is sent', async () => {
     api.ocrExtractions.mockResolvedValue({ items: [{ ...extraction, structuredPayload: paperReading() }] })
     await findJob(awaiting)
     const reason = screen.getByLabelText(/^Why you’re/)
@@ -947,14 +950,25 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     const submit = within(screen.getByRole('form', { name: 'Check and save' })).getByRole('button', { name: 'Save' })
     await press(submit)
     const [first, second] = cards()
-    await waitFor(() => expect(focused()).toBe(first))
+    await waitFor(() => expect(focused()).toBe(notSaved()))
+    // An error alert, over Save, in plain words: every item still to choose as one count, and the reason, not just the first.
+    const summary = notSaved()!
+    expect(within(summary).getByRole('alert').getAttribute('data-intent')).toBe('error')
+    expect(within(summary).getByText('Not saved yet.')).toBeTruthy()
+    expect(notSavedLines()).toEqual(['2 items still need Keep, Change or Remove.', 'The reason must be at least 8 characters.'])
+    expect(summary.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/ocr-item|ocr-review/)
+    // The first thing to fix is still marked at its field.
     expect(first!.getAttribute('aria-invalid')).toBe('true')
     expect(descriptions(first!)).toEqual(['Choose Keep, Change or Remove for this item.'])
     await press(within(first!).getByRole('button', { name: 'Keep' }))
+    // A change clears what was said, as it clears the field's error.
+    expect(notSaved()).toBeNull()
     await press(within(second!).getByRole('button', { name: 'Remove' }))
     expect(first!.getAttribute('aria-invalid')).toBeNull()
     await press(submit)
-    await waitFor(() => expect(focused()).toBe(reason))
+    await waitFor(() => expect(focused()).toBe(notSaved()))
+    expect(notSavedLines()).toEqual(['The reason must be at least 8 characters.'])
     expect(descriptions(reason)[0]).toBe('Write at least 8 characters.')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
   })
@@ -1691,7 +1705,8 @@ describe('Migrate: checking what was read, item by item, with no JSON on screen'
     expect(optionsOf(visit)[1]).toMatch(/^Outpatient visit · .+ · Blood pressure review$/)
     fireEvent.change(screen.getByLabelText(/^Why you’re/), { target: { value: 'Checked against the paper record' } })
     await press(save())
-    await waitFor(() => expect(focused()).toBe(visit))
+    await waitFor(() => expect(focused()).toBe(notSaved()))
+    expect(notSavedLines()).toEqual(['Choose the visit to attach this note to.'])
     expect(descriptions(visit)[0]).toBe('Choose the visit to attach this note to.')
     fireEvent.change(visit, { target: { value: VISIT } })
     api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
@@ -2292,11 +2307,12 @@ describe('Migrate: the report date of past lab results, typed from the paper', (
     expect(api.validateOcrJob.mock.calls[0]![2].acceptedFields).not.toHaveProperty('reportedAtAsWritten')
   })
 
-  it('too long for the service: said at the field, with focus on it, and nothing sent', async () => {
+  it('too long for the service: said at the field and over Save, with focus on that, and nothing sent', async () => {
     const field = await chooseLab()
     fireEvent.change(field, { target: { value: '1'.repeat(121) } })
     await save()
-    await waitFor(() => expect(focused()).toBe(field))
+    await waitFor(() => expect(focused()).toBe(notSaved()))
+    expect(notSavedLines()).toEqual(['Report date: Write the date in 120 characters or fewer.'])
     expect(descriptions(field)[0]).toBe('Write the date in 120 characters or fewer.')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
   })

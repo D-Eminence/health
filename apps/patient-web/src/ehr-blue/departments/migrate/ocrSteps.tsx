@@ -16,10 +16,11 @@ import { FLAG_WORDS } from '../laboratory/labText'
 import { ItemCheck, ItemLineText, UnreadableLines, isUnreadable, itemLine, parsePaperReading, type PaperItem } from './paperReading'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
 import {
-  SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
+  SAVE_AS_WORDS, buildRejection, buildValidation, initialDecisions, notSavedLines, validationProblems, itemCardId, itemResultId, keptText, itemTestId, itemTextId, labResult, labTest,
   keptItemsGo, keptMedicines, MAX_MEDICINES, offeredDomains, readingLine, REPORT_DATE_FIELD, TOO_MANY_MEDICINES, reviewItems, visitsForNote,
-  type ItemChoice, type ItemDecision, type SaveAs,
+  type ItemChoice, type ItemDecision, type ReviewProblem, type SaveAs,
 } from './reviewPayload'
+import { Alert } from '../../../kasuwa/ui'
 import { MissedItems, RejectionReasonField, ItemReason, MedicineChange, useSeenItems } from './learning'
 import { useReviewLearningServed } from '../../../readingLearningServed'
 import type { RejectionReason } from '../../../readingLearningContract'
@@ -121,6 +122,18 @@ const SAVE_AS_HINTS: Readonly<Record<SaveAs, string>> = {
   EHR: 'The items you keep are written into one clinical note on the visit you choose.',
   LAB: 'Only the lab results you keep are added to the patient’s past lab results. Everything else stays with the document.',
   PHARMACY: 'Only the medicines you keep are added to the patient’s past medicines. Everything else stays with the document.',
+}
+
+/** The summary over Save that takes focus when a check cannot be saved yet (NotSavedSummary). */
+export const NOT_SAVED_ID = 'ocr-review-not-saved'
+/** Over Save, when a check was not saved: "Not saved yet." and every thing still to fix. It takes focus. */
+function NotSavedSummary({ lines }: { readonly lines: readonly string[] }) {
+  return <div id={NOT_SAVED_ID} tabIndex={-1} className="hid-ehr-dept-migrate-not-saved">
+    <Alert intent="error" size="sm" title="Not saved yet.">
+      {lines.length === 1 ? <p className="m-0" data-not-saved-line>{lines[0]}</p>
+        : <ul className="m-0 list-disc pl-4">{lines.map((line, at) => <li key={at} data-not-saved-line>{line}</li>)}</ul>}
+    </Alert>
+  </div>
 }
 
 const CHOICE_WORDS: Readonly<Record<ItemChoice, string>> = { keep: 'Keep', change: 'Change', remove: 'Remove' }
@@ -264,6 +277,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
+  // A blocked Save: every thing still to fix, shown over Save while the first is marked at its field.
+  const [notSaved, setNotSaved] = useState<readonly string[]>([])
   const focus = useFocusById()
   const validating = disposition === 'validated'
   // Migrate learning, dormant until the backend says it takes it: with it off, the form is today's, and sends today's.
@@ -286,19 +301,23 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    setError(''); setProblem(null)
+    setError(''); setProblem(null); setNotSaved([])
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '')
     if (!selected) { setProblem(refusal({ field: 'ocr-review-reason', message: 'There is no reading to check yet.' })); return }
-    const built = validating
-      ? buildValidation({ extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason,
-        ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}),
-        ...(learning ? { learning: { itemsSeen: seen.ids(), missed } } : {}) })
-      : buildRejection(selected.id, reason, learning ? { rejectionReason } : undefined)
+    const checking = { extractionId: selected.id, reading, decisions, saveAs, encounterId: saveAs === 'EHR' ? encounterId : '', reason,
+      ...(saveAs === 'LAB' ? { reportedAtAsWritten: reportDate } : {}),
+      ...(learning ? { learning: { itemsSeen: seen.ids(), missed } } : {}) }
+    const built = validating ? buildValidation(checking) : buildRejection(selected.id, reason, learning ? { rejectionReason } : undefined)
     if ('problem' in built) {
       // With no visit to choose from, the choice to change is Save as.
-      const shown = built.problem.field === 'ocr-review-visit' && noteVisits.length === 0
-        ? { field: 'ocr-review-domain', message: 'A clinical note needs a visit, and this patient has none that can be chosen. Choose another way to save it.' } : built.problem
-      setProblem(refusal(shown)); focus(shown.field); return
+      const asShown = <T extends ReviewProblem>(found: T): T | ReviewProblem => found.field === 'ocr-review-visit' && noteVisits.length === 0
+        ? { field: 'ocr-review-domain', message: 'A clinical note needs a visit, and this patient has none that can be chosen. Choose another way to save it.' } : found
+      const shown = asShown(built.problem)
+      setProblem(refusal(shown))
+      // A check says over Save that nothing was saved, and everything still to fix, not just the first: it takes focus.
+      const lines = validating ? notSavedLines(validationProblems(checking).map(asShown), items) : []
+      if (lines.length > 0) { setNotSaved(lines); focus(NOT_SAVED_ID) } else focus(shown.field)
+      return
     }
     setBusy(true)
     try {
@@ -315,6 +334,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     <EhrTextarea name="reason" minLength={8} maxLength={500} required />
   </EhrField>
   const actions = <>
+    {problem && notSaved.length > 0 && <NotSavedSummary lines={notSaved} />}
     <FormRefusal error={error} />
     <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-review-submit" type="submit" busy={busy}>{busy ? 'Saving…' : validating ? 'Save' : 'Reject reading'}</EhrButton></div>
   </>

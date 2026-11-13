@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
+import { itemLine, parsePaperReading, type PaperReading } from '../../../../ehr-blue/departments/migrate/paperReading'
 import {
   CANDIDATE_TYPES, MAX_MEDICINES, NOTE_TITLE, REPORT_DATE_FIELD, NOTE_TYPE, buildRejection, buildValidation, initialDecisions, itemCardId, itemResultId, itemTestId, itemTextId,
-  keptItemsGo, keptMedicines, keptText, labFlag, offeredDomains, readingLine, reviewItems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
+  keptItemsGo, keptMedicines, keptText, labFlag, offeredDomains, readingLine, reviewItems, notSavedLines, validationProblems, visitsForNote, type Decisions, type ReviewChoices, type SaveAs,
 } from '../../../../ehr-blue/departments/migrate/reviewPayload'
 import type { OcrValidationInput } from '../../../../staff/api'
 import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage } from './paperReadingPayload'
@@ -451,6 +451,43 @@ describe('what must be fixed before anything is sent', () => {
     const empty = buildValidation(choices('DOCUMENT_ONLY', { decisions: decided({ [ALLERGY]: { choice: 'change', text: '  ' } }) }))
     expect(empty).toEqual({ problem: { field: itemTextId(1), message: 'Enter what the paper says, or choose Keep or Remove.' } })
     expect(buildValidation(choices('DOCUMENT_ONLY', { reason: 'short' }))).toEqual({ problem: { field: 'ocr-review-reason', message: 'Write at least 8 characters.' } })
+  })
+
+  it('lists every thing still to fix, in the form’s order, the first being buildValidation’s problem', () => {
+    const all = choices('EHR', { decisions: { ...initialDecisions(items), [HAEMOGLOBIN]: { choice: 'change', text: '', test: ' ', result: '1' } }, reason: 'short' })
+    const problems = validationProblems(all)
+    expect(problems.map(({ field, message }) => ({ field, message }))).toEqual([
+      { field: itemCardId(0), message: 'Choose Keep, Change or Remove for this item.' },
+      { field: itemCardId(1), message: 'Choose Keep, Change or Remove for this item.' },
+      { field: itemTestId(items.findIndex(item => item.id === HAEMOGLOBIN)), message: 'Enter the test, or choose Keep or Remove.' },
+      { field: 'ocr-review-visit', message: 'Choose the visit to attach this note to.' },
+      { field: 'ocr-review-reason', message: 'Write at least 8 characters.' },
+    ])
+    const { field, message } = problems[0]!
+    expect(buildValidation(all)).toEqual({ problem: { field, message } })
+    // What turns on the items kept waits until each has its choice: every item removed is said only then.
+    const removeAll = Object.fromEntries(items.map(item => [item.id, { choice: 'remove' as const, text: readingLine(item) }]))
+    expect(validationProblems(choices('EHR', { decisions: removeAll })).map(problem => problem.field)).toEqual(['ocr-review-domain', 'ocr-review-visit'])
+    expect(validationProblems(choices('EHR', { decisions: { ...removeAll, [METFORMIN]: { choice: null, text: '' } } })).map(problem => problem.field))
+      .toEqual([itemCardId(0), 'ocr-review-visit'])
+    expect(validationProblems(choices('DOCUMENT_ONLY'))).toEqual([])
+  })
+
+  it('says a blocked Save in plain words: the items still to choose as one count, each other item by its line, then the rest', () => {
+    const at = items.findIndex(item => item.id === HAEMOGLOBIN)
+    const problems = validationProblems(choices('LAB', {
+      decisions: { ...initialDecisions(items), [HAEMOGLOBIN]: { choice: 'change', text: '', test: ' ', result: '1' } }, reason: '', reportedAtAsWritten: '1'.repeat(121),
+    }))
+    expect(notSavedLines(problems, items)).toEqual([
+      '2 items still need Keep, Change or Remove.',
+      `“${itemLine(items[at]!)}”: Enter the test, or choose Keep or Remove.`,
+      'Report date: Write the date in 120 characters or fewer.',
+      'The reason must be at least 8 characters.',
+    ])
+    expect(notSavedLines(validationProblems(choices('DOCUMENT_ONLY', { decisions: { ...decided(), [METFORMIN]: { choice: null, text: '' } } })), items))
+      .toEqual(['1 item still needs Keep, Change or Remove.'])
+    expect(notSavedLines(validationProblems(choices('DOCUMENT_ONLY', { reason: 'x'.repeat(501) })), items)).toEqual(['The reason must be 500 characters or fewer.'])
+    expect(notSavedLines([], items)).toEqual([])
   })
 
   it('a rejection: a reason only, sent as unclassified, which ocr-api takes', () => {
