@@ -36,6 +36,11 @@ export interface OutreachSnapshot {
   readonly healthChecksServed: boolean
   /** The running or coming registration campaigns the volunteer is a member of. */
   readonly campaigns: readonly OfflineCampaign[]
+  /**
+   * Set when this volunteer's campaigns could not all be read (a campaign's members read got no answer, or failed) and no
+   * earlier copy had them: an empty list then means "not known", never "in no campaign", and "No signal" mode says so.
+   */
+  readonly campaignsUnread?: true
 }
 
 export const OUTREACH_SNAPSHOT_KEY = 'hid-outreach-offline-start'
@@ -72,7 +77,17 @@ function parse(raw: string | null, now: number): OutreachSnapshot | null {
     campaigns.push({ id: c.id, name: c.name, startsAt: c.startsAt, endsAt: c.endsAt })
   }
   return { version: 1, savedAt: s.savedAt, actorId: s.actorId, displayName: s.displayName, facilityId: s.facilityId,
-    facilityName: s.facilityName, healthChecksServed: s.healthChecksServed, campaigns }
+    facilityName: s.facilityName, healthChecksServed: s.healthChecksServed, campaigns, ...(s.campaignsUnread === true ? { campaignsUnread: true } : {}) }
+}
+
+/**
+ * Whether a campaign is one the facts keep, when the volunteer is a member of it: a running or coming registration
+ * campaign (active, taking registrations, and not ended). Outreach.tsx waits for the members of every one of these to be
+ * read before it keeps the campaigns, so none of them is left out by a read that has not answered yet.
+ */
+export function keptCampaign(campaign: OutreachCampaign, now = Date.now()): boolean {
+  const ends = typeof campaign.endsAt === 'string' ? Date.parse(campaign.endsAt) : Number.NaN
+  return campaign.status === 'active' && campaign.services.includes('registration') && !(ends <= now)
 }
 
 /** The facts to keep from a confirmed session at an outreach group: only those listed above. */
@@ -82,28 +97,51 @@ export function outreachSnapshotOf({ actorId, displayName, facilityId, facilityN
   readonly facilityId: string
   readonly facilityName: string
   readonly healthChecksServed: boolean
-  /** Campaigns the volunteer is a member of; only running or coming registration campaigns are kept. */
-  readonly campaigns: readonly OutreachCampaign[]
+  /**
+   * Campaigns the volunteer is a member of; only running or coming registration campaigns are kept. Null while they
+   * can't all be told yet (a campaign's members are still being read, or couldn't be): the facts then say the campaigns
+   * are not known, and saveOutreachSnapshot keeps the campaigns an earlier copy had instead.
+   */
+  readonly campaigns: readonly OutreachCampaign[] | null
   readonly now?: number
 }): OutreachSnapshot {
-  const ends = (campaign: OutreachCampaign) => (typeof campaign.endsAt === 'string' ? Date.parse(campaign.endsAt) : Number.NaN)
-  return {
-    version: 1, savedAt: now, actorId, displayName: (displayName ?? '').slice(0, LIMIT), facilityId, facilityName: facilityName.slice(0, LIMIT),
+  const facts = {
+    version: 1 as const, savedAt: now, actorId, displayName: (displayName ?? '').slice(0, LIMIT), facilityId, facilityName: facilityName.slice(0, LIMIT),
     healthChecksServed,
+  }
+  if (campaigns === null) return { ...facts, campaigns: [], campaignsUnread: true }
+  return {
+    ...facts,
     campaigns: campaigns
-      .filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && !(ends(campaign) <= now))
+      .filter(campaign => keptCampaign(campaign, now))
       .slice(0, 50)
       .map(campaign => ({ id: campaign.id, name: campaign.name.slice(0, LIMIT), startsAt: campaign.startsAt,
         endsAt: typeof campaign.endsAt === 'string' ? campaign.endsAt : null })),
   }
 }
 
-/** Keeps the facts, on Health ID Outreach's own site only. Never throws. */
+/**
+ * Keeps the facts, on Health ID Outreach's own site only. Never throws.
+ *
+ * Facts whose campaigns are not known (`campaignsUnread`: a members read has not answered, on weak signal say) never
+ * replace the campaigns already kept for the same volunteer at the same group: the earlier copy's campaigns stay, and
+ * only the rest (and its 24 hours) is brought up to date. Otherwise a members read that timed out would leave "No
+ * signal" mode with no campaign, and nobody could be registered until signal came back.
+ */
 export function saveOutreachSnapshot(snapshot: OutreachSnapshot, hostname = window.location.hostname): void {
   if (!offlineShellHere(hostname)) return
-  const raw = JSON.stringify(snapshot)
   for (const store of stores()) {
-    try { store.setItem(OUTREACH_SNAPSHOT_KEY, raw) } catch { /* full or refused: the other one may keep it */ }
+    try {
+      let next = snapshot
+      if (snapshot.campaignsUnread) {
+        const kept = parse(store.getItem(OUTREACH_SNAPSHOT_KEY), snapshot.savedAt)
+        if (kept && kept.actorId === snapshot.actorId && kept.facilityId === snapshot.facilityId) {
+          const { campaignsUnread: _unknownNow, ...rest } = snapshot
+          next = { ...rest, campaigns: kept.campaigns, ...(kept.campaignsUnread ? { campaignsUnread: true } : {}) }
+        }
+      }
+      store.setItem(OUTREACH_SNAPSHOT_KEY, JSON.stringify(next))
+    } catch { /* full or refused: the other one may keep it */ }
   }
 }
 

@@ -104,6 +104,34 @@ describe('the facts kept', () => {
     expect(readOutreachSnapshot(NOW + 48 * 60 * 60 * 1000, OUTREACH)).toBeNull()
   })
 
+  it('whose campaigns are not known (a members read has not answered) keep the campaigns kept before, and start their 24 hours again', () => {
+    saveOutreachSnapshot(facts(), OUTREACH)
+    const later = NOW + 60 * 60 * 1000
+    saveOutreachSnapshot(outreachSnapshotOf({ actorId: 'staff-demo-1', displayName: 'Demo Volunteer', facilityId: 'group-1', facilityName: 'Ilorin Health Volunteers',
+      healthChecksServed: false, campaigns: null, now: later }), OUTREACH)
+    const kept = readOutreachSnapshot(later, OUTREACH)
+    expect(kept?.campaigns.map(item => item.id)).toEqual(['c-1', 'c-open-ended'])
+    expect(kept?.campaignsUnread).toBeUndefined()
+    expect(kept).toMatchObject({ savedAt: later, healthChecksServed: false })
+  })
+
+  it('whose campaigns are not known, with no earlier copy for this volunteer at this group, say so: never "in no campaign"', () => {
+    const unknown = (actorId: string, facilityId: string) => outreachSnapshotOf({ actorId, displayName: 'Demo Volunteer', facilityId,
+      facilityName: 'Ilorin Health Volunteers', healthChecksServed: false, campaigns: null, now: NOW })
+    saveOutreachSnapshot(unknown('staff-demo-1', 'group-1'), OUTREACH)
+    expect(readOutreachSnapshot(NOW, OUTREACH)).toMatchObject({ campaigns: [], campaignsUnread: true })
+    // Another group's (or another account's) campaigns are never borrowed.
+    saveOutreachSnapshot(facts(), OUTREACH)
+    saveOutreachSnapshot(unknown('staff-demo-1', 'group-2'), OUTREACH)
+    expect(readOutreachSnapshot(NOW, OUTREACH)).toMatchObject({ facilityId: 'group-2', campaigns: [], campaignsUnread: true })
+    saveOutreachSnapshot(facts(), OUTREACH)
+    saveOutreachSnapshot(unknown('staff-someone-else', 'group-1'), OUTREACH)
+    expect(readOutreachSnapshot(NOW, OUTREACH)).toMatchObject({ actorId: 'staff-someone-else', campaigns: [], campaignsUnread: true })
+    // Once they are all read, the list read replaces the "not known".
+    saveOutreachSnapshot(facts(), OUTREACH)
+    expect(readOutreachSnapshot(NOW, OUTREACH)?.campaignsUnread).toBeUndefined()
+  })
+
   it('give the registration form its campaigns', () => {
     expect(offlineCampaigns(facts()).map(item => [item.id, item.status, item.services])).toEqual([
       ['c-1', 'active', ['registration']], ['c-open-ended', 'active', ['registration']]])

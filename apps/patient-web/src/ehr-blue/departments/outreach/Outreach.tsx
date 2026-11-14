@@ -22,7 +22,7 @@ import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
 import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
 import { claimSend, noConnection, useOutreachQueue, type PendingRegistration, type QueueSyncResult } from './offlineQueue'
-import { outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
+import { keptCampaign, outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
 import { noteOutreachRegistrations, outreachServed } from './outreachServed'
 import { offlineShellHere } from '../../../productHostname'
 import {
@@ -164,8 +164,16 @@ export function Outreach() {
   const served = outreachServed()
   const healthChecksServed = served.healthChecks
   const memberCampaigns = (campaigns.value ?? []).filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
+  // Which campaigns this volunteer is in is known only once the members of every campaign the facts would keep (running or
+  // coming) have been read at this group. Until then (a members read still on its way, or one that failed or timed out on
+  // weak signal) the campaigns are given as not known (null), and saveOutreachSnapshot keeps the ones kept before instead
+  // of an empty list: "No signal" mode must never lose a volunteer's campaigns to a read that hasn't answered.
+  const membersAnswered = campaigns.value !== null && campaigns.value.filter(campaign => keptCampaign(campaign)).every(campaign => {
+    const read = members.get(campaign.id)
+    return read !== undefined && read.facilityId === facilityId && read.items !== null
+  })
   const offlineFacts = group && facility && facilityId && actorId && state.status === 'ready' && campaigns.value !== null && offlineShellHere(window.location.hostname)
-    ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: memberCampaigns })
+    ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: membersAnswered ? memberCampaigns : null })
     : null
   useEffect(() => {
     if (!offlineFacts) return

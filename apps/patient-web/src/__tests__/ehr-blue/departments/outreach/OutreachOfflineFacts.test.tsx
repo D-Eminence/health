@@ -6,7 +6,7 @@ import { renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
-import { OUTREACH_SNAPSHOT_KEY, readOutreachSnapshot } from '../../../../ehr-blue/departments/outreach/offlineStart'
+import { OUTREACH_SNAPSHOT_KEY, outreachSnapshotOf, readOutreachSnapshot, saveOutreachSnapshot } from '../../../../ehr-blue/departments/outreach/offlineStart'
 
 /*
  * Outreach with no signal: the Outreach page of an outreach group, open with a confirmed session on Health ID Outreach's
@@ -65,6 +65,47 @@ describe('the facts "No signal" mode opens from', () => {
     expect(readOutreachSnapshot()).toMatchObject({ actorId: 'staff-demo-1', displayName: 'Demo Scientist', facilityId: 'group-1',
       facilityName: 'Ilorin Health Volunteers', campaigns: [{ id: 'c-member', name: 'Ilorin health day', startsAt: MEMBER.startsAt, endsAt: MEMBER.endsAt }] })
     expect(localStorage.getItem(OUTREACH_SNAPSHOT_KEY)).not.toMatch(/@|token/i)
+  })
+
+  // Kept an hour ago, from a visit whose members reads all answered: this volunteer is in the "Ilorin health day" campaign.
+  const keptEarlier = () => {
+    const earlier = Date.now() - 60 * 60 * 1000
+    saveOutreachSnapshot(outreachSnapshotOf({ actorId: 'staff-demo-1', displayName: 'Demo Scientist', facilityId: 'group-1',
+      facilityName: 'Ilorin Health Volunteers', healthChecksServed: false, campaigns: [MEMBER], now: earlier }))
+    return earlier
+  }
+
+  it.each([
+    ['still on its way (weak signal)', () => new Promise(() => undefined)],
+    ['with no signal', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['refused', () => Promise.reject(new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' }))],
+  ])('keep the campaigns kept before while a campaign\'s members read is %s, and start their 24 hours again', async (_name, answer) => {
+    const earlier = keptEarlier()
+    api.outreachCampaignMembers.mockImplementation(answer)
+    renderDept(<Outreach />)
+    await screen.findByRole('heading', { level: 1, name: 'Outreach' })
+    await waitFor(() => expect(readOutreachSnapshot()!.savedAt).toBeGreaterThan(earlier))
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(2))
+    expect(readOutreachSnapshot()).toMatchObject({ actorId: 'staff-demo-1', facilityId: 'group-1', campaigns: [{ id: 'c-member', name: 'Ilorin health day' }] })
+    expect(readOutreachSnapshot()?.campaignsUnread).toBeUndefined()
+  })
+
+  it('with one campaign\'s members read and another\'s not answered, still keep the campaigns kept before', async () => {
+    keptEarlier()
+    // The volunteer's own campaign answers that they are no longer in it; the other campaign's read never answers.
+    api.outreachCampaignMembers.mockImplementation((_facility: string, campaignId: string) => campaignId === MEMBER.id ? Promise.resolve([]) : new Promise(() => undefined))
+    renderDept(<Outreach />)
+    await screen.findByRole('heading', { level: 1, name: 'Outreach' })
+    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(2))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(readOutreachSnapshot()?.campaigns.map(campaign => campaign.id)).toEqual(['c-member'])
+  })
+
+  it('with no earlier copy and a members read that failed, say the campaigns are not known, not that there are none', async () => {
+    api.outreachCampaignMembers.mockRejectedValue(new TypeError('Failed to fetch'))
+    renderDept(<Outreach />)
+    await screen.findByRole('heading', { level: 1, name: 'Outreach' })
+    await waitFor(() => expect(readOutreachSnapshot()).toMatchObject({ facilityId: 'group-1', campaigns: [], campaignsUnread: true }))
   })
 
   it('are not kept on any other site', async () => {
