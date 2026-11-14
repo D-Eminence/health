@@ -92,6 +92,7 @@ function invitationProblemText(caught: unknown): string {
  *
  * Password-free joining (passwordless plan, phase 1; off unless the build turns it on, outreachLinkSignIn.ts): the first
  * screen is two "Join" buttons, own phone or shared phone, that accept with the link alone and sign this phone in
+ * (a shared phone gets today's outreach session: signed in for up to 24 hours from sign-in, hid-system#252)
  * (identity-api accept-link). The link is then kept in the history entry, so a reload does not lose it, until it is used.
  * A backend without accept-link answers 404 and the page shows today's password form, with the same security check.
  */
@@ -250,7 +251,7 @@ export function OutreachInvitation() {
           {byLink ? null : <EhrButton type="submit" busy={busy}>Join the group</EhrButton>}
           {byLink ? <EhrButton busy={busy} onClick={() => void acceptByLink('own')}>Join – this is my own phone (keep me signed in)</EhrButton> : null}
           {byLink ? <EhrButton variant="secondary" busy={busy} onClick={() => void acceptByLink('shared')}>
-            Join on a shared phone (sign me out after 15 minutes)</EhrButton> : null}
+            Join on a shared phone (signed in for up to 24 hours)</EhrButton> : null}
         </div>
       </form>
 

@@ -2091,7 +2091,10 @@ export interface OutreachInvitationAcceptedByLink {
   deviceTrust?: 'own_device' | 'standard'
 }
 
-/** Whether the helper keeps this phone signed in (own) or is signed out after 15 minutes idle (shared). */
+/**
+ * Whether the helper keeps this phone signed in (own) or gets today's outreach session (shared): signed in for up to
+ * 24 hours from sign-in (hid-system#252).
+ */
 export type OutreachInvitationDevice = 'own' | 'shared'
 
 /**

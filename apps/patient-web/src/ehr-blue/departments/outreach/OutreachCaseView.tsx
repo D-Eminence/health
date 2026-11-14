@@ -305,8 +305,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
           ? <Alert intent="success" title="Registration saved">{pending ? group ? makesHealthIds
             // Under 18 no Health ID is made at outreach: a parent or guardian gets one later.
             ? typeof item.ageYears === 'number' && item.ageYears < 18 ? 'Next: their health checks.'
-              : item.possibleDuplicate ? 'Next: their health checks, then a Health ID if they don’t have one.'
-                : 'Their Health ID is being made below: give them the slip. Next: their health checks.'
+              // The Health ID is made by itself below, but may not be (no answer, a possible duplicate): say to check it there.
+              : 'Next: check their Health ID below and give them the slip, then their health checks.'
             : 'They have a temporary record. They can link their own Health ID to it later.'
             : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}

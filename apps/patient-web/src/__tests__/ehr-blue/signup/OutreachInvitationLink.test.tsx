@@ -27,7 +27,7 @@ const INVITATION = 'b1000000-0000-4000-8000-000000000001'
 const TOKEN = 'A'.repeat(43)
 const LINK = { invitationId: INVITATION, token: TOKEN }
 const OWN = 'Join – this is my own phone (keep me signed in)'
-const SHARED = 'Join on a shared phone (sign me out after 15 minutes)'
+const SHARED = 'Join on a shared phone (signed in for up to 24 hours)'
 const HISTORY_KEY = 'hidOutreachInvitation'
 const inDays = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
 
@@ -90,6 +90,8 @@ describe('joining by the invitation link alone (switch on)', () => {
     expect(document.body.textContent).toContain('Tap a button to accept. This phone will be signed in to Health ID Outreach. The link works once.')
     expect(screen.getByRole('button', { name: OWN })).toBeTruthy()
     expect(screen.getByRole('button', { name: SHARED })).toBeTruthy()
+    // Outreach sessions last 24 hours from sign-in (hid-system#252): nothing promises 15 minutes.
+    expect(document.body.textContent).not.toMatch(/15 minutes/)
     expect(screen.getByRole('button', { name: 'Join with my login' })).toBeTruthy()
     expect(screen.queryByLabelText(/^Password/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Join the group' })).toBeNull()
