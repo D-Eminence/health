@@ -11,7 +11,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, BLOOD_GROUPS, checkScreening, GENOTYPES, skippedFields, withUnfinishedLeftOut, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
+  bmiOf, BLOOD_GROUPS, checkScreening, GENOTYPES, GLUCOSE_TIMINGS, HEARING, MALARIA, skippedFields, withUnfinishedLeftOut, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
 import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
@@ -89,9 +89,6 @@ type Read =
   | { readonly kind: 'ready'; readonly screening: OutreachScreening | null }
 
 const GLUCOSE_UNITS = [{ value: 'mmol/L', label: 'mmol/L' }, { value: 'mg/dL', label: 'mg/dL' }] as const
-const GLUCOSE_TIMINGS = [{ value: 'fasting', label: 'Fasting' }, { value: 'random', label: 'Random' }] as const
-const MALARIA = [{ value: 'positive', label: 'Positive' }, { value: 'negative', label: 'Negative' }, { value: 'not_done', label: 'Not done' }] as const
-const HEARING = [{ value: 'pass', label: 'Passed' }, { value: 'refer', label: 'Didn’t pass (needs a full hearing test)' }, { value: 'not_done', label: 'Not done' }] as const
 const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] as const
 const GENOTYPE_CHOICES = GENOTYPES.map(value => ({ value, label: value }))
 const BLOOD_GROUP_CHOICES = BLOOD_GROUPS.map(value => ({ value, label: value }))

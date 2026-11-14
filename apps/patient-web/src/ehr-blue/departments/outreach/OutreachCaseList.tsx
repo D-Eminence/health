@@ -37,6 +37,8 @@ export interface CasesRead {
   /** Reads the first page again; the pages added are let go. */
   readonly refresh: () => Promise<void>
   readonly more: MoreCases
+  /** The first page as last read: a new one each time the list is read again (the registration numbers read their totals then). */
+  readonly firstPage: OutreachCasesPage | null
 }
 
 interface Added {
@@ -95,6 +97,7 @@ export function useOutreachCases(facilityId: string | undefined, enabled: boolea
     error: first.error,
     refresh,
     more: { available: current.cursor !== null, loading: current.loading, error: current.error, load },
+    firstPage: base,
   }
 }
 

@@ -45,6 +45,11 @@ export interface ScreeningForm {
   readonly referredTo: string
 }
 
+/** The choices the Health checks form gives, in its words (the export writes the same words). */
+export const GLUCOSE_TIMINGS = [{ value: 'fasting', label: 'Fasting' }, { value: 'random', label: 'Random' }] as const
+export const MALARIA = [{ value: 'positive', label: 'Positive' }, { value: 'negative', label: 'Negative' }, { value: 'not_done', label: 'Not done' }] as const
+export const HEARING = [{ value: 'pass', label: 'Passed' }, { value: 'refer', label: 'Didn’t pass (needs a full hearing test)' }, { value: 'not_done', label: 'Not done' }] as const
+
 /** Genotypes and blood groups (owner, 14 Nov 2026: "we should collect genotype and blood group"). */
 export const GENOTYPES = ['AA', 'AS', 'AC', 'SS', 'SC', 'CC', 'Not known'] as const
 export type Genotype = typeof GENOTYPES[number]

@@ -6,8 +6,8 @@ import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../sta
 import { saveFile } from '../../../download'
 import { useDeptAccess } from '../parts/access'
 import {
-  buildExport, EXPORT_CAPPED, EXPORT_FORMATS, EXPORT_LATEST_100, EXPORT_PAGE_SIZE, exportFileName, exportMeta, readAllCases, rowsFor,
-  type ExportContext, type ExportFormat,
+  buildExport, EXPORT_CAPPED, EXPORT_FORMATS, EXPORT_LATEST_100, EXPORT_PAGE_SIZE, exportFileName, exportMeta, readAllCases, readScreenings, rowsFor,
+  screeningsFailed, type ExportCase, type ExportContext, type ExportFormat,
 } from './outreachExport'
 
 /** The privacy note said before every export. */
@@ -20,9 +20,11 @@ export function onScreenOnly(count: number) {
 
 /**
  * "Export": the registrations this person can already see (the list; on a campaign's page, that campaign's only) as a
- * CSV, Excel, Word or PDF file, made on this device. Every page of them is read first (the list shows the newest only);
- * without a connection, the file holds what is on screen, and says so. The button opens a short dialog that asks for the file
- * type and says what the file holds; Export saves it, Cancel does nothing. Focus goes back to the button either way.
+ * CSV, Excel, Word or PDF file, made on this device. Every page of them is read first (the list shows the newest only),
+ * then the health check results of each person who has them, three at a time (those that can't be read are left blank,
+ * and the note says how many); without a connection, the file holds what is on screen, and says so. The button opens a
+ * short dialog that asks for the file type and says what the file holds; Export saves it, Cancel does nothing. Cancel
+ * (or Escape) also works while the file is being made: the reads stop and nothing is saved. Focus goes back to the button either way.
  * With nothing to export, the button says why and opens nothing.
  */
 export function OutreachExport({ cases, campaign, campaignOf }: {
@@ -42,6 +44,8 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
   /** What the last file may be missing, said beside the button once it is saved. */
   const [note, setNote] = useState('')
   const busyRef = useRef(false)
+  /** The export being made, stopped by Cancel; null when none is. */
+  const running = useRef<AbortController | null>(null)
 
   const chosen = cases ? (campaign ? cases.filter(item => item.campaignId === campaign.id) : cases) : null
   const count = chosen?.length ?? 0
@@ -50,7 +54,14 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
     + 'They are read from Health ID first, which can take a moment.'
 
   const close = () => {
-    if (busyRef.current) return
+    // Cancel while the file is being made: its reads stop, and it saves nothing.
+    if (running.current) {
+      running.current.abort()
+      running.current = null
+      busyRef.current = false
+      setBusy(false)
+      setProgress('')
+    }
     setOpen(false)
     setError('')
   }
@@ -58,44 +69,68 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
   async function save() {
     if (busyRef.current || !chosen || count === 0) return
     busyRef.current = true
+    const controller = new AbortController()
+    running.current = controller
+    const stopped = () => controller.signal.aborted
     setBusy(true)
     setError('')
     setNote('')
     const done = () => {
+      if (running.current !== controller) return
+      running.current = null
       busyRef.current = false
       setBusy(false)
       setProgress('')
     }
+    const say = (words: string) => { if (!stopped()) setProgress(words) }
     try {
-      let rows: readonly OutreachCase[] = chosen
+      let rows: readonly ExportCase[] = chosen
       let warning = ''
+      let readAll = false
       if (facilityId) {
-        setProgress('Getting the registrations from Health ID…')
+        say('Getting the registrations from Health ID…')
         try {
           const read = await readAllCases(
             before => staffApi.outreachCasesPage(facilityId, { limit: EXPORT_PAGE_SIZE, before, ...(campaign ? { campaignId: campaign.id } : {}) }),
-            sofar => setProgress(`Getting the registrations from Health ID… ${sofar} so far`))
+            sofar => say(`Getting the registrations from Health ID… ${sofar} so far`))
           rows = campaign ? read.cases.filter(item => item.campaignId === campaign.id) : read.cases
           warning = read.capped ? EXPORT_CAPPED : read.latestOnly ? EXPORT_LATEST_100 : ''
+          readAll = true
         } catch {
           warning = onScreenOnly(count)
         }
       }
+      if (stopped()) return
       if (rows.length === 0) {
         done()
         setError('There are no registrations to export now. Refresh the list to check.')
         return
       }
-      setProgress(`Preparing ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}…`)
+      // Each person's health check results, read a few at a time; one that can't be read is tried again twice, and anyone
+      // still not read is named.
+      // Not tried when the registrations themselves couldn't be read (no signal): the file holds those on screen.
+      if (facilityId && readAll) {
+        const checks = await readScreenings(rows, caseId => staffApi.outreachScreening(facilityId, caseId, controller.signal),
+          (doneSoFar, total) => say(`Reading health checks ${doneSoFar} of ${total}…`), controller.signal)
+        if (stopped()) return
+        rows = rows.map(item => (checks.screenings.has(item.id) ? { ...item, screening: checks.screenings.get(item.id) ?? null } : item))
+        if (checks.failed > 0) {
+          const missed = checks.failedIds.map(id => rows.find(item => item.id === id)?.fullName ?? '').filter(Boolean)
+          warning = [warning, screeningsFailed(checks.failed, missed)].filter(Boolean).join(' ')
+        }
+      }
+      say(`Preparing ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}…`)
       const now = new Date()
       const table = rowsFor(rows, { campaignOf })
       const blob = await buildExport(format, table, exportMeta(campaign?.name, rows.length, now))
+      if (stopped()) return
       saveFile(blob, exportFileName(campaign?.name, format, now))
       recordExport(facilityId, { format, count: rows.length, ...(campaign ? { campaignId: campaign.id } : {}) })
       done()
       setNote(warning)
       setOpen(false)
     } catch {
+      if (stopped()) return
       done()
       setError(EXPORT_FAILED)
     }
@@ -113,7 +148,7 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
       </span>
       <Modal open={open && !reason} onClose={close} title="Export registrations" size="sm"
         footer={<>
-          <Button onClick={close} disabled={busy}>Cancel</Button>
+          <Button onClick={close}>Cancel</Button>
           <Button variant="primary" icon={Download} loading={busy} onClick={() => void save()}>{busy ? 'Making the file…' : 'Export'}</Button>
         </>}>
         <div className="flex flex-col gap-4">
