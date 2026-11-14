@@ -849,4 +849,21 @@ describe('the campaigns a volunteer can register into', () => {
     await openForm()
     await waitFor(() => expect(campaignHint()).toBe('Your campaigns couldn’t be loaded. Go back to the list and press Refresh.'))
   })
+
+  it('takes down “Your campaigns are still loading.” once the campaigns are listed (rehearsal, 14 Nov)', async () => {
+    let listMembers: (members: unknown) => void = () => undefined
+    api.outreachCampaignMembers.mockReturnValue(new Promise(resolve => { listMembers = resolve }))
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: 'New registration' }))
+    await screen.findByRole('heading', { level: 1, name: 'New registration' })
+    fillPerson('35')
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    // Saved too early: the campaign field says why it is empty, and nothing is sent.
+    await waitFor(() => expect(screen.getAllByText('Your campaigns are still loading.').length).toBeGreaterThan(0))
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+    await act(async () => { listMembers([{ id: 'm-1', campaignId: 'campaign-1', membershipId: MEMBERSHIP, role: 'admin', createdAt: '2026-11-01T00:00:00.000Z' }]) })
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
+    // The note under Campaign now says what it does for a listed campaign, and no stale error is left.
+    await waitFor(() => expect(screen.queryByText('Your campaigns are still loading.')).toBeNull())
+  })
 })

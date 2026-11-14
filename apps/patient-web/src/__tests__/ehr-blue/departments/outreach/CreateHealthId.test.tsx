@@ -105,7 +105,7 @@ describe('Create Health ID', () => {
     expect(region().textContent).toContain('Write this on their slip.')
     // 0119 makes it with no password and sends no email after the code: they set one with "Forgot password".
     expect(region().textContent).toContain(NO_PASSWORD_YET)
-    expect(NO_PASSWORD_YET).toBe('They have no password yet. To start using it, they open the Health ID app, tap “Forgot password” and enter the email they gave you. They can add the rest of their details then.')
+    expect(NO_PASSWORD_YET).toBe('They have no password yet. To start using it, they open the Health ID app, tap “Forgot password?” and enter the email they gave you. They can add the rest of their details then.')
     expect(region().textContent).not.toContain('They’ll get an email')
     expect(onCreated).toHaveBeenCalled()
   })

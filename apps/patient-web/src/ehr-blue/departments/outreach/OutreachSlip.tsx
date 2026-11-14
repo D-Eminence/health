@@ -20,7 +20,7 @@ export const GET_HEALTH_ID_LATER_MINOR = 'A parent or guardian can get them a He
 export const KEEP_SLIP = 'Keep this slip. You’ll need your Health ID and this code to start using it.'
 export const CHECKS_RECORDED = 'Health checks were recorded today.'
 /** A Health ID made by email (0119) has no password yet: the person sets one with "Forgot password". */
-export const FORGOT_PASSWORD = 'To start using your Health ID, open the Health ID app, tap “Forgot password” and use the email you gave today.'
+export const FORGOT_PASSWORD = 'To start using your Health ID, open the Health ID app, tap “Forgot password?” and use the email you gave today.'
 
 /**
  * Prints a slip: it is put under <body> (outreachSlip.css hides it on screen and prints it alone), window.print runs in

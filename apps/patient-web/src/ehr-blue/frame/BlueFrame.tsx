@@ -386,6 +386,7 @@ export function BlueFrame() {
             person={{ name, detail: session.actor.email ?? roles }}
             onSignOut={leave}
             signingOut={signingOut}
+            signOutProblem={signOutError || undefined}
             headerStart={<>
               <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label={`Health ID ${info.name} home`}><BrandLogo className="h-7 w-auto" /></a>
               {arrival ? <SwitchBackLink arrival={arrival} /> : null}
