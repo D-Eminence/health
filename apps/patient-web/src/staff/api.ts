@@ -2077,6 +2077,24 @@ export interface OutreachInvitationAccepted {
 }
 
 /**
+ * A new helper accepted an outreach invitation by its link alone, with no password (proposed: identity-api accept-link,
+ * behind OUTREACH_INVITE_LINK_SIGN_IN_ENABLED). `signedIn` false: the helper joined, but this phone was not signed in.
+ */
+export interface OutreachInvitationAcceptedByLink {
+  accepted: true
+  signedIn: boolean
+  facilityId: string
+  membershipId?: string
+  roleCode: string
+  actor?: StaffSession['actor']
+  expiresAt?: string
+  deviceTrust?: 'own_device' | 'standard'
+}
+
+/** Whether the helper keeps this phone signed in (own) or is signed out after 15 minutes idle (shared). */
+export type OutreachInvitationDevice = 'own' | 'shared'
+
+/**
  * Open sign-up to run outreach on outreach. (identity-api, owner decisions of 11 November 2026): the organiser's
  * details and phone, a 6-digit code by email, the organiser terms, then a password. Every route answers 423
  * OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE while the control is off, and an Identity without them 404: the page then
@@ -2098,6 +2116,15 @@ export const outreachOrganiserApi = {
   acceptInvitation: (proof: { invitationId: string; token: string }, password: string,
     turnstileToken?: string) => inRefreshTurn(() => client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/accept',
     { ...proof, password, turnstileAction: 'outreach-invitation', ...(turnstileToken ? { turnstileToken } : {}) },
+    { auth: 'none', retry: NO_RETRY })),
+  /**
+   * A helper without a Health ID login accepts with the link alone and is signed in on this phone, with no password
+   * (proposed; a backend without the route, or with its switch off, answers 404 and the page shows the password form).
+   */
+  acceptInvitationByLink: (proof: { invitationId: string; token: string }, device: OutreachInvitationDevice,
+    turnstileToken?: string) => inRefreshTurn(() => client.post<OutreachInvitationAcceptedByLink>(
+    '/api/v1/identity/outreach-invitations/accept-link',
+    { ...proof, device, turnstileAction: 'outreach-invitation', ...(turnstileToken ? { turnstileToken } : {}) },
     { auth: 'none', retry: NO_RETRY })),
 }
 

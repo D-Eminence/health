@@ -70,6 +70,8 @@ const NOT_ON_MAIN = [
   'enrollment.outreachOrganiserAvailability', 'enrollment.outreachOrganiserStart', 'enrollment.outreachOrganiserVerify',
   'enrollment.outreachOrganiserActivate', 'identity.outreachGroupAvailability', 'identity.outreachGroupStart',
   'identity.outreachInvitations', 'enrollment.outreachInvitationAccept', 'identity.outreachInvitationSignedInAccept',
+  // Password-free joining by the invitation link (passwordless plan, phase 1).
+  'enrollment.outreachInvitationAcceptLink',
   'admin.outreachOrganisers', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
   'admin.outreachCampaignAdmins', 'admin.outreachRegistrationSearch', 'admin.outreachRegistrationRedact',
   // Outreach health checks (outreach-api 0118).

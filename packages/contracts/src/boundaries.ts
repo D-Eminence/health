@@ -182,7 +182,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.clinicianWithdraw', 'enrollment.clinicianApply', 'enrollment.clinicianSessionEnd',
       // Open sign-up to run outreach on outreach., and a helper accepting an outreach invitation (proposed; 404 until served).
       'enrollment.outreachOrganiserAvailability', 'enrollment.outreachOrganiserStart', 'enrollment.outreachOrganiserVerify',
-      'enrollment.outreachOrganiserActivate', 'enrollment.outreachInvitationAccept'],
+      'enrollment.outreachOrganiserActivate', 'enrollment.outreachInvitationAccept',
+      // Password-free joining by the invitation link alone (proposed; 404 until served and switched on).
+      'enrollment.outreachInvitationAcceptLink'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',

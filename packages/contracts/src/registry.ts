@@ -1216,6 +1216,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'turnstileToken. Signs the helper in: 200 { accepted, facilityId, membershipId, roleCode, actor, expiresAt } (no group '
     + 'name). 409 OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login, 409 '
     + 'OUTREACH_INVITATION_PATIENT_LOGIN for a patient\'s login.')),
+  // Password-free joining (passwordless plan, phase 1): a new helper accepts with the link alone and is signed in.
+  proposed(r('enrollment.outreachInvitationAcceptLink','enrollment','/api/v1/identity/outreach-invitations/accept-link',P,true,undefined,
+    'Password-free outreach invitation (proposed: identity-api accept-link, behind OUTREACH_INVITE_LINK_SIGN_IN_ENABLED); not '
+    + 'served by hid-system main (404). Answers 404 NOT_FOUND while its switch is off, before the security check is used: the '
+    + 'page then shows the password form (enrollment.outreachInvitationAccept) with the same Turnstile token. Accountless (409 '
+    + 'OUTREACH_INVITATION_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action outreach-invitation. Body { '
+    + 'invitationId, token, device (own|shared), turnstileAction, turnstileToken }. New emails only: 409 '
+    + 'OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login. 200 { accepted, signedIn: true, facilityId, '
+    + 'membershipId, roleCode, actor, expiresAt, deviceTrust } with the session cookies; or 200 { accepted, signedIn: false, '
+    + 'facilityId, membershipId, roleCode } when the helper joined but no session could be made. Other refusals as accept.')),
   proposed(r('identity.outreachInvitationSignedInAccept','identity','/api/v1/identity/outreach-invitations/signed-in/accept',P,false,undefined,
     `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } (the link only). 200 { accepted, `
     + 'facilityId, membershipId, roleCode } (no group name). 403 OUTREACH_INVITATION_WRONG_ACCOUNT, 409 '

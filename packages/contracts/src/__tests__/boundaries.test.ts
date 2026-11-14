@@ -208,6 +208,23 @@ describe('application boundaries', () => {
     }
   })
 
+  it('registers password-free joining by an outreach invitation link (proposed) for the provider portal only', () => {
+    const path = '/api/v1/identity/outreach-invitations/accept-link'
+    expect(findEndpoint('enrollment.outreachInvitationAcceptLink')).toMatchObject({ service: 'enrollment', path, methods: ['POST'],
+      status: 'proposed', auth: { kind: 'public' } })
+    expect(findEndpoint('enrollment.outreachInvitationAcceptLink')?.note).toContain('not served by hid-system main')
+    expect(findEndpoint('enrollment.outreachInvitationAcceptLink')?.note).toContain('Turnstile action outreach-invitation')
+    // The static segment stays its own route: accept-link is not the password accept, nor the signed-in accept.
+    expect(assertRegisteredBrowserRequest('POST', path).name).toBe('enrollment.outreachInvitationAcceptLink')
+    expect(assertRegisteredBrowserRequest('POST', '/api/v1/identity/outreach-invitations/accept').name)
+      .toBe('enrollment.outreachInvitationAccept')
+    expect(() => assertRegisteredBrowserRequest('GET', path)).toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('staff-web', 'enrollment.outreachInvitationAcceptLink')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'enrollment.outreachInvitationAcceptLink'), app).toThrow(BoundaryViolationError)
+    }
+  })
+
   it('registers clinician self sign-up (hid-system ADR-066) for the provider portal only', () => {
     const base = '/api/v1/identity/clinician-applications'
     const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
