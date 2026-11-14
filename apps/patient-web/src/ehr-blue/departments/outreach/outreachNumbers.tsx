@@ -1,8 +1,8 @@
 import type { OutreachCase } from '../../../staff/api'
 
 /**
- * Today's numbers (owner, 14 Nov 2026: the frontend-only part of the campaign dashboard in the Outreach backend handover):
- * counted on this phone from the registrations it has read, so they need nothing new from Outreach. A count Outreach
+ * Registration numbers (owner, 14 Nov 2026: the frontend-only part of the campaign dashboard in the Outreach backend handover):
+ * counted on this phone from every registration it has read (not only today's), so they need nothing new from Outreach. A count Outreach
  * does not send yet (health checks before 0118, Health IDs before 0119) is left out, never shown as 0.
  */
 export interface OutreachNumbersCount {

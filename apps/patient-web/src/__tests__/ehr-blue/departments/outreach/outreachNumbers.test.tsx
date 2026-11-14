@@ -4,7 +4,7 @@ import { OutreachNumbers, outreachNumbers } from '../../../../ehr-blue/departmen
 import { caseSearchText } from '../../../../ehr-blue/departments/outreach/outreachParts'
 import { matchesSearch } from '../../../../ehr-blue/departments/parts/format'
 
-/** Today's numbers, counted on the phone from the registrations it has read (owner, 14 Nov 2026). Fictional data only. */
+/** Registration numbers, counted on the phone from the registrations it has read (owner, 14 Nov 2026). Fictional data only. */
 const row = (id: string, extra: Record<string, unknown> = {}) => ({ id, status: 'identity_resolution_pending', fullName: `Person ${id}`, rowVersion: 1, ...extra })
 
 describe('today’s numbers', () => {
@@ -18,8 +18,8 @@ describe('today’s numbers', () => {
   })
 
   it('shows the tiles, the phone’s waiting count, and says when older registrations are not counted', () => {
-    render(<OutreachNumbers cases={[row('a', { hasScreening: true, healthId: 'HID-AB12CD' })]} more waitingOnPhone={2} label="Today’s numbers" />)
-    const numbers = screen.getByRole('region', { name: 'Today’s numbers' })
+    render(<OutreachNumbers cases={[row('a', { hasScreening: true, healthId: 'HID-AB12CD' })]} more waitingOnPhone={2} label="Registration numbers" />)
+    const numbers = screen.getByRole('region', { name: 'Registration numbers' })
     expect(numbers.textContent).toContain('Registered1')
     expect(numbers.textContent).toContain('Health checks done1')
     expect(numbers.textContent).toContain('Health IDs made1')
@@ -28,7 +28,7 @@ describe('today’s numbers', () => {
   })
 
   it('shows nothing before the registrations are read', () => {
-    const { container } = render(<OutreachNumbers cases={null} more={false} label="Today’s numbers" />)
+    const { container } = render(<OutreachNumbers cases={null} more={false} label="Registration numbers" />)
     expect(container.textContent).toBe('')
   })
 })
