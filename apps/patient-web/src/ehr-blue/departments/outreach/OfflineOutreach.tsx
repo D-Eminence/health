@@ -49,6 +49,9 @@ export function OfflineOutreach({ snapshot, onSignal }: { readonly snapshot: Out
   }, [])
 
   const campaigns = offlineCampaigns(snapshot).filter(campaign => campaignOpenNow(campaign))
+  // The campaigns could not all be read the last time Outreach was open with signal (offlineStart.ts `campaignsUnread`):
+  // an empty list then says they couldn't be loaded, and what to do, never that the volunteer is in no campaign.
+  const campaignsUnread = snapshot.campaignsUnread ? 'offline' : undefined
   const group: OutreachGroupForm = {
     name: snapshot.facilityName,
     queue: entry => queue.add(entry),
@@ -68,7 +71,7 @@ export function OfflineOutreach({ snapshot, onSignal }: { readonly snapshot: Out
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
         <BrandLogo className="h-7 w-auto self-start" />
         {view === 'new' ? (
-          <OutreachNew facilityId={snapshot.facilityId} showCampaign campaigns={campaigns} attempt={attempt} group={group} offline
+          <OutreachNew facilityId={snapshot.facilityId} showCampaign campaigns={campaigns} campaignsUnread={campaignsUnread} attempt={attempt} group={group} offline
             healthChecksServed={snapshot.healthChecksServed} onBack={() => setView('list')} onSending={() => setNote(null)} onCreated={() => setView('list')} />
         ) : (
           <DeptPage title="Outreach" description={`${snapshot.facilityName}${snapshot.displayName ? ` · ${snapshot.displayName}` : ''}`}

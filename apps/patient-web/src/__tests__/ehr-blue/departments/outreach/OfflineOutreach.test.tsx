@@ -134,6 +134,21 @@ describe('opening Outreach with no signal', () => {
     expect(sent).toEqual([])
   })
 
+  it('when the campaigns could not be read last time: says so and what to do, never that the volunteer is in no campaign', async () => {
+    const raw = JSON.stringify(outreachSnapshotOf({ actorId: 'staff-demo-1', displayName: 'Demo Volunteer', facilityId: 'group-1',
+      facilityName: 'Ilorin Health Volunteers', healthChecksServed: false, campaigns: null, now: NOW }))
+    localStorage.setItem(OUTREACH_SNAPSHOT_KEY, raw)
+    online.value = false
+    serve({})
+    await openStaffApp('/provider/outreach')
+    const start = await screen.findByRole('button', { name: 'New registration' })
+    await act(async () => { fireEvent.click(start) })
+    await screen.findByRole('heading', { level: 1, name: 'New registration' })
+    const unread = 'Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, and keep it open to register people offline.'
+    expect(screen.getByText(unread)).toBeTruthy()
+    expect(screen.queryByText(/You aren’t in a running registration campaign/)).toBeNull()
+  })
+
   it('once Health ID answers again, reads the session as usual: an ended one goes to sign-in', async () => {
     keepFacts()
     online.value = false
