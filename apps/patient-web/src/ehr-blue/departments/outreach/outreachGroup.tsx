@@ -151,6 +151,10 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
               ))}
             </ul>
           ) : null}
+          {/* Joining the group adds no one to a campaign: until a campaign admin adds them, a helper has none to register into. */}
+          {team.value?.members.some(member => member.status === 'active' && member.roleCode === 'outreach_volunteer') ? (
+            <p className="m-0 text-caption text-ink-3">Helpers who have joined must be added to a campaign before they can register people: open the campaign and press Add everyone who has joined.</p>
+          ) : null}
           {team.value && team.value.invitations.length > 0 ? (
             <ul aria-label="Team invitations" className="m-0 list-none divide-y divide-line p-0">
               {team.value.invitations.map(invitation => {

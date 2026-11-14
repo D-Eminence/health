@@ -82,6 +82,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const focus = useFocusById()
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
+  // Set at once, so a second tap before the page draws again starts nothing.
+  const addingAll = useRef(false)
   const ids = {
     form: `outreach-campaign-${campaign.id}-action`,
     reason: `outreach-campaign-${campaign.id}-reason`,
@@ -190,6 +192,55 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
     }
   }
 
+  /**
+   * Adds everyone at the facility who isn't in this campaign yet as an enumerator, one after another (never at once).
+   * Someone already in it counts as added. A refusal that means the campaign is out of date stops the rest and is said
+   * as "Add a person" says it; any other refusal is listed by name once the rest are added.
+   */
+  async function addEveryone() {
+    if (busy || addingAll.current) return
+    addingAll.current = true
+    const people = candidates
+    setError('')
+    setDone('')
+    setBusy(true)
+    let added = 0
+    const missed: string[] = []
+    let stale = false
+    let staleRefusal: unknown
+    try {
+      for (const person of people) {
+        try {
+          await staffApi.addOutreachCampaignMember(facilityId, campaign.id, { membershipId: person.membershipId, role: 'enumerator' })
+          added += 1
+        } catch (caught) {
+          if (isHidApiError(caught) && caught.code === 'OUTREACH_CAMPAIGN_MEMBER_EXISTS') {
+            added += 1
+          } else if (isHidApiError(caught) && CAMPAIGN_STALE.has(caught.code)) {
+            stale = true
+            staleRefusal = caught
+            break
+          } else {
+            missed.push(person.name)
+          }
+        }
+      }
+      if (added) {
+        setDone(`${added === 1 ? 'Added 1 person as an enumerator.' : `Added ${added} people as enumerators.`}`
+          + ' They can register people once they press Refresh.')
+        focus(ids.done)
+      }
+      if (stale) await refused(staleRefusal, MEMBER_ADD_FAILED)
+      else if (missed.length) {
+        setError(`${missed.length === 1 ? '1 person' : `${missed.length} people`} couldn’t be added: ${missed.join(', ')}. Try again.`)
+      }
+      await Promise.all([staff.refresh(), members?.refresh()])
+    } finally {
+      addingAll.current = false
+      setBusy(false)
+    }
+  }
+
   const reasonField = (label: string, hint: string) => (
     <OutreachField id={ids.reason} label={label} required hint={hint}
       error={problems.errors.reason} alert={problems.alert === 'reason'} seq={problems.seq}>
@@ -258,8 +309,13 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
     const offered = [
       canOpen ? <Button key="open" id={ids.first} variant="primary" onClick={() => choose('open')}>Open campaign</Button> : null,
       canAdd ? (candidates.length
-        ? <Button key="add" id={canOpen ? undefined : ids.first} onClick={() => choose('add')}>Add a person</Button>
+        ? <Button key="add" id={canOpen ? undefined : ids.first} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
+          onClick={() => choose('add')}>Add a person</Button>
         : <p key="add" className="hid-ehr-dept-muted m-0">Everyone active at this facility is already in this campaign.</p>) : null,
+      canAdd && candidates.length
+        ? <Button key="add-everyone" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}
+          onClick={() => void addEveryone()}>{busy ? 'Adding…' : candidates.length === 1
+            ? 'Add the 1 person who has joined' : `Add everyone who has joined (${candidates.length})`}</Button> : null,
       canClose ? <Button key="close" id={canOpen || (canAdd && candidates.length) ? undefined : ids.first} onClick={() => choose('close')}>Close campaign</Button> : null,
       admin && campaign.status === 'planned' && !started
         ? <p key="later" className="hid-ehr-dept-muted m-0">You can open it from {dateText(campaign.startsAt)}.</p> : null,

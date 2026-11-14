@@ -268,3 +268,115 @@ describe('a campaign’s admin', () => {
     expect(document.body.textContent).not.toMatch(/VERSION_CONFLICT|OUTREACH_CAMPAIGN|reload before retrying/)
   })
 })
+
+/*
+ * Helpers who join an outreach group are in no campaign until an admin adds them, so an admin can add everyone not in it
+ * yet at once, each as an enumerator, one after another.
+ */
+describe('adding everyone who has joined', () => {
+  const PORTER = { membershipId: 'membership-demo-4', name: 'Demo Porter', campaignRole: null }
+  const DRIVER = { membershipId: 'membership-demo-5', name: 'Demo Driver', campaignRole: null }
+  const everyone = () => within(actions()).getByRole('button', { name: 'Add everyone who has joined (3)' })
+
+  beforeEach(() => {
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [ADMIN, CLERK, NURSE, PORTER, DRIVER] })
+  })
+
+  it('adds each person not in the campaign yet as an enumerator, one at a time, then reads the campaign’s people again', async () => {
+    let running = 0
+    let most = 0
+    api.addOutreachCampaignMember.mockImplementation(async () => {
+      running += 1
+      most = Math.max(most, running)
+      await new Promise(resolve => setTimeout(resolve, 5))
+      running -= 1
+      return {}
+    })
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    // Adding one person with a chosen role is still offered.
+    expect(within(actions()).getByRole('button', { name: 'Add a person' })).toBeTruthy()
+    const staffReads = api.outreachCampaignStaff.mock.calls.length
+    const memberReads = api.outreachCampaignMembers.mock.calls.length
+    await press(everyone())
+    await waitFor(() => expect(statusText()).toContain('Added 3 people as enumerators. They can register people once they press Refresh.'))
+    expect(api.addOutreachCampaignMember.mock.calls).toEqual([NURSE, PORTER, DRIVER].map(person =>
+      [DEMO_HOSPITAL_ID, 'campaign-1', { membershipId: person.membershipId, role: 'enumerator' }]))
+    expect(most).toBe(1)
+    expect(document.activeElement?.id).toBe('outreach-campaign-campaign-1-done')
+    await waitFor(() => expect(api.outreachCampaignStaff.mock.calls.length).toBeGreaterThan(staffReads))
+    expect(api.outreachCampaignMembers.mock.calls.length).toBeGreaterThan(memberReads)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('says it for one person, and counts someone already in the campaign as added', async () => {
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [ADMIN, CLERK, NURSE] })
+    api.addOutreachCampaignMember.mockRejectedValue(new HidApiError(409, 'Already a member', { code: 'OUTREACH_CAMPAIGN_MEMBER_EXISTS' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    await press(within(actions()).getByRole('button', { name: 'Add the 1 person who has joined' }))
+    await waitFor(() => expect(statusText()).toContain('Added 1 person as an enumerator. They can register people once they press Refresh.'))
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('adds the rest when one can’t be added, then names who wasn’t', async () => {
+    api.addOutreachCampaignMember.mockImplementation(async (_facilityId: string, _campaignId: string, body: { membershipId: string }) => {
+      if (body.membershipId === PORTER.membershipId) throw new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })
+      if (body.membershipId === DRIVER.membershipId) throw new HidApiError(409, 'Already a member', { code: 'OUTREACH_CAMPAIGN_MEMBER_EXISTS' })
+      return {}
+    })
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    await press(everyone())
+    await waitFor(() => expect(statusText()).toContain('Added 2 people as enumerators.'))
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(3)
+    expect((await screen.findByRole('alert')).textContent).toBe('1 person couldn’t be added: Demo Porter. Try again.')
+    expect(document.body.textContent).not.toMatch(/SERVICE_UNAVAILABLE|OUTREACH_CAMPAIGN/)
+  })
+
+  it('stops when the campaign has changed, says so, and reads it again', async () => {
+    api.addOutreachCampaignMember.mockRejectedValue(new HidApiError(409, 'Closed', { code: 'OUTREACH_CAMPAIGN_CLOSED' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    const reads = api.outreachCampaigns.mock.calls.length
+    await press(everyone())
+    expect((await screen.findByRole('alert')).textContent).toBe('This campaign is finished. A finished campaign can’t be opened again.')
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    expect(api.outreachCampaigns.mock.calls.length).toBeGreaterThan(reads)
+    expect(statusText()).not.toContain('Added')
+  })
+
+  it('starts nothing more while it is adding', async () => {
+    let finish!: () => void
+    api.addOutreachCampaignMember.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({}) }))
+      .mockResolvedValue({})
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    const button = everyone()
+    await press(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.textContent).toBe('Adding…')
+    expect(within(actions()).getByRole('button', { name: 'Add a person' }).getAttribute('aria-disabled')).toBe('true')
+    await press(button)
+    await press(within(actions()).getByRole('button', { name: 'Add a person' }))
+    expect(screen.queryByRole('form', { name: 'Add a person' })).toBeNull()
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    await act(async () => { finish() })
+    await waitFor(() => expect(statusText()).toContain('Added 3 people as enumerators.'))
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(3)
+  })
+
+  it('is not offered to a member who isn’t an admin, nor when everyone is in the campaign', async () => {
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'enumerator', people: [{ ...ADMIN, membershipId: 'membership-demo-9' },
+      { ...CLERK, membershipId: MEMBERSHIP }, PORTER] })
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    expect(screen.queryByRole('button', { name: /^Add (everyone|the 1 person) who has joined/ })).toBeNull()
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [ADMIN, CLERK] })
+    await openCampaign('Demo immunisation day')
+    expect(within(actions()).getByText('Everyone active at this facility is already in this campaign.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Add (everyone|the 1 person) who has joined/ })).toBeNull()
+  })
+})

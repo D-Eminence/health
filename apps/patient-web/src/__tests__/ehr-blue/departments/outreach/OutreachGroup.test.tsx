@@ -130,6 +130,8 @@ describe('Your team', () => {
     expect(within(within(team).getByRole('list', { name: 'Team members' })).getByText('Joined')).toBeTruthy()
     expect(within(within(team).getByRole('list', { name: 'Team invitations' })).getByText('Tayo Ojo')).toBeTruthy()
     expect(within(team).getByText('Waiting to accept')).toBeTruthy()
+    // Joining adds no one to a campaign: the organiser is told how to add them.
+    expect(within(team).getByText('Helpers who have joined must be added to a campaign before they can register people: open the campaign and press Add everyone who has joined.')).toBeTruthy()
     fireEvent.change(within(team).getByRole('textbox', { name: /Their name/ }), { target: { value: 'Chinedu Eze' } })
     fireEvent.change(within(team).getByRole('textbox', { name: /Their email/ }), { target: { value: 'chinedu@example.test' } })
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
@@ -151,6 +153,14 @@ describe('Your team', () => {
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
     expect((await within(team).findByRole('alert')).textContent).toBe('This person already has an invitation waiting.')
     await waitFor(() => expect(api.outreachInvitations).toHaveBeenCalledTimes(2))
+  })
+
+  it('says nothing about campaigns until a helper has joined', async () => {
+    api.outreachInvitations.mockResolvedValue({ members: [], invitations: [] })
+    renderDept(<Outreach />)
+    const team = await screen.findByRole('region', { name: 'Your team' })
+    await within(team).findByText('No one invited yet.')
+    expect(within(team).queryByText(/Helpers who have joined must be added to a campaign/)).toBeNull()
   })
 
   it('checks the helper’s name and email before sending anything', async () => {
@@ -803,11 +813,23 @@ describe('the campaigns a volunteer can register into', () => {
     api.outreachCampaigns.mockResolvedValue([{ ...CAMPAIGN, startsAt: new Date(STARTS).toISOString() }])
     await openForm()
     await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalled())
-    await waitFor(() => expect(campaignHint()).toBe('You aren’t in a running registration campaign yet. Ask your organiser.'))
+    await waitFor(() => expect(campaignHint()).toBe('You haven’t been added to a running campaign yet. Ask your organiser to add you to the campaign, then press Refresh on the list.'))
 
     now = STARTS + 60_000
     act(() => { document.dispatchEvent(new Event('visibilitychange')) })
     expect(await screen.findByRole('option', { name: 'Ajegunle health week' })).toBeTruthy()
+  })
+
+  it('tells a helper who isn’t in a running campaign to ask the organiser to add them, and saves nothing', async () => {
+    api.outreachCampaignMembers.mockResolvedValue([])
+    await openForm()
+    await waitFor(() => expect(campaignHint()).toBe('You haven’t been added to a running campaign yet. Ask your organiser to add you to the campaign, then press Refresh on the list.'))
+    fillPerson()
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(document.getElementById('outreach-case-campaign-error')?.textContent)
+      .toBe('You can register people only once your organiser adds you to a running campaign. Ask them, then press Refresh on the list.')
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 
   it('says the campaigns couldn’t be loaded without signal, never that the person is in none', async () => {
@@ -815,7 +837,7 @@ describe('the campaigns a volunteer can register into', () => {
     await openForm()
     const offline = 'Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, and keep it open to register people offline.'
     await waitFor(() => expect(campaignHint()).toBe(offline))
-    expect(document.body.textContent).not.toMatch(/aren’t in a running registration campaign|only in a running registration campaign you belong to/)
+    expect(document.body.textContent).not.toMatch(/haven’t been added to a running campaign|only once your organiser adds you/)
     fillPerson()
     await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
     await press(screen.getByRole('button', { name: 'Save registration' }))
