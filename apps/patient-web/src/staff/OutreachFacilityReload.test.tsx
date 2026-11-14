@@ -103,6 +103,8 @@ describe('the outreach group chosen in this tab, after a reload', () => {
   it('is forgotten on sign-out, with everything else outreach kept for this tab', async () => {
     sessionStorage.setItem('hid-outreach:facility:staff-1', JSON.stringify(GROUP.id))
     sessionStorage.setItem('hid-outreach:health-checks:staff-1:x:case-1', JSON.stringify({ changes: { pulseBpm: '80' } }))
+    sessionStorage.setItem(`hid-outreach:new-registration:staff-1:${GROUP.id}`, JSON.stringify({ fields: { fullName: 'Kemi Balogun' },
+      language: 'en', chosenMethod: 'verbal_read_aloud', until: Date.now() + 60_000 }))
     sessionStorage.setItem('unrelated', 'kept')
     serve({ [SESSION]: [session(GROUP, 'selected')], [LOGOUT]: [() => new Response(null, { status: 204 })] })
     await open()

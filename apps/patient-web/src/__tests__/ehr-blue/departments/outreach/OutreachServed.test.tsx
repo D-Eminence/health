@@ -32,6 +32,8 @@ const pending = (id: string, extra: Record<string, unknown> = {}) => ({ id, camp
   ageYears: 30, sex: 'female', temporaryPatientId: `tmp_${id}`, createdAt: '2026-11-14T09:00:00.000Z', rowVersion: 1, ...extra })
 
 beforeEach(() => {
+  // Each test is a fresh tab: nothing typed in an earlier test's New registration is kept for it (tabMemory.ts).
+  sessionStorage.clear()
   api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
   forgetOutreachServed()

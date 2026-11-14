@@ -620,7 +620,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
     // The registrations the question listed, and the volunteer agreed to delete, go with this login; nothing else does.
     if (asked && signedOut === asked) await removeOutreachQueueEntries(asked, toDelete)
-    // And what outreach kept for this tab: health checks not saved, a Health ID code step, the group chosen.
+    // And what outreach kept for this tab: health checks not saved, a registration half typed, a Health ID code step, the
+    // group chosen.
     forgetOutreachTab()
     // So do Outreach's offline facts (offlineStart.ts): nothing opens "No signal" mode after a sign-out.
     clearOutreachSnapshot()

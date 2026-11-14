@@ -947,7 +947,10 @@ nothing is kept. `NO_BROWSER_STORAGE` is lifted for exactly one more file,
 tab must keep across a reload goes in sessionStorage (kept through a reload of the
 tab, gone when the tab closes), keyed by account, and signing out removes it all:
 health checks typed and not saved yet on one registration (until saved; never in
-localStorage), a Health ID being made with an email code (that a code was sent and
+localStorage), a New registration half typed at an outreach group, by account and
+facility (what was typed, the language and how the person agreed; until it is
+saved, kept on this device or sent, or cancelled, and for an hour at most after it
+was last changed), a Health ID being made with an email code (that a code was sent and
 when, the email typed and the Idempotency-Key in use, never the code), a claim code
 just made with no email or phone, for 15 minutes, so the slip can still print it
 after an accidental reload (the screen does not show it again), the outreach group

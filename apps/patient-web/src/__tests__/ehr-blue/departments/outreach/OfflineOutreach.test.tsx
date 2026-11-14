@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ProductHostname from '../../../../productHostname'
@@ -147,6 +147,40 @@ describe('opening Outreach with no signal', () => {
     const unread = 'Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, and keep it open to register people offline.'
     expect(screen.getByText(unread)).toBeTruthy()
     expect(screen.queryByText(/You aren’t in a running registration campaign/)).toBeNull()
+  })
+
+  it('brings a registration half typed back after a reload with no signal, and lets it go once kept on this device', async () => {
+    keepFacts()
+    online.value = false
+    serve({})
+    await openStaffApp('/provider/outreach')
+    await screen.findByText('Nothing is waiting on this device.')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New registration' })) })
+    await screen.findByRole('heading', { level: 1, name: 'New registration' })
+    fireEvent.click(document.getElementById('outreach-consent-method-self_ticked')!)
+    fireEvent.change(document.getElementById('outreach-case-name')!, { target: { value: 'Ada Bello' } })
+    fireEvent.change(document.getElementById('outreach-case-age')!, { target: { value: '34' } })
+    // Kept for this tab only: never in localStorage.
+    expect(JSON.stringify({ ...localStorage })).not.toContain('Ada Bello')
+
+    // The tab is reloaded (or the phone closed it in the background), still with no signal: the app's memory is lost,
+    // the tab's own storage and this device's queue are not.
+    cleanup()
+    vi.resetModules()
+    const { setOutreachQueueStore } = await import('../../../../ehr-blue/departments/outreach/offlineQueue')
+    setOutreachQueueStore(store)
+    serve({})
+    await openStaffApp('/provider/outreach')
+    await screen.findByText('Nothing is waiting on this device.')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New registration' })) })
+    await screen.findByRole('heading', { level: 1, name: 'New registration' })
+    expect((document.getElementById('outreach-case-name') as HTMLInputElement).value).toBe('Ada Bello')
+    expect((document.getElementById('outreach-case-age') as HTMLInputElement).value).toBe('34')
+    expect((document.getElementById('outreach-consent-method-self_ticked') as HTMLInputElement).checked).toBe(true)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save registration' })) })
+    await screen.findByText(/Ada Bello’s registration is saved on this device/)
+    expect(Object.keys(sessionStorage).filter(key => key.includes('new-registration:'))).toEqual([])
+    expect((await store.list()).filter(entry => entry.input.fullName === 'Ada Bello')).toHaveLength(1)
   })
 
   it('once Health ID answers again, reads the session as usual: an ended one goes to sign-in', async () => {
