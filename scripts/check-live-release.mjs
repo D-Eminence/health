@@ -133,6 +133,14 @@ export const EXPECTATIONS = Object.freeze([
   // the coordinator on 2026-11-13; re-check it against the shipped code at release.
   { id: 'nohassle-no-signal', label: 'Outreach "No signal" line', sites: ['outreach'],
     text: 'No signal. You can keep registering. Your work stays on this phone.', expect: 'present', enabled: true },
+  // The AccessCare release (#247): a half-typed registration survives a reload, and the one-line notice replaces the
+  // "Unverified organiser" line (outreachTerms.ts registrationNotice; the part after the group name, no apostrophes).
+  { id: '247-draft-kept', label: '#247 Outreach half-typed registration kept', sites: ['outreach'],
+    text: 'The registration you were typing is back. Check it is still the same person, then save. To start again, press Cancel.', expect: 'present', enabled: true },
+  { id: '247-one-line-notice', label: '#247 Outreach one-line notice', sites: ['outreach'],
+    text: 'to care for you and follow up and assign a Health ID for you. Only this team and Health ID can see them.', expect: 'present', enabled: true },
+  { id: '247-unverified-gone', label: '#247 Outreach "Unverified organiser" gone', sites: ['outreach'],
+    text: 'Unverified organiser', expect: 'absent', enabled: true },
 
   // #221: outreach.'s front page offers organiser sign-up, not a demo. Live (checked 2026-11-12). Read on the front page's
   // HTML only: the public site's shared scripts still say "Book a demo" for the pages that keep it.
