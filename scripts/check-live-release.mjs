@@ -139,8 +139,10 @@ export const EXPECTATIONS = Object.freeze([
     text: 'The registration you were typing is back. Check it is still the same person, then save. To start again, press Cancel.', expect: 'present', enabled: true },
   { id: '247-one-line-notice', label: '#247 Outreach one-line notice', sites: ['outreach'],
     text: 'to care for you and follow up and assign a Health ID for you. Only this team and Health ID can see them.', expect: 'present', enabled: true },
-  { id: '247-unverified-gone', label: '#247 Outreach "Unverified organiser" gone', sites: ['outreach'],
-    text: 'Unverified organiser', expect: 'absent', enabled: true },
+  // The old registration form's line ("Unverified organiser. Health ID has not checked who runs <group>."). Its second
+  // sentence, as the bare words "Unverified organiser" also ship in the API contract descriptions, which are not shown.
+  { id: '247-unverified-gone', label: '#247 Outreach "Unverified organiser" line gone', sites: ['outreach'],
+    text: 'Health ID has not checked who runs', expect: 'absent', enabled: true },
 
   // #221: outreach.'s front page offers organiser sign-up, not a demo. Live (checked 2026-11-12). Read on the front page's
   // HTML only: the public site's shared scripts still say "Book a demo" for the pages that keep it.
