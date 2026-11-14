@@ -100,11 +100,15 @@ export const worksInField = (tabs: readonly CampaignTab[]) => tabs.length > 0 &&
 
 /**
  * The campaign sections a phone's tab bar carries for Outreach on its own: for someone in the field, their sections (at
- * most three, beside Menu); for a coordinator or data checker, Today only (beside Overview and Campaigns).
+ * most three, beside Menu); for a coordinator or data checker, none (Overview and Campaigns lead the bar). Today is never
+ * one (owner, 14 Nov 2026): capturing is the campaign's main button, not a section.
  */
 export function barSections(tabs: readonly CampaignTab[]): CampaignTab[] {
-  return worksInField(tabs) ? tabs.slice(0, 3) : tabs.filter(tab => tab === 'today')
+  return worksInField(tabs) ? navSections(tabs).slice(0, 3) : []
 }
+
+/** The campaign's sections in the side menu: every one the roles have but Today, which is the capture button. */
+export const navSections = (tabs: readonly CampaignTab[]) => tabs.filter(tab => tab !== 'today')
 
 export const tabLabel = (tab: CampaignTab) => TABS.find(entry => entry.value === tab)?.label ?? tab
 

@@ -15,7 +15,7 @@ import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SIT
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, listsOnlyOwn, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
-import { barSections, CAMPAIGNS_ADDRESS, OUTREACH_HOME, setOutreachStandalone, tabAddress, tabLabel, useOutreachNav, worksInField } from '../departments/outreach/outreachNav'
+import { barSections, CAMPAIGNS_ADDRESS, navSections, OUTREACH_HOME, setOutreachStandalone, tabAddress, tabLabel, useOutreachNav, worksInField } from '../departments/outreach/outreachNav'
 import type { CampaignTab } from '../departments/outreach/insight/tabs'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { productUsable } from './pageAccess'
@@ -378,7 +378,7 @@ export function BlueFrame() {
     ...(permissions.includes('outreach.campaign.read') ? [{ to: CAMPAIGNS_ADDRESS, label: 'Campaigns', icon: Megaphone, end: true }] : []),
   ] : []
   const outreachSections: NavItem[] = onlyOwn
-    ? (outreachNav?.tabs ?? []).map(tab => ({ to: tabAddress(tab), label: tabLabel(tab), icon: OUTREACH_TAB_ICON[tab], end: true })) : []
+    ? navSections(outreachNav?.tabs ?? []).map(tab => ({ to: tabAddress(tab), label: tabLabel(tab), icon: OUTREACH_TAB_ICON[tab], end: true })) : []
   if (onlyOwn) {
     const campaignGroup = outreachNav && outreachSections.length ? [{ title: outreachNav.campaignName, items: outreachSections }] : []
     // In the field, the campaign's sections come first and Campaigns after them; otherwise Overview and Campaigns lead.

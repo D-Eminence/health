@@ -94,7 +94,8 @@ const runningCard = async (name: string) => within(await runningList()).getByRol
 async function openScreening() {
   if (roles.includes('coordinator')) await press(await screen.findByRole('button', { name: 'Continue Demo Screening' }))
   await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Screening'))
-  await waitFor(() => expect(screen.queryAllByRole('tab').length).toBeGreaterThan(0))
+  // Read: the sections' tabs (a coordinator), or the capture page (someone in the field lands on it).
+  await waitFor(() => expect(screen.queryAllByRole('tab').length + screen.queryAllByText(/^(Day start for|Station) /).length).toBeGreaterThan(0))
 }
 /** The organisation's Overview, with the running campaign's card read. */
 async function toOverview() {
@@ -109,7 +110,12 @@ async function toCampaigns() {
 const fieldOnly = () => { session.permissions = session.permissions.filter(permission => permission !== 'outreach.campaign.write') }
 /** One of the campaign's sections (its Overview has tabs of its own: Stations, Focus, Team, Sites). */
 const campaignTab = (name: string) => within(screen.getByRole('tablist', { name: 'Campaign' })).getByRole('tab', { name })
-const tabNames = () => within(screen.getByRole('tablist', { name: 'Campaign' })).getAllByRole('tab').map(tab => tab.textContent)
+const tabNames = () => {
+  const list = screen.queryByRole('tablist', { name: 'Campaign' })
+  return list ? within(list).getAllByRole('tab').map(tab => tab.textContent) : []
+}
+/** The campaign's main button, capture (on the title's row on a computer; the sticky one on a phone is its twin). */
+const captureButton = (name = 'Start capturing') => screen.getAllByRole('button', { name })[0]!
 
 describe('the Outreach page', () => {
   it('shows each campaign as a card with its dates, focuses and counts, and Continue as the one main action', async () => {
@@ -162,7 +168,8 @@ describe('the Outreach page', () => {
     renderDept(<Outreach />)
     await openScreening()
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
-    expect(campaignTab('Today').getAttribute('aria-selected')).toBe('true')
+    // Someone in the field opens on the capture page.
+    expect(screen.getByText('Day start for camp-1')).toBeTruthy()
   })
 
   it('remembers the campaign opened, and each campaign’s last tab for the visit', async () => {
@@ -304,16 +311,22 @@ describe('inside a campaign', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Screening')
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
     // The header says the name, status and dates once; the focuses are in the name, the Overview and Setup.
-    expect(screen.getByRole('heading', { level: 1 }).closest('header')!.textContent).toBe('Demo ScreeningRunning12 Nov to 14 Nov 2099')
-    expect(tabNames()).toEqual(['Overview', 'Today', 'People', 'Follow-ups', 'Team', 'Setup'])
+    expect(screen.getByRole('heading', { level: 1 }).closest('header')!.textContent).toBe('Demo ScreeningStart capturingRunning12 Nov to 14 Nov 2099')
+    // Today is not a section: capturing is the main button, on the title's row.
+    expect(tabNames()).toEqual(['Overview', 'People', 'Follow-ups', 'Team', 'Setup'])
     expect(campaignTab('Overview').getAttribute('aria-selected')).toBe('true')
     expect(await screen.findByRole('group', { name: 'Today’s counts' })).toBeTruthy()
     // Status and dates on one line under the name; More (⋯) on the name's row.
     const title = screen.getByRole('heading', { level: 1 })
     expect(title.parentElement!.contains(screen.getByRole('button', { name: 'More' }))).toBe(true)
     expect(title.parentElement!.contains(screen.getByRole('button', { name: 'All campaigns' }))).toBe(true)
-    await press(campaignTab('Today'))
+    expect(title.parentElement!.contains(captureButton())).toBe(true)
+    await press(captureButton())
     expect(await screen.findByText('Day start for camp-1')).toBeTruthy()
+    // The capture page has no capture button; back is to the section it was opened from.
+    expect(screen.queryByRole('button', { name: 'Start capturing' })).toBeNull()
+    await press(screen.getByRole('button', { name: 'Back to overview' }))
+    expect(campaignTab('Overview').getAttribute('aria-selected')).toBe('true')
     await press(campaignTab('Team'))
     expect(screen.getByText('Team of camp-1')).toBeTruthy()
     // Arrow keys move along the tabs.
@@ -323,8 +336,9 @@ describe('inside a campaign', () => {
   })
 
   it.each([
-    [['registrar', 'vitals'], ['Today', 'People']],
-    [['counsellor'], ['Today', 'People', 'Follow-ups']],
+    // A single section needs no row: the registrar's People is reached by Back from the capture page.
+    [['registrar', 'vitals'], []],
+    [['counsellor'], ['People', 'Follow-ups']],
     [['data_checker'], ['Overview', 'People']],
   ])('shows %j only their tabs', async (given, tabs) => {
     roles = given
@@ -341,7 +355,7 @@ describe('inside a campaign', () => {
     await saveDaySettings(memoryQueueStoreRef(), { accountId: 'staff-demo-1', facilityId: DEMO_HOSPITAL_ID }, 'camp-1', { siteId: 'site-2', station: 'vitals' })
     renderDept(<Outreach />)
     await openScreening()
-    await press(campaignTab('Today'))
+    await press(captureButton())
     expect(await screen.findByText('Station vitals')).toBeTruthy()
     // Their counts first, then where they are (once) with Change, then the station's own work.
     expect(screen.getByRole('group', { name: 'Your day' }).textContent).toContain('To send0All sent')
@@ -376,26 +390,36 @@ describe('inside a campaign', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'More' }))
   })
 
-  it('puts the role’s main action at the bottom away from Today, and none for a coordinator', async () => {
+  it('puts the role’s capture button on its sections: on the title’s row, and sticky at the bottom on a phone', async () => {
     roles = ['registrar']
     renderDept(<Outreach />)
     await openScreening()
+    // On the capture page itself there is none.
     expect(screen.queryByRole('button', { name: 'Register a person' })).toBeNull()
-    await press(campaignTab('People'))
-    const main = screen.getByRole('button', { name: 'Register a person' })
-    expect(main.className).toContain('h-14')
-    expect(main.closest('[data-form-actions]')).not.toBeNull()
-    await press(main)
-    expect(campaignTab('Today').getAttribute('aria-selected')).toBe('true')
+    await press(screen.getByRole('button', { name: 'Back to people' }))
+    expect(await screen.findByRole('list', { name: 'People in this campaign' })).toBeTruthy()
+    const [onRow, sticky] = screen.getAllByRole('button', { name: 'Register a person' })
+    expect(onRow!.className).toContain('max-sm:hidden')
+    expect(sticky!.className).toContain('h-14')
+    expect(sticky!.closest('[data-form-actions]')!.className).toContain('sm:hidden')
+    await press(sticky!)
+    expect(screen.getByText('Day start for camp-1')).toBeTruthy()
   })
 
-  it('gives a coordinator no main action on the Overview', async () => {
+  it('gives a coordinator Start capturing on every section; a data checker none', async () => {
     renderDept(<Outreach />)
     await openScreening()
-    await press(campaignTab('Today'))
-    await press(campaignTab('Overview'))
+    expect(captureButton()).toBeTruthy()
+    await press(campaignTab('Team'))
+    expect(captureButton()).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Register a person' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Next person' })).toBeNull()
+  })
+
+  it('gives a data checker no capture button', async () => {
+    roles = ['data_checker']
+    renderDept(<Outreach />)
+    await openScreening()
+    expect(screen.queryByRole('button', { name: 'Start capturing' })).toBeNull()
   })
 
   it('never says Dashboard: the organisation’s numbers and a campaign’s are each its Overview', async () => {
@@ -420,10 +444,10 @@ describe('inside a campaign', () => {
     try {
       renderDept(<Outreach />)
       await openScreening()
-      await waitFor(() => expect(tabNames()).toEqual(['Overview', 'Today', 'People']))
+      await waitFor(() => expect(tabNames()).toEqual(['Overview', 'People', 'Follow-ups']))
       const more = screen.getByRole('button', { name: 'More sections' })
       await press(more)
-      expect(['Follow-ups', 'Team', 'Setup'].map(name => screen.getByRole('button', { name }).textContent)).toEqual(['Follow-ups', 'Team', 'Setup'])
+      expect(['Team', 'Setup'].map(name => screen.getByRole('button', { name }).textContent)).toEqual(['Team', 'Setup'])
       await press(screen.getByRole('button', { name: 'Setup' }))
       expect(await screen.findByText('Setup of camp-1')).toBeTruthy()
       // The More button says which section it shows, and keeps focus; no tab in the row is selected then.
@@ -436,7 +460,7 @@ describe('inside a campaign', () => {
       // Arrow keys still move along the tabs in the row.
       await press(campaignTab('Overview'))
       await act(async () => { fireEvent.keyDown(campaignTab('Overview'), { key: 'ArrowRight' }) })
-      expect(document.activeElement).toBe(campaignTab('Today'))
+      expect(document.activeElement).toBe(campaignTab('People'))
     } finally {
       vi.unstubAllGlobals()
     }

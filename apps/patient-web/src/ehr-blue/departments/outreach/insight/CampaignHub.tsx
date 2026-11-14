@@ -5,7 +5,7 @@ import { FormActions } from '../../../../kasuwa/parts'
 import { Badge, Button, cx, type Icon } from '../../../../kasuwa/ui'
 import type { OutreachCampaign } from '../../../../staff/api'
 import '../../departments.css'
-import { barSections, useOutreachStandalone, worksInField } from '../outreachNav'
+import { useOutreachStandalone, worksInField } from '../outreachNav'
 import { CampaignSetup, CampaignTeam } from '../plan'
 import type { OutreachVisit } from '../campaignTypes'
 import { campaignStatusLabel } from '../outreachParts'
@@ -34,21 +34,6 @@ function useWidth(ref: RefObject<HTMLElement | null>): number | undefined {
   return width
 }
 
-/** Whether the phone's tab bar is shown (below 64rem, as the shell's lg:hidden). */
-function useTabBarShown(): boolean {
-  const query = '(max-width: 63.98rem)'
-  const [shown, setShown] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches)
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return
-    const list = matchMedia(query)
-    const change = () => setShown(list.matches)
-    change()
-    list.addEventListener('change', change)
-    return () => list.removeEventListener('change', change)
-  }, [])
-  return shown
-}
-
 /** How many sections fit as tabs in one row at this width (all on a wide page). */
 function sectionsThatFit(width: number | undefined): number {
   if (width === undefined || width >= 640) return Infinity
@@ -56,11 +41,10 @@ function sectionsThatFit(width: number | undefined): number {
 }
 
 /**
- * Inside one campaign: a compact header (back, the name in at most two lines and More on one row; status and dates on
- * the next; the focuses under them) and its sections, as the member's roles allow, in one row: every section as a tab
- * where they fit, else the first ones (the ones the roles use most) and the rest under one More. One rule against
- * saying a place twice: where Outreach is on its own, a phone's tab bar carries Today, so the row leaves Today out there
- * (unless only one section would be left in it).
+ * Inside one campaign: a compact header (back, the name, the capture button and More on one row; status and dates under
+ * the name) and the section the member is on. Capturing (Today) is the campaign's main button, not a section (owner,
+ * 14 Nov 2026). Where Outreach is on its own the side menu lists the sections, so the page doesn't; inside a hospital's
+ * EHR they are a row of tabs (as many as fit, the rest under More).
  * Where it is, is kept in memory by the page (`tab`) and the section's address.
  */
 export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, accountId, cases, onBack, onOpenVisit, onRegistered,
@@ -90,16 +74,14 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
   // The People filter a dashboard tile asked for (Positive: those who need care); a tab chosen by itself shows the default.
   const [peopleFilter, setPeopleFilter] = useState<PeopleFilter | undefined>(undefined)
   const choose = (value: CampaignTab) => { setPeopleFilter(undefined); onTab(value) }
-  // The sections in the row: those the phone's tab bar carries left out; as many as fit, the rest under More.
+  // Today is not a section (owner, 14 Nov 2026): it is the capture page, opened by the main button. The row of sections
+  // shows only inside a hospital's EHR: where Outreach is on its own, the side menu (or the phone's tab bar and Menu)
+  // already lists them, so the page doesn't say them again.
   const root = useRef<HTMLDivElement>(null)
   const width = useWidth(root)
   const standalone = useOutreachStandalone()
-  const barShown = useTabBarShown()
-  // What the tab bar carries is left out of the row: for someone in the field, all of it, so the bar is their one switch.
-  // (Unless that left one section alone in the row: then the row keeps them all, a switch rather than a lone button.)
-  const carried = standalone && barShown ? barSections(tabs) : []
-  const rest = tabs.filter(value => !carried.includes(value))
-  const sections = rest.length === 0 ? [] : rest.length >= 2 || !carried.length ? rest : tabs
+  const pages: CampaignTab[] = tabs.filter(value => value !== 'today')
+  const sections = standalone || pages.length < 2 ? [] : pages
   const fit = sectionsThatFit(width)
   const inRow = sections.length <= fit ? sections : sections.slice(0, Math.max(1, fit - 1))
 
@@ -138,8 +120,16 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
     ...(onReport ? [{ id: `${base}-report`, label: 'Report', icon: FileText, onSelect: onReport }] : []),
     ...(onRecord ? [{ id: `${base}-record`, label: 'Campaign record', icon: FolderCog, onSelect: onRecord }] : []),
   ]
-  // Away from Today, the role's main action, in thumb reach at the bottom (sticky on phones, rightmost on a computer).
-  const action = shown !== 'today' && tabs.includes('today') ? roleAction(roles) : null
+  // The main action on every section of the campaign: capture (owner, 14 Nov 2026), on the title's row on a computer and
+  // sticky in thumb reach on a phone. "Register a person" for a registrar, "Next person" at a station, "Start capturing"
+  // for a coordinator.
+  const capturing = shown === 'today'
+  const action = !capturing && tabs.includes('today') ? roleAction(roles) ?? 'Start capturing' : null
+  // From the capture page, back is to the section it was opened from (else the first one); with none, to the campaigns.
+  const lastPage = useRef<CampaignTab | undefined>(undefined)
+  if (shown && shown !== 'today') lastPage.current = shown
+  const backTo = capturing ? (lastPage.current && pages.includes(lastPage.current) ? lastPage.current : pages[0]) : undefined
+  const capture = () => choose('today')
   const labelOf = (value: CampaignTab) => TABS.find(entry => entry.value === value)!.label
   const shownInRow = inRow.includes(shown as CampaignTab)
   const folded = sections.filter(value => !inRow.includes(value))
@@ -149,9 +139,13 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
     <div ref={root} className="hid-ehr-dept">
       <header className={cx('flex min-w-0 flex-col gap-1', field ? 'mb-3 @md:mb-5' : 'mb-5')}>
         <div className="flex min-w-0 items-center gap-1">
-          <EhrBackButton label="All campaigns" onClick={onBack} />
+          {backTo ? <EhrBackButton label={`Back to ${labelOf(backTo).toLowerCase()}`} onClick={() => choose(backTo)} />
+            : <EhrBackButton label="All campaigns" onClick={onBack} />}
           {/* Someone in the field keeps the form high on a phone: the name on one line. */}
           <h1 className={cx('hid-ehr-page-title m-0 min-w-0 flex-1 break-words', field ? 'line-clamp-1 max-md:text-[20px] max-md:leading-7' : 'line-clamp-2')}>{campaign.name}</h1>
+          {action ? (
+            <Button id={`${base}-capture`} variant="primary" icon={UserPlus} className="shrink-0 max-sm:hidden" onClick={capture}>{action}</Button>
+          ) : null}
           {more.length ? <MoreMenu id={`${base}-more`} items={more} className="shrink-0" /> : null}
         </div>
         {/* Status and dates under the name, on the name's own edge (past Back); the focuses are in the name, the
@@ -195,8 +189,8 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
           {panel}
         </div>
         {action ? (
-          <FormActions>
-            <Button id={`${base}-main`} variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={() => choose('today')}>{action}</Button>
+          <FormActions className="sm:hidden">
+            <Button id={`${base}-main`} variant="primary" size="lg" className="h-14" icon={UserPlus} onClick={capture}>{action}</Button>
           </FormActions>
         ) : null}
       </div>

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../../staff/api', () => ({ staffApi: {} }))
 import { stationsFor } from '../../../../ehr-blue/departments/outreach/campaignTypes'
-import { barSections, worksInField } from '../../../../ehr-blue/departments/outreach/outreachNav'
+import { barSections, navSections, worksInField } from '../../../../ehr-blue/departments/outreach/outreachNav'
 import { datesInWords } from '../../../../ehr-blue/departments/outreach/insight/insightParts'
 
 describe('someone working in the field', () => {
@@ -16,11 +16,12 @@ describe('someone working in the field', () => {
     expect(stationsFor([])).toHaveLength(5)
   })
 
-  it('has their own sections in the phone tab bar; a coordinator has Today beside Overview and Campaigns', () => {
+  it('has their own sections in the phone tab bar; capturing (Today) is a button, never a section', () => {
     expect(worksInField(['today', 'people'])).toBe(true)
-    expect(barSections(['today', 'people', 'followups'])).toEqual(['today', 'people', 'followups'])
+    expect(barSections(['today', 'people', 'followups'])).toEqual(['people', 'followups'])
     expect(worksInField(['overview', 'today', 'people', 'followups', 'team', 'setup'])).toBe(false)
-    expect(barSections(['overview', 'today', 'people', 'followups', 'team', 'setup'])).toEqual(['today'])
+    expect(barSections(['overview', 'today', 'people', 'followups', 'team', 'setup'])).toEqual([])
+    expect(navSections(['overview', 'today', 'people'])).toEqual(['overview', 'people'])
     expect(barSections(['overview', 'people'])).toEqual([])
   })
 

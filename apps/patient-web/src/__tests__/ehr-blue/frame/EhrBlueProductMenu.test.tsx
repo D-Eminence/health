@@ -167,11 +167,12 @@ describe('Outreach on its own', () => {
     act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['overview', 'today', 'people'] }))
     expect(within(nav()).getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]))
       .toEqual([['Overview', '/provider/outreach'], ['Campaigns', '/provider/outreach/campaigns'], ['Overview', '/provider/outreach/overview'],
-        ['Today', '/provider/outreach/today'], ['People', '/provider/outreach/people']])
+        ['People', '/provider/outreach/people']])
     expect(within(nav()).getByText('Demo drive')).toBeDefined()
-    // The phone's tab bar: Overview, Campaigns and the campaign's Today (then Menu).
+    // Capturing (Today) is the campaign's button, not a section, so it isn't listed. The phone's tab bar: Overview and
+    // Campaigns (then Menu).
     const quick = screen.getByRole('navigation', { name: 'Quick' })
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
     act(() => setOutreachNav(null))
   })
 
@@ -188,16 +189,16 @@ describe('Outreach on its own', () => {
     const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
     // Overview and Campaigns, then the campaign's own group, its section shown marked.
     expect(groups).toContainEqual(['', ['Overview', 'Campaigns']])
-    expect(groups).toContainEqual(['Demo drive', ['Overview', 'Today', 'People']])
+    expect(groups).toContainEqual(['Demo drive', ['Overview', 'People']])
     const people = lists.flatMap(list => [...list.querySelectorAll('a')]).find(link => link.textContent === 'People')!
     expect(people.getAttribute('aria-current')).toBe('page')
-    // The tab bar keeps the campaign's Today while the Menu is open, and the page stays mounted under it.
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    // The tab bar stays while the Menu is open, and the page stays mounted under it.
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
     expect(page.isConnected).toBe(true)
     expect(page.closest('[hidden]')).not.toBeNull()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Close menu' })) })
     expect(screen.getByRole('heading', { level: 1 })).toBe(page)
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
     act(() => setOutreachNav(null))
   })
 
@@ -207,13 +208,13 @@ describe('Outreach on its own', () => {
     const { setOutreachNav } = await import('../../../ehr-blue/departments/outreach/outreachNav')
     act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['today', 'people', 'followups'] }))
     const quick = screen.getByRole('navigation', { name: 'Quick' })
-    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Today', 'People', 'Follow-ups'])
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['People', 'Follow-ups'])
     await act(async () => { fireEvent.click(within(quick).getByRole('button', { name: 'Menu' })) })
     const menu = screen.getByRole('heading', { level: 1, name: 'Menu' })
     const lists = [...menu.closest('div')!.parentElement!.querySelectorAll('ul')]
     const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
     // Their campaign first, then Campaigns (to switch campaign); no Overview.
-    expect(groups).toContainEqual(['Demo drive', ['Today', 'People', 'Follow-ups']])
+    expect(groups).toContainEqual(['Demo drive', ['People', 'Follow-ups']])
     expect(groups).toContainEqual(['', ['Campaigns']])
     expect(groups.flatMap(([, links]) => links)).not.toContain('Overview')
     act(() => setOutreachNav(null))
