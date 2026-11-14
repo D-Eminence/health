@@ -4,7 +4,7 @@ import { Button, Card } from '../../../../kasuwa/ui'
 import { AllInOne, DayStart, RegisterPerson, StationWork } from '../day'
 import { YourDay } from '../day/YourDay'
 import { DayScope } from '../day/dayContext'
-import { stationLabel, type OutreachPlan, type OutreachVisit } from '../campaignTypes'
+import { type OutreachPlan, type OutreachVisit } from '../campaignTypes'
 import { LoadingRows } from '../../../../kasuwa/parts'
 import { outreachQueueStore, readDaySettings, type DaySettings } from '../offlineQueue'
 
@@ -68,10 +68,7 @@ function TodayWork({ campaignId, facilityId, accountId, plan, onStart, onChange,
   // One day scope for the strip and the work under it: what is done below counts in the strip at once.
   return (
     <DayScope campaignId={campaignId}>
-      <YourDay campaignId={campaignId} onChange={onChange} place={<>
-        <span className="font-semibold">{site?.name ?? 'Your site'}</span>
-        <span className="text-ink-2">· {onePerson ? 'Everything on this device' : stationLabel(station)}</span>
-      </>} />
+      <YourDay campaignId={campaignId} onChange={onChange} site={onePerson ? `${site?.name ?? 'your site'} · everything on this phone` : site?.name ?? 'your site'} />
       {onePerson ? <AllInOne campaignId={campaignId} />
         : station === 'register' ? <RegisterPerson campaignId={campaignId} onDone={onRegistered} />
           : station ? <StationWork campaignId={campaignId} station={station} /> : null}

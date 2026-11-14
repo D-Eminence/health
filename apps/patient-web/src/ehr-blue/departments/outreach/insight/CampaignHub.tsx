@@ -7,7 +7,7 @@ import type { OutreachCampaign } from '../../../../staff/api'
 import '../../departments.css'
 import { barSections, useOutreachStandalone, worksInField } from '../outreachNav'
 import { CampaignSetup, CampaignTeam } from '../plan'
-import { focusLabel, type OutreachVisit } from '../campaignTypes'
+import type { OutreachVisit } from '../campaignTypes'
 import { campaignStatusLabel } from '../outreachParts'
 import { CampaignDashboard } from './CampaignDashboard'
 import { CampaignPeople, type PeopleFilter, type PeopleRead } from './CampaignPeople'
@@ -85,7 +85,6 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
   const field = worksInField(tabs)
   const shown = shownTab(tabs, tab)
   const plan = summary ? summary.plan : undefined
-  const focuses = plan?.focuses.map(focus => focusLabel(focus)).join(', ')
   const base = `outreach-campaign-${campaign.id}`
   const tabRefs = useRef(new Map<CampaignTab, HTMLButtonElement>())
   // The People filter a dashboard tile asked for (Positive: those who need care); a tab chosen by itself shows the default.
@@ -148,18 +147,19 @@ export function CampaignHub({ campaign, summary, roles, tab, onTab, facilityId, 
 
   return (
     <div ref={root} className="hid-ehr-dept">
-      <header className={cx('flex min-w-0 flex-col gap-2', field ? 'mb-3 @md:mb-5' : 'mb-5')}>
+      <header className={cx('flex min-w-0 flex-col gap-1', field ? 'mb-3 @md:mb-5' : 'mb-5')}>
         <div className="flex min-w-0 items-center gap-1">
           <EhrBackButton label="All campaigns" onClick={onBack} />
-          {/* Someone in the field keeps the form high on a phone: the name on one line, the focuses left to the slip. */}
+          {/* Someone in the field keeps the form high on a phone: the name on one line. */}
           <h1 className={cx('hid-ehr-page-title m-0 min-w-0 flex-1 break-words', field ? 'line-clamp-1 max-md:text-[20px] max-md:leading-7' : 'line-clamp-2')}>{campaign.name}</h1>
           {more.length ? <MoreMenu id={`${base}-more`} items={more} className="shrink-0" /> : null}
         </div>
-        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
+        {/* Status and dates under the name, on the name's own edge (past Back); the focuses are in the name, the
+            Overview and Setup, so they are not said again here. */}
+        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-9 text-[13px] text-ink-2">
           <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaignStatusLabel(campaign.status)}</Badge>
           <span className="whitespace-nowrap">{campaignDatesText(campaign)}</span>
         </p>
-        {focuses ? <p className={cx('m-0 text-[13px] break-words text-ink-2', field && 'max-md:hidden')}>{focuses}</p> : null}
       </header>
       <div className="flex flex-col gap-4">
         {inRow.length || folded.length ? (

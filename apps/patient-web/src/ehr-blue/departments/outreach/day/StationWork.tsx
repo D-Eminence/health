@@ -32,7 +32,7 @@ function StationBody({ station }: { readonly station: StationKind }) {
   if (station === 'register') return <RegisterFlow />
   return (
     <section aria-labelledby="outreach-station-heading" className="flex flex-col gap-4">
-      <h2 id="outreach-station-heading" className="sr-only">{stationLabel(station)}</h2>
+      <h2 id="outreach-station-heading" className="m-0 text-title-2 text-ink">{stationLabel(station)}</h2>
       <PlanState plan={day.plan} onRetry={day.refreshPlan}>{plan => <StationSteps plan={plan} station={station} />}</PlanState>
     </section>
   )

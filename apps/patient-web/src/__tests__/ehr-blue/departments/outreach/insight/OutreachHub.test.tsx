@@ -303,7 +303,8 @@ describe('inside a campaign', () => {
     await openScreening()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Demo Screening')
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
-    expect(document.body.textContent).toContain('Hepatitis B, High blood pressure')
+    // The header says the name, status and dates once; the focuses are in the name, the Overview and Setup.
+    expect(screen.getByRole('heading', { level: 1 }).closest('header')!.textContent).toBe('Demo ScreeningRunning12 Nov to 14 Nov 2099')
     expect(tabNames()).toEqual(['Overview', 'Today', 'People', 'Follow-ups', 'Team', 'Setup'])
     expect(campaignTab('Overview').getAttribute('aria-selected')).toBe('true')
     expect(await screen.findByRole('group', { name: 'Today’s counts' })).toBeTruthy()
@@ -342,8 +343,10 @@ describe('inside a campaign', () => {
     await openScreening()
     await press(campaignTab('Today'))
     expect(await screen.findByText('Station vitals')).toBeTruthy()
-    expect(document.body.textContent).toContain('Demo Church· Vital signs')
-    await press(screen.getByRole('button', { name: 'Change' }))
+    // Their counts first, then where they are (once) with Change, then the station's own work.
+    expect(screen.getByRole('group', { name: 'Your day' }).textContent).toContain('To send0All sent')
+    expect(document.body.textContent).toContain('At Demo ChurchChange')
+    await press(screen.getByRole('button', { name: 'Change site or station' }))
     expect(screen.getByText('Day start for camp-1')).toBeTruthy()
   })
 

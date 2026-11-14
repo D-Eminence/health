@@ -1,53 +1,63 @@
 import type { ReactNode } from 'react'
-import { CircleCheck, CloudOff, MapPin, RefreshCw } from 'lucide-react'
-import { Button } from '../../../../kasuwa/ui'
+import { CloudOff, MapPin } from 'lucide-react'
+import { Button, cx } from '../../../../kasuwa/ui'
 import { DayScope, useCampaignDay } from './dayContext'
 
 /**
- * The top of Today for someone at work (owner, 14 Nov 2026): where they are, their own count in the campaign, and
- * whether this phone's work is sent. One strip, so the form under it starts high on the screen.
+ * The top of Today for someone at work (owner, 14 Nov 2026: numbers first, like a dashboard, then the work): their own
+ * counts and what this phone still has to send as cards, then where they are, with Change, just above the work. Each
+ * thing said once: the campaign's name and dates are the page's heading, the station is the work's own title.
  */
-export function YourDay({ campaignId, place, onChange }: {
+export function YourDay({ campaignId, site, onChange }: {
   readonly campaignId: string
-  /** "Ajegunle Town Hall · Registration" */
-  readonly place: ReactNode
+  readonly site: string
   readonly onChange: () => void
 }) {
-  return <DayScope campaignId={campaignId}><Strip place={place} onChange={onChange} /></DayScope>
+  return <DayScope campaignId={campaignId}><Strip site={site} onChange={onChange} /></DayScope>
 }
 
-function Strip({ place, onChange }: { readonly place: ReactNode; readonly onChange: () => void }) {
+function Strip({ site, onChange }: { readonly site: string; readonly onChange: () => void }) {
   const { mine, roles, waiting, refused, online, queue, accountId } = useCampaignDay()
   const registers = roles.includes('registrar') || roles.includes('coordinator') || !roles.length
   const screens = roles.some(role => role !== 'registrar' && role !== 'data_checker') || !roles.length
-  const counts = mine ? [
-    ...(registers ? [`${mine.registered} registered`] : []),
-    ...(screens ? [`${mine.screened} screened`] : []),
-  ] : []
   const busy = queue.syncing
+  const cards: ReactNode[] = []
+  if (mine && registers) cards.push(<Count key="registered" label="You registered" value={mine.registered} />)
+  if (mine && screens) cards.push(<Count key="screened" label="You screened" value={mine.screened} />)
+  if (accountId) {
+    cards.push(
+      <Count key="send" label="To send" value={waiting + refused}
+        line={waiting === 0 && refused === 0 ? <span className="font-medium text-success-ink">All sent</span>
+          : refused > 0 ? <span className="font-medium text-danger-ink">{refused} not accepted</span>
+            : online ? (
+              <Button size="sm" className="mt-1 self-start" aria-disabled={busy || undefined} onClick={() => { if (!busy) void queue.sync() }}>
+                {busy ? 'Sending…' : 'Send now'}
+              </Button>
+            ) : <span className="inline-flex items-center gap-1 font-medium text-warn-ink"><CloudOff className="size-3.5" aria-hidden />No connection</span>} />,
+    )
+  }
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-tray px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="m-0 inline-flex min-w-0 flex-wrap items-center gap-x-2 text-[14px] text-ink">
+    <div className="flex flex-col gap-3">
+      {cards.length ? (
+        <div role="group" aria-label="Your day" className={cx('grid gap-2 @md:gap-3', cards.length === 3 ? 'grid-cols-3' : 'grid-cols-2')}>{cards}</div>
+      ) : null}
+      <div className="flex min-w-0 items-center gap-1">
+        <p className="m-0 inline-flex min-w-0 items-center gap-1.5 text-[14px] text-ink-2">
           <MapPin className="size-4 shrink-0 text-ink-3" aria-hidden />
-          {place}
+          <span className="truncate">At <span className="font-medium text-ink">{site}</span></span>
         </p>
-        <Button size="sm" onClick={onChange}>Change</Button>
+        <Button size="sm" variant="ghost" onClick={onChange} aria-label="Change site or station">Change</Button>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[13px]">
-        {counts.length ? <p className="m-0 text-ink"><span className="text-ink-2">You: </span><span className="font-semibold tabular">{counts.join(' · ')}</span></p> : <span />}
-        {accountId ? (
-          <p role="status" className="m-0 inline-flex items-center gap-2">
-            {waiting === 0 && refused === 0
-              ? <><CircleCheck className="size-4 text-success-ink" aria-hidden /><span className="text-ink-2">All sent</span></>
-              : waiting > 0
-                ? <>{online ? <RefreshCw className={`size-4 text-warn-ink ${busy ? 'animate-spin' : ''}`} aria-hidden /> : <CloudOff className="size-4 text-warn-ink" aria-hidden />}
-                  <span className="font-medium text-ink">{waiting} waiting to send{online ? '' : ' · no connection'}</span>
-                  {online ? <Button size="sm" aria-disabled={busy || undefined} onClick={() => { if (!busy) void queue.sync() }}>{busy ? 'Sending…' : 'Send now'}</Button> : null}</>
-                : <span className="font-medium text-danger-ink">{refused} not accepted</span>}
-          </p>
-        ) : null}
-      </div>
+    </div>
+  )
+}
+
+function Count({ label, value, line }: { readonly label: string; readonly value: number; readonly line?: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col rounded-xl bg-surface p-3 ring-1 ring-line @md:p-4">
+      <span className="text-[13px] leading-tight break-words text-ink-2">{label}</span>
+      <span className="mt-1 text-[22px] leading-8 font-semibold tracking-[-0.02em] text-ink tabular @md:text-[26px]">{value.toLocaleString('en-GB')}</span>
+      {line ? <span className="flex flex-col text-[12px] @md:text-[13px]">{line}</span> : null}
     </div>
   )
 }
