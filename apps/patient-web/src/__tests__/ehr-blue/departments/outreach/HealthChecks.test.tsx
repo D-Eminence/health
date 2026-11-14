@@ -831,3 +831,44 @@ describe('the registration’s area and the list', () => {
     expect(registrationNotice20261101('x').join(' ')).toContain('This does not give you a Health ID.')
   })
 })
+
+describe('Health checks saved anyway (owner, 14 Nov 2026: "without input info like this they should be able continue")', () => {
+  it('saves the rest when a blood sugar has no unit or timing, says what was not saved, and keeps it to finish', async () => {
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { bpSystolic: 120, bpDiastolic: 80 }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/Blood pressure, top number/, '120')
+    type(/Blood pressure, bottom number/, '80')
+    type(/^Reading/, '5.6')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    const body = api.saveOutreachScreening.mock.calls[0]![2]
+    expect(body).toMatchObject({ bpSystolic: 120, bpDiastolic: 80, glucoseValue: null, glucoseUnit: null, glucoseTiming: null })
+    await waitFor(() => expect(within(region()).getByText(/Health checks saved, except blood sugar/)).toBeTruthy())
+    expect(box(/^Reading/).value).toBe('5.6')
+    expect(within(region()).getByText('Choose the unit of the blood sugar reading.')).toBeTruthy()
+  })
+
+  it('takes a red note away as soon as its field, or one saved with it, is changed', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Reading/, '5.6')
+    await press(saveButton())
+    expect(within(region()).getByText('Choose the unit of the blood sugar reading.')).toBeTruthy()
+    choose(/^Unit/, 'mmol/L')
+    await waitFor(() => expect(within(region()).queryByText('Choose the unit of the blood sugar reading.')).toBeNull())
+    expect(within(region()).queryByText('Choose fasting or random.')).toBeNull()
+  })
+
+  it('keeps what was saved before for a part left unfinished, so nothing saved is lost', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { glucoseValue: 6.1, glucoseUnit: 'mmol/L', glucoseTiming: 'random' }) })
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(2, { glucoseValue: 6.1, glucoseUnit: 'mmol/L', glucoseTiming: 'random', pulseBpm: 72 }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Reading/).value).toBe('6.1'))
+    type(/^Pulse/, '72')
+    choose(/^Unit/, '')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toMatchObject({ pulseBpm: 72, glucoseValue: 6.1, glucoseUnit: 'mmol/L', glucoseTiming: 'random' })
+  })
+})
