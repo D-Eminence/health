@@ -33,7 +33,7 @@ import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import { healthIdUnavailable, noConnection, outreachEntriesLeftFor, purgeExpiredOutreachQueue, removeOutreachQueueEntries, sendWaitingOutreachEntriesFor, type PendingRegistration } from '../ehr-blue/departments/outreach/offlineQueue'
-import { dropExpiredClaimCodes, forgetOutreachTab, rememberTabFacility, tabFacilityToRestore, unsavedHealthChecksFor } from '../ehr-blue/departments/outreach/tabMemory'
+import { dropExpiredClaimCodes, forgetOutreachTab, halfTypedRegistrationFor, rememberTabFacility, tabFacilityToRestore, unsavedHealthChecksFor } from '../ehr-blue/departments/outreach/tabMemory'
 import { NoSignalBanner } from '../ehr-blue/departments/outreach/noSignal'
 import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, touchOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
@@ -90,6 +90,8 @@ export const NO_SIGNAL_RECHECK_MS = 30_000
 
 /** With the last session's facts kept on the outreach. site, a session read still unanswered after this opens "No signal" mode. */
 export const OFFLINE_START_AFTER_MS = 6_000
+/** Handing back from "No signal" mode: a longer wait, as Health ID has just answered, but never an unbounded one. */
+export const OFFLINE_HANDBACK_AFTER_MS = 20_000
 
 // The provider page shown, as the router has it (Gate keeps it): the session check reads it as it asks.
 let shownPathname = ''
@@ -119,6 +121,8 @@ export interface SignOutQuestion {
   waiting: number
   refused: ReadonlyArray<{ localCommandId: string; name: string; refusal: string }>
   healthChecks: boolean
+  /** A New registration half typed in this tab, not saved yet. */
+  typing: boolean
   sending: boolean
   stillWaiting: boolean
   sent: number
@@ -209,9 +213,15 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }, [])
   // Since when, in which session, and whether into the back/forward cache, the page is away.
   const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
+  // The sign-out question waiting for an answer, and the account it was asked for (askBeforeSignOut below).
+  const signOutAnswer = useRef<((answer: 'send' | 'delete' | 'stay') => void) | null>(null)
+  const signOutAccount = useRef<string | null>(null)
   // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
     if (next.status !== 'ready') setNoSignal(false)
+    // The session the sign-out question was asked in is no longer the one here (it ended, or another account signed
+    // in): the question goes, as "Stay signed in", so it never shows another person's registrations or acts on them.
+    if (signOutAnswer.current && (next.status !== 'ready' || next.session.actor.id !== signOutAccount.current)) signOutAnswer.current('stay')
     // Another account confirmed in this tab: what the last one kept in the tab (drafts, claim codes, its group) goes.
     if (next.status === 'ready') {
       if (tabAccount.current !== null && tabAccount.current !== next.session.actor.id) forgetOutreachTab()
@@ -455,15 +465,15 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // not take over: the volunteer may already be typing a registration in "No signal" mode, and swapping the page
     // would throw that typing away. "No signal" mode goes back online by itself, through its own signal check
     // (OfflineOutreach.tsx onSignal), which waits until no registration is half typed and then reads the session again.
-    // Handing back from "No signal" mode, its own check has just reached Health ID: no slow start, so a link that is slow
-    // but works goes online instead of opening "No signal" mode again at every check.
-    const kept = options?.afterSignal ? null : readOutreachSnapshot()
+    // Handing back from "No signal" mode, its own check has just reached Health ID: a longer wait (OFFLINE_HANDBACK_AFTER_MS),
+    // so a link that is slow but works goes online, and never an unbounded one on a link that keeps dropping.
+    const kept = readOutreachSnapshot()
     let openedNoSignal = false
     const slow = kept ? window.setTimeout(() => {
       if (staffSessionGeneration() !== sentIn || status.current !== 'loading') return
       openedNoSignal = true
       setState({ status: 'offline', session: null, snapshot: kept })
-    }, OFFLINE_START_AFTER_MS) : undefined
+    }, options?.afterSignal ? OFFLINE_HANDBACK_AFTER_MS : OFFLINE_START_AFTER_MS) : undefined
     // A sign-in or sign-out made while the session is read owns the state by the
     // time a late answer arrives: that answer is about the browser's earlier session.
     // So does "No signal" mode once the slow start opened it (above): the answer is left to its own check.
@@ -562,7 +572,6 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // anything was refused or still waits, the question shows again with what is left, and the volunteer chooses.
   // "Stay signed in" keeps everything. "Sign out and delete them" signs out and deletes exactly what the question listed.
   const [signOutQuestion, setSignOutQuestion] = useState<SignOutQuestion | null>(null)
-  const signOutAnswer = useRef<((answer: 'send' | 'delete' | 'stay') => void) | null>(null)
   const answerSignOut = useCallback((answer: 'send' | 'delete' | 'stay') => { signOutAnswer.current?.(answer) }, [])
 
   /**
@@ -575,21 +584,25 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       refused: left.filter(entry => entry.state === 'refused')
         .map(entry => ({ localCommandId: entry.localCommandId, name: entry.input.fullName, refusal: entry.refusal ?? '' })),
       healthChecks: unsavedHealthChecksFor(accountId),
+      typing: halfTypedRegistrationFor(accountId),
     })
     let left = await outreachEntriesLeftFor(accountId)
     let asked = question(left)
-    if (left.length === 0 && !asked.healthChecks) return []
+    if (left.length === 0 && !asked.healthChecks && !asked.typing) return []
     let stillWaiting = false
     let sent = 0
     try {
       for (;;) {
         setSignOutQuestion({ ...asked, sending: false, stillWaiting, sent })
+        signOutAccount.current = accountId
         const answer = await new Promise<'send' | 'delete' | 'stay'>(resolve => { signOutAnswer.current = resolve })
         // Only what the volunteer was shown, and agreed to delete: one saved after the question was asked stays.
         if (answer === 'delete') return left.map(entry => entry.localCommandId)
         if (answer === 'stay') return null
         // "Send now" with nothing waiting (a second press as a round ends) has nothing to send.
         if (asked.waiting > 0) {
+          // Only this account's own registrations, sent with its own session.
+          if (currentSession.current?.actor.id !== accountId) return null
           setSignOutQuestion({ ...asked, sending: true, stillWaiting, sent })
           await sendWaitingOutreachEntriesFor(accountId)
           if (currentSession.current?.actor.id !== accountId) return null
@@ -598,11 +611,12 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         left = await outreachEntriesLeftFor(accountId)
         asked = question(left)
         // Everything went, and nothing else was waiting to be saved: signs out as asked, deleting nothing.
-        if (left.length === 0 && !asked.healthChecks) return []
+        if (left.length === 0 && !asked.healthChecks && !asked.typing) return []
         stillWaiting = asked.waiting > 0
       }
     } finally {
       signOutAnswer.current = null
+      signOutAccount.current = null
       setSignOutQuestion(null)
     }
   }
@@ -712,7 +726,7 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
 function SignOutPrompt({ question }: { question: SignOutQuestion }) {
   const { answerSignOut } = useStaff()
   const prompt = useRef<HTMLElement>(null)
-  const { waiting, refused, healthChecks, sending, stillWaiting, sent } = question
+  const { waiting, refused, healthChecks, typing, sending, stillWaiting, sent } = question
   const startsOnSend = useRef(waiting > 0)
   useLayoutEffect(() => {
     const focusOn = sent === 0 && startsOnSend.current ? 'send' : 'stay'
@@ -733,6 +747,7 @@ function SignOutPrompt({ question }: { question: SignOutQuestion }) {
           <p>{notAccepted}</p>
           <ul>{refused.map(entry => <li key={entry.localCommandId}><strong>{entry.name}</strong>{entry.refusal ? `: ${entry.refusal}` : ''}</li>)}</ul>
         </>}
+        {typing && <p>You were typing a registration that isn’t saved. It will be deleted when you sign out. Stay signed in to finish it first.</p>}
         {healthChecks && <p>You have health checks that aren’t saved. They will be deleted when you sign out. Stay signed in to save them first.</p>}
       </div>
       {sent > 0 && !sending && <p role="status">{stillWaiting ? 'Could not send them yet. Try again when you have signal.' : 'Nothing is waiting to be sent now.'}</p>}

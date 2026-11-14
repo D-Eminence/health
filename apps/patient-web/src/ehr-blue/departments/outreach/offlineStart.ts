@@ -41,6 +41,11 @@ export interface OutreachSnapshot {
    * earlier copy had them: an empty list then means "not known", never "in no campaign", and "No signal" mode says so.
    */
   readonly campaignsUnread?: true
+  /**
+   * Never stored: campaigns at the group whose members read has not answered yet. The campaigns kept before under these
+   * ids stay (saveOutreachSnapshot), beside the ones this read did confirm.
+   */
+  readonly pendingCampaignIds?: readonly string[]
 }
 
 export const OUTREACH_SNAPSHOT_KEY = 'hid-outreach-offline-start'
@@ -91,7 +96,7 @@ export function keptCampaign(campaign: OutreachCampaign, now = Date.now()): bool
 }
 
 /** The facts to keep from a confirmed session at an outreach group: only those listed above. */
-export function outreachSnapshotOf({ actorId, displayName, facilityId, facilityName, healthChecksServed, campaigns, now = Date.now() }: {
+export function outreachSnapshotOf({ actorId, displayName, facilityId, facilityName, healthChecksServed, campaigns, pendingCampaignIds, now = Date.now() }: {
   readonly actorId: string
   readonly displayName: string | undefined
   readonly facilityId: string
@@ -103,6 +108,8 @@ export function outreachSnapshotOf({ actorId, displayName, facilityId, facilityN
    * are not known, and saveOutreachSnapshot keeps the campaigns an earlier copy had instead.
    */
   readonly campaigns: readonly OutreachCampaign[] | null
+  /** Campaigns at the group whose members read has not answered: what was kept before for them stays. */
+  readonly pendingCampaignIds?: readonly string[]
   readonly now?: number
 }): OutreachSnapshot {
   const facts = {
@@ -117,6 +124,7 @@ export function outreachSnapshotOf({ actorId, displayName, facilityId, facilityN
       .slice(0, 50)
       .map(campaign => ({ id: campaign.id, name: campaign.name.slice(0, LIMIT), startsAt: campaign.startsAt,
         endsAt: typeof campaign.endsAt === 'string' ? campaign.endsAt : null })),
+    ...(pendingCampaignIds?.length ? { pendingCampaignIds: [...pendingCampaignIds] } : {}),
   }
 }
 
@@ -132,8 +140,17 @@ export function saveOutreachSnapshot(snapshot: OutreachSnapshot, hostname = wind
   if (!offlineShellHere(hostname)) return
   for (const store of stores()) {
     try {
-      let next = snapshot
-      if (snapshot.campaignsUnread) {
+      const { pendingCampaignIds: pending, ...facts } = snapshot
+      let next: OutreachSnapshot = facts
+      if (pending?.length) {
+        // Some members reads have not answered: the campaigns confirmed now, and for the rest what was kept before.
+        const kept = parse(store.getItem(OUTREACH_SNAPSHOT_KEY), snapshot.savedAt)
+        const same = kept && kept.actorId === snapshot.actorId && kept.facilityId === snapshot.facilityId ? kept : null
+        const known = new Set(facts.campaigns.map(campaign => campaign.id))
+        const carried = (same?.campaigns ?? []).filter(campaign => pending.includes(campaign.id) && !known.has(campaign.id))
+        const campaigns = [...facts.campaigns, ...carried].slice(0, 50)
+        next = { ...facts, campaigns, ...(campaigns.length === 0 ? { campaignsUnread: true as const } : {}) }
+      } else if (snapshot.campaignsUnread) {
         const kept = parse(store.getItem(OUTREACH_SNAPSHOT_KEY), snapshot.savedAt)
         if (kept && kept.actorId === snapshot.actorId && kept.facilityId === snapshot.facilityId) {
           const { campaignsUnread: _unknownNow, ...rest } = snapshot

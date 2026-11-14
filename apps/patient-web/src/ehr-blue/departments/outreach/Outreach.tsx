@@ -172,8 +172,12 @@ export function Outreach() {
     const read = members.get(campaign.id)
     return read !== undefined && read.facilityId === facilityId && read.items !== null
   })
+  // Campaigns whose members read has not answered: what the facts kept before for them stays, beside the ones confirmed now.
+  const pendingCampaignIds = membersAnswered || campaigns.value === null ? [] : campaigns.value.filter(campaign => keptCampaign(campaign)
+    && !(members.get(campaign.id)?.facilityId === facilityId && members.get(campaign.id)?.items != null)).map(campaign => campaign.id)
   const offlineFacts = group && facility && facilityId && actorId && state.status === 'ready' && campaigns.value !== null && offlineShellHere(window.location.hostname)
-    ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: membersAnswered ? memberCampaigns : null })
+    ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: memberCampaigns,
+      pendingCampaignIds })
     : null
   useEffect(() => {
     if (!offlineFacts) return

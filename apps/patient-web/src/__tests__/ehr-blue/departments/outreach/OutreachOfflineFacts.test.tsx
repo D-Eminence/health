@@ -90,15 +90,26 @@ describe('the facts "No signal" mode opens from', () => {
     expect(readOutreachSnapshot()?.campaignsUnread).toBeUndefined()
   })
 
-  it('with one campaign\'s members read and another\'s not answered, still keep the campaigns kept before', async () => {
-    keptEarlier()
-    // The volunteer's own campaign answers that they are no longer in it; the other campaign's read never answers.
+  it('with one campaign\'s members read answered and another\'s not: what was answered counts, and the rest keeps what was kept before', async () => {
+    const earlier = keptEarlier()
+    // Another campaign's read answers that the volunteer is in it; their own earlier campaign's read never answers.
+    api.outreachCampaignMembers.mockImplementation((_facility: string, campaignId: string) => campaignId === NOT_MEMBER.id
+      ? Promise.resolve([{ id: 'm-1', campaignId: NOT_MEMBER.id, membershipId: 'membership-demo-1', role: 'enumerator', createdAt: '2026-11-13T08:00:00.000Z' }])
+      : new Promise(() => undefined))
+    renderDept(<Outreach />)
+    await screen.findByRole('heading', { level: 1, name: 'Outreach' })
+    await waitFor(() => expect(readOutreachSnapshot()!.savedAt).toBeGreaterThan(earlier))
+    await waitFor(() => expect(readOutreachSnapshot()?.campaigns.map(campaign => campaign.id).sort()).toEqual(['c-member', 'c-other']))
+    expect(readOutreachSnapshot()?.campaignsUnread).toBeUndefined()
+  })
+
+  it('with the volunteer\'s own campaign answering they left it and another not answered: the one they left is not kept', async () => {
+    const earlier = keptEarlier()
     api.outreachCampaignMembers.mockImplementation((_facility: string, campaignId: string) => campaignId === MEMBER.id ? Promise.resolve([]) : new Promise(() => undefined))
     renderDept(<Outreach />)
     await screen.findByRole('heading', { level: 1, name: 'Outreach' })
-    await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(2))
-    await new Promise(resolve => setTimeout(resolve, 50))
-    expect(readOutreachSnapshot()?.campaigns.map(campaign => campaign.id)).toEqual(['c-member'])
+    await waitFor(() => expect(readOutreachSnapshot()!.savedAt).toBeGreaterThan(earlier))
+    await waitFor(() => expect(readOutreachSnapshot()).toMatchObject({ campaigns: [], campaignsUnread: true }))
   })
 
   it('with no earlier copy and a members read that failed, say the campaigns are not known, not that there are none', async () => {

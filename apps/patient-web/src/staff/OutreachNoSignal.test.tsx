@@ -414,6 +414,34 @@ describe('signing out while registrations wait on this phone', () => {
     expect(sessionStorage.getItem(draft)).toBeNull()
   })
 
+  it('asks before deleting a registration half typed in this tab', async () => {
+    const calls = serve({ [SESSION]: [sessionOf()], [LOGOUT]: [() => new Response(null, { status: 204 })] })
+    await queueWith([])
+    const draft = 'hid-outreach:new-registration:staff-1:facility-1'
+    sessionStorage.setItem(draft, JSON.stringify({ fields: { fullName: 'Ada Bello (fictional)' }, language: 'en', chosenMethod: 'verbal_read_aloud',
+      until: Date.now() + 30 * 60 * 1000 }))
+    await open('/provider/outreach')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    expect(within(prompt).getByText('You were typing a registration that isn’t saved. It will be deleted when you sign out. Stay signed in to finish it first.')).toBeTruthy()
+    expect(calls).not.toContain(LOGOUT)
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Stay signed in' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(sessionStorage.getItem(draft)).not.toBeNull()
+    sessionStorage.removeItem(draft)
+  })
+
+  it('does not count a health-checks draft with no typed changes as unsaved', async () => {
+    serve({ [SESSION]: [sessionOf()], [LOGOUT]: [() => new Response(null, { status: 204 })] })
+    await queueWith([])
+    sessionStorage.setItem('hid-outreach:health-checks:staff-1:facility-1:case-9', JSON.stringify({ changes: {}, unsure: { at: 1 }, attempt: null }))
+    await open('/provider/outreach')
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(where()).toBe('/provider/sign-in'))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
   it('signs out at once, asking nothing, when none wait', async () => {
     serve({ [SESSION]: [sessionOf()], [LOGOUT]: [() => new Response(null, { status: 204 })] })
     await queueWith([{ localCommandId: 'other-1', accountId: 'staff-2' }])

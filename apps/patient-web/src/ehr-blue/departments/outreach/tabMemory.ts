@@ -249,3 +249,23 @@ export function keptNewRegistration(accountId: string, facilityId: string, now =
   }
   return { fields: fields as Record<string, string>, language: kept.language as string, chosenMethod: kept.chosenMethod as string }
 }
+
+/**
+ * Whether this tab keeps a New registration half typed for the account, at any facility, still within its time: the
+ * sign-out question names it before signing out deletes it. Never throws.
+ */
+export function halfTypedRegistrationFor(accountId: string, now = Date.now()): boolean {
+  try {
+    const store = tabStore()
+    if (!store) return false
+    const own = `${PREFIX}new-registration:${accountId}:`
+    for (let index = 0; index < store.length; index += 1) {
+      const key = store.key(index)
+      if (!key?.startsWith(own)) continue
+      let kept: { until?: unknown } | null = null
+      try { kept = JSON.parse(store.getItem(key) ?? 'null') as { until?: unknown } | null } catch { continue }
+      if (kept && typeof kept.until === 'number' && kept.until > now) return true
+    }
+  } catch { /* nothing readable is kept */ }
+  return false
+}
