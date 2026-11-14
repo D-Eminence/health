@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError, plainErrorText } from '@hid/http'
-import { PasswordInput } from '@hid/ui'
+
 import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { useStaff } from '../../../staff/App'
 import type { StaffLoginChallenge, StaffSession } from '../../../staff/api'
@@ -76,7 +76,7 @@ export function BlueSignIn() {
     setNoFacility(false)
     setBusy(true)
     try {
-      const answer = await login(email.trim(), password, token || undefined)
+      const answer = await login(email.trim(), password || 'email-only', token || undefined)
       if (answer.kind === 'challenge') {
         setPassword('')
         setChallenge(answer.challenge)
@@ -123,13 +123,8 @@ export function BlueSignIn() {
             <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder={words.emailExample} value={email} required
               onChange={event => setEmail(event.target.value)} />
           </div>
-          <div className="auth-field-label">
-            <label htmlFor="blue-sign-in-password">Password</label>
-            <PasswordInput appearance="plain" id="blue-sign-in-password" autoComplete="current-password" value={password} required
-              onChange={event => setPassword(event.target.value)} />
-          </div>
-          {/* Outreach on Supabase (temporary): the first sign-in with an email your coordinator added sets your password. */}
-          <p className="-mt-3 m-0 text-[13px] text-ink-2">First time? Use the email your coordinator added and choose a password (8 or more characters).</p>
+          {/* Outreach on Supabase (temporary): email only; being on a campaign's team is enough (owner, 14 Nov 2026). */}
+          <p className="-mt-3 m-0 text-[13px] text-ink-2">Use the email your coordinator added to the team.</p>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!!siteKey && !token)}>
             {busy ? 'Signing in…' : 'Sign in'}

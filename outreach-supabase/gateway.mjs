@@ -70,30 +70,36 @@ function staffSession() {
 }
 
 /**
- * Sign-in says the real reason when it can't go on (codes starting OUTREACH_, shown as they are by the sign-in page):
- * a short password, a wrong password, an email Supabase still holds for a check, a sign-up Supabase refuses, or an
- * email not on any team.
+ * Sign-in by email only (owner, 14 Nov 2026): being on a team is enough. Supabase still needs a password, so each
+ * email's password is worked out from the email itself (the same way in reset-passwords.sql); nobody types one.
+ * What protects the records is the team list: the database shows an organisation's records only to its listed emails.
  */
+const PASSWORD_SALT = 'health-id-outreach-2026'
+async function passwordFor(email) {
+  const bytes = new TextEncoder().encode(`${email}:${PASSWORD_SALT}`)
+  const hash = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 async function signIn(body) {
   const email = String(body?.email ?? '').trim().toLowerCase()
-  const password = String(body?.password ?? '')
-  if (!email) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter your email.')
-  if (password.length < 8) return problem(400, 'OUTREACH_SIGN_IN_SHORT', 'Your password needs at least 8 characters.')
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter your email address.')
+  const password = await passwordFor(email)
   let { error } = await supabase.auth.signInWithPassword({ email, password })
   if (error && /email not confirmed/i.test(error.message)) {
-    return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'This email is waiting for an email check. Your organiser can release it in Supabase (turn off "Confirm email", then confirm the user).')
+    return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'This email is waiting for an email check. Your organiser can release it: run reset-passwords.sql in Supabase.')
   }
   if (error && /invalid login credentials/i.test(error.message)) {
-    // The first sign-in sets the password: an email with no account yet gets one (Supabase "Confirm email" is off).
+    // The first sign-in makes the account (Supabase "Confirm email" is off).
     const made = await supabase.auth.signUp({ email, password })
     if (made.error) {
       if (/already registered|already exists/i.test(made.error.message)) {
-        return problem(400, 'OUTREACH_SIGN_IN_WRONG', 'That password isn’t right for this email. If it’s forgotten, your organiser can delete the user in Supabase so the next sign-in sets a new one.')
+        return problem(400, 'OUTREACH_SIGN_IN_OLD_PASSWORD', 'This email still has an old password. Your organiser can fix it: run reset-passwords.sql in Supabase, then sign in again.')
       }
       return problem(400, 'OUTREACH_SIGN_IN_REFUSED', `Supabase refused the new account: ${made.error.message}`)
     }
     if (!made.data.session) {
-      return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'Supabase is still asking for an email check. Your organiser needs to turn off "Confirm email" in Supabase and confirm this user.')
+      return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'Supabase is still asking for an email check. Your organiser needs to turn off "Confirm email" in Supabase and run reset-passwords.sql.')
     }
     error = null
   }
