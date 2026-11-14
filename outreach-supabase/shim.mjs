@@ -9,6 +9,13 @@ if (!window.location.pathname.startsWith('/provider')) {
   window.history.replaceState(null, '', `/provider/outreach${window.location.search}${window.location.hash}`)
 }
 const CSRF = 'outreach-supabase'
+
+// Keep the app on the phone so it opens with no signal (outreach-sw.js, made at build time).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  const register = () => { navigator.serviceWorker.register('/outreach-sw.js').catch(() => {}) }
+  if (document.readyState === 'complete') register()
+  else window.addEventListener('load', register)
+}
 try { document.cookie = `hid_access_csrf=${CSRF}; Path=/; SameSite=Lax` } catch { /* the client falls back to the response header */ }
 
 const realFetch = window.fetch.bind(window)

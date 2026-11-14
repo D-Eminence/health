@@ -30,6 +30,7 @@ class Query {
   then(resolve, reject) { return this.run().then(resolve, reject) }
   async run() {
     await delay()
+    if (!navigator.onLine) return { data: null, error: { message: 'TypeError: Failed to fetch' } }
     const rows = tables[this.table]
     const visible = row => this.table === 'outreach_access' || !session ? true : true
     if (this.mode === 'insert') {
@@ -56,6 +57,7 @@ export function createClient() {
     from: table => new Query(table),
     async rpc(name, args) {
       await delay()
+      if (!navigator.onLine) return { data: null, error: { message: 'TypeError: Failed to fetch' } }
       if (name !== 'outreach_prepare_sign_in') return { data: null, error: { message: `function ${name} not found` } }
       const email = String(args.p_email).toLowerCase()
       if (!tables.outreach_access.some(row => row.email === email)) return { data: false, error: null }

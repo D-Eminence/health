@@ -9,6 +9,7 @@
  * Writes check each row's version, so two phones saving the same person at once never overwrite each other.
  */
 import { createClient } from '@supabase/supabase-js'
+import { forget, keep, read } from './offline-store.mjs'
 import { flagVital } from '../apps/patient-web/src/ehr-blue/departments/outreach/screeningTemplates.ts'
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL
@@ -91,12 +92,18 @@ async function loadContext() {
   if (!session) { context = null; return null }
   const email = String(session.user.email ?? '').toLowerCase()
   if (context && context.user.id === session.user.id) return context
+  const kept = await read(`context:${session.user.id}`)
   const { data: rows, error } = await supabase.from('outreach_access').select('org_id, email, name, role').eq('email', email)
-  if (error) throw error
+  if (error) {
+    // No signal: who this person is and their organisation, as this phone last knew them.
+    if (offline(error) && kept) { context = { user: session.user, ...kept }; cache = { at: 0, org: null, docs: new Map() }; return context }
+    throw error
+  }
   const mine = rows?.[0]
   if (!mine) { context = { user: session.user, email, org: null, mine: null }; return context }
   const { data: org } = await supabase.from('outreach_orgs').select('id, name').eq('id', mine.org_id).single()
-  context = { user: session.user, email, org: org ?? { id: mine.org_id, name: 'Outreach' }, mine }
+  context = { user: session.user, email, org: org ?? kept?.org ?? { id: mine.org_id, name: 'Outreach' }, mine }
+  void keep(`context:${session.user.id}`, { email, org: context.org, mine })
   cache = { at: 0, org: null, docs: new Map() }
   return context
 }
@@ -166,15 +173,27 @@ const docKey = (kind, id) => `${kind}|${id}`
 
 async function refresh(force = false) {
   if (!force && cache.org === context.org.id && Date.now() - cache.at < 2500) return
+  if (!navigator.onLine && cache.org === context.org.id && cache.docs.size) return
   const docs = new Map()
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from('outreach_docs').select('kind, id, campaign_id, data, version')
-      .eq('org_id', context.org.id).order('id').range(from, from + 999)
-    if (error) throw error
-    for (const row of data) docs.set(docKey(row.kind, row.id), { ...row, data: { ...row.data } })
-    if (data.length < 1000) break
+  try {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from('outreach_docs').select('kind, id, campaign_id, data, version')
+        .eq('org_id', context.org.id).order('id').range(from, from + 999)
+      if (error) throw error
+      for (const row of data) docs.set(docKey(row.kind, row.id), { ...row, data: { ...row.data } })
+      if (data.length < 1000) break
+    }
+  } catch (error) {
+    if (!offline(error)) throw error
+    // No signal: the records as this phone last read them (writes wait on the phone and go when the signal is back).
+    if (cache.org === context.org.id && cache.docs.size) return
+    const kept = await read(`docs:${context.org.id}`)
+    if (!kept) throw error
+    cache = { at: Date.now(), org: context.org.id, docs: new Map(kept.map(row => [docKey(row.kind, row.id), row])) }
+    return
   }
   cache = { at: Date.now(), org: context.org.id, docs }
+  void keep(`docs:${context.org.id}`, [...docs.values()])
 }
 
 const all = kind => [...cache.docs.values()].filter(row => row.kind === kind)
@@ -187,10 +206,14 @@ const visitOf = id => cache.docs.get(docKey('visit', id))?.data
 
 class Conflict extends Error {}
 
+/** No signal (or Supabase unreachable): Outreach then works from what this phone last read. */
+const offline = error => !navigator.onLine || error instanceof TypeError || /failed to fetch|network|load failed|fetch failed/i.test(String(error?.message ?? error))
+
 async function insertDoc(kind, id, campaignId, data) {
   const { error } = await supabase.from('outreach_docs').insert({ org_id: context.org.id, kind, id, campaign_id: campaignId, data, version: 1 })
   if (error) throw error
   cache.docs.set(docKey(kind, id), { kind, id, campaign_id: campaignId, data, version: 1 })
+  void keep(`docs:${context.org.id}`, [...cache.docs.values()])
 }
 
 /** Changes one row safely: reads it fresh, applies `change`, saves only if no one saved it meanwhile (else tries again). */
@@ -208,6 +231,7 @@ async function changeDoc(kind, id, change) {
     if (saveError) throw saveError
     if (saved?.length) {
       cache.docs.set(docKey(kind, id), { ...row, data, version: row.version + 1 })
+      void keep(`docs:${context.org.id}`, [...cache.docs.values()])
       return { ...answer, data, version: row.version + 1 }
     }
   }
@@ -234,13 +258,13 @@ const isCoordinator = campaignId => yourRoles(campaignId).includes('coordinator'
 /** A team member who signs in for the first time is marked as joined. */
 async function markJoined(campaignId) {
   const own = you(campaignId)
-  if (!own || own.status !== 'invited') return
+  if (!own || own.status !== 'invited' || !navigator.onLine) return
   await changeDoc('team', campaignId, data => {
     const member = data.members.find(entry => entry.memberId === own.memberId)
     if (!member || member.status !== 'invited') return { unchanged: true }
     member.status = 'accepted'; member.joinedAt = iso(); member.rowVersion += 1
     return {}
-  })
+  }).catch(error => { if (!offline(error)) throw error })
 }
 
 function visitFor(visit) {
@@ -715,7 +739,7 @@ export async function respond(method, path, { body, headers } = {}) {
   if (!configured) return problem(503, 'OUTREACH_NOT_CONFIGURED', 'This copy of Outreach isn’t connected to its database yet.')
   try {
     if (path === '/auth/login' && method === 'POST') return await signIn(body)
-    if (path === '/auth/logout' && method === 'POST') { keepPerson(null); await supabase.auth.signOut(); context = null; return [204, null] }
+    if (path === '/auth/logout' && method === 'POST') { keepPerson(null); await forget(); await supabase.auth.signOut().catch(() => {}); context = null; return [204, null] }
     const ready = await loadContext()
     if (path === '/auth/session' || path === '/auth/refresh' || path === '/auth/facility') {
       if (!ready) return problem(401, 'UNAUTHENTICATED', 'Sign in')
@@ -737,7 +761,7 @@ export async function respond(method, path, { body, headers } = {}) {
   } catch (error) {
     if (error instanceof Conflict) return problem(409, 'VERSION_CONFLICT', 'Someone else saved this at the same time. Try again.')
     // A network failure: the screens keep the work on the phone and send it later.
-    if (error instanceof TypeError || /fetch|network/i.test(String(error?.message))) throw error
+    if (offline(error)) throw error
     return problem(500, 'OUTREACH_STORE_ERROR', 'Something went wrong saving this. Try again.')
   }
 }

@@ -27,7 +27,9 @@ in the browser, with the same request and response shapes, so moving to AWS late
 - **Team:** campaign → **Team** → **Invite**. Enter each worker's **email**, their roles, site and station.
   They open the site and sign in with that email.
 - **Capturing:** **Start capturing** → pick the site and station → work.
-- **Offline:** open the site once while online. After that, work done without signal stays on the phone ("N waiting to send") and goes when the signal returns.
+- **Offline:** sign in once with signal. After that the app opens and works with no signal: campaigns, team and the records
+  this phone last read are kept on it, and what is captured waits on the phone ("To send") and goes when the signal returns.
+  Two phones offline don't see each other's work until both are back online. Signing out clears what the phone kept.
 
 ## What this setup does not do
 - **Text messages** (consent codes, slips by text): there is no SMS service. Use "They agreed out loud" and printed slips.
