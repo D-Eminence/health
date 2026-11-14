@@ -332,7 +332,7 @@ export function Outreach() {
     const campaign = listed ?? (!settled || view.created ? view.snapshot : null)
     content = campaign
       ? <OutreachCampaignView key={campaign.id} facilityId={facilityId} campaign={campaign} members={membersOf(campaign.id)}
-        manage={canManage} created={view.created} onChanged={campaigns.refresh}
+        manage={canManage} group={group} created={view.created} onChanged={campaigns.refresh}
         exportAction={canExport ? <OutreachExport cases={cases.value} campaign={campaign} campaignOf={campaignOf} /> : undefined}
         registrations={canReadCases ? { canLink: canWrite && !group, group,
           onOpen: item => show({ kind: 'case', id: item.id, snapshot: item, created: false,

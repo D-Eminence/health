@@ -330,7 +330,7 @@ export function OutreachNew({ facilityId, accountId, showCampaign, campaigns, ca
       else if (guardianName && guardianName.length < 2) errors.guardian = 'Enter at least 2 characters.'
       else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
-        : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You can register people only in a running registration campaign you belong to.'
+        : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You can register people only once your organiser adds you to a running campaign. Ask them, then press Refresh on the list.'
       if (operationalNotes !== undefined && operationalNotes.length > groupNotesLimit) {
         errors.notes = `Keep notes to ${groupNotesLimit} characters. Record health check results in Health checks, not in the notes.`
       }
@@ -495,7 +495,7 @@ export function OutreachNew({ facilityId, accountId, showCampaign, campaigns, ca
           {group ? (
             <OutreachField id={FIELD_ID.campaign} label="Campaign" required {...field('campaign')}
               hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.'
-                : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
+                : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You haven’t been added to a running campaign yet. Ask your organiser to add you to the campaign, then press Refresh on the list.'}>
               <EhrSelect name="campaignId" required {...controlProps(FIELD_ID.campaign, fieldError('campaign'), true)}>
                 {campaigns.length !== 1 ? <option value="">Choose a campaign</option> : null}
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}

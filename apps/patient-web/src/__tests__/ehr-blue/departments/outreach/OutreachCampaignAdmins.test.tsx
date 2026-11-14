@@ -1,8 +1,10 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { SAID_REFUSED } from '../../../said'
 
 /*
@@ -11,15 +13,17 @@ import { SAID_REFUSED } from '../../../said'
  * add people to it. Every account, facility, campaign and person here is fictional.
  */
 
-const session = vi.hoisted(() => ({ permissions: [] as string[] }))
+const session = vi.hoisted(() => ({ permissions: [] as string[], roles: ['outreach_officer'] as string[] }))
 vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../harness')
-  return { useStaff: () => staffContext(fakeFacility(session.permissions, { id: hospital, name: 'Demo Hospital', roles: ['outreach_officer'] })) }
+  return { useStaff: () => staffContext(fakeFacility(session.permissions, { id: hospital, name: 'Demo Hospital', roles: session.roles })) }
 })
 
 const api = vi.hoisted(() => ({
   outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn(), outreachCampaignGovernance: vi.fn(),
   outreachCampaignStaff: vi.fn(), createOutreachCampaign: vi.fn(), setOutreachCampaignStatus: vi.fn(), addOutreachCampaignMember: vi.fn(),
+  // An outreach group's "Your team" only.
+  outreachInvitations: vi.fn(),
 }))
 // Every staff API member the page reaches for that this test does not provide.
 const unprovided = vi.hoisted(() => new Set<string>())
@@ -54,6 +58,7 @@ beforeEach(() => {
   api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   unprovided.clear()
   session.permissions = MANAGE
+  session.roles = ['outreach_officer']
   api.outreachCampaigns.mockResolvedValue([PLANNED, RUNNING, LATER, FINISHED])
   api.outreachCampaignGovernance.mockResolvedValue({ rule: 'campaign_admins' })
   api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) => [
@@ -266,5 +271,183 @@ describe('a campaign’s admin', () => {
     expect(form.textContent).toContain('Only this campaign’s admins can do this. Ask one of them.')
     expect(document.body.textContent).not.toContain(SAID_REFUSED)
     expect(document.body.textContent).not.toMatch(/VERSION_CONFLICT|OUTREACH_CAMPAIGN|reload before retrying/)
+  })
+})
+
+/*
+ * Helpers who join an outreach group are in no campaign until an admin adds them, so at an outreach group an admin can
+ * add everyone not in it yet at once, each as an enumerator, one after another.
+ */
+describe('adding everyone who has joined', () => {
+  const PORTER = { membershipId: 'membership-demo-4', name: 'Demo Porter', campaignRole: null }
+  const DRIVER = { membershipId: 'membership-demo-5', name: 'Demo Driver', campaignRole: null }
+  const everyone = () => within(actions()).getByRole('button', { name: 'Add everyone who has joined (3)' })
+  const offered = () => screen.queryByRole('button', { name: /^Add (everyone|the 1 person) who has joined/ })
+
+  beforeEach(() => {
+    session.roles = ['outreach_organiser']
+    setOutreachQueueStore(memoryQueueStore())
+    forgetOutreachServed()
+    api.outreachInvitations.mockResolvedValue({ members: [], invitations: [] })
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [ADMIN, CLERK, NURSE, PORTER, DRIVER] })
+  })
+  afterEach(() => {
+    setOutreachQueueStore(null)
+  })
+
+  it('adds each person not in the campaign yet as an enumerator, one at a time, then reads the campaign’s people again', async () => {
+    let running = 0
+    let most = 0
+    api.addOutreachCampaignMember.mockImplementation(async () => {
+      running += 1
+      most = Math.max(most, running)
+      await new Promise(resolve => setTimeout(resolve, 5))
+      running -= 1
+      return {}
+    })
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    // Adding one person with a chosen role is still offered.
+    expect(within(actions()).getByRole('button', { name: 'Add a person' })).toBeTruthy()
+    const staffReads = api.outreachCampaignStaff.mock.calls.length
+    const memberReads = api.outreachCampaignMembers.mock.calls.length
+    await press(everyone())
+    // The campaign is open and takes registrations: they see it once they press Refresh.
+    await waitFor(() => expect(statusText()).toContain('Added 3 people as enumerators. They can register people once they press Refresh.'))
+    expect(api.addOutreachCampaignMember.mock.calls).toEqual([NURSE, PORTER, DRIVER].map(person =>
+      [DEMO_HOSPITAL_ID, 'campaign-2', { membershipId: person.membershipId, role: 'enumerator' }]))
+    expect(most).toBe(1)
+    expect(document.activeElement?.id).toBe('outreach-campaign-campaign-2-done')
+    await waitFor(() => expect(api.outreachCampaignStaff.mock.calls.length).toBeGreaterThan(staffReads))
+    expect(api.outreachCampaignMembers.mock.calls.length).toBeGreaterThan(memberReads)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('at a campaign not open yet, says they can register once it is open; without registration, says nothing of it', async () => {
+    api.addOutreachCampaignMember.mockResolvedValue({})
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    await press(everyone())
+    await waitFor(() => expect(statusText()).toContain('Added 3 people as enumerators. They can register people once the campaign is open and they press Refresh.'))
+    cleanup()
+    api.outreachCampaigns.mockResolvedValue([{ ...RUNNING, services: ['lab_sample'] }])
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    await press(everyone())
+    await waitFor(() => expect(statusText()).toContain('Added 3 people as enumerators.'))
+    expect(statusText()).not.toMatch(/register people/)
+  })
+
+  it('says it for one person, and counts someone already in the campaign as added', async () => {
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [ADMIN, CLERK, NURSE] })
+    api.addOutreachCampaignMember.mockRejectedValue(new HidApiError(409, 'Already a member', { code: 'OUTREACH_CAMPAIGN_MEMBER_EXISTS' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    await press(within(actions()).getByRole('button', { name: 'Add the 1 person who has joined' }))
+    await waitFor(() => expect(statusText()).toContain('Added 1 person as an enumerator. They can register people once they press Refresh.'))
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('adds the rest when one person can’t be added, then names who wasn’t', async () => {
+    api.addOutreachCampaignMember.mockImplementation(async (_facilityId: string, _campaignId: string, body: { membershipId: string }) => {
+      if (body.membershipId === PORTER.membershipId) throw new HidApiError(409, 'Not staff', { code: 'OUTREACH_STAFF_NOT_AVAILABLE' })
+      if (body.membershipId === DRIVER.membershipId) throw new HidApiError(409, 'Already a member', { code: 'OUTREACH_CAMPAIGN_MEMBER_EXISTS' })
+      return {}
+    })
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    await press(everyone())
+    await waitFor(() => expect(statusText()).toContain('Added 2 people as enumerators.'))
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(3)
+    expect((await screen.findByRole('alert')).textContent).toBe('1 person couldn’t be added: Demo Porter. Try again.')
+    expect(document.body.textContent).not.toMatch(/OUTREACH_STAFF|OUTREACH_CAMPAIGN/)
+  })
+
+  it('stops at once with no signal and says so, never naming everyone as not added', async () => {
+    api.addOutreachCampaignMember.mockRejectedValue(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    await press(everyone())
+    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t reach Health ID. Check your connection and try again.')
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    expect(document.body.textContent).not.toMatch(/couldn’t be added: |NETWORK_ERROR/)
+    expect(statusText()).not.toContain('Added')
+  })
+
+  it('stops when Health ID is unavailable or access is refused, keeping who was added and who wasn’t', async () => {
+    api.addOutreachCampaignMember
+      .mockRejectedValueOnce(new HidApiError(409, 'Not staff', { code: 'OUTREACH_STAFF_NOT_AVAILABLE' }))
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    await press(everyone())
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('Health ID isn’t available right now. Please try again in a few minutes. 1 person couldn’t be added: Demo Nurse.')
+    expect(statusText()).toContain('Added 1 person as an enumerator.')
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(3)
+    cleanup()
+    api.addOutreachCampaignMember.mockReset()
+    api.addOutreachCampaignMember.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    await press(everyone())
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops when the campaign has changed, says so, and reads it again', async () => {
+    api.addOutreachCampaignMember.mockRejectedValue(new HidApiError(409, 'Closed', { code: 'OUTREACH_CAMPAIGN_CLOSED' }))
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    const reads = api.outreachCampaigns.mock.calls.length
+    await press(everyone())
+    expect((await screen.findByRole('alert')).textContent).toBe('This campaign is finished. A finished campaign can’t be opened again.')
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    expect(api.outreachCampaigns.mock.calls.length).toBeGreaterThan(reads)
+    expect(statusText()).not.toContain('Added')
+  })
+
+  it('starts nothing more while it is adding', async () => {
+    let finish!: () => void
+    api.addOutreachCampaignMember.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({}) }))
+      .mockResolvedValue({})
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    const button = everyone()
+    await press(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.textContent).toBe('Adding…')
+    expect(within(actions()).getByRole('button', { name: 'Add a person' }).getAttribute('aria-disabled')).toBe('true')
+    await press(button)
+    await press(within(actions()).getByRole('button', { name: 'Add a person' }))
+    expect(screen.queryByRole('form', { name: 'Add a person' })).toBeNull()
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(1)
+    await act(async () => { finish() })
+    await waitFor(() => expect(statusText()).toContain('Added 3 people as enumerators.'))
+    expect(api.addOutreachCampaignMember).toHaveBeenCalledTimes(3)
+  })
+
+  it('is not offered to a member who isn’t an admin, nor when everyone is in the campaign', async () => {
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'enumerator', people: [{ ...ADMIN, membershipId: 'membership-demo-9' },
+      { ...CLERK, membershipId: MEMBERSHIP }, PORTER] })
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    expect(offered()).toBeNull()
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    api.outreachCampaignStaff.mockResolvedValue({ yourRole: 'admin', people: [ADMIN, CLERK] })
+    await openCampaign('Demo immunisation day')
+    expect(within(actions()).getByText('Everyone active at this facility is already in this campaign.')).toBeTruthy()
+    expect(offered()).toBeNull()
+  })
+
+  it('is not offered at a hospital, where it would add all of its staff: one person at a time only', async () => {
+    session.roles = ['outreach_officer']
+    renderDept(<Outreach />)
+    await openCampaign('Demo immunisation day')
+    expect(within(actions()).getByRole('button', { name: 'Add a person' })).toBeTruthy()
+    expect(offered()).toBeNull()
+    expect(api.addOutreachCampaignMember).not.toHaveBeenCalled()
   })
 })
