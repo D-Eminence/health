@@ -882,5 +882,15 @@ describe('the campaigns a volunteer can register into', () => {
     // The numbers count what the list read; a Health ID finds its person.
     expect(screen.getByRole('region', { name: 'Registration numbers' }).textContent).toContain('Health IDs made1')
   })
+
+  it('reads the registrations again when a search finds nothing, so people registered on other phones show (owner, 14 Nov)', async () => {
+    renderDept(<Outreach />)
+    await screen.findByRole('button', { name: 'New registration' })
+    const reads = api.outreachCasesPage.mock.calls.length
+    api.outreachCases.mockResolvedValue([pending('c-9', 'Zainab Musa')])
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Outreach' }), { target: { value: 'zainab' } })
+    await waitFor(() => expect(api.outreachCasesPage.mock.calls.length).toBeGreaterThan(reads), { timeout: 3000 })
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Registrations' })).getByText('Zainab Musa')).toBeTruthy())
+  })
 })
 

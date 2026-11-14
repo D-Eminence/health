@@ -400,6 +400,42 @@ interface ListRead<T> {
 
 type CaseTab = 'waiting' | 'done' | 'all' | 'noChecks'
 
+/** How often the registrations are read again while the list is open (owner, 14 Nov: volunteers continue each other's work). */
+export const AUTO_REFRESH_MS = 60_000
+/** How long a search finding nothing waits before reading the registrations again. */
+export const SEARCH_REFRESH_MS = 800
+
+/**
+ * Reads the registrations again by itself, so people registered on other phones show here: every minute while the list
+ * is open and on screen, when the page comes back on screen, and once when a search finds nothing. Never with no signal,
+ * never while a read is under way, and never once "Show more" has added older pages (reading again would let them go).
+ */
+function useAutoRefresh(cases: CasesRead, searchFoundNothing: boolean) {
+  const latest = useRef(cases)
+  latest.current = cases
+  const readAgain = useCallback(() => {
+    const now = latest.current
+    if (now.loading || now.value === null || now.value.length > 100) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    void now.refresh()
+  }, [])
+  useEffect(() => {
+    const timer = window.setInterval(readAgain, AUTO_REFRESH_MS)
+    const shown = () => { if (document.visibilityState === 'visible') readAgain() }
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', shown)
+    }
+  }, [readAgain])
+  useEffect(() => {
+    if (!searchFoundNothing) return undefined
+    const timer = window.setTimeout(readAgain, SEARCH_REFRESH_MS)
+    return () => window.clearTimeout(timer)
+  }, [searchFoundNothing, readAgain])
+}
+
 /**
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
@@ -451,6 +487,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   const noChecks = all.filter(item => item.hasScreening === false)
   const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'noChecks' ? item.hasScreening === false : (tab === 'waiting') === caseWaiting(item))
   const rows = all.filter(item => inTab(item) && matchesSearch(search, caseSearchText(item)))
+  useAutoRefresh(cases, search.trim() !== '' && rows.length === 0)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
   const first = shownPage === 0

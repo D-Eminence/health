@@ -304,7 +304,9 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         {created && !linked
           ? <Alert intent="success" title="Registration saved">{pending ? group ? makesHealthIds
             // Under 18 no Health ID is made at outreach: a parent or guardian gets one later.
-            ? typeof item.ageYears === 'number' && item.ageYears < 18 ? 'Next: their health checks.' : 'Next: their health checks, then a Health ID if they want one.'
+            ? typeof item.ageYears === 'number' && item.ageYears < 18 ? 'Next: their health checks.'
+              : item.possibleDuplicate ? 'Next: their health checks, then a Health ID if they don’t have one.'
+                : 'Their Health ID is being made below: give them the slip. Next: their health checks.'
             : 'They have a temporary record. They can link their own Health ID to it later.'
             : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}
@@ -321,6 +323,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
                 sign-up is the fallback; elsewhere the sign-up is the way, while the registration waits for a Health ID. */}
             {(pending && !linked) || item.healthId
               ? <CreateHealthId facilityId={facilityId} item={item} canWrite={canWrite} onPrintSlip={printSlip} onHold={setHealthIdHold}
+                auto={created && group}
                 onCreated={made => { if (made) setMadeHere(made); void onChanged() }} /> : null}
             {/* Not once they have a Health ID, made here just now or before: signing up too would make them a second one. */}
             {pending && !linked && !healthIdMade

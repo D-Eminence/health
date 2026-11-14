@@ -137,9 +137,16 @@ interface CodeStep {
   readonly attempt: { readonly signature: string; readonly key: string } | null
 }
 
-export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintSlip, onHold }: {
+export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintSlip, onHold, auto = false }: {
   readonly facilityId: string
   readonly item: OutreachCase
+  /**
+   * Make the Health ID with no email at once (owner, 14 Nov 2026: "creating Health ID for them automatically"): for a
+   * registration just saved with signal, while the person is still there to get the claim code. Never for anyone under
+   * 18, one Outreach flags as a possible duplicate, one that has a Health ID, or with no signal; a refusal leaves the
+   * usual choices with what was said.
+   */
+  readonly auto?: boolean
   /** Whether the membership may write registrations: only then can it make a Health ID. */
   readonly canWrite: boolean
   /**
@@ -162,8 +169,12 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
   const [step] = useState(() => stepKey && !item.healthId ? readTab<CodeStep>(stepKey) : null)
   // The ways Outreach answered it does not serve (404 route-not-served): each hides on its own, as each ships alone.
   const [unserved, setUnserved] = useState<ReadonlySet<'email' | 'unverified'>>(() => new Set(unservedWays))
-  const [wanted, setWanted] = useState(step !== null)
-  const [method, setMethod] = useState<Method>(() => unservedWays.has('email') ? 'unverified' : 'email')
+  // Decided once, as the view opens: whether this view makes the Health ID by itself.
+  const [autoStart] = useState(() => auto && canWrite && step === null && 'healthId' in item && !item.healthId
+    && !(typeof item.ageYears === 'number' && item.ageYears < 18) && item.possibleDuplicate !== true
+    && !unservedWays.has('unverified') && (typeof navigator === 'undefined' || navigator.onLine !== false))
+  const [wanted, setWanted] = useState(step !== null || autoStart)
+  const [method, setMethod] = useState<Method>(() => autoStart || unservedWays.has('email') ? 'unverified' : 'email')
   const [email, setEmail] = useState(step?.email ?? '')
   const [emailError, setEmailError] = useState('')
   const [sent, setSent] = useState<{ readonly hint: string; readonly channel: OutreachHealthIdChannel } | null>(
@@ -210,6 +221,14 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [creating])
+
+  // The automatic Health ID: asked once, as the view opens (a retry is the usual "Create Health ID" button).
+  const autoAsked = useRef(false)
+  useEffect(() => {
+    if (!autoStart || autoAsked.current) return
+    autoAsked.current = true
+    void createUnverified()
+  }, [autoStart])
 
   useEffect(() => {
     if (wait <= 0) return undefined

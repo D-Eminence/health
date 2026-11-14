@@ -516,4 +516,42 @@ describe('Copy', () => {
       Reflect.deleteProperty(navigator, 'clipboard')
     }
   })
+
+  describe('made automatically (owner, 14 Nov)', () => {
+    const renderAuto = (item: Record<string, unknown> = ITEM) =>
+      renderDept(<CreateHealthId facilityId={GROUP_ID} item={item as never} canWrite onCreated={onCreated} auto />)
+
+    it('makes the Health ID with no email once, as the view opens, and shows the claim code', async () => {
+      api.createUnverifiedOutreachHealthId.mockResolvedValue({ healthId: 'HID-AB12CD', claimCode: '3EU-GD6' })
+      renderAuto()
+      await waitFor(() => expect(screen.getByText('HID-AB12CD')).toBeTruthy())
+      expect(screen.getByText('3EU-GD6')).toBeTruthy()
+      expect(api.createUnverifiedOutreachHealthId).toHaveBeenCalledTimes(1)
+      expect(onCreated).toHaveBeenCalledTimes(1)
+    })
+
+    it('never for anyone under 18, a possible duplicate, or someone who has a Health ID', async () => {
+      renderAuto({ ...ITEM, ageYears: 15 })
+      cleanup()
+      renderAuto({ ...ITEM, possibleDuplicate: true })
+      cleanup()
+      renderAuto({ ...ITEM, healthId: 'HID-ZZ99ZZ' })
+      await act(async () => { await Promise.resolve() })
+      expect(api.createUnverifiedOutreachHealthId).not.toHaveBeenCalled()
+    })
+
+    it('never without the automatic choice', async () => {
+      renderSection()
+      await act(async () => { await Promise.resolve() })
+      expect(api.createUnverifiedOutreachHealthId).not.toHaveBeenCalled()
+    })
+
+    it('when refused, says so and leaves Create Health ID to press again', async () => {
+      api.createUnverifiedOutreachHealthId.mockRejectedValue(new HidApiError(500, 'Server error', { code: 'SERVER_ERROR' }))
+      renderAuto()
+      await waitFor(() => expect(within(region()).getByRole('button', { name: 'Create Health ID' })).toBeTruthy())
+      expect(api.createUnverifiedOutreachHealthId).toHaveBeenCalledTimes(1)
+    })
+  })
 })
+
