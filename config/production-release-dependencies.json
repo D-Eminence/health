@@ -3,10 +3,10 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Services as deployed after hid-system #249 (0120 Health ID with no email, signed by the owner in chat on 2026-11-13: \"Q77 0120 signed\"), #250 (0121 outreach registration reads once per query, \"Q78 0121 signed\") and #251 (one declaration for both, retried under \"Q82 yes\"): all nine at 4880ee42 (release run 43521287214; 0120 aaaf65e7…d2d5 and 0121 f03a404a…43fe applied 2026-11-13 22:50 UTC). Builds on 8d6d9736 (0118, \"Q69 0118 signed\") and 2ddf1be6 (0119).",
+  "review_reference": "identity-api at 91e9fb0a as deployed by hid-system #252 (outreach sign-in lasts 24 hours; no database change; release 07:14 UTC 2026-11-14). All other services at 4880ee42, as deployed after hid-system #249 (0120 Health ID with no email, signed by the owner in chat on 2026-11-13: \"Q77 0120 signed\"), #250 (0121 outreach registration reads once per query, \"Q78 0121 signed\") and #251 (one declaration for both, retried under \"Q82 yes\"): release run 43521287214; 0120 aaaf65e7…d2d5 and 0121 f03a404a…43fe applied 2026-11-13 22:50 UTC. Builds on 8d6d9736 (0118, \"Q69 0118 signed\") and 2ddf1be6 (0119).",
   "backend_commits": {
     "gateway": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "identity-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
+    "identity-api": "91e9fb0abe2fe15c4afd7a49cfa259f09819827c",
     "ehr-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
     "lab-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
     "pharmacy-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
