@@ -106,7 +106,9 @@ describe('a page on every product\'s site', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Reading figures' })).toBeDefined()
     expect(where()).toBe('/provider/figures')
     await waitFor(() => expect(document.title).toBe(`Reading figures · Health ID ${product}`))
-    expect(menuLink('Reading figures')?.getAttribute('href')).toBe('/provider/figures')
+    // Outreach on its own lists only Outreach (owner, 13 Nov 2026): the page opens at its address but is not listed.
+    if (product === 'Outreach') expect(menuLink('Reading figures')).toBeNull()
+    else expect(menuLink('Reading figures')?.getAttribute('href')).toBe('/provider/figures')
   })
 
   it.each(SERVE_OCR)('under Migrate\'s /provider/ocr, on %s (%s), is listed and opens at its address', async (host, product) => {
@@ -115,7 +117,8 @@ describe('a page on every product\'s site', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Reading figures' })).toBeDefined()
     expect(where()).toBe('/provider/ocr/quality')
     await waitFor(() => expect(document.title).toBe(`Reading figures · Health ID ${product}`))
-    expect(menuLink('Reading figures')?.getAttribute('href')).toBe('/provider/ocr/quality')
+    if (product === 'Outreach') expect(menuLink('Reading figures')).toBeNull()
+    else expect(menuLink('Reading figures')?.getAttribute('href')).toBe('/provider/ocr/quality')
   })
 
   it.each(SEND_OCR_ON)('under Migrate\'s /provider/ocr, on %s (%s), is not listed, as that site sends the address to Migrate', async host => {
@@ -149,7 +152,10 @@ describe('a page without everyProduct', () => {
     await waitFor(() => expect(where()).not.toBe('/provider/ward-figures'))
     expect(screen.queryByRole('heading', { level: 1, name: 'Ward figures' })).toBeNull()
     expect(menuLink('Ward figures')).toBeNull()
-    expect(menuLink('Reading figures')).not.toBeNull()
+    // Outreach on its own (the outreach host, and no product's host here) lists only Outreach, so not the page on every
+    // site either (owner, 13 Nov 2026); the lab lists it.
+    if (host?.startsWith('lab.')) expect(menuLink('Reading figures')).not.toBeNull()
+    else expect(menuLink('Reading figures')).toBeNull()
   })
 
   it('is listed and opens on the EHR\'s site', async () => {

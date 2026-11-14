@@ -4,7 +4,11 @@
  */
 export const CSRF = 'mock-csrf'
 const options = { facility: 'blue' }
-/** `facility`: 'blue' (Demo Hospital, blue EHR), 'classic', or 'outreach' (a fictional outreach group, open sign-up on outreach.). */
+/**
+ * `facility`: 'blue' (Demo Hospital, blue EHR), 'classic', or 'outreach' (a fictional outreach group, open sign-up on outreach.).
+ * `outreachRoles`: the demo login's roles in the Outreach screening campaign (default coordinator and clinician), to see
+ * what a registrar, tester or data checker sees (sensitive results hidden, no outcome).
+ */
 export function configure(next) { Object.assign(options, next) }
 
 const now = () => new Date()
@@ -127,6 +131,7 @@ const STAFF_PERMISSIONS = [
   'pharmacy.work-item.read', 'pharmacy.work-item.accept', 'pharmacy.dispensing.create', 'pharmacy.dispensing.read', 'pharmacy.dispensing.reverse',
   'ocr.job.read', 'ocr.job.write', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write',
   'outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read', 'outreach.campaign.write',
+  'outreach.screening.write', 'outreach.sensitive.read',
   'billing.subscription.read', 'billing.subscription.manage',
   // Point of care (docs/POINT_OF_CARE_SPEC.md; proposed): so Payments, Price list, End of day and Payment setup show.
   'billing.settings.manage', 'billing.catalogue.read', 'billing.catalogue.manage', 'billing.bill.read', 'billing.bill.create',
@@ -142,7 +147,9 @@ const staffFacility = () => {
     return {
       id: OUTREACH_GROUP_ID, membershipId: 'member-demo-1', organizationId: 'org-outreach-demo', name: 'Ajegunle Health Volunteers',
       code: 'OUT-DEMO', roles: ['outreach_organiser'], isPrimary: true,
-      permissions: ['outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read', 'outreach.campaign.write'],
+      permissions: ['outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read', 'outreach.campaign.write',
+        // Outreach campaigns (owner decisions 13 Nov 2026; proposed): the stations' writes, and sensitive results.
+        'outreach.screening.write', 'outreach.sensitive.read'],
     }
   }
   return {
@@ -427,6 +434,610 @@ const outreachCases = () => [
   { id: 'oc-3', campaignId: 'camp-1', fullName: 'Chiamaka Obi', ageYears: 8, sex: 'female', temporaryPatientId: 'tmp_9d1c6a55', phone: null, operationalNotes: 'Came with her mother.', createdAt: iso(-1 * DAY), rowVersion: 2 },
   { id: 'oc-4', fullName: 'Segun Adewale', ageYears: 45, sex: 'unknown', temporaryPatientId: 'tmp_4e6f0b77', phone: null, operationalNotes: null, createdAt: iso(-2 * DAY), rowVersion: 1 },
 ].map(item => ({ ...item, status: outreachLinked.has(item.id) ? 'identity_resolved' : 'identity_resolution_pending', rowVersion: item.rowVersion + (outreachLinked.has(item.id) && item.id !== 'oc-3' ? 1 : 0) }))
+  // Outreach campaigns: the screening campaign's visits and this session's registrations, as the caller may see them.
+  .concat(allVisits().map(visitFor))
+
+// --------------------------------------- Outreach campaigns (owner decisions 13 Nov 2026) --
+// Proposed routes (BACKEND-NEEDS.md "Outreach campaigns (owner decisions 13 Nov 2026)"): a live campaign, "Ajegunle
+// Hepatitis B & Hypertension Screening", at two sites with a team of six (and one invitation waiting), ~40 visits across
+// the stations, 5 positive hepatitis B tests, 4 referrals and 6 follow-ups. The dashboard, follow-up list and report are
+// worked out from the visits, so they always agree. Writes are kept in memory (and replayed by Idempotency-Key); they
+// need their JSON body, which the in-page preview passes and the Node server does not (400 MOCK_BODY_NOT_RECEIVED).
+// Registration (POST /outreach/registration-cases) makes a Health ID record at once (HID-…, identity not yet checked)
+// and a visit code like K7-4F2, for any campaign. The demo login is the team's coordinator and clinician; set
+// ?outreachRoles=registrar,vitals in the preview (MOCK_OUTREACH_ROLES in the server) to see what other roles see.
+const HBV_CAMPAIGN_ID = 'camp-hbv'
+outreachCampaignStore.unshift({ id: HBV_CAMPAIGN_ID, name: 'Ajegunle Hepatitis B & Hypertension Screening', status: 'active',
+  services: ['registration', 'vitals', 'lab_sample', 'referral'], startsAt: iso(-1 * DAY), endsAt: iso(1 * DAY), rowVersion: 3 })
+outreachMemberStore.set(HBV_CAMPAIGN_ID, [{ id: 'cm-hbv-1', campaignId: HBV_CAMPAIGN_ID, membershipId: 'member-demo-1', role: 'admin', createdAt: iso(-6 * DAY) }])
+
+const CODE_ALPHABET = '234679ACDEFGHJKMNPQRTWXY'
+let seed = 20261113
+const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 }
+const pick = list => list[Math.floor(rand() * list.length)]
+const between = (low, high) => low + Math.floor(rand() * (high - low + 1))
+const usedCodes = new Set()
+function newVisitCode() {
+  for (;;) {
+    const chars = Array.from({ length: 5 }, () => pick(CODE_ALPHABET))
+    const code = `${chars.slice(0, 2).join('')}-${chars.slice(2).join('')}`
+    if (!usedCodes.has(code)) { usedCodes.add(code); return code }
+  }
+}
+const HID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+let hidCount = 0
+const newHealthId = () => `HID-${Array.from({ length: 8 }, () => pick(HID_ALPHABET)).join('')}`
+const newPatientId = () => `a1000000-0000-4000-8000-${String(++hidCount).padStart(12, '0')}`
+const day = days => iso(days * DAY).slice(0, 10)
+const maskPhone = phone => phone ? `•••• ••• ${String(phone).replace(/\D/g, '').slice(-4)}` : null
+const digits = phone => String(phone ?? '').replace(/\D/g, '').slice(-10)
+
+const HBV_SITES = [
+  { id: 'site-1', name: 'Ajegunle Town Hall', community: 'Ajegunle', lga: 'Ajeromi-Ifelodun', address: '12 Tolu Road, Ajegunle', target: 250 },
+  { id: 'site-2', name: 'St Mary’s Church Hall', community: 'Olodi-Apapa', lga: 'Ajeromi-Ifelodun', address: '4 Boundary Road, Olodi-Apapa', target: 150 },
+]
+const HBV_PACKAGE = {
+  vitals: [
+    { id: 'bp_systolic', name: 'Blood pressure, top number (systolic)', unit: 'mmHg', min: 60, max: 260, decimals: 0, normalText: 'Under 140' },
+    { id: 'bp_diastolic', name: 'Blood pressure, bottom number (diastolic)', unit: 'mmHg', min: 30, max: 160, decimals: 0, normalText: 'Under 90' },
+    { id: 'pulse', name: 'Pulse', unit: 'bpm', min: 25, max: 220, decimals: 0, normalText: '60 to 100' },
+  ],
+  tests: [{ id: 'hbsag', name: 'Hepatitis B rapid test (HBsAg)', focus: 'hepatitis_b', kind: 'choice', sensitive: true, usesKit: true,
+    results: [{ value: 'positive', label: 'Positive', flag: 'abnormal' }, { value: 'negative', label: 'Negative', flag: 'normal' }, { value: 'invalid', label: 'Invalid (test again)', flag: 'invalid' }],
+    note: 'Read at the time on the kit. No control line means invalid: test again with a new kit.' }],
+  questions: [
+    { id: 'htn_known', text: 'Has a health worker ever told you that you have high blood pressure?', kind: 'yesno', focus: 'hypertension' },
+    { id: 'htn_medicine', text: 'Do you take medicine for blood pressure?', kind: 'yesno', focus: 'hypertension' },
+    { id: 'htn_warning', text: 'Do you have a bad headache, chest pain or trouble seeing right now?', kind: 'yesno', focus: 'hypertension', flagWhen: 'yes', flagLevel: 'refer_urgent', flagReason: 'Has a bad headache, chest pain or trouble seeing now.' },
+    { id: 'hbv_tested', text: 'Have you been tested for hepatitis B before?', kind: 'yesno', focus: 'hepatitis_b' },
+    { id: 'hbv_vaccine', text: 'Have you had the hepatitis B vaccine?', kind: 'yesno', focus: 'hepatitis_b' },
+    { id: 'hbv_jaundice', text: 'Are your eyes or skin yellow now?', kind: 'yesno', focus: 'hepatitis_b', flagWhen: 'yes', flagLevel: 'refer_routine', flagReason: 'Has yellow eyes or skin.' },
+  ],
+}
+const HBV_PARTNERS = [
+  { id: 'partner-1', name: 'General Hospital Ajeromi', phone: '+2348023456789', address: '1 Tolu Road, Ajegunle', treats: ['hepatitis_b', 'hypertension'], notes: 'Medical outpatients, Monday to Friday, 8am.' },
+  { id: 'partner-2', name: 'LUTH Liver Clinic', phone: '+2348034567890', address: 'Ishaga Road, Idi-Araba', treats: ['hepatitis_b'], notes: 'Bring the referral slip. Tuesdays and Thursdays.' },
+  { id: 'partner-3', name: 'Ajegunle Primary Health Centre', phone: '+2348045678901', address: '22 Mosafejo Street, Ajegunle', treats: ['hypertension'], notes: null },
+]
+const HBV_KITS = [
+  { id: 'kit-1', siteId: 'site-1', testId: 'hbsag', lot: 'HB-2291', expiresOn: day(180), count: 200 },
+  { id: 'kit-2', siteId: 'site-1', testId: 'hbsag', lot: 'HB-2307', expiresOn: day(20), count: 100 },
+  { id: 'kit-3', siteId: 'site-2', testId: 'hbsag', lot: 'HB-2291', expiresOn: day(180), count: 14 },
+]
+const campaignPlans = new Map([[HBV_CAMPAIGN_ID, {
+  campaignId: HBV_CAMPAIGN_ID, organisationName: 'Ajegunle Health Volunteers', target: 400, focuses: ['hepatitis_b', 'hypertension'],
+  sites: HBV_SITES, package: HBV_PACKAGE, stationMode: 'split', stations: ['register', 'vitals', 'tests', 'counselling', 'results'],
+  partners: HBV_PARTNERS,
+  consent: { text: 'We will record your name, age, sex, phone and community, check your blood pressure and test for hepatitis B. '
+    + 'Your results go into your own Health ID record. Only the screening team sees them; hepatitis B results only the counsellor and clinician. '
+    + 'You can say no to any test.', version: '2026-11-13', hivText: null, hivVersion: null, languages: ['en', 'yo', 'pcm'] },
+  kits: HBV_KITS, rowVersion: 4, updatedAt: iso(-2 * DAY),
+}]])
+
+// A campaign the organisation ran last month (closed): malaria, blood pressure and one type of its own, sickle cell, which
+// is not on the list (owner, 13 Nov 2026: "Other" → a type of the organisation's own). Its visits are not kept here: its
+// dashboard is its counts as they were when it closed, and the organisation's summary adds them in.
+const PAST_CAMPAIGN_ID = 'camp-olodi'
+outreachCampaignStore.push({ id: PAST_CAMPAIGN_ID, name: 'Olodi malaria and sickle cell drive', status: 'closed',
+  services: ['registration', 'vitals', 'lab_sample', 'referral'], startsAt: iso(-40 * DAY), endsAt: iso(-38 * DAY), rowVersion: 5 })
+outreachMemberStore.set(PAST_CAMPAIGN_ID, [{ id: 'cm-olodi-1', campaignId: PAST_CAMPAIGN_ID, membershipId: 'member-demo-1', role: 'admin', createdAt: iso(-45 * DAY) }])
+const SICKLE_CELL = { id: 'custom:sickle-cell', label: 'Sickle cell' }
+campaignPlans.set(PAST_CAMPAIGN_ID, {
+  campaignId: PAST_CAMPAIGN_ID, organisationName: 'Ajegunle Health Volunteers', target: 300, focuses: ['hypertension', 'malaria', SICKLE_CELL],
+  sites: [{ id: 'site-o1', name: 'Olodi Community Centre', community: 'Olodi-Apapa', lga: 'Ajeromi-Ifelodun', address: '9 Olodi Road', target: 300 }],
+  package: { vitals: HBV_PACKAGE.vitals.concat([{ id: 'temperature', name: 'Temperature', unit: '°C', min: 32, max: 43, decimals: 1, normalText: 'Under 37.5' }]),
+    tests: [{ id: 'malaria_rdt', name: 'Malaria rapid test (mRDT)', focus: 'malaria', kind: 'choice', sensitive: false, usesKit: true,
+      results: [{ value: 'positive', label: 'Positive', flag: 'abnormal' }, { value: 'negative', label: 'Negative', flag: 'normal' }, { value: 'invalid', label: 'Invalid (test again)', flag: 'invalid' }] },
+    { id: 'own-sickle01', name: 'Sickle cell test', focus: SICKLE_CELL.id, kind: 'choice', sensitive: false, usesKit: false,
+      results: [{ value: 'positive', label: 'Positive', flag: 'abnormal' }, { value: 'negative', label: 'Negative', flag: 'normal' }, { value: 'invalid', label: 'Invalid', flag: 'invalid' }] }],
+    questions: HBV_PACKAGE.questions.filter(question => question.focus === 'hypertension') },
+  stationMode: 'split', stations: ['register', 'vitals', 'tests', 'results'], partners: HBV_PARTNERS.filter(partner => partner.treats.includes('hypertension')),
+  consent: { text: 'We will record your name, age, sex, phone and community, check your blood pressure and temperature, and test for malaria and sickle cell.',
+    version: '2026-10-01', hivText: null, hivVersion: null, languages: ['en', 'yo', 'pcm'] },
+  kits: [], rowVersion: 6, updatedAt: iso(-38 * DAY),
+})
+const pastDashboards = new Map([[PAST_CAMPAIGN_ID, {
+  asOf: iso(-38 * DAY), target: 300, registered: 212, screened: 198, waiting: {},
+  outcomes: { normal: 150, followUp: 22, referUrgent: 3, referRoutine: 37, pending: 0 },
+  byFocus: [{ focus: 'hypertension', screened: 190, positive: 37, referred: 12 }, { focus: 'malaria', screened: 198, positive: 41, referred: 23 },
+    { focus: SICKLE_CELL.id, label: SICKLE_CELL.label, screened: 64, positive: 5, referred: 5 }],
+  byMember: [], bySite: [{ siteId: 'site-o1', name: 'Olodi Community Centre', registered: 212, screened: 198 }], byHour: [], kits: [], alerts: [],
+}]])
+
+const demoRoles = () => options.outreachRoles ?? ['coordinator', 'clinician']
+const teamStore = new Map([[HBV_CAMPAIGN_ID, [
+  { memberId: 'tm-1', membershipId: 'member-demo-1', name: 'Funke Ade', phone: '+2348012345678', email: 'funke@example.test', roles: ['coordinator', 'clinician'], siteId: 'site-1', station: 'results', status: 'accepted', invitedAt: iso(-6 * DAY), joinedAt: iso(-6 * DAY), rowVersion: 1 },
+  { memberId: 'tm-2', name: 'Bisi Adeyemi', phone: '+2348021111111', email: 'bisi@example.test', roles: ['registrar'], siteId: 'site-1', station: 'register', status: 'accepted', invitedAt: iso(-5 * DAY), joinedAt: iso(-5 * DAY), rowVersion: 1 },
+  { memberId: 'tm-3', name: 'Musa Ibrahim', phone: '+2348032222222', email: null, roles: ['vitals'], siteId: 'site-1', station: 'vitals', status: 'accepted', invitedAt: iso(-5 * DAY), joinedAt: iso(-4 * DAY), rowVersion: 1 },
+  { memberId: 'tm-4', name: 'Grace Okon', phone: '+2348043333333', email: 'grace@example.test', roles: ['tester', 'counsellor'], siteId: 'site-1', station: 'tests', status: 'accepted', invitedAt: iso(-5 * DAY), joinedAt: iso(-4 * DAY), rowVersion: 2 },
+  { memberId: 'tm-5', name: 'Tobi Bello', phone: '+2348054444444', email: null, roles: ['registrar', 'vitals'], siteId: 'site-2', station: 'register', status: 'accepted', invitedAt: iso(-4 * DAY), joinedAt: iso(-3 * DAY), rowVersion: 1 },
+  { memberId: 'tm-6', name: 'Dr Chidi Nwosu', phone: '+2348065555555', email: 'chidi@example.test', roles: ['clinician', 'counsellor', 'tester'], siteId: 'site-2', station: 'results', status: 'accepted', invitedAt: iso(-4 * DAY), joinedAt: iso(-3 * DAY), rowVersion: 1 },
+  { memberId: 'tm-7', name: 'Amaka Eze', phone: '+2348076666666', email: null, roles: ['data_checker'], siteId: null, station: null, status: 'invited', invitedAt: iso(-1 * DAY), joinedAt: null, rowVersion: 1 },
+]]])
+teamStore.set(PAST_CAMPAIGN_ID, [{ memberId: 'tm-o1', membershipId: 'member-demo-1', name: 'Funke Ade', phone: '+2348012345678', email: 'funke@example.test',
+  roles: ['coordinator', 'clinician'], siteId: 'site-o1', station: 'results', status: 'accepted', invitedAt: iso(-45 * DAY), joinedAt: iso(-45 * DAY), rowVersion: 1 }])
+const teamOf = campaignId => teamStore.get(campaignId) ?? []
+const memberName = memberId => teamOf(HBV_CAMPAIGN_ID).find(member => member.memberId === memberId)?.name ?? null
+const you = campaignId => teamOf(campaignId).find(member => member.membershipId === 'member-demo-1') ?? null
+const yourRoles = campaignId => (you(campaignId) ? demoRoles() : [])
+const seesSensitive = campaignId => yourRoles(campaignId).some(role => role === 'counsellor' || role === 'clinician')
+
+// The visits. Index i: site-1 for the first 26, site-2 for the rest; newer visits are further back in the stations.
+const FIRST = { female: ['Kemi', 'Adaeze', 'Funmilayo', 'Ngozi', 'Aisha', 'Blessing', 'Chioma', 'Halima', 'Yetunde', 'Esther', 'Ronke', 'Zainab'],
+  male: ['Ibrahim', 'Segun', 'Emeka', 'Tunde', 'Musa', 'Chinedu', 'Yusuf', 'Babatunde', 'Obinna', 'Sola', 'Kunle', 'Uche'] }
+const LAST = ['Balogun', 'Okafor', 'Adeyemi', 'Musa', 'Eze', 'Ogunleye', 'Bello', 'Nwankwo', 'Abubakar', 'Okon', 'Adewale', 'Obi', 'Lawal', 'Danjuma']
+const HBV_POSITIVE_REFERRED = { 2: 'arrived', 9: 'not_arrived', 28: 'made' }
+const HBV_POSITIVE_WAITING = new Set([18, 37])
+const BP_URGENT = 12
+const BP_FOLLOW_UP = { 15: [148, 94], 31: [152, 92] }
+const RETESTED = 5
+const FOLLOW_UP_STATUS = { 2: 'reached', 9: 'not_reached', 28: 'due', 12: 'reached', 15: 'due', 31: 'due' }
+function stageOf(index) {
+  // How far along: 0 registered, 1 vitals done, 2 tests done (waiting for counselling), 3 complete.
+  const newest = index < 26 ? 25 - index : 39 - index
+  const [registered, vitals, tests] = index < 26 ? [4, 3, 3] : [2, 2, 2]
+  if (newest < registered) return 0
+  if (newest < registered + vitals) return 1
+  if (newest < registered + vitals + tests) return 2
+  return 3
+}
+const campaignVisits = []
+for (let index = 0; index < 40; index += 1) {
+  const sex = rand() < 0.55 ? 'female' : 'male'
+  const fullName = `${pick(FIRST[sex])} ${pick(LAST)}`
+  const siteId = index < 26 ? 'site-1' : 'site-2'
+  const registrar = siteId === 'site-2' ? 'tm-5' : index % 7 === 0 ? 'tm-1' : 'tm-2'
+  const createdAt = iso(-(20 + (39 - index) * 8) * MIN)
+  const at = minutes => new Date(Date.parse(createdAt) + minutes * MIN).toISOString()
+  const stage = HBV_POSITIVE_WAITING.has(index) ? 2 : stageOf(index)
+  const phone = rand() < 0.85 ? `+234${pick(['803', '806', '813', '816', '703', '706', '810', '902'])}${String(between(1000000, 9999999))}` : null
+  const visit = {
+    id: `ov-${String(index + 1).padStart(2, '0')}`, campaignId: HBV_CAMPAIGN_ID, status: 'identity_resolution_pending', createdAt,
+    fullName, ageYears: between(19, 72), sex, temporaryPatientId: `tmp_${Math.floor(rand() * 0xffffffff).toString(16).padStart(8, '0')}`,
+    phone, operationalNotes: null, rowVersion: 1 + stage,
+    healthId: newHealthId(), patientId: newPatientId(), visitCode: newVisitCode(), identityChecked: false, siteId,
+    stationsDone: ['register'], registeredBy: { memberId: registrar, name: memberName(registrar) },
+    vitals: [], tests: [], answers: [], outcome: null, referral: null, followUp: null,
+  }
+  const vitalsBy = siteId === 'site-1' ? 'tm-3' : 'tm-5'
+  const testsBy = siteId === 'site-1' ? 'tm-4' : 'tm-6'
+  const clinician = siteId === 'site-1' ? 'tm-1' : 'tm-6'
+  if (stage >= 1) {
+    const [systolic, diastolic] = index === BP_URGENT ? [186, 118] : BP_FOLLOW_UP[index] ?? [between(105, 135), between(65, 85)]
+    visit.vitals.push({ entryId: `${visit.id}-v1`, readings: { bp_systolic: systolic, bp_diastolic: diastolic, pulse: between(62, 96) }, takenAt: at(6), recordedBy: vitalsBy, siteId })
+    visit.answers = [{ questionId: 'htn_known', value: index === BP_URGENT || BP_FOLLOW_UP[index] ? 'yes' : 'no' }, { questionId: 'htn_medicine', value: 'no' },
+      { questionId: 'htn_warning', value: 'no' }, { questionId: 'hbv_tested', value: rand() < 0.2 ? 'yes' : 'no' }, { questionId: 'hbv_vaccine', value: rand() < 0.15 ? 'yes' : 'no' },
+      { questionId: 'hbv_jaundice', value: 'no' }]
+    visit.stationsDone.push('vitals')
+  }
+  if (stage >= 2) {
+    const positive = index in HBV_POSITIVE_REFERRED || HBV_POSITIVE_WAITING.has(index)
+    const lot = 'HB-2291'
+    const kitId = siteId === 'site-1' ? 'kit-1' : 'kit-3'
+    if (index === RETESTED) visit.tests.push({ entryId: `${visit.id}-t1`, testId: 'hbsag', result: 'invalid', kitId, kitLot: lot, attempt: 1, takenAt: at(14), flag: 'invalid', recordedBy: testsBy })
+    visit.tests.push({ entryId: `${visit.id}-t${index === RETESTED ? 2 : 1}`, testId: 'hbsag', result: positive ? 'positive' : 'negative', kitId, kitLot: lot,
+      attempt: index === RETESTED ? 2 : 1, takenAt: at(index === RETESTED ? 24 : 14), flag: positive ? 'abnormal' : 'normal', recordedBy: testsBy })
+    visit.stationsDone.push('tests')
+  }
+  if (stage >= 3) {
+    const referredHbv = index in HBV_POSITIVE_REFERRED
+    const confirmedBy = { memberId: clinician, name: memberName(clinician), roles: teamOf(HBV_CAMPAIGN_ID).find(member => member.memberId === clinician).roles }
+    if (referredHbv || index === BP_URGENT) {
+      const urgent = index === BP_URGENT
+      const reason = urgent ? 'Blood pressure is very high (186/118 mmHg). Needs to be seen today.' : 'Hepatitis B test is positive. Needs care at a clinic that treats hepatitis B.'
+      visit.outcome = { kind: 'refer', urgency: urgent ? 'urgent' : 'routine', reason, suggestedKind: 'refer', suggestedUrgency: urgent ? 'urgent' : 'routine', confirmedBy, confirmedAt: at(30) }
+      const status = urgent ? 'arrived' : HBV_POSITIVE_REFERRED[index]
+      visit.referral = { referralId: `ref-${visit.id}`, partnerId: urgent ? 'partner-1' : index === 9 ? 'partner-1' : 'partner-2', urgency: urgent ? 'urgent' : 'routine', reason,
+        status, notes: status === 'arrived' ? 'Seen at the clinic.' : status === 'not_arrived' ? 'Did not go yet: no money for transport.' : null, madeAt: at(31), updatedAt: at(status === 'made' ? 31 : 200), rowVersion: status === 'made' ? 1 : 2 }
+      visit.followUp = { followUpId: `fu-${visit.id}`, dueOn: urgent ? day(1) : day(7), reason: urgent ? 'Check they were seen at the hospital.' : 'Check they reached the liver clinic.',
+        status: FOLLOW_UP_STATUS[index], notes: FOLLOW_UP_STATUS[index] === 'reached' ? 'Spoke on the phone.' : FOLLOW_UP_STATUS[index] === 'not_reached' ? 'No answer twice.' : null,
+        attempts: FOLLOW_UP_STATUS[index] === 'due' ? 0 : FOLLOW_UP_STATUS[index] === 'not_reached' ? 2 : 1, updatedAt: at(32), rowVersion: FOLLOW_UP_STATUS[index] === 'due' ? 1 : 2 }
+    } else if (BP_FOLLOW_UP[index]) {
+      const [systolic, diastolic] = BP_FOLLOW_UP[index]
+      visit.outcome = { kind: 'follow_up', reason: `Blood pressure is high (${systolic}/${diastolic} mmHg). Recheck in two weeks before referring.`, suggestedKind: 'refer', suggestedUrgency: 'routine', confirmedBy, confirmedAt: at(28) }
+      visit.followUp = { followUpId: `fu-${visit.id}`, dueOn: day(index === 15 ? -1 : 14), reason: 'Recheck blood pressure.', status: FOLLOW_UP_STATUS[index], notes: null, attempts: 0, updatedAt: at(28), rowVersion: 1 }
+    } else {
+      visit.outcome = { kind: 'normal', reason: 'Everything checked today is in the usual range.', suggestedKind: 'normal', confirmedBy, confirmedAt: at(26) }
+    }
+    visit.stationsDone.push('counselling', 'results')
+  }
+  campaignVisits.push(visit)
+}
+/** Registrations made in this session (any campaign), newest first. */
+const outreachRegistered = []
+const replays = new Map()
+const allVisits = () => [...outreachRegistered, ...campaignVisits]
+const SENSITIVE_TESTS = new Set(['hbsag', 'hiv_rapid'])
+
+/** A visit as the caller may see it: sensitive results and reasons only to counsellors and clinicians. */
+function visitFor(visit) {
+  const campaignId = visit.campaignId ?? HBV_CAMPAIGN_ID
+  if (seesSensitive(campaignId)) return { ...visit, sensitiveHidden: false }
+  const hidden = visit.tests.some(test => SENSITIVE_TESTS.has(test.testId))
+  const sensitiveOutcome = visit.outcome && /hepatitis b|hiv/i.test(visit.outcome.reason)
+  return { ...visit, tests: visit.tests.filter(test => !SENSITIVE_TESTS.has(test.testId)),
+    outcome: visit.outcome && sensitiveOutcome ? { ...visit.outcome, reason: 'Shared by a counsellor or clinician.' } : visit.outcome,
+    referral: visit.referral && sensitiveOutcome ? { ...visit.referral, reason: 'Shared by a counsellor or clinician.' } : visit.referral,
+    sensitiveHidden: hidden }
+}
+const caseVisit = id => allVisits().find(visit => visit.id === id)
+const versionOf = headers => {
+  const value = headers?.get?.('if-match')
+  return value == null ? null : Number(String(value).replace(/^W\//, '').replace(/"/g, ''))
+}
+const idemKey = (headers, body) => headers?.get?.('idempotency-key') ?? body?.localCommandId ?? null
+
+/** The visit as registration answers it: a Health ID record made at once, identity not yet checked, and its visit code. */
+function registerVisit(body) {
+  const samePhone = body.phone ? allVisits().find(visit => visit.campaignId === body.campaignId && digits(visit.phone) === digits(body.phone)) : undefined
+  const visit = {
+    id: `ov-new-${outreachRegistered.length + 1}`, campaignId: body.campaignId ?? null, status: 'identity_resolution_pending', createdAt: iso(),
+    fullName: String(body.fullName ?? '').trim(), ageYears: body.ageYears, sex: body.sex, temporaryPatientId: body.temporaryPatientId ?? `tmp_${Date.now().toString(16)}`,
+    phone: body.phone ?? null, operationalNotes: body.operationalNotes ?? null, rowVersion: 1, possibleDuplicate: Boolean(samePhone),
+    // Dedupe by phone: the same person registered elsewhere keeps their one Health ID record.
+    healthId: samePhone?.healthId ?? newHealthId(), patientId: samePhone?.patientId ?? newPatientId(), visitCode: newVisitCode(), identityChecked: false,
+    siteId: you(body.campaignId)?.siteId ?? null, stationsDone: ['register'], registeredBy: you(body.campaignId) ? { memberId: you(body.campaignId).memberId, name: you(body.campaignId).name } : null,
+    vitals: [], tests: [], answers: [], outcome: null, referral: null, followUp: null,
+  }
+  outreachRegistered.unshift(visit)
+  return visit
+}
+
+function campaignDashboard(campaignId) {
+  if (pastDashboards.has(campaignId)) return pastDashboards.get(campaignId)
+  const visits = allVisits().filter(visit => visit.campaignId === campaignId)
+  const plan = campaignPlans.get(campaignId)
+  const done = (visit, station) => visit.stationsDone.includes(station)
+  const finalTest = visit => [...visit.tests].sort((a, b) => b.attempt - a.attempt).find(test => test.testId === 'hbsag')
+  const high = visit => visit.vitals.some(entry => entry.readings.bp_systolic >= 140 || entry.readings.bp_diastolic >= 90)
+  const order = plan?.stations ?? ['register', 'vitals', 'tests', 'counselling', 'results']
+  const waiting = Object.fromEntries(order.slice(1).map((station, index) => [station,
+    visits.filter(visit => done(visit, order[index]) && !done(visit, station)).length]))
+  const kits = (plan?.kits ?? []).map(kit => {
+    const used = visits.reduce((sum, visit) => sum + visit.tests.filter(test => test.kitId === kit.id).length, 0)
+    return { kitId: kit.id, siteId: kit.siteId, testId: kit.testId, lot: kit.lot, expiresOn: kit.expiresOn, count: kit.count, used, left: kit.count - used }
+  })
+  const hours = new Map()
+  for (const visit of visits) {
+    const hour = `${visit.createdAt.slice(0, 13)}:00:00.000Z`
+    const key = `${visit.siteId}|${hour}`
+    hours.set(key, (hours.get(key) ?? 0) + 1)
+  }
+  const siteName = siteId => plan?.sites.find(site => site.id === siteId)?.name ?? 'No site'
+  const alerts = []
+  for (const kit of kits) {
+    if (kit.left < kit.count * 0.25) alerts.push({ kind: 'kit_low', message: `${kit.left} hepatitis B kits left in lot ${kit.lot} at ${siteName(kit.siteId)}.`, siteId: kit.siteId, count: kit.left })
+    if (Date.parse(kit.expiresOn) - Date.now() < 30 * DAY) alerts.push({ kind: 'kit_expiring', message: `Kit lot ${kit.lot} at ${siteName(kit.siteId)} expires on ${kit.expiresOn}.`, siteId: kit.siteId })
+  }
+  for (const [station, count] of Object.entries(waiting)) {
+    if (count >= 5) alerts.push({ kind: 'queue_long', message: `${count} people are waiting for ${station === 'vitals' ? 'vital signs' : station}.`, count })
+  }
+  const invalid = visits.reduce((sum, visit) => sum + visit.tests.filter(test => test.result === 'invalid').length, 0)
+  if (invalid) alerts.push({ kind: 'invalid_tests', message: `${invalid} invalid test result${invalid === 1 ? '' : 's'} today.`, count: invalid })
+  const urgentWaiting = visits.filter(visit => visit.referral?.urgency === 'urgent' && visit.referral.status === 'made').length
+  if (urgentWaiting) alerts.push({ kind: 'urgent_referral', message: `${urgentWaiting} urgent referral${urgentWaiting === 1 ? '' : 's'} not yet seen.`, count: urgentWaiting })
+  const overdue = visits.filter(visit => visit.followUp?.status === 'due' && visit.followUp.dueOn < day(0)).length
+  if (overdue) alerts.push({ kind: 'follow_up_overdue', message: `${overdue} follow-up${overdue === 1 ? ' is' : 's are'} overdue.`, count: overdue })
+  const team = teamOf(campaignId)
+  return {
+    asOf: iso(), target: plan?.target ?? 0,
+    registered: visits.length, screened: visits.filter(visit => done(visit, 'vitals') || done(visit, 'tests')).length,
+    waiting,
+    outcomes: {
+      normal: visits.filter(visit => visit.outcome?.kind === 'normal').length,
+      followUp: visits.filter(visit => visit.outcome?.kind === 'follow_up').length,
+      referUrgent: visits.filter(visit => visit.outcome?.kind === 'refer' && visit.outcome.urgency === 'urgent').length,
+      referRoutine: visits.filter(visit => visit.outcome?.kind === 'refer' && visit.outcome.urgency !== 'urgent').length,
+      pending: visits.filter(visit => !visit.outcome).length,
+    },
+    byFocus: (plan?.focuses ?? []).map(focus => focus === 'hepatitis_b'
+      ? { focus, screened: visits.filter(visit => finalTest(visit) && finalTest(visit).result !== 'invalid').length,
+        positive: visits.filter(visit => finalTest(visit)?.result === 'positive').length,
+        referred: visits.filter(visit => visit.referral && finalTest(visit)?.result === 'positive').length }
+      : { focus, screened: visits.filter(visit => visit.vitals.length).length, positive: visits.filter(high).length,
+        referred: visits.filter(visit => visit.referral && high(visit)).length }),
+    byMember: team.filter(member => member.status !== 'invited').map(member => ({ memberId: member.memberId, name: member.name, roles: member.roles,
+      registered: visits.filter(visit => visit.registeredBy?.memberId === member.memberId).length,
+      screened: visits.filter(visit => visit.vitals.some(entry => entry.recordedBy === member.memberId) || visit.tests.some(entry => entry.recordedBy === member.memberId)
+        || visit.outcome?.confirmedBy.memberId === member.memberId).length })),
+    bySite: (plan?.sites ?? []).map(site => ({ siteId: site.id, name: site.name, registered: visits.filter(visit => visit.siteId === site.id).length,
+      screened: visits.filter(visit => visit.siteId === site.id && done(visit, 'vitals')).length })),
+    byHour: [...hours.entries()].map(([key, registered]) => ({ siteId: key.split('|')[0], hour: key.split('|')[1], registered })).sort((a, b) => a.hour.localeCompare(b.hour)),
+    kits, alerts,
+  }
+}
+
+/**
+ * GET …/organisation/summary (proposed): the organisation's numbers across its campaigns, from the same counts as each
+ * campaign's dashboard, so the two always agree. Counts only.
+ */
+function organisationSummary() {
+  const month = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }).slice(0, 7)
+  const monthOf = time => new Date(time).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }).slice(0, 7)
+  const now = Date.now()
+  const planned = [...campaignPlans.keys()].filter(id => outreachCampaignStore.some(campaign => campaign.id === id))
+  const dashboards = planned.map(id => ({ plan: campaignPlans.get(id), dashboard: campaignDashboard(id) }))
+  const visits = allVisits().filter(visit => visit.campaignId)
+  const people = new Set(visits.map(visit => visit.patientId ?? visit.id))
+  const past = [...pastDashboards.values()].reduce((sum, dash) => sum + dash.registered, 0)
+  const byFocus = new Map()
+  for (const { plan, dashboard } of dashboards) {
+    const labelOf = focus => (plan.focuses.find(item => (typeof item === 'string' ? item : item.id) === focus)?.label) ?? null
+    for (const item of plan.focuses) {
+      const focus = typeof item === 'string' ? item : item.id
+      const row = byFocus.get(focus) ?? { focus, label: typeof item === 'string' ? FOCUS_WORDS[focus] ?? focus : item.label, campaigns: 0, screened: 0, positive: 0, referred: 0 }
+      row.campaigns += 1
+      byFocus.set(focus, row)
+    }
+    for (const entry of dashboard.byFocus) {
+      const row = byFocus.get(entry.focus) ?? { focus: entry.focus, label: entry.label ?? labelOf(entry.focus) ?? FOCUS_WORDS[entry.focus] ?? entry.focus, campaigns: 1, screened: 0, positive: 0, referred: 0 }
+      row.screened += entry.screened; row.positive += entry.positive; row.referred += entry.referred
+      byFocus.set(entry.focus, row)
+    }
+  }
+  const rows = [...byFocus.values()]
+  const sum = pick => dashboards.reduce((total, { dashboard }) => total + pick(dashboard), 0)
+  return {
+    campaigns: {
+      total: outreachCampaignStore.length,
+      running: outreachCampaignStore.filter(campaign => campaign.status === 'active' && Date.parse(campaign.startsAt) <= now && (!campaign.endsAt || Date.parse(campaign.endsAt) > now)).length,
+      planned: outreachCampaignStore.filter(campaign => campaign.status === 'planned').length,
+      closed: outreachCampaignStore.filter(campaign => campaign.status === 'closed').length,
+    },
+    people: { reached: people.size + past, thisMonth: visits.filter(visit => monthOf(visit.createdAt) === month).length },
+    screened: sum(dash => dash.screened),
+    positive: sum(dash => dash.byFocus.reduce((total, row) => total + row.positive, 0)),
+    referred: sum(dash => dash.outcomes.referUrgent + dash.outcomes.referRoutine),
+    byFocus: rows,
+    conditions: rows.filter(row => row.focus !== 'general_check' && row.screened > 0)
+      .map(row => ({ condition: row.focus, label: row.label, screened: row.screened, positive: row.positive })),
+  }
+}
+const FOCUS_WORDS = { hepatitis_b: 'Hepatitis B', hiv: 'HIV', diabetes: 'Diabetes', hypertension: 'High blood pressure', breast_cancer: 'Breast cancer',
+  cervical_cancer: 'Cervical cancer', prostate_cancer: 'Prostate cancer', malaria: 'Malaria', eye_health: 'Eye health', general_check: 'General health check' }
+
+function teamMemberCounts(campaignId, member) {
+  const visits = allVisits().filter(visit => visit.campaignId === campaignId)
+  return { ...member, membershipId: undefined,
+    registered: visits.filter(visit => visit.registeredBy?.memberId === member.memberId).length,
+    screened: visits.filter(visit => visit.vitals.some(entry => entry.recordedBy === member.memberId) || visit.tests.some(entry => entry.recordedBy === member.memberId)
+      || visit.outcome?.confirmedBy.memberId === member.memberId).length }
+}
+
+/** Outreach campaigns' proposed routes (see the top of this section). */
+function outreachScreeningRoute(method, path, { body, headers } = {}) {
+  const base = '/outreach/registration-cases'
+  if (method === 'POST' && path === base) {
+    if (!body) return NO_BODY()
+    const key = idemKey(headers, body)
+    if (key && replays.has(key)) return replays.get(key)
+    if (body.campaignId && !outreachCampaignStore.some(campaign => campaign.id === body.campaignId)) return outreachProblem(404, 'OUTREACH_CAMPAIGN_NOT_FOUND', 'The Outreach campaign was not found')
+    const answer = [201, visitFor(registerVisit(body))]
+    if (key) replays.set(key, answer)
+    return answer
+  }
+  if (method === 'GET' && path === `${base}/organisation/summary`) return [200, organisationSummary()]
+  const one = method === 'GET' && new RegExp(`^${base}/(ov-[^/]+)$`).exec(path)
+  if (one) { const visit = caseVisit(decodeURIComponent(one[1])); return visit ? [200, visitFor(visit)] : null }
+
+  const campaignMatch = new RegExp(`^${base}/campaigns/([^/]+)/(plan|team|team/[^/]+|participants/search|visits/by-code/[^/]+|dashboard|follow-ups|report)$`).exec(path)
+  if (campaignMatch) {
+    const campaignId = decodeURIComponent(campaignMatch[1])
+    const campaign = outreachCampaignStore.find(entry => entry.id === campaignId)
+    if (!campaign) return outreachProblem(404, 'OUTREACH_CAMPAIGN_NOT_FOUND', 'The Outreach campaign was not found')
+    const rest = campaignMatch[2]
+    const coordinator = yourRoles(campaignId).includes('coordinator') || (!teamStore.has(campaignId) && (outreachMemberStore.get(campaignId) ?? []).some(member => member.membershipId === 'member-demo-1' && member.role === 'admin'))
+    if (rest === 'plan') {
+      const plan = campaignPlans.get(campaignId)
+      if (method === 'GET') return plan ? [200, plan] : outreachProblem(404, 'OUTREACH_PLAN_NOT_FOUND', 'This campaign has no plan yet')
+      if (method !== 'PUT') return null
+      if (!coordinator) return outreachProblem(403, 'OUTREACH_COORDINATOR_REQUIRED', 'Only coordinators can change the plan')
+      if (!body) return NO_BODY()
+      if (versionOf(headers) !== (plan?.rowVersion ?? 0)) return outreachProblem(412, 'VERSION_CONFLICT', 'The plan changed; reload before saving')
+      if (!Array.isArray(body.focuses) || body.focuses.length === 0 || !Array.isArray(body.sites) || body.sites.length === 0) {
+        return outreachProblem(422, 'OUTREACH_PLAN_INVALID', 'A plan needs at least one focus and one site')
+      }
+      const saved = { ...body, campaignId, rowVersion: (plan?.rowVersion ?? 0) + 1, updatedAt: iso() }
+      campaignPlans.set(campaignId, saved)
+      if (!teamStore.has(campaignId)) teamStore.set(campaignId, [{ memberId: `tm-${campaignId}-1`, membershipId: 'member-demo-1', name: STAFF_NAME, phone: null,
+        email: 'demo.clinician@example.test', roles: ['coordinator', 'clinician'], siteId: null, station: null, status: 'accepted', invitedAt: iso(), joinedAt: iso(), rowVersion: 1 }])
+      return [200, saved]
+    }
+    if (rest === 'team') {
+      if (method === 'GET') {
+        const own = you(campaignId)
+        return [200, { members: teamOf(campaignId).filter(member => member.status !== 'removed').map(member => teamMemberCounts(campaignId, member)),
+          you: own ? { memberId: own.memberId, roles: demoRoles(), siteId: own.siteId, station: own.station } : null }]
+      }
+      if (method !== 'POST') return null
+      if (!coordinator) return outreachProblem(403, 'OUTREACH_COORDINATOR_REQUIRED', 'Only coordinators can invite')
+      if (!body) return NO_BODY()
+      const phone = body.phone ? String(body.phone).trim() : null
+      const email = body.email ? String(body.email).trim().toLowerCase() : null
+      if ((!phone && !email) || (phone && !/^\+?\d{10,14}$/.test(phone.replace(/\s/g, ''))) || (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) {
+        return outreachProblem(400, 'OUTREACH_TEAM_CONTACT_INVALID', 'Give a phone number or an email address')
+      }
+      if (!Array.isArray(body.roles) || body.roles.length === 0) return outreachProblem(400, 'VALIDATION_FAILED', 'Choose at least one role')
+      const team = teamOf(campaignId)
+      const existing = team.find(member => member.status !== 'removed' && ((phone && digits(member.phone) === digits(phone)) || (email && member.email === email)))
+      if (existing) return [200, teamMemberCounts(campaignId, existing)]
+      const created = { memberId: `tm-${campaignId}-${team.length + 1}`, name: body.name ?? null, phone, email, roles: body.roles, siteId: body.siteId ?? null,
+        station: body.station ?? null, status: 'invited', invitedAt: iso(), joinedAt: null, rowVersion: 1 }
+      teamStore.set(campaignId, [...team, created])
+      return [201, teamMemberCounts(campaignId, created)]
+    }
+    if (rest.startsWith('team/')) {
+      const member = teamOf(campaignId).find(entry => entry.memberId === decodeURIComponent(rest.slice(5)))
+      if (!member || member.status === 'removed') return outreachProblem(404, 'OUTREACH_TEAM_MEMBER_NOT_FOUND', 'That team member was not found')
+      if (method !== 'PATCH' && method !== 'DELETE') return null
+      if (!coordinator) return outreachProblem(403, 'OUTREACH_COORDINATOR_REQUIRED', 'Only coordinators can change the team')
+      if (versionOf(headers) !== member.rowVersion) return outreachProblem(412, 'VERSION_CONFLICT', 'The team member changed; reload before retrying')
+      const coordinators = teamOf(campaignId).filter(entry => entry.status !== 'removed' && entry.roles.includes('coordinator'))
+      const losesCoordinator = member.roles.includes('coordinator') && coordinators.length === 1
+        && (method === 'DELETE' || (Array.isArray(body?.roles) && !body.roles.includes('coordinator')))
+      if (losesCoordinator) return outreachProblem(409, 'OUTREACH_TEAM_LAST_COORDINATOR', 'A campaign needs a coordinator')
+      if (method === 'DELETE') { member.status = 'removed'; member.rowVersion += 1; return [204, null] }
+      if (!body) return NO_BODY()
+      if (body.roles !== undefined) member.roles = body.roles
+      if (body.siteId !== undefined) member.siteId = body.siteId
+      if (body.station !== undefined) member.station = body.station
+      member.rowVersion += 1
+      return [200, teamMemberCounts(campaignId, member)]
+    }
+    if (rest === 'participants/search') {
+      // A POST with the phone or Health ID in the body: personal data never goes in the address or the logs.
+      if (method !== 'POST') return null
+      const phone = body?.phone ? String(body.phone) : null
+      const healthId = body?.healthId ? String(body.healthId) : null
+      if (!phone === !healthId) return outreachProblem(400, 'OUTREACH_SEARCH_INVALID', 'Search by a phone number or a Health ID')
+      const found = allVisits().filter(visit => phone ? digits(visit.phone) === digits(phone) && digits(phone).length === 10 : visit.healthId === String(healthId).trim().toUpperCase())
+      const matches = found.map(visit => ({ matchId: `match-${visit.patientId}`, initials: visit.fullName.split(/\s+/).map(part => part[0]).join('').toUpperCase(),
+        ageYears: visit.ageYears, sex: visit.sex, maskedPhone: maskPhone(visit.phone), hasHealthId: true, inThisCampaign: visit.campaignId === campaignId,
+        caseId: visit.campaignId === campaignId ? visit.id : null, visitCode: visit.campaignId === campaignId ? visit.visitCode : null }))
+      // Someone with a Health ID who has never been to this campaign: 0803 000 0001 or HID-KNOWN001.
+      if (!matches.length && (digits(phone) === '8030000001' || healthId === 'HID-KNOWN001')) {
+        matches.push({ matchId: 'match-known-1', initials: 'AO', ageYears: 35, sex: 'female', maskedPhone: '•••• ••• 0001', hasHealthId: true, inThisCampaign: false, caseId: null, visitCode: null })
+      }
+      return [200, { matches }]
+    }
+    if (method !== 'GET') return null
+    if (rest.startsWith('visits/by-code/')) {
+      const code = decodeURIComponent(rest.slice('visits/by-code/'.length)).toUpperCase()
+      const visit = allVisits().find(entry => entry.campaignId === campaignId && entry.visitCode === code)
+      return visit ? [200, visitFor(visit)] : outreachProblem(404, 'OUTREACH_VISIT_NOT_FOUND', 'No visit has this code in this campaign')
+    }
+    if (rest === 'dashboard') return [200, campaignDashboard(campaignId)]
+    if (rest === 'follow-ups') {
+      const sensitive = seesSensitive(campaignId)
+      const items = allVisits().filter(visit => visit.campaignId === campaignId && visit.followUp).map(visit => {
+        const private_ = /hepatitis b|hiv|liver/i.test(`${visit.followUp.reason} ${visit.referral?.reason ?? ''}`)
+        const hide = private_ && !sensitive
+        return { caseId: visit.id, visitCode: visit.visitCode, fullName: visit.fullName, phone: visit.phone, siteId: visit.siteId,
+          followUp: hide ? { ...visit.followUp, reason: 'Follow-up' } : visit.followUp,
+          referral: visit.referral ? { ...visit.referral, reason: hide ? 'Shared by a counsellor or clinician.' : visit.referral.reason,
+            partnerName: campaignPlans.get(campaignId)?.partners.find(partner => partner.id === visit.referral.partnerId)?.name ?? null } : null,
+          sensitive: private_ }
+      }).sort((a, b) => a.followUp.dueOn.localeCompare(b.followUp.dueOn))
+      return [200, { items }]
+    }
+    if (rest === 'report') {
+      const visits = allVisits().filter(visit => visit.campaignId === campaignId)
+      const dash = campaignDashboard(campaignId)
+      const plan = campaignPlans.get(campaignId)
+      const band = age => age < 18 ? 'Under 18' : age < 30 ? '18 to 29' : age < 45 ? '30 to 44' : age < 60 ? '45 to 59' : '60 and over'
+      return [200, {
+        campaignName: campaign.name, organisationName: plan?.organisationName ?? '', startsOn: campaign.startsAt.slice(0, 10), endsOn: campaign.endsAt ? campaign.endsAt.slice(0, 10) : null,
+        sites: (plan?.sites ?? []).map(site => ({ siteId: site.id, name: site.name, lga: site.lga, ...dash.bySite.find(entry => entry.siteId === site.id) })).map(({ siteId, name, lga, registered, screened }) => ({ siteId, name, lga, registered, screened })),
+        target: dash.target, registered: dash.registered, screened: dash.screened,
+        bySex: { female: visits.filter(visit => visit.sex === 'female').length, male: visits.filter(visit => visit.sex === 'male').length,
+          other: visits.filter(visit => visit.sex !== 'female' && visit.sex !== 'male').length },
+        byAgeBand: ['Under 18', '18 to 29', '30 to 44', '45 to 59', '60 and over'].map(name => ({ band: name, count: visits.filter(visit => band(visit.ageYears) === name).length })),
+        byFocus: dash.byFocus, outcomes: dash.outcomes,
+        referrals: { made: visits.filter(visit => visit.referral).length, arrived: visits.filter(visit => visit.referral?.status === 'arrived').length,
+          notArrived: visits.filter(visit => visit.referral?.status === 'not_arrived').length, waiting: visits.filter(visit => visit.referral?.status === 'made').length },
+        followUps: { due: visits.filter(visit => visit.followUp?.status === 'due').length, reached: visits.filter(visit => visit.followUp?.status === 'reached').length,
+          notReached: visits.filter(visit => visit.followUp?.status === 'not_reached').length, closed: visits.filter(visit => visit.followUp?.status === 'closed').length },
+        kitsUsed: dash.kits.reduce((sum, kit) => sum + kit.used, 0),
+        invalidTests: visits.reduce((sum, visit) => sum + visit.tests.filter(test => test.result === 'invalid').length, 0),
+        smallCountThreshold: 5,
+      }]
+    }
+    return null
+  }
+
+  const caseMatch = new RegExp(`^${base}/([^/]+)/(vitals|tests|answers|outcome|referral|follow-up|consent-code|consent-code/verify|slip-sms)$`).exec(path)
+  if (!caseMatch || caseMatch[1] === 'campaigns') return null
+  if (method !== 'POST' && method !== 'PATCH') return null
+  const visit = caseVisit(decodeURIComponent(caseMatch[1]))
+  if (!visit) return outreachProblem(404, 'OUTREACH_VISIT_NOT_FOUND', 'The visit was not found')
+  if (!body) return NO_BODY()
+  const kind = caseMatch[2]
+  const key = idemKey(headers, body)
+  const replayKey = key ? `${visit.id}|${kind}|${key}` : null
+  if (replayKey && replays.has(replayKey)) return replays.get(replayKey)
+  const remember = answer => { if (replayKey) replays.set(replayKey, answer); return answer }
+  const campaignId = visit.campaignId ?? HBV_CAMPAIGN_ID
+  const by = you(campaignId)?.memberId ?? null
+  const plan = campaignPlans.get(campaignId)
+  const addStation = (...stations) => { for (const station of stations) if (!visit.stationsDone.includes(station)) visit.stationsDone.push(station) }
+  const bump = () => { visit.rowVersion += 1 }
+  if (method === 'POST' && kind === 'vitals') {
+    visit.vitals.push({ entryId: `${visit.id}-v${visit.vitals.length + 1}`, ...body, recordedBy: by })
+    addStation('vitals'); bump()
+    return remember([201, visitFor(visit)])
+  }
+  if (method === 'POST' && kind === 'tests') {
+    const results = Array.isArray(body.results) ? body.results : []
+    if (results.some(result => SENSITIVE_TESTS.has(result.testId)) && !seesSensitive(campaignId) && !yourRoles(campaignId).includes('tester')) {
+      return outreachProblem(403, 'OUTREACH_SENSITIVE_ROLE_REQUIRED', 'Only counsellors, clinicians and testers record this test')
+    }
+    if (results.some(result => result.testId === 'hiv_rapid') && !body.consent) return outreachProblem(422, 'OUTREACH_HIV_CONSENT_REQUIRED', 'HIV testing needs its own consent')
+    for (const result of results) {
+      const kit = result.kitLot ? plan?.kits.find(entry => entry.lot === result.kitLot && entry.testId === result.testId && (!visit.siteId || entry.siteId === visit.siteId)) : null
+      if (result.kitLot && !kit) return outreachProblem(422, 'OUTREACH_KIT_UNKNOWN', 'That kit lot is not in the plan')
+      if (kit && kit.expiresOn < day(0)) return outreachProblem(422, 'OUTREACH_KIT_EXPIRED', 'That kit lot has expired')
+      const option = plan?.package.tests.find(test => test.id === result.testId)?.results.find(entry => entry.value === result.result)
+      visit.tests.push({ entryId: `${visit.id}-t${visit.tests.length + 1}`, ...result, kitId: kit?.id ?? result.kitId ?? null, flag: option?.flag ?? 'normal', recordedBy: by })
+    }
+    addStation('tests'); bump()
+    return remember([201, visitFor(visit)])
+  }
+  if (method === 'POST' && kind === 'answers') {
+    const answers = new Map(visit.answers.map(answer => [answer.questionId, answer]))
+    for (const answer of body.answers ?? []) answers.set(answer.questionId, answer)
+    visit.answers = [...answers.values()]; bump()
+    return remember([201, visitFor(visit)])
+  }
+  if (method === 'POST' && kind === 'outcome') {
+    if (!yourRoles(campaignId).some(role => role === 'counsellor' || role === 'clinician')) return outreachProblem(403, 'OUTREACH_OUTCOME_ROLE_REQUIRED', 'Only a counsellor or clinician confirms the outcome')
+    if (body.kind === 'refer' && !body.urgency) return outreachProblem(400, 'VALIDATION_FAILED', 'A referral needs its urgency')
+    visit.outcome = { ...body, confirmedBy: { memberId: by, name: you(campaignId)?.name ?? null, roles: yourRoles(campaignId) }, confirmedAt: iso() }
+    addStation('counselling', 'results'); bump()
+    return remember([201, visit.outcome])
+  }
+  if (kind === 'referral') {
+    if (method === 'POST') {
+      if (!plan?.partners.some(partner => partner.id === body.partnerId)) return outreachProblem(422, 'OUTREACH_PARTNER_UNKNOWN', 'Choose a partner from the plan')
+      visit.referral = { referralId: `ref-${visit.id}`, ...body, status: 'made', notes: null, madeAt: iso(), updatedAt: iso(), rowVersion: 1 }
+      bump()
+      return remember([201, visit.referral])
+    }
+    if (!visit.referral) return outreachProblem(404, 'OUTREACH_REFERRAL_NOT_FOUND', 'This visit has no referral')
+    if (versionOf(headers) !== visit.referral.rowVersion) return outreachProblem(412, 'VERSION_CONFLICT', 'The referral changed; reload before retrying')
+    visit.referral = { ...visit.referral, status: body.status ?? visit.referral.status, notes: body.notes ?? visit.referral.notes, updatedAt: iso(), rowVersion: visit.referral.rowVersion + 1 }
+    return remember([200, visit.referral])
+  }
+  if (kind === 'follow-up') {
+    if (method === 'POST') {
+      visit.followUp = { followUpId: `fu-${visit.id}`, ...body, status: 'due', notes: null, attempts: 0, updatedAt: iso(), rowVersion: 1 }
+      bump()
+      return remember([201, visit.followUp])
+    }
+    if (!visit.followUp) return outreachProblem(404, 'OUTREACH_FOLLOW_UP_NOT_FOUND', 'This visit has no follow-up')
+    if (versionOf(headers) !== visit.followUp.rowVersion) return outreachProblem(412, 'VERSION_CONFLICT', 'The follow-up changed; reload before retrying')
+    const tried = body.status === 'reached' || body.status === 'not_reached'
+    visit.followUp = { ...visit.followUp, status: body.status ?? visit.followUp.status, notes: body.notes ?? visit.followUp.notes, dueOn: body.dueOn ?? visit.followUp.dueOn,
+      attempts: visit.followUp.attempts + (tried ? 1 : 0), updatedAt: iso(), rowVersion: visit.followUp.rowVersion + 1 }
+    return remember([200, visit.followUp])
+  }
+  if (method !== 'POST') return null
+  if (kind === 'consent-code') {
+    if (!visit.phone) return outreachProblem(422, 'OUTREACH_PHONE_REQUIRED', 'This registration has no phone number')
+    return remember([201, { challengeId: `consent-${visit.id}-${body.purpose ?? 'registration'}`, sentTo: maskPhone(visit.phone), expiresAt: iso(10 * MIN), resendAfterSeconds: 60 }])
+  }
+  if (kind === 'consent-code/verify') {
+    if (body.code !== '123456') return outreachProblem(400, 'OTP_INVALID', 'That code is not right')
+    const purpose = String(body.challengeId ?? '').endsWith('-hiv') ? 'hiv' : 'registration'
+    return remember([201, { consentId: `consent-record-${visit.id}-${purpose}`, purpose, method: 'code', language: 'en', version: plan?.consent.version ?? '2026-11-13',
+      recordedBy: by, witnessName: null, guardianName: null, recordedAt: iso() }])
+  }
+  if (kind === 'slip-sms') {
+    if (!visit.phone) return outreachProblem(422, 'OUTREACH_PHONE_REQUIRED', 'This registration has no phone number')
+    return remember([201, { sentTo: maskPhone(visit.phone), deliveryOutcome: 'accepted' }])
+  }
+  return null
+}
+
 
 function staffRoute(method, path) {
   if (method === 'POST' && path === '/auth/facility') return [200, staffSession()]
@@ -1331,7 +1942,7 @@ export function respond(method, path, workspace, request = {}) {
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
   const hit = (workspace === 'admin' ? adminOutreachRoute(method, path, request) : null)
     ?? (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request)
-    ?? outreachCampaignRoute(method, path, request) ?? outreachSignupRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null)
+    ?? outreachScreeningRoute(method, path, request) ?? outreachCampaignRoute(method, path, request) ?? outreachSignupRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null)
     ?? handler(method, path, request)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null
 }

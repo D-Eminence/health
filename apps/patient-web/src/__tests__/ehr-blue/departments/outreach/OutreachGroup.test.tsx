@@ -28,7 +28,12 @@ const api = vi.hoisted(() => ({
   linkExistingOutreachCase: vi.fn(), outreachCampaignGovernance: vi.fn(), outreachCampaignStaff: vi.fn(),
   outreachInvitations: vi.fn(), createOutreachInvitation: vi.fn(),
 }))
-vi.mock('../../../../staff/api', () => ({ staffApi: api }))
+// Outreach campaigns' proposed routes (plan, team; owner decisions 13 Nov 2026): not served here, as today's gateway answers (404).
+const notServed = vi.hoisted(() => async () => {
+  const { HidApiError } = await import('@hid/http')
+  throw new HidApiError(404, 'Not Found', { code: 'NOT_FOUND' })
+})
+vi.mock('../../../../staff/api', () => ({ staffApi: api, outreachCampaignRequest: notServed }))
 
 const MEMBERSHIP = 'membership-demo-1'
 const CAMPAIGN = { id: 'campaign-1', name: 'Ajegunle health week', status: 'active', services: ['registration'], startsAt: '2026-11-01T00:00:00.000Z', rowVersion: 2 }
@@ -61,7 +66,8 @@ const textbox = (name: RegExp | string) => screen.getByRole('textbox', { name })
 
 async function openNewRegistration() {
   renderDept(<Outreach />)
-  await press(await screen.findByRole('button', { name: 'New registration' }))
+  // In the header (and in the empty list's own words): today's form, as this group's campaigns have no campaign routes.
+  await press((await screen.findAllByRole('button', { name: 'New registration' }))[0]!)
   await screen.findByRole('heading', { level: 1, name: 'New registration' })
   // The campaign is listed once the membership read says this member is in it.
   await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
@@ -117,9 +123,11 @@ describe('Your team', () => {
     fireEvent.change(within(team).getByRole('textbox', { name: /Their name/ }), { target: { value: 'Chinedu Eze' } })
     fireEvent.change(within(team).getByRole('textbox', { name: /Their email/ }), { target: { value: 'chinedu@example.test' } })
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
-    expect(await within(team).findByRole('alert')).toBeTruthy()
+    // Invite results are said in a toast at the top, not in the card.
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(within(team).queryByRole('alert')).toBeNull()
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
-    expect(await within(team).findByText('Invitation sent to Chinedu Eze. They join when they open the link in the email.')).toBeTruthy()
+    expect(await screen.findByText('Invitation sent to Chinedu Eze. They join when they open the link in the email.')).toBeTruthy()
     const [first, second] = api.createOutreachInvitation.mock.calls
     expect(first![1]).toEqual({ name: 'Chinedu Eze', email: 'chinedu@example.test' })
     expect(second![2]).toBe(first![2])
@@ -133,7 +141,7 @@ describe('Your team', () => {
     fireEvent.change(within(team).getByRole('textbox', { name: /Their name/ }), { target: { value: 'Tayo Ojo' } })
     fireEvent.change(within(team).getByRole('textbox', { name: /Their email/ }), { target: { value: 'tayo@example.test' } })
     await press(within(team).getByRole('button', { name: 'Send invitation' }))
-    expect((await within(team).findByRole('alert')).textContent).toBe('This person already has an invitation waiting.')
+    expect((await screen.findByRole('alert')).textContent).toContain('This person already has an invitation waiting.')
     await waitFor(() => expect(api.outreachInvitations).toHaveBeenCalledTimes(2))
   })
 

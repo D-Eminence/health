@@ -1404,6 +1404,16 @@ export interface OutreachCase {
    * the same campaign has the same phone number, or the same name and age. A hint only: the registration is saved.
    */
   possibleDuplicate?: boolean
+  /*
+   * Outreach campaigns (owner decisions of 13 November 2026, BACKEND-NEEDS.md; proposed): every person registered gets
+   * their own Health ID record at once, so the answer to a registration also carries the new (or matched) record's
+   * Health ID and patient id, the visit's short code (K7-4F2), and identityChecked: false until someone checks their
+   * identity. The request does not change. A backend before this sends none of them.
+   */
+  healthId?: string | null
+  patientId?: string | null
+  visitCode?: string | null
+  identityChecked?: boolean
 }
 
 /** The languages the registration notice is given in; any but English means it was read aloud in that language. */
@@ -1765,6 +1775,20 @@ function facilityHeaders(facilityId: string, purpose: 'direct-care' | 'emergency
 }
 
 function keyHeaders(key?: string) { return { 'Idempotency-Key': key ?? crypto.randomUUID() } }
+
+/** The base of every Outreach campaign route (owner decisions of 13 November 2026). */
+const OUTREACH_CAMPAIGN_BASE = '/api/v1/outreach/registration-cases/'
+
+/**
+ * The staff client, for Outreach campaigns' own module (ehr-blue/departments/outreach/campaignApi.ts) only: one request
+ * under /api/v1/outreach/registration-cases/ at a facility, with the facility headers every staff call carries, the
+ * session guard, and the registered-route check (a route not in packages/contracts is refused before it is sent).
+ */
+export function outreachCampaignRequest<T>(facilityId: string,
+  spec: Omit<RequestSpec, 'headers'> & { readonly headers?: Readonly<Record<string, string>> }): Promise<T> {
+  if (!spec.path.startsWith(OUTREACH_CAMPAIGN_BASE)) return Promise.reject(new Error('Not an Outreach campaign route.'))
+  return client.request<T>({ ...spec, headers: { ...facilityHeaders(facilityId), ...spec.headers } })
+}
 
 function patientPath(patientId: string) {
   return `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/encounters`

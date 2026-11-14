@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { HID_ENDPOINTS } from '../index'
+import { assertEndpointAllowed, assertRegisteredBrowserRequest, HID_ENDPOINTS } from '../index'
+
+/** Outreach campaigns (owner decisions of 13 November 2026): proposed, under the registration-cases base. */
+const OUTREACH_CAMPAIGN_ROUTES = [
+  'outreach.campaignPlan', 'outreach.campaignTeam', 'outreach.campaignTeamMember', 'outreach.participantSearch',
+  'outreach.visitByCode', 'outreach.caseVitals', 'outreach.caseTests', 'outreach.caseAnswers', 'outreach.caseOutcome',
+  'outreach.caseReferral', 'outreach.caseFollowUp', 'outreach.caseConsentCode', 'outreach.caseConsentCodeVerify',
+  'outreach.caseSlipSms', 'outreach.campaignDashboard', 'outreach.campaignFollowUps', 'outreach.campaignReport',
+  'outreach.organisationSummary',
+] as const
 
 /**
  * Routes the frontend is built against that hid-system main (41542fc) does not
@@ -72,6 +81,9 @@ const NOT_ON_MAIN = [
   'identity.outreachInvitations', 'enrollment.outreachInvitationAccept', 'identity.outreachInvitationSignedInAccept',
   'admin.outreachOrganisers', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
   'admin.outreachCampaignAdmins', 'admin.outreachRegistrationSearch', 'admin.outreachRegistrationRedact',
+  // Outreach campaigns (owner decisions of 13 November 2026): plan, team, finding a person, the stations, the outcome,
+  // referral and follow-up, consent by code, the SMS slip, the dashboard, the follow-up list and the report.
+  ...OUTREACH_CAMPAIGN_ROUTES,
 ] as const
 
 describe('routes hid-system main does not serve', () => {
@@ -80,5 +92,39 @@ describe('routes hid-system main does not serve', () => {
     expect(endpoint).toBeDefined()
     expect(endpoint?.status).toBe('proposed')
     expect(endpoint?.note).toMatch(/not served by hid-system main/)
+  })
+})
+
+describe('Outreach campaign routes (owner decisions of 13 November 2026)', () => {
+  const base = '/api/v1/outreach/registration-cases'
+  it.each([
+    ['GET', `${base}/campaigns/c-1/plan`, 'outreach.campaignPlan'],
+    ['PUT', `${base}/campaigns/c-1/plan`, 'outreach.campaignPlan'],
+    ['GET', `${base}/campaigns/c-1/team`, 'outreach.campaignTeam'],
+    ['POST', `${base}/campaigns/c-1/team`, 'outreach.campaignTeam'],
+    ['PATCH', `${base}/campaigns/c-1/team/m-1`, 'outreach.campaignTeamMember'],
+    ['DELETE', `${base}/campaigns/c-1/team/m-1`, 'outreach.campaignTeamMember'],
+    ['POST', `${base}/campaigns/c-1/participants/search`, 'outreach.participantSearch'],
+    ['GET', `${base}/campaigns/c-1/visits/by-code/K7-4F2`, 'outreach.visitByCode'],
+    ['POST', `${base}/oc-1/vitals`, 'outreach.caseVitals'],
+    ['POST', `${base}/oc-1/tests`, 'outreach.caseTests'],
+    ['POST', `${base}/oc-1/answers`, 'outreach.caseAnswers'],
+    ['POST', `${base}/oc-1/outcome`, 'outreach.caseOutcome'],
+    ['PATCH', `${base}/oc-1/referral`, 'outreach.caseReferral'],
+    ['POST', `${base}/oc-1/follow-up`, 'outreach.caseFollowUp'],
+    ['POST', `${base}/oc-1/consent-code`, 'outreach.caseConsentCode'],
+    ['POST', `${base}/oc-1/consent-code/verify`, 'outreach.caseConsentCodeVerify'],
+    ['POST', `${base}/oc-1/slip-sms`, 'outreach.caseSlipSms'],
+    ['GET', `${base}/campaigns/c-1/dashboard`, 'outreach.campaignDashboard'],
+    ['GET', `${base}/campaigns/c-1/follow-ups`, 'outreach.campaignFollowUps'],
+    ['GET', `${base}/campaigns/c-1/report`, 'outreach.campaignReport'],
+    ['GET', `${base}/organisation/summary`, 'outreach.organisationSummary'],
+    // The served routes still resolve to themselves.
+    ['GET', `${base}/campaigns/governance`, 'outreach.campaignGovernance'],
+    ['POST', `${base}/oc-1/link-existing`, 'outreach.linkExisting'],
+    ['GET', `${base}/oc-1`, 'outreach.case'],
+  ])('%s %s is %s, and the staff portal may call it', (method, path, name) => {
+    expect(assertRegisteredBrowserRequest(method, path).name).toBe(name)
+    expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
   })
 })

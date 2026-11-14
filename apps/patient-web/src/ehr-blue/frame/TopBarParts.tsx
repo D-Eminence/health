@@ -1,7 +1,7 @@
 import { normalizeHealthIdInput } from '@hid/contracts'
-import { Bell, ChevronRight, IdCard, RotateCcw, Search, ShieldAlert } from 'lucide-react'
+import { Bell, ChevronRight, IdCard, Megaphone, RotateCcw, Search, ShieldAlert, User } from 'lucide-react'
 import { isValidElement, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   EhrButton, EhrCard, EhrDrawer, EhrField, EhrIcon, EhrInput, EhrPopover, EhrSampleBanner, EhrSelect, EhrTextarea,
 } from '@hid/ui/ehr'
@@ -18,6 +18,7 @@ import { useBluePages, useSampleHref } from './pageContext'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { basePath, pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
+import { isOutreachAddress, useOutreachSearch } from '../departments/outreach/outreachNav'
 import { PLAIN, plainErrorText } from '@hid/http'
 
 /**
@@ -42,7 +43,10 @@ export function WorkspaceSearch({ pages }: { readonly pages: readonly EhrBluePag
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
-  const { lock } = useStaff()
+  const { lock, state } = useStaff()
+  // On Outreach's own pages, Search finds its people and campaigns too (the page has no search of its own).
+  const outreach = useOutreachSearch(state.status === 'ready' ? state.session.actor.facility?.id : undefined)
+  const inOutreach = isOutreachAddress(useLocation().pathname) && outreach !== null
   // Ctrl+K or Command+K opens it from anywhere in the workspace, but not over the session check (the lock screen).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -60,12 +64,15 @@ export function WorkspaceSearch({ pages }: { readonly pages: readonly EhrBluePag
   // Find a patient only where the person may open it.
   const canFind = pages.some(page => basePath(page.path) === 'patients')
   const hid = canFind ? typedHealthId(query) : null
+  const hits = inOutreach && words.length >= 2 ? outreach!.search(query) : []
   const close = () => { setOpen(false); setQuery('') }
+  const openHit = (hit: (typeof hits)[number]) => { close(); hit.open() }
   const go = (to: string, state?: unknown) => { close(); navigate(to, state === undefined ? undefined : { state }) }
   // Enter takes the first offer: the patient when the text is a Health ID, otherwise the first page.
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (hid) go('/provider/patients', { hid })
+    else if (hits[0]) openHit(hits[0])
     else if (found[0]) go(pageHrefOf(found[0]))
   }
   const followLink = (to: string, state?: unknown) => (event: MouseEvent<HTMLAnchorElement>) => {
@@ -80,10 +87,20 @@ export function WorkspaceSearch({ pages }: { readonly pages: readonly EhrBluePag
     </EhrButton>
     <Drawer open={open} title="Search" onClose={close}>
       <form role="search" className="flex flex-col gap-4" onSubmit={submit}>
-        <Field label="Health ID or page" htmlFor="ehr-search-query" className="[&>label]:sr-only">
-          <Input id="ehr-search-query" data-autofocus type="search" icon={Search} autoComplete="off" spellCheck={false} placeholder="Health ID or page"
-            value={query} onChange={event => setQuery(event.target.value)} />
+        <Field label={inOutreach ? 'Name, phone, visit code or page' : 'Health ID or page'} htmlFor="ehr-search-query" className="[&>label]:sr-only">
+          <Input id="ehr-search-query" data-autofocus type="search" icon={Search} autoComplete="off" spellCheck={false}
+            placeholder={inOutreach ? 'Name, phone, visit code or page' : 'Health ID or page'} value={query} onChange={event => setQuery(event.target.value)} />
         </Field>
+        {hits.length ? <section aria-labelledby="ehr-search-outreach" className="flex flex-col gap-1">
+          <h3 id="ehr-search-outreach" className="m-0 px-3 text-[12px] font-semibold tracking-[.06em] text-ink-3 uppercase">Outreach</h3>
+          <ul aria-label="Outreach results" className="m-0 flex list-none flex-col p-0">
+            {hits.map(hit => <li key={hit.id}><button type="button" className={`${row} w-full cursor-pointer border-0 bg-transparent text-left`} onClick={() => openHit(hit)}>
+              {hit.kind === 'person' ? <User className="size-[18px] shrink-0 text-brand-ink" aria-hidden /> : <Megaphone className="size-[18px] shrink-0 text-brand-ink" aria-hidden />}
+              <span className="min-w-0 flex-1">{hit.title}<span className="block text-[12px] text-ink-3">{hit.detail}</span></span>
+              <ChevronRight className="size-4 text-ink-3" aria-hidden />
+            </button></li>)}
+          </ul>
+        </section> : inOutreach && words.length >= 2 ? <p className="m-0 px-3 text-[13px] text-ink-3">No one in Outreach matches. Try a name, phone number or visit code.</p> : null}
         {hid ? <section aria-labelledby="ehr-search-patient" className="flex flex-col gap-1">
           <h3 id="ehr-search-patient" className="m-0 px-3 text-[12px] font-semibold tracking-[.06em] text-ink-3 uppercase">Patient</h3>
           <a className={row} href="/provider/patients" onClick={followLink('/provider/patients', { hid })}>

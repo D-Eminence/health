@@ -54,3 +54,18 @@ describe('Outreach words', () => {
     expect(NO_ACTIONS).toBe('Nothing else to do here.')
   })
 })
+
+describe('a type of outreach typed under Other', () => {
+  it('is one of the list when its words name it, else the organisation’s own, said in its words', async () => {
+    const { focusFromWords, focusLabel } = await import('../../../../ehr-blue/departments/outreach/campaignTypes')
+    expect(focusFromWords('malaria')).toBe('malaria')
+    expect(focusFromWords(' HIV ')).toBe('hiv')
+    expect(focusFromWords('High Blood Pressure')).toBe('hypertension')
+    expect(focusFromWords('hepatitis b')).toBe('hepatitis_b')
+    expect(focusFromWords('sickle  cell')).toEqual({ id: 'custom:sickle-cell', label: 'Sickle cell' })
+    expect(focusFromWords('  ')).toBeNull()
+    expect(focusLabel('custom:sickle-cell', 'Sickle cell')).toBe('Sickle cell')
+    expect(focusLabel('custom:lassa-fever')).toBe('Lassa fever')
+    expect(focusLabel({ id: 'custom:typhoid', label: 'Typhoid' })).toBe('Typhoid')
+  })
+})

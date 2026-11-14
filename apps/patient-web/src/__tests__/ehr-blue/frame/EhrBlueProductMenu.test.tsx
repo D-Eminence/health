@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import { inProduct, type Product } from '../../../ehr-blue/frame/product'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
@@ -33,6 +33,12 @@ const SITES: readonly [Exclude<Product, 'ehr'>, string, string, string, string][
   ['outreach', 'outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach', 'outreach.registration.read'],
   ['migrate', 'migrate.healthidentitydirectory.com', DEMO_HOSPITAL, 'Demo Hospital', 'ocr.job.read'],
 ]
+
+/**
+ * The sites that keep Patients and Access requests in their menu. Outreach on its own lists only Outreach (owner,
+ * 13 November 2026): its campaigns and their tabs, nothing of a hospital's (below).
+ */
+const KEEPS_PATIENTS = SITES.filter(([product]) => product !== 'outreach')
 
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const listedInMenu = (label: string) => within(nav()).queryByRole('link', { name: label }) !== null
@@ -79,7 +85,7 @@ describe('which pages a single product keeps', () => {
 describe('the menu on a single product’s site', () => {
   beforeEach(() => { withFramePages() })
 
-  it.each(SITES)('on %s (%s) lists Patients and Access requests for a session allowed them, in the menu and in search',
+  it.each(KEEPS_PATIENTS)('on %s (%s) lists Patients and Access requests for a session allowed them, in the menu and in search',
     async (_product, host, id, name, own) => {
       await openOn(host, id, name, [own, ...FIND_AND_ASK, ...EHR_ONLY])
       expect(listedInMenu('Patients')).toBe(true)
@@ -136,6 +142,90 @@ describe('the menu on a single product’s site', () => {
   })
 })
 
+describe('Outreach on its own', () => {
+  beforeEach(() => { withFramePages() })
+
+  // Owner, 13 November 2026: clicking Outreach shows only Outreach. Its menu, tab bar and search list its campaigns (and
+  // a campaign's tabs once one is open), none of a hospital's pages and no other product's site, whatever the session
+  // holds; the workspace is named for the organisation, with no hospital chip.
+  it('lists only Outreach in the menu, the tab bar and search, even for a session allowed the hospital’s pages', async () => {
+    await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
+      ['outreach.registration.read', 'outreach.campaign.read', ...FIND_AND_ASK, ...EHR_ONLY, 'workforce.manage', 'audit.read'], '/provider/outreach')
+    expect(within(nav()).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
+    expect(headings()).toEqual([])
+    for (const page of ['Patients', 'Access requests', 'Staff & access', 'Audit trail', 'Home']) expect(listedInMenu(page), page).toBe(false)
+    expect(document.body.textContent).not.toMatch(/Network & Services|Other Health ID sites|Demo Hospital/)
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns'])
+    expect(searchOffers()).toEqual(['Outreach'])
+  })
+
+  it('lists Overview, Campaigns, then the open campaign’s sections under its name, each at its own address', async () => {
+    await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
+      ['outreach.registration.read', 'outreach.campaign.read'], '/provider/outreach')
+    const { setOutreachNav } = await import('../../../ehr-blue/departments/outreach/outreachNav')
+    act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['overview', 'today', 'people'] }))
+    expect(within(nav()).getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]))
+      .toEqual([['Overview', '/provider/outreach'], ['Campaigns', '/provider/outreach/campaigns'], ['Overview', '/provider/outreach/overview'],
+        ['Today', '/provider/outreach/today'], ['People', '/provider/outreach/people']])
+    expect(within(nav()).getByText('Demo drive')).toBeDefined()
+    // The phone's tab bar: Overview, Campaigns and the campaign's Today (then Menu).
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    act(() => setOutreachNav(null))
+  })
+
+  it('keeps the open campaign in the Menu page and the tab bar, and the page under the Menu', async () => {
+    await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
+      ['outreach.registration.read', 'outreach.campaign.read'], '/provider/outreach/people')
+    const { setOutreachNav } = await import('../../../ehr-blue/departments/outreach/outreachNav')
+    act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['overview', 'today', 'people'] }))
+    const page = screen.getByRole('heading', { level: 1 })
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    await act(async () => { fireEvent.click(within(quick).getByRole('button', { name: 'Menu' })) })
+    const menu = screen.getByRole('heading', { level: 1, name: 'Menu' })
+    const lists = [...menu.closest('div')!.parentElement!.querySelectorAll('ul')]
+    const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
+    // Overview and Campaigns, then the campaign's own group, its section shown marked.
+    expect(groups).toContainEqual(['', ['Overview', 'Campaigns']])
+    expect(groups).toContainEqual(['Demo drive', ['Overview', 'Today', 'People']])
+    const people = lists.flatMap(list => [...list.querySelectorAll('a')]).find(link => link.textContent === 'People')!
+    expect(people.getAttribute('aria-current')).toBe('page')
+    // The tab bar keeps the campaign's Today while the Menu is open, and the page stays mounted under it.
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    expect(page.isConnected).toBe(true)
+    expect(page.closest('[hidden]')).not.toBeNull()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Close menu' })) })
+    expect(screen.getByRole('heading', { level: 1 })).toBe(page)
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Campaigns', 'Today'])
+    act(() => setOutreachNav(null))
+  })
+
+  it('gives someone in the field their own sections in the tab bar, not the organisation’s Overview', async () => {
+    await openOn('outreach.staging.healthidentitydirectory.com', DEMO_OUTREACH, 'Demo Outreach Group',
+      ['outreach.registration.read', 'outreach.campaign.read'], '/provider/outreach/today')
+    const { setOutreachNav } = await import('../../../ehr-blue/departments/outreach/outreachNav')
+    act(() => setOutreachNav({ facilityId: DEMO_OUTREACH, campaignName: 'Demo drive', tabs: ['today', 'people', 'followups'] }))
+    const quick = screen.getByRole('navigation', { name: 'Quick' })
+    expect(within(quick).getAllByRole('link').map(link => link.textContent)).toEqual(['Today', 'People', 'Follow-ups'])
+    await act(async () => { fireEvent.click(within(quick).getByRole('button', { name: 'Menu' })) })
+    const menu = screen.getByRole('heading', { level: 1, name: 'Menu' })
+    const lists = [...menu.closest('div')!.parentElement!.querySelectorAll('ul')]
+    const groups = lists.map(list => [list.previousElementSibling?.textContent ?? '', [...list.querySelectorAll('a')].map(link => link.textContent)])
+    // Their campaign first, then Campaigns (to switch campaign); no Overview.
+    expect(groups).toContainEqual(['Demo drive', ['Today', 'People', 'Follow-ups']])
+    expect(groups).toContainEqual(['', ['Campaigns']])
+    expect(groups.flatMap(([, links]) => links)).not.toContain('Overview')
+    act(() => setOutreachNav(null))
+  })
+
+  it('leaves Outreach inside a hospital’s EHR as it was', async () => {
+    await openOn('ehr.healthidentitydirectory.com', DEMO_HOSPITAL, 'Demo Hospital', ['outreach.registration.read', ...FIND_AND_ASK])
+    expect(listedInMenu('Campaigns')).toBe(false)
+    expect(listedInMenu('Patients')).toBe(true)
+  })
+})
+
 describe('a single product at an address that names no product', () => {
   beforeEach(() => { withFramePages() })
 
@@ -175,9 +265,9 @@ describe('the Start menu', () => {
   // permissions. This checks only the frame. The Patients page has its own "Register a patient" button. It shows on the
   // EHR's site only (clinical/patients/PatientsWorkspace.tsx), and 'Patients opened from the menu' below checks that end
   // to end.
-  it.each(SITES)('draws no Start menu on %s (%s), and its sidebar lists no Patient registration', async (_product, host, id, name, own) => {
+  it.each(SITES)('draws no Start menu on %s (%s), and its sidebar lists no Patient registration', async (product, host, id, name, own) => {
     await openOn(host, id, name, [own, ...FIND_AND_ASK, ...EHR_ONLY])
-    expect(listedInMenu('Patients')).toBe(true)
+    expect(listedInMenu('Patients')).toBe(product !== 'outreach')
     expect(screen.queryByRole('button', { name: 'Start' })).toBeNull()
     expect(screen.queryByRole('dialog', { name: 'Start' })).toBeNull()
     expect(document.body.textContent).not.toMatch(/Register a patient/)
@@ -213,7 +303,7 @@ describe('Patients opened from the menu, on the real registry', () => {
     expect(where()).toBe('/provider/patients')
   }
 
-  it.each(SITES)('on %s (%s) brings no Register a patient, even to a session allowed registration', async (_product, host, _id, _name, own) => {
+  it.each(KEEPS_PATIENTS)('on %s (%s) brings no Register a patient, even to a session allowed registration', async (_product, host, _id, _name, own) => {
     await patientsFromMenu(host, 'Riverside Clinic (fictional)', [own, ...REGISTERS])
     expect(screen.getByRole('button', { name: 'Find' })).toBeTruthy()
     expect(screen.queryByRole('link', { name: /Register a patient/ })).toBeNull()

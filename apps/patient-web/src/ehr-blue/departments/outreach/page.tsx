@@ -7,13 +7,16 @@ import { StartOutreachGroup } from './StartOutreachGroup'
 const holds = (session: StaffSession, permission: string) => session.actor.facility?.permissions.includes(permission) ?? false
 
 export const outreachPage: EhrBluePage = {
-  path: 'outreach',
+  path: 'outreach/*',
   group: 'Network & Services',
   label: 'Outreach',
   // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
   status: 'partial',
   icon: <OutreachIcon />,
   element: <Outreach />,
+  // Each campaign tab has its own address below Outreach (outreachNav.ts): the page stays mounted as it changes, so the
+  // campaign open and the work on it live on.
+  keepsState: true,
   // As today: the page opens with campaign or registration read, and reads only what each allows; the sidebar lists it
   // with registration read (staff/navigation.ts). With neither, its address says Outreach isn't available at the facility yet
   // (NO_OUTREACH, the owner's answer of 2 November), as Document OCR's does, asking nobody.

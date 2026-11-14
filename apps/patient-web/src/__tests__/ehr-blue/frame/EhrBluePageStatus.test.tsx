@@ -40,7 +40,7 @@ describe('page statuses', () => {
     ['in-person-check', 'In-person check', 'identity.patient.assisted_registration'],
     ['audit', 'Audit trail', 'audit.read'],
     ['billing', 'Facility subscription', 'billing.subscription.read'],
-    ['outreach', 'Outreach', undefined],
+    ['outreach/*', 'Outreach', undefined],
     ['ocr', 'Document OCR', 'ocr.job.read'],
     ['staff', 'Staff & access', 'workforce.manage'],
     ['laboratory', 'Laboratory', 'lab.work-item.read'],

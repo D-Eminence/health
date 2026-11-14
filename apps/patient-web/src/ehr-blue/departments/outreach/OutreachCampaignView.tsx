@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { EhrBadge, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { Users } from 'lucide-react'
 import { FormActions, PageState } from '../../../kasuwa/parts'
-import { Alert, Button, Card } from '../../../kasuwa/ui'
+import { Badge, Button, Card, Select, Textarea } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
 import { staffApi, type OutreachCampaign, type OutreachCampaignRole } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -11,6 +10,7 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import { ErrorToast, NoteToast } from './notify'
 import {
   CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignStarted, campaignStatusLabel,
   COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, OutreachField, REASON_LENGTH, RETRY_NOTE,
@@ -183,13 +183,11 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const reasonField = (label: string, hint: string) => (
     <OutreachField id={ids.reason} label={label} required hint={hint}
       error={problems.errors.reason} alert={problems.alert === 'reason'} seq={problems.seq}>
-      <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required {...controlProps(ids.reason, problems.errors.reason, true)} />
+      <Textarea name="reason" rows={3} minLength={8} maxLength={500} required {...controlProps(ids.reason, problems.errors.reason, true)} />
     </OutreachField>
   )
   const formFoot = (submit: string) => (
     <>
-      <ErrorBox message={error} />
-      {error ? <small className="hid-ehr-dept-outreach-note">{RETRY_NOTE}</small> : null}
       <FormActions sticky={false}>
         <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={() => choose(null)}>Cancel</Button>
         <Button type="submit" variant="primary" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : submit}</Button>
@@ -230,15 +228,15 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
         <form id={ids.form} className="flex flex-col gap-4" noValidate aria-label="Add a person" onSubmit={event => void addPerson(event)}>
           <OutreachField id={ids.person} label="Person" required hint="Active staff at this facility who aren’t in this campaign yet."
             error={problems.errors.person} alert={problems.alert === 'person'} seq={problems.seq}>
-            <EhrSelect name="membershipId" required defaultValue="" {...controlProps(ids.person, problems.errors.person, true)}>
+            <Select name="membershipId" required defaultValue="" {...controlProps(ids.person, problems.errors.person, true)}>
               <option value="">Choose a person</option>
               {candidates.map(person => <option key={person.membershipId} value={person.membershipId}>{person.name}</option>)}
-            </EhrSelect>
+            </Select>
           </OutreachField>
           <OutreachField id={ids.role} label="Their role" required hint="A campaign admin can also open, close and add people to it.">
-            <EhrSelect name="role" required defaultValue="enumerator" {...controlProps(ids.role, undefined, true)}>
+            <Select name="role" required defaultValue="enumerator" {...controlProps(ids.role, undefined, true)}>
               {CAMPAIGN_ROLES.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
-            </EhrSelect>
+            </Select>
           </OutreachField>
           {formFoot('Add to campaign')}
         </form>
@@ -263,18 +261,17 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
     <DeptPage title={campaign.name} onBack={onBack} backUnavailable={manage ? busy : undefined}>
       <DeptContextLine status={campaignStatusLabel(campaign.status)}
         items={[servicesText(campaign.services), `Starts ${dateText(campaign.startsAt)}`]} />
-      {/* Mounted throughout, so what was done is announced. */}
-      <div role="status" className="hid-ehr-sr-only">{done}</div>
-      {created && !done ? (
-        <Alert intent="success" title="Campaign created">You are its admin. Add the people who will work on it, then open it once it has started.</Alert>
-      ) : null}
-      {done ? <div id={ids.done} tabIndex={-1} className="outline-none"><Alert intent="success" title="Saved" live={false}>{done}</Alert></div> : null}
-      {/* A refusal whose form is gone (the campaign, read again, no longer offers it) is said here instead. */}
-      {error && !shown ? <ErrorBox message={error} /> : null}
-      <DeptRecordLayout
-        main={<DeptSection title="Saved record"><DeptFacts facts={campaignFacts(campaign)} /></DeptSection>}
-        aside={actions}
-      />
+      {/* What was done, and a new campaign, are said in a toast at the top; focus goes to the record as it is now. */}
+      <NoteToast note={done || null} intent="success" title="Saved" />
+      <NoteToast note={created ? 'You are its admin. Add the people who will work on it, then open it once it has started.' : null} intent="success" title="Campaign created" />
+      {/* A refusal whose form is gone (the campaign, read again, no longer offers it) is said in a toast too. */}
+      <ErrorToast error={error ? RETRY_NOTE : null} title={error} />
+      <div id={ids.done} tabIndex={-1} className="outline-none">
+        <DeptRecordLayout
+          main={<DeptSection title="Saved record"><DeptFacts facts={campaignFacts(campaign)} /></DeptSection>}
+          aside={actions}
+        />
+      </div>
       <DeptSection title="Members">
         <PageState loading={loading} error={items ? null : members?.error || null} hasData={items !== null} what="members" rows={2}
           onRetry={members ? () => void members.refresh() : undefined}
@@ -286,7 +283,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
                   <span className="hid-ehr-dept-row-title">{names.get(member.membershipId) ?? 'Team member'}</span>
                   <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
-                <EhrBadge>{memberRoleLabel(member.role)}</EhrBadge>
+                <Badge size="sm">{memberRoleLabel(member.role)}</Badge>
               </li>
             ))}
           </ul>

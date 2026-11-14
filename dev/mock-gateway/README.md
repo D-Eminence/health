@@ -27,6 +27,12 @@ so all three work side by side.
 Options (environment variables):
 
 - `MOCK_FACILITY=classic` shows the classic provider workspace instead of the blue EHR.
+- `MOCK_FACILITY=outreach` signs in as the organiser of a fictional outreach group. Its campaigns include the live
+  "Ajegunle Hepatitis B & Hypertension Screening" (Outreach campaigns, owner decisions of 13 November 2026): plan, team,
+  ~40 visits across the stations, dashboard, follow-ups and report. Station writes need their body, so try them in the
+  preview (`?facility=outreach`); the Node server reads no bodies and answers 400 `MOCK_BODY_NOT_RECEIVED`.
+- `MOCK_OUTREACH_ROLES=registrar,vitals` (preview: `?outreachRoles=registrar,vitals`) gives the demo login those roles in
+  the screening campaign instead of coordinator and clinician, to see sensitive results hidden.
 - `MOCK_PORT=3001` runs on another port (set `HID_LOCAL_GATEWAY_ORIGIN` in `apps/patient-web/.env.local` to match).
 
 On Windows PowerShell: `$env:MOCK_FACILITY="classic"; npm run dev:mock`.

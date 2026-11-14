@@ -1,9 +1,9 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { ErrorToast, NoteToast } from './notify'
 import { isHidApiError } from '@hid/http'
-import { EhrInput, EhrTextarea } from '@hid/ui/ehr'
-import { ArrowRight, CircleCheck, Link2, UserPlus } from 'lucide-react'
+import { ArrowRight, CircleCheck, Link2, Printer, UserPlus } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, Input, Textarea } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
 import { staffApi, type OutreachCampaign, type OutreachCase, type PatientSummary } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -12,11 +12,13 @@ import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import {
-  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
+  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
   HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
   OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
+import type { OutreachVisit } from './campaignTypes'
+import { PrintSlip, VisitCodeText } from './day/dayParts'
 
 type LinkField = 'patient' | 'reason'
 
@@ -175,6 +177,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
 
   const back = () => { if (!busy) onBack() }
   const facts = caseFacts(item, campaign)
+  const visit: OutreachVisit = item
 
   // The one next step, or the done state.
   let nextStep
@@ -205,14 +208,12 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
           ) : (
             <form id={formId} className="flex flex-col gap-4" noValidate aria-label="Link existing patient" onSubmit={event => void linkExisting(event)}>
               <OutreachField id={patientId} label="Health ID" required hint={HEALTH_ID_HINT} {...field('patient')}>
-                <EhrInput name="healthId" readOnly={busy} required maxLength={40} autoComplete="off" autoCapitalize="characters" spellCheck={false} {...controlProps(patientId, problems.errors.patient, true)} />
+                <Input name="healthId" readOnly={busy} required maxLength={40} autoComplete="off" autoCapitalize="characters" spellCheck={false} {...controlProps(patientId, problems.errors.patient, true)} />
               </OutreachField>
               <OutreachField id={reasonId} label="How you know it’s the same person" required hint="For example: name, age and phone match; seen in person." {...field('reason')}>
-                <EhrTextarea name="reason" readOnly={busy} rows={3} minLength={8} maxLength={1000} required {...controlProps(reasonId, problems.errors.reason, true)} />
+                <Textarea name="reason" readOnly={busy} rows={3} minLength={8} maxLength={1000} required {...controlProps(reasonId, problems.errors.reason, true)} />
               </OutreachField>
               <p className="hid-ehr-dept-muted m-0">You can link someone only if they have shared their record with your facility for care. You’ll see their name and date of birth to check before anything is linked.</p>
-              <ErrorBox message={error} />
-              {error && readAgain ? <small className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</small> : null}
               <FormActions sticky={false}>
                 <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={() => { if (!busy) { setOpen(false); setError('') } }}>Cancel</Button>
                 <Button type="submit" variant="primary" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{checking ? 'Checking…' : busy ? 'Saving…' : 'Link existing patient'}</Button>
@@ -245,17 +246,26 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, group = 
           <span>{ageText(item)} · {sexText(item)}</span>
           <span className="text-ink-3">Registered {dateText(item.createdAt)}</span>
         </div>
-        <ErrorBox message={listError} />
+        <ErrorToast error={listError || null} title="Couldn’t refresh registrations" />
         {/* Mounted throughout, so what was recorded is announced. */}
         <div id={`outreach-case-status-${item.id}`} role="status" className="hid-ehr-sr-only">
           {linked ? 'Patient linked. This registration case is now linked to the verified Health ID patient.' : ''}
         </div>
         {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
-        {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}
-        {created && !linked
-          ? <Alert intent="success" title="Registration saved">{pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
-            : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
-          : null}
+        {/* What went wrong, and a registration just saved, are said in a toast at the top of the screen. */}
+        <ErrorToast error={error ? `${error}${readAgain ? ` ${LINK_RETRY_NOTE}` : ''}` : null} title="Not linked" />
+        <NoteToast intent="success" title="Registration saved" note={created && !linked ? (pending ? group ? 'They have a temporary record. They can link their own Health ID to it later.'
+          : 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`) : null} />
+        {created && visit.visitCode ? (
+          // A campaign registration answers with the person's visit code and Health ID: the day screens' slip, to print.
+          <Card className="flex flex-col items-start gap-2 p-5">
+            <p className="m-0 text-[14px] font-medium text-ink-2">Visit code</p>
+            <VisitCodeText code={visit.visitCode} />
+            {visit.healthId ? <p className="m-0 text-[15px] text-ink">Health ID <strong className="tracking-[.04em]">{visit.healthId}</strong></p> : null}
+            <Button icon={Printer} onClick={() => window.print()}>Print slip</Button>
+            <PrintSlip fullName={caseName(item)} visitCode={visit.visitCode} healthId={visit.healthId ?? null} campaignName={campaign?.name ?? ''} />
+          </Card>
+        ) : null}
         {created && item.possibleDuplicate
           ? <Alert intent="warning" title="This may be someone already registered">Another registration in this campaign has the same
             phone number, or the same name and age. Check with the person before registering them again.</Alert>
