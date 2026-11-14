@@ -237,7 +237,7 @@ describe('the list', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(heading().textContent).toBe('Outreach')
     expect(screen.getByRole('button', { name: 'New registration' })).toBeTruthy()
-    expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search by name')
+    expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search by name or Health ID')
     // The list opens on who still needs linking.
     const tabs = screen.getByRole('navigation', { name: 'Show registrations' })
     expect(within(tabs).getAllByRole('button').map(tab => [tab.textContent, tab.getAttribute('aria-pressed')]))

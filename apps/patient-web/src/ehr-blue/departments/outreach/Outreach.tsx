@@ -17,6 +17,7 @@ import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
 import { CaseCard, ShowMore, useOutreachCases, type CasesRead } from './OutreachCaseList'
+import { OutreachNumbers } from './outreachNumbers'
 import { GetHealthIdNow } from './GetHealthIdNow'
 import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
@@ -357,6 +358,7 @@ export function Outreach() {
           <OutreachQueuePanel entries={queueShown} durable={queue.durable} syncing={queue.syncing} onSync={sendNow}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}
+        waitingOnPhone={group ? queueShown.filter(entry => entry.state === 'waiting').length : undefined}
         bottom={organiser ? <OutreachTeam facilityId={facilityId} /> : undefined}
         onNewCampaign={canManage ? () => show({ kind: 'newCampaign' }) : undefined}
         onOpenCase={item => show({ kind: 'case', id: item.id, snapshot: item, created: false })}
@@ -392,14 +394,16 @@ interface ListRead<T> {
   readonly refresh: () => Promise<void>
 }
 
-type CaseTab = 'waiting' | 'done' | 'all'
+type CaseTab = 'waiting' | 'done' | 'all' | 'noChecks'
 
 /**
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
 function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cases, campaigns, refreshMembers, group, top, bottom, campaignOf, onNew, onNewCampaign,
-  onOpenCase, onOpenCampaign }: {
+  onOpenCase, onOpenCampaign, waitingOnPhone }: {
+  /** Registrations kept on this phone waiting for signal (an outreach group's), counted in today's numbers. */
+  readonly waitingOnPhone?: number
   readonly canReadCases: boolean
   /** Export is offered: reading registrations, and at an outreach group, its organiser. */
   readonly canExport: boolean
@@ -433,7 +437,10 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   // Newest first: the person just met is the one most likely to be looked for.
   const all = [...(cases.value ?? [])].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
   const waiting = all.filter(caseWaiting)
-  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'waiting') === caseWaiting(item)
+  // "No health checks yet" (owner, 14 Nov: who still needs the vitals station), where Outreach says which have them.
+  const checksKnown = all.some(item => 'hasScreening' in item)
+  const noChecks = all.filter(item => item.hasScreening === false)
+  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'noChecks' ? item.hasScreening === false : (tab === 'waiting') === caseWaiting(item))
   const rows = all.filter(item => inTab(item) && matchesSearch(search, caseSearchText(item)))
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
@@ -446,6 +453,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
     ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
   const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null : search
     ? { icon: Search, title: 'No matching registrations', description: 'Check the spelling, or search by another name.' }
+    : tab === 'noChecks' ? { icon: CircleCheck, title: 'Everyone here has health checks', description: 'Registrations without health checks show here.' }
     : tab === 'waiting' ? { icon: CircleCheck, title: 'No one is waiting to be linked', description: 'Every registration here is linked to a Health ID.' }
       : { icon: Users, title: 'None linked yet', description: 'Registrations move here once they are linked to a Health ID.' }
 
@@ -460,16 +468,18 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
         {canReadCases ? (
           <section aria-labelledby="outreach-cases-heading" className="flex flex-col gap-3">
             <h2 id="outreach-cases-heading" className="m-0 text-title-2 text-ink">Registrations</h2>
+            <OutreachNumbers cases={cases.value} more={cases.more.available} waitingOnPhone={waitingOnPhone} label="Today’s numbers" />
             <div className="flex flex-col gap-3 @xl:flex-row @xl:flex-wrap @xl:items-center @xl:justify-between">
               <FilterTabs label="Show registrations" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
                 { value: 'waiting', label: 'Waiting to link', count: waiting.length },
                 { value: 'done', label: 'Linked', count: all.length - waiting.length },
                 { value: 'all', label: 'All', count: all.length },
+                ...(checksKnown ? [{ value: 'noChecks' as const, label: 'No health checks yet', count: noChecks.length }] : []),
               ]} />
               <div className="flex min-w-0 items-center gap-2 @xl:w-80">
                 <label htmlFor="outreach-search" className="sr-only">Search Outreach</label>
                 <Input id="outreach-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
-                  placeholder="Search by name" onChange={event => { setSearch(event.target.value); setPage(0) }} />
+                  placeholder="Search by name or Health ID" onChange={event => { setSearch(event.target.value); setPage(0) }} />
                 {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); focus('outreach-search') }}>Clear search</EhrButton> : null}
               </div>
             </div>
