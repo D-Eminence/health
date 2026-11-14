@@ -76,7 +76,7 @@ export interface AuditFilters {
 /**
  * An outreach group on support's list (open sign-up on outreach., owner decisions of 11 November 2026, and decision Q38:
  * Health ID does not check a group before its campaigns go live): the group, its organiser with the phone they gave,
- * whether it is paused, and what it has done. Its label is "Unverified organiser", or "Paused".
+ * whether it is paused, and what it has done. Its label is "Active", or "Paused".
  */
 export interface OutreachOrganiser {
   organizationId: string

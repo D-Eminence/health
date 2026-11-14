@@ -442,7 +442,7 @@ export function CreateHealthId({ facilityId, item, canWrite, onCreated, onPrintS
         <label className="flex items-start gap-3 text-body text-ink" htmlFor={id('wanted')}>
           <input id={id('wanted')} type="checkbox" className="mt-1 size-5" checked={wanted} disabled={busy || sent !== null}
             onChange={event => { setWanted(event.target.checked); if (!event.target.checked) setError('') }} />
-          <span>They want a Health ID<span className="block text-caption text-ink-3">Ask them. Agreeing to be registered is not agreeing to a Health ID.</span></span>
+          <span>They want a Health ID</span>
         </label>
         {wanted && !sent ? <>
           <fieldset className="hid-ehr-field m-0 border-0 p-0">

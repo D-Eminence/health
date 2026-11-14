@@ -49,7 +49,7 @@ describe('Start an outreach group', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /accept the organiser terms/ }))
     await press('Start my outreach group')
     expect(api.startOutreachGroup).toHaveBeenCalledWith({ groupName: 'Yaba Health Volunteers', kind: 'group', phone: '08012345678',
-      termsVersion: '2026-11-01', acceptTerms: true })
+      termsVersion: '2026-11-14', acceptTerms: true })
     await waitFor(() => expect(staff.selectFacility).toHaveBeenCalledWith(NEW_GROUP))
     expect(await screen.findByRole('heading', { level: 1, name: 'Outreach' })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/limit|₦|price/i)

@@ -85,7 +85,7 @@ describe('Start running outreach', () => {
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'a long fictional passphrase' } })
     fireEvent.change(screen.getByLabelText(/Type the password again/), { target: { value: 'a long fictional passphrase' } })
     await press('Create my outreach group')
-    expect(api.activate).toHaveBeenCalledWith({ termsVersion: '2026-11-01', password: 'a long fictional passphrase' })
+    expect(api.activate).toHaveBeenCalledWith({ termsVersion: '2026-11-14', password: 'a long fictional passphrase' })
     expect(await screen.findByRole('heading', { level: 1, name: 'Your outreach group is ready' })).toBeTruthy()
     expect(document.body.textContent).toContain('open the campaign when your event starts')
     expect(document.body.textContent).not.toMatch(/checks your group|same working day/)
@@ -215,7 +215,7 @@ describe('the organiser terms page', () => {
     open('/provider/outreach-terms')
     expect(screen.getByRole('heading', { level: 1, name: 'Organiser terms for Health ID Outreach' })).toBeTruthy()
     const text = document.body.textContent ?? ''
-    expect(text).toContain('Version 2026-11-01')
+    expect(text).toContain('Version 2026-11-14')
     expect(text).toContain('joint controllers')
     expect(text).toContain('Tell Health ID support within 24 hours')
     expect(text).toContain('free for now')

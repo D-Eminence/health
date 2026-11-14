@@ -6,7 +6,7 @@ import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useRe
 /**
  * Support's "Outreach organisers" (open sign-up on outreach., owner decisions of 11 November 2026). Anyone can sign up to
  * run outreach, and Health ID does not check a group before its campaigns go live (decision Q38): a new group can open a
- * campaign at once; Health ID does not check it, so it shows as an "Unverified organiser" here. Support can pause a group,
+ * campaign at once; Health ID does not check it first, and a group not paused shows as "Active". Support can pause a group,
  * close a campaign whose only admin has gone, or make another member its admin, and delete one person's details sooner
  * when they ask (as the registration notice and the organiser terms promise). There are no limits to raise (decision 2)
  * and nothing to bill (decision 6).
@@ -34,8 +34,8 @@ const PROBLEMS: Readonly<Record<string, string>> = {
 }
 
 const KIND_WORDS: Readonly<Record<string, string>> = { individual: 'A volunteer on their own', group: 'A group, NGO or community organisation' }
-/** Health ID never verifies an outreach group, so a group that is not paused is an "Unverified organiser". */
-const STATUS_WORDS: Readonly<Record<string, string>> = { active: 'Unverified organiser', suspended: 'Paused' }
+/** A group that is not paused is "Active" (owner, 14 November 2026: the word "unverified" is not used). */
+const STATUS_WORDS: Readonly<Record<string, string>> = { active: 'Active', suspended: 'Paused' }
 /** "1 campaign", "3 campaigns"; a number Identity left out reads as 0. */
 const count = (value: number | undefined, word: string) => { const n = Number.isFinite(value) ? Number(value) : 0; return `${n} ${word}${n === 1 ? '' : 's'}` }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

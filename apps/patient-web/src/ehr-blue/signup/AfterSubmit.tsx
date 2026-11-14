@@ -28,7 +28,7 @@ export function Submitted({ e }: { readonly e: Enrollment }) {
 
 /**
  * Enter your verification code (design screen 09), over today's code step and its "Didn't get the code?"
- * (ProviderEnrollment.tsx:1083-1122): the same hints, waits, security check and results. "Change unverified email" is
+ * (ProviderEnrollment.tsx:1083-1122): the same hints, waits, security check and results. "Change email" is
  * today's "Start again": back to Your account, with every detail kept.
  */
 export function CodeStep({ e }: { readonly e: Enrollment }) {
@@ -73,7 +73,7 @@ export function CodeStep({ e }: { readonly e: Enrollment }) {
           : e.resent === 'in-force' ? 'We didn’t send a new code: the code in the latest email from Health ID still works.'
             : 'We didn’t send a new code, and the last one can no longer be used.'}</p>}</div>
       </section>
-      <EhrButton variant="secondary" className="hid-ehr-signup-wide" onClick={() => e.startAgain(0)}>Change unverified email</EhrButton>
+      <EhrButton variant="secondary" className="hid-ehr-signup-wide" onClick={() => e.startAgain(0)}>Change email</EhrButton>
     </>
   )
 }

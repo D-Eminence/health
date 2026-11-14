@@ -146,7 +146,7 @@ describe('Didn’t get the code?', () => {
     await toCode()
     security.auto = false
     // Back and forth, so the check is asked again and this time not answered.
-    fireEvent.click(button('Change unverified email'))
+    fireEvent.click(button('Change email'))
     await step('Your account')
     for (let index = 0; index < 4; index++) fireEvent.click(button('Continue'))
     await step('Check and send')
@@ -181,9 +181,9 @@ describe('Didn’t get the code?', () => {
     }
   })
 
-  it('“Change unverified email” goes back to Your account with every detail kept, its heading focused', async () => {
+  it('“Change email” goes back to Your account with every detail kept, its heading focused', async () => {
     await toCode()
-    fireEvent.click(button('Change unverified email'))
+    fireEvent.click(button('Change email'))
     const heading = await step('Your account')
     expect(document.activeElement).toBe(heading)
     expect(textbox('Full name').value.trim()).toBe(NAME)

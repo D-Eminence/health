@@ -10,7 +10,7 @@ import {
 } from '../../productHostname'
 import { outreachOrganiserApi } from '../../staff/api'
 import { Turnstile } from '../../Turnstile'
-import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION } from '../../outreachTerms'
+import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION, organiserTermsAheadOfPage } from '../../outreachTerms'
 import { EMAIL_HAS_LOGIN, isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../outreachProblems'
 import { EMAIL, groupDetailsProblems, NAME } from '../../outreachGroupDetails'
 import { PasswordField } from './PasswordField'
@@ -87,7 +87,7 @@ function SignUpSteps() {
       if (controller.signal.aborted) return
       if (answer?.open !== true) setStage('closed')
       // The page accepts only the terms whose text it shows: newer terms at Identity need this page reloaded first.
-      else if (typeof answer.termsVersion === 'string' && answer.termsVersion && answer.termsVersion !== ORGANISER_TERMS_VERSION) setStage('terms-changed')
+      else if (typeof answer.termsVersion === 'string' && answer.termsVersion && organiserTermsAheadOfPage(answer.termsVersion)) setStage('terms-changed')
       else setStage(0)
     }, () => { if (!controller.signal.aborted) setStage('closed') })
     return () => controller.abort()
