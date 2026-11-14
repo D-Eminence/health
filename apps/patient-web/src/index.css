@@ -705,3 +705,19 @@
 .hid-stat-grid-4 {
   grid-template-columns: repeat(auto-fill, minmax(max(calc((100% - 1.125rem) / 4), min(calc((100% - .375rem) / 2), (50rem - 100%) * 999)), 1fr));
 }
+
+/* Phones zoom the whole page in when a typing box's text is smaller than 16px (iPhone Safari, as soon as the box is
+   tapped), and the page then no longer fits the screen (outreach event, 14 Nov 2026: "it changes when typing e.g.
+   password and others"). On touch screens every typing box uses 16px text, so nothing zooms; the 6-digit code boxes keep
+   their larger 20px. Not in a layer, and !important, so it wins over every control's own size (Tailwind utilities, the
+   EHR control, the patient forms). Desktop sizes are unchanged. */
+@media (pointer: coarse) {
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color'], [type='button'], [type='submit'], [type='reset'], [type='image'], [type='hidden']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  .patient-code-boxes input {
+    font-size: 20px !important;
+  }
+}
