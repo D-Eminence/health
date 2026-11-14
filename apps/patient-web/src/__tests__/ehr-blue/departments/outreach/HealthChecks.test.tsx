@@ -133,6 +133,37 @@ describe('Health checks', () => {
     }
   })
 
+  it('“Register another person” on a finished registration asks first too while health checks aren’t saved', async () => {
+    // Health checks stay on the case once it no longer waits for a Health ID (here, already linked): the done state's own
+    // "Register another person" must not drop readings typed and not saved, any more than Back to list does.
+    api.createOutreachCase.mockResolvedValue(pending(CASE_ID, { status: 'identity_resolved' }))
+    renderDept(<Outreach />)
+    await press(await screen.findByRole('button', { name: 'New registration' }))
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Ajegunle health week' })).toBeTruthy())
+    fireEvent.change(screen.getByRole('textbox', { name: /Full name/ }), { target: { value: 'Kemi Balogun' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Age in years/ }), { target: { value: '30' } })
+    await press(screen.getByRole('radio', { name: /They read it themselves and agreed/ }))
+    await press(screen.getByRole('button', { name: 'Save registration' }))
+    expect(await screen.findByRole('heading', { name: 'Nothing more to do' })).toBeTruthy()
+    await within(region()).findByRole('button', { name: 'Save health checks' })
+    // Only the done state's button: the link under the page is for a registration still waiting.
+    expect(screen.getAllByRole('button', { name: 'Register another person' })).toHaveLength(1)
+    type(/top number/, '182')
+    type(/bottom number/, '117')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    try {
+      await press(screen.getByRole('button', { name: 'Register another person' }))
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(box(/top number/).value).toBe('182')
+      expect(screen.queryByRole('heading', { level: 1, name: 'New registration' })).toBeNull()
+      confirm.mockReturnValue(true)
+      await press(screen.getByRole('button', { name: 'Register another person' }))
+      expect(await screen.findByRole('heading', { level: 1, name: 'New registration' })).toBeTruthy()
+    } finally {
+      confirm.mockRestore()
+    }
+  })
+
   it('saves the whole screening the first time with a new key and no version, then with its version', async () => {
     api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { bpSystolic: 128, bpDiastolic: 84, weightKg: 70, heightCm: 170,
       glucoseValue: 6.1, glucoseUnit: 'mmol/L', glucoseTiming: 'random', malariaRdt: 'negative', medicinesGiven: [{ name: 'Paracetamol', dose: '500 mg' }] }) })
