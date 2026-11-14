@@ -1,0 +1,839 @@
+/*
+ * Waya design tokens.
+ *
+ * This is the visual contract shared by the public site and authenticated
+ * applications. Components consume semantic names rather than values, so a
+ * future brand override does not turn into a repository-wide colour hunt.
+ */
+
+
+@theme {
+  /*
+   * 2026 redesign: the Kasuwa language (cool-grey canvas, white cards on grey
+   * trays, one confident blue, large radii, generous air) in Health ID blue.
+   * Every text colour below passes WCAG AA (4.5:1) on every light surface.
+   */
+
+  /* Brand: a deliberate interaction signal, never a page fill. */
+  --color-brand: #1570ef;
+  --color-brand-dark: #175cd3; /* backwards-compatible hover alias */
+  --color-brand-hover: #175cd3;
+  /* A filled control with white text on it: 4.5:1 or more in both themes (the dark theme's brand is for text). */
+  --color-brand-fill: #1570ef;
+  --color-brand-fill-hover: #175cd3;
+  --color-danger-fill: #d92d20;
+  --color-danger-fill-hover: #b42318;
+  --color-brand-active: #1849a9;
+  --color-brand-tint: #eff6ff;
+  --color-brand-tint-hover: #e0eeff;
+  --color-brand-border: #b2ddff;
+
+  /* One background per mode (owner, 2026-10-31): page, sidebar, header and cards are all white; areas are told apart
+   * by hairlines, not fills. Only hover and the tile tray carry a soft grey. */
+  --color-page: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunk: #ffffff;
+  --color-surface-tint: #f2f4f7;
+  --color-surface-hover: #f2f4f7;
+  --color-surface-selected: #eaecf0;
+
+  /* Text and separation. */
+  --color-ink: #101828;
+  --color-text: #1d2939;
+  --color-muted: #475467;
+  --color-faint: #667085; /* small text: 4.5:1 on every light surface */
+  --color-line: #eaecf0;
+  --color-line-strong: #d0d5dd;
+  --color-line-control: #7d8799; /* a form control's boundary: 3:1 on every light surface */
+
+  /* Elevated/inverse surfaces. */
+  --color-inverse-surface: #101828;
+  --color-inverse-ink: #ffffff;
+  --color-inverse-muted: #d0d5dd;
+
+  /* Semantic status: bright values for icons and fills, -ink values for text. */
+  --color-positive: #079455;
+  --color-caution: #dc6803;
+  --color-positive-ink: #067647;
+  --color-caution-ink: #b54708;
+  --color-critical: #b42318;
+  --color-information: #0086c9;
+  --color-stage: #0086c9; /* compatibility alias for existing workflow UI */
+
+  /* Type: one family, Figtree, bundled with the app (no third-party request). */
+  --font-display: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, sans-serif;
+  --font-jetbrains-mono: var(--font-sans); /* legacy labels stay in the sans */
+
+  /* Layout and component geometry (4px grid). */
+  --spacing-gutter: 16px;
+  --container-wrap: 1440px;
+  --sidebar-expanded: 264px;
+  --sidebar-collapsed: 64px;
+  --radius-tiny: 6px;
+  --radius-compact: 8px;
+  --radius-button: 10px;
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-panel: 16px; /* compatibility alias for legacy cards */
+  --radius-popover: 12px;
+  --radius-dialog: 20px;
+  --radius-sheet: 24px;
+  --radius-pill: 999px;
+  --border-quiet: 1px;
+  --border-control: 1px;
+
+  /* Purposeful elevation, motion and layering. */
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 4%), 0 1px 3px rgb(16 24 40 / 3%);
+  --shadow-popover: 0 12px 24px -6px rgb(16 24 40 / 14%), 0 4px 8px -4px rgb(16 24 40 / 6%);
+  --shadow-dialog: 0 24px 48px -12px rgb(16 24 40 / 24%);
+  --shadow-toast: 0 12px 24px -6px rgb(16 24 40 / 18%);
+  --motion-quick: 150ms;
+  --motion-sidebar: 180ms;
+  --motion-standard: 220ms;
+  --motion-slow: 350ms;
+  --motion-emphasis: 500ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-popover: 30;
+  --z-tooltip: 40;
+  --z-drawer: 50;
+  --z-dialog: 60;
+  --z-toast: 70;
+}
+
+:root {
+  color-scheme: light;
+  --focus-ring-color: var(--color-brand);
+  --focus-ring: 0 0 0 4px rgb(8 109 217 / 16%);
+}
+
+/*
+ * Dark theme, authored (not inverted): near-black canvas, charcoal cards,
+ * a lighter blue for contrast. Opt in with data-theme="dark" on <html>.
+ */
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-brand: #3b8cff;
+  --color-brand-hover: #5a9dff;
+  --color-brand-dark: #5a9dff;
+  --color-brand-active: #84b6ff;
+  --color-brand-tint: rgb(59 140 255 / 12%);
+  --color-brand-tint-hover: rgb(59 140 255 / 18%);
+  --color-brand-border: rgb(59 140 255 / 35%);
+  --color-page: #000000;
+  --color-surface: #000000;
+  --color-surface-raised: #000000;
+  --color-surface-sunk: #000000;
+  --color-surface-tint: #141414;
+  --color-surface-hover: #1a1a1a;
+  --color-surface-selected: #222222;
+  --color-ink: #f5f5f6;
+  --color-text: #e4e4e7;
+  --color-muted: #b4b4b8;
+  --color-faint: #9a9aa0;
+  --color-line: #262626;
+  --color-line-strong: #3a3a3a;
+  --color-line-control: #74747a; /* 4.4:1 on #000 */
+  --color-positive: #2fbf7a;
+  --color-positive-ink: #6ee0a6;
+  --color-caution: #f79009;
+  --color-caution-ink: #fdb022;
+  --color-critical: #f97066;
+  --color-information: #36bffa;
+  --color-inverse-surface: #f5f5f6;
+  --color-inverse-ink: #101828;
+  --color-inverse-muted: #475467;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 35%);
+  --shadow-popover: 0 16px 32px -8px rgb(0 0 0 / 60%);
+  --shadow-dialog: 0 24px 48px -12px rgb(0 0 0 / 70%);
+  --focus-ring: 0 0 0 4px rgb(59 140 255 / 25%);
+}
+
+
+/*
+ * Kasuwa: the design system of paytrail (Usetally), the source of truth for the Health ID rebuild. Same names and
+ * values as paytrail's app/globals.css, so a screen ported from it reads the same. One deliberate change: ink-3 is
+ * #667085, not #98a2b3, because small grey text must reach WCAG AA 4.5:1 (paytrail's measures 2.6:1 on white).
+ *
+ * SPACING (4px grid) page gutter px-4 sm:px-6 lg:px-8 · section gap 32 · card padding 20 · tray padding 6
+ * RADIUS xs 6 · sm 8 · md 10 · lg 12 · xl 16 · 2xl 20 · 3xl 24 · CONTROL HEIGHTS sm 32 · md 40 · lg 48
+ * TYPE display 32/40 600 · title-1 24/32 · title-2 18/26 · title-3 15/22 · body 14/22 · caption 12/16 · overline 11/16
+ */
+@theme {
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+
+  --color-canvas: #ffffff;
+  --color-subtle: #f9fafb; /* hover only, never an area fill */
+  --color-tray: #f2f4f7;
+  --color-hover: #f2f4f7;
+  --color-ink-2: #475467;
+  --color-ink-3: #667085;
+  --color-contrast: #101828;
+  --color-contrast-hover: #1d2939;
+
+  --color-brand-soft: #eff6ff;
+  --color-brand-line: #b2ddff;
+  --color-brand-ink: #175cd3;
+
+  --color-success: #079455;
+  --color-success-soft: #ecfdf3;
+  --color-success-ink: #067647;
+  --color-warn: #dc6803;
+  --color-warn-soft: #fffaeb;
+  --color-warn-ink: #b54708;
+  --color-info: #0086c9;
+  --color-info-soft: #f0f9ff;
+  --color-info-ink: #026aa2;
+  --color-violet: #7a5af8;
+  --color-violet-soft: #f4f3ff;
+  --color-violet-ink: #5925dc;
+  --color-danger: #d92d20;
+  --color-danger-soft: #fef3f2;
+  --color-danger-ink: #b42318;
+
+  --color-tint-mint: #f1fbf6;
+  --color-tint-mint-line: #d3f3e3;
+  --color-tint-amber: #fffaf0;
+  --color-tint-amber-line: #fcebcb;
+  --color-tint-rose: #fff6f5;
+  --color-tint-rose-line: #fcdcd8;
+  --color-tint-blue: #f3f8ff;
+  --color-tint-blue-line: #d6e7ff;
+
+  --color-notice: #ffffff;
+  --color-notice-line: #e4e4e7;
+  --color-notice-body: #52525b;
+  --color-intent-success: #047857;
+  --color-intent-error: #be123c;
+  --color-intent-warning: #b45309;
+  --color-intent-info: #1d4ed8;
+
+  /* Sign-in (paytrail's landing world): warm paper, near-black ink, one confident blue. */
+  --color-hero: #f4f1ea;
+  --color-hero-ink: #151513;
+  --color-hero-ink-2: #5d5b53;
+  --color-hero-line: #dcd7cb;
+  --color-hero-accent: #175cd3;
+  --color-hero-paper: #fffdf8;
+  --color-hero-tint: #ebe7dd;
+
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-pop: 0 12px 24px -6px rgba(16, 24, 40, 0.14), 0 4px 8px -4px rgba(16, 24, 40, 0.06);
+  --shadow-focus: 0 0 0 4px rgba(21, 112, 239, 0.16);
+
+  --animate-fade-in: kasuwa-fade-in 160ms ease-out;
+  --animate-rise: kasuwa-rise 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes kasuwa-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kasuwa-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+:root[data-theme='dark'] {
+  --color-canvas: #000000;
+  --color-subtle: #0a0a0a;
+  --color-tray: #0f0f0f;
+  --color-hover: #1a1a1a;
+  --color-ink-2: #b4b4b8;
+  --color-ink-3: #8f8f96;
+  --color-contrast: #262626;
+  --color-contrast-hover: #303030;
+  --color-brand-soft: rgba(59, 140, 255, 0.12);
+  --color-brand-line: rgba(59, 140, 255, 0.35);
+  --color-brand-ink: #84b6ff;
+  --color-success: #2fbf7a;
+  --color-success-soft: rgba(47, 191, 122, 0.12);
+  --color-success-ink: #6ee0a6;
+  --color-warn: #f79009;
+  --color-warn-soft: rgba(247, 144, 9, 0.12);
+  --color-warn-ink: #fdb022;
+  --color-info: #36bffa;
+  --color-info-soft: rgba(54, 191, 250, 0.12);
+  --color-info-ink: #7cd4fd;
+  --color-violet: #9b8afb;
+  --color-violet-soft: rgba(155, 138, 251, 0.14);
+  --color-violet-ink: #bdb4fe;
+  --color-danger: #f97066;
+  --color-danger-soft: rgba(249, 112, 102, 0.12);
+  --color-danger-ink: #fda29b;
+  --color-tint-mint: #0d1a14;
+  --color-tint-mint-line: #163a29;
+  --color-tint-amber: #1a1307;
+  --color-tint-amber-line: #3b2a0b;
+  --color-tint-rose: #1c0b0b;
+  --color-tint-rose-line: #4a1717;
+  --color-tint-blue: #0b1424;
+  --color-tint-blue-line: #17325c;
+  --color-notice: #000000;
+  --color-notice-line: #262626;
+  --color-notice-body: #a1a1aa;
+  --color-intent-success: #34d399;
+  --color-intent-error: #fb7185;
+  --color-intent-warning: #fbbf24;
+  --color-intent-info: #60a5fa;
+  --color-hero: #131210;
+  --color-hero-ink: #f2efe7;
+  --color-hero-ink-2: #a29e93;
+  --color-hero-line: #2e2c27;
+  --color-hero-accent: #5a9dff;
+  --color-hero-paper: #1c1b18;
+  --color-hero-tint: #1f1e1b;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 16px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-focus: 0 0 0 4px rgba(59, 140, 255, 0.25);
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+  .text-display { font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -0.02em; }
+  .text-title-1 { font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; }
+  .text-title-2 { font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+  .text-title-3 { font-size: 15px; line-height: 22px; font-weight: 600; }
+  .text-overline { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  /* The primary fill: solid, so white text keeps 4.5:1 top to bottom, in both themes; a hairline highlight for depth. */
+  .bg-primary-gradient {
+    background-color: var(--color-brand-fill);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(16, 24, 40, 0.12), 0 0 0 1px color-mix(in srgb, var(--color-brand-fill) 85%, black);
+  }
+  .bg-primary-gradient:hover { background-color: var(--color-brand-fill-hover); }
+  /* The four text levels (UI principles: three to four, no more), body 16px on phones. */
+  .text-body { font-size: 16px; line-height: 24px; }
+  .text-caption { font-size: 13px; line-height: 18px; }
+  @media (min-width: 640px) { .text-body { font-size: 14px; line-height: 21px; } .text-caption { font-size: 12px; line-height: 17px; } }
+  .bg-dots { background-image: radial-gradient(var(--color-line-strong) 1px, transparent 1px); background-size: 16px 16px; }
+}
+
+@layer base {
+  *, ::before, ::after { border-color: var(--color-line); }
+
+  html { background: var(--color-page); }
+
+  body {
+    min-width: 320px;
+    background: var(--color-page);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Phones zoom when a field under 16px gets focus; keep fields at 16px there. */
+  @media (max-width: 767px) and (pointer: coarse) {
+    :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) { font-size: 16px; }
+  }
+
+  :where(button, a, input, select, textarea, summary):focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+
+  :where(button, [role='button']) { touch-action: manipulation; }
+
+  ::selection { background: var(--color-brand-tint-hover); color: var(--color-ink); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Reusable keyboard-first command palette. Hosts supply only data and selection. */
+@layer components {
+  .waya-command-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dialog);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: clamp(20px, 9vh, 116px) 20px 20px;
+    background: rgb(34 34 34 / 42%);
+    animation: waya-command-fade-in var(--motion-quick) var(--ease-standard) both;
+  }
+
+  .waya-command {
+    display: grid;
+    width: min(760px, 100%);
+    height: min(540px, calc(100dvh - 48px));
+    grid-template-rows: auto minmax(220px, 1fr);
+    overflow: hidden;
+    border: 0.5px solid var(--color-line-strong);
+    border-radius: var(--radius-dialog);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-dialog);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    animation: waya-command-rise var(--motion-standard) var(--ease-out) both;
+  }
+
+  .waya-command[data-filters-open='true'] { grid-template-rows: auto auto minmax(220px, 1fr); }
+
+  .waya-command__header {
+    display: flex;
+    min-height: 56px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 8px 16px;
+    border-bottom: 0.5px solid var(--color-line);
+  }
+
+  .waya-command__input-wrap {
+    display: flex;
+    min-width: 0;
+    height: 40px;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    padding-left: 12px;
+    border-radius: var(--radius-control);
+    color: var(--color-muted);
+    transition: background-color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__input-wrap:focus-within,
+  .waya-command__input-wrap.is-filled { background: var(--color-surface-tint); }
+
+  .waya-command__input {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-ink);
+    caret-color: var(--color-brand);
+    font: 400 16px/1.2 var(--font-sans);
+    letter-spacing: -0.018em;
+  }
+
+  .waya-command__input::placeholder { color: var(--color-faint); }
+
+  .waya-command__clear,
+  .waya-command__icon-button,
+  .waya-command__filter,
+  .waya-command__retry { border: 0; background: transparent; font-family: inherit; cursor: pointer; }
+
+  .waya-command__clear {
+    align-self: stretch;
+    padding: 0 12px;
+    border-left: 0.5px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .waya-command__clear:hover { color: var(--color-ink); }
+
+  .waya-command__icon-button {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: var(--radius-button);
+    color: var(--color-muted);
+    transition: background-color var(--motion-quick) var(--ease-standard), color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__icon-button:hover,
+  .waya-command__icon-button[aria-expanded='true'] { background: var(--color-surface-hover); color: var(--color-ink); }
+
+  .waya-command__filters {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 20px;
+    border-bottom: 0.5px solid var(--color-line);
+    scrollbar-width: none;
+  }
+
+  .waya-command__filters::-webkit-scrollbar { display: none; }
+
+  .waya-command__filter-label,
+  .waya-command__group-title { flex: 0 0 auto; color: var(--color-muted); font-size: 12px; font-weight: 500; line-height: 1.25; }
+  .waya-command__filter-label { margin-right: 4px; }
+
+  .waya-command__filter {
+    display: inline-flex;
+    height: 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 0 12px;
+    border-radius: var(--radius-control);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background-color var(--motion-quick) var(--ease-standard), color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__filter:hover:not(:disabled) { color: var(--color-ink); }
+  .waya-command__filter[aria-pressed='true'] { background: var(--color-brand-tint); color: var(--color-brand); }
+  .waya-command__filter:disabled { cursor: not-allowed; opacity: 0.45; }
+
+  .waya-command__results { min-height: 0; overflow-y: auto; padding: 8px 12px 16px; scrollbar-width: none; }
+  .waya-command__results::-webkit-scrollbar { display: none; }
+  .waya-command__group { padding-bottom: 8px; }
+  .waya-command__group-title { margin: 0; padding: 6px 6px 8px; }
+
+  .waya-command__item {
+    display: grid;
+    width: 100%;
+    min-height: 56px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) 20px;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 8px;
+    border: 0;
+    border-radius: var(--radius-card);
+    background: transparent;
+    color: var(--color-muted);
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background-color var(--motion-quick) var(--ease-standard), color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__item:hover:not(:disabled),
+  .waya-command__item[aria-selected='true'] { background: var(--color-surface-hover); color: var(--color-ink); }
+  .waya-command__item:disabled { cursor: not-allowed; opacity: 0.45; }
+
+  .waya-command__leading { display: flex; min-width: 0; align-items: center; gap: 12px; }
+
+  .waya-command__item-icon {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: var(--radius-control);
+    background: var(--color-brand-tint);
+    color: var(--color-brand);
+  }
+
+  .waya-command__item-label,
+  .waya-command__item-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .waya-command__item-label { color: inherit; font-size: 15px; font-weight: 500; letter-spacing: -0.012em; }
+  .waya-command__item-description { color: var(--color-muted); text-align: right; font-size: 13px; line-height: 1.35; }
+  .waya-command__arrow { opacity: 0; transition: opacity var(--motion-quick) var(--ease-standard); }
+  .waya-command__item:hover:not(:disabled) .waya-command__arrow,
+  .waya-command__item[aria-selected='true'] .waya-command__arrow { opacity: 1; }
+
+  .waya-command__state {
+    display: grid;
+    min-height: 280px;
+    align-content: center;
+    justify-items: center;
+    gap: 8px;
+    padding: 24px;
+    color: var(--color-muted);
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .waya-command__state strong { color: var(--color-ink); font-size: 15px; font-weight: 600; }
+  .waya-command__spinner { color: var(--color-brand); animation: waya-command-spin 750ms linear infinite; }
+
+  .waya-command__retry {
+    min-height: 32px;
+    margin-top: 4px;
+    padding: 0 12px;
+    border-radius: var(--radius-button);
+    background: var(--color-brand);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .waya-command__retry:hover { background: var(--color-brand-hover); }
+
+  .waya-command__sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @keyframes waya-command-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes waya-command-rise { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes waya-command-spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 600px) {
+    .waya-command-overlay { align-items: flex-start; padding: 12px 0; }
+    .waya-command { width: 100%; height: calc(100dvh - 24px); border-radius: var(--radius-sheet); }
+    .waya-command__header { padding: 8px; }
+    .waya-command__input-wrap { height: 44px; }
+    .waya-command__icon-button { width: 44px; height: 44px; }
+    .waya-command__filters { min-height: 60px; padding-inline: 16px; }
+    .waya-command__filter { height: 44px; }
+    .waya-command__item { grid-template-columns: minmax(0, 1fr) 16px; gap: 8px; }
+    .waya-command__item-description { display: none; }
+  }
+}
+
+/*
+ * Waya's one feedback surface: compact and neutral, with semantic colour
+ * limited to the icon. These classes live beside the tokens because both
+ * Next and Vite applications import this stylesheet at their roots.
+ */
+@layer components {
+  .waya-toast-region {
+    position: fixed;
+    right: max(24px, env(safe-area-inset-right));
+    bottom: calc(max(24px, env(safe-area-inset-bottom)) + var(--waya-toast-offset, 0px));
+    z-index: var(--z-toast);
+    display: flex;
+    width: min(360px, calc(100vw - 40px));
+    max-width: 420px;
+    flex-direction: column-reverse;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .waya-toast-region[data-position='bottom-center'] {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .waya-toast {
+    display: grid;
+    min-height: 48px;
+    grid-template-columns: 17px minmax(0, 1fr) auto auto;
+    align-items: start;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 0.5px solid var(--color-line-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-toast);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    animation: waya-toast-enter var(--motion-standard) var(--ease-standard) both;
+    pointer-events: auto;
+  }
+
+  .waya-toast[data-complex='true'] {
+    padding: 14px 16px;
+  }
+
+  .waya-toast[data-state='closing'] {
+    animation: waya-toast-exit var(--motion-sidebar) var(--ease-standard) both;
+    pointer-events: none;
+  }
+
+  .waya-toast__icon {
+    display: grid;
+    width: 17px;
+    height: 17px;
+    margin-top: 1px;
+    place-items: center;
+    color: var(--color-information);
+  }
+
+  .waya-toast[data-type='success'] .waya-toast__icon { color: var(--color-positive); }
+  .waya-toast[data-type='error'] .waya-toast__icon { color: var(--color-critical); }
+  .waya-toast[data-type='warning'] .waya-toast__icon { color: var(--color-caution); }
+  .waya-toast[data-type='info'] .waya-toast__icon,
+  .waya-toast[data-type='loading'] .waya-toast__icon { color: var(--color-information); }
+
+  .waya-toast__spinner {
+    animation: waya-toast-spin 750ms linear infinite;
+  }
+
+  .waya-toast__content {
+    min-width: 0;
+    padding-top: 1px;
+  }
+
+  .waya-toast__title,
+  .waya-toast__description {
+    margin: 0;
+  }
+
+  .waya-toast__title {
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .waya-toast__description {
+    margin-top: 3px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .waya-toast__action {
+    min-height: 28px;
+    align-self: center;
+    padding: 0 2px;
+    border: 0;
+    border-radius: var(--radius-compact);
+    background: transparent;
+    color: var(--color-brand);
+    font: 600 12px/1.25 var(--font-sans);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .waya-toast__action:hover { color: var(--color-brand-hover); }
+
+  .waya-toast__action:focus-visible,
+  .waya-toast__close:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+
+  .waya-toast__close {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    margin: -5px -5px -5px 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-button);
+    place-items: center;
+    background: transparent;
+    color: var(--color-faint);
+    cursor: pointer;
+  }
+
+  .waya-toast__close:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  @keyframes waya-toast-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes waya-toast-exit {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(6px); }
+  }
+
+  @keyframes waya-toast-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @media (max-width: 767px) {
+    .waya-toast-region,
+    .waya-toast-region[data-position='bottom-center'] {
+      right: 16px;
+      bottom: calc(max(16px, env(safe-area-inset-bottom)) + var(--waya-toast-offset, 0px));
+      left: 16px;
+      width: auto;
+      max-width: 400px;
+      margin-inline: auto;
+      transform: none;
+    }
+
+    .waya-toast {
+      grid-template-columns: 17px minmax(0, 1fr) auto;
+    }
+
+    .waya-toast__action {
+      grid-column: 2;
+      grid-row: 2;
+      justify-self: start;
+      min-height: 24px;
+      margin-top: -2px;
+    }
+
+    .waya-toast__close {
+      grid-column: 3;
+      grid-row: 1;
+    }
+  }
+}
+
+/* Support chat: explicit geometry survives the host's browser/Tailwind resets. */
+@layer components {
+  .hid-chat-launcher { position: fixed; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 40; display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 20px; border: 1px solid transparent; border-radius: 999px; background: var(--color-brand-fill); color: white; font: 600 14px/1.4 var(--font-sans); box-shadow: 0 6px 24px rgb(8 109 217 / 22%); cursor: pointer; transition: opacity .15s ease; }
+  .hid-chat-launcher:hover { background: var(--color-brand-hover); }
+  .hid-chat-panel { position: fixed; inset: auto max(20px, env(safe-area-inset-right)) max(84px, calc(env(safe-area-inset-bottom) + 72px)) auto; margin: 0; padding: 0; width: min(400px, calc(100vw - 32px)); height: min(580px, calc(100dvh - 108px - env(safe-area-inset-bottom))); max-width: none; max-height: none; border: 1px solid var(--color-line-strong); border-radius: 20px; background: var(--color-surface); color: var(--color-ink); font: 14px/1.55 var(--font-sans); box-shadow: 0 16px 60px rgb(24 45 68 / 20%); overflow: hidden; }
+  .hid-chat-panel[open] { display: flex; flex-direction: column; }
+  .hid-chat-panel::backdrop { background: rgb(20 35 50 / 10%); }
+  .hid-chat-header { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 21px 22px; background: var(--color-brand); color: white; }
+  .hid-chat-brand { margin: 0 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .17em; }
+  .hid-chat-header h2 { margin: 0; font-size: 21px; line-height: 1.3; font-weight: 600; }
+  .hid-chat-subtitle { margin: 5px 0 0; font-size: 12px; color: rgb(255 255 255 / 85%); }
+  .hid-chat-close { display: grid; place-items: center; flex: none; width: 40px; height: 40px; margin: -5px -8px 0 0; border: 1px solid rgb(255 255 255 / 25%); border-radius: 50%; color: white; cursor: pointer; }
+  .hid-chat-close:hover { background: rgb(255 255 255 / 14%); }
+  .hid-chat-toolbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--color-line-strong); font-size: 11px; color: var(--color-muted); }
+  .hid-chat-toolbar button { min-height: 32px; padding: 4px 0 4px 8px; color: var(--color-brand); font-weight: 600; cursor: pointer; }
+  .hid-chat-toolbar button:hover, .hid-chat-footer a:hover { text-decoration: underline; }
+  .hid-chat-history { flex: 1; min-height: 0; padding: 20px; overflow-y: auto; overscroll-behavior: contain; background: var(--color-surface-sunk); }
+  .hid-chat-welcome { max-width: 94%; padding: 16px; border: 1px solid var(--color-line-strong); border-radius: 4px 16px 16px; background: white; }
+  .hid-chat-welcome p { margin: 7px 0 0; }
+  .hid-chat-welcome-copy { color: var(--color-muted); font-size: 13px; }
+  .hid-chat-messages { display: flex; flex-direction: column; gap: 16px; }
+  .hid-chat-message { max-width: 90%; padding: 12px 15px; border-radius: 4px 16px 16px; border: 1px solid var(--color-line-strong); background: white; }
+  .hid-chat-message p { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .hid-chat-message-label { font-size: 10px; font-weight: 600; color: var(--color-muted); }
+  .hid-chat-message-user { align-self: flex-end; border-color: transparent; border-radius: 16px 4px 16px 16px; background: var(--color-brand); color: white; }
+  .hid-chat-message-user .hid-chat-message-label { color: rgb(255 255 255 / 85%); }
+  .hid-chat-status { margin: 12px 0 0; color: var(--color-muted); font-size: 12px; }
+  .hid-chat-error { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--color-critical); border-radius: 8px; color: var(--color-critical); background: white; font-size: 12px; }
+  .hid-chat-composer { flex: none; padding: 14px 20px 10px; border-top: 1px solid var(--color-line-strong); }
+  .hid-chat-composer label { display: block; margin-bottom: 7px; color: var(--color-muted); font-size: 11px; font-weight: 600; }
+  .hid-chat-input-row { display: flex; align-items: center; gap: 10px; }
+  .hid-chat-input-row input { min-width: 0; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--color-line-strong); border-radius: 10px; background: var(--color-surface-sunk); font-size: 16px; line-height: 1.4; }
+  .hid-chat-input-row input::placeholder { color: var(--color-faint); }
+  .hid-chat-input-row button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 10px; background: var(--color-brand); color: white; cursor: pointer; }
+  .hid-chat-input-row button:hover:enabled { background: var(--color-brand-hover); }
+  .hid-chat-input-row button:disabled { background: var(--color-surface-selected); color: var(--color-faint); cursor: default; }
+  .hid-chat-footer { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 0 20px 16px; }
+  .hid-chat-footer p { margin: 0; font-size: 10px; line-height: 1.5; color: var(--color-muted); }
+  .hid-chat-footer a { padding: 3px 0; font-size: 12px; font-weight: 600; color: var(--color-brand); }
+  .hid-chat-launcher:focus-visible, .hid-chat-panel button:focus-visible, .hid-chat-panel a:focus-visible, .hid-chat-panel input:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+  .hid-chat-close:focus-visible { outline-color: white; outline-offset: -5px; }
+  @media (max-width: 480px) { .hid-chat-panel { right: 16px; bottom: max(80px, calc(env(safe-area-inset-bottom) + 68px)); width: calc(100vw - 32px); height: min(560px, calc(100dvh - 100px - env(safe-area-inset-bottom))); border-radius: 16px; } .hid-chat-launcher { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); } }
+  /* On a phone the launcher must not sit on what the person is working on: a 48px round icon below 640px (its name
+     stays for assistive technology; from 481px the pill covered the right end of a form's sticky buttons), above the
+     bottom menu wherever the shell shows one (below 1024px, data-hid-bottom-nav), and out of the way while a form field
+     is being typed in. It fades rather than leaving the page or the tab order. Sticky buttons and Back to top on the
+     public site leave it room where it is on the page (:root:has(.hid-chat-launcher)). */
+  @media (max-width: 639.98px) {
+    .hid-chat-launcher { width: 48px; height: 48px; padding: 0; justify-content: center; gap: 0; }
+    .hid-chat-launcher-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+  @media (max-width: 640px) {
+    .hid-chat-launcher[data-typing] { opacity: 0; pointer-events: none; }
+  }
+  @media (max-width: 1023.98px) {
+    :root:has([data-hid-bottom-nav]) .hid-chat-launcher { bottom: calc(env(safe-area-inset-bottom) + 76px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .hid-chat-launcher { transition: none; } }
+}

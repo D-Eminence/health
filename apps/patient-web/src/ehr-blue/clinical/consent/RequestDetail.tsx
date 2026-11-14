@@ -1,0 +1,177 @@
+import { Siren } from 'lucide-react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { FormPage, LoadingRows } from '../../../kasuwa/parts'
+import { Alert, Badge, Button, Card, CardHeader, DescriptionList, type Tone } from '../../../kasuwa/ui'
+import { staffApi, type AccessRequest } from '../../../staff/api'
+import { outcome } from '../../../staff/routes/AccessRequests'
+import { ACCESS_ENDED } from '../parts/chart'
+import { RecordNotFound } from '../parts/Notices'
+import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
+import { closable, closeError, latest, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
+import { formatWhen } from '../parts/format'
+
+const TONES: Readonly<Record<string, Tone>> = { success: 'success', warning: 'warn', danger: 'danger', neutral: 'neutral' }
+
+/** The request's status as a badge, in today's words. */
+export function OutcomeBadge({ request }: { request: AccessRequest }) {
+  const { label, tone } = outcome(request)
+  return <Badge size="sm" tone={TONES[tone] ?? 'neutral'}>{label}</Badge>
+}
+
+/** What the outcome means for the clinician, said once, with its one next step. */
+function StateNote({ request }: { request: AccessRequest }) {
+  const href = useWorkspaceHref()
+  const { activePatient, permissions } = useClinical()
+  // The paper records line only once this patient's age is known here (their record is open for direct care) and they
+  // are an adult, to a role that brings in paper records, on a request that allows adding to the record.
+  const open = activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === request.patientId ? activePatient : null
+  const coversPaper = open !== null && request.scope === 'write_records' && permissions.includes('ocr.job.read') && isAdult(open.lookup.patient.dateOfBirth)
+  const key = request.effectiveStatus ?? request.status
+  if (key === 'pending') return <Alert intent="info" live={false} title="Waiting for the patient">You can see their records once they approve.</Alert>
+  if (key === 'active' || key === 'approved') {
+    return <Alert intent="success" live={false} title="The patient approved" action={<Button size="sm" variant="primary" to={href.to('patients')}>Find a patient</Button>}>
+      Open their record from Find a patient.{coversPaper ? ` ${STAFF_ACCESS_COVERS_PAPER}` : ''}</Alert>
+  }
+  if (key === 'denied') return <Alert intent="warning" live={false} title="The patient said no">{request.deniedReason || undefined}</Alert>
+  return null
+}
+
+/**
+ * One access request: what was asked, its outcome, and its one next step (Close access, or emergency access). Close
+ * access closes at once, as today's Access requests does (and Patients and Emergency here): nothing stands between a
+ * clinician and ending access.
+ */
+export function RequestDetail() {
+  const { recordId = '' } = useParams()
+  const href = useWorkspaceHref()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { facility, permissions, activePatient, setActivePatient } = useClinical()
+  // Read with the list's Status filter when the request was found through it (one older than the 100 newest is read
+  // only so). An active grant's request is approved: it is read as approved, so closing it leaves it on this page.
+  const [params] = useSearchParams()
+  const filter = statusFilter(params.get('status'))
+  const list = useAccessRequests(filter === 'active' ? 'approved' : filter)
+  const [notice, setNotice] = useState(() => {
+    const state: unknown = location.state
+    return state && typeof state === 'object' && 'notice' in state && typeof state.notice === 'string' ? state.notice : ''
+  })
+  const [failure, setFailure] = useState('')
+  const [ended, setEnded] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [settled, setSettled] = useState(0)
+  // A close already on its way is not sent again by a second press.
+  const sending = useRef(false)
+  const status = useRef<HTMLDivElement>(null)
+  const administrator = administratorOf(facility, permissions)
+  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
+  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
+
+  // Closing takes its button away: focus goes to what happened, unless it is somewhere already.
+  useLayoutEffect(() => {
+    if (!settled) return
+    const focused = document.activeElement
+    if (!focused || focused === document.body || !focused.isConnected) status.current?.focus()
+  }, [settled])
+
+  const request = list.requests?.find(item => item.accessRequestId === recordId)
+
+  async function close() {
+    if (!facility || !request?.consentGrantId || closeUnavailable || sending.current) return
+    const grantId = request.consentGrantId
+    sending.current = true
+    setClosing(true)
+    setFailure('')
+    setNotice('')
+    let refused = ''
+    let endedOpen = false
+    try {
+      await staffApi.closeGrant(facility.id, grantId, CLOSE_REASON)
+      // The open record, if this grant opened it, has ended too.
+      if (activePatient?.lookup.authorization.consentGrantId === grantId) {
+        setActivePatient(null)
+        endedOpen = true
+      }
+    } catch (caught) {
+      refused = closeError(caught)
+    }
+    // Read again either way, then say what happened.
+    try {
+      await list.load()
+    } finally {
+      sending.current = false
+      setClosing(false)
+    }
+    if (refused) setFailure(refused)
+    else { setNotice(ACCESS_CLOSED); setEnded(endedOpen) }
+    setSettled(value => value + 1)
+  }
+
+  // Try again reads the request again, as today's reload does: what that read finds replaces a refused close, with the
+  // list's own refusal when it fails too (AccessRequests.tsx:75,78). It never sends the close again.
+  async function readAgain() {
+    await list.load()
+    setFailure('')
+  }
+
+  const statusRegion = (
+    <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
+      {notice ? <Alert intent="success" live={false}>{notice}</Alert> : null}
+    </div>
+  )
+
+  // A refused close is said whatever the read after it found: today's page reads again, then puts the refusal in its one
+  // alert, in place of any list error (AccessRequests.tsx:94-95,118).
+  const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
+
+  // A request just sent is confirmed ("Request sent.") even while the list is read, cannot be read, or lacks it. The
+  // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
+  if (!request) {
+    if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>
+    return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
+      {statusRegion}
+      {list.error ? <Alert intent="error" title={failure ? 'Couldn’t close access' : 'Couldn’t load this request'}
+        action={<Button size="sm" onClick={() => void readAgain()}>Try again</Button>}>{failure || list.error}</Alert>
+        : <>{refusedClose}<Card><LoadingRows rows={3} label="Loading this request" /></Card></>}
+    </FormPage>
+  }
+
+  const key = request.effectiveStatus ?? request.status
+  const who = patientContext(request)
+  // Emergency access is offered only while the patient has not given access: waiting, or refused.
+  const offerEmergency = emergencyUnavailable === null && (key === 'pending' || key === 'denied')
+  return (
+    <FormPage title={`Access request · ${who}`} back={{ to: href(), label: 'Back to access requests' }}
+      description={<span className="inline-flex flex-wrap items-center gap-2"><OutcomeBadge request={request} /><span>Updated {formatWhen(latest(request))}</span></span>}>
+      {ended ? <Alert intent="error" title="Access to this patient ended"
+        action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}
+      {statusRegion}
+      {refusedClose}
+      {list.error ? <Alert intent="error" title="Couldn’t refresh this request">{list.error}</Alert> : null}
+      <StateNote request={request} />
+      <Card>
+        <CardHeader as="h2" title="The request" />
+        <DescriptionList items={requestDetails(request).filter(item => item.label !== 'Patient').map((item): [ReactNode, ReactNode] => [item.label, item.value])} />
+      </Card>
+      {closable(request) ? <Card>
+        <CardHeader as="h2" title="Close access" description="End your access when you have finished." />
+        <div className="flex flex-col gap-2 p-5">
+          {closeUnavailable ? <p id="close-access-unavailable" className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
+          {/* Busy, it stays focusable (aria-disabled, not disabled): focus is not lost while the close is sent, and a second
+              press sends nothing (close returns while one is on its way). */}
+          <Button variant="danger" className="self-start" disabled={closeUnavailable !== null}
+            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined}
+            aria-disabled={closing || undefined} aria-busy={closing || undefined} onClick={() => void close()}>{closing ? 'Closing…' : 'Close access'}</Button>
+        </div>
+      </Card> : null}
+      {offerEmergency ? <Card>
+        <CardHeader as="h2" title="Can’t wait for the patient?" icon={Siren} iconTone="danger"
+          description="Only if they can’t consent and care can’t wait." />
+        <div className="p-5"><Button icon={Siren} onClick={() => navigate(href.to('emergency'))}>Emergency access</Button></div>
+      </Card> : null}
+    </FormPage>
+  )
+}

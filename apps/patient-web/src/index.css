@@ -1,0 +1,715 @@
+@import 'tailwindcss';
+@import '@hid/ui/tokens.css';
+@source '../../../packages/ui/src';
+@source not '../../../packages/ui/src/ehr';
+@source not './__tests__/ehr-ui';
+/* ehr-blue is scanned too: the rebuilt EHR shell uses the Kasuwa utilities. */
+
+/*
+ * The patient application does not make a third-party font request. These
+ * faces use an installed Forum/Inter when one is available; the shared token
+ * stacks below continue to give a deliberate serif/sans fallback when it is
+ * not. Font files can be supplied by the product later without changing a
+ * screen or component API.
+ */
+@font-face {
+  font-family: 'Forum';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Forum');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local('Inter'), local('Inter Regular');
+}
+
+/*
+ * @hid/ui owns the cross-product design tokens. These two app-level aliases
+ * let Vite resolve the Waya font roles without adding a remote dependency.
+ */
+@layer base {
+  :root {
+    --font-forum: 'Forum';
+    --font-inter: 'Inter';
+    --patient-heading-measure: 42rem;
+    --patient-copy-measure: 34rem;
+    --patient-feedback-measure: 35rem;
+    --patient-auth-measure: 28rem;
+    color-scheme: light;
+  }
+
+  /* Keyboard focus scrolled into view stays clear of the sticky headers: the
+     patient header (67px), the provider top bar (62px) and the admin mobile
+     header (56px). */
+  html {
+    scroll-padding-top: 80px;
+  }
+
+  /* Below 1024px the shell's bottom menu (kasuwa AppShell) is fixed at the foot of the screen: 64px, the raised ➕ 20px
+     above it, and the phone's home-indicator inset; the Support chat launcher sits above it (packages/ui tokens.css:
+     76px up, 48px tall). Keyboard focus scrolled into view stays clear of both, so a focused control is never hidden
+     under them (WCAG 2.4.11). */
+  @media (max-width: 1023px) {
+    html {
+      scroll-padding-bottom: calc(132px + env(safe-area-inset-bottom));
+    }
+  }
+
+  /* A disclosure's toggle ("Which records can I ask about?", "Previous versions") is a control: at least 24px tall,
+     whatever its text size (WCAG 2.5.8). */
+  summary {
+    min-height: 24px;
+    padding-block: 2px;
+  }
+
+  #root {
+    min-height: 100svh;
+  }
+
+  /* Headings take focus when a page opens (for screen readers); they are not controls, so no focus box. */
+  :is(h1, h2, h3, div, main, section, article)[tabindex='-1']:focus { outline: none; }
+}
+
+@layer components {
+  .patient-page {
+    min-height: 100svh;
+    background: var(--color-surface);
+  }
+
+  .patient-content {
+    width: 100%;
+    max-width: var(--container-wrap);
+    margin-inline: auto;
+    padding: 48px 16px 64px;
+  }
+
+  .patient-page-header {
+    max-width: var(--patient-heading-measure);
+  }
+
+  .patient-eyebrow {
+    margin: 0 0 10px;
+    color: var(--color-faint);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+
+  .patient-page-title {
+    margin: 0;
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-size: clamp(1.625rem, 3.2vw, 2rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+
+  .patient-page-copy {
+    max-width: var(--patient-copy-measure);
+    margin: 16px 0 0;
+    color: var(--color-muted);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .patient-feedback {
+    max-width: var(--patient-feedback-measure);
+    margin-top: 32px;
+  }
+
+  .patient-status-panel,
+  .patient-access-state {
+    border: 0.5px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-tint);
+  }
+
+  .patient-status-panel {
+    display: grid;
+    align-content: center;
+    min-height: 128px;
+    padding: 20px;
+    background: var(--color-surface-sunk);
+  }
+
+  .patient-status-label {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .patient-status-value {
+    margin: 6px 0 0;
+    color: var(--color-ink);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .patient-skeleton {
+    display: block;
+    border-radius: 3px;
+    background: var(--color-surface-selected);
+    animation: patient-pulse 1.5s ease-in-out infinite;
+  }
+
+  .patient-skeleton-label {
+    width: 5.5rem;
+    height: 12px;
+  }
+
+  .patient-skeleton-value {
+    width: min(15rem, 75%);
+    height: 16px;
+    margin-top: 12px;
+  }
+
+  .patient-auth-page {
+    display: grid;
+    min-height: 100svh;
+    place-items: center;
+    padding: 32px 16px;
+    background: var(--color-surface);
+  }
+
+  .patient-auth-content {
+    width: min(100%, var(--patient-auth-measure));
+  }
+
+  .patient-auth-content::before {
+    display: block;
+    width: 32px;
+    height: 2px;
+    margin-bottom: 24px;
+    border-radius: var(--radius-pill);
+    background: var(--color-brand);
+    content: '';
+  }
+
+  .patient-access-state {
+    max-width: var(--patient-feedback-measure);
+    margin: 24px 16px 48px;
+    padding: 20px;
+  }
+
+  .patient-state-logo { display: block; width: auto; height: 32px; margin: 48px 16px 0; }
+  .patient-state-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+
+  .patient-access-state p,
+  .patient-access-state h1 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .patient-access-state p + p,
+  .patient-access-state h1 + p {
+    margin-top: 8px;
+    color: var(--color-muted);
+  }
+}
+
+@keyframes patient-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (min-width: 640px) {
+  .patient-content {
+    padding: 56px 24px 72px;
+  }
+
+  .patient-auth-page {
+    padding-inline: 24px;
+  }
+}
+
+@layer components {
+  .patient-auth-card {
+    width: min(100%, 520px);
+    padding: clamp(24px, 5vw, 44px);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-dialog);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-dialog);
+  }
+  .patient-enroll-card { width: min(100%, 640px); }
+  .patient-auth-brand, .patient-app-logo { display: inline-flex; align-items: center; margin-bottom: 34px; text-decoration: none; }
+  .patient-auth-brand img { display: block; width: auto; height: 32px; }
+  .patient-app-logo img { display: block; width: auto; height: 27px; }
+  .patient-form { display: grid; gap: 18px; margin-top: 28px; }
+  .patient-form h2, .patient-card h2, .patient-success h2 { margin: 0 0 6px; color: var(--color-ink); font-size: 20px; font-weight: 600; }
+  .patient-field { display: grid; gap: 7px; }
+  .patient-hospital-picker { position: relative; }
+  .patient-hospital-options { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; margin: 0; padding: 4px 0; overflow-y: auto; list-style: none; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); box-shadow: 0 10px 24px rgb(17 24 39 / 12%); }
+  .patient-hospital-options li { display: grid; gap: 2px; padding: 9px 12px; cursor: pointer; font-size: 14px; color: var(--color-ink); }
+  .patient-hospital-options li small { color: var(--color-muted); font-size: 12px; }
+  .patient-hospital-options li[aria-selected="true"], .patient-hospital-options li:hover { background: var(--color-brand-tint); }
+  .patient-form label, .patient-deny-form label { display: grid; gap: 7px; color: var(--color-ink); font-size: 13px; font-weight: 600; }
+  /* A label tied by id to a field it does not wrap: a password with its Show toggle beside it. */
+  .patient-field { display: grid; gap: 7px; }
+  .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
+  .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus { border-color: var(--color-brand); }
+  /* The typed text as in the fields whose label wraps them (they inherit the label's weight). */
+  .patient-field input { font-weight: 600; }
+  .patient-form input::placeholder, .patient-deny-form input::placeholder { color: var(--color-faint); }
+  .patient-form-aside { text-align: right; }
+  .patient-form-aside a, .patient-auth-footer a, .patient-text-button { color: var(--color-brand); font-weight: 600; }
+  .patient-primary-button, .patient-secondary-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid var(--color-brand); border-radius: var(--radius-button); font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; }
+  .patient-primary-button { background: var(--color-brand); color: #fff; }
+  .patient-secondary-button { background: var(--color-surface); color: var(--color-brand); }
+  .patient-primary-button:hover:not(:disabled) { background: var(--color-brand-hover); }
+  .patient-primary-button:disabled, .patient-secondary-button:disabled { cursor: not-allowed; opacity: .55; }
+  .patient-auth-footer { margin: 28px 0 0; color: var(--color-muted); font-size: 14px; }
+  .patient-auth-separator { display: grid; gap: 14px; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--color-line-strong); color: var(--color-muted); font-size: 13px; text-align: center; }
+  .patient-google { max-width: 400px; margin-inline: auto; width: 100%; }
+  .patient-turnstile { min-height: 64px; }
+  .patient-inline-error, .patient-inline-success { margin: 18px 0; padding: 12px 14px; border-radius: var(--radius-control); font-size: 14px; line-height: 1.45; }
+  .patient-inline-error { background: #fff0ef; color: #9b211d; }
+  .patient-inline-success { background: #ecf9f1; color: #126239; }
+  /* A note about the browser's session, such as a provider's sign-in, and the link that resolves it. */
+  .patient-session-note { display: grid; justify-items: start; gap: 6px; }
+  .patient-session-note p { margin: 0; }
+  .patient-session-note a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
+  .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-field-hint a { color: var(--color-brand); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+  .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
+  .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }
+  .patient-step-list li { flex: 1; padding: 9px 4px; border-bottom: 2px solid var(--color-line-strong); color: var(--color-muted); font-size: 12px; text-align: center; }
+  .patient-step-list li[aria-current] { border-color: var(--color-brand); color: var(--color-brand); font-weight: 700; }
+  .patient-success { display: grid; gap: 14px; margin-top: 26px; }
+  .patient-success strong { color: var(--color-brand); font-family: var(--font-mono); font-size: 22px; overflow-wrap: anywhere; }
+  /* Sign-up: the Terms of Service and Privacy Policy, opened beside the agreement; a long text scrolls in its own box. */
+  /* Enrollment: a route to prove the NIN is the patient's, or a way on when one cannot help, described before its action. */
+  .patient-enroll-option { display: grid; justify-items: start; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
+  .patient-enroll-option :is(h2, h3), .patient-form .patient-enroll-option h2 { margin: 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-enroll-option :is(p, li) { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-enroll-routes { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+  .patient-enroll-facilities { display: grid; gap: 12px; }
+  .patient-enroll-facility { display: grid; gap: 2px; }
+  /* The desk code a staff member reads from the patient's phone: large, fixed-width, never split mid-group. */
+  .patient-enroll-option .patient-desk-code { color: var(--color-ink); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: 0.08em; overflow-wrap: normal; white-space: nowrap; }
+  .patient-enroll-option a:not(.patient-primary-button):not(.patient-secondary-button) { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
+
+  /* The shell (2026 redesign): a white side panel on the grey canvas, a header that blurs what scrolls under it,
+     and on phones a bottom tab bar where the thumb reaches. Sign out stays top right, away from the thumb. */
+  .patient-app { min-height: 100svh; background: var(--color-page); }
+  .patient-app-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--color-line); background: color-mix(in srgb, var(--color-page) 86%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px); }
+  .patient-app-header-inner { display: flex; width: min(100%, 1440px); min-height: 64px; align-items: center; gap: 12px; margin: auto; padding: 0 24px; }
+  .patient-app-logo { margin: 0; }
+  .patient-header-title { padding: 3px 10px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-pill); color: var(--color-muted); font-size: 12px; font-weight: 600; }
+  .patient-signout { min-height: 40px; margin-left: auto; padding: 8px 14px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-ink); font-size: 14px; font-weight: 500; cursor: pointer; box-shadow: var(--shadow-card); }
+  .patient-signout:hover { background: var(--color-surface-hover); }
+  /* The bell (notificationBadge.tsx): shown only while something is unread, before Sign out. */
+  .patient-bell { display: inline-flex; min-width: 40px; min-height: 40px; align-items: center; justify-content: center; gap: 6px; margin-left: auto; padding: 6px 10px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-brand); text-decoration: none; box-shadow: var(--shadow-card); }
+  .patient-bell:hover { background: var(--color-brand-tint); }
+  .patient-bell + .patient-signout { margin-left: 0; }
+  .patient-bell-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--color-brand); color: var(--color-surface); font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
+  /* The sign-up's country code and phone number, side by side where there is room. */
+  .patient-phone-field { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; align-items: end; }
+  .patient-app-body { display: grid; grid-template-columns: 248px minmax(0, 1fr); width: min(100%, 1440px); min-height: calc(100svh - 64px); margin: auto; }
+  .patient-side-nav { position: sticky; top: 64px; display: grid; align-content: start; gap: 2px; height: calc(100svh - 64px); padding: 20px 12px; border-right: 1px solid var(--color-line); background: var(--color-surface); }
+  .patient-nav-group { margin: 0; padding: 4px 12px 8px; color: var(--color-faint); font-size: 11px; font-weight: 600; letter-spacing: .06em; line-height: 16px; text-transform: uppercase; }
+  .patient-nav-link { display: flex; min-height: 44px; align-items: center; gap: 12px; padding: 0 12px; border-radius: 12px; color: var(--color-muted); font-size: 14px; font-weight: 500; text-decoration: none; transition: background-color var(--motion-quick), color var(--motion-quick); }
+  .patient-nav-link:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+  .patient-nav-link.active { background: var(--color-brand-tint); color: var(--color-brand-hover); font-weight: 600; }
+  .patient-nav-icon { flex: none; color: var(--color-faint); }
+  .patient-nav-link.active .patient-nav-icon { color: var(--color-brand); }
+  .patient-nav-short { display: none; }
+  .patient-nav-count { display: inline-flex; min-width: 20px; height: 20px; align-items: center; justify-content: center; margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--color-brand); color: #fff; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .patient-main { min-width: 0; padding: 40px clamp(20px, 5vw, 56px) 80px; }
+  .patient-section { display: grid; align-content: start; gap: 24px; max-width: 920px; }
+  .patient-section > .patient-eyebrow { margin: 0 0 -14px; }
+  .patient-section > .patient-page-copy { margin: -14px 0 0; }
+  .patient-card { min-width: 0; padding: 24px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-surface); box-shadow: var(--shadow-card); }
+  .patient-card button:not(.patient-primary-button):not(.patient-secondary-button):not(.patient-switch):not(.patient-section-toggle) { min-height: 38px; padding: 6px 11px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-brand); cursor: pointer; }
+  .patient-loading { color: var(--color-muted); }
+  /* The Notifications page's "Notifications on this device": a switch whose track has a form control's 3:1 boundary, filled brand when on. */
+  .patient-switch { display: inline-flex; min-height: 44px; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: var(--color-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .patient-switch:disabled { cursor: not-allowed; opacity: .55; }
+  .patient-switch-track { position: relative; display: inline-block; flex: none; width: 44px; height: 24px; border: 1px solid var(--color-line-control); border-radius: 999px; background: var(--color-surface); transition: background-color .15s, border-color .15s; }
+  .patient-switch-thumb { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--color-line-control); transition: transform .15s; }
+  .patient-switch[aria-checked="true"] .patient-switch-track { border-color: var(--color-brand); background: var(--color-brand); }
+  .patient-switch[aria-checked="true"] .patient-switch-thumb { background: var(--color-surface); transform: translateX(20px); }
+  .patient-switch:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; border-radius: var(--radius-button); }
+  @media (prefers-reduced-motion: reduce) { .patient-switch-track, .patient-switch-thumb { transition: none; } }
+  .patient-identity-card { position: relative; display: grid; gap: 8px; min-height: 190px; overflow: hidden; padding: 28px; border-radius: 20px; background: radial-gradient(120% 140% at 100% 0%, #123a6b 0%, transparent 55%), var(--color-inverse-surface); color: var(--color-inverse-ink); }
+  [data-theme='dark'] .patient-identity-card { background: radial-gradient(120% 140% at 100% 0%, #123a6b 0%, transparent 55%), #0f1729; }
+  .patient-identity-card .patient-eyebrow { color: #a7cbf5; }
+  .patient-identity-card > strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
+  .patient-hid { display: grid; gap: 10px; }
+  .patient-hid .patient-hid-code { display: block; padding: 20px 18px; border: 1px solid var(--color-brand-border); border-radius: var(--radius-card); background: var(--color-brand-tint); color: var(--color-brand); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: .04em; text-align: center; overflow-wrap: anywhere; user-select: all; }
+  /* On the profile and the dashboard the Health ID is plain text in the card's colour; a click copies it. */
+  .patient-hid .patient-hid-plain { justify-self: start; padding: 0; border: 0; background: none; color: inherit; font-size: 20px; text-align: left; cursor: copy; }
+  .patient-hid .patient-hid-plain:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 4px; }
+  .patient-hid-note { margin: 0; color: var(--color-muted); font-size: 13px; }
+  .patient-hid-note:empty { position: absolute; }
+  .patient-identity-card .patient-hid, .patient-details .patient-hid { justify-items: start; }
+  .patient-details .patient-hid { padding-top: 0; border-top: 0; }
+  .patient-identity-card .patient-hid-code { padding: 0; border: 0; background: none; color: inherit; font-size: clamp(22px, 3vw, 32px); text-align: left; }
+  .patient-identity-card .patient-hid-note { color: var(--color-inverse-ink); }
+  .patient-details .patient-hid-code { padding: 0; border: 0; background: none; color: var(--color-ink); font-size: 16px; text-align: left; }
+  .patient-details .patient-hid .patient-secondary-button { min-height: 36px; padding: 6px 12px; }
+  .patient-identity-card p { margin: 0; color: var(--color-inverse-muted); }
+  .patient-identity-card a { justify-self: start; color: #b8d8f7; text-decoration: none; }
+  /* The dashboard's profile card is the black Health ID card: its name, completion, links and buttons keep readable colours on it. */
+  .patient-card.patient-identity-card { border-color: var(--color-inverse-surface); }
+  .patient-identity-card .patient-overview-name { color: inherit; }
+  .patient-identity-card .patient-completion-compact p { color: var(--color-inverse-ink); }
+  .patient-identity-card .patient-completion-compact a, .patient-identity-card.patient-overview-profile > a { color: #b8d8f7; }
+  .patient-identity-card .patient-primary-button { color: #fff; }
+  .patient-identity-card .patient-secondary-button { color: var(--color-brand); }
+  .patient-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .patient-action-card { display: grid; align-content: start; gap: 8px; color: var(--color-muted); font-size: 14px; text-decoration: none; transition: border-color var(--motion-quick), transform var(--motion-quick); }
+  .patient-action-card:hover { border-color: var(--color-line-strong); transform: translateY(-1px); }
+  .patient-action-card strong { margin-top: 6px; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-action-card b { align-self: end; margin-top: 14px; color: var(--color-brand-hover); font-size: 14px; font-weight: 600; }
+  .patient-action-icon { color: var(--color-ink); }
+  /* Tinted quick-action cards (Kasuwa): a soft wash and a matching border, words stay ink. */
+  .patient-card.patient-tint-blue { border-color: #d6e7ff; background: #f3f8ff; }
+  .patient-card.patient-tint-mint { border-color: #d3f3e3; background: #f1fbf6; }
+  .patient-card.patient-tint-amber { border-color: #fcebcb; background: #fffaf0; }
+  [data-theme='dark'] .patient-card.patient-tint-blue { border-color: #17325c; background: #0b1424; }
+  [data-theme='dark'] .patient-card.patient-tint-mint { border-color: #163a29; background: #0d1a14; }
+  [data-theme='dark'] .patient-card.patient-tint-amber { border-color: #3b2a0b; background: #1a1307; }
+  .patient-overview-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .patient-overview-pair > .patient-card { display: grid; align-content: start; gap: 4px; }
+  .patient-overview-pair > .patient-card > a:last-child { margin-top: 10px; color: var(--color-brand-hover); font-size: 14px; font-weight: 600; text-decoration: none; }
+  .patient-overview-pair .patient-list a { color: var(--color-ink); font-weight: 500; text-decoration: none; }
+  .patient-overview-pair .patient-list a:hover { color: var(--color-brand-hover); text-decoration: underline; }
+  .patient-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 18px 0 0; }
+  .patient-details div { min-width: 0; padding-top: 12px; border-top: 1px solid var(--color-line); }
+  .patient-details dt { color: var(--color-muted); font-size: 12px; }
+  .patient-details dd { margin: 5px 0 0; color: var(--color-ink); font-size: 15px; overflow-wrap: anywhere; }
+  .patient-code { font-family: var(--font-mono); font-weight: 700; }
+  .patient-empty { color: var(--color-muted); }
+  .patient-list { margin: 12px 0 0; padding: 0; list-style: none; }
+  .patient-list li { display: flex; justify-content: space-between; gap: 20px; padding: 17px 0; border-top: 1px solid var(--color-line); }
+  .patient-list li > div:first-child { display: grid; gap: 5px; min-width: 0; }
+  .patient-list strong { color: var(--color-ink); font-size: 15px; }
+  .patient-list span { color: var(--color-muted); font-size: 13px; }
+  .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; }
+  /* Long values without spaces (file and facility names) wrap instead of widening
+     the page. A trailing note beside the title column wraps only between words:
+     anywhere would let the row squeeze it until short words split. */
+  .patient-list li > div:first-child :is(strong, span, p) { overflow-wrap: anywhere; }
+  .patient-list li > p { overflow-wrap: break-word; }
+  .patient-note { flex-direction: column; }
+  .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .patient-access-item { flex-wrap: wrap; }
+  .patient-list .patient-request-ask { margin: 0; color: var(--color-ink); font-size: 15px; }
+  /* An order sent to another facility (P4c): the clinician's confirmation, quoted as they confirmed it. */
+  .patient-order-route { flex-direction: column; }
+  .patient-quote { margin: 4px 0 0; padding: 8px 12px; border-left: 2px solid var(--color-line-strong); color: var(--color-ink);
+    font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-order-route .patient-details { margin-top: 6px; }
+  .patient-decision-actions { display: flex; align-items: start; gap: 8px; }
+  .patient-deny-form { display: flex; flex-wrap: wrap; width: 100%; align-items: end; gap: 10px; }
+  .patient-deny-form label { flex: 1; }
+  /* A field's rule takes its own line under the field, as it is read: the buttons follow it. */
+  .patient-deny-form .patient-field-hint { flex-basis: 100%; }
+  .patient-inline-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; max-width: 420px; }
+  .patient-contact-form { width: 100%; max-width: 520px; margin-top: 12px; }
+  .patient-card .patient-checkbox, .patient-form .patient-checkbox { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+  .patient-card .patient-checkbox input, .patient-form .patient-checkbox input { width: auto; min-height: 0; }
+  /* Share my records (hid-system 0095): a choice of one, each option a row with its words beside the radio. */
+  .patient-share-options { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .patient-share-options legend { margin-bottom: 8px; padding: 0; color: var(--color-ink); font-size: 14px; font-weight: 600; }
+  .patient-share-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); font-weight: 500; }
+  .patient-share-option > span { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+  .patient-form .patient-share-option input, .patient-share-option input { width: auto; min-height: 0; margin-top: 3px; }
+  .patient-status-tag { justify-self: start; padding: 3px 9px; border-radius: 999px; background: #fff4e5; color: #8a4b08; font-size: 12px; font-weight: 600; }
+  .patient-status-tag-ok { background: #ecf9f1; color: #126239; }
+  .patient-danger-card { border-color: #f1c9c6; }
+  .patient-danger-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b42318; border-radius: var(--radius-button); background: #b42318; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .patient-danger-button:disabled { cursor: not-allowed; opacity: .55; }
+  /* A six-digit code (CodeBoxes.tsx): a box a digit, in a row that shrinks to fit a phone. The field is a grid of one
+     track that may shrink: an auto track took the row's full width (6 x 52px and the gaps) and pushed the page or card
+     wider than a 320px screen. Each box is drawn wherever the code is (the profile, an emergency contact, sign-up),
+     not only inside a form of the older look. */
+  .patient-code-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .patient-code-field legend { margin-bottom: 7px; padding: 0; color: var(--color-ink); font-size: 13px; font-weight: 600; }
+  .patient-code-boxes { display: flex; gap: 8px; width: 100%; min-width: 0; max-width: 360px; }
+  .patient-code-boxes input, :is(.patient-form, .patient-deny-form) .patient-code-boxes input { flex: 1 1 0; width: auto; min-width: 0; max-width: 52px; min-height: 52px; padding: 0; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); text-align: center; font: inherit; font-size: 20px; font-weight: 600; }
+  .patient-code-boxes input[aria-invalid='true'] { border-color: var(--color-danger); }
+  .patient-code-boxes input:focus { border-color: var(--color-brand); box-shadow: inset 0 0 0 1px var(--color-brand); }
+  .patient-deny-form .patient-code-field { flex-basis: 100%; }
+  /* The records page: its search, and the records under the day they belong to. */
+  .patient-record-search { display: grid; gap: 6px; margin: 0 0 4px; }
+  .patient-record-search label { display: grid; gap: 8px; color: var(--color-ink); font-size: 14px; font-weight: 600; }
+  .patient-record-search input { width: 100%; max-width: 560px; min-height: 46px; padding: 10px 14px 10px 42px; border: 1px solid var(--color-line-control); border-radius: 12px; background: var(--color-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 14px center; color: var(--color-ink); font: inherit; font-weight: 400; box-shadow: var(--shadow-card); }
+  .patient-record-search input:focus { border-color: var(--color-brand); outline: none; box-shadow: var(--focus-ring); }
+  .patient-day-heading { margin: 18px 0 0; color: var(--color-ink); font-size: 14px; font-weight: 600; }
+  .patient-details .patient-multiline { white-space: pre-line; }
+  /* hid-1.0 parity B3: the patient's photo or initials (header, overview, profile), and the profile's new sections. */
+  .patient-avatar { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background: var(--color-brand-tint); color: var(--color-brand); font-weight: 700; object-fit: cover; }
+  .patient-avatar-small { width: 38px; height: 38px; font-size: 14px; }
+  .patient-avatar-medium { width: 64px; height: 64px; font-size: 22px; }
+  .patient-avatar-large { width: 96px; height: 96px; font-size: 32px; }
+  .patient-avatar-link { display: inline-flex; margin-left: auto; border-radius: 50%; text-decoration: none; }
+  .patient-avatar-link:hover .patient-avatar { box-shadow: 0 0 0 2px var(--color-brand-border); }
+  .patient-bell + .patient-avatar-link, .patient-avatar-link + .patient-signout { margin-left: 0; }
+  .patient-photo-row { display: flex; align-items: center; gap: 18px; margin: 12px 0; }
+  .patient-photo-preview { display: grid; justify-items: start; gap: 12px; margin-top: 12px; }
+  .patient-photo-preview img { width: 128px; height: 128px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); object-fit: cover; }
+  /* Bio-data's picture is the photo control (hid-1.0's): its label wraps the hidden file field, whose focus it shows. */
+  .patient-photo-control { position: relative; display: inline-flex; border-radius: 50%; cursor: pointer; }
+  .patient-photo-control:hover .patient-avatar { box-shadow: 0 0 0 2px var(--color-brand-border); }
+  .patient-photo-control:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  .patient-photo-actions { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+  #contact-details > .patient-details + .patient-field-hint { margin-top: 12px; }
+  .patient-form textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; resize: vertical; }
+  .patient-form textarea:focus { border-color: var(--color-brand); }
+  .patient-health-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .patient-contact-form h3 { margin: 6px 0 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  /* A part of a profile section under a small heading of its own: Bio-data's Access PIN, Health information's emergency contacts. */
+  .patient-access-pin, .patient-emergency-contacts { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-line); }
+  .patient-access-pin h3, .patient-emergency-contacts h3 { margin: 0 0 6px; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-section-body > .patient-emergency-contacts:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+  .patient-completion-figure { margin: 6px 0 10px; color: var(--color-ink); }
+  .patient-completion-figure strong { font-size: 32px; }
+  .patient-completion-bar { height: 10px; overflow: hidden; border-radius: 999px; background: var(--color-surface-sunk); }
+  .patient-completion-bar span { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
+  .patient-completion-missing { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 20px; }
+  .patient-completion-missing a, .patient-overview-profile > a, .patient-completion-compact a { color: var(--color-brand); font-weight: 600; }
+  .patient-completion-compact { display: grid; gap: 8px; }
+  /* The profile's sections (ProfileSection.tsx), closed until opened: the card's heading is the button that opens and
+     closes it, as the heading looked before, with a chevron and, at times, a short state. The heading's space below
+     it goes to what it opens, so a closed card is its heading alone, and an open one is spaced as before. */
+  .patient-card .patient-section-heading { margin: 0; }
+  .patient-section-toggle { display: flex; width: 100%; align-items: center; gap: 12px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .patient-section-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .patient-section-state { flex: 0 1 auto; color: var(--color-muted); font-size: 13px; font-weight: 400; text-align: right; }
+  .patient-section-chevron { flex: 0 0 auto; color: var(--color-muted); transition: transform .15s ease; }
+  .patient-section-toggle[aria-expanded="true"] .patient-section-chevron { transform: rotate(180deg); }
+  .patient-section-body { margin-top: 6px; }
+  .patient-completion-compact p { margin: 0; color: var(--color-ink); }
+  .patient-overview-profile { display: grid; gap: 14px; }
+  .patient-overview-person { display: flex; align-items: center; gap: 16px; min-width: 0; }
+  .patient-overview-person > div { display: grid; justify-items: start; gap: 6px; min-width: 0; }
+  .patient-card .patient-overview-name { margin: 0; overflow-wrap: anywhere; }
+  .patient-overview-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .patient-overview-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 14px; }
+  .patient-tile { display: grid; align-content: start; gap: 4px; padding: 18px 20px; }
+  .patient-tile-icon { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; margin-bottom: 8px; border-radius: 12px; }
+  .patient-tone-rose { background: #fff1f3; color: #c01048; }
+  .patient-tone-violet { background: #f4f3ff; color: #5925dc; }
+  .patient-tone-amber { background: #fffaeb; color: #b54708; }
+  .patient-tone-blue { background: var(--color-brand-tint); color: var(--color-brand-hover); }
+  [data-theme='dark'] .patient-tone-rose { background: rgb(246 61 104 / 14%); color: #fda4b9; }
+  [data-theme='dark'] .patient-tone-violet { background: rgb(155 138 251 / 14%); color: #bdb4fe; }
+  [data-theme='dark'] .patient-tone-amber { background: rgb(247 144 9 / 14%); color: #fdb022; }
+  .patient-tile-label { color: var(--color-muted); font-size: 13px; }
+  .patient-tile-value { color: var(--color-ink); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  /* Attention required: the screen's one warm accent, so it is found first. */
+  .patient-card.patient-attention { border-color: #fcd9a5; background: #fffaf0; }
+  [data-theme='dark'] .patient-card.patient-attention { border-color: #3b2a0b; background: #1a1307; }
+  .patient-attention h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+  .patient-attention-icon { color: var(--color-caution-ink); }
+  .patient-attention-list { display: grid; gap: 0; margin: 8px 0 0; padding: 0; list-style: none; }
+  .patient-attention-list li + li { border-top: 1px solid color-mix(in srgb, var(--color-caution) 18%, transparent); }
+  .patient-attention-list a { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; color: var(--color-ink); font-weight: 600; text-decoration: none; }
+  .patient-attention-list a:hover { color: var(--color-brand-hover); }
+  /* Read by assistive technology, not shown: the item a repeated button acts on. */
+  .patient-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .patient-section-chevron { transition: none; }
+}
+@media (max-width: 900px) {
+  .patient-app-body { grid-template-columns: 1fr; }
+  /* Phones and small tablets: the five places as a bottom tab bar, within thumb reach. */
+  .patient-side-nav { position: fixed; inset: auto 0 0; top: auto; z-index: 30; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; height: auto; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--color-line); border-right: 0; background: color-mix(in srgb, var(--color-surface) 94%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .patient-nav-group { display: none; }
+  .patient-nav-link { position: relative; flex-direction: column; justify-content: center; gap: 2px; min-height: 52px; padding: 4px 2px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .patient-nav-link.active { background: none; }
+  .patient-nav-link .patient-nav-icon { box-sizing: content-box; padding: 3px 14px; border-radius: 999px; }
+  .patient-nav-link.active .patient-nav-icon { background: var(--color-brand-tint); }
+  .patient-nav-link:has(.patient-nav-short) .patient-nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .patient-nav-short { display: block; }
+  .patient-nav-count { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 18px; height: 18px; margin: 0; padding: 0 5px; font-size: 10px; box-shadow: 0 0 0 2px var(--color-surface); }
+  .patient-main { padding: 28px 24px calc(96px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 640px) {
+  .patient-auth-card { padding: 24px 18px; box-shadow: none; }
+  .patient-app-header-inner { padding-inline: 16px; }
+  .patient-header-title { display: none; }
+  .patient-main { padding: 24px 16px calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .patient-overview-grid, .patient-details, .patient-overview-pair { grid-template-columns: 1fr; }
+  .patient-card:not(:has(> .patient-section-heading)) { padding: 18px; }
+  .patient-list li, .patient-deny-form, .patient-inline-form { display: grid; grid-template-columns: 1fr; }
+  .patient-phone-field, .patient-health-selects { grid-template-columns: 1fr; }
+  .patient-list li > p { overflow-wrap: anywhere; }
+  .patient-photo-row { align-items: start; flex-direction: column; }
+  .patient-decision-actions { justify-content: start; }
+}
+
+/* ── Kasuwa skin for the patient pages' own parts (paytrail ui.js) ──────────────────────────────────────────────
+   The cards, lists, fields and buttons inside Profile, Access and the share flow keep their markup and behaviour;
+   only their look follows the source of truth: white cards on a ring, 15px titles, 40px controls, the gradient
+   primary, a neutral notice surface, and rows split by hairlines. */
+@layer components {
+  .patient-section { gap: 20px; max-width: none; }
+  .patient-card { padding: 20px; border: 0; border-radius: var(--radius-2xl, 16px); background: var(--color-surface); box-shadow: var(--shadow-card), inset 0 0 0 1px var(--color-line); }
+  .patient-card h2, .patient-form h2, .patient-success h2 { margin: 0 0 4px; color: var(--color-ink); font-size: 15px; font-weight: 600; letter-spacing: -.005em; line-height: 1.4; }
+  .patient-card h3, .patient-access-pin h3, .patient-emergency-contacts h3, .patient-contact-form h3 { font-size: 14px; }
+  .patient-field-hint { color: var(--color-ink-3); font-size: 13px; }
+  .patient-empty { margin: 8px 0 0; color: var(--color-ink-3); font-size: 13px; }
+
+  .patient-primary-button, .patient-secondary-button, .patient-danger-button,
+  .patient-card button:not(.patient-primary-button):not(.patient-secondary-button):not(.patient-switch):not(.patient-section-toggle):not(.patient-danger-button) {
+    display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; border: 0;
+    border-radius: var(--radius-md, 10px); font: inherit; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
+    transition: background-color .15s, box-shadow .15s;
+  }
+  .patient-primary-button { background: linear-gradient(180deg, #2e7cf6 0%, var(--color-brand) 100%); color: #fff; box-shadow: 0 1px 2px rgb(16 24 40 / 8%), inset 0 1px 0 rgb(255 255 255 / 18%); }
+  .patient-primary-button:hover:not(:disabled) { background: var(--color-brand-hover); }
+  .patient-secondary-button, .patient-card button:not(.patient-primary-button):not(.patient-secondary-button):not(.patient-switch):not(.patient-section-toggle):not(.patient-danger-button) {
+    background: var(--color-surface); color: var(--color-ink); box-shadow: var(--shadow-xs), inset 0 0 0 1px var(--color-line-strong);
+  }
+  .patient-secondary-button:hover:not(:disabled), .patient-card button:not(.patient-primary-button):not(.patient-secondary-button):not(.patient-switch):not(.patient-section-toggle):not(.patient-danger-button):hover:not(:disabled) { background: var(--color-hover); }
+  .patient-danger-button { border: 0; background: var(--color-danger); color: #fff; }
+  .patient-card button:disabled, .patient-primary-button:disabled, .patient-secondary-button:disabled { cursor: not-allowed; opacity: .5; }
+  /* A whole-page state's one way on (the session check's Try again, Reload after an error): thumb-sized, as the shell's
+     buttons are on a phone, not the 40px of a button among others. */
+  .patient-state-actions .patient-primary-button, .patient-state-actions .patient-secondary-button { min-height: 44px; padding-inline: 18px; }
+
+  .patient-form, .patient-deny-form { gap: 14px; margin-top: 16px; }
+  .patient-form label, .patient-deny-form label { gap: 6px; color: var(--color-ink-2); font-size: 13px; font-weight: 500; }
+  .patient-form input, .patient-form select, .patient-deny-form input, .patient-form textarea {
+    /* The control's only boundary: line-control is 3:1 on every light surface (WCAG 1.4.11); line-strong was 1.5:1. */
+    min-height: 40px; padding: 8px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-ink);
+    font-size: 14px; font-weight: 400; box-shadow: var(--shadow-xs); outline: none;
+  }
+  .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus, .patient-form textarea:focus { border-color: var(--color-brand); box-shadow: inset 0 0 0 1px var(--color-brand), 0 0 0 4px color-mix(in srgb, var(--color-brand) 16%, transparent); }
+  .patient-share-option { border: 0; border-radius: var(--radius-lg, 12px); padding: 14px; box-shadow: inset 0 0 0 1px var(--color-line); cursor: pointer; }
+  .patient-share-option:has(input:checked) { background: var(--color-brand-soft); box-shadow: inset 0 0 0 1.5px var(--color-brand); }
+
+  .patient-inline-error, .patient-inline-success { margin: 12px 0; padding: 12px 14px 12px 40px; border-radius: var(--radius-lg, 12px); background: var(--color-notice, var(--color-subtle)) no-repeat 14px 13px / 16px;
+    box-shadow: inset 0 0 0 1px var(--color-notice-line, var(--color-line)); color: var(--color-ink); font-size: 13px; font-weight: 500; }
+  .patient-inline-error { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d92d20' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E"); }
+  .patient-inline-success { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23079455' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m8 12 3 3 5-6'/%3E%3C/svg%3E"); }
+
+  .patient-list { margin: 8px -20px 0; }
+  .patient-list li { padding: 14px 20px; border-top: 1px solid var(--color-line); }
+  .patient-list strong { font-size: 14px; font-weight: 600; }
+  .patient-list span, .patient-list p { color: var(--color-ink-3); font-size: 13px; }
+  .patient-details { gap: 0 24px; margin-top: 12px; }
+  .patient-details div { padding: 12px 0; border-top: 1px solid var(--color-line); }
+  .patient-details dt { color: var(--color-ink-3); font-size: 12px; font-weight: 500; }
+  .patient-details dd { margin-top: 3px; font-size: 14px; font-weight: 500; }
+  .patient-status-tag { padding: 2px 8px; border-radius: 999px; background: var(--color-warn-soft); color: var(--color-warn-ink); font-size: 12px; font-weight: 500; }
+  .patient-status-tag-ok { background: var(--color-success-soft); color: var(--color-success-ink); }
+  .patient-danger-card { box-shadow: var(--shadow-card), inset 0 0 0 1px color-mix(in srgb, var(--color-danger) 30%, transparent); }
+
+  /* A profile section that opens: its heading reads as paytrail's CardHeader, with an icon chip and a chevron. */
+  .patient-card:has(> .patient-section-heading) { padding: 0; overflow: hidden; }
+  .patient-card > .patient-section-heading .patient-section-toggle { min-height: 64px; padding: 14px 20px; }
+  .patient-card > .patient-section-heading .patient-section-toggle:hover { background: var(--color-subtle); }
+  .patient-section-title { font-size: 15px; font-weight: 600; }
+  .patient-section-state { color: var(--color-ink-3); }
+  .patient-section-body { margin: 0; padding: 4px 20px 20px; border-top: 1px solid var(--color-line); }
+  .patient-section-body:not([hidden]) { padding-top: 16px; }
+  .patient-avatar { background: var(--color-brand-soft); color: var(--color-brand-ink); }
+}
+
+/* paytrail: toasts drop in from the top; a drawer slides in from the right (a sheet rises on phones). */
+@keyframes toast-drop { from { opacity: 0; transform: translateY(-10px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.hid-drawer { animation: sheet-up .26s cubic-bezier(.2,.9,.3,1); }
+@media (min-width: 640px) { .hid-drawer { animation-name: drawer-in; } }
+@media (prefers-reduced-motion: reduce) { [class*="toast-drop"], .hid-drawer { animation: none !important; } }
+
+/* The Health ID card (HealthIdCard.tsx): a lean toward the pointer, a light that follows it, an idle sway and sheen. */
+.hid-card { transform: rotateX(var(--hid-rx, 0deg)) rotateY(var(--hid-ry, 0deg)); transform-style: preserve-3d; transition: transform .35s cubic-bezier(.2,.8,.2,1); will-change: transform; }
+.hid-card[data-lit] { transition-duration: .08s; }
+.hid-card-glare { opacity: 0; transition: opacity .3s; background: radial-gradient(circle at var(--hid-mx, 30%) var(--hid-my, 20%), rgba(255,255,255,.55), rgba(255,255,255,0) 42%); }
+.hid-card[data-lit] .hid-card-glare { opacity: 1; }
+@keyframes hid-card-idle { 0%, 100% { transform: rotate(0deg) translateY(0); } 25% { transform: rotate(-.5deg) translateY(-1px); } 75% { transform: rotate(.5deg) translateY(-2px); } }
+@keyframes hid-card-sheen { 0%, 62% { transform: translateX(0); } 86%, 100% { transform: translateX(400%); } }
+@media (prefers-reduced-motion: reduce) { .hid-card { transition: none; transform: none; } }
+
+/* ── Forms on wide screens (owner's rule, 2026-10-31): a field or a button is not a layout. Forms keep a reading
+   width (44rem), a card that is mostly a form centres in the page instead of stretching across it, and buttons
+   keep their own width. Phones are unaffected (they are narrower than the cap). ─────────────────────────────── */
+:where(.staff-form, .patient-form, .hid-ehr-clinical-form, .hid-ehr-dept-form, .hid-ehr-dept-staff-form, .hid-ehr-blue-record-form, .hid-ehr-blue-form-grid) {
+  max-width: 44rem;
+}
+/* A page that is a form (no table on it) is one centred column: its heading and its form share one edge. Pages that
+   lay themselves out (data-layout) are left alone. */
+.hid-ehr-blue-page:has(form:is(.staff-form, .hid-ehr-clinical-form, .hid-ehr-blue-record-form, .hid-ehr-dept-form)):not(:has(table, [data-layout])) {
+  max-width: 48rem;
+  margin-inline: auto;
+}
+:where(.staff-form, .hid-ehr-clinical-form, .hid-ehr-dept-form, .hid-ehr-blue-record-form) > :is(button, .hid-ui-button, .ui-button) { justify-self: start; width: auto; }
+
+/* ── Dark mode for the older EHR styles (@hid/ui/ehr, ehr-blue): the same Kasuwa dark surfaces, through their own
+   variables, so every page that still uses them follows the device and the toggle. ─────────────────────────── */
+:root[data-theme='dark'] .hid-ehr, :root[data-theme='dark'] .hid-ehr-host, :root[data-theme='dark'].hid-ehr {
+  --ehr-tint: #102a56;
+  --ehr-ink: #f5f5f6;
+  --ehr-text: #cecfd2;
+  --ehr-muted: #94969c;
+  --ehr-faint: #85888e;
+  --ehr-surface: #000000;
+  --ehr-surface-sunk: #1a1a1a;
+  --ehr-surface-tint: #141414;
+  --ehr-line: #262626;
+  --ehr-line-strong: #3a3a3a;
+  --ehr-control-border: #74747a;
+  --ehr-nav-group-text: #94969c;
+  --ehr-positive: #47cd89;
+  --ehr-caution: #fdb022;
+  --ehr-critical: #f97066;
+  --ehr-danger-text: #f97066;
+  --ehr-danger-50: #2b1210;
+  --ehr-success-50: #0b2a1c;
+  --ehr-warning-50: #2a1f08;
+  --ehr-warning-600: #fdb022;
+  --ehr-warning-banner-surface: #2a1f08;
+  --ehr-warning-banner-text: #fdb022;
+  --ehr-tab-current-surface: #102a56;
+  --ehr-tab-current-text: #84adff;
+  --ehr-tab-rule: #262626;
+  --ehr-primary-50: #102a56;
+  --ehr-primary-100: #133466;
+  --ehr-scrim: #000000a6;
+  color-scheme: dark;
+}
+:root[data-theme='dark'] :is(.hid-ehr-attention, [class*='hid-ehr-'][class*='warn']) { background-color: #2a1f08; }
+:root[data-theme='dark'] :is([class*='hid-ehr-'][class*='critical'], [class*='hid-ehr-'][class*='danger']) { background-color: #2b1210; }
+/* Links in the older EHR styles keep 4.5:1 on dark surfaces (their brand-dark is also a fill colour, so only links change). */
+:root[data-theme='dark'] .hid-ehr :is(a:not([class]), .hid-ehr-clinical-link) { color: #84adff; }
+
+/* StatGroup of four (kasuwa/ui.tsx): two by two until its own width holds four tiles of ~12rem, then one row of four;
+   never three and an orphan. Sized by the group's width, so the sidebar and side columns are accounted for. */
+.hid-stat-grid-4 {
+  grid-template-columns: repeat(auto-fill, minmax(max(calc((100% - 1.125rem) / 4), min(calc((100% - .375rem) / 2), (50rem - 100%) * 999)), 1fr));
+}
+
+/* The organisation Overview's five stat cards, by the page's width: phone, People reached on its own row then two by two;
+   wider, it over a row of four; from 48rem, all five in one row. */
+.hid-outreach-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hid-outreach-stats > :first-child { grid-column: 1 / -1; }
+@container (min-width: 36rem) { .hid-outreach-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 48rem) { .hid-outreach-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); } .hid-outreach-stats > :first-child { grid-column: auto; } }
+

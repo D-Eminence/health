@@ -1,0 +1,58 @@
+name: Staging frontend artifacts
+
+on:
+  push:
+    branches: [main, 'staging-frontend-*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-frontends-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22.23.2'
+          package-manager-cache: false
+      - name: Locked dependencies
+        run: npm ci
+      - name: Frontend checks
+        run: |
+          npm run audit:boundaries
+          npm run check
+          npm run test:edge
+          npm run test:release
+          npm audit --audit-level=high
+      - name: Build every staging frontend using public configuration
+        run: npm run build:staging
+      - name: Validate compiled Workers without deploying
+        run: python scripts/prepare-staging-workers.py --dry-run
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: staging-frontends-${{ github.sha }}
+          path: |
+            build/staging/*.zip
+            build/staging/manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: staging-frontend-diagnostics-${{ github.run_id }}
+          path: build/staging/*.log
+          if-no-files-found: ignore
+          retention-days: 7

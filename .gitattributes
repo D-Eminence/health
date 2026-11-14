@@ -1,0 +1,6 @@
+# Normalise line endings so a mixed Windows/macOS/Linux team does not produce
+# whole-file diffs. Working copies keep their platform's native endings.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary

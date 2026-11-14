@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Health ID",
+  "short_name": "Health ID",
+  "description": "Your Health ID: your health records, and who can see them.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1570ef",
+  "icons": [
+    { "src": "/icons/icon-48.png", "sizes": "48x48", "type": "image/png" },
+    { "src": "/icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

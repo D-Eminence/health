@@ -1,0 +1,18 @@
+{
+  "schema": "hid.frontend-dependencies/v1",
+  "declared": true,
+  "backend_contract": "novu-v1",
+  "reviewed_by": "D-Eminence",
+  "review_reference": "Services as deployed after hid-system #242 (security assessment renewal to 2026-12-12; no API change): all nine at 787ad3c7. Renewal approved by the owner in chat on 2026-11-12 (\"Q61 renew #242\").",
+  "backend_commits": {
+    "gateway": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "identity-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "ehr-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "lab-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "pharmacy-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "ocr-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "outreach-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "support-api": "787ad3c7c6187d72b87260343c9b0310f3233b29",
+    "notification-api": "787ad3c7c6187d72b87260343c9b0310f3233b29"
+  }
+}

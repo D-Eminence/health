@@ -1,0 +1,282 @@
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { isConnectionFailure, isHidApiError } from '@hid/http'
+import { useSession } from '../session'
+import { Alert, Button, Card, cx } from '../kasuwa/ui'
+import { usePatientResource } from './usePatientResource'
+import { useActionFocus, useRetryFocus } from './actionFocus'
+import { LoadProblem } from './profileParts'
+import { ItemName } from '../ItemName'
+import { LoadingRows } from '../kasuwa/parts'
+import { learnWebPushServed, useWebPushServed } from '../webPushServed'
+import { withSubscribed, withoutSubscription, type WebPushState } from '../webPush'
+import { isAppleBrowserTab, runningInstalled } from '../deviceKind'
+import { promptInstall, useInstallPrompt } from '../installPrompt'
+import type * as PushDeviceModule from '../pushDevice'
+import type { BrowserPushSubscription, PushSupport } from '../pushDevice'
+
+/*
+ * The profile's two device settings (once on the Notifications page) (contract b6-contract.md §11.4-11.5): "Notifications on this device", payload-free Web
+ * Push to this phone or computer (hid-system 0097), and "Install the Health ID app". The push section is hidden
+ * entirely, saying nothing, until Identity's GET identity/me/web-push answers 200: a backend before 0097, or one whose
+ * push keys are not configured, answers 404. The browser's push APIs live in ../pushDevice, loaded only then.
+ */
+
+type PushDevice = typeof PushDeviceModule
+
+/** Loaded on demand: a page that never offers push never loads the module that can register a worker. */
+const loadDevice = (): Promise<PushDevice> => import('../pushDevice')
+
+interface DeviceReading {
+  readonly support: PushSupport
+  readonly permission: NotificationPermission
+  readonly subscription: BrowserPushSubscription | null
+}
+
+type SectionState = 'unsupported' | 'ios-install-needed' | 'denied' | 'on' | 'off'
+
+async function readDevice(device: PushDevice): Promise<DeviceReading> {
+  const support = device.support()
+  if (support !== 'supported') return { support, permission: 'default', subscription: null }
+  return { support, permission: device.permission(), subscription: await device.browserSubscription() }
+}
+
+/** The section's state, in the contract's order: the first that applies. */
+function stateOf(server: WebPushState, device: DeviceReading): SectionState {
+  if (device.support === 'unsupported') return 'unsupported'
+  if (device.support === 'ios-install-needed') return 'ios-install-needed'
+  if (device.permission === 'denied') return 'denied'
+  const digest = device.subscription?.endpointDigest
+  const match = digest === undefined ? undefined : server.subscriptions.find(item => item.endpointDigest === digest)
+  return match?.thisSignIn && match.keyCurrent ? 'on' : 'off'
+}
+
+const WHAT_IT_SAYS = 'It only says "You have a new notification."'
+
+function stateText(state: SectionState): string {
+  switch (state) {
+    case 'unsupported': return 'This browser can\'t show Health ID notifications.'
+    case 'ios-install-needed': return 'On iPhone or iPad, first add Health ID to your Home Screen (tap Share, then Add to Home Screen). Then turn this on there.'
+    case 'denied': return `Notifications are blocked. To allow them, open this browser's settings for ${location.host}.`
+    case 'on': return `On. You get an alert here for each new notification. ${WHAT_IT_SAYS}`
+    case 'off': return `Get an alert here for each new notification. ${WHAT_IT_SAYS}`
+  }
+}
+
+const TURNED_ON = 'Notifications are on for this device.'
+const NOT_TURNED_ON = 'Notifications were not turned on.'
+const TURN_ON_FAILED = 'Couldn’t turn on notifications. Try again.'
+const TURN_OFF_FAILED = 'Couldn’t turn off notifications. Try again.'
+const TURNED_OFF = 'Notifications are off for this device.'
+const TURNED_OFF_LATE = TURNED_OFF
+
+type TurnOnOutcome = 'on' | 'denied' | 'dismissed'
+
+/**
+ * "Notifications on this device" (contract §11.4). The switch asks for the browser's permission only when the patient
+ * turns it on (a permission another app left on this host is not consent, so the switch still starts off), subscribes
+ * this browser, and hands the subscription to Identity, which keeps it for this sign-in only.
+ */
+export function DeviceNotificationsCard() {
+  const { api } = useSession()
+  // Whether the last read failed in a way that may pass (Identity failing or busy, or no connection): the card then says
+  // it could not load this setting, with Try again (PPS-15). A refusal, or an answer that is not the contract's, still
+  // hides it, saying nothing, as a 404 does.
+  const mayPass = useRef(false)
+  const load = useCallback((signal?: AbortSignal) => api.webPush(signal).then(value => {
+    mayPass.current = false
+    learnWebPushServed(true)
+    return value
+  }, (caught: unknown) => {
+    mayPass.current = isConnectionFailure(caught)
+      || (isHidApiError(caught) && (caught.status >= 500 || caught.status === 429 || caught.status === 408))
+    if (isHidApiError(caught) && caught.status === 404) { learnWebPushServed(false); return null }
+    throw caught
+  }), [api])
+  // Kept for the account under its own name: `load` is made again each time the card is.
+  const server = usePatientResource<WebPushState | null>(load, 'web-push')
+  const served = useWebPushServed()
+  const [reading, setReading] = useState<DeviceReading | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const control = useRef<HTMLButtonElement>(null)
+  const rekeyed = useRef(false)
+  const working = useRef(false)
+  const focusAfter = useActionFocus()
+  const retryFocus = useRetryFocus(heading)
+  const data = server.data
+  const { replace } = server
+  const offered = served === true && data !== null
+  // Once the card has said it could not load this setting, it stays while Try again reads it and this browser's side
+  // is read, so its heading keeps focus.
+  const failed = server.error !== null && mayPass.current
+  const [unreadShown, setUnreadShown] = useState(false)
+  if (failed && !unreadShown) setUnreadShown(true)
+
+  // This browser's side, read once Identity offers push, and again when the patient comes back to the page (after
+  // allowing notifications in the browser's site settings, for one).
+  // A read that fails (the module did not load, or the browser threw) ends the card's loading state: it says so, with
+  // Try again (`readAgain`), rather than loading for good (PPS-15).
+  const [deviceUnread, setDeviceUnread] = useState(false)
+  const readAgain = useRef<() => Promise<void>>(async () => {})
+  useEffect(() => {
+    if (!offered) return
+    let current = true
+    const read = (): Promise<void> => {
+      if (working.current) return Promise.resolve()
+      return loadDevice().then(readDevice).then(value => {
+        if (current && !working.current) { setReading(value); setDeviceUnread(false) }
+      }, () => { if (current) setDeviceUnread(true) })
+    }
+    readAgain.current = read
+    void read()
+    const visible = () => { if (document.visibilityState === 'visible') void read() }
+    document.addEventListener('visibilitychange', visible)
+    return () => { current = false; document.removeEventListener('visibilitychange', visible) }
+  }, [offered])
+
+  /** Subscribes this browser and saves it with Identity; a key changed meanwhile (409) is read again, once. */
+  const subscribe = useCallback(async (start: WebPushState): Promise<TurnOnOutcome> => {
+    const device = await loadDevice()
+    let state = start
+    let createdHere = false
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        const result = await device.turnOn({ applicationServerKey: state.applicationServerKey, keyId: state.keyId })
+        if (result.outcome !== 'subscribed') return result.outcome
+        createdHere ||= result.created
+        try {
+          const saved = await api.saveWebPushSubscription({ ...result.subscription, keyId: result.keyId })
+          replace(withSubscribed(state, saved, new Date().toISOString()))
+          return 'on'
+        } catch (cause) {
+          if (attempt > 0 || !isHidApiError(cause) || cause.code !== 'WEB_PUSH_KEY_CHANGED') throw cause
+          state = await api.webPush()
+          replace(state)
+        }
+      }
+    } catch (cause) {
+      if (createdHere) await device.turnOffBrowser()
+      throw cause
+    }
+  }, [api, replace])
+
+  // The key was rotated since this sign-in subscribed: move it to the new key without asking (the same patient, the
+  // same sign-in, permission already given). The old row goes by the one-per-sign-in rule.
+  useEffect(() => {
+    if (!data || !reading || rekeyed.current || working.current) return
+    const { subscription } = reading
+    if (reading.support !== 'supported' || reading.permission !== 'granted' || !subscription) return
+    const match = data.subscriptions.find(item => item.endpointDigest === subscription.endpointDigest)
+    if (!match?.thisSignIn || match.keyCurrent) return
+    rekeyed.current = true
+    working.current = true
+    void subscribe(data).catch(() => 'failed' as const).then(async () => {
+      try { setReading(await readDevice(await loadDevice())) } catch { /* stays as it was */ }
+    }).finally(() => { working.current = false })
+  }, [data, reading, subscribe])
+
+  const ready = served === true && data !== null && reading !== null
+  // Once the card has said it could not load this setting, it stays whatever Try again comes to, so focus is not lost.
+  const unread = !ready && (failed || unreadShown || (offered && deviceUnread))
+  if (!ready && !unread) return null
+  // Try again was answered 404 (or the like): not offered here, said in the card the patient was on.
+  const notOffered = !ready && !server.error && !server.loading && data === null
+  const browserUnread = !ready && !server.error && offered && deviceUnread
+  const state = ready ? stateOf(data, reading) : null
+  const on = state === 'on'
+  const withSwitch = state === 'denied' || state === 'on' || state === 'off'
+
+  const toggle = async () => {
+    if (busy || working.current || !data) return
+    working.current = true
+    setBusy(true); setError(null); setNotice(null)
+    let device: PushDevice | null = null
+    let outcome: DeviceReading['permission'] | null = null
+    try {
+      device = await loadDevice()
+      if (on) {
+        const current = await device.browserSubscription()
+        let late = false
+        if (current) {
+          // Whatever Identity answers, this browser stops: Identity stops trying on its own (contract D5, D8).
+          try { await api.removeWebPushSubscription(current.endpoint) } catch { late = true }
+          replace(withoutSubscription(data, current.endpointDigest))
+        }
+        await device.turnOffBrowser()
+        setNotice(late ? TURNED_OFF_LATE : TURNED_OFF)
+      } else {
+        const result = await subscribe(data)
+        if (result === 'on') setNotice(TURNED_ON)
+        else if (result === 'denied') outcome = 'denied'
+        else setNotice(NOT_TURNED_ON)
+      }
+    } catch {
+      setError(on ? TURN_OFF_FAILED : TURN_ON_FAILED)
+    } finally {
+      let next: DeviceReading | null = null
+      try { next = device ? await readDevice(device) : null } catch { /* stays as it was */ }
+      if (next) setReading(outcome === 'denied' ? { ...next, permission: 'denied' } : next)
+      working.current = false
+      setBusy(false)
+      focusAfter(() => (control.current && !control.current.disabled ? control.current : heading.current))
+    }
+  }
+
+  return <Card data-setting="" aria-labelledby="device-notifications-heading" className="flex flex-col gap-3 p-5">
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1">
+        <h3 ref={heading} tabIndex={-1} id="device-notifications-heading" className="m-0 text-title-3 text-ink outline-none">Notifications on this device</h3>
+        {state && <p id="device-notifications-state" className="m-0 mt-1 text-[13px] text-ink-3">{stateText(state)}</p>}
+      </div>
+      {withSwitch && <button ref={control} type="button" role="switch" aria-checked={on}
+        aria-labelledby="device-notifications-heading" aria-describedby="device-notifications-state device-notifications-sign-out"
+        aria-busy={busy || undefined} disabled={busy || state === 'denied'} onClick={() => void toggle()}
+        className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-[13px] font-medium text-ink-2 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
+        <span aria-hidden="true">{on ? 'On' : 'Off'}</span>
+        <span aria-hidden="true" className={cx('relative inline-flex h-6 w-11 items-center rounded-full transition-colors', on ? 'bg-brand-fill' : 'bg-line-strong')}>
+          <span className={cx('inline-block size-5 rounded-full bg-white shadow-[var(--shadow-xs)] transition-transform', on ? 'translate-x-[22px]' : 'translate-x-0.5')} /></span>
+      </button>}
+    </div>
+    {/* Its read failed (PPS-15): said, with Try again; while that reads, a loading line. */}
+    {!ready && server.error && <LoadProblem what="this setting" error={server.error} buttonRef={retryFocus.button}
+      onRetry={() => retryFocus.retry(server.reload)} name={<ItemName>loading notifications on this device</ItemName>} />}
+    {browserUnread && <LoadProblem what="this setting" error="Health ID couldn’t read this browser’s notification setting. Please try again."
+      buttonRef={retryFocus.button} name={<ItemName>loading notifications on this device</ItemName>}
+      onRetry={() => { setDeviceUnread(false); retryFocus.retry(() => readAgain.current()) }} />}
+    {notOffered && <p className="m-0 text-[13px] text-ink-3">Health ID can’t send notifications to this device right now.</p>}
+    {!ready && !server.error && !notOffered && !browserUnread && <div className="-mx-5"><LoadingRows rows={1} label="Loading this setting" /></div>}
+    {withSwitch && <p id="device-notifications-sign-out" className="m-0 text-[12px] text-ink-3">Signing out turns this off.</p>}
+    {error && <Alert intent="error" size="sm">{error}</Alert>}
+    <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>
+  </Card>
+}
+
+/**
+ * "Install the Health ID app" (contract §11.5), shown only in a browser tab, never in the installed app: a button
+ * where the browser has offered installing, or in an iPhone or iPad browser (not an app's built-in web view) the
+ * Home Screen steps; otherwise nothing. Once the patient has chosen, the section goes, and focus goes to `afterward`.
+ */
+export function InstallAppCard({ afterward }: { afterward: RefObject<HTMLElement | null> }) {
+  const offer = useInstallPrompt()
+  const [installed] = useState(runningInstalled)
+  const [apple] = useState(() => isAppleBrowserTab())
+  const [busy, setBusy] = useState(false)
+  const focusAfter = useActionFocus()
+  if (installed || (!offer && !apple)) return null
+
+  const install = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await promptInstall() } finally { setBusy(false); focusAfter(() => afterward.current) }
+  }
+
+  return <Card data-setting="" aria-labelledby="install-app-heading" className="flex flex-col gap-3 p-5">
+    <h3 id="install-app-heading" className="m-0 text-title-3 text-ink">Install the Health ID app</h3>
+    {offer ? <>
+      <p className="m-0 text-[13px] text-ink-3">Open Health ID like an app on this device.</p>
+      <Button className="self-start" disabled={busy} onClick={() => void install()}>Install Health ID</Button>
+    </> : <p className="m-0 text-[13px] text-ink-3">Tap the Share button, then Add to Home Screen.</p>}
+  </Card>
+}

@@ -1,0 +1,40 @@
+node_modules/
+dist/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+
+# Environment files: only *.example may be committed.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local tooling noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+
+# Vercel CLI working directory: the project link and the pulled environment.
+.vercel/
+
+# Design inputs and captures live outside the repo; never vendor them in.
+*.zip
+hid-preview*.html
+*.play_around
+.play_around
+play_around
+play_around*
+/play around/
+
+# Generated production approval report; never a source input.
+/release/
+dev/mock-gateway/backend-needs.log
+dev/preview/dist/

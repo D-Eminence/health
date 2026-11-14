@@ -1,0 +1,631 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { DEMO_HOSPITAL, SESSION, json, openStaffApp, problem, serve, where, type Sent } from '../frame/blueHarness'
+import {
+  PROFILE, RIVERSIDE, SAVED_PROFILE, SAVE_PROFILE, STAFF, eyebrow, heading, many, membership, nav, profileAnswer, profileKept,
+  sessionWith, staffAnswer, stepButton, stepper, withOnboardingPages, type Review,
+} from './onboardingHarness'
+
+/*
+ * Facility setup, the design's nine-step wizard (screens 14-22), for the administrator of a fictional facility that
+ * signed itself up, with the clinic switch on: its stepper, each step's heading and where focus goes, the live parts
+ * (the facility's name and check from the session, its details read and saved through Identity (hid-system 0114),
+ * Staff & access through its own reads) and the sample steps, which send nothing. The sample steps (Type, Departments, Branches, Billing) are the demo facilities' alone (parity report
+ * 3.2), and so is Launch, which sends nothing: a real facility has the four others, counted as four, and its last step,
+ * Review, ends by going to Home.
+ */
+vi.mock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
+vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+beforeEach(() => {
+  vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+  withOnboardingPages()
+})
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
+
+const STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 'Billing', 'Review', 'Launch']
+/** The steps at a real facility: the sample steps, and Launch, left out. */
+const REAL_STEPS = ['Facility', 'Staff', 'Roles', 'Review']
+const DEMO = 'Demo Hospital'
+const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
+/** Someone else saved the details first: what was typed is kept. */
+const CONFLICT = 'Someone else saved these details first. Your changes are still below and are not saved yet. '
+  + 'Check them against theirs, then save again.'
+/** Where Identity keeps the facility's details itself (a demo facility here). */
+const KEPT = 'Health ID support keeps this facility’s details. Contact them to change any of them.'
+const OPTIONAL_AT_DEMO = 'Optional after launch: staff invitations, service pricing, wards and beds, inventory and professional credential records.'
+/** The Roles step's line at a real facility, where the design's role templates are left out. */
+const ROLES_LINE = 'Each person’s role is set in Staff & access below. Administrative ownership never grants clinical signing, '
+  + 'prescribing or dispensing rights.'
+const PENDING = `Health ID support is checking ${RIVERSIDE}. This usually takes up to one working day.`
+const PENDING_AT_DEMO = `Health ID support is checking ${DEMO}. This usually takes up to one working day.`
+/** What the Review step says at a real facility, where it is the last step: no launch, and nothing promised. */
+const ALREADY_OPEN = 'Your EHR is already open. Inviting staff is optional, from Staff & access.'
+/** The same while Health ID support's check is pending, when adding staff is locked: Staff & access's sentence, naming where. */
+const STAFF_WAITS = `You can add staff from Staff & access once Health ID support has checked ${RIVERSIDE}.`
+const DONE = `Health ID support has checked ${RIVERSIDE}, and it now has full access.`
+
+async function openSetup(path = '/provider/onboarding', review: Review = 'reviewed', current = membership({ review }),
+  profile: Array<() => Response | Promise<Response>> = many(current.id === DEMO_HOSPITAL ? profileKept : profileAnswer())) {
+  const sent = serve({ [SESSION]: [sessionWith(current)], [STAFF]: many(staffAnswer(current.name, current.id, review)),
+    [PROFILE]: profile })
+  await openStaffApp(path)
+  await screen.findByRole('navigation', { name: 'Onboarding steps' })
+  return sent
+}
+
+/** The same at Demo Hospital, one of the demo facilities, here signed up by itself: the wizard's nine steps. */
+const openDemoSetup = (path?: string, review: Review = 'reviewed') =>
+  openSetup(path, review, membership({ id: DEMO_HOSPITAL, name: DEMO, review }))
+
+const routes = (sent: readonly Sent[]) => sent.map(request => request.route)
+/** The Review step's rows, term to value. */
+const reviewFacts = () => Object.fromEntries([...document.querySelectorAll('.hid-ehr-onboarding-details dt')]
+  .map(term => [term.textContent, term.nextElementSibling?.textContent]))
+const press = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
+/** The sample notice right under the heading (the steps that are samples throughout). */
+const bannerUnderHeading = () => {
+  const after = document.querySelector('.hid-ehr-onboarding > .hid-ehr-page-heading')?.nextElementSibling
+  return after?.classList.contains('hid-ehr-sample-banner') ? after.textContent : null
+}
+
+describe('the stepper and each step\'s heading', () => {
+  it('opens at step 1 with the design\'s heading, Exit setup, and a stepper of nine steps at a demo facility', async () => {
+    await openDemoSetup()
+    expect(eyebrow()).toBe('Step 1 of 9 · Facility')
+    // The heading names the step for a screen reader; the eyebrow shows it.
+    expect(heading().textContent).toBe('Step 1 of 9 · Facility: Set up your facility')
+    expect(screen.getByRole('button', { name: 'Exit setup' })).toBeDefined()
+    const buttons = within(stepper()).getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(STEPS.map((step, index) => `${index + 1}. ${step}`))
+    expect(buttons.map(button => button.getAttribute('aria-current'))).toEqual(['step', null, null, null, null, null, null, null, null])
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+  })
+
+  it.each(STEPS.map((step, index) => [step, index] as const))('goes straight to %s from the stepper, keeping focus on it', async (step, index) => {
+    await openDemoSetup()
+    const button = stepButton(step)
+    button.focus()
+    fireEvent.click(button)
+    expect(eyebrow()).toBe(`Step ${index + 1} of 9 · ${step}`)
+    expect(heading().textContent).toBe(`Step ${index + 1} of 9 · ${step}: Set up your facility`)
+    expect(stepButton(step).getAttribute('aria-current')).toBe('step')
+    expect(within(stepper()).getAllByRole('button').filter(candidate => candidate.getAttribute('aria-current'))).toHaveLength(1)
+    expect(document.activeElement).toBe(button)
+    // The sample notice right under the heading on the steps that are samples throughout.
+    expect(bannerUnderHeading()).toBe(['Type', 'Departments', 'Branches', 'Billing', 'Launch'].includes(step) ? SAMPLE : null)
+    expect(screen.queryByRole('button', { name: 'Back' }) !== null).toBe(index > 0)
+  })
+
+  it('moves focus to the heading when the step\'s own button takes it on, or Back takes it back', async () => {
+    await openDemoSetup()
+    await screen.findByText(KEPT)
+    press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 9 · Type')
+    expect(document.activeElement).toBe(heading())
+    press('Back')
+    expect(eyebrow()).toBe('Step 1 of 9 · Facility')
+    expect(document.activeElement).toBe(heading())
+  })
+
+  it('opens at the step its address names', async () => {
+    await openDemoSetup('/provider/onboarding/review')
+    expect(eyebrow()).toBe('Step 8 of 9 · Review')
+    expect(screen.getByRole('heading', { level: 2, name: 'Review your configuration' })).toBeDefined()
+  })
+
+  it('leaves for Choose workspace from Exit setup, as the design does', async () => {
+    await openSetup()
+    press('Exit setup')
+    await waitFor(() => expect(where()).toBe('/provider/institutions'))
+  })
+})
+
+describe('at a real facility, the sample steps and Launch are left out', () => {
+  /** What only the sample steps and Launch draw: none of it shows at a real facility, whichever step is open. */
+  const SAMPLE_PARTS = ['Next (sample)', 'Add branch (sample)', 'Facility type', 'Enabled departments', 'Branch configuration',
+    'Payment policy', 'Role templates and permission scopes', 'Ready to launch?', 'Launch facility', 'Review launch requirements',
+    'A new facility starts with no patients, stock or transactions.']
+
+  it('has the four other steps, in the design\'s order, counted as four', async () => {
+    await openSetup()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    expect(heading().textContent).toBe('Step 1 of 4 · Facility: Set up your facility')
+    const buttons = within(stepper()).getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(REAL_STEPS.map((step, index) => `${index + 1}. ${step}`))
+    for (const step of ['Type', 'Departments', 'Branches', 'Billing', 'Launch']) {
+      expect(within(stepper()).queryByRole('button', { name: new RegExp(`${step}$`) }), step).toBeNull()
+    }
+  })
+
+  it.each(REAL_STEPS.map((step, index) => [step, index] as const))('goes straight to %s, showing nothing of the sample steps', async (step, index) => {
+    await openSetup()
+    fireEvent.click(stepButton(step))
+    expect(eyebrow()).toBe(`Step ${index + 1} of 4 · ${step}`)
+    expect(stepButton(step).getAttribute('aria-current')).toBe('step')
+    // No step left at a real facility is a sample throughout.
+    expect(bannerUnderHeading()).toBeNull()
+    for (const text of SAMPLE_PARTS) expect(screen.queryByText(text), text).toBeNull()
+    expect(screen.queryByText(/dashboard\.view/)).toBeNull()
+  })
+
+  it.each([
+    ['/provider/onboarding/type', 'Step 1 of 4 · Facility'],
+    ['/provider/onboarding/billing', 'Step 1 of 4 · Facility'],
+    ['/provider/onboarding/launch', 'Step 1 of 4 · Facility'],
+    ['/provider/onboarding/roles', 'Step 3 of 4 · Roles'],
+    ['/provider/onboarding/review', 'Step 4 of 4 · Review'],
+  ])('opens %s at %s: a sample step\'s address, or Launch\'s, opens the first step', async (path, step) => {
+    await openSetup(path)
+    expect(eyebrow()).toBe(step)
+  })
+
+  it('goes from Staff to Roles to Review, the Roles step without the design\'s role templates', async () => {
+    await openSetup('/provider/onboarding/staff')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+    expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    expect(screen.queryByText(ROLES_LINE)).toBeNull()
+    press('Continue to roles')
+    expect(eyebrow()).toBe('Step 3 of 4 · Roles')
+    expect(document.activeElement).toBe(heading())
+    // Not the Staff step again: it says what it is for, in the design's own true words, above Staff & access.
+    expect(screen.getByText(ROLES_LINE)).toBeDefined()
+    // Staff & access, live, and nothing of the design's own roles and their permission scopes.
+    expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Role templates and permission scopes' })).toBeNull()
+    expect(screen.queryByText(SAMPLE)).toBeNull()
+    expect(screen.queryByText('Facility Owner')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue to billing' })).toBeNull()
+    press('Continue to review')
+    expect(eyebrow()).toBe('Step 4 of 4 · Review')
+    press('Back')
+    expect(eyebrow()).toBe('Step 3 of 4 · Roles')
+  })
+
+  it('reviews what Health ID holds: the facility\'s registered name and every detail saved, with its real value', async () => {
+    await openSetup('/provider/onboarding/review', 'reviewed', membership(), many(profileAnswer(SAVED_PROFILE)))
+    const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
+    await waitFor(() => expect(reviewFacts()['Facility phone']).toBe('+2348000000001'))
+    expect(reviewFacts()).toEqual({
+      'Registered name': RIVERSIDE, 'Facility name (the name people use)': 'Riverside Hospital', Ownership: 'Private',
+      'Level of care': 'Tertiary', Address: '2 Fiction Close', 'City or town': 'Ikeja', State: 'Lagos', 'Local government area': 'Ikeja',
+      'GPS latitude': '6.6', 'GPS longitude': '3.35', 'Facility phone': '+2348000000001', 'Facility email': 'desk@riverside.example.test',
+      'Bed count': '120', 'Operating hours': 'Mon-Sun 24 hours', '24-hour emergency': 'Yes', Departments: 'General Outpatient, Emergency',
+      'Services offered': 'Outpatient and emergency care', 'State Ministry of Health licence number': 'LA/SMOH/0001',
+      'Does the facility have a national facility registry ID?': 'Yes', 'National facility registry ID': 'NHFR-0001',
+      'Is the facility accredited by the NHIA?': 'No', 'Medical Director’s full name': 'Dr Fiction Director',
+      'Medical Director’s MDCN number': 'MDCN/00001', 'Expected number of staff': '80',
+      'Will you bring records from an older system?': 'Yes', 'Do you need to exchange records with other systems?': 'No',
+    })
+    expect(review.textContent).not.toContain('Not collected by Health ID yet')
+    // No sample notice and no sample settings: no type, departments, branches or billing, chosen or by default.
+    expect(within(review).queryByText(SAMPLE)).toBeNull()
+    expect(within(review).queryByRole('heading', { name: 'Branches' })).toBeNull()
+    expect(within(review).queryByText(/^Main/)).toBeNull()
+    expect(within(review).queryByText('NGN')).toBeNull()
+    // There is no launch to come: only what a real facility can do, and nothing of the demo facilities' samples.
+    expect(within(review).getByText(ALREADY_OPEN)).toBeDefined()
+    expect(within(review).queryByText(/launch/i)).toBeNull()
+    expect(within(review).queryByText(/service pricing|wards and beds|inventory|credential records/)).toBeNull()
+  })
+
+  it('ends at Review, the last step, by going to Home, sending nothing', async () => {
+    const sent = await openSetup('/provider/onboarding/review')
+    // No step after it to lead to: the design's "Review launch requirements" is not offered.
+    expect(screen.queryByRole('button', { name: 'Review launch requirements' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Continue/ })).toBeNull()
+    const home = screen.getByRole('link', { name: 'Go to Home' })
+    expect(home.getAttribute('href')).toBe('/provider')
+    const { toast } = await import('@hid/ui')
+    const info = vi.spyOn(toast, 'info')
+    const before = sent.length
+    fireEvent.click(home)
+    await waitFor(() => expect(where()).toBe('/provider'))
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })).toBeDefined()
+    // It says nothing of a launch: there was none.
+    expect(info).not.toHaveBeenCalled()
+    // Whatever Home reads, going there wrote nothing.
+    expect(sent.slice(before).every(request => request.route.startsWith('GET '))).toBe(true)
+    expect(sent.some(request => /onboarding|launch|setup/i.test(request.route))).toBe(false)
+  })
+
+  it('says when the details are not given yet', async () => {
+    await openSetup('/provider/onboarding/review')
+    await waitFor(() => expect(reviewFacts()['Facility details']).toBe('Not given yet'))
+  })
+})
+
+describe('step 1, Facility', () => {
+  it('shows the registered name read-only and every detail as a required input, and no logo', async () => {
+    const sent = await openSetup()
+    const name = screen.getByRole('textbox', { name: 'Registered name' }) as HTMLInputElement
+    expect(name.value).toBe(RIVERSIDE)
+    expect(name.readOnly).toBe(true)
+    const phone = await screen.findByRole('textbox', { name: 'Facility phone' }) as HTMLInputElement
+    expect(phone.required).toBe(true)
+    expect(phone.disabled).toBe(false)
+    for (const label of ['Facility name (the name people use)', 'Address', 'City or town', 'Facility email',
+      'State Ministry of Health licence number', 'Medical Director’s MDCN number', 'Expected number of staff']) {
+      expect((screen.getByRole('textbox', { name: label }) as HTMLInputElement).required, label).toBe(true)
+    }
+    expect((screen.getByRole('combobox', { name: 'State' }) as HTMLSelectElement).required).toBe(true)
+    // The logo waits for the document store and its virus scanner: not shown at all.
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0)
+    expect(screen.queryByText(/logo/i)).toBeNull()
+    expect(document.body.textContent).not.toContain('Not collected by Health ID yet')
+    expect(screen.getByText(DONE)).toBeDefined()
+    expect(bannerUnderHeading()).toBeNull()
+    expect(routes(sent)).toEqual([SESSION, PROFILE])
+    expect(sent[1]?.headers.get('X-Facility-ID')).toBe(membership().id)
+  })
+
+  it('refuses a save with missing details in plain words, then saves every detail with If-Match and a key, and goes on', async () => {
+    const sent = serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer()),
+      [SAVE_PROFILE]: [() => json({ facilityId: membership().id, version: 1, changedFields: ['tradingName'], replayed: false })] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Facility phone' })
+    press('Save and continue')
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Facility name (the name people use)' }))
+    expect(screen.getByText('Choose the state.')).toBeDefined()
+    expect(routes(sent)).not.toContain(SAVE_PROFILE)
+
+    const type = (label: string, value: string) => fireEvent.change(screen.getByRole('textbox', { name: label }), { target: { value } })
+    const choose = (label: string, value: string) => fireEvent.change(screen.getByRole('combobox', { name: label }), { target: { value } })
+    type('Facility name (the name people use)', 'Riverside Hospital')
+    choose('Ownership', 'private'); choose('Level of care', 'tertiary')
+    type('Address', '2 Fiction Close'); type('City or town', 'Ikeja'); choose('State', 'LA'); type('Local government area', 'Ikeja')
+    type('GPS latitude', '6.6'); type('GPS longitude', '3.35'); type('Facility phone', '0800 000 0001')
+    type('Facility email', 'Desk@Riverside.example.test'); type('Bed count', '120'); type('Operating hours', 'Mon-Sun 24 hours')
+    choose('24-hour emergency', 'yes')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'General Outpatient' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Emergency' }))
+    type('Services offered', 'Outpatient and emergency care'); type('State Ministry of Health licence number', 'LA/SMOH/0001')
+    choose('Does the facility have a national facility registry ID?', 'yes'); type('National facility registry ID', 'NHFR-0001')
+    choose('Is the facility accredited by the NHIA?', 'no'); type('Medical Director’s full name', 'Dr Fiction Director')
+    type('Medical Director’s MDCN number', 'mdcn/00001'); type('Expected number of staff', '80')
+    choose('Will you bring records from an older system?', 'yes')
+    choose('Do you need to exchange records with other systems?', 'no')
+    press('Save and continue')
+    await waitFor(() => expect(eyebrow()).toBe('Step 2 of 4 · Staff'))
+    const save = sent.find(request => request.route === SAVE_PROFILE)!
+    expect(save.body).toEqual({ ...SAVED_PROFILE, phone: '+2348000000001' })
+    expect(save.headers.get('If-Match')).toBe('"0"')
+    expect(save.headers.get('Idempotency-Key')).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
+    expect(save.headers.get('X-Facility-ID')).toBe(membership().id)
+    // Review lists what was saved.
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()['Facility phone']).toBe('+2348000000001')
+  })
+
+  it('opens with the saved details; when someone else saved first, keeps what was typed, lists theirs, and saves at their version', async () => {
+    const sent = serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()),
+      [PROFILE]: [profileAnswer(SAVED_PROFILE, 3), profileAnswer({ ...SAVED_PROFILE, bedCount: 150 }, 4)],
+      [SAVE_PROFILE]: [() => problem(412, 'VERSION_CONFLICT', 'Someone saved first.'),
+        () => json({ facilityId: membership().id, version: 5, changedFields: ['bedCount'], replayed: false })] })
+    await openStaffApp('/provider/onboarding')
+    const beds = await screen.findByRole('textbox', { name: 'Bed count' }) as HTMLInputElement
+    expect(beds.value).toBe('120')
+    fireEvent.change(beds, { target: { value: '130' } })
+    press('Save and continue')
+    const alert = (await screen.findByText(CONFLICT)).closest('[role="alert"]') as HTMLElement
+    // What was typed stays; theirs are listed beside it, only where they differ.
+    expect((screen.getByRole('textbox', { name: 'Bed count' }) as HTMLInputElement).value).toBe('130')
+    expect(within(alert).getByText('Their saved details that differ from yours')).toBeDefined()
+    const theirs = Object.fromEntries([...alert.querySelectorAll('dt')].map(term => [term.textContent, term.nextElementSibling?.textContent]))
+    expect(theirs).toEqual({ 'Bed count': '150' })
+    expect(sent.filter(request => request.route === SAVE_PROFILE)[0]?.headers.get('If-Match')).toBe('"3"')
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    press('Save and continue')
+    await waitFor(() => expect(eyebrow()).toBe('Step 2 of 4 · Staff'))
+    const second = sent.filter(request => request.route === SAVE_PROFILE)[1]!
+    expect(second.headers.get('If-Match')).toBe('"4"')
+    expect(second.body).toMatchObject({ bedCount: 130 })
+    expect(second.headers.get('Idempotency-Key')).not.toBe(sent.filter(request => request.route === SAVE_PROFILE)[0]?.headers.get('Idempotency-Key'))
+  })
+
+  it('stays on the step when a save is refused for permission, says so plainly, and goes on only when asked', async () => {
+    serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer(SAVED_PROFILE, 3)),
+      [SAVE_PROFILE]: [() => problem(403, 'PERMISSION_DENIED', 'Not allowed.')] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Bed count' })
+    press('Save and continue')
+    expect(await screen.findByText('Only the facility administrator can change these details.')).toBeDefined()
+    expect(screen.getByText('The details you entered were not saved.')).toBeDefined()
+    expect(screen.queryByText(KEPT)).toBeNull()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    // Review says the same, not that support keeps the details.
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()['Facility details']).toBe('Only the facility administrator can change these details.')
+    fireEvent.click(stepButton('Facility'))
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('stays on the step when a save is refused because the facility is a sealed demo, and says the details were not saved', async () => {
+    serve({ [SESSION]: [sessionWith(membership())], [STAFF]: many(staffAnswer()), [PROFILE]: many(profileAnswer(SAVED_PROFILE, 3)),
+      [SAVE_PROFILE]: [() => problem(409, 'FACILITY_PROFILE_SEALED', 'Sealed.')] })
+    await openStaffApp('/provider/onboarding')
+    await screen.findByRole('textbox', { name: 'Bed count' })
+    press('Save and continue')
+    expect(await screen.findByText(KEPT)).toBeDefined()
+    expect(screen.getByText('The details you entered were not saved.')).toBeDefined()
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('says only the administrator can change the details when the read is refused for permission', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), many(() => problem(403, 'PERMISSION_DENIED', 'Not allowed.')))
+    expect(await screen.findByText('Only the facility administrator can change these details.')).toBeDefined()
+    expect(screen.queryByText(KEPT)).toBeNull()
+    press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('says where Health ID support keeps the details, and goes on with Continue', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), many(profileKept))
+    expect(await screen.findByText(KEPT)).toBeDefined()
+    expect(screen.queryByRole('textbox', { name: 'Facility phone' })).toBeNull()
+    press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('offers nothing to press while the details are read, so the step cannot be passed without them', async () => {
+    await openSetup('/provider/onboarding', 'reviewed', membership(), [() => new Promise<Response>(() => undefined)])
+    expect(await screen.findByText('Getting your facility’s details…')).toBeDefined()
+    expect(screen.queryByRole('button', { name: /^Continue/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull()
+  })
+
+  it('after a failed read says the details are not saved, tries again, and only then lets the administrator go on', async () => {
+    const sent = await openSetup('/provider/onboarding', 'reviewed', membership(),
+      [() => problem(503, 'FACILITY_PROFILE_UNAVAILABLE', 'Unavailable.'), () => problem(503, 'FACILITY_PROFILE_UNAVAILABLE', 'Unavailable.')])
+    expect(await screen.findByText('We couldn’t get your facility’s details just now.')).toBeDefined()
+    expect(screen.getByText(/are not saved yet/)).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    press('Try again')
+    await waitFor(() => expect(routes(sent).filter(route => route === PROFILE)).toHaveLength(2))
+    await screen.findByRole('button', { name: 'Continue without saving' })
+    press('Continue without saving')
+    expect(eyebrow()).toBe('Step 2 of 4 · Staff')
+  })
+
+  it('says Health ID support is checking the facility while it is', async () => {
+    await openSetup('/provider/onboarding', 'pending')
+    expect(within(document.querySelector('.hid-ehr-onboarding') as HTMLElement).getByText(PENDING)).toBeDefined()
+  })
+})
+
+describe('the sample steps send nothing', () => {
+  it('takes the design\'s type, departments, branch and billing into the review, asking nothing of Health ID', async () => {
+    const sent = await openDemoSetup('/provider/onboarding/type')
+
+    // Type: nothing chosen is refused in the design's words; a type whose suggestion differs asks first.
+    press('Next (sample)')
+    expect(screen.getByText('Complete this field.')).toBeDefined()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Facility type' }), { target: { value: 'Diagnostic Centre' } })
+    press('Next (sample)')
+    const ask = await screen.findByRole('alertdialog', { name: 'Use suggested departments?' })
+    expect(within(ask).getByText('Cancel keeps your customized departments.')).toBeDefined()
+    fireEvent.click(within(ask).getByRole('button', { name: 'Use suggested departments' }))
+    expect(eyebrow()).toBe('Step 3 of 9 · Departments')
+    expect(document.activeElement).toBe(heading())
+
+    // Departments: the suggestion is ticked; none at all is refused.
+    const box = (name: string) => screen.getByRole('checkbox', { name }) as HTMLInputElement
+    expect(screen.getAllByRole('checkbox').filter(input => (input as HTMLInputElement).checked).map(input => input.getAttribute('aria-labelledby') && document.getElementById(input.getAttribute('aria-labelledby')!)?.textContent))
+      .toEqual(['Laboratory', 'Radiology'])
+    expect(box('Laboratory').getAttribute('aria-describedby')).toBeTruthy()
+    fireEvent.click(box('Laboratory'))
+    fireEvent.click(box('Radiology'))
+    press('Next (sample)')
+    expect(screen.getByRole('alert').textContent).toBe('Select at least one department.')
+    fireEvent.click(box('General Outpatient'))
+    fireEvent.click(box('Laboratory'))
+    press('Next (sample)')
+    expect(eyebrow()).toBe('Step 4 of 9 · Branches')
+
+    // Branches: the main branch, completed and saved in this visit; it runs the hospital's departments.
+    expect(screen.getByRole('button', { name: 'Main', pressed: true })).toBeDefined()
+    expect(screen.getAllByRole('checkbox').map(input => (input.closest('label') as HTMLElement).textContent)).toEqual(['General Outpatient', 'Laboratory'])
+    // The branch runs what it ran; a department the hospital has just turned on is the administrator's to add.
+    expect(screen.getAllByRole('checkbox').map(input => (input as HTMLInputElement).checked)).toEqual([true, false])
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Laboratory' }))
+    press('Add branch (sample)')
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(2)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Address' }), { target: { value: '1 Fiction Lane' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Contact' }), { target: { value: '+2348000000000' } })
+    // A branch that runs no department is refused in the design's words (src/service.ts:867-875).
+    fireEvent.click(screen.getByRole('checkbox', { name: 'General Outpatient' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Laboratory' }))
+    press('Add branch (sample)')
+    expect(screen.getByRole('alert').textContent).toBe('Branch name, address, contact, hours and departments are required.')
+    // The status is there, saying nothing, before it has anything to say: a screen reader then announces it.
+    const status = document.querySelector('.hid-ehr-onboarding-status')
+    expect(status?.getAttribute('role')).toBe('status')
+    expect(status?.textContent).toBe('')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'General Outpatient' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Laboratory' }))
+    press('Add branch (sample)')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('Main is in the branch list.')).toBe(status)
+    press('Next (sample)')
+    expect(eyebrow()).toBe('Step 5 of 9 · Staff')
+
+    // Billing (from the stepper): the design's fields, required.
+    fireEvent.click(stepButton('Billing'))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Accepted payment methods (Cash,Transfer,Card,Insurance)' }), { target: { value: 'Cash, Transfer' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Payment policy' }), { target: { value: '' } })
+    press('Next (sample)')
+    expect(screen.getByText('Complete this field.')).toBeDefined()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Payment policy' }), { target: { value: 'Before service' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable insurance support' }))
+    press('Next (sample)')
+    expect(eyebrow()).toBe('Step 8 of 9 · Review')
+
+    // Review: the facility's name from Health ID, what this visit chose, and that Health ID support keeps a demo
+    // facility's details.
+    expect(reviewFacts()).toEqual({
+      'Registered name': DEMO, Type: 'Diagnostic Centre', 'Facility details': KEPT, Departments: 'General Outpatient, Laboratory', Currency: 'NGN',
+      'Payment Methods': 'Cash, Transfer', 'Payment Timing': 'Before service', Insurance: 'Yes',
+    })
+    expect(screen.getByText('Main · 1 Fiction Lane · General Outpatient, Laboratory')).toBeDefined()
+    expect(screen.getByText(/^Optional after launch/).textContent).toBe(OPTIONAL_AT_DEMO)
+    expect(screen.queryByText(PENDING)).toBeNull()
+
+    // Not one request of the samples: the session and the facility's details alone (the Staff step was passed through
+    // the stepper before it read).
+    expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION, PROFILE])
+    expect(sent.every(request => request.route.startsWith('GET '))).toBe(true)
+  })
+
+  it('keeps nothing once the page is left: coming back starts again, and the browser holds nothing', async () => {
+    const sent = await openDemoSetup('/provider/onboarding/type')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Facility type' }), { target: { value: 'Clinic' } })
+    press('Next (sample)')
+    // A clinic suggests General Outpatient, as already chosen: nothing to ask.
+    expect(eyebrow()).toBe('Step 3 of 9 · Departments')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Pharmacy' }))
+    press('Next (sample)')
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()).toMatchObject({ Type: 'Clinic', Departments: 'General Outpatient, Pharmacy' })
+
+    // Home, then Facility setup again from the sidebar: a new visit, holding none of the last one's choices.
+    fireEvent.click(within(nav()).getByRole('link', { name: 'Home' }))
+    await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })
+    // Settings folds once its page is left: opened again from its heading.
+    fireEvent.click(within(nav()).getByRole('button', { name: 'Settings' }))
+    fireEvent.click(within(nav()).getByRole('link', { name: 'Facility setup' }))
+    await screen.findByRole('navigation', { name: 'Onboarding steps' })
+    expect(eyebrow()).toBe('Step 1 of 9 · Facility')
+    fireEvent.click(stepButton('Review'))
+    expect(reviewFacts()).toMatchObject({ Type: 'Not chosen', Departments: 'General Outpatient' })
+    expect([localStorage.length, sessionStorage.length]).toEqual([0, 0])
+    // Whatever Home reads, the wizard wrote nothing.
+    expect(sent.every(request => request.route.startsWith('GET '))).toBe(true)
+  })
+
+  it('keeps the departments chosen when the suggestion is cancelled', async () => {
+    await openDemoSetup('/provider/onboarding/type')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Facility type' }), { target: { value: 'Maternity Centre' } })
+    press('Next (sample)')
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Use suggested departments?' })).getByRole('button', { name: 'Cancel' }))
+    expect(eyebrow()).toBe('Step 3 of 9 · Departments')
+    expect((screen.getByRole('checkbox', { name: 'General Outpatient' }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Maternity' }) as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('links into other samples only at a demo facility, never from a real one', async () => {
+    await openSetup('/provider/onboarding/staff')
+    expect(screen.queryByRole('link', { name: 'Create a shift assignment' })).toBeNull()
+    expect(screen.queryByText('Reporting hierarchies are optional. Shifts can be configured now or after launch.')).toBeNull()
+    // Billing, whose card leads to the Service catalogue sample, is itself a sample step: not here.
+    expect(within(stepper()).queryByRole('button', { name: /Billing$/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Configure service catalogue' })).toBeNull()
+  })
+
+  it('links into the Shifts and Service catalogue samples at a demo facility, as the design does', async () => {
+    await openDemoSetup('/provider/onboarding/staff')
+    expect((await screen.findByRole('link', { name: 'Create a shift assignment' })).getAttribute('href')).toBe('/provider/shifts/new')
+    fireEvent.click(stepButton('Billing'))
+    expect(screen.getByRole('link', { name: 'Configure service catalogue' }).getAttribute('href')).toBe('/provider/services')
+  })
+})
+
+describe('steps 5 and 6, Staff and Roles', () => {
+  it('reads the staff through Staff & access alone, once on each step, and nothing else', async () => {
+    const sent = await openDemoSetup()
+    await waitFor(() => expect(routes(sent)).toEqual([SESSION, PROFILE]))
+    fireEvent.click(stepButton('Staff'))
+    expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: 'Staff & access' })).toBeDefined()
+    expect(screen.getByText('Hospital memberships')).toBeDefined()
+    expect(routes(sent)).toEqual([SESSION, PROFILE, STAFF])
+    expect(bannerUnderHeading()).toBeNull()
+
+    press('Continue to roles')
+    expect(eyebrow()).toBe('Step 6 of 9 · Roles')
+    expect(document.activeElement).toBe(heading())
+    // The real facility's line stands in for the templates only where they are left out.
+    expect(screen.queryByText(ROLES_LINE)).toBeNull()
+    const templates = screen.getByRole('heading', { level: 2, name: 'Role templates and permission scopes' }).closest('section') as HTMLElement
+    expect(within(templates).getByText(SAMPLE)).toBeDefined()
+    // The design's words, but for its claim that branch access is edited in Staff & access: Health ID has no branches.
+    expect(within(templates).getByText(/^Administrative ownership/).textContent).toBe('Administrative ownership never grants clinical '
+      + 'signing, prescribing or dispensing rights. Health ID’s own roles are the ones Staff & access offers below.')
+    expect(within(templates).queryByText(/branch/i)).toBeNull()
+    const rows = templates.querySelectorAll('details')
+    expect([...rows].map(row => row.querySelector('summary')?.textContent)).toEqual(['Facility Owner', 'Medical Director', 'Facility Admin',
+      'Consultant', 'Doctor', 'Nurse', 'Receptionist', 'Records Officer', 'Lab Manager', 'Lab Scientist', 'Pharmacy Manager',
+      'Pharmacist', 'Billing Officer', 'Cashier', 'Radiology Reporter'])
+    expect(rows[0]?.querySelector('p')?.textContent).toMatch(/^dashboard\.view, notifications\.view, profile\.view, subscription\.view/)
+    expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    await waitFor(() => expect(routes(sent)).toEqual([SESSION, PROFILE, STAFF, STAFF]))
+    press('Continue to billing')
+    expect(eyebrow()).toBe('Step 7 of 9 · Billing')
+    expect(routes(sent)).toEqual([SESSION, PROFILE, STAFF, STAFF])
+  })
+})
+
+describe('step 8, Review', () => {
+  it('lists Health ID support\'s check as what stands before launch while it is pending, in today\'s words', async () => {
+    const sent = await openDemoSetup('/provider/onboarding/review', 'pending')
+    const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
+    expect(within(review).getByText(PENDING_AT_DEMO).closest('.hid-ehr-onboarding-blocker')).not.toBeNull()
+    press('Review launch requirements')
+    expect(eyebrow()).toBe('Step 9 of 9 · Launch')
+    expect(screen.getByRole('heading', { level: 2, name: 'Ready to launch?' })).toBeDefined()
+    expect(within(document.querySelector('.hid-ehr-onboarding-step') as HTMLElement).getByText(PENDING_AT_DEMO)).toBeDefined()
+    // The frame's own review banner reads the staff for its licence hint; the wizard reads the facility's details alone.
+    expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION, PROFILE])
+  })
+
+  it('lists the pending check at a real facility too, says adding staff waits for it, and Go to Home still opens Home', async () => {
+    await openSetup('/provider/onboarding/review', 'pending')
+    const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
+    expect(within(review).getByText(PENDING).closest('.hid-ehr-onboarding-blocker')).not.toBeNull()
+    // Adding staff and patient records are locked until the check is done (the frame's review banner, Staff & access):
+    // the card neither offers invitations now nor calls the EHR open.
+    expect(within(review).getByText(STAFF_WAITS)).toBeDefined()
+    expect(within(review).queryByText(ALREADY_OPEN)).toBeNull()
+    expect(within(review).queryByText(/Inviting staff is optional|already open/)).toBeNull()
+    expect(within(review).getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
+  })
+
+  it('lists no blocker once the check is done, and then says the EHR is open and inviting staff is optional', async () => {
+    await openSetup('/provider/onboarding/review', 'reviewed')
+    expect(screen.queryByText(PENDING)).toBeNull()
+    expect(document.querySelector('.hid-ehr-onboarding-blocker')).toBeNull()
+    expect(screen.getByText(ALREADY_OPEN)).toBeDefined()
+    expect(screen.queryByText(STAFF_WAITS)).toBeNull()
+  })
+})
+
+describe('step 9, Launch, at the demo facilities alone', () => {
+  it('sends nothing: it opens Home and says, in a status, that Health ID has no launch step', async () => {
+    const sent = await openDemoSetup('/provider/onboarding/launch')
+    expect(eyebrow()).toBe('Step 9 of 9 · Launch')
+    const { toast } = await import('@hid/ui')
+    const info = vi.spyOn(toast, 'info')
+    expect(screen.getByText('A new facility starts with no patients, stock or transactions.')).toBeDefined()
+    const before = sent.length
+    press('Launch facility')
+    await waitFor(() => expect(where()).toBe('/provider'))
+    expect(info).toHaveBeenCalledWith('Health ID has no launch step yet. Your EHR is already open.')
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })).toBeDefined()
+    // Whatever Home reads, the launch itself wrote nothing.
+    expect(sent.slice(before).every(request => request.route.startsWith('GET '))).toBe(true)
+    expect(sent.some(request => /onboarding|launch|setup/i.test(request.route))).toBe(false)
+  })
+
+  it('waits for Health ID support\'s check: Launch facility is off, with today\'s waiting sentence, until it is done', async () => {
+    const sent = await openDemoSetup('/provider/onboarding/launch', 'pending')
+    const launch = screen.getByRole('button', { name: 'Launch facility' }) as HTMLButtonElement
+    expect(launch.disabled).toBe(true)
+    const waiting = document.getElementById(launch.getAttribute('aria-describedby') ?? '')
+    expect(waiting?.textContent).toBe(PENDING_AT_DEMO)
+    const before = sent.length
+    fireEvent.click(launch)
+    expect(where()).toBe('/provider/onboarding/launch')
+    expect(sent.length).toBe(before)
+  })
+})

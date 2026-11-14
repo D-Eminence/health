@@ -1,0 +1,80 @@
+import type { PharmacyWorkItem } from '../../../staff/api'
+
+/**
+ * The medicine's form, so the queue can lead with a picture of what to pick: the form the prescriber chose when Pharmacy
+ * sends it (`medication.doseForm`, proposed hid-system 0107), else worked out from what the prescription says (its name,
+ * dose unit and route). Pharmacy sends no image yet (BACKEND-NEEDS.md, "Pharmacy items need an optional drug image/cover
+ * URL"); until it does, a plain line drawing of the form stands in.
+ */
+export type DrugForm = 'tablet' | 'capsule' | 'syrup' | 'injection' | 'cream' | 'inhaler' | 'drops' | 'other'
+
+/** The forms a prescriber chooses from (0107), as the drawings name them: a liquid is drawn as the syrup bottle. */
+const SENT_FORM: Readonly<Record<string, DrugForm>> = {
+  tablet: 'tablet', capsule: 'capsule', liquid: 'syrup', injection: 'injection', cream: 'cream', inhaler: 'inhaler', drops: 'drops',
+  other: 'other',
+}
+
+const RULES: ReadonlyArray<readonly [DrugForm, RegExp]> = [
+  ['inhaler', /\b(inhaler|inhal\w*|puffs?|nebuli[sz]\w*|mdi|rotacaps?)\b/],
+  ['injection', /\b(inj\w*|ampoules?|amps?|vials?|i\.?v\.?|i\.?m\.?|s\.?c\.?|subcut\w*|intravenous|intramuscular|infusion)\b/],
+  ['cream', /\b(creams?|ointments?|oint|gels?|lotions?|topical|paste|apply)\b/],
+  ['drops', /\b(drops?|gtts?|eye|ear|nasal|ophthalmic|otic)\b/],
+  ['syrup', /\b(syrups?|suspensions?|susp|elixirs?|solutions?|liquid|mixtures?|ml|millilit\w*|tsp|teaspoons?|sachets?)\b/],
+  ['capsule', /\b(caps?|capsules?)\b/],
+  ['tablet', /\b(tabs?|tablets?|caplets?|pills?|oral|po)\b/],
+]
+
+export function drugFormOf(item: Pick<PharmacyWorkItem, 'medication' | 'doseUnit' | 'routeCode'>): DrugForm {
+  // The prescriber's own choice when it is sent; a value not on the list is ignored, as if not sent.
+  const chosen = item.medication.doseForm?.trim().toLowerCase() ?? ''
+  if (Object.hasOwn(SENT_FORM, chosen)) return SENT_FORM[chosen]!
+  // The medicine's own name first ("Salbutamol 100 mcg inhaler"), then its unit and route ("2 puffs", "oral").
+  for (const text of [item.medication.display, item.doseUnit ?? '', item.routeCode ?? '']) {
+    const lower = text.toLowerCase()
+    const hit = RULES.find(([, rule]) => rule.test(lower))
+    if (hit) return hit[0]
+  }
+  return 'other'
+}
+
+const NUMBER = String.raw`(?:\d+(?:\.\d+)?|\.\d+)`
+const UNIT = String.raw`(?:mg|mcg|µg|micrograms?|g|ml|iu|units?|%)`
+/** "500 mg", "80/480 mg", "100 mcg/dose", "0.5%": the strength written in the medicine's name. */
+const STRENGTH = new RegExp(String.raw`(?<![\w.])${NUMBER}(?:\s*\/\s*${NUMBER})?\s*${UNIT}(?:\s*\/\s*${NUMBER}?\s*(?:ml|g|dose|actuation|puff))?(?![\w])`, 'i')
+
+/**
+ * The medicine's name and its strength, split so the name can lead large and the strength sit with the form. Nothing
+ * is changed but a missing leading zero (".5 mg" is "0.5 mg"); when no strength is written, the whole name is the name.
+ * A medicine with more than one strength written ("875 mg/125 mg", "10 mg and … 12.5 mg") is never split: taking one
+ * out would leave the other beside the wrong part ("Co-trimoxazole /160 mg"), so the whole name is the name.
+ */
+export function nameAndStrength(display: string): { name: string; strength: string | null } {
+  const match = STRENGTH.exec(display)
+  if (!match) return { name: display, strength: null }
+  const name = (display.slice(0, match.index) + display.slice(match.index + match[0].length)).replace(/\s{2,}/g, ' ').trim()
+  if (!name || STRENGTH.test(name)) return { name: display, strength: null }
+  const strength = match[0].trim().replace(/(^|\/\s*)\./g, '$10.')
+  return { name, strength }
+}
+
+const compact = (text: string) => text.toLowerCase().replace(/\s+/g, '')
+
+/**
+ * What to pick, as the queue and the picking view lead with it: the form drawn, the name, and the strength. The strength
+ * is the prescriber's (`medication.strength`, proposed 0107) when Pharmacy sends it, else the one written in the name. The
+ * name loses a written strength only when it is the same as the one shown, so a strength in the name that differs from
+ * the prescriber's is never hidden.
+ */
+export function drugOf(item: Pick<PharmacyWorkItem, 'medication' | 'doseUnit' | 'routeCode'>): { form: DrugForm; name: string; strength: string | null } {
+  const written = nameAndStrength(item.medication.display)
+  const sent = item.medication.strength?.trim()
+  const form = drugFormOf(item)
+  if (!sent) return { form, ...written }
+  const same = written.strength !== null && compact(written.strength) === compact(sent)
+  return { form, name: same || written.strength === null ? written.name : item.medication.display, strength: sent }
+}
+
+export const FORM_WORD: Readonly<Record<DrugForm, string>> = {
+  tablet: 'Tablet', capsule: 'Capsule', syrup: 'Liquid', injection: 'Injection', cream: 'Cream', inhaler: 'Inhaler', drops: 'Drops',
+  other: 'Medicine',
+}

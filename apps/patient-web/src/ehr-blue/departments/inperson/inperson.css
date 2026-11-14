@@ -1,0 +1,132 @@
+/*
+ * In-person check (departments/inperson): the few looks departments.css does not have, from the design's form
+ * (application.css: .form-grid labels, the facility onboarding's statement checkboxes, .error) and record view
+ * (workflows.tsx: "Next steps", one step per line). Every rule sits under .hid-ehr and names hid-ehr-dept-inperson-*
+ * classes, so nothing reaches today's provider workspace; values come from the --ehr-* tokens.
+ */
+
+/* A field's hint and error sit 6px under its control, as a field's parts do: not a section paragraph's 10px apart. */
+.hid-ehr .hid-ehr-dept-inperson-form .hid-ehr-field > p {
+  margin: 0;
+}
+
+/* The design's ErrorBox above the submit: the form's own 18px apart, not the box's margin as well. */
+.hid-ehr .hid-ehr-dept-inperson-form .hid-ehr-dept-notice-box {
+  margin: 0;
+}
+
+/* A group of fields under a legend: no fieldset border, and no min-content width, so a long statement wraps at a phone's
+   width instead of widening the page. */
+.hid-ehr .hid-ehr-dept-inperson-group,
+.hid-ehr .hid-ehr-dept-inperson-method {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* "As written on the document", "Confirm each statement": the design's sub-heading inside a card. */
+.hid-ehr .hid-ehr-dept-inperson-legend {
+  margin: 0 0 12px;
+  padding: 0;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* "Method": a field's label over its one choice, 6px apart as a field's are. */
+.hid-ehr .hid-ehr-dept-inperson-method > legend {
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+/* The statements: the design's checkbox list, one per line. */
+.hid-ehr .hid-ehr-dept-inperson-checks {
+  display: grid;
+  gap: 4px;
+}
+
+/* A statement or the method: the box before its words, as the design's facility onboarding draws its statements. */
+.hid-ehr .hid-ehr-dept-inperson-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 0;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-choice input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-dept-inperson-choice input:focus-visible {
+  outline: var(--ehr-focus-ring-width, 3px) solid var(--ehr-brand);
+  outline-offset: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-group > .hid-ehr-error {
+  margin-top: 6px;
+}
+
+/* The result for each detail, in the record's label and value columns; the words say the result, the colour repeats it. */
+.hid-ehr .hid-ehr-dept-inperson-results {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-results > li {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 18px;
+  align-items: baseline;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-detail {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-result {
+  color: var(--ehr-ink);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-result[data-result='no_match'] {
+  color: var(--ehr-critical);
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-result[data-result='match'] {
+  color: var(--ehr-success-600);
+}
+
+/* The outcome's facts, under its words. */
+.hid-ehr .hid-ehr-dept-inperson-facts {
+  margin-top: 18px;
+}
+
+/* "Next steps": one step per line at its own width (the design's p > button). */
+.hid-ehr .hid-ehr-dept-inperson-step {
+  margin: 0 0 12px;
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-dept-inperson-results > li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}

@@ -1,0 +1,52 @@
+import type { RegistrationCapabilities, RegistrationCase, RegistrationEnrollment } from '../../../staff/api'
+
+/** The control ids today's page gives its fields (Registration.tsx 233-256), kept so focus and errors find them. */
+export const FIELD = {
+  nin: 'registration-nin', first: 'registration-first', last: 'registration-last', dob: 'registration-dob',
+  gender: 'registration-gender', caseId: 'registration-case-id', candidate: 'registration-candidate',
+  linkReason: 'registration-link-reason', approveReason: 'registration-approve-reason', email: 'registration-email',
+  enrollReason: 'registration-enroll-reason',
+} as const
+
+/** The prefix of the desk fields' control ids (registration-phone, …: collected/DeskFields.tsx deskControlId). */
+export const DESK_PREFIX = 'registration'
+
+/** The new form's heading ("Start with verified identity"), where focus goes when the form replaces Check again. */
+export const START_HEADING = 'registration-start-title'
+
+/**
+ * A case found or made during this visit to the page, with the account enrolled for it here. Today has no case list
+ * (the backend offers none), so these are the page's own: in memory only, gone with the page or another facility.
+ * `seq` names its row without its case ID. A case is shown by the person's name and when it was started or reopened
+ * here, never by its ID: Identity sends no name with a case, so the name is the one typed when it was started here.
+ */
+export interface VisitCase {
+  readonly seq: number
+  readonly item: RegistrationCase
+  readonly enrollment: RegistrationEnrollment | null
+  /** The patient's name as typed to start the case here; null for a case reopened by its reference. */
+  readonly name: string | null
+  /** Whether the case was started on this visit (or reopened by its reference). */
+  readonly started: boolean
+  /** When it was started or reopened here (an ISO time). */
+  readonly at: string
+}
+
+/** What NIN verification's availability is, as today's "Verification availability" card reads it (Registration.tsx 49-51). */
+export interface Availability {
+  readonly capabilities: RegistrationCapabilities | null
+  readonly error: string
+  readonly loading: boolean
+  /** Whether a read has answered yet (a value or a refusal): before then the new form shows only its skeleton. */
+  readonly answered: boolean
+  readonly refresh: () => void
+}
+
+/** A case decision (Registration.tsx 163). */
+export type ReviewAction = 'approve' | 'link'
+
+/** Where a refusal belongs: the form or view whose request it answered. */
+export type ErrorAt = 'find' | 'refresh' | 'resolve' | ReviewAction | 'enroll'
+/** Which case read is running (Registration.tsx 55: one at a time), so only the control that asked says "Loading…". */
+export type CaseLoading = 'find' | 'refresh' | null
+export interface ShownError { readonly text: string; readonly at: ErrorAt }

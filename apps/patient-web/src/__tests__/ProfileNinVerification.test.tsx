@@ -1,0 +1,134 @@
+import { describe, expect, it } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import type { PatientProfile } from '../api'
+import { ProfilePage } from '../routes/Portal'
+import { described, json, openSection, press, problem, profile, renderPortal, sectionCard, sectionToggle, shownText, type Handler } from './portalHarness'
+
+const VERIFY = '/identity/me/verification/nin'
+const DELETION = '/identity/me/account-deletion'
+const verifiedAnswer = { entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'verified', recordedAt: '2026-10-27T10:00:00.000Z' }
+const noDeletionPending = { waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null }
+
+/**
+ * The profile read with `changes`, and `verify` for the NIN check; the profile reads verified once a check has.
+ * Delete account's status is answered as Identity answers it with no deletion pending: the profile reads it on every
+ * visit, and a failed read is an alert of its own, outside this section, shown once the http client's two retries
+ * end. Their random backoff puts it on the page anywhere up to about a second later, so whether a test saw it beside
+ * the NIN section's alert depended on how busy the runner was.
+ */
+function gateway(changes: Partial<PatientProfile>, verify: () => Response = () => json(verifiedAnswer)): Handler {
+  let verified = false
+  return (path, method) => {
+    if (path === '/identity/me' && method === 'GET') return json({ ...profile, ...changes, ...(verified ? { ninVerified: true } : {}) })
+    if (path === VERIFY && method === 'POST') {
+      const answer = verify()
+      verified = answer.ok
+      return answer
+    }
+    if (path === DELETION && method === 'GET') return json(noDeletionPending)
+    return problem(500, 'UNEXPECTED', `${method} ${path}`)
+  }
+}
+const ninField = () => screen.getByRole('textbox', { name: 'NIN (11 digits)' })
+const fillDateOfBirth = () => fireEvent.change(screen.getByLabelText('Date of birth, as on your NIN'), { target: { value: '1990-04-12' } })
+
+/**
+ * Since the sign-up without a NIN (owner decision, 2026-10-27), the NIN is added
+ * on the profile: optional, and never in the way of anything else on the page.
+ */
+describe('Verify your NIN, on the profile', () => {
+  it('is offered while the profile says ninVerified false, sends the 11 digits, then says NIN verified', async () => {
+    const { sent } = renderPortal(<ProfilePage />, gateway({ ninVerified: false, assuranceState: 'SELF_ASSERTED' }))
+    await openSection('Verify your NIN')
+    expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy()
+    const button = screen.getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+
+    fireEvent.change(ninField(), { target: { value: '1234 567-8901' } })
+    expect((ninField() as HTMLInputElement).value).toBe('12345678901')
+    // The date of birth starts from the profile's, so most people only type the number; it can be changed.
+    expect((screen.getByLabelText('Date of birth, as on your NIN') as HTMLInputElement).value).toBe('1991-03-04')
+    expect(button.disabled).toBe(false)
+    fillDateOfBirth()
+    await press(button)
+
+    const done = await screen.findByRole('heading', { name: 'NIN' })
+    await waitFor(() => expect(document.activeElement).toBe(done))
+    // Still open, and its heading says it is verified, as it does while closed; it stays once the profile is read again.
+    expect(sectionToggle('NIN').getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'NIN', description: 'Verified' })).toBeTruthy()
+    expect(within(sectionCard('NIN')).getByRole('status').textContent).toBe('Your NIN is verified.')
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Ada Example’s Health ID card' }).querySelector('[aria-label="NIN verified"]')).not.toBeNull())
+    expect(document.activeElement).toBe(done)
+    expect(screen.queryByRole('textbox', { name: 'NIN (11 digits)' })).toBeNull()
+    expect(sent.filter(request => request.path === VERIFY)).toEqual([{ path: VERIFY, method: 'POST', body: { nin: '12345678901', dateOfBirth: '1990-04-12' } }])
+  })
+
+  it('is not shown while the profile read has no ninVerified (an Identity before it)', async () => {
+    renderPortal(<ProfilePage />, gateway({ assuranceState: 'LEGACY_MIGRATED' }))
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Verify your NIN' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'NIN' })).toBeNull()
+    expect(screen.queryByLabelText(/^NIN (not )?verified$/)).toBeNull()
+  })
+
+  it.each<Partial<PatientProfile>>([{ ninVerified: true, assuranceState: 'SELF_ASSERTED' }, { ninVerified: true, assuranceState: 'NIN_VERIFIED' }])(
+    'says NIN verified on the card, and asks for nothing, for %j', async changes => {
+      const { sent } = renderPortal(<ProfilePage />, gateway(changes))
+      const card = await screen.findByRole('region', { name: 'Ada Example’s Health ID card' })
+      expect(card.querySelector('[aria-label="NIN verified"]')).not.toBeNull()
+      // No section to verify it, open or closed, and no field for it anywhere.
+      expect(screen.queryByRole('heading', { name: 'Verify your NIN' })).toBeNull()
+      expect(document.getElementById('nin-verify-number')).toBeNull()
+      expect(sent.filter(request => request.path === VERIFY)).toEqual([])
+    })
+
+  it.each([
+    [503, 'QOREID_PATIENT_NIN_BINDING_DISABLED', 'You can’t verify your NIN here right now. Try again later.'],
+    [409, 'PATIENT_NIN_DETAILS_MISMATCH', 'This NIN doesn’t match your name and date of birth. Check them and try again.'],
+    [409, 'PATIENT_NIN_BINDING_CONFLICT', 'This NIN needs a review before it can be added to your account. Contact Health ID support.'],
+    [422, 'PATIENT_IDENTITY_PROFILE_INCOMPLETE', 'Your profile is missing details we need, like your date of birth. Contact Health ID support.'],
+  ])('says a %i %s plainly, and keeps the card', async (status, code, text) => {
+    renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => problem(status, code, 'refused')))
+    const section = await openSection('Verify your NIN')
+    fireEvent.change(ninField(), { target: { value: '12345678901' } })
+    fillDateOfBirth()
+    await press(screen.getByRole('button', { name: 'Verify NIN' }))
+    // This section's alert: another section's would be its own outcome, not this one.
+    expect(shownText(await within(section).findByRole('alert'))).toBe(text)
+    expect(screen.getByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
+    expect(ninField().getAttribute('aria-invalid')).toBeNull()
+  })
+
+  // Delete account's read has failed, and says so, before Verify NIN is pressed, so two sections each show an alert.
+  // The refusal is still said in this section, which keeps its form. (The refusal rows above stay steady for other
+  // reasons: their gateway answers Delete account's read, and they look only inside this section.)
+  it('says its refusal in its own section, while another section says it could not load', async () => {
+    const refusing = gateway({ ninVerified: false }, () => problem(503, 'QOREID_PATIENT_NIN_BINDING_DISABLED', 'refused'))
+    renderPortal(<ProfilePage />, (path, method, body) => path === DELETION && method === 'GET'
+      ? problem(500, 'UNEXPECTED', 'unavailable') : refusing(path, method, body))
+    await screen.findByRole('heading', { name: 'Delete account' })
+    await within(sectionCard('Delete account')).findByRole('alert')
+    const section = await openSection('Verify your NIN')
+    fireEvent.change(ninField(), { target: { value: '12345678901' } })
+    fillDateOfBirth()
+    await press(screen.getByRole('button', { name: 'Verify NIN' }))
+    expect(shownText(await within(section).findByRole('alert'))).toBe('You can’t verify your NIN here right now. Try again later.')
+    // Delete account's alert is still there beside it: the two-alert page this test is for.
+    expect(shownText(within(sectionCard('Delete account')).getByRole('alert'))).toMatch(/^Couldn’t load this/)
+    expect(screen.getAllByRole('alert')).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
+    expect(ninField().getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('says a NIN that did not match at its field', async () => {
+    renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => json({ ...verifiedAnswer, state: 'not_verified' })))
+    await openSection('Verify your NIN')
+    fireEvent.change(ninField(), { target: { value: '12345678901' } })
+    fillDateOfBirth()
+    await press(screen.getByRole('button', { name: 'Verify NIN' }))
+    await waitFor(() => expect(ninField().getAttribute('aria-invalid')).toBe('true'))
+    expect(described(ninField())).toContain('This NIN doesn’t match the name and date of birth on your profile. Check the number and try again.')
+    expect(document.activeElement).toBe(ninField())
+  })
+})

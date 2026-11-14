@@ -1,0 +1,1137 @@
+/*
+ * The blue EHR frame, home and sample pages: plain CSS, every rule under .hid-ehr and named hid-ehr-blue-*. Values
+ * are the design's (design/ehr-target public/redesign.css, application.css and feedback.css).
+ */
+
+.hid-ehr .hid-ehr-blue-logo {
+  display: block;
+  width: 112px;
+  height: auto;
+}
+
+.hid-ehr .hid-ehr-sidebar-collapsed .hid-ehr-blue-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.hid-ehr .hid-ehr-blue-facility {
+  overflow: hidden;
+  color: var(--ehr-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hid-ehr .hid-ehr-blue-count {
+  display: inline-block;
+  min-width: 20px;
+  padding: 2px 5px;
+  border-radius: 20px;
+  background: #006fe6;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-blue-chip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-color: var(--ehr-tab-rule);
+  border-radius: 30px;
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-popover-trigger:has(.hid-ehr-blue-avatar) {
+  width: 44px;
+  min-height: 44px;
+  padding: 4px;
+}
+
+.hid-ehr .hid-ehr-blue-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-presence {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #17834b;
+}
+
+.hid-ehr .hid-ehr-blue-record-id {
+  display: block;
+  margin-top: 4px;
+  color: var(--ehr-muted);
+  font-size: 10px;
+}
+
+.hid-ehr .hid-ehr-blue-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hid-ehr .hid-ehr-blue-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-menu .hid-ehr-button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/* The design's Status: Online is as wide as its words. */
+.hid-ehr .hid-ehr-blue-menu .hid-ehr-button.hid-ehr-blue-menu-status {
+  align-self: flex-start;
+  width: auto;
+}
+
+.hid-ehr .hid-ehr-blue-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  padding: 8px 0;
+  overflow: auto;
+  border-top: 1px solid var(--ehr-line);
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+/* My profile (screens/admin/profile.png): the page's heading inside the drawer, then the picture and the details. */
+.hid-ehr .hid-ehr-blue-profile-heading {
+  margin: 8px 0 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-profile-heading ~ .hid-ehr-card + .hid-ehr-card {
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-profile-picture {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-avatar.hid-ehr-blue-avatar-large {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  font-size: 28px;
+}
+
+.hid-ehr .hid-ehr-blue-avatar-large .hid-ehr-blue-presence {
+  right: 4px;
+  bottom: 4px;
+  width: 11px;
+  height: 11px;
+}
+
+.hid-ehr .hid-ehr-blue-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-profile-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+  .hid-ehr .hid-ehr-blue-profile-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hid-ehr .hid-ehr-blue-menu-name {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-muted {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-topbar-error {
+  position: absolute;
+  top: 100%;
+  right: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-link {
+  color: var(--ehr-brand-dark);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-blue-link:hover {
+  text-decoration: underline;
+}
+
+.hid-ehr .hid-ehr-blue-worklink {
+  color: var(--ehr-ink);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-blue-worklink:hover {
+  color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-blue-worklink:focus-visible,
+.hid-ehr .hid-ehr-blue-link:focus-visible,
+.hid-ehr .hid-ehr-blue-check-input:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+/* ---- Pages ---------------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-page > .hid-ehr-page-heading {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-blue-page > .hid-ehr-sample-banner {
+  margin: 0;
+}
+
+/* The page's own gap sets the tabs apart from the heading, as the design spaces them. */
+.hid-ehr .hid-ehr-blue-page > .hid-ehr-module-tabs {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-blue-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-blue-grid .hid-ehr-card,
+.hid-ehr .hid-ehr-blue-column .hid-ehr-card {
+  padding: 24px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 16px;
+}
+
+/* Needs attention: the home's one warm card, so a waiting decision is the first thing seen. */
+.hid-ehr .hid-ehr-blue-grid .hid-ehr-card.hid-ehr-blue-attention {
+  border-color: #fcd9a5;
+  background: #fffaf0;
+}
+
+.hid-ehr .hid-ehr-blue-attention .hid-ehr-card-title::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 10px 2px 0;
+  border-radius: 50%;
+  background: var(--ehr-caution);
+  box-shadow: 0 0 0 4px #fdead2;
+}
+
+.hid-ehr .hid-ehr-blue-attention .hid-ehr-blue-list-item + .hid-ehr-blue-list-item {
+  border-top-color: #f8e3c2;
+}
+
+.hid-ehr .hid-ehr-blue-attention .hid-ehr-blue-worklink strong {
+  font-size: 15px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-section {
+  display: grid;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-section-title {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 0;
+}
+
+.hid-ehr .hid-ehr-blue-list-item + .hid-ehr-blue-list-item {
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-list-item p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A role's workspace that is live here: named, not linked, as the sample records it lists open nowhere live. */
+.hid-ehr .hid-ehr-blue-shortcut-text {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 4px;
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-blue-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-narrow {
+  max-width: 240px;
+}
+
+.hid-ehr .hid-ehr-blue-gap {
+  height: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-blue-fact {
+  display: contents;
+}
+
+.hid-ehr .hid-ehr-blue-facts dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-facts dd {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.hid-ehr .hid-ehr-blue-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-blue-full {
+  grid-column: 1 / -1;
+}
+
+.hid-ehr .hid-ehr-blue-form-actions {
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ehr-ink);
+}
+
+/* ---- Sample record pages (screens/workspaces/*-2-new and *-3-detail) -------- */
+
+.hid-ehr .hid-ehr-blue-record {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line small {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line:focus-visible,
+.hid-ehr .hid-ehr-blue-version summary:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+.hid-ehr .hid-ehr-blue-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-details {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-details dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-details dd {
+  margin: 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.hid-ehr .hid-ehr-blue-actions-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-record-form {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-check-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-blue-record-block {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-record-block p {
+  margin: 0 0 8px;
+}
+
+.hid-ehr .hid-ehr-blue-block-title {
+  margin: 20px 0 12px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-card-lead {
+  margin-bottom: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-list-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ehr-line);
+  overflow-wrap: break-word;
+}
+
+.hid-ehr .hid-ehr-blue-version {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-version summary {
+  color: var(--ehr-ink);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-blue-version > p {
+  margin: 12px 0;
+}
+
+.hid-ehr .hid-ehr-blue-flush {
+  margin: 0;
+}
+
+/* A page that failed to render (BluePageBoundary). */
+.hid-ehr .hid-ehr-blue-failed {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Its heading sits the gap's 24 px above the message, as a page's does, not its own margin as well. */
+.hid-ehr .hid-ehr-blue-failed > .hid-ehr-page-heading {
+  margin-bottom: 0;
+}
+
+/* A long action in a card, such as a tour's "Start: …", wraps rather than widening a phone screen. */
+.hid-ehr .hid-ehr-blue-facility-card .hid-ehr-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.hid-ehr .hid-ehr-blue-subtitle {
+  margin: 0 0 16px;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-blue-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---- Design tour ---------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-tour {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.hid-ehr .hid-ehr-blue-tour-steps {
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-blue-tour-steps .hid-ehr-blue-link[aria-current='step'] {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-tour .hid-ehr-overlay-title:focus {
+  outline: none;
+}
+
+@container (max-width: 760px) {
+  .hid-ehr .hid-ehr-blue-tour {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Home (screens/roles) ------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-period .hid-ehr-field {
+  max-width: 240px;
+}
+
+.hid-ehr .hid-ehr-blue-period-note {
+  padding-bottom: 12px;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-activity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure strong {
+  color: var(--ehr-ink);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure small {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+/* People's figure, and the link under a card's figures (the design's .dashboard-metrics margin). */
+.hid-ehr .hid-ehr-blue-stat-value {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ehr-ink);
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.hid-ehr .hid-ehr-blue-activity + .hid-ehr-blue-link {
+  display: inline-block;
+  margin-top: 24px;
+}
+
+/* ---- Help: the support assistant ------------------------------------------ */
+
+.hid-ehr .hid-ehr-blue-support {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-support-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-support-log {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-support-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ehr-surface-tint);
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-blue-support-mine {
+  align-self: flex-end;
+  background: var(--ehr-tint);
+}
+
+/* The privacy notice, right above the question. */
+.hid-ehr .hid-ehr-blue-support-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-warning-banner-text);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-blue-support-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-support-form .hid-ehr-field {
+  align-self: stretch;
+}
+
+/* ---- Status bar (connection-tools in the design) ------------------------- */
+
+.hid-ehr .hid-ehr-main {
+  padding-bottom: 104px;
+}
+
+/* The sidebar ends above the status bar, as in the design. */
+.hid-ehr .hid-ehr-sidebar {
+  height: calc(100vh - 56px);
+}
+
+/* A drawer's dimming (the scrim's ::before, ehr.css) leaves the status bar undimmed, as the design's does: only where
+   the page has the bar. The clear scrim still covers the bar, so a press on it keeps focus in the drawer. */
+@media (min-width: 701px) {
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer::before {
+    bottom: 56px;
+  }
+
+  /* The drawer ends above the status bar too, as the design's does, so the bar's chips stay in view. */
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer > .hid-ehr-drawer {
+    height: calc(100% - 56px);
+  }
+}
+
+/* Below the desktop width the Demo chip wraps anywhere in the top bar, so its panel opens under the whole bar (the
+   sticky bar is its containing block), inside the window, instead of under the chip and off the screen's edge. */
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-topbar .hid-ehr-popover:has(> .hid-ehr-blue-chip) {
+    position: static;
+  }
+
+  .hid-ehr .hid-ehr-topbar .hid-ehr-popover:has(> .hid-ehr-blue-chip) > .hid-ehr-popover-panel {
+    top: calc(100% + 4px);
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: none;
+  }
+}
+
+.hid-ehr .hid-ehr-blue-statusbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--ehr-z-chrome);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 56px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--ehr-tab-rule);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-blue-status-chip {
+  min-height: 36px;
+  padding: 6px 16px;
+  border-color: var(--ehr-line-strong);
+  border-radius: 24px;
+  background: var(--ehr-surface);
+  color: var(--ehr-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.hid-ehr .hid-ehr-blue-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-blue-statusbar .hid-ehr-popover-panel {
+  width: min(340px, calc(100vw - 32px));
+}
+
+.hid-ehr .hid-ehr-blue-statusbar .hid-ehr-popover-panel p {
+  margin: 0 0 4px;
+}
+
+.hid-ehr .hid-ehr-blue-sync-item p {
+  margin-top: 16px;
+}
+
+/* ---- Choose your workspace (screens/admin/institutions.png) --------------- */
+
+.hid-ehr.hid-ehr-blue-standalone {
+  min-height: 100vh;
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-blue-standalone-main {
+  box-sizing: border-box;
+  padding: 48px 16px;
+}
+
+.hid-ehr .hid-ehr-blue-standalone-main:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-blue-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.hid-ehr .hid-ehr-blue-chooser .hid-ehr-page-title {
+  padding-bottom: 20px;
+  border-bottom: 1px solid #ececec;
+}
+
+/* The heading takes focus only so a screen reader starts there (tabIndex -1): no ring around the whole title. */
+.hid-ehr .hid-ehr-blue-chooser .hid-ehr-page-title:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-blue-eyebrow {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hid-ehr .hid-ehr-blue-chooser-why {
+  margin: 0;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-blue-chooser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-facility-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-facility-card .hid-ehr-card-title {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-live {
+  min-width: 0;
+}
+
+/* By the room the page gives its content (a size container), not the window: the sidebar takes 264px from 1024px. */
+@container (max-width: 760px) {
+  .hid-ehr .hid-ehr-blue-grid,
+  .hid-ehr .hid-ehr-blue-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-blue-facility {
+    white-space: normal;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end .hid-ehr-button:not(.hid-ehr-popover-trigger):not(.hid-ehr-blue-chip) {
+    padding: 8px;
+    font-size: 11px;
+  }
+}
+
+@container (max-width: 600px) {
+  .hid-ehr .hid-ehr-blue-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-blue-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-blue-details {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .hid-ehr .hid-ehr-blue-list-row {
+    flex-wrap: wrap;
+  }
+
+  .hid-ehr .hid-ehr-blue-context-line {
+    align-items: flex-start;
+  }
+}
+
+/* ---- Administration samples (screens/admin: platform, facility, setup, reports) ---------------------------------- */
+
+.hid-ehr .hid-ehr-blue-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-stack > .hid-ehr-button {
+  align-self: flex-start;
+}
+
+.hid-ehr .hid-ehr-blue-stack > .hid-ehr-blue-facts,
+.hid-ehr .hid-ehr-blue-stack > .hid-ehr-blue-department-grid {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-blue-half {
+  max-width: calc(50% - 9px);
+}
+
+.hid-ehr .hid-ehr-blue-subheading {
+  margin: 0 0 8px;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-picture {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-initials {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-control.hid-ehr-blue-multi {
+  height: auto;
+  min-height: 110px;
+}
+
+/* The design's warning banner (feedback.css .feedback-banner.warning). */
+.hid-ehr .hid-ehr-blue-callout {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 10px;
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-blue-callout p {
+  margin: 4px 0 0;
+}
+
+/* The design's stepper (application.css .stepper). */
+.hid-ehr .hid-ehr-blue-stepper {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding-bottom: 6px;
+  overflow-x: auto;
+}
+
+.hid-ehr .hid-ehr-blue-stepper .hid-ehr-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-department-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-department {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+  gap: 4px 8px;
+  padding: 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 10px;
+}
+
+.hid-ehr .hid-ehr-blue-department .hid-ehr-blue-check-input {
+  margin: 3px 0 0;
+}
+
+.hid-ehr .hid-ehr-blue-department small {
+  grid-column: 2;
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-blue-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-tags li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 12px;
+}
+
+@container (max-width: 600px) {
+  .hid-ehr .hid-ehr-blue-half {
+    max-width: none;
+  }
+
+  .hid-ehr .hid-ehr-blue-picture {
+    align-items: flex-start;
+  }
+}
+
+/* ---- 2026 redesign: the top bar ------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-kbd {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 6px;
+  background: var(--ehr-surface-tint);
+  color: var(--ehr-muted);
+  font: inherit;
+  font-size: 11px;
+}
+
+/* Phones: one row. Search and Notifications keep their spoken names and show only their icons; the demo chip hides
+   (each sample page carries its own banner). */
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-blue-label,
+  .hid-ehr .hid-ehr-blue-kbd {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hid-ehr .hid-ehr-topbar {
+    flex-wrap: nowrap;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end {
+    display: flex;
+    gap: 6px;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end > .hid-ehr-button,
+  .hid-ehr .hid-ehr-topbar-end .hid-ehr-popover > .hid-ehr-button {
+    min-width: 40px;
+    padding: 8px 10px;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end .hid-ehr-blue-chip {
+    display: none;
+  }
+
+  .hid-ehr .hid-ehr-topbar .hid-ehr-blue-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    box-shadow: 0 0 0 2px var(--ehr-surface);
+  }
+}
+
+/* ---- Rebuild: the EHR inside paytrail's app shell ------------------------- */
+
+/* EhrAppShell stays as the invisible host of the EHR's overlays (drawers, popovers) and its .hid-ehr scope; the
+   Kasuwa AppShell inside it draws the chrome. */
+.hid-ehr.hid-ehr-shell.hid-ehr-host {
+  background: var(--color-canvas);
+}
+
+.hid-ehr.hid-ehr-host > .hid-ehr-workspace {
+  display: block;
+  min-height: 0;
+}
+
+.hid-ehr.hid-ehr-host .hid-ehr-main {
+  padding: 0;
+  background: transparent;
+}
+
+.hid-ehr.hid-ehr-host .hid-ehr-main-inner {
+  max-width: none;
+}
+
+.hid-ehr .hid-ehr-host-actions .hid-ehr-button {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+@media (max-width: 1023px) {
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-blue-label,
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-blue-kbd {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-button {
+    min-width: 40px;
+    padding: 8px 10px;
+  }
+
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-blue-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    box-shadow: 0 0 0 2px var(--color-surface);
+  }
+}
+
+/* A "More details" line (clinical/parts/MoreDetails.tsx): the shared focus ring on its summary. */
+.hid-ehr .hid-ehr-more-details > summary:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}

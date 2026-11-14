@@ -1,0 +1,18 @@
+/*
+ * The lab's paper: a sample label (about 60 mm wide, for a label printer or cut from a page) and a result slip. Only the
+ * paper prints, in black on white whatever the screen's theme; the frame and the page around it are left off.
+ */
+@media print {
+  body:has([data-lab-print]) * { visibility: hidden !important; }
+  [data-lab-print], [data-lab-print] * { visibility: visible !important; }
+  [data-lab-print] {
+    position: absolute !important; inset: 0 auto auto 0 !important;
+    width: 100% !important; margin: 0 !important; padding: 0 !important;
+    background: #fff !important; color: #000 !important; box-shadow: none !important;
+    --color-ink: #000; --color-ink-2: #000; --color-ink-3: #333; --color-line: #999;
+  }
+  [data-lab-print='label'] { max-width: 60mm !important; }
+  [data-lab-print='slip'] { max-width: 180mm !important; }
+  [data-lab-print] [data-lab-label] { break-inside: avoid; page-break-inside: avoid; }
+  *:has([data-lab-print]) { overflow: visible !important; max-height: none !important; height: auto !important; }
+}

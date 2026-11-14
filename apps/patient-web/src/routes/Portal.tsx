@@ -1,0 +1,1334 @@
+import { ImportedHistory, matchingImported } from '../ImportedHistory'
+import { usesNovuBackend } from '../backendContract'
+import { PatientImportedHistory } from '../ImportedHistoryPage'
+import { getEnvironment } from '../env'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage, RotateCcw } from 'lucide-react'
+import { AppShell, type NavGroup } from '../kasuwa/AppShell'
+import { Alert, Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
+import { ConfirmSheet, PageState } from '../kasuwa/parts'
+import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
+import { useAccountDeletionServed } from '../accountDeletionServed'
+import { Actions, ButtonR, Hint, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
+import { HealthIdCard } from './HealthIdCard'
+import { AddRecordDrawer } from './AddRecord'
+import { isAdult, paperRecordsLineForRequest, PIN_COVERS } from '../paperRecordsWording'
+import { Drawer } from '../kasuwa/interactive'
+import { ToastProvider, useToast } from '../kasuwa/toast'
+import { BrandLogo } from '../BrandLogo'
+import { ItemName } from '../ItemName'
+import { useSession } from '../session'
+import { IMPORTED_NOTIFICATIONS_PAGE, NOTIFICATIONS_LIMIT, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
+import { usePatientEntriesServed, usePatientEntryFilesServed } from '../patientEntriesServed'
+import { sectionsShown } from './recordSections'
+import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
+import { patientChatEnabled } from '../chatFeatures'
+import { usePatientResource } from './usePatientResource'
+import { useActionFocus, useRetryFocus } from './actionFocus'
+import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
+import { DeviceNotificationsCard, InstallAppCard } from './DeviceSettings'
+import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { useFocusOnPageChange } from '../pageFocus'
+import { SentOrdersCard } from './SentOrders'
+import { NinVerificationCard, ninVerifiedOf } from './NinVerificationCard'
+import { dayWords, groupByDay, matchesQuery } from './recordSearch'
+import { NOTIFICATION_SUBJECTS, notificationAction, notificationTitle } from './notificationTitles'
+import { AccessLogCard } from './AccessLog'
+import { NotificationBell, UnreadNotificationsProvider, useOnNotificationChange, useUnreadNotifications } from '../notificationBadge'
+import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
+import { useFocusSectionFromHash, useOpenSections } from './sectionFocus'
+import { OpenSectionsContext, ProfileSection } from './ProfileSection'
+import { completionOf, useProfileSources } from './profileSources'
+import { ProfileCompletionCard, ProfileCompletionPending } from './ProfileCompletion'
+import { completionServed } from './profileCompletion'
+import { ContactDetails } from './ProfileContact'
+import { needsRecentSignIn, SignInAgain } from './SignInAgain'
+import { usePatientPhoto } from './ProfilePhoto'
+import { CoverageCard } from './ProfileCoverage'
+import { HealthInformationCard } from './HealthInformation'
+import { ShareInvitationsCard } from './ShareInvitations'
+import { useShareProbe } from './ShareRecords'
+import { useShareServed } from '../shareServed'
+import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
+import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { SignInAgainButton } from './RecentSignIn'
+import { supportHref } from '../supportContact'
+
+function date(value: string | null | undefined) {
+  if (!value) return 'Not available'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
+}
+
+function dateTime(value: string) {
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+}
+
+/** " for 60 minutes", " for 2 hours", " for 7 days": how long a facility asks for, in words; nothing when unknown. */
+function forHowLong(minutes: number | null | undefined) {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return ''
+  const unit = (count: number, word: string) => ` for ${count} ${word}${count === 1 ? '' : 's'}`
+  if (minutes % 1440 === 0) return unit(minutes / 1440, 'day')
+  if (minutes % 60 === 0 && minutes > 60) return unit(minutes / 60, 'hour')
+  return unit(minutes, 'minute')
+}
+
+/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it; nothing when unknown. */
+function bytes(value: number | string | null) {
+  return fileSizeLabel(value, '')
+}
+
+/** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */
+function vitalsSummary(item: PatientRecords['vitals'][number]) {
+  return [
+    item.systolicMmhg != null && item.diastolicMmhg != null ? `BP ${item.systolicMmhg}/${item.diastolicMmhg} mmHg` : '',
+    item.temperatureC != null ? `Temp ${item.temperatureC}°C` : '',
+    item.pulseBpm != null ? `Pulse ${item.pulseBpm} bpm` : '',
+    item.respiratoryRate != null ? `Respiratory rate ${item.respiratoryRate} breaths/min` : '',
+    item.oxygenSaturationPercent != null ? `SpO₂ ${item.oxygenSaturationPercent}%` : '',
+    item.weightKg != null ? `Weight ${item.weightKg} kg` : '',
+    item.heightCm != null ? `Height ${item.heightCm} cm` : '',
+  ].filter(Boolean).join(' · ')
+}
+
+export function PortalShell() {
+  const { api, signOut } = useSession()
+  const navigate = useNavigate()
+  const [error, setError] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
+  const main = useRef<HTMLDivElement>(null)
+  useFocusOnPageChange(main)
+  const logout = async () => {
+    setSigningOut(true); setError(null)
+    try { await signOut(); navigate('/sign-in', { replace: true }) }
+    catch (reason) {
+      setError(plainErrorText(reason, PLAIN.signOutFailed))
+    } finally { setSigningOut(false) }
+  }
+
+  // The bell's count is read here, for every page under the shell (notificationBadge.tsx).
+  return <ToastProvider><UnreadNotificationsProvider><ProfileChangeProvider>
+    <PatientChrome api={api} signingOut={signingOut} onSignOut={() => void logout()}>
+      <div ref={main} tabIndex={-1} className="outline-none">
+        <Outlet />
+      </div>
+      <SignOutToast error={error} />
+    </PatientChrome>
+  </ProfileChangeProvider></UnreadNotificationsProvider></ToastProvider>
+}
+
+/** A failed sign-out, said at the top as every other result is (the shell's own provider is above it). */
+function SignOutToast({ error }: { error: string | null }) {
+  const toast = useToast()
+  useEffect(() => { if (error) toast.error({ title: 'Couldn’t sign out', message: error }) }, [error, toast])
+  return null
+}
+
+/** paytrail's app shell, for a patient: their Health ID card at the top, their places by group, a ➕ for what they add. */
+function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnType<typeof useSession>['api']; signingOut: boolean; onSignOut: () => void; children: ReactNode }) {
+  const profile = usePatientResource(api.profile)
+  const shown = profile.data && !profile.error && typeof profile.data === 'object' ? profile.data : null
+  const photo = usePatientPhoto(shown?.hasPhoto === true)
+  useOnProfileChange(() => { void profile.reload().then(() => photo.reload()) })
+  const share = useShareServed()
+  const shareTo = share === true ? '/access/share' : '/access'
+  // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
+  const adds = usePatientEntriesServed() === true
+  // Its hint promises a photo only when photos and files are taken too (patientEntryFilesServed).
+  const addsFiles = usePatientEntryFilesServed()
+  const name = shown?.fullName ?? 'Your Health ID'
+  const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
+  const nav: NavGroup[] = [
+    { items: [{ to: '/', label: 'Overview', icon: LayoutDashboard, end: true }] },
+    { title: 'Your health', items: [
+      ...(patientChatEnabled() ? [{ to: '/chat', label: 'Ask about your records', icon: MessageSquareText }] : []),
+      { to: '/records', label: 'Records', icon: FolderHeart },
+      { to: '/access', label: 'Access & sharing', icon: ShieldCheck },
+    ] },
+    { title: 'Account', items: [{ to: '/profile', label: 'Profile', icon: UserRound }] },
+  ]
+  return <AppShell
+    brand={<NavLink to="/" aria-label="Health ID home" className="inline-flex items-center gap-2.5 no-underline"><BrandLogo className="h-7 w-auto" /><Badge tone="brand" size="sm">Patient</Badge></NavLink>}
+    switcher={{ name, subtitle: shown?.hid ? `Health ID · ${shown.hid}` : 'Patient portal', avatar,
+      menu: close => <ul className="m-0 list-none p-0">
+        <li><Link to="/profile" onClick={close} className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink no-underline hover:bg-hover"><UserRound className="size-4 text-ink-3" aria-hidden />Your profile</Link></li>
+        <li><Link to="/profile#health-information" onClick={close} className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink no-underline hover:bg-hover"><HeartPulse className="size-4 text-ink-3" aria-hidden />Health information</Link></li>
+      </ul> }}
+    nav={nav}
+    person={{ name, detail: shown?.email ?? shown?.phone ?? 'Patient', avatar, profileTo: '/profile' }}
+    onSignOut={onSignOut}
+    signingOut={signingOut}
+    headerStart={<NavLink to="/" aria-label="Health ID home" className="inline-flex items-center no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /></NavLink>}
+    headerActions={<NotificationBell />}
+    tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
+    create={{ label: 'Add or share', items: [
+      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: addsFiles ? 'A visit, result or medicine, with a photo' : 'A visit, result or medicine', icon: FilePlus2, main: true }] : []),
+      { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
+      { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
+      { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
+    ] }}>
+    {children}
+  </AppShell>
+}
+
+const HEALTH_LABELS: Readonly<Record<ImportedHealthField, string>> = {
+  blood_group: 'Blood group', genotype: 'Genotype', allergies: 'Allergies', current_medications: 'Current medications',
+  chronic_conditions: 'Long-term conditions', medical_notes: 'Medical notes',
+}
+
+/** hid-system main sends no hid-1.0 health details with the records, so the profile reads none there. */
+const noRecords = async (): Promise<PatientRecords | null> => null
+
+/** A migrated patient's hid-1.0 health details, as they were: read-only, and only the ones they filled in. */
+function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
+  return <ProfileSection id="hid1-health-details" title="From your old Health ID account" state="Read only">
+    <Hint>{profile.updatedAt ? `Last updated ${date(profile.updatedAt)}. ` : ''}{SAY.readOnly}</Hint>
+    <dl className="m-0 divide-y divide-line">{IMPORTED_HEALTH_FIELDS.filter(field => profile.content[field]).map(field =>
+      <div key={field} className="py-3"><dt className="text-[13px] text-ink-3">{HEALTH_LABELS[field]}</dt>
+        <dd className="m-0 mt-0.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] text-ink">{profile.content[field]}</dd></div>)}</dl>
+  </ProfileSection>
+}
+
+/** The profile's parts with an id of their own, and the section each is in: a link to one opens that section. */
+const PROFILE_SECTION_PARTS: Readonly<Record<string, string>> = {
+  'contact-details': 'bio-data', 'access-pin': 'bio-data', 'emergency-contacts': 'health-information',
+}
+
+/**
+ * The patient's profile, with "Verify your NIN" (NinVerificationCard.tsx): since the
+ * owner's decision of 2026-10-27 a patient signs up without a NIN and may add it here,
+ * optionally. Where Identity still refuses it (503 QOREID_PATIENT_NIN_BINDING_DISABLED
+ * while QOREID_PATIENT_SELF_NIN_BINDING_ENABLED is off), the card says so plainly.
+ *
+ * hid-1.0 parity B3 (hid-system 0094): the profile's completion, contact details, photo, coverage and health
+ * information, each shown only where the backend serves it (a 404, or GET identity/me without the new keys, hides it).
+ *
+ * The review of 2026-10-31: the card (no buttons under it: the photo is changed on it), the completion, then About you
+ * (once "Bio-data", ending with the email, phone and Access PIN), Insurance & hospital (once "Coverage"), Health
+ * information with the emergency contacts, and the NIN. Then Settings (this device's notifications, installing the
+ * app), and Delete account under "More" at the very end. Every section but the completion starts closed and opens as
+ * the patient clicks its heading (ProfileSection.tsx); a link to one (/profile#coverage) opens it (useOpenSections),
+ * and one to a part of one (PROFILE_SECTION_PARTS) opens its section.
+ */
+export function ProfilePage() {
+  const { api } = useSession()
+  useDocumentTitle('Your profile · Health ID')
+  const { profile, details, health, contacts } = useProfileSources()
+  // Novu sends a migrated patient's hid-1.0 health details with the records (importedHealthProfile), null for anyone else.
+  const records = usePatientResource<PatientRecords | null>(usesNovuBackend() ? api.records : noRecords)
+  const imported = records.error ? null : records.data?.importedHealthProfile ?? null
+  const heading = useRef<HTMLHeadingElement>(null)
+  const sections = useOpenSections(PROFILE_SECTION_PARTS)
+  useFocusSectionFromHash(heading)
+  const retryFocus = useRetryFocus(heading)
+  const completion = completionOf(profile.error ? null : profile.data, { details, health, contacts })
+  const shown = profile.data && !profile.error ? profile.data : null
+  const deletion = useAccountDeletionServed()
+  // "Verify your NIN" is for doing it: not shown once the profile says it is verified (the card's badge says so), but
+  // kept for the rest of the visit once shown, so a NIN verified here is said in its section, which keeps focus.
+  const [ninOffered, setNinOffered] = useState(false)
+  if (shown && !ninVerifiedOf(shown) && !ninOffered) setNinOffered(true)
+  // "More" holds Delete account: a link to it (/profile#account-deletion) opens it, in the render that begins the visit,
+  // so the card's heading can take focus (useFocusSectionFromHash); a closed <details> hides what is in it.
+  const { hash, key } = useLocation()
+  const [moreOpen, setMoreOpen] = useState(hash === '#account-deletion')
+  const [moreVisit, setMoreVisit] = useState(key)
+  if (moreVisit !== key) { setMoreVisit(key); if (hash === '#account-deletion') setMoreOpen(true) }
+
+  return <div className="flex flex-col gap-6">
+    <PageHeader titleRef={heading} title="Profile" description="Your details, how you sign in, and your Access PIN." />
+    <PageState what="your profile" loading={profile.loading} error={profile.error} hasData={profile.data !== null}
+      onRetry={() => retryFocus.retry(profile.reload)} retryRef={retryFocus.button}>{null}</PageState>
+    {shown && <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+      {/* The card first, as on Home: on a phone it is the top of the page; on a computer it stays in view beside the sections. */}
+      <div className="mx-auto flex w-full max-w-[460px] min-w-0 flex-col gap-6 @3xl:sticky @3xl:top-24 @3xl:max-w-none">
+        <HealthIdCard profile={shown} onChanged={profile.reload} verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
+          bloodGroup={health.error ? null : health.data?.bloodGroup} genotype={health.error ? null : health.data?.genotype}
+          allergies={health.error ? null : health.data?.allergies} shareTo="/access" links={[]} />
+        {/* Its place is held while the reads it counts are out, so the sections under it on a phone do not jump. */}
+        {completion ? <ProfileCompletionCard completion={completion} /> : completionServed(shown) && <ProfileCompletionPending />}
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">
+        <OpenSectionsContext.Provider value={sections}>
+          {/* Not the whole section busy while the profile reloads: the contact's and PIN's notices are in it. */}
+          <ProfileSection id="bio-data" title={WORDS.aboutYou}>
+            <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3" aria-busy={profile.loading || undefined}>
+              {/* In words, and one wording for every detail not there. */}
+              {([['Full name', shown.fullName], ['Date of birth', shown.dateOfBirth ? date(shown.dateOfBirth) : 'Not given'], ['Gender', genderLabel(shown.gender)],
+                ['State', shown.state || 'Not given'], ['Country', countryLabel(shown.country)]] as const).map(([term, value]) =>
+                <div key={term} className={term === 'Full name' ? 'col-span-2' : undefined}><dt className="text-[13px] text-ink-3">{term}</dt>
+                  <dd className="m-0 mt-0.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}
+            </dl>
+            <ContactDetails profile={shown} onChanged={profile.reload} />
+            <AccessPinSettings profile={shown} loading={profile.loading} onChanged={profile.reload} />
+          </ProfileSection>
+          <CoverageCard resource={details} expected={completionServed(shown)} />
+          {/* The emergency contacts, in Health information (alone in it where the health information is not served). Both
+              backends: main's patient-safety routes, and hid-system #109's on Novu. They read availability first, and
+              show nothing where the routes are not served (Novu's 404), or while delivery is off for a patient without
+              contacts. */}
+          <HealthInformationCard resource={health} fromHid1={imported} contacts={alone => <EmergencyContactsCard alone={alone} />} />
+          {imported && <ImportedHealthCard profile={imported} />}
+          {/* Once verified, the card's badge says so; the section is only for doing it. */}
+          {(ninOffered || !ninVerifiedOf(shown)) && <NinVerificationCard profile={shown} onVerified={profile.reload} />}
+        </OpenSectionsContext.Provider>
+        {/* This device's settings (moved here from Notifications). Shown only when one of them has something to offer. */}
+        <section aria-labelledby="profile-settings" className="flex flex-col gap-3 [&:not(:has([data-setting]))]:hidden">
+          <SectionHeader id="profile-settings" title="Settings" />
+          {/* Phone and computer notifications (B6): hid-system 0097 on Novu, once the owner has configured the push keys.
+              Until Identity answers 200, it shows nothing (a 404 before 0097, and while push is not configured). */}
+          <DeviceNotificationsCard />
+          <InstallAppCard afterward={heading} />
+        </section>
+        {/* Delete account, out of the way under More (both backends: main's 0064, Novu's 0096; a 404 shows nothing). */}
+        <details className="group" hidden={deletion === false} open={moreOpen} onToggle={event => setMoreOpen(event.currentTarget.open)}>
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
+            {/* Named for what it holds: a closed <details> hides Delete account's heading from a search by heading. */}
+            More<ItemName>: delete your account</ItemName><ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
+          <div className="mt-3"><AccountDeletionCard /></div>
+        </details>
+      </div>
+    </div>}
+  </div>
+}
+
+/** What each record section holds, as the page names it. */
+const SECTION_NAMES: Readonly<Record<RecordSection, string>> = {
+  encounters: 'visits', notes: 'doctor’s notes', vitals: 'vital signs', diagnoses: 'diagnoses',
+  prescriptions: 'prescriptions', labRequests: 'lab tests', documents: 'documents',
+}
+const WITHHELD = 'Not shared with you yet.'
+
+/** The opening line until the record is read: what it holds is not known yet. */
+const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
+
+/**
+ * The page's opening line: only what the page shows (recordSections.ts), never more. An EHR with hid-system #52 names
+ * what it released to the patient, and only that is named; one that names nothing (production's) is said to send every
+ * section the page shows. Older records are named whenever the answer carries them, as the page then shows them.
+ * Nothing is named while the record is read, or when it could not be.
+ */
+function recordsIntro(data: PatientRecords | null) {
+  if (!data) return RECORD_UNREAD
+  const shown = sectionsShown()
+  // The older records (records kept from before) are shown only when the answer carries some, so only then are they named.
+  const older = (data.importedRecords?.length ?? 0) > 0 ? ['older records'] : []
+  const names = [...(data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section]), ...older]
+  if (names.length === 0) return 'Nothing in your record is shared with you yet.'
+  const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  if (!data.released) return `Your ${listed}, newest first.`
+  return `Your ${listed}.${data.withheld?.length ? ' Other parts aren’t shared with you yet.' : ''}`
+}
+
+/** An empty section's line: a withheld one was not released to the patient, which is not "none". */
+function emptyText(data: PatientRecords, section: RecordSection, none: string) {
+  return data.withheld?.includes(section) ? WITHHELD : none
+}
+
+/**
+ * Said when EHR reports that the section holds more than it sent, or, where it sends no such report (production's
+ * Novu answer), when the section came back full: then older ones may well be left out (RN-08).
+ */
+function Truncated({ data, section }: { data: PatientRecords; section: RecordSection }) {
+  const limit = data.limits?.[section] ?? data.limit
+  const sent = (data[section] as unknown[] | undefined)?.length ?? 0
+  const cut = data.truncated?.[section] ?? (data.truncated === undefined && Number.isInteger(limit) && limit > 0 && sent >= limit)
+  if (cut !== true) return null
+  return <p className="m-0 text-[13px] text-ink-3">{limit
+    ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown.`
+    : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown.`}</p>
+}
+
+/** A word the search finds in each section's rows (SEARCHED), to suggest when a search finds nothing (RN-19). */
+const SEARCH_EXAMPLES: Readonly<Record<RecordSection, string>> = {
+  encounters: 'visit', notes: 'note', vitals: 'vitals', diagnoses: 'diagnosis', prescriptions: 'prescription', labRequests: 'lab', documents: 'document',
+}
+
+/** "Try a date like “March 2024”, a type like “visit” or “note”, or a word from a note.", from the sections shown only. */
+function searchHint() {
+  const kinds = sectionsShown().slice(0, 2).map(section => `“${SEARCH_EXAMPLES[section]}”`)
+  return `Try a date like “March 2024”${kinds.length ? `, a type like ${kinds.join(' or ')}` : ''}, or a word from a note.`
+}
+
+type Row<S extends RecordSection> = PatientRecords[S][number]
+
+/**
+ * What the search reads in each section (recordSearch.ts): what its rows show, their kind and their date, and the
+ * day heading they are under. The records answer names a facility by id only and no clinician, so those are found
+ * where a note's text names them.
+ */
+const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string | null> } = {
+  encounters: item => ['Encounter', visitClassLabel(item.encounterType), visitStatusLabel(item.status), item.encounterType, item.status, date(item.startedAt)],
+  notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
+  vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
+  diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
+  prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
+  labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
+  documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
+}
+/** The date each section's rows are listed under. */
+const DATED: { readonly [S in RecordSection]: (item: Row<S>) => string | null } = {
+  encounters: item => item.startedAt, notes: item => item.signedAt, vitals: item => item.recordedAt, diagnoses: item => item.onsetAt,
+  prescriptions: item => item.startsOn, labRequests: item => item.createdAt, documents: item => item.createdAt,
+}
+
+const sectionMatches = <S extends RecordSection>(data: PatientRecords, section: S, query: string): Array<Row<S>> =>
+  (data[section] as Array<Row<S>>).filter(item => matchesQuery([...SEARCHED[section](item), dayWords(DATED[section](item))], query))
+
+/** How each section is named on its tab and card, and its icon. */
+const SECTION_UI: { readonly [S in RecordSection]: { tab: string; title: string; icon: Icon } } = {
+  encounters: { tab: 'Visits', title: 'Visits', icon: Stethoscope },
+  notes: { tab: 'Notes', title: 'Clinical notes', icon: NotebookPen },
+  vitals: { tab: 'Vitals', title: 'Vitals', icon: HeartPulse },
+  diagnoses: { tab: 'Diagnoses', title: 'Diagnoses', icon: ClipboardList },
+  prescriptions: { tab: 'Medicines', title: 'Medicines', icon: Pill },
+  labRequests: { tab: 'Lab tests', title: 'Lab tests', icon: FlaskConical },
+  documents: { tab: 'Documents', title: 'Documents', icon: FileText },
+}
+
+/** One record as it is shown in its drawer. */
+interface OpenRecord { section: RecordSection; title: string; meta?: string; detail?: string | null; when: string | null; multiline?: boolean
+  /** Shown only when the record is opened, in small print (a diagnosis code). */
+  extra?: string | null }
+
+/** One record in a list: what it is, then its state, its words cut to two lines; the whole row opens it in a drawer. */
+function RecordRow({ record, onOpen }: { record: OpenRecord; onOpen: (record: OpenRecord) => void }) {
+  return <li><button type="button" onClick={() => onOpen(record)}
+    className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-3.5 text-left font-[inherit] hover:bg-subtle">
+    <span className="min-w-0 flex-1">
+      <span className="block text-sm font-medium [overflow-wrap:anywhere] text-ink">{record.title}</span>
+      {record.meta && <span className="mt-0.5 block text-[13px] [overflow-wrap:anywhere] text-ink-3">{record.meta}</span>}
+      {record.detail && <span className="mt-1.5 line-clamp-2 block text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{record.detail}</span>}
+      {/* The day is in the heading above; said in the name too, so two alike can be told apart (RN-17). */}
+      {record.when && <ItemName>, {date(record.when)}</ItemName>}
+    </span>
+    <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
+  </button></li>
+}
+
+/** A section's card: its rows under their day, newest first, or why there are none. */
+function SectionCard<S extends RecordSection>({ data, section, none, query, row, quietNoMatch = false }: {
+  data: PatientRecords; section: S; none: string; query: string; row: (item: Row<S>) => ReactNode
+  /** The page already says nothing matches the search, with Clear search (RN-19): no second line here. */
+  quietNoMatch?: boolean
+}) {
+  const all = data[section] as Array<Row<S>>
+  const shown = sectionMatches(data, section, query)
+  const ui = SECTION_UI[section]
+  return <Card id={`records-${section}`}>
+    <CardHeader as="h2" title={ui.title} icon={ui.icon} iconTone="brand"
+      description={query.trim() && all.length > 0 ? `${shown.length} of ${all.length} match` : undefined} />
+    {all.length === 0 ? <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">{emptyText(data, section, none)}</p>
+      : shown.length === 0 ? (quietNoMatch ? null : <p className="m-0 px-5 pb-5 text-[13px] text-ink-3">None match your search.</p>)
+      : groupByDay(shown, DATED[section]).map(group => <div key={group.day ?? 'undated'} className="border-t border-line">
+        <h3 className="m-0 bg-subtle px-5 py-2 text-overline text-ink-3">{group.label}</h3>
+        <ul className="m-0 list-none divide-y divide-line p-0">{group.items.map(row)}</ul></div>)}
+    <div className="px-5 empty:hidden [&>p]:pb-4"><Truncated data={data} section={section} /></div>
+  </Card>
+}
+
+/** What each kind of record the patient adds is called, as "Add a record" names it (AddRecord.tsx). */
+const OWN_KINDS: Readonly<Record<PatientEntryKind, string>> = {
+  visit: 'Visit', test: 'Test result', medicine: 'Medicine', diagnosis: 'Diagnosis', vaccination: 'Vaccine', other: 'Other',
+}
+
+const OWN_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
+/** The day the patient entered (YYYY-MM-DD), as that same calendar day wherever the browser is. */
+function ownDay(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? OWN_DAY.format(new Date(`${value}T00:00:00Z`)) : date(value)
+}
+
+/** Everything an entry the patient added shows, for the page's search. */
+const ownRecordText = (entry: PatientEntry): Array<string | null> => ['Added by you', OWN_KINDS[entry.kind], entry.title, entry.facilityName,
+  entry.notes, ownDay(entry.occurredOn), dayWords(entry.occurredOn), ...entry.documents.map(file => file.fileName)]
+
+const FILE_NOT_ADDED = 'This file couldn’t be added'
+/**
+ * Where a photo or file is in its virus check, in words; nothing once it has passed. One the check rejected reads as not
+ * added, with no word of why.
+ */
+function scanWords(file: PatientEntryDocument): string | null {
+  if (file.scanStatus === 'rejected' || file.status === 'rejected') return FILE_NOT_ADDED
+  return file.scanStatus === 'pending' ? 'Checking for viruses' : null
+}
+
+// What a removal comes to, in this page's own words: never the server's.
+const REMOVED = 'Removed from your records'
+const ALREADY_REMOVED = 'This record has already been removed.'
+const NOT_REMOVED = 'This record couldn’t be removed. Please try again.'
+/** The removal refused as the entry is no longer there (BACKEND-NEEDS.md §1): its status and code alone. */
+const saysAlreadyRemoved = (error: unknown): boolean => isHidApiError(error) && error.status === 404 && error.code === 'PATIENT_ENTRY_NOT_FOUND'
+
+/** Notes longer than this, or on more than three lines, are shown cut short first. */
+const OWN_NOTES_SHORT = 160
+/** The start of long notes, cut at a word, or null when they are short enough to show whole. */
+function notesStart(notes: string): string | null {
+  const lines = notes.split('\n')
+  if (notes.length <= OWN_NOTES_SHORT && lines.length <= 3) return null
+  const start = lines.slice(0, 3).join('\n')
+  if (start.length <= OWN_NOTES_SHORT) return `${start.trimEnd()}…`
+  const space = start.lastIndexOf(' ', OWN_NOTES_SHORT)
+  return `${start.slice(0, space > OWN_NOTES_SHORT / 2 ? space : OWN_NOTES_SHORT).trimEnd()}…`
+}
+
+/** An entry's notes ("Anything else to note?"): whole when short; when long, their start and "Show all". */
+function OwnNotes({ id, title, notes }: { id: string; title: string; notes: string }) {
+  const [open, setOpen] = useState(false)
+  const start = notesStart(notes)
+  const textId = `own-record-notes-${id}`
+  return <div className="flex flex-col items-start gap-1">
+    <p id={textId} className="m-0 whitespace-pre-wrap text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{start && !open ? start : notes}</p>
+    {start && <Button size="sm" variant="ghost" aria-expanded={open} aria-controls={textId} onClick={() => setOpen(value => !value)}>
+      {open ? 'Show less' : 'Show all'} <ItemName>notes for {title}</ItemName></Button>}
+  </div>
+}
+
+/**
+ * "Added by you" (BACKEND-NEEDS.md §1): the records the patient added with "Add a record", newest first, each with its
+ * kind, place, date, notes and photos and files, and Remove. They come in the page's own records answer, under
+ * `patientEntries`; nothing is read for them alone. Mounted only once that answer (or a Save) has said they are served:
+ * where they are not (today's answer, without the key) the page is exactly as it was. A file can't be opened here yet;
+ * while its virus check runs that is said, and one the check rejected reads "This file couldn't be added".
+ *
+ * Remove asks first, in place, then withdraws the entry and reads the page's records again. Nothing is erased, so the
+ * page says "Removed from your records", never "deleted". An entry the server no longer has (404
+ * PATIENT_ENTRY_NOT_FOUND: removed from another device, say) reads as "This record has already been removed.", and the
+ * records are read again just the same; any other refusal is "This record couldn't be removed. Please try again." The
+ * server's own words are never shown. Focus goes as on the profile's cards (useActionFocus): to the question's safe
+ * answer as it opens, back to Remove when kept, and to this list's heading when removed (or the page's, once the list is
+ * empty or the records could not be read again); the outcome is said in a live region mounted throughout, also while the
+ * page shows that its records could not be read.
+ */
+function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading }: {
+  /** The entries the records answer listed (none while it could not be read), and those the page's search matches. */
+  entries: readonly PatientEntry[]; matches: readonly PatientEntry[]; searching: boolean
+  /** With the records read, on the page's All tab. On another tab they are kept, but not shown. */
+  shown: boolean
+  /** Whether the page's records are being read again, and the way to read them again (usePatientResource's). */
+  loading: boolean; reload: () => Promise<void>
+  pageHeading: RefObject<HTMLHeadingElement | null>
+}) {
+  const { api } = useSession()
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const title = useRef<HTMLSpanElement>(null)
+  // A removal still on its way is stopped as the page is left.
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
+  const focusAfter = useActionFocus()
+  const heading = useMemo(() => ({ get current(): HTMLElement | null { return title.current ?? pageHeading.current } }), [pageHeading])
+  const byId = (id: string) => () => document.getElementById(id)
+
+  const ask = (entry: PatientEntry) => {
+    setRemoving(entry.id); setProblem(null); setNotice(null)
+    focusAfter(byId(`own-record-keep-${entry.id}`))
+  }
+  const keep = (entry: PatientEntry) => {
+    setRemoving(null); setProblem(null)
+    focusAfter(byId(`own-record-remove-${entry.id}`))
+  }
+  const remove = async (entry: PatientEntry) => {
+    if (busy) return
+    const controller = new AbortController()
+    request.current = controller
+    setBusy(true); setProblem(null)
+    try {
+      let outcome = REMOVED
+      try {
+        await api.withdrawOwnRecord(entry.id, controller.signal)
+      } catch (cause) {
+        // Already gone: said so, and the records are read again all the same.
+        if (controller.signal.aborted || !saysAlreadyRemoved(cause)) throw cause
+        outcome = ALREADY_REMOVED
+      }
+      // Removed once the page's records, read again, show it gone.
+      await reload()
+      if (controller.signal.aborted) return
+      setRemoving(null); setNotice(outcome)
+      focusAfter(() => heading.current)
+    } catch {
+      if (controller.signal.aborted) return
+      setProblem(NOT_REMOVED)
+      focusAfter(byId(`own-record-confirm-${entry.id}`))
+    } finally {
+      if (!controller.signal.aborted) { setBusy(false); request.current = null }
+    }
+  }
+
+  const listed = searching ? matches : entries
+  return <>
+    <Saved>{notice}</Saved>
+    {shown && listed.length > 0 && <Card aria-labelledby="own-records-title">
+      <CardHeader as="h2" titleId="own-records-title" icon={FilePlus2} iconTone="brand"
+        title={<span ref={title} tabIndex={-1} className="outline-none">Added by you</span>}
+        description={searching ? `${matches.length} of ${entries.length} match` : 'What you added yourself, newest first.'} />
+      <ul className="m-0 list-none divide-y divide-line p-0" aria-busy={loading || undefined}>{listed.map(entry => {
+        const day = ownDay(entry.occurredOn)
+        return <li key={entry.id} className="flex flex-col gap-3 px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{entry.title}</h3>
+            <p className="m-0 mt-0.5 text-[13px] [overflow-wrap:anywhere] text-ink-3">{[OWN_KINDS[entry.kind], entry.facilityName, day].filter(Boolean).join(' · ')}</p>
+          </div>
+          {entry.notes && <OwnNotes id={entry.id} title={entry.title} notes={entry.notes} />}
+          {entry.documents.length > 0 && <ul aria-label={`Photos and files for ${entry.title}`} className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {entry.documents.map(file => {
+              const scan = scanWords(file)
+              const FileIcon = file.mediaType === 'application/pdf' ? FileText : FileImage
+              return <li key={file.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-subtle px-3 py-2">
+                <FileIcon className="size-4 shrink-0 text-ink-3" aria-hidden />
+                <span className="min-w-0 text-[13px] font-medium [overflow-wrap:anywhere] text-ink">{file.fileName}</span>
+                <span className="text-[12px] text-ink-3">{[fileTypeLabel(file.mediaType), bytes(file.sizeBytes)].filter(Boolean).join(' · ')}</span>
+                {scan && <Badge size="sm" tone={scan === FILE_NOT_ADDED ? 'warn' : 'neutral'}>{scan}</Badge>}
+              </li>
+            })}
+          </ul>}
+          {removing === entry.id
+            ? <div role="group" aria-labelledby={`own-record-ask-${entry.id}`} className="flex flex-col gap-3 rounded-lg bg-danger-soft/50 p-3">
+              <p id={`own-record-ask-${entry.id}`} className="m-0 text-sm text-ink">Remove this record? It’s taken off your records, your chat and what your care team can see. Nothing is deleted.</p>
+              {problem && <Problem>{problem}</Problem>}
+              <Actions><Button id={`own-record-confirm-${entry.id}`} size="sm" variant="destructive" loading={busy} onClick={() => void remove(entry)}>Yes, remove</Button>
+                <Button id={`own-record-keep-${entry.id}`} size="sm" disabled={busy} onClick={() => keep(entry)}>Keep record</Button></Actions>
+            </div>
+            : <Actions><Button id={`own-record-remove-${entry.id}`} size="sm" variant="danger" disabled={busy} onClick={() => ask(entry)}>
+              Remove <ItemName>{entry.title}, {day}</ItemName></Button></Actions>}
+        </li>
+      })}</ul>
+    </Card>}
+  </>
+}
+
+export function RecordsPage() {
+  const { api } = useSession()
+  useDocumentTitle('Health records · Health ID')
+  const records = usePatientResource(api.records)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const recordsRetry = useRetryFocus(heading)
+  const [query, setQuery] = useState('')
+  const searchField = useRef<HTMLInputElement>(null)
+  const clearSearch = () => { setQuery(''); searchField.current?.focus() }
+  // "Add a record" opens here, from this page's button or the ➕ (/records?add=record), and the address is cleared after.
+  // The tab is in the address too (/records?tab=documents, from Home's tiles), so Back and a shared link keep it.
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('tab')
+  const tab: RecordSection | 'all' = asked && (sectionsShown() as string[]).includes(asked) ? asked as RecordSection : 'all'
+  const setTab = (next: RecordSection | 'all') => setParams(current => { const out = new URLSearchParams(current); if (next === 'all') out.delete('tab'); else out.set('tab', next); return out }, { replace: true })
+  const adding = params.get('add') === 'record'
+  const setAdding = (on: boolean) => setParams(current => { const next = new URLSearchParams(current); if (on) next.set('add', 'record'); else next.delete('add'); return next }, { replace: true })
+  // hid-system main's imported records, read a page at a time beside the records (PatientImportedHistory).
+  const [pagedImported, setPagedImported] = useState<readonly ImportedMedicalRecord[]>([])
+  const data = records.data
+  const searching = query.trim() !== ''
+  const ready = data && !records.error ? data : null
+  // The records the patient added themselves (OwnRecords): in this page's own records answer, under `patientEntries`,
+  // which also says whether they are served (api.records). Nothing is read for them alone: the page reads its records
+  // again after "Add a record" saves one and after a removal. Without the key (today's backend) nothing more shows.
+  const ownServed = usePatientEntriesServed()
+  // Photos and files are offered on their own switch (patientEntryFilesServed), so the page mentions them only then.
+  const ownFiles = usePatientEntryFilesServed()
+  const ownEntries = ready?.patientEntries ?? []
+  const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
+  const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
+    matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
+  // What the open tab's search finds: on one record type, only that type (RN-19). The rest match on other tabs.
+  const tabMatched = tab === 'all' ? matched : ready && searching ? sectionMatches(ready, tab, query).length : 0
+  const elsewhere = tab === 'all' ? 0 : matched - tabMatched
+  const noMatch = searching && tabMatched === 0
+  // On All, a section with nothing in it (or nothing that matches) is left out: its tab still says 0.
+  const visible = ready ? sectionsShown().filter(section => tab === section
+    || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
+  const [opened, setOpened] = useState<OpenRecord | null>(null)
+  const row = (record: OpenRecord, key: string) => <RecordRow key={key} record={record} onOpen={setOpened} />
+  const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = {
+    encounters: item => row({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }, item.id),
+    notes: item => row({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }, item.id),
+    vitals: item => row({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }, item.id),
+    // Plain: the name and its date. The code is for clinicians, so it is kept to the record's own view.
+    diagnoses: item => row({ section: 'diagnoses', title: item.display, meta: plainCode(item.clinicalStatus), detail: item.notes, when: item.onsetAt,
+      extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }, item.id),
+    prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
+      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, item.status].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
+    labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${item.status}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
+    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
+  }
+  const NONE: { readonly [S in RecordSection]: string } = {
+    encounters: 'No completed visits yet.', notes: 'No signed clinical notes yet.', vitals: 'No vitals recorded yet.', diagnoses: 'No diagnoses recorded.',
+    prescriptions: 'No medicines prescribed.', labRequests: 'No lab tests requested.', documents: 'No documents uploaded.',
+  }
+  const count = (section: RecordSection) => ready ? (searching ? sectionMatches(ready, section, query) : ready[section] as unknown[]).length : 0
+
+  return <div className="flex flex-col gap-6">
+    <PageHeader titleRef={heading} title="Records" description={recordsIntro(records.error ? null : data)}
+      actions={ownServed === true ? <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button> : undefined} />
+    <PageState what="your records" loading={records.loading} error={records.error} hasData={data !== null}
+      onRetry={() => recordsRetry.retry(records.reload)} retryRef={recordsRetry.button}>{null}</PageState>
+    {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
+    {ready && <div className="flex flex-wrap items-start justify-between gap-3">
+      <div role="search" className="min-w-0 max-w-sm flex-[1_1_16rem]">
+        <Input ref={searchField} type="search" icon={Search} autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
+          placeholder="Search by date, type or words" aria-label="Search your records" aria-describedby="record-search-status" />
+        {/* Mounted with the field, so each new count is announced. */}
+        <p id="record-search-status" role="status" className="m-0 mt-1.5 text-[12px] text-ink-3 empty:hidden">{searching
+          ? `${matched === 0 ? 'No records match' : matched === 1 ? '1 record matches' : `${matched} records match`} your search.` : ''}</p>
+      </div>
+      {sectionsShown().length > 1 && <FilterTabs label="Record type" value={tab} onChange={setTab}
+        options={[{ value: 'all' as const, label: 'All' }, ...sectionsShown().map(section => ({ value: section, label: SECTION_UI[section].tab, count: count(section) }))]} />}
+    </div>}
+    {!usesNovuBackend() && tab === 'all' && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} quietNoMatch={noMatch} />}
+    {ready && <>
+      {/* Only for a patient who has older records: one who never had an old account is not told of it (RN-07). */}
+      {tab === 'all' && (ready.importedRecords?.length ?? 0) > 0 && <ImportedHistory records={ready.importedRecords ?? []} query={query} groupedByDay
+        limit={ready.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} quietNoMatch={noMatch} />}
+      {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
+      {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query} quietNoMatch={noMatch}
+        row={rows[section] as (item: Row<typeof section>) => ReactNode} />)}
+    </>}
+    {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
+      removal is said even when that read fails. */}
+    {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
+      loading={records.loading} reload={records.reload} pageHeading={heading} />}
+    {ready && <>
+      {/* A search that finds nothing anywhere, older records included, says so with a way back (RN-19). */}
+      {/* On one record type, only that type counts; when others match, it says so and offers them (RN-19). */}
+      {(searching ? noMatch : visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0) && <EmptyState icon={searching ? Search : FolderHeart}
+        title={searching ? (elsewhere > 0 ? 'Nothing matches here' : 'Nothing matches') : 'No records yet'}
+        description={searching ? (elsewhere > 0 ? `${elsewhere === 1 ? '1 record' : `${elsewhere} records`} of another type ${elsewhere === 1 ? 'matches' : 'match'} your search.` : searchHint())
+          : `Records from your providers appear here.${ownServed === true ? ` You can add your own too, from any hospital${ownFiles ? ', with a photo of the paper' : ''}.` : ''}`}
+        action={searching ? <div className="flex flex-wrap gap-2">{elsewhere > 0 && <Button variant="primary" onClick={() => { setTab('all'); searchField.current?.focus() }}>Show all record types</Button>}
+          <Button onClick={clearSearch}>Clear search</Button></div>
+          : ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
+      <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
+    </>}
+    <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
+    {/* One record, in full, without losing the place in the list. */}
+    <Drawer open={opened !== null} onClose={() => setOpened(null)} title={opened?.title ?? ''}
+      icon={opened ? <IconChip icon={SECTION_UI[opened.section].icon} tone="brand" /> : undefined}
+      description={opened ? [SECTION_UI[opened.section].title.replace(/s$/, ''), opened.when ? date(opened.when) : null].filter(Boolean).join(' · ') : undefined}
+      footer={<Button onClick={() => setOpened(null)}>Close</Button>}>
+      {opened && <div className="flex flex-col gap-4">
+        {opened.meta && <p className="m-0 text-[13px] text-ink-2">{opened.meta}</p>}
+        {opened.detail ? <p className={cx('m-0 rounded-xl bg-subtle px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] text-ink ring-1 ring-line', opened.multiline && 'whitespace-pre-wrap')}>{opened.detail}</p>
+          : <p className="m-0 text-[13px] text-ink-3">Nothing more was written for this record.</p>}
+        {opened.extra && <p className="m-0 text-[12px] text-ink-3">{opened.extra}</p>}
+      </div>}
+    </Drawer>
+  </div>
+}
+
+type HistoryItem = AccessHistory['items'][number]
+
+/** Who holds a grant: the clinician at their facility for the patient's own share (hid-system 0095), else the facility. */
+function grantee(item: HistoryItem) {
+  const name = staffName(item)
+  return name ? `${name} at ${item.facilityName}` : item.facilityName
+}
+
+/** "Shared by you · View Only · 7 days" for the patient's own share; nothing for any other grant, or from an older backend. */
+function sharedAs(item: HistoryItem) {
+  const level = shareLevelLabel(item.shareLevel), duration = item.shareDuration === 'until_revoked' ? 'Until you end it'
+    : shareDurationLabel(item.shareDuration)
+  return level || duration ? ['Shared by you', level, duration].filter(Boolean).join(' · ') : null
+}
+
+export function AccessPage() {
+  const { api } = useSession()
+  // Only to say the paper records rule to an adult: the profile's date of birth. Nothing shows until it is known.
+  const profile = usePatientResource(api.profile)
+  const adult = isAdult(profile.data?.dateOfBirth)
+  useDocumentTitle(`${WORDS.accessPage} · Health ID`)
+  const toast = useToast()
+  const requests = usePatientResource(api.accessRequests)
+  const history = usePatientResource(api.accessHistory)
+  // Sharing (hid-system 0095): offered once its probe says it is served; hidden before (404). Probed here, as on Home:
+  // the invitations card that also learns it is on another tab.
+  const shareServed = useShareProbe().served
+  const [working, setWorking] = useState<string | null>(null)
+  // The request open in the drawer, and whether its denial reason is showing.
+  const [reviewing, setReviewing] = useState<string | null>(null)
+  const [denying, setDenying] = useState(false)
+  // The denial's reason: a quick one (one tap), or the patient's own words under "Other".
+  const [quick, setQuick] = useState<QuickReason>('unknown')
+  const [reason, setReason] = useState('')
+  const [reasonProblem, setReasonProblem] = useState(false)
+  const denialReason = quick === 'other' ? reason.trim() : QUICK_REASONS[quick]
+  // The grant whose revocation is open in the drawer, separately from an in-flight request.
+  const [revoking, setRevoking] = useState<string | null>(null)
+  const [revokeBusy, setRevokeBusy] = useState(false)
+  const [revokeReason, setRevokeReason] = useState('')
+  // Which part shows: what waits for a decision first (Hick's law: one list at a time). Kept in the address (?tab=), as
+  // Records keeps its own, so a link, Back or a reload opens the same part.
+  const [params, setParams] = useSearchParams()
+  const tab = accessTabOf(params.get('tab'))
+  const setTab = (next: AccessTab) => setParams(current => {
+    const out = new URLSearchParams(current)
+    if (next === 'requests') out.delete('tab'); else out.set('tab', next)
+    return out
+  }, { replace: true })
+  // A refusal for an old sign-in on Approve, said in the drawer with the way through, until the next action.
+  const [signInFor, setSignInFor] = useState<string | null>(null)
+  const requestsHeading = useRef<HTMLHeadingElement>(null)
+  const historyHeading = useRef<HTMLHeadingElement>(null)
+  const focusAfter = useActionFocus()
+  const requestsRetry = useRetryFocus(requestsHeading)
+  const historyRetry = useRetryFocus(historyHeading)
+  const byId = (id: string) => () => document.getElementById(id)
+  // A notice came, or one was read elsewhere (the bell's count changed): the page reads its lists again by itself.
+  useOnNotificationChange(() => { void requests.reload(); void history.reload() })
+
+  const decide = async (id: string, decision: 'approve' | 'deny') => {
+    if (working) return
+    const facility = requests.data?.find(item => item.accessRequestId === id)?.facilityName ?? 'The facility'
+    setWorking(id); setSignInFor(null)
+    try {
+      if (decision === 'approve') await api.approveAccess(id)
+      else await api.denyAccess(id, denialReason)
+      // Decided once the lists show it: until then no decision can be sent again.
+      await Promise.all([requests.reload(), history.reload()])
+      closeReview()
+      if (decision === 'approve') toast.success({ title: 'Approved', message: `${facility} can see your records now.` })
+      else toast.success({ title: 'Denied', message: `Nothing was shared with ${facility}.` })
+      focusAfter(() => requestsHeading.current)
+    } catch (cause) {
+      if (needsRecentSignIn(cause)) {
+        // Said in the drawer, with the way through, and kept until the next action: a toast would be gone in seconds.
+        setSignInFor(id)
+        focusAfter(() => document.getElementById(`sign-in-again-${id}`))
+        return
+      }
+      if (changedElsewhere(cause)) {
+        // Decided or ended elsewhere (another device, or it ran out): the lists are read again, and say where it stands.
+        await Promise.all([requests.reload(), history.reload()])
+        closeReview()
+        toast.info({ title: 'Already changed', message: 'This request was already decided or has ended. The list is up to date.' })
+        focusAfter(() => requestsHeading.current)
+        return
+      }
+      toast.error({ title: 'That didn’t go through', message: plainErrorText(cause, 'The request could not be updated.', { codes: PATIENT_REFUSALS }) })
+      focusAfter(() => document.getElementById(decision === 'approve' ? `approve-${id}` : `deny-reason-${id}`)
+        ?? document.querySelector<HTMLElement>('input[name="deny-reason-choice"]:checked'))
+    } finally { setWorking(null) }
+  }
+
+  const revoke = async (grantId: string) => {
+    if (revokeBusy || revokeReason.trim().length < 3) return
+    const who = history.data?.items.find(item => item.consentGrantId === grantId)
+    // Another access at the same facility stays open: the facility can still see the records, and the notice says so.
+    const othersThere = who && history.data ? stillOpenThere(history.data.items, who) : 0
+    setRevokeBusy(true)
+    try {
+      await api.revokeAccess(grantId, revokeReason.trim())
+      await history.reload()
+      setRevoking(null); setRevokeReason('')
+      toast.success({ title: 'Access ended', message: who && othersThere > 0
+        ? `${staffName(who) ? `${staffName(who)}’s access` : 'This access'} at ${who.facilityName} has ended. Other access there is still open, listed below.`
+        : `${who ? grantee(who) : 'They'} can no longer see your records.` })
+      focusAfter(() => historyHeading.current)
+    } catch (cause) {
+      if (changedElsewhere(cause)) {
+        await history.reload()
+        setRevoking(null); setRevokeReason('')
+        toast.info({ title: 'Already ended', message: 'This access has already ended. The list is up to date.' })
+        focusAfter(() => historyHeading.current)
+        return
+      }
+      toast.error({ title: 'Couldn’t end access', message: plainErrorText(cause, SAY.tryAgain, { codes: PATIENT_REFUSALS }) })
+      focusAfter(byId(`revoke-reason-${grantId}`))
+    } finally { setRevokeBusy(false) }
+  }
+
+  // A reason typed for one item is never carried to another.
+  const openReview = (id: string) => { if (reviewing !== id) { setReason(''); setQuick('unknown'); setReasonProblem(false); setDenying(false); setSignInFor(null) } setReviewing(id) }
+  function closeReview() { setReviewing(null); setDenying(false); setReason(''); setQuick('unknown'); setReasonProblem(false); setSignInFor(null) }
+  // The API needs a reason of at least 3 characters: a quick reason is one; "Other" needs a few words.
+  const confirmDenial = (id: string) => {
+    // Focus goes to the box, so its problem is read with it, even from the Deny button, which keeps focus.
+    if (denialReason.length < 3) { setReasonProblem(true); document.getElementById(`deny-reason-${id}`)?.focus(); return }
+    void decide(id, 'deny')
+  }
+  const openRevocation = (id: string) => { if (revoking !== id) setRevokeReason(''); setRevoking(id) }
+
+  // A count is said only of a list read: while it loads, or after it failed, the heading names the section.
+  const requestsReady = requests.data !== null && !requests.error
+  const historyReady = history.data !== null && !history.error
+  const pendingCount = (requestsReady ? requests.data! : []).filter(item => item.status.toLowerCase() === 'pending').length
+  const historyItems = historyReady ? history.data!.items : []
+  // Rows open now, for the tab; the heading counts facilities, as one facility can hold several (one per staff member).
+  const activeCount = historyItems.filter(isOpen).length
+  // Invitations confirmed: whether the share each made still gives access, once who has access is known.
+  const activeGrants = historyReady ? new Set(historyItems.filter(item => item.status === 'active').map(item => item.consentGrantId)) : null
+  const requestList = requests.data && !requests.error
+    ? [...requests.data].sort((x, y) => Number(y.status.toLowerCase() === 'pending') - Number(x.status.toLowerCase() === 'pending')) : null
+  const open = requestList?.find(item => item.accessRequestId === reviewing) ?? null
+  const ending = history.data?.items.find(item => item.consentGrantId === revoking) ?? null
+
+  return <div className="flex flex-col gap-6">
+    <PageHeader title="Access & sharing" description="No facility sees your records until you say yes. You can take access back at any time."
+      actions={shareServed === true ? <Button to="/access/share" variant="primary" icon={Share2}>Share records</Button> : undefined} />
+    <FilterTabs label="Access" value={tab} onChange={setTab} options={[
+      { value: 'requests', label: 'Requests', count: pendingCount || undefined, tone: 'danger' },
+      { value: 'granted', label: 'Who has access', count: activeCount || undefined },
+      { value: 'activity', label: 'Activity' },
+    ]} />
+
+    {tab === 'requests' && <Card aria-busy={(requests.loading && requests.data !== null) || undefined}>
+      <AccessHeading headingRef={requestsHeading} icon={ShieldCheck}
+        title={!requestsReady ? 'Requests' : pendingCount ? `${pendingCount === 1 ? '1 request needs' : `${pendingCount} requests need`} your decision` : 'Nothing waiting for you'}
+        hint={requestsReady && pendingCount ? 'Nothing is shared until you approve.' : undefined} />
+      <div className="px-5 pb-4 empty:hidden"><PageState what="requests" loading={requests.loading} error={requests.error} hasData={requests.data !== null}
+        onRetry={() => requestsRetry.retry(requests.reload)} retryRef={requestsRetry.button}>{null}</PageState></div>
+      {requestList && (requestList.length === 0
+        ? <div className="border-t border-line"><EmptyState compact icon={ShieldCheck} title="No requests yet" description="When a facility asks to see your records, you decide here." /></div>
+        : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
+        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason)
+          return <li key={item.accessRequestId}>
+            <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
+              className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
+              <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
+              <span className="min-w-0 flex-[1_1_10rem]">
+                <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
+                {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
+                    as Who has access says it: the list names no staff member, so several from one facility differ by these.
+                    An Access PIN request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
+                <span className="block text-[13px] text-ink-2">{pin ? `A staff member used your Access PIN to ${askedTo(item.scope)}` : pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                  : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
+                {!pin && item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
+              </span>{' '}
+              {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
+                : <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>}{' '}
+              <ItemName>the request from {item.facilityName}, {dateTime(item.requestedAt)}</ItemName>
+            </button>
+          </li> })}
+      </ul>)}
+    </Card>}
+
+    {tab === 'granted' && <>
+      {/* Novu (P4c): orders a clinician sent to another facility, with Stop until it is accepted. Main has no such list. */}
+      {usesNovuBackend() && <SentOrdersCard />}
+      <Card aria-busy={(history.loading && history.data !== null) || undefined}>
+        <AccessHeading headingRef={historyHeading} icon={Building2} title={historyReady ? whoHasAccessTitle(historyItems) : 'Who has access'}
+          hint={!historyReady ? undefined : activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed.'} />
+        <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
+          onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
+        {history.data && !history.error && (history.data.items.length === 0
+          ? <div className="border-t border-line"><EmptyState compact icon={Building2} title="No one has had access yet"
+              description="Facilities you approve or share with appear here, with when their access ends."
+              action={shareServed === true ? <Button to="/access/share" size="sm" icon={Share2}>Share records</Button> : undefined} /></div>
+          // One heading per facility, so the same facility is named once over its rows (hid-system lists each access).
+          : groupByFacility(history.data.items).map(group => <div key={group.facility} className="border-t border-line">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 bg-subtle px-5 py-2">
+            <h3 className="m-0 text-[13px] font-semibold [overflow-wrap:anywhere] text-ink">{group.facility}</h3>
+            <p className="m-0 text-[12px] text-ink-3">{groupCounts(group)}</p>
+          </div>
+          <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
+          {/* On a phone the status and End access go under the words, which keep the row's width. */}
+          {group.items.map(item => <li key={item.consentGrantId} className="flex flex-wrap items-start gap-x-3 gap-y-2 px-5 py-4">
+            <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
+            <div className="min-w-0 flex-[1_1_14rem]">
+              {/* Under its facility's heading: the staff member, by name only where the list gives one (a share). */}
+              <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{holder(item)}</p>
+              {/* What they can do, when it runs (with the time), and the reason they gave: what tells rows apart. */}
+              <p className="m-0 mt-0.5 text-[13px] text-ink-2">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? (byAccessPin(item.reason) ? `${accessLevelLabel(item.scope)} · With your Access PIN` : accessLevelLabel(item.scope))}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">From <Nowrap>{dayAndTime(item.startsAt)}</Nowrap>{endedEarly(item) ? ' · ended before ' : ' until '}<Nowrap>{dayAndTime(item.expiresAt)}</Nowrap></p>
+              {theirReason(item) && <p className="m-0 mt-0.5 line-clamp-3 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{theirReason(item)}”</p>}
+              {item.breakGlass && (item.status === 'active'
+                ? <div className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">
+                  <p className="m-0">Used in an emergency. It ends by itself on {dateTime(item.expiresAt)}, and you can’t end it here.</p>
+                  <UnexpectedAccess />
+                </div>
+                : <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>)}
+              {item.status === 'active' && !item.breakGlass && item.patientRevocable === false && <div className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">
+                <p className="m-0">Given by {item.facilityName}. It ends by itself on {date(item.expiresAt)}, and you can’t end it here.</p>
+                <UnexpectedAccess />
+              </div>}
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
+              <Badge tone={statusTone(item.status)} size="sm">{patientAccessStatusLabel(item.status)}</Badge>
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {holderAt(item)}, {accessLevelLabel(item.scope)}, from {dayAndTime(item.startsAt)} until {dayAndTime(item.expiresAt)}{theirReason(item) ? `, reason given: ${theirReason(item)}` : ''}</ItemName></Button>}
+            </div>
+          </li>)}
+          </ul>
+        </div>))}
+      </Card>
+      {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
+      <ShareInvitationsCard onShared={history.reload} activeGrants={activeGrants} />
+    </>}
+
+    {/* hid-system 0093: who viewed or changed the record. An Identity before it answers 404, and the section is not shown. */}
+    {tab === 'activity' && <AccessLogCard />}
+
+    {/* Reviewing a request: everything it asks for, then the decision, without leaving the list. Approve and Deny are the
+        same size, side by side; Deny asks only for a reason, one tap away (a quick one is chosen already). */}
+    <Drawer open={open !== null} onClose={closeReview} title={open?.facilityName ?? ''} icon={<IconChip icon={Building2} tone="warn" />}
+      description={open ? `Asked ${timeAgo(open.requestedAt)} · ${dateTime(open.requestedAt)}` : undefined}
+      footer={open && open.status.toLowerCase() === 'pending' ? <div className="grid w-full grid-cols-2 gap-2">{denying
+        ? <><Button size="lg" block disabled={!!working} onClick={() => { setDenying(false); setReasonProblem(false); focusAfter(byId(`deny-${open.accessRequestId}`)) }}>Back</Button>
+            <Button size="lg" block variant="destructive" type="submit" form="deny-form" loading={working === open.accessRequestId} disabled={!!working}>Deny</Button></>
+        : <><Button size="lg" block id={`deny-${open.accessRequestId}`} icon={X} disabled={!!working || requests.loading} onClick={() => setDenying(true)}>Deny <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button>
+            <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
+        : <Button onClick={closeReview}>Close</Button>}>
+      {open && <div className="flex flex-col gap-5">
+        {signInFor === open.accessRequestId && <Alert intent="error" size="sm">{SAY.signInAgain}
+          <div className="mt-2"><SignInAgainButton back="/access" id={`sign-in-again-${open.accessRequestId}`} /></div></Alert>}
+        {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
+        <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
+          <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
+          <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
+          {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{patientAccessStatusLabel(open.status)}</Badge></dd></div>}
+        </dl>
+        {open.status.toLowerCase() === 'pending' && !denying && <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />{SAY.everyViewRecorded} You can end access at any time.</p>}
+        {/* The paper records rule (records processing, 0104): the OK also covers bringing in paper records while the
+            access lasts; a records-processing request (hid-system #229) says what its own grant allows instead. Said only to an
+            adult, as under-18s are refused paper records; not said while the age is unknown. */}
+        {open.status.toLowerCase() === 'pending' && !denying && adult && <p className="m-0 text-[13px] text-ink-3">{paperRecordsLineForRequest(open)}</p>}
+        {denying && <form id="deny-form" className="flex flex-col gap-3" onSubmit={event => { event.preventDefault(); confirmDenial(open.accessRequestId) }}>
+          <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+            <legend className="mb-1 p-0 text-sm font-medium text-ink">Why are you saying no? <span className="font-normal text-ink-3">They see this.</span></legend>
+            {(Object.keys(QUICK_REASONS) as QuickReason[]).map(key => <label key={key} className={cx('flex min-h-12 cursor-pointer items-center gap-3 rounded-xl px-4 text-sm font-medium has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand',
+              quick === key ? 'bg-brand-soft text-ink ring-[1.5px] ring-brand' : 'bg-surface text-ink-2 ring-1 ring-line hover:bg-subtle')}>
+              <input type="radio" name="deny-reason-choice" value={key} checked={quick === key} autoFocus={quick === key}
+                onChange={() => { setQuick(key); setReasonProblem(false) }} className="size-4 accent-[var(--color-brand-fill)]" />
+              {key === 'other' ? 'Other…' : QUICK_REASONS[key]}</label>)}
+          </fieldset>
+          {quick === 'other' && <Field label="Your reason" htmlFor={`deny-reason-${open.accessRequestId}`} errorId={`deny-reason-problem-${open.accessRequestId}`}
+            error={reasonProblem ? 'Say why in a few words.' : undefined} hintId={`deny-reason-hint-${open.accessRequestId}`} hint="At least 3 characters.">
+            <TextareaR id={`deny-reason-${open.accessRequestId}`} autoFocus rows={3} maxLength={500} value={reason}
+              onChange={event => { setReason(event.target.value); setReasonProblem(false) }}
+              aria-invalid={reasonProblem || undefined} aria-describedby={reasonProblem ? `deny-reason-problem-${open.accessRequestId}` : `deny-reason-hint-${open.accessRequestId}`} />
+          </Field>}
+        </form>}
+      </div>}
+    </Drawer>
+
+    {/* Ending a grant: who, until when, and why, with what an Access PIN still allows. */}
+    <Drawer open={ending !== null} onClose={() => { const id = revoking; setRevoking(null); setRevokeReason(''); if (id) focusAfter(byId(`revoke-${id}`)) }}
+      title={WORDS.endAccess} icon={<IconChip icon={ShieldCheck} tone="danger" />} description={ending ? holderAt(ending) : undefined}
+      footer={ending && <><Button disabled={revokeBusy} onClick={() => { const id = revoking; setRevoking(null); setRevokeReason(''); if (id) focusAfter(byId(`revoke-${id}`)) }}>Cancel</Button>
+        <Button variant="destructive" type="submit" form="revoke-form" loading={revokeBusy} disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>{WORDS.endAccess}</Button></>}>
+      {ending && <div className="flex flex-col gap-5">
+        <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
+          <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
+          {purposeLabel(ending.purpose) && <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{purposeLabel(ending.purpose)}</dd></div>}
+          {/* The same times and reason as its row, so the patient ends the access they chose. */}
+          <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.startsAt)}</dd></div>
+          <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{dayAndTime(ending.expiresAt)}</dd></div>
+          {sharedAs(ending) && <div className="col-span-2"><dt className="text-ink-3">How</dt><dd className="m-0 mt-0.5 font-medium text-ink">{sharedAs(ending)}</dd></div>}
+          {theirReason(ending) && <div className="col-span-2"><dt className="text-ink-3">Reason given</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{theirReason(ending)}</dd></div>}
+        </dl>
+        <form id="revoke-form" className="flex flex-col gap-2" onSubmit={event => { event.preventDefault(); void revoke(ending.consentGrantId) }}>
+          {/* data-autofocus: the drawer gives it focus as it opens (React's autoFocus would be taken back by the drawer). */}
+          <Field label="Why are you ending it?" htmlFor={`revoke-reason-${ending.consentGrantId}`} hintId={`revoke-reason-hint-${ending.consentGrantId}`} hint="At least 3 characters.">
+            <TextareaR id={`revoke-reason-${ending.consentGrantId}`} data-autofocus required minLength={3} maxLength={500} rows={3} value={revokeReason} onChange={event => setRevokeReason(event.target.value)}
+              aria-describedby={`revoke-reason-hint-${ending.consentGrantId} revoke-pin-${ending.consentGrantId}`} />
+          </Field>
+          {/* Ending access leaves the Access PIN as it is: read with the field, so it is heard before the reason is sent. */}
+          <Hint id={`revoke-pin-${ending.consentGrantId}`}>If they have your Access PIN, they can use it to get access again. <Link to="/profile#access-pin" className="font-medium text-brand-ink">Change it in your profile</Link> too.</Hint>
+        </form>
+      </div>}
+    </Drawer>
+  </div>
+}
+
+/** A day and time kept on one line ("11 Nov 2026, 14:41"), so a phone breaks the line between two of them, not inside one. */
+const Nowrap = ({ children }: { children: ReactNode }) => <span className="whitespace-nowrap">{children}</span>
+
+/** One-tap reasons to deny a request; each is long enough for the API (3 characters at least). */
+type QuickReason = 'unknown' | 'not-now' | 'other'
+const QUICK_REASONS: Readonly<Record<QuickReason, string>> = { unknown: 'I don’t know them', 'not-now': 'Not now', other: 'Other' }
+
+/** The parts of Access & sharing, as the address names them (?tab=): Requests when none, or one not known. */
+type AccessTab = 'requests' | 'granted' | 'activity'
+const accessTabOf = (value: string | null): AccessTab => value === 'granted' || value === 'activity' ? value : 'requests'
+
+/** A command refused because the request or access changed elsewhere first (gone, decided, ended or out of date). */
+const changedElsewhere = (cause: unknown) => isHidApiError(cause) && (cause.status === 404 || cause.status === 409 || cause.status === 412)
+  && cause.code !== 'PATIENT_RECENT_AUTH_REQUIRED'
+
+/** Access the patient may not recognise: whom to tell. */
+function UnexpectedAccess() {
+  return <p className="m-0">Don’t recognise this? <a href={supportHref()} className="font-medium text-brand-ink">Contact Health ID support</a>.</p>
+}
+
+/** A card's own heading on Access: the icon, the title (where focus returns after a decision) and a short state. */
+function AccessHeading({ headingRef, icon: I, title, hint }: { headingRef: RefObject<HTMLHeadingElement | null>; icon: Icon; title: string; hint?: string }) {
+  return <div className="flex items-center gap-3 px-5 py-4">
+    <IconChip icon={I} tone="brand" />
+    <div className="min-w-0"><h2 ref={headingRef} tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">{title}</h2>{hint && <p className="m-0 text-[13px] text-ink-3">{hint}</p>}</div>
+  </div>
+}
+
+export function NotificationsPage() {
+  const { api } = useSession()
+  useDocumentTitle('Notifications · Health ID')
+  const notifications = usePatientResource(api.notifications)
+  const { settle } = useUnreadNotifications()
+  const [working, setWorking] = useState<string | null>(null)
+  // Said politely once a notice is marked read (RN-09); mounted with the page, so each change is announced.
+  const [said, setSaid] = useState('')
+  const toast = useToast()
+  const heading = useRef<HTMLHeadingElement>(null)
+  const focusAfter = useActionFocus()
+  const noticesRetry = useRetryFocus(heading)
+  // A notice came, or one was read in another window (the bell's count changed): the list is read again by itself.
+  useOnNotificationChange(() => { void notifications.reload() })
+  const items = notifications.data && !notifications.error ? notifications.data : null
+  const markRead = async (id: string) => {
+    // One at a time (RN-18): the buttons stay where the keyboard is while one runs, and say they are waiting.
+    if (working !== null || notifications.loading) return
+    // The unread ones after this one, in the order shown: focus goes to the first still unread once it is read.
+    const unread = (items ?? []).filter(item => !item.readAt).map(item => item.id)
+    const after = unread.slice(unread.indexOf(id) + 1)
+    setWorking(id); setSaid('')
+    // The row changes from unread to read: that is the result, so no toast says it again.
+    try {
+      await api.markNotificationRead(id); await notifications.reload(); void settle()
+      setSaid('Marked as read.')
+      focusAfter(() => after.map(next => document.getElementById(`mark-read-${next}`)).find(Boolean) ?? heading.current)
+    } catch (cause) {
+      toast.error({ title: 'Couldn’t mark it as read', message: plainErrorText(cause, 'Notification could not be updated.') })
+      focusAfter(() => document.getElementById(`mark-read-${id}`))
+    } finally { setWorking(null) }
+  }
+  const unreadCount = items ? items.filter(item => !item.readAt).length : 0
+  return <div className="flex flex-col gap-6">
+    <PageHeader titleRef={heading} title="Notifications" description={items ? (unreadCount ? `${unreadCount} unread` : 'You’re all caught up.') : undefined} />
+    <PageState what="your notifications" loading={notifications.loading} error={notifications.error} hasData={notifications.data !== null}
+      onRetry={() => noticesRetry.retry(notifications.reload)} retryRef={noticesRetry.button}>{null}</PageState>
+    {items && (items.length === 0
+      ? <EmptyState icon={Bell} title="No notifications" description="You'll hear here when a facility asks for, opens or is given access to your records." />
+      : <Card aria-busy={notifications.loading || undefined}><ul className="m-0 list-none divide-y divide-line p-0">
+        {items.map(item => <li key={item.id} className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
+          <span className="relative mt-0.5"><IconChip size="sm" icon={item.resourceType?.includes('request') ? ShieldCheck : item.resourceType?.includes('record') ? FolderHeart : Bell} tone={item.readAt ? 'neutral' : 'brand'} />
+            {!item.readAt && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-brand-fill ring-2 ring-surface" aria-hidden />}</span>
+          <div className="min-w-0 flex-[1_1_12rem]">
+            <p className={cx('m-0 text-sm break-words text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>
+            <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], timeAgo(item.createdAt)].filter(Boolean).join(' · ')}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
+          </div>
+          {(() => {
+            const action = notificationAction(item)
+            return action || !item.readAt ? <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+              {action && <Button to={action.to} size="sm">{action.label}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+              {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" aria-busy={working === item.id || undefined}
+                aria-disabled={working !== null || notifications.loading || undefined} onClick={() => void markRead(item.id)}>
+                {working === item.id ? 'Marking…' : 'Mark as read'}<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+            </div> : null
+          })()}
+        </li>)}
+      </ul>
+        {/* The list holds the newest only (RN-11): Identity sends at most NOTIFICATIONS_LIMIT. */}
+        {items.length >= NOTIFICATIONS_LIMIT && <p className="m-0 border-t border-line px-4 py-3 text-[13px] text-ink-3 sm:px-5">
+          Showing your {NOTIFICATIONS_LIMIT} most recent notifications. Older ones aren’t shown here.</p>}
+      </Card>)}
+    <p role="status" className="patient-visually-hidden">{said}</p>
+    <ImportedNotificationsCard />
+  </div>
+}
+
+/**
+ * The patient's notifications from their hid-1.0 account (hid-system 0062, on staging-novu-ci-20261005), which the
+ * bell counts while unread. Read once as the page opens, since each read is audited, and never again on a timer; a
+ * read marked here changes the row in place. Title and message are hid-1.0's own text, shown as plain text. Not
+ * shown when there are none, or where Identity does not serve them (404).
+ */
+function ImportedNotificationsCard() {
+  const { api } = useSession()
+  const { settle } = useUnreadNotifications()
+  const load = useCallback((signal?: AbortSignal) => api.importedNotifications(0, signal).catch((caught: unknown) => {
+    if (isHidApiError(caught) && caught.status === 404) return []
+    throw caught
+  }), [api])
+  // Kept for the account under its own name: `load` is made again each time the card is.
+  const first = usePatientResource<ImportedNotification[]>(load, 'imported-notifications')
+  // Older pages "Show older" added; read marks made here, by id.
+  const [older, setOlder] = useState<ImportedNotification[]>([])
+  const [olderEnd, setOlderEnd] = useState(false)
+  const [readHere, setReadHere] = useState<Readonly<Record<string, string>>>({})
+  const [working, setWorking] = useState<string | null>(null)
+  // Each problem beside the control that failed (RN-12): `at` is a row's id, or 'older' for Show older.
+  const [error, setError] = useState<{ at: string; text: string } | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  // After Try again finds no old account, the card is gone: a quiet line takes the keyboard instead (RN-22).
+  const noneLine = useRef<HTMLParagraphElement>(null)
+  const [retried, setRetried] = useState(false)
+  const focusAfter = useActionFocus()
+  const retryTarget = useMemo(() => ({ get current(): HTMLElement | null { return heading.current ?? noneLine.current } }), [])
+  const retryFocus = useRetryFocus(retryTarget)
+
+  const seen = new Set<string>()
+  const items = [...first.data ?? [], ...older].filter(item => !seen.has(item.id) && (seen.add(item.id), true))
+    .map(item => readHere[item.id] && !item.readAt ? { ...item, readAt: readHere[item.id] ?? null } : item)
+  // Until a read has listed some, nothing says the patient had an old account (RN-22): a first read that fails is said
+  // as "if you had one", with Try again, and no card.
+  if (first.error && first.data === null) return <Alert intent="error" size="sm" title="If you had an old Health ID account, its notifications couldn’t be loaded."
+    action={<button ref={retryFocus.button} type="button" onClick={() => { setRetried(true); retryFocus.retry(first.reload) }} className={buttonClass({ size: 'sm' })}>
+      <RotateCcw className="size-3.5" aria-hidden />Try again</button>}>{first.error}</Alert>
+  if (first.error === null && items.length === 0) return retried && first.data !== null
+    ? <p ref={noneLine} tabIndex={-1} role="status" className="m-0 text-[13px] text-ink-3">No notifications from an old account.</p> : null
+  // A full page may have more after it.
+  const more = !olderEnd && (older.length > 0 ? older.length % IMPORTED_NOTIFICATIONS_PAGE === 0
+    : (first.data?.length ?? 0) === IMPORTED_NOTIFICATIONS_PAGE)
+
+  const markRead = async (id: string) => {
+    if (working !== null) return
+    setWorking(id); setError(null)
+    try {
+      const answer = await api.markImportedNotificationRead(id)
+      setReadHere(current => ({ ...current, [id]: answer?.readAt ?? new Date().toISOString() }))
+      void settle()
+      // The row stays, read: focus goes to the next one still unread, else to the heading.
+      const after = items.slice(items.findIndex(item => item.id === id) + 1).filter(item => !item.readAt)
+      focusAfter(() => after.map(item => document.getElementById(`mark-imported-read-${item.id}`)).find(Boolean) ?? heading.current)
+    } catch (cause) {
+      setError({ at: id, text: plainErrorText(cause, 'Couldn’t mark it as read. Try again.') })
+      focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
+    } finally { setWorking(null) }
+  }
+  const showOlder = async () => {
+    if (working !== null) return
+    setWorking('older'); setError(null)
+    let added: ImportedNotification | undefined
+    try {
+      const page = await api.importedNotifications(items.length)
+      added = page.find(item => !seen.has(item.id))
+      setOlder(current => [...current, ...page])
+      if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
+    } catch (cause) {
+      setError({ at: 'older', text: plainErrorText(cause, 'Couldn’t load older notifications. Try again.') })
+    } finally {
+      setWorking(null)
+      // After a page, to the first row it added; else back to the button.
+      focusAfter(() => (added && document.getElementById(`imported-notice-${added.id}`)) || document.getElementById('imported-notifications-older') || heading.current)
+    }
+  }
+  const busyProps = (mine: boolean) => ({ 'aria-busy': mine || undefined, 'aria-disabled': working !== null || undefined })
+
+  return <Card aria-labelledby="imported-notifications-heading">
+    <div className="border-b border-line px-5 py-4">
+      <h2 ref={heading} id="imported-notifications-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">From your old Health ID account</h2>
+    </div>
+    {first.error && <div className="p-5"><LoadProblem what="old notifications" error={first.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(first.reload)} /></div>}
+    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} id={`imported-notice-${item.id}`} tabIndex={-1}
+      className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-brand sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
+      <div className="min-w-0 flex-[1_1_12rem]">
+        <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{item.title || 'A notification from your old account'}</p>
+        {item.message && <p className="m-0 mt-1 text-[13px] whitespace-pre-wrap [overflow-wrap:anywhere] text-ink-2">{item.message}</p>}
+        <p className="m-0 mt-0.5 text-[13px] text-ink-3">{dateTime(item.createdAt)}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
+      </div>
+      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" {...busyProps(working === item.id)} onClick={() => void markRead(item.id)}>
+        {working === item.id ? 'Marking…' : 'Mark as read'}<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></Button>}
+      {error?.at === item.id && <div className="basis-full"><Problem>{error.text}</Problem></div>}</li>)}</ul>}
+    {more && <div className="flex flex-col items-start gap-3 border-t border-line px-5 py-3">
+      {error?.at === 'older' && <Problem>{error.text}</Problem>}
+      <Button id="imported-notifications-older" size="sm" {...busyProps(working === 'older')}
+        onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</Button></div>}
+  </Card>
+}
+
+/**
+ * Why a PIN change was refused. Setting and revoking it need a sign-in within the
+ * last 10 minutes (hid-system recent-authentication.ts); the patient is signed in,
+ * so 'sign in again' alone does not say how, as on account deletion.
+ */
+function pinProblem(cause: unknown, fallback: string) {
+  return plainErrorText(cause, fallback, { codes: {
+    PATIENT_RECENT_AUTH_REQUIRED: SAY.signInAgain,
+    PATIENT_RECENT_RECOVERY_HOLD: 'For your safety, you can’t change your Access PIN for 24 hours after you recover your account.',
+  }, statuses: { 400: 'Your PIN must be 4 to 8 digits.' } })
+}
+
+/**
+ * The Access PIN, at the end of Bio-data (moved there from Settings, which is gone: the owner's decision of
+ * 2026-10-28): its status, Set or Replace PIN, and Remove. A refused PIN is tied to its field (PR-07), as a refused
+ * NIN is. The PIN has a Show PIN toggle, as every password field has, so a mistyped one can be checked before it is
+ * saved (PPS-08). Remove PIN asks first, in a sheet that says what removing it does, with Cancel as easy (PPS-07); only
+ * the button of what runs is busy. A refusal that needs a recent sign-in offers "Sign in again" (PPS-09).
+ */
+function AccessPinSettings({ profile, loading, onChanged }: {
+  profile: PatientProfile; loading: boolean; onChanged: () => Promise<unknown>
+}) {
+  const { api } = useSession()
+  const [pin, setPin] = useState('')
+  const [working, setWorking] = useState<'saving' | 'removing' | null>(null)
+  const busy = working !== null
+  const [asking, setAsking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [signInAgain, setSignInAgain] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [pinFieldError, setPinFieldError] = useState(false)
+  const [errorAlert, setErrorAlert] = useState(true)
+  const pinHeading = useRef<HTMLHeadingElement>(null)
+  // Save PIN is disabled once the field is cleared, so focus goes back to the field.
+  const pinFocus = useStepFocus()
+  const revokePinButton = useRef<HTMLButtonElement>(null)
+  const focusAfter = useActionFocus()
+
+  const configurePin = async (event: FormEvent) => {
+    event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return
+    const fromField = pinFocus.onTarget()
+    setWorking('saving'); setError(null); setSignInAgain(false); setNotice(null); setPinFieldError(false); setErrorAlert(true)
+    try { await api.setAccessPin(pin); setPin(''); setNotice('PIN saved.'); await onChanged() }
+    catch (cause) {
+      const aboutField = isFieldProblem(cause)
+      setError(pinProblem(cause, 'Couldn’t save your PIN. Try again.')); setSignInAgain(needsRecentSignIn(cause))
+      setPinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
+    } finally { setWorking(null); pinFocus.focus() }
+  }
+  const askToRemove = () => { if (!busy) { setAsking(true); setError(null); setSignInAgain(false); setNotice(null) } }
+  // Cancel: the sheet gives focus back to Remove PIN as it closes.
+  const keepPin = () => { if (working !== 'removing') setAsking(false) }
+  const revokePin = async () => {
+    if (busy) return
+    setWorking('removing'); setError(null); setSignInAgain(false); setNotice(null); setPinFieldError(false); setErrorAlert(true)
+    try {
+      await api.revokeAccessPin(); setNotice('PIN removed.'); await onChanged()
+      setAsking(false); focusAfter(() => pinHeading.current)
+    } catch (cause) {
+      setError(pinProblem(cause, 'Couldn’t remove your PIN. Try again.')); setSignInAgain(needsRecentSignIn(cause))
+      setAsking(false); focusAfter(() => revokePinButton.current)
+    } finally { setWorking(null) }
+  }
+
+  const pinError = error && pinFieldError ? <span role={errorAlert ? 'alert' : undefined}>{error}</span> : undefined
+  return <div id="access-pin" className="flex flex-col gap-3 border-t border-line pt-4">
+    {/* The heading is the part's own child: a link to /profile#access-pin takes focus to it (sectionFocus.ts). */}
+    <h3 ref={pinHeading} tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Access PIN</h3>
+    <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-busy={loading || undefined}>
+      <Badge size="sm" tone={profile.accessPinConfigured ? 'success' : 'neutral'}>{profile.accessPinConfigured ? 'Set' : 'Not set'}</Badge>
+      {/* The paper records part only to an adult (under-18s are refused paper records). */}
+      {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
+    <Saved>{notice}</Saved>
+    {/* On a phone, Save PIN goes under the field and its hint; wider, beside the field. */}
+    <form onSubmit={event => void configurePin(event)} className="flex flex-col items-start gap-3 sm:flex-row sm:gap-2">
+      {/* Wide enough for the Show PIN toggle beside eight digits, on a 320px phone too. */}
+      <Field className="w-full max-w-64 sm:w-60" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
+        errorId="access-pin-error" error={pinError}>
+        <PasswordInput id="access-pin-input" ref={pinFocus.target} toggleLabel="Show PIN" required inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin}
+          onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+          aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'access-pin-error')} />
+      </Field>
+      <Button type="submit" variant="primary" className="shrink-0 sm:mt-[25px]" loading={working === 'saving'} disabled={busy || !/^\d{4,8}$/.test(pin)}>{working === 'saving' ? 'Saving…' : 'Save PIN'}</Button>
+    </form>
+    {error && !pinFieldError && <Problem id="access-pin-error" alert={errorAlert}>{error}</Problem>}
+    {error && signInAgain && <SignInAgain at="access-pin" />}
+    {profile.accessPinConfigured && <ButtonR ref={revokePinButton} variant="danger" className="self-start" disabled={busy || loading} onClick={askToRemove}>Remove PIN</ButtonR>}
+    <ConfirmSheet open={asking} onClose={keepPin} title="Remove your Access PIN?" destructive busy={working === 'removing'}
+      effect="Hospitals you gave this PIN to won’t be able to use it to open your records."
+      undo="You can set a new PIN later." confirmLabel={working === 'removing' ? 'Removing…' : 'Remove PIN'} onConfirm={() => void revokePin()} />
+  </div>
+}
+
+/**
+ * Settings is gone (the owner's decision of 2026-10-28): its Access PIN, emergency contacts and account deletion are on
+ * the profile, and Google sign-in links by the verified email, so there is nothing to link here. An old link opens the
+ * profile at the same # (/settings#emergency-contacts opens Health information there).
+ */
+export function SettingsRedirect() {
+  const { hash } = useLocation()
+  return <Navigate to={{ pathname: '/profile', hash }} replace />
+}

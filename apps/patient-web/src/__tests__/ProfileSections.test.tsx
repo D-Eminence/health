@@ -1,0 +1,452 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, isInaccessible, screen, waitFor, within } from '@testing-library/react'
+import { Route, Routes } from 'react-router-dom'
+import type { PatientProfile } from '../api'
+import type { HealthProfile, ProfileDetails } from '../profileParity'
+import { ProfilePage, SettingsRedirect } from '../routes/Portal'
+import { SAY } from '../copy'
+import { EmergencyContactsCard } from '../routes/AccountSafety'
+import { focusWhenShown } from './focusWhenShown'
+import { forgetAccountDeletionServed } from '../accountDeletionServed'
+import { completionCard, heading, json, openContactDetails, openSection, press, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
+
+const novu = vi.hoisted(() => ({ on: true }))
+vi.mock('../backendContract', () => ({ usesNovuBackend: () => novu.on }))
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { novu.on = true; environment.IS_REACT_ACT_ENVIRONMENT = undefined; forgetAccountDeletionServed() })
+
+/**
+ * The profile's sections, closed until the patient opens one (the owner's decision of 2026-10-28: "All those profile
+ * sections should be auto collapse until click"): the same cards, showing their heading alone, each opened and closed
+ * by the button in its heading, and opened by a link to it. The completion is not one: as on hid-1.0 it is always
+ * shown, first. The photo, the contact details and the Access PIN are in Bio-data, the emergency contacts are in Health
+ * information, and Delete account is last (the owner's decisions of 2026-10-28). There is no Settings page.
+ */
+const patient: PatientProfile = {
+  ...profile, gender: 'female', state: 'Lagos', ninVerified: false, assuranceState: 'SELF_ASSERTED',
+  email: 'ada@example.com', phone: '+2348031234567', phoneVerified: false, hasPhoto: false,
+}
+const details: ProfileDetails = { hospitalCurrentlyUsing: 'Lagos University Teaching Hospital', hmoName: null, rowVersion: 2 }
+const health: HealthProfile = { bloodGroup: 'O+', genotype: 'AA', allergies: null, currentMedications: null, chronicConditions: null,
+  medicalNotes: null, rowVersion: 1, updatedAt: '2026-10-28T09:00:00.000Z' }
+const hid1 = { content: { blood_group: 'O+', genotype: 'AA', allergies: 'Penicillin' }, updatedAt: '2025-11-03T09:00:00Z' }
+
+/** Every section the profile has, in the order it shows them. 8 of the 12 completion items are done (67%). */
+const SECTIONS = ['About you', 'Insurance & hospital', 'Health information', 'From your old Health ID account', 'Verify your NIN']
+const HMO = 'HMO (health insurance) (optional)'
+const NIN = 'NIN (11 digits)'
+
+/** Each read the profile makes answered; `overrides` by "METHOD path". */
+function gateway(overrides: Partial<Record<string, (body: unknown) => Response | Promise<Response>>> = {}): Handler {
+  let saved = details
+  return (path, method, body) => {
+    const override = overrides[`${method} ${path}`]
+    if (override) return override(body)
+    if (path === '/identity/me' && method === 'GET') return json(patient)
+    if (path === '/identity/me/photo') return problem(404, 'PHOTO_NOT_FOUND', 'No photo')
+    if (path === '/identity/me/profile-details' && method === 'GET') return json(saved)
+    if (path === '/identity/me/profile-details' && method === 'PUT') {
+      const { expectedVersion: _version, ...fields } = body as ProfileDetails & { expectedVersion: number }
+      saved = { ...fields, rowVersion: saved.rowVersion + 1 }
+      return json(saved)
+    }
+    if (path === '/ehr/me/health-profile') return json(health)
+    if (path === '/identity/me/emergency-contacts/availability') return json({ delivery: true, channels: ['sms', 'email'] })
+    if (path === '/identity/me/emergency-contacts') return json([])
+    if (path === '/ehr/me/records') return json({ encounters: [], notes: [], importedRecords: [], importedHealthProfile: hid1, limit: 50 })
+    return problem(404, 'NOT_FOUND', `${method} ${path}`)
+  }
+}
+const atProfile = (at: string, handler: Handler = gateway()) =>
+  renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /></Routes>, handler, {}, { parityB3: true, at })
+
+/** What the button in a section's heading opens. */
+const content = (name: string) => document.getElementById(sectionToggle(name).getAttribute('aria-controls') ?? '') as HTMLElement
+const isOpen = (name: string) => sectionToggle(name).getAttribute('aria-expanded') === 'true'
+async function allShown() {
+  for (const name of SECTIONS) await screen.findByRole('heading', { name, level: 2 })
+}
+const click = (element: HTMLElement) => act(async () => { fireEvent.click(element) })
+/** "More", at the end of the profile, which holds Delete account, once it is shown. */
+async function moreOf() {
+  const more = (await screen.findByText(/^More/, { selector: 'summary' })).closest('details') as HTMLDetailsElement
+  await waitFor(() => expect(more.hidden).toBe(false))
+  return more
+}
+
+describe('a section of the profile', () => {
+  it('is shown closed, its heading alone, with nothing in it reachable', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await allShown()
+    for (const name of SECTIONS) {
+      const toggle = sectionToggle(name)
+      expect(toggle.getAttribute('aria-expanded'), name).toBe('false')
+      expect(toggle.closest('h2')?.parentElement?.id, name).toBe(content(name).id.replace(/-content$/, ''))
+      expect(content(name).hidden, name).toBe(true)
+      expect(isInaccessible(content(name)), name).toBe(true)
+    }
+    // The photo is changed on the Health ID card, above the sections, which is never closed.
+    expect(isInaccessible(screen.getByLabelText('Add a photo to your card'))).toBe(false)
+    // Nothing inside a section can be reached while closed: not a field or a button.
+    expect(screen.queryByRole('button', { name: 'Change email address' })).toBeNull()
+    expect(isInaccessible(screen.getByLabelText('Set PIN'))).toBe(true)
+    expect(screen.queryByRole('textbox', { name: HMO })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Blood group' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add emergency contact' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: NIN })).toBeNull()
+    // The only buttons are the Health ID's (it copies itself) and the headings'.
+    expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'HID-ABC234' }), ...SECTIONS.map(sectionToggle)])
+    // The completion is shown in full, first, above every section.
+    const completion = await completionCard()
+    expect(completion.getAttribute('aria-expanded')).toBeNull()
+    expect(within(completion).getByRole('link', { name: 'A photo on your card' })).toBeTruthy()
+    expect(completion.compareDocumentPosition(heading('About you')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it.each(SECTIONS)('%s opens on a click on its heading, alone, and closes on another', async name => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await allShown()
+    await click(sectionToggle(name))
+    expect(isOpen(name)).toBe(true)
+    expect(content(name).hidden).toBe(false)
+    expect(isInaccessible(content(name))).toBe(false)
+    expect(SECTIONS.filter(isOpen)).toEqual([name])
+    await click(sectionToggle(name))
+    expect(isOpen(name)).toBe(false)
+    expect(content(name).hidden).toBe(true)
+  })
+
+  it('opens what it holds: the contact changes and the PIN in About you, the forms, the emergency contacts', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    const bio = within(await openSection('About you'))
+    expect(bio.getByRole('button', { name: 'Change email address' })).toBeTruthy()
+    expect(bio.getByLabelText('Set PIN')).toBeTruthy()
+    expect(within(await openSection('Insurance & hospital')).getByRole('textbox', { name: HMO })).toBeTruthy()
+    const health = within(await openSection('Health information'))
+    expect(health.getByRole('combobox', { name: 'Blood group' })).toBeTruthy()
+    // The contacts are a read of their own (availability, then the list), which nothing above waits for: on Novu they
+    // show nothing until it is in.
+    expect(await health.findByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
+    expect(within(await openSection('Verify your NIN')).getByRole('textbox', { name: NIN })).toBeTruthy()
+  })
+
+  it('has no Photo or Contact details section: the photo is on the card, the email and phone in About you after its rows, with no heading', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await allShown()
+    expect(screen.queryByRole('heading', { name: 'Contact details' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Photo' })).toBeNull()
+    expect(screen.queryByText('Contact details')).toBeNull()
+    const bio = await openSection('About you')
+    const block = await openContactDetails()
+    expect(content('About you').contains(block)).toBe(true)
+    expect(block.querySelector('h2, h3')).toBeNull()
+    expect(within(block).getByText('a•••@example.com')).toBeTruthy()
+    // After About you's rows, and the photo, on the card, before them.
+    const rows = within(bio).getByText('Full name').closest('dl') as HTMLElement
+    expect(rows.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByLabelText('Add a photo to your card').compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('ends About you with the Access PIN, after the email and phone, under a small heading', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    const bio = await openSection('About you')
+    const pin = within(bio).getByRole('heading', { name: 'Access PIN', level: 3 }).parentElement as HTMLElement
+    expect(pin.id).toBe('access-pin')
+    expect((bio.querySelector('#contact-details') as HTMLElement).compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(pin).getByText('Not set')).toBeTruthy()
+    expect(document.getElementById('access-pin-hint')?.textContent).toBe('4 to 8 digits. You must have signed in within the last 10 minutes to change it.')
+    // No Settings page: this device's settings, under the sections, offer nothing until one is served (and are hidden then).
+    const settings = screen.getByRole('heading', { name: 'Settings' }).closest('section') as HTMLElement
+    expect(settings.querySelector('[data-setting]')).toBeNull()
+    expect(pin.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('holds the emergency contacts in Health information, after its form, with no section or card of their own', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await allShown()
+    expect(screen.queryByRole('heading', { name: 'Emergency contacts', level: 2 })).toBeNull()
+    const health = await openSection('Health information')
+    // On Novu the contacts show nothing until their own read is in (availability, then the list), which neither the
+    // sections' headings nor the section's opening wait for.
+    await within(health).findByText('Up to 5 contacts.')
+    const block = health.querySelector('#emergency-contacts') as HTMLElement
+    expect(block.parentElement?.closest('section')).toBe(health)
+    expect(block.tagName).not.toBe('SECTION')
+    expect(within(block).getByRole('heading', { name: 'Emergency contacts', level: 3 })).toBeTruthy()
+    const save = within(health).getByRole('button', { name: 'Save health information' })
+    expect(save.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(block).getByText('If a health worker opens your records in an emergency, verified contacts are told who, where and when. Never your medical details.')).toBeTruthy()
+    expect(within(block).getByText('Up to 5 contacts.')).toBeTruthy()
+  })
+
+  it('shows Health information without the emergency contacts where their routes are not served (404)', async () => {
+    renderPortal(<ProfilePage />, gateway({
+      'GET /identity/me/emergency-contacts/availability': () => problem(404, 'NOT_FOUND', 'Cannot GET'),
+      'GET /identity/me/emergency-contacts': () => problem(404, 'NOT_FOUND', 'Cannot GET'),
+    }), {}, { parityB3: true })
+    const health = await openSection('Health information')
+    expect(within(health).getByRole('combobox', { name: 'Blood group' })).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(document.getElementById('emergency-contacts')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
+  })
+
+  it('ends with Delete account, under More, where it is served', async () => {
+    renderPortal(<ProfilePage />, gateway({
+      'GET /identity/me/account-deletion': () => json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null }),
+    }), {}, { parityB3: true })
+    await allShown()
+    // Out of the way: More is closed (a browser shows nothing in a closed <details> but its summary).
+    const more = await moreOf()
+    expect(more.open).toBe(false)
+    expect(more.querySelector('summary')?.textContent).toBe('More: delete your account')
+    await click(more.querySelector('summary') as HTMLElement)
+    expect(more.open).toBe(true)
+    const order = screen.getAllByRole('heading', { level: 2 })
+    expect(order.at(-1)).toBe(heading('Delete account'))
+    expect(more.contains(heading('Delete account'))).toBe(true)
+    const card = within(heading('Delete account').closest('section') as HTMLElement)
+    expect(card.getByText('This signs you out everywhere and removes your Access PIN, share invites, emergency contacts and the access you gave. Your Health ID and medical records are kept. You have 14 days to change your mind; after that, it can’t be undone.')).toBeTruthy()
+    expect(card.getByText('You must have signed in within the last 10 minutes to delete your account.')).toBeTruthy()
+    expect(card.queryByText(SAY.signInAgain)).toBeNull()
+    expect(card.getByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
+  })
+
+  it('opens More by itself when the deletion status could not be read, or a deletion is scheduled', async () => {
+    const first = renderPortal(<ProfilePage />, gateway({
+      'GET /identity/me/account-deletion': () => problem(500, 'INTERNAL', 'Account deletion is unavailable.'),
+    }), {}, { parityB3: true })
+    await waitFor(async () => expect((await moreOf()).open).toBe(true))
+    const failed = within(heading('Delete account').closest('section') as HTMLElement)
+    expect(failed.getByRole('alert').textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+    first.view.unmount()
+
+    renderPortal(<ProfilePage />, gateway({
+      'GET /identity/me/account-deletion': () => json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: {
+        requestId: 'req-1', state: 'pending', requestedAt: '2026-10-08T10:00:00Z', confirmationExpiresAt: null,
+        scheduledFor: '2026-10-22T10:00:00Z', blockedReasonCode: null, cancelledAt: null, cancellable: true } }),
+    }), {}, { parityB3: true })
+    await waitFor(async () => expect((await moreOf()).open).toBe(true))
+    expect(screen.getByText(/^Your account will be deleted on/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cancel deletion' })).toBeTruthy()
+  })
+
+  it('has a heading that is a button in the tab order, which the browser presses with Enter or Space', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await allShown()
+    const toggle = screen.getByRole('button', { name: 'Insurance & hospital', expanded: false }) as HTMLButtonElement
+    expect(toggle).toBe(sectionToggle('Insurance & hospital'))
+    expect(toggle.parentElement).toBe(heading('Insurance & hospital'))
+    expect(heading('Insurance & hospital').tagName).toBe('H2')
+    // A native button, never a form's submit, focusable from the keyboard.
+    expect([toggle.tagName, toggle.type, toggle.tabIndex, toggle.disabled]).toEqual(['BUTTON', 'button', 0, false])
+    toggle.focus()
+    expect(document.activeElement).toBe(toggle)
+    // A key alone changes nothing: the click the browser sends for it does, so one key never opens and closes it.
+    fireEvent.keyDown(toggle, { key: 'Enter' })
+    fireEvent.keyUp(toggle, { key: 'Enter' })
+    fireEvent.keyDown(toggle, { key: ' ' })
+    fireEvent.keyUp(toggle, { key: ' ' })
+    expect(isOpen('Insurance & hospital')).toBe(false)
+    // Enter: the browser sends a click as the key goes down.
+    fireEvent.keyDown(toggle, { key: 'Enter' })
+    await click(toggle)
+    expect(isOpen('Insurance & hospital')).toBe(true)
+    expect(document.activeElement).toBe(toggle)
+    // Space: a click as the key comes up.
+    fireEvent.keyDown(toggle, { key: ' ' })
+    fireEvent.keyUp(toggle, { key: ' ' })
+    await click(toggle)
+    expect(isOpen('Insurance & hospital')).toBe(false)
+    expect(document.activeElement).toBe(toggle)
+  })
+
+  it('says in its heading what helps the patient decide to open it, from what the page has read', async () => {
+    renderPortal(<ProfilePage />, gateway({ 'GET /ehr/me/health-profile': () => problem(503, 'UPSTREAM_UNAVAILABLE', 'EHR is unavailable.') }),
+      {}, { parityB3: true })
+    await allShown()
+    // The heading is named by its title; what it says beside it is the button's description. Without the health
+    // information, 6 of 10 are done, which the completion, always shown, says.
+    await waitFor(async () => expect((await completionCard()).textContent).toContain('60% · 4 to add'))
+    expect(screen.getByRole('button', { name: 'Health information', description: 'Could not load' })).toBeTruthy()
+    for (const name of ['About you', 'Insurance & hospital']) {
+      expect(sectionToggle(name).getAttribute('aria-describedby'), name).toBeNull()
+    }
+    expect(screen.getByRole('button', { name: 'From your old Health ID account', description: 'Read only' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Verify your NIN', description: 'Optional' })).toBeTruthy()
+    // The read's alert is there once it is opened.
+    expect(within(await openSection('Health information')).getByRole('alert').textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
+  })
+
+  it('keeps what was typed while it is closed, and opens with it again', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    const coverage = within(await openSection('Insurance & hospital'))
+    fireEvent.change(coverage.getByRole('textbox', { name: HMO }), { target: { value: 'Hygeia HMO' } })
+    const contact = within(await openContactDetails())
+    await press(contact.getByRole('button', { name: 'Change email address' }))
+    fireEvent.change(contact.getByRole('textbox', { name: 'New email address' }), { target: { value: 'new.address@example.com' } })
+
+    await click(sectionToggle('Insurance & hospital'))
+    await click(sectionToggle('About you'))
+    expect(screen.queryByRole('textbox', { name: HMO })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'New email address' })).toBeNull()
+
+    await openSection('Insurance & hospital')
+    expect((coverage.getByRole('textbox', { name: HMO }) as HTMLInputElement).value).toBe('Hygeia HMO')
+    expect((coverage.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false)
+    await openSection('About you')
+    expect((contact.getByRole('textbox', { name: 'New email address' }) as HTMLInputElement).value).toBe('new.address@example.com')
+  })
+
+  it('stays open after a save, with focus on its heading', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    const coverage = within(await openSection('Insurance & hospital'))
+    fireEvent.change(coverage.getByRole('textbox', { name: HMO }), { target: { value: 'Hygeia HMO' } })
+    await press(coverage.getByRole('button', { name: 'Save' }))
+    expect(await coverage.findByText('Saved.')).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(heading('Insurance & hospital')))
+    expect(isOpen('Insurance & hospital')).toBe(true)
+    // The completion read again counts the HMO: 9 of 12.
+    await waitFor(async () => expect((await completionCard()).textContent).toContain('75% · 3 to add'))
+    expect(SECTIONS.filter(isOpen)).toEqual(['Insurance & hospital'])
+  })
+
+  it('is open or closed in the page\'s memory only, and closed again when the page is next opened', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const { view } = renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await openSection('Insurance & hospital')
+    await openSection('Health information')
+    expect(setItem).not.toHaveBeenCalled()
+    view.unmount()
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    await allShown()
+    expect(SECTIONS.filter(isOpen)).toEqual([])
+  })
+
+  it('is the open card it was where it is shown off the profile page', async () => {
+    renderPortal(<EmergencyContactsCard alone />, gateway())
+    expect(within(await screen.findByRole('heading', { name: 'Health information' })).queryByRole('button')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
+  })
+})
+
+describe('a link to a section of the profile', () => {
+  it('opens it at once, while it is still read, with focus on its heading\'s button, which keeps focus once it is read', async () => {
+    // Insurance & hospital holds its place while it is first read (PPS-06), so a link to it lands there at once.
+    let answer!: () => void
+    const read = new Promise<void>(resolve => { answer = resolve })
+    const shown = focusWhenShown(() => document.querySelector<HTMLElement>('#coverage h2 > button'))
+    atProfile('/profile#coverage', gateway({ 'GET /identity/me/profile-details': async () => { await read; return json(details) } }))
+    const { element, focused } = await shown
+    expect(element.getAttribute('aria-expanded')).toBe('true')
+    expect(focused).toBe(element)
+    expect(within(content('Insurance & hospital')).getByRole('status', { name: 'Loading your insurance and hospital' })).toBeTruthy()
+    await act(async () => { answer() })
+    expect(await within(content('Insurance & hospital')).findByRole('textbox', { name: HMO })).toBeTruthy()
+    expect(document.activeElement).toBe(element)
+    await allShown()
+    expect(SECTIONS.filter(isOpen)).toEqual(['Insurance & hospital'])
+  })
+
+  it.each([
+    ['bio-data', 'About you'], ['health-information', 'Health information'], ['nin-verification', 'Verify your NIN'],
+  ])('to #%s opens %s, and only it', async (id, name) => {
+    atProfile(`/profile#${id}`)
+    await allShown()
+    await waitFor(() => expect(document.activeElement).toBe(sectionToggle(name)))
+    expect(SECTIONS.filter(isOpen)).toEqual([name])
+  })
+
+  it.each([['/profile#emergency-contacts'], ['/settings#emergency-contacts']])('to %s opens Health information, alone, with focus on the emergency contacts', async at => {
+    renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /><Route path="/settings" element={<SettingsRedirect />} /></Routes>,
+      gateway(), {}, { parityB3: true, at })
+    await allShown()
+    const title = await screen.findByRole('heading', { name: 'Emergency contacts', level: 3 })
+    await waitFor(() => expect(document.activeElement).toBe(title))
+    expect(SECTIONS.filter(isOpen)).toEqual(['Health information'])
+    expect(content('Health information').contains(title)).toBe(true)
+  })
+
+  it('to /settings opens the profile, every section closed', async () => {
+    renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /><Route path="/settings" element={<SettingsRedirect />} /></Routes>,
+      gateway(), {}, { parityB3: true, at: '/settings' })
+    expect(await screen.findByRole('heading', { name: 'Profile', level: 1 })).toBeTruthy()
+    await allShown()
+    expect(SECTIONS.filter(isOpen)).toEqual([])
+  })
+
+  it('to #emergency-contacts on hid-system main, before the health information is served, opens Health information holding them alone', async () => {
+    novu.on = false
+    // On main the contacts' title is shown, with "Loading your contacts", as soon as the health information's 404 shows
+    // the section, and focus goes to it then. The completion ("Finish your profile") and "Add emergency contact" are
+    // shown only once the contacts are read (availability, then the list, one read the page and the card share), which
+    // can be after that. The list is held back until focus is there, so every run takes that order, not only a slow one.
+    let answer!: () => void
+    const listed = new Promise<void>(resolve => { answer = resolve })
+    atProfile('/profile#emergency-contacts', gateway({
+      'GET /ehr/me/health-profile': () => problem(404, 'NOT_FOUND', 'Cannot GET'),
+      'GET /identity/me/emergency-contacts': async () => { await listed; return json([]) },
+    }))
+    const title = await screen.findByRole('heading', { name: 'Emergency contacts', level: 3 })
+    await waitFor(() => expect(document.activeElement).toBe(title))
+    answer()
+    // Once the list is in: the completion is shown, and the contacts offer to add one.
+    await screen.findByRole('heading', { name: 'Finish your profile', level: 2 })
+    const health = within(content('Health information'))
+    expect(await health.findByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
+    // Main sends no hid-1.0 health details, so there is no section for them.
+    expect(screen.getAllByRole('heading', { level: 2 })).toEqual(['Finish your profile', 'About you', 'Insurance & hospital', 'Health information',
+      'Verify your NIN', 'Settings'].map(name => heading(name)))
+    expect(isOpen('Health information')).toBe(true)
+    expect(health.queryByRole('combobox', { name: 'Blood group' })).toBeNull()
+    // The list taking the place of "Loading your contacts", and the completion appearing above, leave focus where it was.
+    expect(document.activeElement).toBe(title)
+  })
+
+  it('to #access-pin opens About you, alone, with focus on the Access PIN heading', async () => {
+    atProfile('/profile#access-pin')
+    await allShown()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Access PIN', level: 3 })))
+    expect(SECTIONS.filter(isOpen)).toEqual(['About you'])
+  })
+
+  it('to #contact-details opens About you, alone, with focus on the email and phone', async () => {
+    atProfile('/profile#contact-details')
+    await allShown()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('contact-details')))
+    expect(SECTIONS.filter(isOpen)).toEqual(['About you'])
+    expect(within(content('About you')).getByRole('button', { name: 'Change email address' })).toBeTruthy()
+  })
+
+  it('to #profile-completion opens nothing, and takes focus to the completion\'s heading', async () => {
+    atProfile('/profile#profile-completion')
+    await allShown()
+    await waitFor(() => expect(document.activeElement).toBe(heading('Finish your profile')))
+    expect(SECTIONS.filter(isOpen)).toEqual([])
+  })
+
+  it('stays closed once the patient closes it, until a link names it again', async () => {
+    atProfile('/profile#coverage')
+    await allShown()
+    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Insurance & hospital')))
+    const toggle = sectionToggle('Insurance & hospital')
+    await press(toggle)
+    expect(isOpen('Insurance & hospital')).toBe(false)
+    // The completion's "Your HMO" names it again: it is open by the time focus reaches it, in the same commit.
+    let openAsFocused: string | null = null
+    toggle.addEventListener('focus', () => { openAsFocused = toggle.getAttribute('aria-expanded') })
+    const link = within(await completionCard()).getByRole('link', { name: 'Your HMO (health insurance)' })
+    await press(link)
+    expect(document.activeElement).toBe(toggle)
+    expect(openAsFocused).toBe('true')
+  })
+
+  it('with a # that does not decode, or names no section, opens nothing', async () => {
+    for (const at of ['/profile#%E0%A4%A', '/profile#%', '/profile#nothing-here']) {
+      const { view } = atProfile(at)
+      await allShown()
+      expect(SECTIONS.filter(isOpen), at).toEqual([])
+      view.unmount()
+    }
+  })
+})

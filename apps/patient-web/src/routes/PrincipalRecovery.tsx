@@ -1,0 +1,174 @@
+import { useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
+import { Turnstile } from '../Turnstile'
+import { AuthLayout } from '../AuthLayout'
+import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
+import { STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../productHostname'
+import { OpenStaffPage } from '../staffSignIn'
+import { describedBy, isFieldProblem, recoveryRefusal, useDocumentTitle, useStepFocus } from '../authSteps'
+import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
+
+type Step = 'start' | 'code' | 'password' | 'complete'
+
+/** Recovery uses only component memory for the challenge and completion token. */
+export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) {
+  const api = useMemo(() => createPrincipalRecoveryApi(audience), [audience])
+  const signInPath = audience === 'staff' ? '/provider/sign-in' : '/admin/sign-in'
+  // On the production portal or an admin site, staff sign in on the EHR site (staffSignInHref).
+  const signInElsewhere = audience === 'staff' ? staffSignInHref(window.location.hostname) : null
+  const signInLink = (label: string, className?: string) => signInElsewhere
+    ? <a className={className} href={signInElsewhere}>{label}</a>
+    : <Link className={className} to={signInPath}>{label}</Link>
+  const accountLabel = audience === 'staff' ? 'Provider' : 'Platform'
+  useDocumentTitle(`Reset your password · Health ID ${accountLabel}`)
+  const stepFocus = useStepFocus()
+  const [step, setStep] = useState<Step>('start')
+  const [identifier, setIdentifier] = useState('')
+  const [challengeId, setChallengeId] = useState('')
+  const [code, setCode] = useState('')
+  const [verificationToken, setVerificationToken] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState(false)
+  // As in patient recovery: an error about the field is spoken by its description
+  // once focus moves there, and is an alert only when focus is already in the field.
+  const [errorAlert, setErrorAlert] = useState(true)
+  // A code was refused: it may be the account's spent code budget, which the refusal does not tell apart.
+  const budget = useCodeBudgetNote()
+  const resend = useResendWait()
+
+  // Each product site has its own staff reset, which hid-system accepts there (staff-reset). Opened on a site that
+  // serves no staff pages (the production portal, an admin site), the page opens the EHR site's at once.
+  const elsewhere = audience === 'staff' ? staffRecoveryHref(window.location.hostname) : STAFF_RECOVERY_PATH
+  if (elsewhere !== STAFF_RECOVERY_PATH) return <OpenStaffPage href={elsewhere} />
+
+  async function run(operation: () => Promise<void>, stepCodes: readonly string[] = []) {
+    const fromField = stepFocus.onTarget()
+    setBusy(true)
+    setError(null)
+    setFieldError(false)
+    try { await operation() }
+    catch (reason) {
+      if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(identifier)
+      const aboutField = isFieldProblem(reason, stepCodes)
+      // A staff reset is said in plain words (owner's rule, 1 Nov 2026); the admin console's wording is its own.
+      setError(audience === 'staff' ? recoveryRefusal(reason, 'facility')
+        : isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
+      setFieldError(aboutField)
+      setErrorAlert(!aboutField || fromField)
+    } finally {
+      setBusy(false)
+      stepFocus.focus()
+    }
+  }
+
+  function start(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy || !turnstileToken) return
+    void run(async () => {
+      try {
+        const result = await api.start(identifier.trim(), turnstileToken)
+        budget.started(identifier)
+        setChallengeId(result.challengeId)
+        resend.begin(result.resendAfterSeconds)
+        setStep('code')
+      } finally {
+        // A siteverify token is single use, even when the request fails.
+        setTurnstileToken(null)
+        setTurnstileResetKey(value => value + 1)
+      }
+    })
+  }
+
+  function verify(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy || !challengeId || code.length !== 6) return
+    void run(async () => {
+      const result = await api.verify(challengeId, code)
+      budget.accepted()
+      setVerificationToken(result.verificationToken)
+      setCode('')
+      setStep('password')
+    }, ['OTP_INVALID_OR_EXPIRED'])
+  }
+
+  function complete(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy || !challengeId || !verificationToken || password.length < 12 || password !== confirmPassword) return
+    void run(async () => {
+      await api.complete(challengeId, verificationToken, password)
+      setVerificationToken('')
+      setPassword('')
+      setConfirmPassword('')
+      setStep('complete')
+    })
+  }
+
+  // Back to the first step, the work email kept. The budget note stays for a start with the same one (useCodeBudgetNote).
+  function restart() {
+    if (busy) return
+    setStep('start')
+    setError(null)
+    setFieldError(false)
+    setCode('')
+    setChallengeId('')
+    setVerificationToken('')
+    setPassword('')
+    setConfirmPassword('')
+    resend.reset()
+    stepFocus.focus()
+  }
+
+  // The error is about the step's field when the server refused its value.
+  const invalid = fieldError ? true : undefined
+  const errorId = fieldError ? 'principal-recovery-error' : undefined
+  // Not while the confirmation is still being typed and agrees so far.
+  const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
+
+  return <AuthLayout brandTo={signInElsewhere ?? signInPath} title="Reset your password." titleId="principal-recovery-title"
+    lede={`For ${accountLabel.toLowerCase()} accounts.`}>
+    {error && <p id="principal-recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
+    {step === 'start' && <form onSubmit={start} className="patient-form">
+      <p id="principal-recovery-start-hint" className="patient-page-copy">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
+      <label>Work email<input ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier} onChange={event => setIdentifier(event.target.value)}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-start-hint', errorId)} /></label>
+      <Turnstile action={audience === 'staff' ? 'staff-reset' : 'admin-reset'} onTokenChange={setTurnstileToken} resetKey={turnstileResetKey} />
+      <button className="patient-primary-button" type="submit" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button>
+    </form>}
+    {step === 'code' && <form onSubmit={verify} className="patient-form">
+      <p id="principal-recovery-code-hint" className="patient-page-copy">Enter the six digit code sent to your verified contact.</p>
+      <label>Recovery code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-code-hint', errorId)} /></label>
+      <button className="patient-primary-button" type="submit" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
+      {budget.shown && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
+    </form>}
+    {step === 'password' && <form onSubmit={complete} className="patient-form">
+      <p id="principal-recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
+      {/* Two fields, so each toggle is named for its own (a screen reader's list of buttons shows both). */}
+      <div className="patient-field"><label htmlFor="principal-recovery-password">New password</label><PasswordInput appearance="plain" id="principal-recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-password-hint', errorId)} /></div>
+      <div className="patient-field"><label htmlFor="principal-recovery-confirm">Confirm new password</label><PasswordInput appearance="plain" id="principal-recovery-confirm" toggleLabel="Show confirmed password" required autoComplete="new-password" minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)}
+        aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'principal-recovery-mismatch' : undefined} /></div>
+      {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke (PA-05). */}
+      <div aria-live="polite">{mismatch && <p id="principal-recovery-mismatch" className="patient-inline-error">Passwords do not match.</p>}</div>
+      <button className="patient-primary-button" type="submit" disabled={busy || password.length < 12 || password !== confirmPassword}>{busy ? 'Saving…' : 'Reset password'}</button>
+    </form>}
+    {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
+      {signInLink('Sign in', 'patient-primary-button')}</div>}
+    {/* A start within the previous one's wait sends no code for the same identifier, which answers the same
+        challenge (hid-system #55, migration 0081), nor for the same account's other identifier; another
+        account's work email may be entered at once. A new code is offered once the wait has passed, in a region
+        mounted throughout, so it is announced. */}
+    {(step === 'code' || step === 'password') && <div className="patient-auth-footer">
+      <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Use a different work email</button>
+      <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>
+        <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
+    <p className="patient-auth-footer">{signInLink(`Back to ${accountLabel.toLowerCase()} sign in`)}</p>
+  </AuthLayout>
+}

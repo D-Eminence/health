@@ -1,0 +1,284 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useEffect, useState } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { createApiClient } from '@hid/http'
+import { PATIENT_ROUTE, STAFF_ROUTE, type SessionState } from '@hid/auth'
+import { RequireAccess } from '../RequireAccess'
+import { createTestSessionValue, SessionContext } from '../session'
+import { createPatientApi, type PatientApi } from '../api'
+import type { PatientPrincipal, StaffPrincipal } from '@hid/auth'
+import { focusWhenShown } from './focusWhenShown'
+import { press, pressOnArrival } from './portalHarness'
+
+const patient: PatientPrincipal = {
+  kind: 'patient',
+  subjectId: 'subject-1',
+  appRole: 'patient',
+  assuranceLevel: 'aal1',
+}
+
+const staff: StaffPrincipal = {
+  kind: 'staff',
+  subjectId: 'subject-2',
+  appRole: 'clinician',
+  assuranceLevel: 'aal2',
+  staffRole: 'doctor',
+  organizationId: 'org-1',
+}
+
+function stubApi(): PatientApi {
+  const client = createApiClient({
+    baseUrl: 'https://gateway.test',
+    clientId: 'patient-web',
+    fetchImpl: vi.fn(async () => new Response('{}', { status: 200 })) as unknown as typeof fetch,
+  })
+  return createPatientApi(client)
+}
+
+/** Where the sign-in screen will return to, from its `next`. */
+function SignInNext() {
+  const { search } = useLocation()
+  return <p data-testid="next">{new URLSearchParams(search).get('next') ?? 'none'}</p>
+}
+
+function renderGuard(state: SessionState, requirement = PATIENT_ROUTE,
+  sessionError: string | null = null, retrySessionCheck = vi.fn(), at = '/') {
+  return render(
+    <MemoryRouter initialEntries={[at]}>
+      <SessionContext.Provider value={{ ...createTestSessionValue(state.principal, stubApi()), state,
+        sessionError, retrySessionCheck }}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <RequireAccess requirement={requirement}>
+                <p>Protected content</p>
+              </RequireAccess>
+            }
+          />
+          <Route path="/access/*" element={<RequireAccess requirement={requirement}><p>Protected content</p></RequireAccess>} />
+          <Route path="/sign-in" element={<><p>Sign-in screen</p><SignInNext /></>} />
+          <Route path="/verify" element={<p>Verification screen</p>} />
+        </Routes>
+      </SessionContext.Provider>
+    </MemoryRouter>,
+  )
+}
+
+describe('RequireAccess', () => {
+  it('renders protected content for a signed-in patient', () => {
+    renderGuard({ status: 'authenticated', principal: patient })
+
+    expect(screen.getByText('Protected content')).toBeDefined()
+  })
+
+  it('waits rather than redirecting while the session is unknown', () => {
+    renderGuard({ status: 'unknown', principal: null })
+
+    expect(screen.getByRole('status')).toBeDefined()
+    expect(screen.queryByText('Sign-in screen')).toBeNull()
+    expect(screen.queryByText('Protected content')).toBeNull()
+  })
+
+  it('offers a retry when session verification fails without confirming sign-out', () => {
+    const retry = vi.fn()
+    renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE,
+      'We could not check your session. Try again.', retry)
+
+    expect(screen.getByRole('alert').textContent).toContain('could not check')
+    expect(screen.queryByText('Sign-in screen')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it('makes Try again the page\'s one full-size action, not a line of plain text', () => {
+    renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
+    const button = screen.getByRole('button', { name: 'Try again' })
+    // .patient-primary-button: 44px tall at least, the brand fill (index.css). It was a bare 56x22px button.
+    expect(button.classList.contains('patient-primary-button')).toBe(true)
+    expect(button.parentElement?.classList.contains('patient-state-actions')).toBe(true)
+  })
+
+  it('names the tab while the session is checked and when the check fails, and gives the name back after', () => {
+    document.title = 'Health ID: Patient'
+    const { unmount } = renderGuard({ status: 'unknown', principal: null })
+    expect(document.title).toBe('Checking your session · Health ID')
+    unmount()
+    expect(document.title).toBe('Health ID: Patient')
+    const failed = renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
+    expect(document.title).toBe('Couldn’t check your session · Health ID')
+    failed.unmount()
+    expect(document.title).toBe('Health ID: Patient')
+  })
+
+  it('keeps the page the patient asked for, so sign-in can return there', () => {
+    function SignInShows() {
+      const from = (useLocation().state as { from?: { pathname: string; search: string; hash: string } } | null)?.from
+      return <p>Sign-in screen, then {from ? `${from.pathname}${from.search}${from.hash}` : 'nowhere'}</p>
+    }
+    render(<MemoryRouter initialEntries={['/records?tab=notes#note-1']}>
+      <SessionContext.Provider value={createTestSessionValue(null, stubApi())}>
+        <Routes>
+          <Route path="/records" element={<RequireAccess requirement={PATIENT_ROUTE}><p>Protected content</p></RequireAccess>} />
+          <Route path="/sign-in" element={<SignInShows />} />
+        </Routes>
+      </SessionContext.Provider>
+    </MemoryRouter>)
+    expect(screen.getByText('Sign-in screen, then /records?tab=notes#note-1')).toBeTruthy()
+  })
+
+  it('names the session check with a level-one heading while it runs and when it fails', () => {
+    const { unmount } = renderGuard({ status: 'unknown', principal: null })
+    expect(screen.getByRole('heading', { level: 1, name: 'Checking your session…' })).toBeDefined()
+    unmount()
+    renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
+    // The heading names the state; what to do follows it.
+    expect(screen.getByRole('heading', { level: 1, name: 'We could not check your session' })).toBeDefined()
+    // The check also fails for an outage or a session this portal cannot use, not
+    // only for a lost connection, so the advice blames none of them.
+    // Said plainly: nothing changed in the account, and what to do.
+    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionNothing in your account has changed. Try again in a moment.Try again')
+  })
+
+  it('after Try again, moves focus to the page that opens, or to Try again when the check fails again', async () => {
+    const failed = 'We could not check your session. Try again.'
+    function Checking({ outcomes }: { outcomes: Array<'allow' | 'fail'> }) {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: { status: 'unknown', principal: null }, sessionError: failed })
+      const retrySessionCheck = () => {
+        setValue({ state: { status: 'unknown', principal: null }, sessionError: null })
+        setTimeout(() => setValue(outcomes.shift() === 'allow'
+          ? { state: { status: 'authenticated', principal: patient }, sessionError: null }
+          : { state: { status: 'unknown', principal: null }, sessionError: failed }), 0)
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+    render(<Checking outcomes={['fail', 'allow']} />)
+    const first = screen.getByRole('button', { name: 'Try again' })
+    first.focus()
+    await act(async () => { fireEvent.click(first) })
+    const second = await screen.findByRole('button', { name: 'Try again' })
+    await waitFor(() => expect(document.activeElement).toBe(second))
+    await act(async () => { fireEvent.click(second) })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  it('moves focus to the page that opens when Try again is pressed before the failed check\'s effects have run', async () => {
+    // A press that comes after the render showing 'Try again' commits, and before
+    // its effects run: an effect still pending from that render once took the press
+    // for the outcome, and focus stayed on the button the check replaced.
+    const failed = 'We could not check your session. Try again.'
+    const unknown: SessionState = { status: 'unknown', principal: null }
+    function Checking() {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: unknown, sessionError: null })
+      useEffect(() => { const timer = setTimeout(() => setValue({ state: unknown, sessionError: failed }), 0); return () => clearTimeout(timer) }, [])
+      const retrySessionCheck = () => {
+        setValue({ state: unknown, sessionError: null })
+        setTimeout(() => setValue({ state: { status: 'authenticated', principal: patient }, sessionError: null }), 0)
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+    const pressed = pressOnArrival('Try again')
+    render(<Checking />)
+    await waitFor(() => expect(pressed()).toBe(true))
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  /**
+   * Focus after 'Try again' moves in the commit that shows the outcome. From an
+   * effect it moved a task after the render that followed the check's answer, and
+   * a check made as soon as the outcome was shown (findBy on a busy runner) found
+   * focus still on the page. The check is answered outside act, as a fetch's answer
+   * arrives, and focus is read at the moment the outcome is shown.
+   */
+  describe('as soon as the outcome of Try again is shown', () => {
+    const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
+    const failed = 'We could not check your session. Try again.'
+    const unknown: SessionState = { status: 'unknown', principal: null }
+
+    /** A failed session check: 'Try again' checks again, and the check ends as `outcome` once `answered` settles. */
+    function Checking({ answered, outcome }: { answered: Promise<void>; outcome: 'allow' | 'fail' }) {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: unknown, sessionError: failed })
+      const retrySessionCheck = () => {
+        setValue({ state: unknown, sessionError: null })
+        void answered.then(() => setValue(outcome === 'allow'
+          ? { state: { status: 'authenticated', principal: patient }, sessionError: null }
+          : { state: unknown, sessionError: failed }))
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+
+    /** Answers the check outside act, as a fetch's answer arrives: React renders the outcome in one task and runs its effects in a later one. */
+    async function retryAndAnswer(outcome: 'allow' | 'fail', find: () => HTMLElement | null) {
+      let answer!: () => void
+      render(<Checking answered={new Promise(resolve => { answer = resolve })} outcome={outcome} />)
+      await press(screen.getByRole('button', { name: 'Try again' }))
+      const shown = focusWhenShown(find)
+      environment.IS_REACT_ACT_ENVIRONMENT = false
+      answer()
+      return shown
+    }
+
+    it('has focus on the page that opens as soon as it is shown', async () => {
+      const { element, focused } = await retryAndAnswer('allow',
+        () => screen.queryByRole('heading', { level: 1, name: 'Your health, connected.' }))
+      expect(focused).toBe(element)
+    })
+
+    it('has focus on the new Try again as soon as it is shown after the check fails again', async () => {
+      const { element, focused } = await retryAndAnswer('fail', () => screen.queryByRole('button', { name: 'Try again' }))
+      expect(focused).toBe(element)
+    })
+  })
+
+  it('redirects an anonymous visitor to sign-in', () => {
+    renderGuard({ status: 'anonymous', principal: null })
+
+    expect(screen.getByText('Sign-in screen')).toBeDefined()
+    expect(screen.queryByText('Protected content')).toBeNull()
+  })
+
+  it('sends a signed-out visitor to sign-in with the page they were on to come back to (SA-04)', () => {
+    renderGuard({ status: 'anonymous', principal: null }, PATIENT_ROUTE, null, vi.fn(), '/access?tab=granted')
+
+    expect(screen.getByText('Sign-in screen')).toBeDefined()
+    expect(screen.getByTestId('next').textContent).toBe('/access?tab=granted')
+  })
+
+  it('asks for no return from the home page: sign-in goes home anyway', () => {
+    renderGuard({ status: 'anonymous', principal: null })
+
+    expect(screen.getByTestId('next').textContent).toBe('none')
+  })
+
+  it('never renders protected content for the wrong portal', () => {
+    renderGuard({ status: 'authenticated', principal: staff })
+
+    expect(screen.queryByText('Protected content')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('patient application')
+  })
+
+  it('sends a session without MFA to verification when the route requires it', () => {
+    renderGuard(
+      { status: 'authenticated', principal: { ...staff, assuranceLevel: 'aal1' } },
+      STAFF_ROUTE,
+    )
+
+    expect(screen.getByText('Verification screen')).toBeDefined()
+  })
+
+  it('leaks nothing about the principal into the rendered output', () => {
+    const { container } = renderGuard({ status: 'authenticated', principal: patient })
+
+    expect(container.textContent).not.toContain('subject-1')
+  })
+})

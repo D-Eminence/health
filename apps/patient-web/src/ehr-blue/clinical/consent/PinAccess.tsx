@@ -1,0 +1,137 @@
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
+import { KeyRound } from 'lucide-react'
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import { FormActions, FormPage } from '../../../kasuwa/parts'
+import { Alert, Button, Card, Field, Input } from '../../../kasuwa/ui'
+import { useNavigate } from 'react-router-dom'
+import { staffApi } from '../../../staff/api'
+import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
+import { isDemoFacility } from '../../blueFacilities'
+import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import {
+  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
+  useOpenPatient,
+} from './access'
+import { PlainError, plainErrorText } from '@hid/http'
+
+export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
+const PIN_NOT_RIGHT = 'That PIN isn’t right. Check it with the patient and try again.'
+/**
+ * A PIN check Identity refused, in plain words. Identity answers every failed check with 403 PATIENT_PIN_ACCESS_DENIED
+ * (identity-api consent.service.ts), so a wrong PIN, an unknown Health ID and paused PIN checks read the same; the older
+ * PATIENT_ACCESS_PIN_INVALID reads the same too.
+ */
+const PIN_REFUSALS: Readonly<Record<string, string>> = {
+  PATIENT_PIN_ACCESS_DENIED: PIN_NOT_RIGHT,
+  PATIENT_ACCESS_PIN_INVALID: PIN_NOT_RIGHT,
+}
+
+/**
+ * At the demo facilities only: which demo patients have an Access PIN, where a tester gets it, what to use for the others,
+ * and how wrong PINs pause the check. The PIN itself is never here: this website is public.
+ */
+export const DEMO_PIN_NOTE = 'Adaeze Okafor (HID-ZDEMAAA2) and Chinedu Okafor (HID-ZDEMAAA3) have an Access PIN. If you are testing the demo, ask the Health ID team for it. The other demo patients have no login, so they have no PIN: use emergency access for them. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
+
+/**
+ * Patient PIN access (today's "Patient PIN" method), one column. The Health ID handed over from Find a patient is
+ * already in it, so the PIN field takes focus. Once the session that sent the PIN is ready again, the patient lookup
+ * opens the record, and only an allowed lookup does. At a demo facility, the form first says which demo patients have a
+ * PIN and where a tester gets it. `backLabel` names where the back arrow goes (its workspace's list): Access requests at
+ * `requests/pin`, Find a patient at `patients/pin`.
+ */
+export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel?: string }) {
+  const { facility, permissions, activePatient, setActivePatient } = useClinical()
+  const href = useWorkspaceHref()
+  const navigate = useNavigate()
+  const id = useId()
+  const openPatient = useOpenPatient()
+  // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
+  useEffect(() => { dropOfferedHealthId() }, [])
+  const [pin, setPin] = useState('')
+  const [problem, setProblem] = useState<{ field: 'hid' | 'pin'; message: string; alert: boolean } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const unavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administratorOf(facility, permissions))
+
+  /** A refusal at its field: focus moves there, or, from Enter in the field, the message is announced as an alert. */
+  function refuse(field: 'hid' | 'pin', message: string) {
+    const input = document.getElementById(`${id}-${field}`)
+    const alert = document.activeElement === input
+    setProblem({ field, message, alert })
+    setAttempt(value => value + 1)
+    if (!alert) input?.focus()
+  }
+
+  function shown(field: 'hid' | 'pin'): ReactNode {
+    if (problem?.field !== field) return undefined
+    return problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy || unavailable) return
+    setError('')
+    const normalized = normalizeHealthIdInput(hid)
+    const hidProblem = healthIdProblem(normalized)
+    if (hidProblem) return refuse('hid', hidProblem)
+    // Identity removes every space from a PIN before checking it, so a PIN typed in groups is one PIN.
+    const compactPin = pin.replace(/\s+/g, '')
+    if (!/^\d{4,8}$/.test(compactPin)) return refuse('pin', PIN_PROBLEM)
+    setProblem(null)
+    setBusy(true)
+    // The record opens after the grant only while the session that obtained it is ready.
+    const sentIn = staffSessionGeneration()
+    try {
+      if (!facility) throw new PlainError('Select a facility first.')
+      await staffApi.verifyPin(facility.id, normalized, compactPin)
+      await untilStaffSessionReady(sentIn)
+      if (await openPatient(normalized, 'direct-care')) navigate(href.to('patients', 'open'))
+    } catch (caught) {
+      setError(plainErrorText(caught, 'Something went wrong. Please try again.', { codes: PIN_REFUSALS, audience: 'facility' }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const hidId = `${id}-hid`
+  const pinId = `${id}-pin`
+  return (
+    <FormPage title="Use the patient’s Access PIN" description="Ask the patient to type their PIN. Only they should know it."
+      back={{ to: href(), label: backLabel }}>
+      <Card>
+        <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
+          {isDemoFacility(facility?.id) ? <p className="m-0 text-[13px] text-ink-3">{DEMO_PIN_NOTE}</p> : null}
+          <Field label="Health ID" htmlFor={hidId} hint={HID_FORMAT} hintId={`${hidId}-hint`} error={shown('hid')} errorId={`${hidId}-error`}>
+            <Input id={hidId} autoComplete="off" spellCheck={false} required value={hid} placeholder="HID-ADA2345"
+              className="font-medium tracking-[.06em] uppercase"
+              aria-invalid={problem?.field === 'hid' ? true : undefined} aria-describedby={problem?.field === 'hid' ? `${hidId}-error` : `${hidId}-hint`}
+              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); if (problem?.field === 'hid') setProblem(null) }} />
+          </Field>
+          <Field label="Access PIN" htmlFor={pinId} hint="4 to 8 digits." hintId={`${pinId}-hint`} error={shown('pin')} errorId={`${pinId}-error`}>
+            <Input id={pinId} type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} required
+              value={pin} className="max-w-48 tracking-[.3em]"
+              aria-invalid={problem?.field === 'pin' ? true : undefined} aria-describedby={problem?.field === 'pin' ? `${pinId}-error` : `${pinId}-hint`}
+              onChange={event => { setPin(event.target.value); if (problem?.field === 'pin') setProblem(null) }} />
+          </Field>
+          {/* The paper records line only when the patient's age is known here (their record is open for direct care) and
+              they are an adult, to a role that brings in paper records, on access that can add records. Never under
+              emergency access, which can't. */}
+          {activePatient?.purpose === 'direct-care' && activePatient.hid === normalizeHealthIdInput(hid) && permissions.includes('ocr.job.read')
+            && activePatient.lookup.authorization.scope === 'write_records' && isAdult(activePatient.lookup.patient.dateOfBirth)
+            ? <p className="m-0 text-[13px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
+          {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
+          {error ? <Alert intent="error" title="Couldn’t open the record">{error}</Alert> : null}
+          <FormActions sticky={false}>
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's Verify PIN and open: focus is not lost while
+                the PIN is checked, and a second press sends nothing (submit returns while one is on its way). */}
+            <Button type="submit" variant="primary" icon={KeyRound} disabled={!facility || unavailable !== null} aria-disabled={busy || undefined}
+              aria-describedby={unavailable ? 'pin-access-unavailable' : undefined}>{busy ? 'Checking…' : 'Check PIN and open'}</Button>
+          </FormActions>
+        </form>
+      </Card>
+    </FormPage>
+  )
+}

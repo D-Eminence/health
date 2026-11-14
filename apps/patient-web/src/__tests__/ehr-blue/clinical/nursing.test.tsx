@@ -1,0 +1,1038 @@
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { HidApiError } from '@hid/http'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NursingWorkspace, nursingStatus } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
+import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { consultationLabel } from '../../../plainLabels'
+import { OLD_VITALS_NOTE, OLD_VITALS_NOTE_LATE, observationName, oldVitalsLine } from '../../../ehr-blue/clinical/nursing/observations'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
+
+/**
+ * Nursing observations: today's clinical notes of type "Nursing observation" (the design's category as the title,
+ * details and units as the content) on the open patient's encounters, in the design's list, create page and record
+ * page, where "Amend observation" is today's note revision, "Mark entered in error" sits behind "More actions" (the
+ * owner's decision) and the history lists the encounter's records in the other workspaces. Everything is fictional.
+ */
+
+const api = vi.hoisted(() => ({
+  lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
+  noteRevisions: vi.fn(), addNoteRevision: vi.fn(), updateRecord: vi.fn(),
+}))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
+
+vi.mock('../../../staff/api', async () => ({ staffApi: api, isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup }))
+vi.mock('../../../staff/App', async () => {
+  const harness = await import('./harness')
+  return { useStaff: () => harness.staffValue(staff as never) }
+})
+
+const ALL = ['ehr.encounter.read', 'ehr.vital.read', 'ehr.note.read', 'ehr.note.write']
+const ENCOUNTER = {
+  id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'inpatient', status: 'in_progress',
+  startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: 'Observation', rowVersion: 1,
+}
+const NOTE_ID = 'c0000000-0000-4000-8000-000000000001'
+const NEW_ID = 'c1111111-0000-4000-8000-000000000002'
+const NOTE = {
+  id: NOTE_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, facilityId: FACILITY_ID, createdAt: '2026-10-30T09:00:00.000Z',
+  noteType: 'Nursing observation', title: 'Vitals', status: 'draft', rowVersion: '2',
+}
+const CONSULTATION = { ...NOTE, id: 'c2222222-0000-4000-8000-000000000003', noteType: 'Consultation', title: 'Consultation note' }
+const FIRST = { id: 'revision-1', revisionNo: 1, content: 'Fictional vitals observation\n\nUnits / dose: demo', changeReason: 'Initial draft', createdAt: '2026-10-30T09:00:00.000Z' }
+const READ_ONLY = 'You can view this record but not change it.'
+const RECORD = `/${ENCOUNTER_ID}~${NOTE_ID}`
+const VITAL_ID = 'f0000000-0000-4000-8000-000000000001'
+const LAB_ID = 'b0000000-0000-4000-8000-000000000001'
+const PRESCRIPTION_ID = 'd0000000-0000-4000-8000-000000000001'
+const OTHER_ENCOUNTER_ID = 'e2222222-0000-4000-8000-000000000002'
+const VITAL = { id: VITAL_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, facilityId: FACILITY_ID, createdAt: '2026-10-30T08:05:00.000Z', systolicMmhg: 120, diastolicMmhg: 80, rowVersion: '1' }
+const LAB = { id: LAB_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:30:00.000Z', testDisplay: 'Malaria parasite test', status: 'active' }
+const PRESCRIPTION = { id: PRESCRIPTION_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', medicationDisplay: 'Paracetamol 500 mg', status: 'draft' }
+
+let notes: unknown[]
+let revisions: unknown[]
+/** The encounter's records in the other workspaces, by record kind; none unless a test gives some. */
+let others: Record<string, unknown[]>
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  staff.permissions = [...ALL]
+  staff.activePatient = activePatient()
+  staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
+  notes = [NOTE, CONSULTATION]
+  revisions = [FIRST]
+  others = {}
+  api.lookupPatient.mockResolvedValue(allowedLookup)
+  api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
+  api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
+  api.encounter.mockImplementation(async (_f: string, _p: string, id: string) => ({ ...ENCOUNTER, id }))
+  api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => ({ items: kind === 'clinical-notes' ? notes : others[kind] ?? [], nextCursor: null }))
+  api.noteRevisions.mockImplementation(async () => revisions)
+  api.createRecord.mockImplementation(async (_f: string, _p: string, encounterId: string, _kind: string, body: { content: string }) => {
+    const saved = { ...NOTE, ...body, id: NEW_ID, encounterId }
+    notes = [saved, ...notes]
+    revisions = [{ ...FIRST, content: body.content }]
+    return saved
+  })
+  api.addNoteRevision.mockImplementation(async (_f: string, _p: string, _e: string, _n: string, input: { content: string; changeReason: string }) => {
+    const revision = { id: 'revision-2', revisionNo: 2, content: input.content, changeReason: input.changeReason, createdAt: '2026-10-30T10:00:00.000Z' }
+    revisions = [...revisions, revision]
+    notes = [{ ...NOTE, rowVersion: '3' }]
+    return revision
+  })
+  api.updateRecord.mockImplementation(async (_f: string, _p: string, _e: string, _k: string, _n: string, input: { status: string }) => {
+    const changed = { ...NOTE, status: input.status, rowVersion: '3' }
+    notes = [changed]
+    return changed
+  })
+})
+
+function open(rest = '') {
+  return renderPage(<NursingWorkspace />, 'nursing', rest)
+}
+
+function type(scope: HTMLElement, label: string, value: string) {
+  fireEvent.change(within(scope).getByLabelText(labelled(label)), { target: { value } })
+}
+
+function control(scope: HTMLElement, label: string) {
+  return within(scope).getByLabelText(labelled(label)) as HTMLInputElement
+}
+
+function described(element: Element) {
+  return (element.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+}
+
+describe('Nursing observations list', () => {
+  it('is live: every part runs on today’s clinical notes', () => {
+    expect(nursingStatus).toBe('live')
+  })
+
+  it('shows the loading state, then the patient’s nursing observations only, after the access re-check', async () => {
+    const page = deferred<{ items: unknown[]; nextCursor: null }>()
+    api.encounters.mockReturnValueOnce(page.promise)
+    open()
+    expect(screen.getByRole('heading', { level: 1, name: 'Nursing observations' })).toBeTruthy()
+    expect(await screen.findByText('Loading records…')).toBeTruthy()
+    await act(async () => page.resolve({ items: [ENCOUNTER], nextCursor: null }))
+
+    const table = await screen.findByRole('table', { name: 'Nursing observations' })
+    const links = within(table).getAllByRole('link', { name: /^Observation · / })
+    expect(links.map(link => link.textContent)).toEqual([observationName(NOTE)])
+    expect(links[0]!.getAttribute('href')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${NOTE_ID}`)
+    // One patient's chart: the patient is named once, in the banner, not on each row.
+    expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    expect(within(table).getByText('Draft')).toBeTruthy()
+    expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder[0]!)
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes')
+    // A note's content is read only when it is opened, as today.
+    expect(api.noteRevisions).not.toHaveBeenCalled()
+    expect(window.location.href).not.toContain(PATIENT_HID)
+  })
+
+  it('names the tab after the workspace, and names each record by when it was recorded, never by an id', async () => {
+    document.title = ''
+    open()
+    const table = await screen.findByRole('table', { name: 'Nursing observations' })
+    expect(document.title).toBe('Nursing observations · Health ID EHR')
+    expect(within(table).getAllByText(observationName(NOTE)).map(element => element.tagName)).toEqual(['A'])
+    expect(within(table).queryByText(consultationLabel(ENCOUNTER))).toBeNull()
+  })
+
+  it('opens the record quick view, and Escape closes it', async () => {
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${observationName(NOTE)}` }))
+    const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
+    expect(within(drawer).getByText('Vitals')).toBeTruthy()
+    expect(within(drawer).getByText(consultationLabel(ENCOUNTER))).toBeTruthy()
+    expect(within(drawer).getByRole('button', { name: 'Open full record' }).tagName).toBe('BUTTON')
+    fireEvent.keyDown(drawer, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
+  })
+
+  it('has the empty states and shows refused reads', async () => {
+    notes = [CONSULTATION]
+    let view = open()
+    expect(await screen.findByText('Nothing recorded yet.')).toBeTruthy()
+    view.unmount()
+    api.encounters.mockResolvedValue({ items: [], nextCursor: null })
+    view = open()
+    expect(await screen.findByText('No encounters are available for this patient and facility.')).toBeTruthy()
+    view.unmount()
+    api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    view = open()
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
+    view.unmount()
+    api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
+    api.records.mockRejectedValue(new HidApiError(403, 'This role may not read notes.', { code: 'FORBIDDEN' }))
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('This role may not read notes.')
+  })
+
+  it('says so, and reads nothing, when the role may not read notes', async () => {
+    staff.permissions = ['ehr.vital.read']
+    open()
+    expect(screen.getByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeTruthy()
+    await act(async () => {})
+    expect(api.encounters).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+  })
+
+  it('shows the read-only notice and nothing to create when the grant does not allow changes', async () => {
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    open()
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+  })
+
+  it('closes the patient when the access re-check is refused (404)', async () => {
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
+    open()
+    const ended = await screen.findByRole('alert')
+    expect(ended.textContent).toContain('Access to this patient ended')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(staff.setActivePatient).toHaveBeenCalledWith(null)
+  })
+
+  it('gives an emergency patient the read-only gate, and asks for a patient when none is open', () => {
+    staff.activePatient = activePatient('emergency')
+    const view = open()
+    expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(api.records).not.toHaveBeenCalled()
+    view.unmount()
+    staff.activePatient = null
+    open()
+    expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+  })
+
+  it('opens "New nursing observations" from Create record', async () => {
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'New nursing observations' })).toBeTruthy()
+  })
+})
+
+describe('New nursing observations', () => {
+  async function openNew() {
+    open('/new')
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    return save.closest('form')!
+  }
+
+  it('saves the observation as today’s draft clinical note after the access re-check, then opens it', async () => {
+    const form = await openNew()
+    // Only the encounters are read for the "Visit"; no notes.
+    expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: false })
+    expect(api.records).not.toHaveBeenCalled()
+    // The open patient is the banner (the one-option Patient select is gone).
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    const category = control(form, 'Category') as unknown as HTMLSelectElement
+    // Vital signs are not a nursing note: they are recorded in Triage & Vitals (see the next test).
+    expect(Array.from(category.options).map(option => option.textContent)).toEqual(['Select…', 'Medication administration', 'Handover', 'Care task'])
+    type(form, 'Visit', ENCOUNTER_ID)
+    type(form, 'Category', 'Medication administration')
+    type(form, 'What you observed or gave', 'Gave paracetamol by mouth')
+    type(form, 'Dose and unit, if you gave something', '500 mg')
+    // Enter in a field submits the form: the button is its submit button.
+    fireEvent.submit(form)
+
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', {
+      noteType: 'Nursing observation', title: 'Medication administration', status: 'draft', content: 'Gave paracetamol by mouth\n\nUnits / dose: 500 mg',
+    }, expect.any(String))
+    expect(api.lookupPatient.mock.invocationCallOrder.at(-2)!).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
+    expect(screen.getByRole('heading', { level: 1, name: /^Observation · \d/ })).toBeTruthy()
+    const saved = screen.getByRole('heading', { level: 2, name: 'Saved record' }).closest('section')!
+    expect(await within(saved).findByText('Gave paracetamol by mouth')).toBeTruthy()
+    expect(within(saved).getByText('500 mg')).toBeTruthy()
+  })
+
+  it('offers no "Vitals" category and points the nurse to Triage & Vitals for vital signs', async () => {
+    staff.permissions = [...ALL, 'ehr.vital.write']
+    const form = await openNew()
+    const category = control(form, 'Category') as unknown as HTMLSelectElement
+    expect(Array.from(category.options).map(option => option.value)).not.toContain('Vitals')
+    const pointer = screen.getByText(/^To record BP, pulse, temperature or other vital signs, use/)
+    expect(pointer.textContent).toBe('To record BP, pulse, temperature or other vital signs, use Triage & Vitals.')
+    const link = within(pointer).getByRole('link', { name: 'Triage & Vitals' })
+    expect(link.getAttribute('href')).toBe('/provider/triage/new')
+  })
+
+  it.each([
+    ['can read vitals but not record them', [...ALL]],
+    ['has no vitals access at all', ALL.filter(permission => permission !== 'ehr.vital.read')],
+  ])('sends a nurse whose role %s to a colleague, not to Triage & Vitals, which would refuse them', async (_role, permissions) => {
+    staff.permissions = permissions
+    await openNew()
+    const pointer = screen.getByText(/vital signs aren’t recorded here/)
+    expect(pointer.textContent).toBe('BP, pulse, temperature and other vital signs aren’t recorded here. Your role can’t record them in '
+      + 'Triage & Vitals, so ask a colleague who can.')
+    expect(within(pointer).queryByRole('link')).toBeNull()
+    expect(screen.queryByText(/use Triage & Vitals/)).toBeNull()
+  })
+
+  it('still shows an earlier observation saved under "Vitals", in the list and on its page', async () => {
+    open()
+    const table = await screen.findByRole('table')
+    expect(within(table).getByText('Vitals')).toBeTruthy()
+    fireEvent.click(within(table).getByRole('link', { name: observationName(NOTE) }))
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })).toBeTruthy()
+    expect(screen.getAllByText('Vitals').length).toBeGreaterThan(0)
+  })
+
+  it('checks the required fields, and shows a server refusal at its field; a retry reuses the key', async () => {
+    const form = await openNew()
+    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    expect(within(form).getAllByText('Complete this field.')).toHaveLength(3)
+    expect(document.activeElement).toBe(control(form, 'Visit'))
+    expect(api.createRecord).not.toHaveBeenCalled()
+
+    api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
+      code: 'VALIDATION_FAILED', details: [{ field: 'title', messages: ['title must be shorter than or equal to 240 characters'] }],
+    }))
+    type(form, 'Visit', ENCOUNTER_ID)
+    type(form, 'Category', 'Handover')
+    type(form, 'What you observed or gave', 'Settled overnight')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    // At the field: a plain hint for the limit, never the field's internal name or the validator's words.
+    expect(described(control(form, 'Category'))).toContain('Use 240 characters or fewer.')
+    expect(document.body.textContent).not.toMatch(/Title must be|shorter than or equal/)
+    type(form, 'Category', 'Handover')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    await screen.findByText('Clinical record saved.')
+    expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
+  })
+
+  it('offers no form under a read-only grant, nor without note write permission', async () => {
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    const view = open('/new')
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    view.unmount()
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
+    staff.permissions = ['ehr.vital.read', 'ehr.note.read']
+    open('/new')
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role can’t add this record.')
+    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+  })
+})
+
+describe('Nursing observation record', () => {
+  async function openRecord() {
+    open(RECORD)
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })).toBeTruthy()
+  }
+
+  function saved() {
+    return screen.getByRole('heading', { level: 2, name: 'Saved record' }).closest('section')!
+  }
+
+  async function amendForm() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Amend observation' }))
+    // Today's revision form: "Content", "Reason for revision", "Record revision".
+    return screen.getByRole('button', { name: 'Record revision' }).closest('form')!
+  }
+
+  it('shows the saved record with the note’s latest revision, read when it is opened', async () => {
+    const read = deferred<unknown[]>()
+    api.noteRevisions.mockReturnValueOnce(read.promise)
+    await openRecord()
+    expect(within(saved()).getByText('Loading note revisions…')).toBeTruthy()
+    await act(async () => read.resolve([FIRST]))
+    const card = saved()
+    expect(within(card).getByText(consultationLabel(ENCOUNTER))).toBeTruthy()
+    expect(within(card).getByText('Vitals')).toBeTruthy()
+    expect(within(card).getByText('Fictional vitals observation')).toBeTruthy()
+    expect(within(card).getByText('demo')).toBeTruthy()
+    expect(api.noteRevisions).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID)
+    expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    expect(within(patientBanner()).getByText(new RegExp(PATIENT_HID))).toBeTruthy()
+  })
+
+  it('item 5: says under an old "Vitals" observation’s text, and each of its revisions, that it is a note, not in the vitals chart', async () => {
+    revisions = [FIRST, { ...FIRST, id: 'revision-2', revisionNo: 2, content: 'Corrected fictional reading', changeReason: 'Typo' }]
+    await openRecord()
+    const note = (await within(saved()).findByText('Corrected fictional reading')).closest('dd')!
+    expect(note.textContent).toBe(`Corrected fictional reading${OLD_VITALS_NOTE}`)
+    expect(within(note).getByText(OLD_VITALS_NOTE)).toBeTruthy()
+    expect(OLD_VITALS_NOTE).toBe('Saved as a note before 1 November. These readings are not in the vitals chart.')
+    const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
+    for (const version of Array.from(versions.querySelectorAll('details'))) {
+      expect(within(version).getByText(OLD_VITALS_NOTE).closest('dd')).toBe(within(version).getAllByRole('definition')[0])
+    }
+    expect(screen.getAllByText(OLD_VITALS_NOTE)).toHaveLength(3)
+  })
+
+  it('item 5: says the owner’s line, word for word, under an old "Vitals" observation saved on 31 October', async () => {
+    // 22:30 on 31 October in Lagos, 21:30 UTC: the category's last evening.
+    const last = { ...NOTE, createdAt: '2026-10-31T21:30:00.000Z' }
+    notes = [last]
+    revisions = [{ ...FIRST, createdAt: last.createdAt }]
+    open(RECORD)
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(last) })).toBeTruthy()
+    const note = (await within(saved()).findByText('Fictional vitals observation')).closest('dd')!
+    expect(note.textContent).toBe('Fictional vitals observationSaved as a note before 1 November. These readings are not in the vitals chart.')
+    expect(screen.queryByText(OLD_VITALS_NOTE_LATE)).toBeNull()
+  })
+
+  it('item 5: names no save date under an old "Vitals" observation saved on 3 November, which should not exist', async () => {
+    const late = { ...NOTE, createdAt: '2026-11-03T10:00:00.000Z' }
+    notes = [late]
+    revisions = [FIRST, { ...FIRST, id: 'revision-2', revisionNo: 2, content: 'Corrected fictional reading', changeReason: 'Typo', createdAt: late.createdAt }]
+    open(RECORD)
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(late) })).toBeTruthy()
+    const note = (await within(saved()).findByText('Corrected fictional reading')).closest('dd')!
+    expect(note.textContent).toBe('Corrected fictional readingSaved as a note under the old Vitals category. These readings are not in the vitals chart.')
+    expect(OLD_VITALS_NOTE_LATE).not.toMatch(/November|before|\d/)
+    // The note's own time decides, under every version too: never the owner's dated line.
+    expect(screen.getAllByText(OLD_VITALS_NOTE_LATE)).toHaveLength(3)
+    expect(screen.queryByText(OLD_VITALS_NOTE)).toBeNull()
+  })
+
+  it('item 5: reads the note’s own time for the line: created, else signed; the owner’s line with no time', () => {
+    const vitals = { noteType: 'Nursing observation', title: 'Vitals' }
+    expect(oldVitalsLine({ ...vitals, createdAt: '2026-10-31T22:59:59.999Z' })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, createdAt: '2026-10-31T23:00:00.000Z' })).toBe(OLD_VITALS_NOTE_LATE)
+    expect(oldVitalsLine({ ...vitals, signedAt: '2026-11-03T10:00:00.000Z' })).toBe(OLD_VITALS_NOTE_LATE)
+    expect(oldVitalsLine({ ...vitals, createdAt: '2026-10-20T10:00:00.000Z', signedAt: '2026-11-03T10:00:00.000Z' })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine(vitals)).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, createdAt: null, signedAt: null })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, createdAt: 'not a date' })).toBe(OLD_VITALS_NOTE)
+    expect(oldVitalsLine({ ...vitals, title: 'Handover', createdAt: '2026-11-03T10:00:00.000Z' })).toBeNull()
+  })
+
+  it('item 5: shows no such line under an observation of any other category', async () => {
+    notes = [{ ...NOTE, title: 'Handover' }, CONSULTATION]
+    await openRecord()
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    expect(screen.queryByText(OLD_VITALS_NOTE)).toBeNull()
+  })
+
+  it('says a consultation note is not found here', async () => {
+    open(`/${ENCOUNTER_ID}~${CONSULTATION.id}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+    expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
+  })
+
+  it('amends as today’s note revision, after the access re-check, and keeps every revision with its own content', async () => {
+    await openRecord()
+    const form = await amendForm()
+    // The units line is its own field, starting at the latest revision's.
+    expect(control(form, 'Units / dose').value).toBe('demo')
+    // Today's fields: the content in a box, the reason on one line (Clinical.tsx:880-883).
+    expect(control(form, 'Content').tagName).toBe('TEXTAREA')
+    expect(control(form, 'Reason for revision').tagName).toBe('INPUT')
+    type(form, 'Content', 'Corrected vitals observation')
+    type(form, 'Reason for revision', 'Wrong patient bed')
+    api.lookupPatient.mockClear()
+    fireEvent.submit(form)
+
+    expect(await screen.findByText('A new note revision was recorded.')).toBeTruthy()
+    expect(api.addNoteRevision).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID, {
+      expectedRowVersion: 2, changeReason: 'Wrong patient bed', content: 'Corrected vitals observation\n\nUnits / dose: demo',
+    }, expect.any(String))
+    expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.addNoteRevision.mock.invocationCallOrder[0]!)
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
+    expect(await within(saved()).findByText('Corrected vitals observation')).toBeTruthy()
+    // Every revision, oldest first, under today's "Revision n" and "Recorded {time} · {reason}", each with its own
+    // content (not the note's status now, nor the content a revision replaced).
+    const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
+    const [first, second] = Array.from(versions.querySelectorAll('details'))
+    expect(first!.querySelector('summary')!.textContent).toMatch(/^Revision 1 · Recorded 30 Oct 2026, \d\d:\d\d · Initial draft$/)
+    expect(within(first!).getByText('Fictional vitals observation')).toBeTruthy()
+    expect(second!.querySelector('summary')!.textContent).toMatch(/^Revision 2 · Recorded 30 Oct 2026, \d\d:\d\d · Wrong patient bed$/)
+    expect(within(second!).getByText('Corrected vitals observation')).toBeTruthy()
+    expect(document.activeElement?.textContent).toBe('Available actions')
+    // "Refresh revisions" reads them again and clears the page's notice, as today.
+    fireEvent.click(within(saved()).getByRole('button', { name: 'Refresh revisions' }))
+    expect(screen.queryByText('A new note revision was recorded.')).toBeNull()
+    expect(await within(saved()).findByText('Corrected vitals observation')).toBeTruthy()
+  })
+
+  it('gap: the amendment corrects or clears the units or dose, which today’s revision replaces with the rest of the content', async () => {
+    let version = 2
+    api.addNoteRevision.mockImplementation(async (_f: string, _p: string, _e: string, _n: string, input: { content: string; changeReason: string }) => {
+      version += 1
+      const revision = { id: `revision-${version}`, revisionNo: version - 1, content: input.content, changeReason: input.changeReason, createdAt: '2026-10-30T10:00:00.000Z' }
+      revisions = [...revisions, revision]
+      notes = [{ ...NOTE, rowVersion: String(version) }]
+      return revision
+    })
+    await openRecord()
+    let form = await amendForm()
+    expect(control(form, 'Units / dose').maxLength).toBe(200)
+    type(form, 'Content', 'Gave paracetamol by mouth')
+    type(form, 'Units / dose', '1 g')
+    type(form, 'Reason for revision', 'Dose corrected')
+    fireEvent.submit(form)
+    await screen.findByText('A new note revision was recorded.')
+    expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID, {
+      expectedRowVersion: 2, changeReason: 'Dose corrected', content: 'Gave paracetamol by mouth\n\nUnits / dose: 1 g',
+    }, expect.any(String))
+    expect(await within(saved()).findByText('1 g')).toBeTruthy()
+
+    form = await amendForm()
+    expect(control(form, 'Units / dose').value).toBe('1 g')
+    type(form, 'Content', 'Settled, nothing given')
+    type(form, 'Units / dose', '')
+    type(form, 'Reason for revision', 'Nothing was given')
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.addNoteRevision).toHaveBeenCalledTimes(2))
+    expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID, {
+      expectedRowVersion: 3, changeReason: 'Nothing was given', content: 'Settled, nothing given',
+    }, expect.any(String))
+    expect(await within(saved()).findByText('Settled, nothing given')).toBeTruthy()
+    expect(within(saved()).queryByText('Units')).toBeNull()
+  })
+
+  it('gap: "Refresh revisions" is the retry after a failed read, as today: it reads them again, with no access re-check', async () => {
+    api.noteRevisions.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    await openRecord()
+    expect((await within(saved()).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
+    expect(within(actions()).getByText('Nothing more to do here.')).toBeTruthy()
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(within(saved()).getByRole('button', { name: 'Refresh revisions' }))
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    expect(within(saved()).queryByRole('alert')).toBeNull()
+    expect(api.noteRevisions).toHaveBeenCalledTimes(2)
+    expect(api.noteRevisions).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID)
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
+    expect(actionNames()).toEqual(['Amend observation', 'Sign note'])
+  })
+
+  it('gap: while "Refresh revisions" reads, the content is hidden and a status change waits; the open form keeps what was typed', async () => {
+    await openRecord()
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    const { form, submit } = await statusForm('Sign note')
+    const refresh = within(saved()).getByRole('button', { name: 'Refresh revisions' })
+    const read = deferred<unknown[]>()
+    api.noteRevisions.mockReturnValueOnce(read.promise)
+    fireEvent.click(refresh)
+    expect(await within(saved()).findByText('Loading note revisions…')).toBeTruthy()
+    expect(within(saved()).queryByText('Fictional vitals observation')).toBeNull()
+    expect(refresh.getAttribute('aria-busy')).toBe('true')
+    // Pressed again while it reads: nothing more is read.
+    fireEvent.click(refresh)
+    expect(api.noteRevisions).toHaveBeenCalledTimes(2)
+    expect(form.isConnected).toBe(true)
+    expect(control(form, 'Reason for change').value).toBe('Charted on the wrong bed')
+    expect((submit as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => read.resolve([FIRST]))
+    expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
+    expect((submit as HTMLButtonElement).disabled).toBe(false)
+    expect(form.isConnected).toBe(true)
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  it('refuses as today: revised content and a reason of three characters; a refusal shows in the form and a retry reuses the key', async () => {
+    await openRecord()
+    const form = await amendForm()
+    fireEvent.click(within(form).getByRole('button', { name: 'Record revision' }))
+    expect(within(form).getByText('Enter the revised note content.')).toBeTruthy()
+    expect(within(form).getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    expect(document.activeElement).toBe(control(form, 'Content'))
+
+    api.addNoteRevision.mockRejectedValueOnce(new HidApiError(412, 'The note changed since it was loaded.', { code: 'ROW_VERSION_MISMATCH' }))
+    type(form, 'Content', 'Corrected vitals observation')
+    type(form, 'Reason for revision', 'Wrong patient bed')
+    fireEvent.click(within(form).getByRole('button', { name: 'Record revision' }))
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The note changed since it was loaded.')
+    fireEvent.click(within(form).getByRole('button', { name: 'Record revision' }))
+    await screen.findByText('A new note revision was recorded.')
+    expect(api.addNoteRevision.mock.calls[1]![5]).toBe(api.addNoteRevision.mock.calls[0]![5])
+  })
+
+  it('offers no amendment when the content cannot be read, under a read-only grant, or once entered in error', async () => {
+    api.noteRevisions.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    let view = open(RECORD)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
+    const none = screen.getByText('Nothing more to do here.')
+    expect(none.className).toBe('hid-ehr-clinical-note')
+    expect(screen.queryByRole('button', { name: 'Mark entered in error' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
+    view.unmount()
+    api.noteRevisions.mockImplementation(async () => revisions)
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    view = open(RECORD)
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Amend observation' })).toBeNull()
+    view.unmount()
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
+    notes = [{ ...NOTE, status: 'entered_in_error' }]
+    open(RECORD)
+    expect(await screen.findByText('Entered in error')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Amend observation' })).toBeNull()
+  })
+
+  it('closes the patient when the re-check before an amendment is refused', async () => {
+    await openRecord()
+    const form = await amendForm()
+    type(form, 'Content', 'Corrected vitals observation')
+    type(form, 'Reason for revision', 'Wrong patient bed')
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Record revision' }))
+    expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
+    expect(api.addNoteRevision).not.toHaveBeenCalled()
+  })
+
+  function actions() {
+    return screen.getByRole('heading', { level: 2, name: 'Available actions' }).closest('section')!
+  }
+
+  /** The design's actions shown in the card (not "More actions"). */
+  function actionNames() {
+    return within(actions()).queryAllByRole('button', { expanded: false }).filter(button => !button.hasAttribute('aria-haspopup')).map(button => button.textContent)
+  }
+
+  function moreButton() {
+    return within(actions()).queryByRole('button', { name: /^More actions/ })
+  }
+
+  /** The items behind "More actions": opens the menu, reads them, and closes it again with Escape. */
+  function moreNames() {
+    const button = moreButton()
+    if (!button) return []
+    fireEvent.click(button)
+    const menu = within(actions()).getByRole('menu', { name: 'More actions' })
+    const names = within(menu).getAllByRole('menuitem').map(item => item.textContent)
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    return names
+  }
+
+  /** Opens one of the note's status changes (from "More actions" when it is there) and gives its reason: its form and its submit button. */
+  async function statusForm(label: string, reason = 'Charted on the wrong bed') {
+    if (label === 'Mark entered in error') {
+      fireEvent.click(await within(actions()).findByRole('button', { name: 'More actions' }))
+      fireEvent.click(within(actions()).getByRole('menuitem', { name: label }))
+    } else {
+      fireEvent.click(await within(actions()).findByRole('button', { name: label, expanded: false }))
+    }
+    const submit = within(actions()).getAllByRole('button', { name: label }).find(button => button.getAttribute('type') === 'submit')!
+    const form = submit.closest('form')!
+    if (reason) type(form, 'Reason for change', reason)
+    return { form, submit }
+  }
+
+  function dialog() {
+    return screen.getByRole('alertdialog')
+  }
+
+  it('offers today’s note status changes by status, next to the amendment, once the content has been read', async () => {
+    const read = deferred<unknown[]>()
+    api.noteRevisions.mockReturnValueOnce(read.promise)
+    let view = open(RECORD)
+    expect(await screen.findByText('Loading note revisions…')).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    expect(moreButton()).toBeNull()
+    await act(async () => read.resolve([FIRST]))
+    expect(actionNames()).toEqual(['Amend observation', 'Sign note'])
+    expect(moreNames()).toEqual(['Mark entered in error'])
+    view.unmount()
+
+    for (const status of ['signed', 'amended']) {
+      notes = [{ ...NOTE, status }]
+      view = open(RECORD)
+      await screen.findByRole('button', { name: 'More actions' })
+      expect(actionNames()).toEqual(['Amend observation'])
+      expect(moreNames()).toEqual(['Mark entered in error'])
+      view.unmount()
+    }
+
+    // As today: no status change for a note whose revisions hold no content, nor without note write permission.
+    notes = [NOTE]
+    revisions = []
+    view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
+    expect(await within(saved()).findByText('No note content is available.')).toBeTruthy()
+    expect(actionNames()).toEqual(['Amend observation'])
+    expect(moreButton()).toBeNull()
+    view.unmount()
+    revisions = [FIRST]
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.write')
+    await openRecord()
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    expect(actionNames()).toEqual([])
+    expect(moreButton()).toBeNull()
+    expect(within(actions()).getByText('Nothing more to do here.')).toBeTruthy()
+  })
+
+  it('signs a draft only after SIGN is typed, with a reason, after the access re-check', async () => {
+    await openRecord()
+    const { form, submit } = await statusForm('Sign note', '')
+    fireEvent.click(submit)
+    expect(within(form).getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    type(form, 'Reason for change', 'ok')
+    fireEvent.click(submit)
+    expect(within(form).getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+
+    type(form, 'Reason for change', 'Reviewed with the nurse in charge')
+    fireEvent.click(submit)
+    expect(within(dialog()).getByRole('heading', { name: 'Sign note?' })).toBeTruthy()
+    expect(within(dialog()).getByText('Check the details first. This changes the saved record; the change is kept in its history.')).toBeTruthy()
+    const confirm = within(dialog()).getByRole('button', { name: 'Sign note' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'sign' } })
+    expect(confirm.disabled).toBe(true)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    expect(confirm.disabled).toBe(false)
+    api.lookupPatient.mockClear()
+    fireEvent.click(confirm)
+
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+    expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
+      { expectedRowVersion: 2, changeReason: 'Reviewed with the nurse in charge', status: 'signed' }])
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.updateRecord.mock.invocationCallOrder[0]!)
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
+    await waitFor(() => expect(actionNames()).toEqual(['Amend observation']))
+    expect(document.activeElement?.textContent).toBe('Available actions')
+    expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
+    expect(moreNames()).toEqual(['Mark entered in error'])
+  })
+
+  it('marks a note entered in error after the plain decision dialog; Cancel keeps the form and its reason', async () => {
+    notes = [{ ...NOTE, status: 'signed' }]
+    await openRecord()
+    const { form, submit } = await statusForm('Mark entered in error')
+    fireEvent.click(submit)
+    expect(within(dialog()).getByRole('heading', { name: 'Mark entered in error?' })).toBeTruthy()
+    expect(within(dialog()).queryByLabelText(/to confirm/)).toBeNull()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    expect(form.isConnected).toBe(true)
+    expect(control(form, 'Reason for change').value).toBe('Charted on the wrong bed')
+    await waitFor(() => expect(submit.getAttribute('aria-disabled')).toBeNull())
+
+    fireEvent.click(submit)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
+      { expectedRowVersion: 2, changeReason: 'Charted on the wrong bed', status: 'entered_in_error' }])
+    expect(await within(actions()).findByText('Nothing more to do here.')).toBeTruthy()
+    expect(moreButton()).toBeNull()
+    expect(screen.getAllByText('Entered in error').length).toBeGreaterThan(0)
+  })
+
+  it('"Cancel" closes the "Mark entered in error" form More actions opened, changing nothing, with focus back on the menu button', async () => {
+    notes = [{ ...NOTE, status: 'signed' }]
+    await openRecord()
+    const { form } = await statusForm('Mark entered in error')
+    const cancel = within(form).getByRole('button', { name: 'Cancel' })
+    expect(cancel.getAttribute('type')).toBe('button')
+    act(() => { cancel.focus() })
+    fireEvent.click(cancel)
+    expect(form.isConnected).toBe(false)
+    expect(within(actions()).queryByLabelText(labelled('Reason for change'))).toBeNull()
+    expect(document.activeElement).toBe(moreButton())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    // "Amend observation", the design's own action, toggles with its button and carries no "Cancel".
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Amend observation', expanded: false }))
+    expect(within(actions()).queryByRole('button', { name: 'Cancel' })).toBeNull()
+  })
+
+  it('shows a refused status change in its form, a 412 included, as today, and reads nothing again', async () => {
+    api.updateRecord.mockRejectedValueOnce(new HidApiError(412, 'The record changed since it was read.', { code: 'ROW_VERSION_MISMATCH' }))
+    await openRecord()
+    const { form, submit } = await statusForm('Mark entered in error')
+    const reads = api.records.mock.calls.length
+    fireEvent.click(submit)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The record changed since it was read.')
+    expect(api.records.mock.calls.length).toBe(reads)
+    expect(screen.queryByText('Clinical note status updated.')).toBeNull()
+
+    api.updateRecord.mockRejectedValueOnce('no answer')
+    fireEvent.click(submit)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('Status could not be changed.'))
+  })
+
+  it('asks for a reload when the note’s version cannot be sent back, and sends nothing', async () => {
+    notes = [{ ...NOTE, rowVersion: null }]
+    await openRecord()
+    const { form, submit } = await statusForm('Sign note')
+    fireEvent.click(submit)
+    expect((await within(form).findByRole('alert')).textContent).toBe('Reload the record before changing its status.')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  it('closes the patient when the re-check before a status change is refused', async () => {
+    await openRecord()
+    const { submit } = await statusForm('Sign note')
+    fireEvent.click(submit)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
+    expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    expect(staff.setActivePatient).toHaveBeenCalledWith(null)
+  })
+
+  it('offers no status change under a read-only grant', async () => {
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    await openRecord()
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'Mark entered in error' })).toBeNull()
+    expect(moreButton()).toBeNull()
+  })
+
+  it('gives an emergency patient the read-only gate', () => {
+    staff.activePatient = activePatient('emergency')
+    open(RECORD)
+    expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
+    expect(api.encounter).not.toHaveBeenCalled()
+    expect(api.records).not.toHaveBeenCalled()
+  })
+
+  it('audit 11: Available actions shows the design’s actions; "Mark entered in error" is behind a More actions menu at the end of the card', async () => {
+    await openRecord()
+    const more = await within(actions()).findByRole('button', { name: 'More actions' })
+    expect(actionNames()).toEqual(['Amend observation', 'Sign note'])
+    // A real menu button, after the design's action list.
+    expect(more.tagName).toBe('BUTTON')
+    expect(more.getAttribute('type')).toBe('button')
+    expect(more.getAttribute('aria-haspopup')).toBe('menu')
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    expect(more.parentElement?.previousElementSibling?.className).toBe('hid-ehr-clinical-action-list')
+    expect(within(actions()).queryByRole('menu')).toBeNull()
+
+    fireEvent.click(more)
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    const menu = within(actions()).getByRole('menu', { name: 'More actions' })
+    expect(more.getAttribute('aria-controls')).toBe(menu.id)
+    const item = within(menu).getByRole('menuitem', { name: 'Mark entered in error' })
+    expect(document.activeElement).toBe(item)
+
+    // Choosing it closes the menu, gives the button focus back and opens today's form: its reason, its submit.
+    fireEvent.click(item)
+    expect(within(actions()).queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(more)
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    expect(more.textContent).toContain('Mark entered in error open')
+    const submit = within(actions()).getAllByRole('button', { name: 'Mark entered in error' }).find(button => button.getAttribute('type') === 'submit')!
+    const form = submit.closest('form')!
+    expect(control(form, 'Reason for change')).toBeTruthy()
+    // Its form opens under the menu, in the same card.
+    expect(form.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+
+    // Choosing it again keeps its form open with what was typed, as the consultation page's menu does.
+    type(form, 'Reason for change', 'Charted on the wrong bed')
+    fireEvent.click(more)
+    fireEvent.click(within(actions()).getByRole('menuitem', { name: 'Mark entered in error' }))
+    expect(form.isConnected).toBe(true)
+    expect(control(form, 'Reason for change').value).toBe('Charted on the wrong bed')
+    expect(more.textContent).toContain('Mark entered in error open')
+    // An action button still closes it, as before.
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Amend observation', expanded: false }))
+    expect(form.isConnected).toBe(false)
+    expect(more.textContent).not.toContain('open')
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  it('audit 11: the More actions menu works from the keyboard, and Escape or a press outside closes it', async () => {
+    await openRecord()
+    const more = await within(actions()).findByRole('button', { name: 'More actions' })
+    fireEvent.keyDown(more, { key: 'ArrowDown' })
+    let menu = within(actions()).getByRole('menu')
+    const item = within(menu).getByRole('menuitem', { name: 'Mark entered in error' })
+    expect(document.activeElement).toBe(item)
+    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End']) {
+      fireEvent.keyDown(menu, { key })
+      expect(document.activeElement).toBe(item)
+    }
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    expect(within(actions()).queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(more)
+    // Nothing was opened or sent.
+    expect(within(actions()).queryByLabelText(labelled('Reason for change'))).toBeNull()
+
+    fireEvent.keyDown(more, { key: 'ArrowUp' })
+    menu = within(actions()).getByRole('menu')
+    expect(document.activeElement).toBe(within(menu).getByRole('menuitem', { name: 'Mark entered in error' }))
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(within(actions()).queryByRole('menu')).toBeNull())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  function history() {
+    return screen.getByRole('heading', { level: 2, name: 'History' }).closest('section')!
+  }
+
+  function historyRows() {
+    return within(history()).getAllByRole('listitem').map(row => {
+      const link = within(row).queryByRole('link')
+      return [link?.textContent ?? row.firstElementChild?.textContent, link?.getAttribute('href') ?? null]
+    })
+  }
+
+  it('audit 15: the history lists the visit first, then the encounter’s Triage & Vitals, Laboratory and Pharmacy, each a link; never other observations', async () => {
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
+    const otherObservation = { ...NOTE, id: 'c3333333-0000-4000-8000-000000000004', status: 'signed' }
+    notes = [NOTE, otherObservation, CONSULTATION]
+    others = {
+      // A record of another encounter or patient is never listed here.
+      vitals: [VITAL, { ...VITAL, id: 'f9999999-0000-4000-8000-000000000009', encounterId: OTHER_ENCOUNTER_ID }],
+      'lab-requests': [LAB, { ...LAB, id: 'b9999999-0000-4000-8000-000000000009', patientId: 'a9999999-0000-4000-8000-000000000009' }],
+      prescriptions: [PRESCRIPTION],
+    }
+    await openRecord()
+    await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
+    expect(historyRows()).toEqual([
+      [consultationLabel(ENCOUNTER), `/provider/clinical/${ENCOUNTER_ID}`],
+      [`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`, `/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`],
+      ['Laboratory · Malaria parasite test', `/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB_ID}`],
+      ['Pharmacy · Paracetamol 500 mg', `/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${PRESCRIPTION_ID}`],
+    ])
+    const rows = within(history()).getAllByRole('listitem')
+    expect(rows.map(row => row.lastElementChild?.textContent)).toEqual(['In progress', 'Final', 'Active', 'Draft'])
+    expect(within(history()).queryByText(/c3333333/)).toBeNull()
+    // Each kind is read once, as the encounter page reads it: the record's own read is the only notes read.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals')
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests')
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+    expect(api.records.mock.calls.filter(call => call[3] === 'clinical-notes')).toHaveLength(1)
+    expect(window.location.href).not.toContain(PATIENT_HID)
+  })
+
+  it('audit 15: each kind is read only by a role that may read it; a read in progress or refused says so in the history', async () => {
+    others = { vitals: [VITAL], 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
+    staff.permissions = ['ehr.note.read', 'ehr.note.write']
+    let view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
+    await act(async () => {})
+    // Without encounter read the visit is named, not linked; nothing else is read.
+    expect(historyRows()).toEqual([[consultationLabel(ENCOUNTER), null]])
+    expect(api.records.mock.calls.map(call => call[3])).toEqual(['clinical-notes'])
+    view.unmount()
+
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
+    const vitalsRead = deferred<{ items: unknown[]; nextCursor: null }>()
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'vitals') return vitalsRead.promise
+      if (kind === 'lab-requests') throw new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })
+      return { items: kind === 'clinical-notes' ? notes : others[kind] ?? [], nextCursor: null }
+    })
+    view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
+    expect(await within(history()).findByText('Loading records…')).toBeTruthy()
+    await act(async () => vitalsRead.resolve({ items: [VITAL], nextCursor: null }))
+    expect(within(history()).queryByText('Loading records…')).toBeNull()
+    expect(within(history()).getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
+    // The other rows still show, and the record itself is unaffected.
+    expect(historyRows().map(row => row[0])).toEqual([consultationLabel(ENCOUNTER), `Triage & Vitals · ${formatWhen(VITAL.createdAt)}`, 'Pharmacy · Paracetamol 500 mg'])
+    expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
+    view.unmount()
+  })
+
+  it('audit 15: a kind past its first page shows today’s "Record pages" in the history; a cursor EHR no longer accepts starts it again with today’s notice', async () => {
+    const OLDER = { ...VITAL, id: 'f3333333-0000-4000-8000-000000000003', createdAt: '2026-10-30T07:00:00.000Z' }
+    let refuseCursor = false
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string; fresh?: boolean }) => {
+      if (kind !== 'vitals') return { items: kind === 'clinical-notes' ? notes : others[kind] ?? [], nextCursor: null }
+      if (page?.cursor === 'vitals-2') {
+        if (refuseCursor) throw new HidApiError(400, 'The cursor is no longer valid.', { code: 'INVALID_CURSOR' })
+        return { items: [OLDER], nextCursor: null }
+      }
+      return { items: [VITAL], nextCursor: 'vitals-2' }
+    })
+    await openRecord()
+    const pages = await within(history()).findByRole('group', { name: 'Triage & Vitals' })
+    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    expect(within(pages).getByText('Page 1')).toBeTruthy()
+    expect(historyRows().map(row => row[0])).toEqual([consultationLabel(ENCOUNTER), `Triage & Vitals · ${formatWhen(VITAL.createdAt)}`])
+    // Only the list that has more than one page shows a pager.
+    expect(within(history()).getAllByRole('group')).toEqual([pages])
+
+    // The next page is today's page read (its cursor, not fresh), and its rows replace the first page's.
+    fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
+    expect(await within(history()).findByText(`Triage & Vitals · ${formatWhen(OLDER.createdAt)}`)).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
+    expect(within(pages).getByText('Page 2')).toBeTruthy()
+    expect(historyRows()).toContainEqual([`Triage & Vitals · ${formatWhen(OLDER.createdAt)}`, `/provider/triage/${ENCOUNTER_ID}~${OLDER.id}`])
+    expect(within(history()).queryByText(`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`)).toBeNull()
+
+    // Back to the first page, then forward with a cursor EHR no longer accepts: the list starts again, saying so.
+    fireEvent.click(within(pages).getByRole('button', { name: 'Previous page' }))
+    expect(await within(history()).findByText(`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`)).toBeTruthy()
+    refuseCursor = true
+    fireEvent.click(within(history()).getByRole('button', { name: 'Next page' }))
+    expect(await within(history()).findByText('This list changed since it was opened, so it shows the newest entries again.')).toBeTruthy()
+    expect(within(history()).getByText(`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`)).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: undefined, fresh: true })
+    // The record itself is unaffected.
+    expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
+    expect(window.location.href).not.toContain('vitals-2')
+  })
+
+  it('audit 15: Laboratory and Pharmacy rows link only for a role that may open Consultation (encounter read)', async () => {
+    staff.permissions = ['ehr.note.read', 'ehr.note.write', 'ehr.lab-request.read', 'ehr.prescription.read']
+    others = { 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
+    open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
+    await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
+    // Named, not linked: Consultation (where the visit and its orders open) needs encounter read.
+    expect(historyRows()).toEqual([
+      [consultationLabel(ENCOUNTER), null],
+      ['Laboratory · Malaria parasite test', null],
+      ['Pharmacy · Paracetamol 500 mg', null],
+    ])
+    expect(within(history()).queryByRole('link')).toBeNull()
+  })
+
+  it('blocker: opens and acts on an observation past its visit’s first notes page, as today’s record read reads every page', async () => {
+    // EHR lists a visit's notes 50 to a page, newest first: this observation is on the second page.
+    let second: unknown[] = [NOTE]
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string; fresh?: boolean }) => {
+      if (kind !== 'clinical-notes') return { items: others[kind] ?? [], nextCursor: null }
+      return page?.cursor === 'notes-2' ? { items: second, nextCursor: null } : { items: [CONSULTATION], nextCursor: 'notes-2' }
+    })
+    api.updateRecord.mockImplementation(async (_f: string, _p: string, _e: string, _k: string, _n: string, input: { status: string }) => {
+      const changed = { ...NOTE, status: input.status, rowVersion: '3' }
+      second = [changed]
+      return changed
+    })
+    const noteReads = () => api.records.mock.calls.filter(call => call[3] === 'clinical-notes').map(call => call.slice(4))
+    await openRecord()
+    // Today's page reads, both pages: the first plain, the next by its cursor.
+    expect(noteReads()).toEqual([[], [{ cursor: 'notes-2', fresh: false }]])
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+
+    // Signing it reads every page again, fresh, so the page shows the signed note.
+    const { submit } = await statusForm('Sign note', 'Reviewed with the nurse in charge')
+    fireEvent.click(submit)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
+    // The note shows as signed only once the second page was read again.
+    expect(await screen.findByText('Signed')).toBeTruthy()
+    expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
+      { expectedRowVersion: 2, changeReason: 'Reviewed with the nurse in charge', status: 'signed' }])
+    expect(noteReads().slice(2)).toEqual([[{ fresh: true }], [{ cursor: 'notes-2', fresh: true }]])
+    // The signed note's revisions are read again; then it offers what a signed note offers.
+    await waitFor(() => expect(actionNames()).toEqual(['Amend observation']))
+  })
+})

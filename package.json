@@ -1,0 +1,56 @@
+{
+  "name": "hid-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Health ID frontend ecosystem. Consumer of the Health ID Gateway/API. Contains no backend code.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:mock": "node dev/mock-gateway/server.mjs",
+    "build:preview": "vite build --config dev/preview/vite.config.ts",
+    "typecheck": "tsc --build --force",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:edge": "node --test infra/cloudflare/test/*.test.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "build:public-web": "npm run build --workspace @hid/public-web",
+    "build:patient-web": "npm run build --workspace @hid/patient-web",
+    "audit:boundaries": "node scripts/check-boundaries.mjs",
+    "audit:launch-build": "node scripts/check-launch-build.mjs",
+    "build:staging": "python scripts/build-staging.py",
+    "test:release": "python -m unittest discover -s scripts -p test_staging_release.py",
+    "build:production": "python scripts/build-production.py",
+    "test:production-release": "python -m unittest discover -s scripts -p test_production_release.py",
+    "build:outreach": "vite build --config outreach-supabase/vite.config.ts"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "vitest": {
+      "vite": "7.3.7"
+    },
+    "undici@7.29.1": "7.30.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.0",
+    "eslint": "^9.39.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vite-plugin-singlefile": "^2.3.4",
+    "vitest": "4.1.12",
+    "wrangler": "4.147.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4"
+  }
+}
