@@ -47,11 +47,19 @@ class Query {
 export function createClient() {
   return {
     from: table => new Query(table),
+    async rpc(name, args) {
+      await delay()
+      if (name !== 'outreach_prepare_sign_in') return { data: null, error: { message: `function ${name} not found` } }
+      const email = String(args.p_email).toLowerCase()
+      if (!tables.outreach_access.some(row => row.email === email)) return { data: false, error: null }
+      users.set(email, 'derived'); keep()
+      return { data: true, error: null }
+    },
     auth: {
       async getSession() { await delay(); return { data: { session } } },
       async signInWithPassword({ email, password }) {
         await delay()
-        if (users.get(email) !== password) return { data: {}, error: { message: 'Invalid login credentials' } }
+        if (!users.has(email) || (users.get(email) !== 'derived' && users.get(email) !== password)) return { data: {}, error: { message: 'Invalid login credentials' } }
         session = { user: { id: `user-${email}`, email } }; keep()
         return { data: { session }, error: null }
       },

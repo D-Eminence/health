@@ -84,25 +84,18 @@ async function passwordFor(email) {
 async function signIn(body) {
   const email = String(body?.email ?? '').trim().toLowerCase()
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter your email address.')
-  const password = await passwordFor(email)
-  let { error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error && /email not confirmed/i.test(error.message)) {
-    return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'This email is waiting for an email check. Your organiser can release it: run reset-passwords.sql in Supabase.')
+  // The database makes (or readies) the account for an email on a team, so Supabase never sends an email
+  // (sign-in-function.sql). An email on no team is turned away here.
+  const prepared = await supabase.rpc('outreach_prepare_sign_in', { p_email: email })
+  if (prepared.error) {
+    return problem(400, 'OUTREACH_SIGN_IN_REFUSED', /outreach_prepare_sign_in|function/i.test(prepared.error.message)
+      ? 'Sign-in isn’t set up in Supabase yet. Your organiser needs to run sign-in-function.sql in the SQL Editor.'
+      : `Supabase refused the sign-in: ${prepared.error.message}`)
   }
-  if (error && /invalid login credentials/i.test(error.message)) {
-    // The first sign-in makes the account (Supabase "Confirm email" is off).
-    const made = await supabase.auth.signUp({ email, password })
-    if (made.error) {
-      if (/already registered|already exists/i.test(made.error.message)) {
-        return problem(400, 'OUTREACH_SIGN_IN_OLD_PASSWORD', 'This email still has an old password. Your organiser can fix it: run reset-passwords.sql in Supabase, then sign in again.')
-      }
-      return problem(400, 'OUTREACH_SIGN_IN_REFUSED', `Supabase refused the new account: ${made.error.message}`)
-    }
-    if (!made.data.session) {
-      return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'Supabase is still asking for an email check. Your organiser needs to turn off "Confirm email" in Supabase and run reset-passwords.sql.')
-    }
-    error = null
+  if (prepared.data !== true) {
+    return problem(403, 'OUTREACH_NOT_ON_A_TEAM', `${email} isn’t on an outreach team yet. Ask your coordinator to add this exact email under Team, then sign in again.`)
   }
+  const { error } = await supabase.auth.signInWithPassword({ email, password: await passwordFor(email) })
   if (error) return problem(400, 'OUTREACH_SIGN_IN_REFUSED', `Supabase refused the sign-in: ${error.message}`)
   context = null
   await loadContext()
