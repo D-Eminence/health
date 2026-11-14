@@ -872,3 +872,30 @@ describe('Health checks saved anyway (owner, 14 Nov 2026: "without input info li
     expect(api.saveOutreachScreening.mock.calls[0]![2]).toMatchObject({ pulseBpm: 72, glucoseValue: 6.1, glucoseUnit: 'mmol/L', glucoseTiming: 'random' })
   })
 })
+
+describe('Genotype and blood group (owner, 14 Nov 2026), kept at the start of Outcome or advice', () => {
+  it('saves them as "Genotype: AS. Blood group: O+." before the advice, and reads them back into their boxes', async () => {
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { outcome: 'Genotype: AS. Blood group: O+. Drink water.' }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    choose(/^Genotype/, 'AS')
+    choose(/^Blood group/, 'O+')
+    fireEvent.change(within(region()).getByRole('textbox', { name: /Outcome or advice/ }), { target: { value: 'Drink water.' } })
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2].outcome).toBe('Genotype: AS. Blood group: O+. Drink water.')
+    await waitFor(() => expect((within(region()).getByRole('combobox', { name: /^Genotype/ }) as HTMLSelectElement).value).toBe('AS'))
+    expect((within(region()).getByRole('combobox', { name: /^Blood group/ }) as HTMLSelectElement).value).toBe('O+')
+    expect((within(region()).getByRole('textbox', { name: /Outcome or advice/ }) as HTMLTextAreaElement).value).toBe('Drink water.')
+  })
+
+  it('saves a genotype alone, with no other health check', async () => {
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { outcome: 'Genotype: SS.' }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    choose(/^Genotype/, 'SS')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2].outcome).toBe('Genotype: SS.')
+  })
+})

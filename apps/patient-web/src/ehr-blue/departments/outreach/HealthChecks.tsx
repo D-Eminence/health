@@ -11,7 +11,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, checkScreening, skippedFields, withUnfinishedLeftOut, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
+  bmiOf, BLOOD_GROUPS, checkScreening, GENOTYPES, skippedFields, withUnfinishedLeftOut, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
 import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
@@ -93,6 +93,8 @@ const GLUCOSE_TIMINGS = [{ value: 'fasting', label: 'Fasting' }, { value: 'rando
 const MALARIA = [{ value: 'positive', label: 'Positive' }, { value: 'negative', label: 'Negative' }, { value: 'not_done', label: 'Not done' }] as const
 const HEARING = [{ value: 'pass', label: 'Passed' }, { value: 'refer', label: 'Didn’t pass (needs a full hearing test)' }, { value: 'not_done', label: 'Not done' }] as const
 const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] as const
+const GENOTYPE_CHOICES = GENOTYPES.map(value => ({ value, label: value }))
+const BLOOD_GROUP_CHOICES = BLOOD_GROUPS.map(value => ({ value, label: value }))
 
 /** One group of the form, headed for a screen reader and a quick glance. */
 function Group({ id, title, children }: { readonly id: string; readonly title: string; readonly children: ReactNode }) {
@@ -407,7 +409,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
         if (/^\d{1,4}\.\d+$/.test(typed) && rounded >= 30 && rounded <= 250) update('heightCm', String(rounded))
       } : undefined} />
   )
-  const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
+  const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'genotype' | 'bloodGroup' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
     key: K, options: ReadonlyArray<{ readonly value: string; readonly label: string }>) => (
     <EhrSelect name={key} value={form[key]} disabled={!canWrite || busy} onChange={event => update(key, event.target.value as ScreeningForm[K])} {...control(key)}>
       <option value="">Not recorded</option>
@@ -451,6 +453,12 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
         <div aria-live="polite">{canWrite && outsideUsualRange(form) ? <Alert intent="warning" live={false} title={SEE_CLINICIAN}>{null}</Alert> : null}</div>
         <Group id={id('malaria')} title="Malaria test">
           <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" hint={MALARIA_HINT} {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
+        </Group>
+        <Group id={id('blood-tests')} title="Genotype and blood group">
+          <div className="grid grid-cols-2 gap-3">
+            <OutreachField id={id('genotype')} label="Genotype" {...field('genotype')}>{choice('genotype', GENOTYPE_CHOICES)}</OutreachField>
+            <OutreachField id={id('bloodGroup')} label="Blood group" {...field('bloodGroup')}>{choice('bloodGroup', BLOOD_GROUP_CHOICES)}</OutreachField>
+          </div>
         </Group>
         <Group id={id('hearing')} title="Hearing">
           <div className="grid grid-cols-2 gap-3">

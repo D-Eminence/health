@@ -33,6 +33,9 @@ export interface ScreeningForm {
   readonly malariaRdt: '' | OutreachMalariaRdt
   readonly hearingLeft: '' | OutreachHearing
   readonly hearingRight: '' | OutreachHearing
+  /** Genotype and blood group (owner, 14 Nov 2026), kept at the start of "Outcome or advice" until Outreach has their own. */
+  readonly genotype: '' | Genotype
+  readonly bloodGroup: '' | BloodGroup
   readonly mainComplaint: string
   readonly seenByClinician: YesNo
   readonly clinicianName: string
@@ -40,6 +43,27 @@ export interface ScreeningForm {
   readonly medicines: readonly MedicineRow[]
   readonly referred: YesNo
   readonly referredTo: string
+}
+
+/** Genotypes and blood groups (owner, 14 Nov 2026: "we should collect genotype and blood group"). */
+export const GENOTYPES = ['AA', 'AS', 'AC', 'SS', 'SC', 'CC', 'Not known'] as const
+export type Genotype = typeof GENOTYPES[number]
+export const BLOOD_GROUPS = ['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−', 'Not known'] as const
+export type BloodGroup = typeof BLOOD_GROUPS[number]
+
+/**
+ * Until Outreach keeps them in their own fields, genotype and blood group are saved at the start of "Outcome or advice",
+ * always written the same way ("Genotype: AS. Blood group: O+."), so the form reads them back and they can be moved
+ * into their own fields later without guessing.
+ */
+const BLOOD_TESTS = new RegExp(`^(?:Genotype: (${GENOTYPES.map(escape).join('|')})\\.\\s*)?(?:Blood group: (${BLOOD_GROUPS.map(escape).join('|')})\\.\\s*)?`)
+function escape(value: string) { return value.replace(/[+.]/g, match => `\\${match}`) }
+export function readBloodTests(outcome: string): { genotype: '' | Genotype; bloodGroup: '' | BloodGroup; rest: string } {
+  const match = BLOOD_TESTS.exec(outcome)
+  return { genotype: (match?.[1] ?? '') as '' | Genotype, bloodGroup: (match?.[2] ?? '') as '' | BloodGroup, rest: outcome.slice(match?.[0].length ?? 0) }
+}
+export function bloodTestsText(genotype: '' | Genotype, bloodGroup: '' | BloodGroup): string {
+  return [genotype ? `Genotype: ${genotype}.` : '', bloodGroup ? `Blood group: ${bloodGroup}.` : ''].filter(Boolean).join(' ')
 }
 
 /** A field of the form an error is said on: one of the form's own, or a medicine row's name or dose. */
@@ -121,7 +145,8 @@ export function screeningForm(saved: OutreachScreening | null): ScreeningForm {
     glucoseValue: text(saved?.glucoseValue), glucoseUnit: saved?.glucoseUnit ?? '', glucoseTiming: saved?.glucoseTiming ?? '',
     malariaRdt: saved?.malariaRdt ?? '', hearingLeft: saved?.hearingLeft ?? '', hearingRight: saved?.hearingRight ?? '',
     mainComplaint: saved?.mainComplaint ?? '', seenByClinician: yesNo(saved?.seenByClinician), clinicianName: saved?.clinicianName ?? '',
-    outcome: saved?.outcome ?? '', medicines: (saved?.medicinesGiven ?? []).map(medicine => medicineRow(medicine.name, medicine.dose ?? '')),
+    ...(() => { const tests = readBloodTests(saved?.outcome ?? ''); return { genotype: tests.genotype, bloodGroup: tests.bloodGroup, outcome: tests.rest } })(),
+    medicines: (saved?.medicinesGiven ?? []).map(medicine => medicineRow(medicine.name, medicine.dose ?? '')),
     referred: yesNo(saved?.referred), referredTo: saved?.referredTo ?? '',
   }
 }
@@ -231,7 +256,12 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
   const mainComplaint = words('mainComplaint', 200)
   const seen = form.seenByClinician === '' ? null : form.seenByClinician === 'yes'
   const clinicianName = seen ? words('clinicianName', 100) : null
-  const outcome = words('outcome', 500)
+  // Genotype and blood group go first in "Outcome or advice" (see readBloodTests), within its 500 characters.
+  const tests = bloodTestsText(form.genotype, form.bloodGroup)
+  const advice = squeeze(form.outcome)
+  const room = 500 - (tests ? tests.length + 1 : 0)
+  if (advice.length > room) errors.outcome = `Keep this to ${room} characters.`
+  const outcome = [tests, advice].filter(Boolean).join(' ') || null
   const referred = form.referred === '' ? null : form.referred === 'yes'
   const referredTo = referred ? words('referredTo', 200) : null
 
