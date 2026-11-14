@@ -17,6 +17,7 @@ import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
 import { CaseCard, ShowMore, useOutreachCases, type CasesRead } from './OutreachCaseList'
+import { OutreachNumbers } from './outreachNumbers'
 import { GetHealthIdNow } from './GetHealthIdNow'
 import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
@@ -122,6 +123,9 @@ export function Outreach() {
   const askGovernance = canReadCampaigns && (permissions.includes('outreach.campaign.write') || group)
   const governance = useFacilityRead(facilityId, askGovernance, campaignsManaged, '')
   const canManage = askGovernance && permissions.includes('outreach.campaign.write') && governance.value?.managed === true
+  // The list's tab is kept while a person is open, so the vitals station working through "No health checks yet" comes
+  // back to it after each person (rehearsal review, 14 Nov).
+  const [listTab, setListTab] = useState<CaseTab>('waiting')
   const organiserStatus = group ? governance.value?.organiserStatus : undefined
   const campaigns = useFacilityRead(facilityId, canReadCampaigns, useCallback((id: string) => staffApi.outreachCampaigns(id), []), CAMPAIGNS_NOT_LOADED)
   // The newest 100 first, as before paging; "Show more" adds older ones where Outreach pages the list (hid-system#247).
@@ -357,6 +361,8 @@ export function Outreach() {
           <OutreachQueuePanel entries={queueShown} durable={queue.durable} syncing={queue.syncing} onSync={sendNow}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}
+        tab={listTab} onTab={setListTab}
+        waitingOnPhone={group ? queueShown.filter(entry => entry.state === 'waiting').length : undefined}
         bottom={organiser ? <OutreachTeam facilityId={facilityId} /> : undefined}
         onNewCampaign={canManage ? () => show({ kind: 'newCampaign' }) : undefined}
         onOpenCase={item => show({ kind: 'case', id: item.id, snapshot: item, created: false })}
@@ -392,14 +398,55 @@ interface ListRead<T> {
   readonly refresh: () => Promise<void>
 }
 
-type CaseTab = 'waiting' | 'done' | 'all'
+type CaseTab = 'waiting' | 'done' | 'all' | 'noChecks'
+
+/** How often the registrations are read again while the list is open (owner, 14 Nov: volunteers continue each other's work). */
+export const AUTO_REFRESH_MS = 60_000
+/** How long a search finding nothing waits before reading the registrations again. */
+export const SEARCH_REFRESH_MS = 800
+
+/**
+ * Reads the registrations again by itself, so people registered on other phones show here: every minute while the list
+ * is open and on screen, when the page comes back on screen, and once when a search finds nothing. Never with no signal,
+ * never while a read is under way, and never once "Show more" has added older pages (reading again would let them go).
+ */
+function useAutoRefresh(cases: CasesRead, searchFoundNothing: boolean) {
+  const latest = useRef(cases)
+  latest.current = cases
+  const readAgain = useCallback(() => {
+    const now = latest.current
+    if (now.loading || now.value === null || now.value.length > 100) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    void now.refresh()
+  }, [])
+  useEffect(() => {
+    const timer = window.setInterval(readAgain, AUTO_REFRESH_MS)
+    const shown = () => { if (document.visibilityState === 'visible') readAgain() }
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', shown)
+    }
+  }, [readAgain])
+  useEffect(() => {
+    if (!searchFoundNothing) return undefined
+    const timer = window.setTimeout(readAgain, SEARCH_REFRESH_MS)
+    return () => window.clearTimeout(timer)
+  }, [searchFoundNothing, readAgain])
+}
 
 /**
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
 function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cases, campaigns, refreshMembers, group, top, bottom, campaignOf, onNew, onNewCampaign,
-  onOpenCase, onOpenCampaign }: {
+  onOpenCase, onOpenCampaign, waitingOnPhone, tab: chosenTab, onTab }: {
+  /** Registrations kept on this phone waiting for signal (an outreach group's), counted in the numbers. */
+  readonly waitingOnPhone?: number
+  /** The registrations tab shown, kept by Outreach while a person is open. */
+  readonly tab: CaseTab
+  readonly onTab: (tab: CaseTab) => void
   readonly canReadCases: boolean
   /** Export is offered: reading registrations, and at an outreach group, its organiser. */
   readonly canExport: boolean
@@ -422,7 +469,6 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   readonly onOpenCase: (item: OutreachCase) => void
   readonly onOpenCampaign: (campaign: OutreachCampaign) => void
 }) {
-  const [tab, setTab] = useState<CaseTab>('waiting')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const focus = useFocusById()
@@ -433,8 +479,15 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   // Newest first: the person just met is the one most likely to be looked for.
   const all = [...(cases.value ?? [])].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
   const waiting = all.filter(caseWaiting)
-  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'waiting') === caseWaiting(item)
+  // "No health checks yet" (owner, 14 Nov: who still needs the vitals station), where Outreach says which have them.
+  const checksKnown = all.some(item => 'hasScreening' in item)
+  // A tab no longer offered (Outreach stopped saying which have health checks) falls back to the first.
+  const tab: CaseTab = chosenTab === 'noChecks' && !checksKnown ? 'waiting' : chosenTab
+  const setTab = onTab
+  const noChecks = all.filter(item => item.hasScreening === false)
+  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'noChecks' ? item.hasScreening === false : (tab === 'waiting') === caseWaiting(item))
   const rows = all.filter(item => inTab(item) && matchesSearch(search, caseSearchText(item)))
+  useAutoRefresh(cases, search.trim() !== '' && rows.length === 0)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
   const first = shownPage === 0
@@ -446,6 +499,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
     ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
   const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null : search
     ? { icon: Search, title: 'No matching registrations', description: 'Check the spelling, or search by another name.' }
+    : tab === 'noChecks' ? { icon: CircleCheck, title: 'Everyone here has health checks', description: 'Registrations without health checks show here.' }
     : tab === 'waiting' ? { icon: CircleCheck, title: 'No one is waiting to be linked', description: 'Every registration here is linked to a Health ID.' }
       : { icon: Users, title: 'None linked yet', description: 'Registrations move here once they are linked to a Health ID.' }
 
@@ -460,16 +514,18 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
         {canReadCases ? (
           <section aria-labelledby="outreach-cases-heading" className="flex flex-col gap-3">
             <h2 id="outreach-cases-heading" className="m-0 text-title-2 text-ink">Registrations</h2>
+            <OutreachNumbers cases={cases.value} more={cases.more.available} waitingOnPhone={waitingOnPhone} label="Registration numbers" />
             <div className="flex flex-col gap-3 @xl:flex-row @xl:flex-wrap @xl:items-center @xl:justify-between">
               <FilterTabs label="Show registrations" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
                 { value: 'waiting', label: 'Waiting to link', count: waiting.length },
                 { value: 'done', label: 'Linked', count: all.length - waiting.length },
                 { value: 'all', label: 'All', count: all.length },
+                ...(checksKnown ? [{ value: 'noChecks' as const, label: 'No health checks yet', count: noChecks.length }] : []),
               ]} />
               <div className="flex min-w-0 items-center gap-2 @xl:w-80">
                 <label htmlFor="outreach-search" className="sr-only">Search Outreach</label>
                 <Input id="outreach-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
-                  placeholder="Search by name" onChange={event => { setSearch(event.target.value); setPage(0) }} />
+                  placeholder="Search by name or Health ID" onChange={event => { setSearch(event.target.value); setPage(0) }} />
                 {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); focus('outreach-search') }}>Clear search</EhrButton> : null}
               </div>
             </div>

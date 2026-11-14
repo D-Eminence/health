@@ -866,4 +866,31 @@ describe('the campaigns a volunteer can register into', () => {
     // The note under Campaign now says what it does for a listed campaign, and no stale error is left.
     await waitFor(() => expect(screen.queryByText('Your campaigns are still loading.')).toBeNull())
   })
+
+  it('keeps “No health checks yet” chosen after a person is opened and closed (rehearsal review, 14 Nov)', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pending('c-1', 'Ada Obi'), hasScreening: false, healthId: null },
+      { ...pending('c-2', 'Bayo Ade'), hasScreening: true, healthId: 'HID-AB12CD' }])
+    renderDept(<Outreach />)
+    const tab = await screen.findByRole('button', { name: /No health checks yet/ })
+    expect(tab.textContent).toContain('1')
+    await press(tab)
+    const list = screen.getByRole('list', { name: 'Registrations' })
+    expect(within(list).queryByText('Bayo Ade')).toBeNull()
+    await press(within(list).getByText('Ada Obi'))
+    await press(await screen.findByRole('button', { name: 'Back to list' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /No health checks yet/ }).getAttribute('aria-pressed')).toBe('true'))
+    // The numbers count what the list read; a Health ID finds its person.
+    expect(screen.getByRole('region', { name: 'Registration numbers' }).textContent).toContain('Health IDs made1')
+  })
+
+  it('reads the registrations again when a search finds nothing, so people registered on other phones show (owner, 14 Nov)', async () => {
+    renderDept(<Outreach />)
+    await screen.findByRole('button', { name: 'New registration' })
+    const reads = api.outreachCasesPage.mock.calls.length
+    api.outreachCases.mockResolvedValue([pending('c-9', 'Zainab Musa')])
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Outreach' }), { target: { value: 'zainab' } })
+    await waitFor(() => expect(api.outreachCasesPage.mock.calls.length).toBeGreaterThan(reads), { timeout: 3000 })
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Registrations' })).getByText('Zainab Musa')).toBeTruthy())
+  })
 })
+

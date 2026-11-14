@@ -230,7 +230,8 @@ export function sexText(item: OutreachCase) {
 
 /** The words a list search looks in: what a row shows, and nothing that is not on screen. */
 export function caseSearchText(item: OutreachCase) {
-  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt)]
+  // The Health ID too (owner, 14 Nov: find a person by Health ID). Never the phone number, which stays masked.
+  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt), item.healthId]
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {

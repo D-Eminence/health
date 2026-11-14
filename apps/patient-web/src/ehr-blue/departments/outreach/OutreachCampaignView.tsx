@@ -12,6 +12,7 @@ import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../pa
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { CaseCard, ShowMore, useOutreachCases } from './OutreachCaseList'
+import { OutreachNumbers } from './outreachNumbers'
 import {
   CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignStarted, campaignStatusLabel,
   COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, OutreachField, REASON_LENGTH, RETRY_NOTE,
@@ -328,6 +329,7 @@ function CampaignRegistrations({ facilityId, campaign, canLink, group, onOpen }:
         empty={cases.value?.length === 0 && !cases.more.available
           ? { icon: UserSearch, title: 'No registrations yet', description: 'People registered into this campaign show here.' } : null}>
         <div className="flex flex-col gap-3">
+          <OutreachNumbers cases={cases.value} more={cases.more.available} label={`Numbers for ${campaign.name}`} />
           <ul aria-label={`Registrations in ${campaign.name}`} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
             {rows.map(item => <CaseCard key={item.id} item={item} campaign={campaign} canLink={canLink} group={group} onOpen={() => onOpen(item)} />)}
           </ul>

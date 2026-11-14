@@ -342,12 +342,13 @@ describe('a registration with a Health ID made at outreach', () => {
     expect(document.body.textContent).not.toContain('Or, instead, they can sign up on their own phone')
   })
 
-  it('after saving, says the next steps are health checks then a Health ID, where Outreach makes them', async () => {
+  it('after saving, says the Health ID is being made and the next step is health checks, where Outreach makes them', async () => {
     api.createOutreachCase.mockResolvedValue({ ...pending('case-h4'), healthId: null })
     await register()
     const saved = (await screen.findByText('Registration saved')).closest('[role]')!
     expect(saved.textContent).toContain('Registration saved')
-    expect(saved.textContent).toContain('Next: their health checks, then a Health ID if they want one.')
+    // Made by itself as the person's page opens (owner, 14 Nov: Health IDs made automatically).
+    expect(saved.textContent).toContain('Their Health ID is being made below: give them the slip. Next: their health checks.')
     expect(saved.textContent).not.toContain('They can link their own Health ID to it later.')
   })
 
