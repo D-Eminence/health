@@ -31,6 +31,8 @@ export const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
 export function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
+  // Outreach on Supabase (temporary): its sign-in says the real reason in plain words.
+  if (isHidApiError(caught) && caught.code?.startsWith('OUTREACH_') && caught.detail) return caught.detail
   return plainErrorText(caught, SIGN_IN_FAILED, { codes: SIGN_IN_CODES, statuses: SIGN_IN_STATUSES, audience: 'facility' })
 }
 

@@ -69,25 +69,41 @@ function staffSession() {
   }
 }
 
+/**
+ * Sign-in says the real reason when it can't go on (codes starting OUTREACH_, shown as they are by the sign-in page):
+ * a short password, a wrong password, an email Supabase still holds for a check, a sign-up Supabase refuses, or an
+ * email not on any team.
+ */
 async function signIn(body) {
   const email = String(body?.email ?? '').trim().toLowerCase()
   const password = String(body?.password ?? '')
-  if (!email || password.length < 8) return problem(401, 'INVALID_CREDENTIALS', 'Check your email and password. A password has at least 8 characters.')
+  if (!email) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter your email.')
+  if (password.length < 8) return problem(400, 'OUTREACH_SIGN_IN_SHORT', 'Your password needs at least 8 characters.')
   let { error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error && /email not confirmed/i.test(error.message)) {
+    return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'This email is waiting for an email check. Your organiser can release it in Supabase (turn off "Confirm email", then confirm the user).')
+  }
   if (error && /invalid login credentials/i.test(error.message)) {
     // The first sign-in sets the password: an email with no account yet gets one (Supabase "Confirm email" is off).
     const made = await supabase.auth.signUp({ email, password })
-    if (made.error) return problem(401, 'INVALID_CREDENTIALS', /already registered/i.test(made.error.message) ? 'That password is not right.' : made.error.message)
-    if (!made.data.session) return problem(401, 'INVALID_CREDENTIALS', 'Ask your organiser to turn off "Confirm email" in Supabase, then sign in again.')
+    if (made.error) {
+      if (/already registered|already exists/i.test(made.error.message)) {
+        return problem(400, 'OUTREACH_SIGN_IN_WRONG', 'That password isn’t right for this email. If it’s forgotten, your organiser can delete the user in Supabase so the next sign-in sets a new one.')
+      }
+      return problem(400, 'OUTREACH_SIGN_IN_REFUSED', `Supabase refused the new account: ${made.error.message}`)
+    }
+    if (!made.data.session) {
+      return problem(400, 'OUTREACH_SIGN_IN_UNCONFIRMED', 'Supabase is still asking for an email check. Your organiser needs to turn off "Confirm email" in Supabase and confirm this user.')
+    }
     error = null
   }
-  if (error) return problem(401, 'INVALID_CREDENTIALS', error.message)
+  if (error) return problem(400, 'OUTREACH_SIGN_IN_REFUSED', `Supabase refused the sign-in: ${error.message}`)
   context = null
   await loadContext()
   if (!context?.org) {
     await supabase.auth.signOut()
     context = null
-    return problem(403, 'OUTREACH_NOT_ON_A_TEAM', 'Your email isn’t on an outreach team yet. Ask your coordinator to add it, then sign in again.')
+    return problem(403, 'OUTREACH_NOT_ON_A_TEAM', `${email} isn’t on an outreach team yet. Ask your coordinator to add this exact email under Team, then sign in again.`)
   }
   return [200, staffSession()]
 }
