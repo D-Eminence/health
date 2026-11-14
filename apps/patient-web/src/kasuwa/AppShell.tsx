@@ -77,13 +77,15 @@ function useMenu(open: boolean, close: () => void, button: RefObject<HTMLElement
 /** The text after the last " · " of a tab's title: the product it names ("Health ID", "Health ID Platform"). */
 const productOf = (title: string) => title.includes(' · ') ? title.slice(title.lastIndexOf(' · ') + 3) : 'Health ID'
 
-export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content' }: {
+export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, signOutProblem, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content' }: {
   brand: ReactNode
   switcher: Switcher
   nav: readonly NavGroup[]
   person: { name: string; detail: string; avatar?: ReactNode; profileTo?: string }
   onSignOut: () => void
   signingOut?: boolean
+  /** Why the last sign-out failed, shown on the phone Menu page beside Sign out (the page itself is hidden there). */
+  signOutProblem?: string
   /** What the header shows on the left, phones and desktop. */
   headerStart?: ReactNode
   headerActions?: ReactNode
@@ -294,6 +296,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border-0 bg-transparent px-3.5 text-[14px] font-medium text-danger-ink ring-1 ring-line ring-inset hover:bg-danger-soft aria-disabled:cursor-default aria-disabled:opacity-60"><LogOut className="size-4" aria-hidden />{signingOut ? 'Signing out…' : 'Sign out'}</button>
       {signingOutSaid}
     </div>
+    {signOutProblem ? <div role="alert" className="rounded-2xl bg-danger-soft px-4 py-3 text-[14px] text-danger-ink ring-1 ring-line"><p className="m-0 font-semibold">Couldn’t sign out</p><p className="m-0">{signOutProblem}</p></div> : null}
   </div>
 
   const tabCls = (on: boolean) => cx('flex min-h-14 flex-col items-center justify-end gap-0.5 pt-2 pb-1.5 text-[12px] font-medium no-underline', on ? 'text-ink' : 'text-ink-3')

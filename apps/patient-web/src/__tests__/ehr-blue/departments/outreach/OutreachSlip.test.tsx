@@ -103,7 +103,7 @@ describe('the outreach slip', () => {
   })
 
   it('says how to start using a Health ID made by email: "Forgot password" with the email they gave', () => {
-    expect(FORGOT_PASSWORD).toBe('To start using your Health ID, open the Health ID app, tap “Forgot password” and use the email you gave today.')
+    expect(FORGOT_PASSWORD).toBe('To start using your Health ID, open the Health ID app, tap “Forgot password?” and use the email you gave today.')
     render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={ITEM as never} healthId="HID-ZDEMAA" byEmail />)
     expect(document.body.textContent).toContain(FORGOT_PASSWORD)
   })

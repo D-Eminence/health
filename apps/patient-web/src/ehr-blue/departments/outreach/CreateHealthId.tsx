@@ -94,7 +94,7 @@ export interface MadeHere {
  * 0119 makes the Health ID with no password and sends no email after the code: the person sets one with "Forgot
  * password" in the app, with the email they gave.
  */
-export const NO_PASSWORD_YET = 'They have no password yet. To start using it, they open the Health ID app, tap “Forgot password” and enter the email they gave you. They can add the rest of their details then.'
+export const NO_PASSWORD_YET = 'They have no password yet. To start using it, they open the Health ID app, tap “Forgot password?” and enter the email they gave you. They can add the rest of their details then.'
 
 /**
  * Whether the registration's Health ID was made at outreach from an email the person proved (0119): 0120 says so in

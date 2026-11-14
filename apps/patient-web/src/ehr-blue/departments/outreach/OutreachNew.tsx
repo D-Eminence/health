@@ -242,6 +242,19 @@ export function OutreachNew({ facilityId, accountId, showCampaign, campaigns, ca
   }
   // The language and how they agreed are kept as they change, and the form again once a save has its answer.
   useEffect(() => { if (!busy) keepTyped() }, [language, shownMethod, busy])
+  // Saved too early, while the campaigns were still being read: once they are listed, the "still loading" (or "couldn't be
+  // loaded") note under Campaign no longer holds, so it goes; the campaign is already chosen when only one runs.
+  useEffect(() => {
+    if (!campaigns.length) return
+    const stale = Object.values(GROUP_CAMPAIGNS_UNREAD)
+    setProblems(previous => {
+      const shown = previous.errors.campaign
+      if (!shown || !stale.includes(shown)) return previous
+      const errors = { ...previous.errors }
+      delete errors.campaign
+      return { errors, alert: previous.alert === 'campaign' ? undefined : previous.alert, seq: previous.seq }
+    })
+  }, [campaigns.length])
 
   /** The form emptied for the next person (saved: kept on this device or sent), and nothing of it kept in this tab. */
   function clearForm(element: HTMLFormElement) {
