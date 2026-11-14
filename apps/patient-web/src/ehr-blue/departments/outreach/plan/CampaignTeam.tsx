@@ -78,7 +78,7 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
 
   const [drawer, setDrawer] = useState<{ kind: 'invite' } | { kind: 'change'; member: CampaignTeamMember } | null>(null)
   const [form, setForm] = useState<MemberForm>({ contact: '', name: '', roles: ['registrar'], siteId: '', station: 'register' })
-  const [errors, setErrors] = useState<{ contact?: string; roles?: string }>({})
+  const [errors, setErrors] = useState<{ contact?: string; name?: string; roles?: string }>({})
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<CampaignTeamMember | null>(null)
   const [working, setWorking] = useState<string | null>(null)
@@ -113,18 +113,21 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
     event?.preventDefault()
     if (busy || !drawer || !facilityId) return
     const found: typeof errors = {}
-    const contact = drawer.kind === 'invite' ? contactFrom(form.contact) : null
-    if (drawer.kind === 'invite' && !contact) found.contact = 'Enter a phone number like 08012345678, or an email address.'
+    // Outreach on Supabase (temporary): people sign in with the team code and tap their name, so the name is what
+    // matters; a phone or email is optional (an email also lets an organiser sign in with it).
+    const contact = drawer.kind === 'invite' && form.contact.trim() ? contactFrom(form.contact) : null
+    if (drawer.kind === 'invite' && !form.name.trim()) found.name = 'Enter their name: they tap it to sign in.'
+    if (drawer.kind === 'invite' && form.contact.trim() && !contact) found.contact = 'Enter a phone number like 08012345678, or an email address, or leave it empty.'
     if (!form.roles.length) found.roles = 'Choose at least one role.'
     setErrors(found)
-    if (found.contact || found.roles) {
-      document.getElementById(found.contact ? 'team-contact' : `team-roles-${TEAM_ROLES[0]!.value}`)?.focus()
+    if (found.name || found.contact || found.roles) {
+      document.getElementById(found.name ? 'team-name' : found.contact ? 'team-contact' : `team-roles-${TEAM_ROLES[0]!.value}`)?.focus()
       return
     }
     setBusy(true)
     try {
       if (drawer.kind === 'invite') {
-        const invite = { ...contact!, ...(form.name.trim() ? { name: form.name.trim() } : {}), roles: form.roles,
+        const invite = { ...(contact ?? {}), ...(form.name.trim() ? { name: form.name.trim() } : {}), roles: form.roles,
           ...(form.siteId ? { siteId: form.siteId } : {}), ...(form.station ? { station: form.station as StationKind } : {}) }
         const signature = JSON.stringify([facilityId, campaignId, invite])
         if (attempt.current?.signature !== signature) attempt.current = { signature, key: newLocalCommandId() }
@@ -243,7 +246,7 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
 
       <Drawer open={drawer !== null} onClose={close}
         title={drawer?.kind === 'change' ? `Change roles for ${drawer.member.name ?? drawer.member.phone ?? drawer.member.email ?? 'this person'}` : 'Invite to the team'}
-        description={drawer?.kind === 'invite' ? 'They sign in to this site with this email. Their first sign-in sets their password.' : undefined}
+        description={drawer?.kind === 'invite' ? 'They sign in with the team code and tap their name.' : undefined}
         footer={<>
           <Button onClick={close} disabled={busy}>Cancel</Button>
           <Button variant="primary" loading={busy} onClick={() => void submit()}>{busy ? 'Saving…' : drawer?.kind === 'change' ? 'Save' : 'Add to team'}</Button>
@@ -252,13 +255,13 @@ export function CampaignTeam({ campaignId, facilityId: given, embedded = false }
           onSubmit={event => void submit(event)} onKeyDown={enterMovesOn}>
           {drawer?.kind === 'invite' ? (
             <>
-              <PlanField id="team-contact" label="Email" required error={errors.contact} hint="Like name@example.com. They sign in with it.">
-                <Input className="h-12 text-base sm:h-11 sm:text-sm" data-autofocus type="text" inputMode="email" autoComplete="off" maxLength={254} value={form.contact}
-                  onChange={event => setForm({ ...form, contact: event.target.value })} {...fieldProps('team-contact', errors.contact, true)} />
+              <PlanField id="team-name" label="Their name" required error={errors.name} hint="As they’ll recognise it on the sign-in list.">
+                <Input className="h-12 text-base sm:h-11 sm:text-sm" data-autofocus autoComplete="off" maxLength={80} value={form.name}
+                  onChange={event => setForm({ ...form, name: event.target.value })} {...fieldProps('team-name', errors.name, true)} />
               </PlanField>
-              <PlanField id="team-name" label="Their name" optional>
-                <Input className="h-12 text-base sm:h-11 sm:text-sm" id="team-name" autoComplete="off" maxLength={80} value={form.name}
-                  onChange={event => setForm({ ...form, name: event.target.value })} />
+              <PlanField id="team-contact" label="Phone or email" optional error={errors.contact}>
+                <Input className="h-12 text-base sm:h-11 sm:text-sm" type="text" inputMode="email" autoComplete="off" maxLength={254} value={form.contact}
+                  onChange={event => setForm({ ...form, contact: event.target.value })} {...fieldProps('team-contact', errors.contact, false)} />
               </PlanField>
             </>
           ) : null}

@@ -119,12 +119,12 @@ export function BlueSignIn() {
             is approved. <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</> : null}</Alert> : null}
         <form className="staff-form" onSubmit={event => void submit(event)}>
           <div className="auth-field-label">
-            <label htmlFor="blue-sign-in-email">Work email</label>
-            <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder={words.emailExample} value={email} required
+            <label htmlFor="blue-sign-in-email">Team code</label>
+            <input id="blue-sign-in-email" type="text" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} required
               onChange={event => setEmail(event.target.value)} />
           </div>
-          {/* Outreach on Supabase (temporary): email only; being on a campaign's team is enough (owner, 14 Nov 2026). */}
-          <p className="-mt-3 m-0 text-[13px] text-ink-2">Use the email your coordinator added to the team.</p>
+          {/* Outreach on Supabase (temporary): the team code, then the person taps their name (owner, 14 Nov 2026). */}
+          <p className="-mt-3 m-0 text-[13px] text-ink-2">Your coordinator gives you the code. Organisers can use their email.</p>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!!siteKey && !token)}>
             {busy ? 'Signing in…' : 'Sign in'}

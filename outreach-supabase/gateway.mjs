@@ -39,6 +39,52 @@ const FOCUS_VITALS = { hypertension: ['bp_systolic', 'bp_diastolic'], diabetes: 
 
 let context = null // { user, email, org: { id, name }, mine: access row }
 
+/**
+ * Team code sign-in (owner, 14 Nov 2026): everyone types the organisation's team code, then taps their own name. The
+ * code opens a shared account (team-….@outreach.local, made by team-code.sql); the name chosen is who the work is
+ * recorded against. Organisers can still sign in with their own email.
+ */
+const TEAM_DOMAIN = '@outreach.local'
+const PERSON_KEY = 'hid-outreach-person'
+const isTeamAccount = () => Boolean(context?.email?.endsWith(TEAM_DOMAIN))
+async function sha256(text) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+export const teamEmailFor = async code => `team-${(await sha256(code.trim().toLowerCase())).slice(0, 20)}${TEAM_DOMAIN}`
+function readPerson() {
+  try { const kept = window.localStorage.getItem(PERSON_KEY); return kept ? JSON.parse(kept) : null } catch { return null }
+}
+function keepPerson(person) {
+  try { if (person) window.localStorage.setItem(PERSON_KEY, JSON.stringify(person)); else window.localStorage.removeItem(PERSON_KEY) } catch { /* in memory only */ }
+  chosen = person
+}
+let chosen = null
+const person = () => (isTeamAccount() ? chosen ?? (chosen = readPerson()) : null)
+
+/** Whether the person on a team account still has to say who they are (shim.mjs then shows the names). */
+export const needsPerson = () => isTeamAccount() && !person()
+
+/** Everyone on the organisation's teams, once each, for the "Who are you?" list. */
+export async function teamPeople() {
+  if (!(await loadContext())?.org) return []
+  await refresh(true)
+  const people = new Map()
+  for (const row of all('team')) {
+    for (const member of row.data.members ?? []) {
+      if (member.status === 'removed') continue
+      const key = member.email || `name:${String(member.name ?? '').trim().toLowerCase()}`
+      if (!member.name && !member.email) continue
+      const campaign = campaignOf(row.id)
+      const entry = people.get(key) ?? { key, email: member.email ?? null, name: member.name || member.email, campaigns: [] }
+      if (campaign) entry.campaigns.push(campaign.name)
+      people.set(key, entry)
+    }
+  }
+  return [...people.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)))
+}
+export function choosePerson(entry) { keepPerson({ key: entry.key, email: entry.email, name: entry.name }) }
+
 async function loadContext() {
   if (!supabase) return null
   const { data: { session } } = await supabase.auth.getSession()
@@ -64,7 +110,7 @@ function staffSession() {
     permissions: organiser ? [...PERMISSIONS_ALL, 'outreach.campaign.write'] : PERMISSIONS_ALL,
   }
   return {
-    actor: { kind: 'staff', id: user.id, email, displayName: mine.name || email, roles: facility.roles, permissions: [], facilities: [facility], facility },
+    actor: { kind: 'staff', id: user.id, email, displayName: person()?.name || mine.name || email, roles: facility.roles, permissions: [], facilities: [facility], facility },
     expiresAt: iso(7 * DAY), facilitySelection: 'selected',
   }
 }
@@ -82,8 +128,13 @@ async function passwordFor(email) {
 }
 
 async function signIn(body) {
-  const email = String(body?.email ?? '').trim().toLowerCase()
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter your email address.')
+  const typed = String(body?.email ?? '').trim().toLowerCase()
+  if (!typed) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter the team code.')
+  const byCode = !typed.includes('@')
+  if (byCode && typed.length < 4) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Check the team code and try again.')
+  const email = byCode ? await teamEmailFor(typed) : typed
+  if (!byCode && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return problem(400, 'OUTREACH_SIGN_IN_EMAIL', 'Enter the team code, or your email if you are an organiser.')
+  keepPerson(null)
   // The database makes (or readies) the account for an email on a team, so Supabase never sends an email
   // (sign-in-function.sql). An email on no team is turned away here.
   const prepared = await supabase.rpc('outreach_prepare_sign_in', { p_email: email })
@@ -93,7 +144,8 @@ async function signIn(body) {
       : `Supabase refused the sign-in: ${prepared.error.message}`)
   }
   if (prepared.data !== true) {
-    return problem(403, 'OUTREACH_NOT_ON_A_TEAM', `${email} isn’t on an outreach team yet. Ask your coordinator to add this exact email under Team, then sign in again.`)
+    return byCode ? problem(403, 'OUTREACH_NOT_ON_A_TEAM', 'That team code isn’t right. Check it with your coordinator and try again.')
+      : problem(403, 'OUTREACH_NOT_ON_A_TEAM', `${email} isn’t on an outreach team yet. Ask your coordinator to add this exact email under Team, then sign in again.`)
   }
   const { error } = await supabase.auth.signInWithPassword({ email, password: await passwordFor(email) })
   if (error) return problem(400, 'OUTREACH_SIGN_IN_REFUSED', `Supabase refused the sign-in: ${error.message}`)
@@ -164,7 +216,12 @@ async function changeDoc(kind, id, change) {
 
 // ----------------------------------------------------------------- people --
 
-const you = campaignId => teamOf(campaignId).find(member => member.status !== 'removed' && member.email && member.email === context.email) ?? null
+const memberKey = member => member.email || `name:${String(member.name ?? '').trim().toLowerCase()}`
+const you = campaignId => {
+  const live = teamOf(campaignId).filter(member => member.status !== 'removed')
+  if (isTeamAccount()) { const who = person(); return who ? live.find(member => memberKey(member) === who.key) ?? null : null }
+  return live.find(member => member.email && member.email === context.email) ?? null
+}
 const organiser = () => context.mine.role === 'organiser'
 function yourRoles(campaignId) {
   const own = you(campaignId)
@@ -456,21 +513,25 @@ async function campaignScreeningRoutes(method, path, body, headers) {
     if (!isCoordinator(campaignId)) return problem(403, 'OUTREACH_COORDINATOR_REQUIRED', 'Only coordinators can invite')
     const email = body?.email ? String(body.email).trim().toLowerCase() : null
     const phone = body?.phone ? String(body.phone).trim() : null
-    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return problem(400, 'OUTREACH_TEAM_CONTACT_INVALID', 'Give their email address: they sign in with it')
+    const name = body?.name ? String(body.name).trim() : null
+    if (!name) return problem(400, 'VALIDATION_FAILED', 'Enter their name: they tap it to sign in')
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return problem(400, 'OUTREACH_TEAM_CONTACT_INVALID', 'Check the email address')
     if (!Array.isArray(body.roles) || !body.roles.length) return problem(400, 'VALIDATION_FAILED', 'Choose at least one role')
-    // Their email opens this organisation's records to them once they sign in.
-    const { error } = await supabase.from('outreach_access').insert({ org_id: context.org.id, email, name: body.name ?? null, role: 'volunteer' })
-    if (error && error.code !== '23505') throw error
+    // An email also lets them sign in with it (not only with the team code).
+    if (email) {
+      const { error } = await supabase.from('outreach_access').insert({ org_id: context.org.id, email, name, role: 'volunteer' })
+      if (error && error.code !== '23505') throw error
+    }
     let made = null
     const result = await changeDoc('team', campaignId, data => {
-      const existing = data.members.find(member => member.status !== 'removed' && member.email === email)
+      const existing = data.members.find(member => member.status !== 'removed' && memberKey(member) === (email || `name:${name.toLowerCase()}`))
       if (existing) { made = existing; return { unchanged: true } }
-      made = { memberId: newId('tm'), name: body.name ?? null, phone, email, roles: body.roles, siteId: body.siteId ?? null, station: body.station ?? null,
+      made = { memberId: newId('tm'), name, phone, email, roles: body.roles, siteId: body.siteId ?? null, station: body.station ?? null,
         status: 'invited', invitedAt: iso(), joinedAt: null, rowVersion: 1 }
       data.members.push(made)
       return {}
     })
-    if (result.missing) await insertDoc('team', campaignId, campaignId, { members: [made = { memberId: newId('tm'), name: body.name ?? null, phone, email, roles: body.roles,
+    if (result.missing) await insertDoc('team', campaignId, campaignId, { members: [made = { memberId: newId('tm'), name, phone, email, roles: body.roles,
       siteId: body.siteId ?? null, station: body.station ?? null, status: 'invited', invitedAt: iso(), joinedAt: null, rowVersion: 1 }] })
     return [result.unchanged ? 200 : 201, memberWithCounts(campaignId, made)]
   }
@@ -654,7 +715,7 @@ export async function respond(method, path, { body, headers } = {}) {
   if (!configured) return problem(503, 'OUTREACH_NOT_CONFIGURED', 'This copy of Outreach isn’t connected to its database yet.')
   try {
     if (path === '/auth/login' && method === 'POST') return await signIn(body)
-    if (path === '/auth/logout' && method === 'POST') { await supabase.auth.signOut(); context = null; return [204, null] }
+    if (path === '/auth/logout' && method === 'POST') { keepPerson(null); await supabase.auth.signOut(); context = null; return [204, null] }
     const ready = await loadContext()
     if (path === '/auth/session' || path === '/auth/refresh' || path === '/auth/facility') {
       if (!ready) return problem(401, 'UNAUTHENTICATED', 'Sign in')

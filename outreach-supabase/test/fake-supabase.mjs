@@ -3,7 +3,14 @@
  * the query calls gateway.mjs makes, and email-and-password auth with "Confirm email" off. Never part of the real build.
  */
 const tables = { outreach_orgs: [{ id: 'org-1', name: 'Ajegunle Health Volunteers' }],
-  outreach_access: [{ org_id: 'org-1', email: 'organiser@example.test', name: 'Funke Ade', role: 'organiser' }], outreach_docs: [] }
+  outreach_access: [{ org_id: 'org-1', email: 'organiser@example.test', name: 'Funke Ade', role: 'organiser' },
+    { org_id: 'org-1', email: 'team-9c6331937da5392d8f0d@outreach.local', name: 'Team code', role: 'volunteer' }],
+  outreach_docs: [
+    { org_id: 'org-1', kind: 'campaign', id: 'camp-1', campaign_id: 'camp-1', version: 1, data: { id: 'camp-1', name: 'Ajegunle hepatitis B screening', status: 'active', services: ['registration'], startsAt: '2026-11-14T08:00:00.000Z', endsAt: '2026-11-15T18:00:00.000Z' } },
+    { org_id: 'org-1', kind: 'team', id: 'camp-1', campaign_id: 'camp-1', version: 1, data: { members: [
+      { memberId: 'tm-1', name: 'Funke Ade', email: 'organiser@example.test', phone: null, roles: ['coordinator', 'clinician'], siteId: null, station: null, status: 'accepted', invitedAt: '2026-11-14T07:00:00.000Z', joinedAt: '2026-11-14T07:00:00.000Z', rowVersion: 1 },
+      { memberId: 'tm-2', name: 'Bisi Adeyemi', email: null, phone: null, roles: ['registrar', 'vitals'], siteId: null, station: null, status: 'invited', invitedAt: '2026-11-14T07:00:00.000Z', joinedAt: null, rowVersion: 1 } ] } },
+  ] }
 const users = new Map()
 let session = null
 try { const kept = sessionStorage.getItem('fake-supabase'); if (kept) Object.assign(tables, JSON.parse(kept).tables), session = JSON.parse(kept).session, JSON.parse(kept).users.forEach(([k, v]) => users.set(k, v)) } catch { /* fresh */ }
