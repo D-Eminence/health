@@ -21,6 +21,7 @@ class Query {
   constructor(table) { this.table = table; this.filters = []; this.mode = 'select'; this.payload = null; this.window = null; this.one = null; this.returning = false }
   select() { if (this.mode !== 'select') this.returning = true; return this }
   eq(field, value) { this.filters.push(row => row[field] === value); return this }
+  gte(field, value) { this.filters.push(row => String(row[field] ?? '') >= value); return this }
   order() { return this }
   range(from, to) { this.window = [from, to]; return this }
   maybeSingle() { this.one = 'maybe'; return this }
@@ -36,12 +37,12 @@ class Query {
     if (this.mode === 'insert') {
       const key = this.table === 'outreach_docs' ? row => `${row.org_id}|${row.kind}|${row.id}` : row => `${row.org_id}|${row.email}`
       if (rows.some(row => key(row) === key(this.payload))) return { data: null, error: { code: '23505', message: 'duplicate key' } }
-      rows.push(JSON.parse(JSON.stringify(this.payload))); keep()
+      rows.push({ ...JSON.parse(JSON.stringify(this.payload)), updated_at: new Date().toISOString() }); keep()
       return { data: null, error: null }
     }
     const matched = rows.filter(row => visible(row) && this.filters.every(filter => filter(row)))
     if (this.mode === 'update') {
-      for (const row of matched) Object.assign(row, JSON.parse(JSON.stringify(this.payload)))
+      for (const row of matched) Object.assign(row, JSON.parse(JSON.stringify(this.payload)), { updated_at: new Date().toISOString() })
       keep()
       return { data: this.returning ? matched.map(row => ({ version: row.version })) : null, error: null }
     }

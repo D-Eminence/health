@@ -96,7 +96,7 @@ async function loadContext() {
   const { data: rows, error } = await supabase.from('outreach_access').select('org_id, email, name, role').eq('email', email)
   if (error) {
     // No signal: who this person is and their organisation, as this phone last knew them.
-    if (offline(error) && kept) { context = { user: session.user, ...kept }; cache = { at: 0, org: null, docs: new Map() }; return context }
+    if (offline(error) && kept) { context = { user: session.user, ...kept }; cache = { at: 0, org: null, since: null, docs: new Map() }; return context }
     throw error
   }
   const mine = rows?.[0]
@@ -104,7 +104,7 @@ async function loadContext() {
   const { data: org } = await supabase.from('outreach_orgs').select('id, name').eq('id', mine.org_id).single()
   context = { user: session.user, email, org: org ?? kept?.org ?? { id: mine.org_id, name: 'Outreach' }, mine }
   void keep(`context:${session.user.id}`, { email, org: context.org, mine })
-  cache = { at: 0, org: null, docs: new Map() }
+  cache = { at: 0, org: null, since: null, docs: new Map() }
   return context
 }
 
@@ -168,32 +168,56 @@ async function signIn(body) {
 
 // ---------------------------------------------------------------- records --
 
-let cache = { at: 0, org: null, docs: new Map() }
+let cache = { at: 0, org: null, since: null, docs: new Map() }
 const docKey = (kind, id) => `${kind}|${id}`
 
+/** Saves what the phone read, at most every 1.5 seconds (writing every record on each change is slow). */
+let keepTimer = null
+function keepSoon() {
+  if (keepTimer) return
+  keepTimer = setTimeout(() => {
+    keepTimer = null
+    if (cache.org) void keep(`docs:${cache.org}`, { since: cache.since, rows: [...cache.docs.values()] })
+  }, 1500)
+}
+
+/**
+ * Brings the records up to date. Only what changed since the last read comes down (by updated_at), on top of what
+ * this phone already has; the first read on a phone starts from what it kept last time, so opening is quick however
+ * many people have been captured.
+ */
 async function refresh(force = false) {
   if (!force && cache.org === context.org.id && Date.now() - cache.at < 2500) return
   if (!navigator.onLine && cache.org === context.org.id && cache.docs.size) return
-  const docs = new Map()
+  if (cache.org !== context.org.id) {
+    const kept = await read(`docs:${context.org.id}`)
+    const rows = Array.isArray(kept) ? kept : kept?.rows ?? []
+    cache = { at: 0, org: context.org.id, since: Array.isArray(kept) ? null : kept?.since ?? null,
+      docs: new Map(rows.map(row => [docKey(row.kind, row.id), row])) }
+  }
+  const docs = new Map(cache.docs)
+  let since = cache.since
   try {
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await supabase.from('outreach_docs').select('kind, id, campaign_id, data, version')
-        .eq('org_id', context.org.id).order('id').range(from, from + 999)
+      let query = supabase.from('outreach_docs').select('kind, id, campaign_id, data, version, updated_at').eq('org_id', context.org.id)
+      // 30 seconds back: a save that began just before the last read but finished after it is never missed.
+      if (cache.since) query = query.gte('updated_at', new Date(Date.parse(cache.since) - 30_000).toISOString())
+      const { data, error } = await query.order('updated_at').order('id').range(from, from + 999)
       if (error) throw error
-      for (const row of data) docs.set(docKey(row.kind, row.id), { ...row, data: { ...row.data } })
+      for (const row of data) {
+        docs.set(docKey(row.kind, row.id), { kind: row.kind, id: row.id, campaign_id: row.campaign_id, data: { ...row.data }, version: row.version })
+        if (row.updated_at && (!since || row.updated_at > since)) since = row.updated_at
+      }
       if (data.length < 1000) break
     }
   } catch (error) {
     if (!offline(error)) throw error
     // No signal: the records as this phone last read them (writes wait on the phone and go when the signal is back).
-    if (cache.org === context.org.id && cache.docs.size) return
-    const kept = await read(`docs:${context.org.id}`)
-    if (!kept) throw error
-    cache = { at: Date.now(), org: context.org.id, docs: new Map(kept.map(row => [docKey(row.kind, row.id), row])) }
-    return
+    if (cache.docs.size) { cache.at = Date.now(); return }
+    throw error
   }
-  cache = { at: Date.now(), org: context.org.id, docs }
-  void keep(`docs:${context.org.id}`, [...docs.values()])
+  cache = { at: Date.now(), org: context.org.id, since, docs }
+  keepSoon()
 }
 
 const all = kind => [...cache.docs.values()].filter(row => row.kind === kind)
@@ -213,7 +237,7 @@ async function insertDoc(kind, id, campaignId, data) {
   const { error } = await supabase.from('outreach_docs').insert({ org_id: context.org.id, kind, id, campaign_id: campaignId, data, version: 1 })
   if (error) throw error
   cache.docs.set(docKey(kind, id), { kind, id, campaign_id: campaignId, data, version: 1 })
-  void keep(`docs:${context.org.id}`, [...cache.docs.values()])
+  keepSoon()
 }
 
 /** Changes one row safely: reads it fresh, applies `change`, saves only if no one saved it meanwhile (else tries again). */
@@ -231,7 +255,7 @@ async function changeDoc(kind, id, change) {
     if (saveError) throw saveError
     if (saved?.length) {
       cache.docs.set(docKey(kind, id), { ...row, data, version: row.version + 1 })
-      void keep(`docs:${context.org.id}`, [...cache.docs.values()])
+      keepSoon()
       return { ...answer, data, version: row.version + 1 }
     }
   }

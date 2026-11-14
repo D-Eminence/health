@@ -41,11 +41,11 @@ self.addEventListener('fetch', event => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return
   if (request.mode === 'navigate') {
-    // The page: the newest when there is signal (within 4 seconds), else the one kept on the phone.
+    // The page: the newest when there is signal (within 2.5 seconds), else the one kept on the phone.
     event.respondWith((async () => {
       const cache = await caches.open(CACHE)
       try {
-        const fresh = await Promise.race([fetch(request), new Promise((_, reject) => setTimeout(() => reject(new Error('slow')), 4000))])
+        const fresh = await Promise.race([fetch(request), new Promise((_, reject) => setTimeout(() => reject(new Error('slow')), 2500))])
         if (fresh.ok) cache.put('/index.html', fresh.clone())
         return fresh
       } catch {
