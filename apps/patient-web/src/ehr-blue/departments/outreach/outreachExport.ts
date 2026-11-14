@@ -1,6 +1,7 @@
-import type { OutreachCampaign, OutreachCase, OutreachCasesPage } from '../../../staff/api'
+import type { OutreachCampaign, OutreachCase, OutreachCasesPage, OutreachScreening } from '../../../staff/api'
 import { birthDateText, dateText } from '../parts/format'
 import { statusLabel } from './outreachParts'
+import { GLUCOSE_TIMINGS, HEARING, MALARIA, readBloodTests } from './screening'
 
 /*
  * Export of the registrations a person can already see on Outreach (the list read, GET outreach/registration-cases),
@@ -40,6 +41,8 @@ export type ExportCase = OutreachCase & {
   readonly hid?: unknown
   readonly hasScreening?: unknown
   readonly healthIdCreatedByOutreach?: unknown
+  /** The health checks recorded for this registration, read for the file (readScreenings); absent when not read. */
+  readonly screening?: OutreachScreening | null
 }
 
 /** What a row's words may need beyond the registration itself. */
@@ -102,6 +105,45 @@ function registeredBy(item: ExportCase) {
   return given && !looksLikeId(given) ? given : ''
 }
 
+/** A number as written ("36.8"); '' when none. */
+const numberText = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? String(value) : '')
+/** A choice in the words the Health checks form gives it; '' for a code it has no words for. */
+const choiceWords = (choices: ReadonlyArray<{ readonly value: string; readonly label: string }>, code: unknown) =>
+  choices.find(choice => choice.value === code)?.label ?? ''
+/** One health check of the registration, when read. */
+function check<K extends keyof OutreachScreening>(item: ExportCase, name: K): OutreachScreening[K] | undefined {
+  return item.screening ? item.screening[name] : undefined
+}
+
+function bloodPressure(item: ExportCase) {
+  const top = numberText(check(item, 'bpSystolic'))
+  const bottom = numberText(check(item, 'bpDiastolic'))
+  return top && bottom ? `${top}/${bottom}` : ''
+}
+
+/** "5.4 mmol/L, fasting". */
+function bloodSugar(item: ExportCase) {
+  const value = numberText(check(item, 'glucoseValue'))
+  if (!value) return ''
+  const unit = text(check(item, 'glucoseUnit'))
+  const timing = choiceWords(GLUCOSE_TIMINGS, check(item, 'glucoseTiming')).toLowerCase()
+  return `${value}${unit ? ` ${unit}` : ''}${timing ? `, ${timing}` : ''}`
+}
+
+/** Genotype and blood group are kept at the start of "Outcome or advice" (screening.ts readBloodTests): each in its own column. */
+const bloodTests = (item: ExportCase) => readBloodTests(text(check(item, 'outcome')))
+
+/** "Paracetamol (500 mg); ORS". */
+function medicines(item: ExportCase) {
+  const given = check(item, 'medicinesGiven')
+  if (!Array.isArray(given)) return ''
+  return (given as unknown[]).map(medicine => {
+    const name = text(record(medicine)?.name)
+    const dose = text(record(medicine)?.dose)
+    return name ? `${name}${dose ? ` (${dose})` : ''}` : ''
+  }).filter(Boolean).join('; ')
+}
+
 function healthId(item: ExportCase) {
   const hid = text(item.healthId) || text(item.hid)
   // A Health ID as it is written on the person's card; never an internal id.
@@ -125,6 +167,25 @@ export const OUTREACH_EXPORT_COLUMNS: readonly ExportColumn[] = [
   { heading: 'Health ID', optional: true, value: healthId },
   { heading: 'Health ID made at outreach', optional: true, value: item => yesNo(item.healthIdCreatedByOutreach) },
   { heading: 'Health check done', optional: true, value: item => yesNo(item.hasScreening) },
+  // The health checks recorded (read for the file by readScreenings), in the words the Health checks form uses.
+  { heading: 'Blood pressure', optional: true, value: bloodPressure },
+  { heading: 'Pulse', optional: true, value: item => numberText(check(item, 'pulseBpm')) },
+  { heading: 'Temperature (°C)', optional: true, value: item => numberText(check(item, 'temperatureC')) },
+  { heading: 'Weight (kg)', optional: true, value: item => numberText(check(item, 'weightKg')) },
+  { heading: 'Height (cm)', optional: true, value: item => numberText(check(item, 'heightCm')) },
+  { heading: 'Blood sugar', optional: true, value: bloodSugar },
+  { heading: 'Malaria test', optional: true, value: item => choiceWords(MALARIA, check(item, 'malariaRdt')) },
+  { heading: 'Hearing left', optional: true, value: item => choiceWords(HEARING, check(item, 'hearingLeft')) },
+  { heading: 'Hearing right', optional: true, value: item => choiceWords(HEARING, check(item, 'hearingRight')) },
+  { heading: 'Genotype', optional: true, value: item => bloodTests(item).genotype },
+  { heading: 'Blood group', optional: true, value: item => bloodTests(item).bloodGroup },
+  { heading: 'Main complaint', optional: true, value: item => text(check(item, 'mainComplaint')) },
+  { heading: 'Seen by clinician', optional: true, value: item => yesNo(check(item, 'seenByClinician')) },
+  { heading: 'Clinician’s name', optional: true, value: item => text(check(item, 'clinicianName')) },
+  { heading: 'Outcome or advice', optional: true, value: item => bloodTests(item).rest.trim() },
+  { heading: 'Medicines given', optional: true, value: medicines },
+  { heading: 'Referred', optional: true, value: item => yesNo(check(item, 'referred')) },
+  { heading: 'Referred to', optional: true, value: item => text(check(item, 'referredTo')) },
   { heading: 'Possible duplicate', optional: true, value: item => (item.possibleDuplicate === true ? 'Yes' : '') },
   { heading: 'Parent or guardian', optional: true, value: item => text(item.guardianName) || text(consentOf(item)?.guardianName) },
   { heading: 'Parent or guardian’s relationship', optional: true, value: item => words(RELATIONSHIP, text(item.guardianRelationship).toLowerCase()) },
@@ -256,6 +317,61 @@ export async function readAllCases(readPage: (before: string | undefined) => Pro
     before = answer.nextCursor
   }
   return { cases: [...seen.values()], capped: true, latestOnly }
+}
+
+/** How many health checks are read at once for a file: a few, so a weak signal is not swamped. */
+export const SCREENING_READS_AT_ONCE = 3
+/** Reads that fail one after another before the rest are left unread (no signal): each waits up to 10 s. */
+export const SCREENING_FAILURES_TO_STOP = 6
+
+/** The health checks read for a file, and how many people's could not be read. */
+export interface ScreeningsRead {
+  readonly screenings: ReadonlyMap<string, OutreachScreening | null>
+  readonly failed: number
+}
+
+/**
+ * Reads the health checks of each registration that has them (hasScreening true), SCREENING_READS_AT_ONCE at a time,
+ * never all at once. A read that fails leaves that person's out (counted in `failed`) and the rest go on; once
+ * SCREENING_FAILURES_TO_STOP have failed one after another, the rest are not tried and are counted as failed too.
+ * `onProgress` is told how many are done of how many.
+ */
+export async function readScreenings(cases: readonly OutreachCase[], readOne: (caseId: string) => Promise<{ screening: OutreachScreening | null }>,
+  onProgress: (done: number, total: number) => void = () => {}): Promise<ScreeningsRead> {
+  const wanted = cases.filter(item => item.hasScreening === true).map(item => item.id)
+  const screenings = new Map<string, OutreachScreening | null>()
+  let failed = 0
+  let failedInARow = 0
+  let done = 0
+  let next = 0
+  if (wanted.length > 0) onProgress(0, wanted.length)
+  async function worker() {
+    while (next < wanted.length) {
+      const caseId = wanted[next]!
+      next += 1
+      if (failedInARow >= SCREENING_FAILURES_TO_STOP) {
+        failed += 1
+      } else {
+        try {
+          const answer = await readOne(caseId)
+          screenings.set(caseId, answer?.screening ?? null)
+          failedInARow = 0
+        } catch {
+          failed += 1
+          failedInARow += 1
+        }
+      }
+      done += 1
+      onProgress(done, wanted.length)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(SCREENING_READS_AT_ONCE, wanted.length) }, worker))
+  return { screenings, failed }
+}
+
+/** What the file says is missing when some people's health checks could not be read. */
+export function screeningsFailed(count: number): string {
+  return `${count} ${count === 1 ? 'person’s' : 'people’s'} health checks couldn’t be read and are blank in the file. Export again with better signal.`
 }
 
 const MIME: Readonly<Record<ExportFormat, string>> = {

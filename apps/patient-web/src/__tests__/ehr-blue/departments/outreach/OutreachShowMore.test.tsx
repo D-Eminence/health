@@ -43,6 +43,21 @@ const rows = (from: number, to: number, campaignId?: string) => Array.from({ len
 
 let setItem: ReturnType<typeof vi.spyOn>
 
+/**
+ * The list's own reads answered in turn (an Error is thrown); the numbers' read of every registration (pages of 500,
+ * outreachNumbers.tsx) is answered apart, with `everyone`.
+ */
+function listReads(everyone: ReturnType<typeof rows>, ...answers: ReadonlyArray<{ items: ReturnType<typeof rows>; nextCursor: string | null } | Error>) {
+  const queue = [...answers]
+  api.outreachCasesPage.mockImplementation(async (_facility: string, query: { limit?: number }) => {
+    if (query.limit === 500) return { items: everyone, nextCursor: null }
+    const next = queue.shift()
+    if (!next) throw new Error('No more list reads in this test.')
+    if (next instanceof Error) throw next
+    return next
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   unprovided.clear()
@@ -77,10 +92,7 @@ describe('Show more on the registration list', () => {
   })
 
   it('adds the next 100 under the list while a cursor is sent, keeps focus on Show more, then says everyone is shown', async () => {
-    api.outreachCasesPage
-      .mockResolvedValueOnce({ items: rows(1, 2), nextCursor: 'cursor-2' })
-      .mockResolvedValueOnce({ items: rows(3, 4), nextCursor: 'cursor-3' })
-      .mockResolvedValueOnce({ items: rows(5, 5), nextCursor: null })
+    listReads(rows(1, 5), { items: rows(1, 2), nextCursor: 'cursor-2' }, { items: rows(3, 4), nextCursor: 'cursor-3' }, { items: rows(5, 5), nextCursor: null })
     renderDept(<Outreach />)
     await casesList()
     await press(allTab())
@@ -103,10 +115,7 @@ describe('Show more on the registration list', () => {
   })
 
   it('says when more could not be loaded, keeps focus on the button, and tries again', async () => {
-    api.outreachCasesPage
-      .mockResolvedValueOnce({ items: rows(1, 2), nextCursor: 'cursor-2' })
-      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce({ items: rows(3, 3), nextCursor: null })
+    listReads(rows(1, 3), { items: rows(1, 2), nextCursor: 'cursor-2' }, new TypeError('Failed to fetch'), { items: rows(3, 3), nextCursor: null })
     renderDept(<Outreach />)
     await casesList()
     await press(allTab())
@@ -122,9 +131,7 @@ describe('Show more on the registration list', () => {
   })
 
   it('keeps the search filtering what is loaded, older rows included, and says it looks only at those', async () => {
-    api.outreachCasesPage
-      .mockResolvedValueOnce({ items: rows(1, 2), nextCursor: 'cursor-2' })
-      .mockResolvedValueOnce({ items: [{ ...row(3), fullName: 'Zainab Older' }], nextCursor: 'cursor-3' })
+    listReads(rows(1, 3), { items: rows(1, 2), nextCursor: 'cursor-2' }, { items: [{ ...row(3), fullName: 'Zainab Older' }], nextCursor: 'cursor-3' })
     renderDept(<Outreach />)
     await casesList()
     await press(allTab())
@@ -137,9 +144,7 @@ describe('Show more on the registration list', () => {
   })
 
   it('opens an older registration added by Show more', async () => {
-    api.outreachCasesPage
-      .mockResolvedValueOnce({ items: rows(1, 1), nextCursor: 'cursor-2' })
-      .mockResolvedValueOnce({ items: rows(2, 2), nextCursor: 'cursor-3' })
+    listReads(rows(1, 2), { items: rows(1, 1), nextCursor: 'cursor-2' }, { items: rows(2, 2), nextCursor: 'cursor-3' })
     renderDept(<Outreach />)
     await casesList()
     await press(showMore()!)

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EXPORT_PRIVACY, onScreenOnly, OutreachExport } from '../../../../ehr-blue/departments/outreach/OutreachExport'
+import { screeningsFailed } from '../../../../ehr-blue/departments/outreach/outreachExport'
 import type { OutreachCase } from '../../../../staff/api'
 
 /*
@@ -17,7 +18,7 @@ const files = vi.hoisted(() => ({
   pdfBytes: vi.fn(async () => new Uint8Array([3]).buffer),
 }))
 vi.mock('../../../../ehr-blue/departments/outreach/outreachExportFiles', () => files)
-const api = vi.hoisted(() => ({ recordOutreachExport: vi.fn(), outreachCasesPage: vi.fn() }))
+const api = vi.hoisted(() => ({ recordOutreachExport: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn() }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
 vi.mock('../../../../ehr-blue/departments/parts/access', () => ({ useDeptAccess: () => ({ facilityId: 'facility-demo-1' }) }))
 
@@ -240,5 +241,93 @@ describe('Outreach export', () => {
     await press(button)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(saved.saveFile).not.toHaveBeenCalled()
+  })
+
+  describe('health check results', () => {
+    /** The CSV's rows as cells (RFC 4180: a quoted cell may hold commas). */
+    const csvRows = (csv: string) => csv.replace(/^\uFEFF/, '').trim().split('\r\n')
+      .map(line => [...line.matchAll(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g)].map(match => match[1]!.replace(/^"|"$/g, '').replace(/""/g, '"')))
+    const screened = (id: string, name: string, minute: number): OutreachCase => ({ id, campaignId: 'campaign-1', status: 'identity_resolution_pending',
+      fullName: name, ageYears: 40, sex: 'female', createdAt: `2026-11-14T08:${String(minute).padStart(2, '0')}:00.000Z`, rowVersion: 1, hasScreening: true })
+    const PEOPLE: OutreachCase[] = [
+      screened('case-a', 'Patient Ada', 50), screened('case-b', 'Patient Bisi', 40), screened('case-c', 'Patient Chika', 30),
+      { ...screened('case-d', 'Patient Dayo', 20), hasScreening: false },
+    ]
+    const stored = (caseId: string, given: Record<string, unknown>) => ({ screening: {
+      bpSystolic: null, bpDiastolic: null, pulseBpm: null, temperatureC: null, weightKg: null, heightCm: null, glucoseValue: null, glucoseUnit: null,
+      glucoseTiming: null, malariaRdt: null, hearingLeft: null, hearingRight: null, mainComplaint: null, seenByClinician: null, clinicianName: null,
+      outcome: null, medicinesGiven: null, referred: null, referredTo: null, caseId, version: 1, recordedAt: '2026-11-14T09:00:00.000Z',
+      recordedByMembershipId: 'membership-1', updatedAt: '2026-11-14T09:00:00.000Z', ...given } })
+
+    it('reads each person’s health checks and writes them in the file, genotype and blood group in their own columns', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => stored(caseId, {
+        bpSystolic: 130, bpDiastolic: 85, malariaRdt: 'positive', outcome: 'Genotype: AA. Blood group: A+. See a doctor this week.',
+      }))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(api.outreachScreening.mock.calls.map(call => call.slice(0, 2))).toEqual([
+        ['facility-demo-1', 'case-a'], ['facility-demo-1', 'case-b'], ['facility-demo-1', 'case-c'],
+      ])
+      const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
+      const [headings, ...lines] = csvRows(csv)
+      const cell = (line: number, heading: string) => lines[line]![headings!.indexOf(heading)]
+      expect(headings).toEqual(expect.arrayContaining(['Health check done', 'Blood pressure', 'Malaria test', 'Genotype', 'Blood group', 'Outcome or advice']))
+      expect(cell(0, 'Blood pressure')).toBe('130/85')
+      expect(cell(0, 'Malaria test')).toBe('Positive')
+      expect(cell(0, 'Genotype')).toBe('AA')
+      expect(cell(0, 'Blood group')).toBe('A+')
+      expect(cell(0, 'Outcome or advice')).toBe('See a doctor this week.')
+      // Patient Dayo has no health checks: nothing is read for them, and their cells are empty.
+      expect(cell(3, 'Full name')).toBe('Patient Dayo')
+      expect(cell(3, 'Blood pressure')).toBe('')
+      expect(screen.getByRole('status', { hidden: true }).textContent ?? '').not.toMatch(/couldn’t be read/)
+    })
+
+    it('leaves blank the health checks that could not be read, makes the file anyway, and says how many', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => {
+        if (caseId === 'case-b') throw new TypeError('Failed to fetch')
+        return stored(caseId, { pulseBpm: 80 })
+      })
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
+      const [headings, ...lines] = csvRows(csv)
+      const pulse = headings!.indexOf('Pulse')
+      expect(lines.map(line => [line[0], line[pulse]])).toEqual([
+        ['Patient Ada', '80'], ['Patient Bisi', ''], ['Patient Chika', '80'], ['Patient Dayo', ''],
+      ])
+      expect(screen.getByText(screeningsFailed(1))).toBeTruthy()
+      expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'csv', count: 4 })
+    })
+
+    it('says how far it has got while reading health checks', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      const waiting: Array<() => void> = []
+      api.outreachScreening.mockImplementation((_facility: string, caseId: string) =>
+        new Promise(resolve => { waiting.push(() => resolve(stored(caseId, {}))) }))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(within(dialog()).getByText('Reading health checks 0 of 3…')).toBeTruthy()
+      await act(async () => { waiting.shift()!() })
+      expect(within(dialog()).getByText('Reading health checks 1 of 3…')).toBeTruthy()
+      await act(async () => { while (waiting.length) waiting.shift()!() })
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads no health checks when the registrations could not be read', async () => {
+      api.outreachCasesPage.mockRejectedValue(new TypeError('Failed to fetch'))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(api.outreachScreening).not.toHaveBeenCalled()
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      expect(screen.getByText(onScreenOnly(4))).toBeTruthy()
+    })
   })
 })

@@ -6,8 +6,8 @@ import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../sta
 import { saveFile } from '../../../download'
 import { useDeptAccess } from '../parts/access'
 import {
-  buildExport, EXPORT_CAPPED, EXPORT_FORMATS, EXPORT_LATEST_100, EXPORT_PAGE_SIZE, exportFileName, exportMeta, readAllCases, rowsFor,
-  type ExportContext, type ExportFormat,
+  buildExport, EXPORT_CAPPED, EXPORT_FORMATS, EXPORT_LATEST_100, EXPORT_PAGE_SIZE, exportFileName, exportMeta, readAllCases, readScreenings, rowsFor,
+  screeningsFailed, type ExportCase, type ExportContext, type ExportFormat,
 } from './outreachExport'
 
 /** The privacy note said before every export. */
@@ -20,9 +20,10 @@ export function onScreenOnly(count: number) {
 
 /**
  * "Export": the registrations this person can already see (the list; on a campaign's page, that campaign's only) as a
- * CSV, Excel, Word or PDF file, made on this device. Every page of them is read first (the list shows the newest only);
- * without a connection, the file holds what is on screen, and says so. The button opens a short dialog that asks for the file
- * type and says what the file holds; Export saves it, Cancel does nothing. Focus goes back to the button either way.
+ * CSV, Excel, Word or PDF file, made on this device. Every page of them is read first (the list shows the newest only),
+ * then the health check results of each person who has them, three at a time (those that can't be read are left blank,
+ * and the note says how many); without a connection, the file holds what is on screen, and says so. The button opens a
+ * short dialog that asks for the file type and says what the file holds; Export saves it, Cancel does nothing. Focus goes back to the button either way.
  * With nothing to export, the button says why and opens nothing.
  */
 export function OutreachExport({ cases, campaign, campaignOf }: {
@@ -67,8 +68,9 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
       setProgress('')
     }
     try {
-      let rows: readonly OutreachCase[] = chosen
+      let rows: readonly ExportCase[] = chosen
       let warning = ''
+      let readAll = false
       if (facilityId) {
         setProgress('Getting the registrations from Health ID…')
         try {
@@ -77,6 +79,7 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
             sofar => setProgress(`Getting the registrations from Health ID… ${sofar} so far`))
           rows = campaign ? read.cases.filter(item => item.campaignId === campaign.id) : read.cases
           warning = read.capped ? EXPORT_CAPPED : read.latestOnly ? EXPORT_LATEST_100 : ''
+          readAll = true
         } catch {
           warning = onScreenOnly(count)
         }
@@ -85,6 +88,14 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
         done()
         setError('There are no registrations to export now. Refresh the list to check.')
         return
+      }
+      // Each person's health check results, read a few at a time; one that can't be read is left blank and the rest go on.
+      // Not tried when the registrations themselves couldn't be read (no signal): the file holds those on screen.
+      if (facilityId && readAll) {
+        const checks = await readScreenings(rows, caseId => staffApi.outreachScreening(facilityId, caseId),
+          (doneSoFar, total) => setProgress(`Reading health checks ${doneSoFar} of ${total}…`))
+        rows = rows.map(item => (checks.screenings.has(item.id) ? { ...item, screening: checks.screenings.get(item.id) ?? null } : item))
+        if (checks.failed > 0) warning = [warning, screeningsFailed(checks.failed)].filter(Boolean).join(' ')
       }
       setProgress(`Preparing ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}…`)
       const now = new Date()
