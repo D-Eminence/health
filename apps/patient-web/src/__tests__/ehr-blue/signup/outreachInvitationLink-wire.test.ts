@@ -31,7 +31,7 @@ const PATH = '/api/v1/identity/outreach-invitations/accept-link'
 describe('joining by the invitation link on the wire', () => {
   it('posts the link, the phone choice and the security check to the registered, proposed route', async () => {
     const answer = { accepted: true, signedIn: true, facilityId: 'f-1', membershipId: 'm-1', roleCode: 'outreach_volunteer',
-      expiresAt: '2026-12-14T08:00:00.000Z', deviceTrust: 'own_device' }
+      expiresAt: '2026-11-14T08:15:00.000Z', signedInUntil: '2026-11-21T08:00:00.000Z', deviceTrust: 'own_device' }
     const { sent, outreachOrganiserApi } = await staffClient([{ status: 200, body: answer }])
     await expect(outreachOrganiserApi.acceptInvitationByLink(LINK, 'own', 'turnstile-1')).resolves.toEqual(answer)
     expect(sent).toHaveLength(1)

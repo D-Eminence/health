@@ -1224,7 +1224,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'OUTREACH_INVITATION_REQUIRES_SIGN_OUT when signed in); Origin and Turnstile action outreach-invitation. Body { '
     + 'invitationId, token, device (own|shared), turnstileAction, turnstileToken }. New emails only: 409 '
     + 'OUTREACH_INVITATION_SIGN_IN_REQUIRED for an email that already has a login. 200 { accepted, signedIn: true, facilityId, '
-    + 'membershipId, roleCode, actor, expiresAt, deviceTrust } with the session cookies; or 200 { accepted, signedIn: false, '
+    + 'membershipId, roleCode, actor, expiresAt, signedInUntil, deviceTrust } with the session cookies (expiresAt is the '
+    + 'access token\'s end, about 15 minutes; signedInUntil is the session\'s end; deviceTrust own_device only when the long '
+    + 'volunteer session was granted, else standard); or 200 { accepted, signedIn: false, '
     + 'facilityId, membershipId, roleCode } when the helper joined but no session could be made. Other refusals as accept.')),
   proposed(r('identity.outreachInvitationSignedInAccept','identity','/api/v1/identity/outreach-invitations/signed-in/accept',P,false,undefined,
     `${OUTREACH_SIGNUP} A signed-in account, no X-Facility-ID. Body { invitationId, token } (the link only). 200 { accepted, `

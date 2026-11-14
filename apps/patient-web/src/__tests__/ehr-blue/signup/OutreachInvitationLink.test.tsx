@@ -30,6 +30,11 @@ const OWN = 'Join – this is my own phone (keep me signed in)'
 const SHARED = 'Join on a shared phone (signed in for up to 24 hours)'
 const HISTORY_KEY = 'hidOutreachInvitation'
 const inDays = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60 * 1000).toISOString()
+/** What identity-api's accept-link answers when it signs the phone in: expiresAt is the access token (15 minutes). */
+const signedInAnswer = (deviceTrust: 'own_device' | 'standard', signedInUntil: string) => ({ accepted: true,
+  signedIn: true, facilityId: 'f-1', membershipId: 'm-1', roleCode: 'outreach_volunteer', expiresAt: inMinutes(15),
+  signedInUntil, deviceTrust })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -99,8 +104,8 @@ describe('joining by the invitation link alone (switch on)', () => {
   })
 
   it('own phone: accepts with the link, signs in, says the phone stays signed in, and forgets the link', async () => {
-    api.acceptInvitationByLink.mockResolvedValue({ accepted: true, signedIn: true, facilityId: 'f-1', membershipId: 'm-1',
-      roleCode: 'outreach_volunteer', expiresAt: inDays(30), deviceTrust: 'own_device' })
+    // The long volunteer session: 7 days of refresh (its sliding end), the access token still 15 minutes.
+    api.acceptInvitationByLink.mockResolvedValue(signedInAnswer('own_device', inDays(7)))
     openLink()
     expect(keptLink()).toEqual(LINK)
     await press(OWN)
@@ -114,8 +119,7 @@ describe('joining by the invitation link alone (switch on)', () => {
   })
 
   it('shared phone: accepts with "shared", and says nothing about staying signed in for a short session', async () => {
-    api.acceptInvitationByLink.mockResolvedValue({ accepted: true, signedIn: true, facilityId: 'f-1', membershipId: 'm-1',
-      roleCode: 'outreach_volunteer', expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), deviceTrust: 'standard' })
+    api.acceptInvitationByLink.mockResolvedValue(signedInAnswer('standard', inMinutes(24 * 60 - 1)))
     openLink()
     await press(SHARED)
     expect(api.acceptInvitationByLink).toHaveBeenCalledWith(LINK, 'shared', 'token-0')
@@ -125,8 +129,25 @@ describe('joining by the invitation link alone (switch on)', () => {
   })
 
   it('own phone with a short session (the backend did not grant the long one): no 30-day line', async () => {
-    api.acceptInvitationByLink.mockResolvedValue({ accepted: true, signedIn: true, facilityId: 'f-1', roleCode: 'outreach_volunteer',
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), deviceTrust: 'own_device' })
+    // Identity answers deviceTrust 'standard' when it did not grant the long session (switch off, or not volunteer-only).
+    api.acceptInvitationByLink.mockResolvedValue(signedInAnswer('standard', inMinutes(24 * 60 - 1)))
+    openLink()
+    await press(OWN)
+    expect(api.acceptInvitationByLink).toHaveBeenCalledWith(LINK, 'own', 'token-0')
+    expect(await screen.findByRole('heading', { level: 1, name: 'You’re in.' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('30 days')
+  })
+
+  it('without deviceTrust, the 30-day line follows signedInUntil, never the 15-minute expiresAt', async () => {
+    const { deviceTrust: _long, ...longAnswer } = signedInAnswer('own_device', inDays(7))
+    api.acceptInvitationByLink.mockResolvedValue(longAnswer)
+    const first = openLink()
+    await press(OWN)
+    expect(await screen.findByRole('heading', { level: 1, name: 'You’re in.' })).toBeTruthy()
+    expect(document.body.textContent).toContain('This phone stays signed in for up to 30 days unless you sign out.')
+    first.unmount()
+    const { deviceTrust: _short, ...shortAnswer } = signedInAnswer('standard', inMinutes(24 * 60 - 1))
+    api.acceptInvitationByLink.mockResolvedValue(shortAnswer)
     openLink()
     await press(OWN)
     expect(await screen.findByRole('heading', { level: 1, name: 'You’re in.' })).toBeTruthy()
@@ -203,8 +224,7 @@ describe('joining by the invitation link alone (switch on)', () => {
   })
 
   it('keeps the link in the history entry, so a reload still has it', async () => {
-    api.acceptInvitationByLink.mockResolvedValue({ accepted: true, signedIn: true, facilityId: 'f-1', roleCode: 'outreach_volunteer',
-      expiresAt: inDays(30) })
+    api.acceptInvitationByLink.mockResolvedValue(signedInAnswer('own_device', inDays(7)))
     const first = openLink()
     expect(window.location.hash).toBe('')
     expect(window.location.pathname).toBe('/provider/outreach-invitation')

@@ -2087,7 +2087,11 @@ export interface OutreachInvitationAcceptedByLink {
   membershipId?: string
   roleCode: string
   actor?: StaffSession['actor']
+  /** When the access token ends (about 15 minutes): not the session's end. */
   expiresAt?: string
+  /** When this sign-in's session ends (its refresh expiry). */
+  signedInUntil?: string
+  /** 'own_device' only when Identity granted the long volunteer session. */
   deviceTrust?: 'own_device' | 'standard'
 }
 

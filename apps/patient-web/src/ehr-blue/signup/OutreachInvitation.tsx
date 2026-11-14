@@ -70,9 +70,14 @@ function linkSignInMissing(caught: unknown): boolean {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
-/** Whether the session Identity gave lasts more than a day: only then does the page say the phone stays signed in. */
-function staysSignedInLong(expiresAt: string | undefined): boolean {
-  const ends = expiresAt ? Date.parse(expiresAt) : Number.NaN
+/**
+ * Whether Identity gave this phone the long volunteer session: only then does the page say the phone stays signed in.
+ * `deviceTrust` 'own_device' is sent only when the long session was granted; without it, `signedInUntil` (when the
+ * session ends) must be more than a day away. `expiresAt` is the 15-minute access token, never the session's end.
+ */
+function staysSignedInLong(answer: { deviceTrust?: string; signedInUntil?: string }): boolean {
+  if (answer.deviceTrust !== undefined) return answer.deviceTrust === 'own_device'
+  const ends = answer.signedInUntil ? Date.parse(answer.signedInUntil) : Number.NaN
   return Number.isFinite(ends) && ends - Date.now() > DAY_MS
 }
 
@@ -129,7 +134,7 @@ export function OutreachInvitation() {
       forgetKeptLink()
       if (answer.signedIn === true) {
         announceStaffSessionChange()
-        setOutcome({ kind: 'signed-in', staysLong: staysSignedInLong(answer.expiresAt) })
+        setOutcome({ kind: 'signed-in', staysLong: staysSignedInLong(answer) })
       } else {
         setOutcome({ kind: 'sign-in-next' })
       }
