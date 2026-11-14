@@ -20,9 +20,10 @@ import { claimStorageLock } from './tabMemory'
  *
  * Kept in IndexedDB, keyed by localCommandId, and only for the account and facility that saved it: another person signed
  * in on the same browser sees none of it. Nothing waits longer than 14 days: the staff app sweeps expired entries when it
- * starts and on every session change, whatever page is open (purgeExpiredOutreachQueue), and signing out deletes the
- * account's own entries (removeOutreachQueueEntriesFor), after asking first while any wait: "Send now" sends them
- * (sendWaitingOutreachEntriesFor). A session that ends without a sign-out keeps them, so the person
+ * starts and on every session change, whatever page is open (purgeExpiredOutreachQueue). Signing out asks first while
+ * any of the account's entries wait or were refused (outreachEntriesLeftFor): "Send now" sends what waits
+ * (sendWaitingOutreachEntriesFor), and "Sign out and delete them" deletes exactly the ones the question listed
+ * (removeOutreachQueueEntries), never one saved after it was asked. A session that ends without a sign-out keeps them, so the person
  * can sign in again and send them, until the 14 days are up. A browser without IndexedDB (or one that refuses it) keeps
  * the queue in memory for this page only, and says so. Nothing about a person goes in localStorage, cookies or the
  * address: localStorage holds at most a short send lock with a random command id (claimSend), where the browser has
@@ -170,6 +171,33 @@ async function removeEntriesFor(accountId: string, which: (entry: PendingRegistr
     return own.length
   } catch {
     return 0
+  }
+}
+
+/**
+ * Deletes the account's entries named in `localCommandIds`, and nothing else: on signing out, the ones the sign-out
+ * question listed and the person agreed to delete. A registration saved or refused after the question was asked is kept,
+ * since nobody was asked about it. Never throws.
+ */
+export async function removeOutreachQueueEntries(accountId: string, localCommandIds: readonly string[]): Promise<number> {
+  if (localCommandIds.length === 0) return 0
+  const named = new Set(localCommandIds)
+  return removeEntriesFor(accountId, entry => named.has(entry.localCommandId))
+}
+
+/**
+ * What the sign-out question asks about (staff/App.tsx): every registration the account saved on this device, on any
+ * facility, that is still here, both those waiting to be sent and those Health ID refused, oldest first. A refused one is
+ * asked about too: signing out would delete it, and the person may not have seen that Health ID said no. Never throws:
+ * none when none can be read.
+ */
+export async function outreachEntriesLeftFor(accountId: string): Promise<PendingRegistration[]> {
+  try {
+    const store = await sweepStore()
+    if (!store) return []
+    return (await store.list()).filter(entry => entry.accountId === accountId).sort((a, b) => a.savedAt.localeCompare(b.savedAt))
+  } catch {
+    return []
   }
 }
 

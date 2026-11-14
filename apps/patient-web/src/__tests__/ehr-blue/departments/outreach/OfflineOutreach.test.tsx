@@ -153,6 +153,43 @@ describe('opening Outreach with no signal', () => {
   })
 })
 
+describe('a slow start that opened "No signal" mode (findings 2, 4 and 7)', () => {
+  const group = { id: 'group-1', name: 'Ilorin Health Volunteers' }
+  const confirmed = () => json({ actor: { id: 'staff-demo-1', displayName: 'Demo Volunteer', roles: [], permissions: [], facilities: [group] },
+    expiresAt: '2026-11-30T12:00:00.000Z' })
+
+  it('keeps a registration being typed when the first session read answers late, and goes online once it is closed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    keepFacts()
+    // The first session read gets through, but only after "No signal" mode has opened (6 seconds).
+    let answerLate!: (response: Response) => void
+    const late = new Promise<Response>(resolve => { answerLate = resolve })
+    serve({ [SESSION]: [() => late, confirmed, confirmed] })
+    await openStaffApp('/provider/outreach')
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
+    await screen.findByText(/No signal. You can keep registering/)
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New registration' })) })
+    await screen.findByRole('heading', { level: 1, name: 'New registration' })
+    fireEvent.change(document.getElementById('outreach-case-name')!, { target: { value: 'Ada Bello' } })
+
+    // The late answer arrives while the volunteer types: the form, and what is typed in it, stay on screen.
+    await act(async () => { answerLate(confirmed()); await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByRole('heading', { level: 1, name: 'New registration' })).toBeTruthy()
+    expect((document.getElementById('outreach-case-name') as HTMLInputElement).value).toBe('Ada Bello')
+
+    // "No signal" mode's own check finds signal and says so, still without taking the form away.
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(await screen.findByText('Signal is back. Save or cancel this registration to go online.')).toBeTruthy()
+    expect((document.getElementById('outreach-case-name') as HTMLInputElement).value).toBe('Ada Bello')
+
+    // Back on the list, the session is read again and the workspace opens as usual.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to list' })) })
+    await waitFor(() => expect(screen.queryByText(/No signal. You can keep registering/)).toBeNull())
+    expect(screen.queryByRole('heading', { level: 1, name: 'New registration' })).toBeNull()
+  })
+})
+
 describe('start-up as before', () => {
   it('with no facts kept: "Session unavailable"', async () => {
     serve({ [SESSION]: [noNetwork, noNetwork, noNetwork, noNetwork] })

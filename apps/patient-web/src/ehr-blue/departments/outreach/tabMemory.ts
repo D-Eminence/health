@@ -68,6 +68,32 @@ export function forgetOutreachTab(): void {
   } catch { /* nothing to remove */ }
 }
 
+/**
+ * Whether a Health checks section on screen has typing not saved yet (HealthChecks.tsx sets it; the case view's Back
+ * and the sign-out question read it). Kept here, not in HealthChecks.tsx, so the staff app can read it without loading
+ * the outreach pages. It is only this page's memory: nothing about a person is in it.
+ */
+export const unsavedHealthChecks = { current: false }
+
+/**
+ * Whether the account has health checks typed and not saved in this tab: on screen now, or kept for a reload on any
+ * registration (HealthChecks.tsx keeps them as `health-checks:{account}:{facility}:{registration}`). Signing out deletes
+ * what this tab keeps (forgetOutreachTab), so the sign-out question asks first while this is true. Never throws.
+ */
+export function unsavedHealthChecksFor(accountId: string): boolean {
+  if (unsavedHealthChecks.current) return true
+  try {
+    const store = tabStore()
+    if (!store) return false
+    const own = `${PREFIX}health-checks:${accountId}:`
+    for (let index = 0; index < store.length; index += 1) {
+      const key = store.key(index)
+      if (key?.startsWith(own) && store.getItem(key)) return true
+    }
+  } catch { /* nothing readable is kept */ }
+  return false
+}
+
 /** This tab's own random id: the same after a reload of the tab, another in another tab. */
 export function tabId(): string {
   const kept = readTab<string>('tab')

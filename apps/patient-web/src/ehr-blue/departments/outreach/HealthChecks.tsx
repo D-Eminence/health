@@ -14,7 +14,7 @@ import {
   bmiOf, checkScreening, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
-import { readTab, writeTab } from './tabMemory'
+import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
 
 /*
  * "Health checks" on a registration (outreach-api 0118, proposed): vital signs, blood sugar, a malaria rapid test,
@@ -95,8 +95,9 @@ function Group({ id, title, children }: { readonly id: string; readonly title: s
   )
 }
 
-/** Whether a Health checks section on screen has typing not saved yet (read by the case view's Back). */
-export const unsavedHealthChecks = { current: false }
+// Whether a Health checks section on screen has typing not saved yet: kept in tabMemory.ts, so the sign-out question
+// (staff/App.tsx) reads it too, and still exported from here for the case view's Back.
+export { unsavedHealthChecks }
 
 /** Asks before leaving health checks that aren't saved; true when it is fine to leave. */
 export function leaveHealthChecks(): boolean {
