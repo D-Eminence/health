@@ -301,6 +301,119 @@ describe('signing out while registrations wait on this phone', () => {
     expect((await store.list()).map(entry => entry.localCommandId)).toEqual(['other-1'])
   })
 
+  it('has a visible "Stay signed in" that keeps everything, and moves focus to it when Send now finds no signal (finding 8)', async () => {
+    const calls = serve({ [SESSION]: [sessionOf()], [CASES]: [noSignal] })
+    const { store } = await queueWith([{ localCommandId: 'c-1', accountId: 'staff-1' }])
+    await open('/provider/outreach')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Send now' }))
+    expect(await within(prompt).findByText('Could not send them yet. Try again when you have signal.')).toBeTruthy()
+    const stay = within(prompt).getByRole('button', { name: 'Stay signed in' })
+    expect(document.activeElement).toBe(stay)
+
+    fireEvent.click(stay)
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(calls).not.toContain(LOGOUT)
+    expect(where()).toBe('/provider/outreach')
+    expectWorkspaceOpen()
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  it('still stays signed in on Escape', async () => {
+    const calls = serve({ [SESSION]: [sessionOf()] })
+    const { store } = await queueWith([{ localCommandId: 'c-1', accountId: 'staff-1' }])
+    await open('/provider/outreach')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    fireEvent.keyDown(prompt, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(calls).not.toContain(LOGOUT)
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  it('does not sign out by itself when Health ID refuses one on Send now: it names it, and deletes only what was asked about (finding 0)', async () => {
+    const calls = serve({
+      [SESSION]: [sessionOf()],
+      [CASES]: [() => json({ caseId: 'case-1' }, 201),
+        () => problem(409, 'OUTREACH_CAMPAIGN_CLOSED', 'The campaign is closed')],
+      [LOGOUT]: [() => new Response(null, { status: 204 })],
+    })
+    const earlier = new Date(Date.now() - 60_000).toISOString()
+    const { store } = await queueWith([
+      { localCommandId: 'c-1', accountId: 'staff-1', savedAt: earlier, input: { fullName: 'Kemi Balogun (fictional)', sex: 'female', ageYears: 30 } },
+      { localCommandId: 'c-2', accountId: 'staff-1', input: { fullName: 'Tunde Ade (fictional)', sex: 'male', ageYears: 52 } },
+    ])
+    await open('/provider/outreach')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Send now' }))
+
+    // One went; Health ID said no to the other. The volunteer is still signed in, and told who and why.
+    expect(await within(prompt).findByText('Health ID did not accept 1 registration. It will be deleted when you sign out. Write the details on paper or register the person again first:')).toBeTruthy()
+    const refused = (await store.list()).find(entry => entry.localCommandId === 'c-2')!
+    expect(refused.state).toBe('refused')
+    expect(within(prompt).getByText('Tunde Ade (fictional)')).toBeTruthy()
+    expect(within(prompt).getByText(new RegExp(refused.refusal!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy()
+    expect(within(prompt).queryByRole('button', { name: 'Send now' })).toBeNull()
+    expect(document.activeElement).toBe(within(prompt).getByRole('button', { name: 'Stay signed in' }))
+    expect(calls).not.toContain(LOGOUT)
+    expect(where()).toBe('/provider/outreach')
+
+    // Saved while the question shows (another tab, say): nobody was asked about it, so it is kept.
+    await store.put({ localCommandId: 'c-3', temporaryPatientId: 'tmp_c-3', accountId: 'staff-1', facilityId: facility.id, savedAt: new Date().toISOString(),
+      state: 'waiting', input: { fullName: 'Later Person (fictional)', sex: 'female', ageYears: 22 } })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Sign out and delete them' }))
+
+    await waitFor(() => expect(where()).toBe('/provider/sign-in'))
+    expect((await store.list()).map(entry => entry.localCommandId)).toEqual(['c-3'])
+  })
+
+  it('asks about registrations Health ID refused even when none wait, rather than deleting them unasked', async () => {
+    const calls = serve({ [SESSION]: [sessionOf()], [LOGOUT]: [() => new Response(null, { status: 204 })] })
+    const { store } = await queueWith([{ localCommandId: 'c-1', accountId: 'staff-1', state: 'refused', refusal: 'This campaign is finished.' }])
+    await open('/provider/outreach')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    expect(within(prompt).getByText(/Health ID did not accept 1 registration/)).toBeTruthy()
+    expect(within(prompt).getByText(': This campaign is finished.', { exact: false })).toBeTruthy()
+    expect(within(prompt).queryByRole('button', { name: 'Send now' })).toBeNull()
+    expect(document.activeElement).toBe(within(prompt).getByRole('button', { name: 'Stay signed in' }))
+    expect(calls).not.toContain(LOGOUT)
+
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Stay signed in' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  it('asks before deleting health checks typed and not saved (finding 3)', async () => {
+    const calls = serve({ [SESSION]: [sessionOf(), sessionOf()], [LOGOUT]: [() => new Response(null, { status: 204 })] })
+    await queueWith([])
+    const draft = 'hid-outreach:health-checks:staff-1:facility-1:case-9'
+    sessionStorage.setItem(draft, JSON.stringify({ changes: { systolic: '150' }, unsure: null, attempt: null }))
+    await open('/provider/outreach')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    expect(within(prompt).getByText('You have health checks that aren’t saved. They will be deleted when you sign out. Stay signed in to save them first.')).toBeTruthy()
+    expect(calls).not.toContain(LOGOUT)
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Stay signed in' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(sessionStorage.getItem(draft)).not.toBeNull()
+
+    // Asked again and agreed: they go with the sign-out.
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Sign out?' })).getByRole('button', { name: 'Sign out and delete them' }))
+    await waitFor(() => expect(where()).toBe('/provider/sign-in'))
+    expect(sessionStorage.getItem(draft)).toBeNull()
+  })
+
   it('signs out at once, asking nothing, when none wait', async () => {
     serve({ [SESSION]: [sessionOf()], [LOGOUT]: [() => new Response(null, { status: 204 })] })
     await queueWith([{ localCommandId: 'other-1', accountId: 'staff-2' }])

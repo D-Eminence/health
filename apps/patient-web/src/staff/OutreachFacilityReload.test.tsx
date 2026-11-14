@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 /*
@@ -107,6 +107,11 @@ describe('the outreach group chosen in this tab, after a reload', () => {
     serve({ [SESSION]: [session(GROUP, 'selected')], [LOGOUT]: [() => new Response(null, { status: 204 })] })
     await open()
     fireEvent.click(await screen.findByRole('button', { name: /Sign out/ }))
+    // Health checks not saved are asked about first (finding 3), and go once the volunteer agrees.
+    const prompt = await screen.findByRole('alertdialog', { name: 'Sign out?' })
+    expect(within(prompt).getByText(/You have health checks that aren’t saved/)).toBeTruthy()
+    expect(sessionStorage.getItem('hid-outreach:health-checks:staff-1:x:case-1')).not.toBeNull()
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Sign out and delete them' }))
     await waitFor(() => expect(Object.keys(sessionStorage).filter(key => key.startsWith('hid-outreach:'))).toEqual([]))
     expect(sessionStorage.getItem('unrelated')).toBe('kept')
   })
