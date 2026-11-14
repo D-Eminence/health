@@ -7,7 +7,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -1404,6 +1404,22 @@ export interface OutreachCase {
    * the same campaign has the same phone number, or the same name and age. A hint only: the registration is saved.
    */
   possibleDuplicate?: boolean
+  /** Where the person lives ("Area, town or LGA"), null when none was given; absent from an Outreach before 0118. */
+  area?: string | null
+  /** Whether health checks are recorded for this registration (0118); absent from an earlier Outreach. */
+  hasScreening?: boolean
+  /**
+   * The Health ID made for this person at outreach (outreach-api 0119), null while none; absent from an earlier Outreach,
+   * which makes none. With `healthIdCreatedByOutreach`, whether outreach made it.
+   */
+  healthId?: string | null
+  healthIdCreatedByOutreach?: boolean
+}
+
+/** A page of registration cases (outreachCasesPage), with the cursor of the next page; null on the last. */
+export interface OutreachCasesPage {
+  readonly items: OutreachCase[]
+  readonly nextCursor: string | null
 }
 
 /** The languages the registration notice is given in; any but English means it was read aloud in that language. */
@@ -1431,7 +1447,74 @@ export interface OutreachCaseInput {
   ageYears: number
   phone?: string
   operationalNotes?: string
+  /** "Area, town or LGA", up to 100 characters (0118). */
+  area?: string
   consent?: OutreachConsent
+}
+
+/** A blood sugar reading's unit and when it was taken (outreach-api screening, 0118). */
+export type OutreachGlucoseUnit = 'mmol/L' | 'mg/dL'
+export type OutreachGlucoseTiming = 'fasting' | 'random'
+export type OutreachMalariaRdt = 'positive' | 'negative' | 'not_done'
+export type OutreachHearing = 'pass' | 'refer' | 'not_done'
+export interface OutreachMedicineGiven { name: string; dose?: string | null }
+
+/**
+ * A registration's health checks as outreach-api 0118 takes them: the whole screening each time, null for anything not
+ * recorded. Blood pressure takes both numbers or neither; a blood sugar value takes its unit and timing; referredTo only
+ * with referred true.
+ */
+export interface OutreachScreeningInput {
+  bpSystolic: number | null
+  bpDiastolic: number | null
+  pulseBpm: number | null
+  temperatureC: number | null
+  weightKg: number | null
+  heightCm: number | null
+  glucoseValue: number | null
+  glucoseUnit: OutreachGlucoseUnit | null
+  glucoseTiming: OutreachGlucoseTiming | null
+  malariaRdt: OutreachMalariaRdt | null
+  hearingLeft: OutreachHearing | null
+  hearingRight: OutreachHearing | null
+  mainComplaint: string | null
+  seenByClinician: boolean | null
+  clinicianName: string | null
+  outcome: string | null
+  medicinesGiven: OutreachMedicineGiven[] | null
+  referred: boolean | null
+  referredTo: string | null
+}
+
+/** A saved screening: what was sent, and who saved it when, at its version (the ETag the next save sends as If-Match). */
+export interface OutreachScreening extends OutreachScreeningInput {
+  caseId: string
+  version: number
+  recordedAt: string
+  recordedByMembershipId: string
+  updatedAt: string
+}
+
+/** How the code for an assisted Health ID is sent (0119): email, or a text message (not available yet). */
+export type OutreachHealthIdChannel = 'email' | 'sms'
+
+/** The code sent for an assisted Health ID (health-id/start): where it went, masked, and when another may be sent. */
+export interface OutreachHealthIdStart {
+  channel: OutreachHealthIdChannel
+  expiresAt: string
+  destinationHint: string
+  resendAfterSeconds: number
+}
+
+/** The Health ID made at outreach, and the registration, now linked to it (health-id/confirm). */
+export interface OutreachHealthIdCreated {
+  healthId: string
+  registration: OutreachCase
+}
+
+/** An unverified Health ID (health-id/create-unverified): with its claim code, answered this once only. */
+export interface OutreachUnverifiedHealthId extends OutreachHealthIdCreated {
+  claimCode: string
 }
 
 /**
@@ -1735,6 +1818,9 @@ async function stillThisAccount(actorId: string | null): Promise<boolean> {
  */
 export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
 
+/** A session check that may also say no answer came for want of a connection (checkStaffSessionReach). */
+export type StaffSessionReach = StaffSessionCheck | 'offline'
+
 /**
  * Whether the session `actorId` held in generation `sentIn` has really ended,
  * after a request found it refused. The server is asked directly, restoring the
@@ -1746,13 +1832,43 @@ export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
  * the next one.
  */
 async function checkStaffSession(actorId: string, sentIn: number): Promise<StaffSessionCheck> {
+  return await askStaffSession(actorId, sentIn, false) as StaffSessionCheck
+}
+
+/**
+ * The same question for an outreach workspace (staff/App.tsx), which also says when no answer came because there is no
+ * connection ('offline': no network, a timeout, or the browser knows it is offline), so the volunteer can keep
+ * working. A refusal (401, 403) or any other answer is never 'offline'. It waits at most 10 seconds and is not
+ * repeated: the workspace asks again by itself while there is no signal.
+ */
+async function checkStaffSessionReach(actorId: string, sentIn: number): Promise<StaffSessionReach> {
+  return askStaffSession(actorId, sentIn, true)
+}
+
+/** Whether a check got no answer because there is no connection: no network, a timeout, or the browser offline. */
+function noSignal(error: unknown): boolean {
+  if (isHidApiError(error)) {
+    if (error.code === 'REQUEST_CANCELLED') return false
+    if (error.code === 'NETWORK_ERROR' || error.code === 'REQUEST_TIMEOUT' || error.status === 0) return true
+  } else if (isConnectionFailure(error)) return true
+  return typeof navigator !== 'undefined' && navigator.onLine === false && !(isHidApiError(error) && error.status > 0)
+}
+
+const REACH_CHECK_TIMEOUT_MS = 10_000
+
+async function askStaffSession(actorId: string, sentIn: number, reach: boolean): Promise<StaffSessionReach> {
   let session: StaffSession
+  const offline = (error: unknown) => reach && noSignal(error)
   // A read of its own: one already in flight may have reached the server before the refusal.
-  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false }) }
+  try {
+    session = await client.get<StaffSession>('/api/v1/auth/session', reach
+      ? { auth: 'optional', dedupe: false, timeoutMs: REACH_CHECK_TIMEOUT_MS, retry: NO_RETRY }
+      : { auth: 'optional', dedupe: false })
+  }
   catch (error) {
-    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return 'unknown'
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return offline(error) && staffSessionGeneration() === sentIn ? 'offline' : 'unknown'
     try { session = await refreshStaffSession() }
-    catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
+    catch (refused) { return endsStaffSession(refused) ? 'ended' : offline(refused) ? 'offline' : 'unknown' }
   }
   if (typeof session?.actor?.id !== 'string') return 'unknown'
   if (!isSessionOf(session, actorId)) return 'ended'
@@ -1850,6 +1966,14 @@ export interface ProviderEnrollmentProfile {
  * answers 503 UPSTREAM_UNAVAILABLE, so this only bounds a hung connection.
  */
 export const PROVIDER_ENROLLMENT_START_TIMEOUT_MS = 35_000
+/**
+ * How long outreach waits (health #243 review): the gateway allows 60 s on the Health ID routes and outreach-api answers
+ * within about 35 s, so a code sent or confirmed (safe to send again with its key) waits 40 s, and an unverified Health
+ * ID, whose claim code is answered once only, 45 s. The health-checks read gives up after 10 s.
+ */
+const OUTREACH_HEALTH_ID_TIMEOUT_MS = 40_000
+const OUTREACH_UNVERIFIED_HEALTH_ID_TIMEOUT_MS = 45_000
+const OUTREACH_SCREENING_READ_TIMEOUT_MS = 10_000
 
 export const providerEnrollmentApi = {
   /**
@@ -2178,6 +2302,7 @@ export const staffApi = {
   refresh: () => refreshStaffSession(),
   logout: signOut,
   checkSession: checkStaffSession,
+  checkSessionReach: checkStaffSessionReach,
   // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
   // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a
   // spent challenge) is never refreshed and never taken for the end of a session.
@@ -2618,6 +2743,30 @@ export const staffApi = {
       { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),
+  /**
+   * One page of registration cases, for an export (hid-system#247): up to `limit` (1 to 500), older than the cursor
+   * `before`, of one campaign when `campaignId` is given. The answer is the list's own array; X-Next-Cursor, when sent,
+   * names the next page. An Outreach before paging ignores the query and sends its newest 100 with no cursor. Without
+   * `limit` (the Outreach list's first read) nothing but `campaignId` is asked: the request is the list's own, the newest
+   * 100, and a paging Outreach still says whether more are left.
+   */
+  outreachCasesPage: async (facilityId: string, query: { campaignId?: string; limit?: number; before?: string }): Promise<OutreachCasesPage> => {
+    let cursor: string | null = null
+    const items = await client.get<unknown>('/api/v1/outreach/registration-cases', {
+      headers: facilityHeaders(facilityId), query: { limit: query.limit, campaignId: query.campaignId, before: query.before }, dedupe: false,
+      onResponseHeaders: headers => { cursor = headers.get('X-Next-Cursor')?.trim() || null },
+    })
+    if (!Array.isArray(items) || items.some(item => !item || typeof item !== 'object' || typeof (item as OutreachCase).id !== 'string')) {
+      throw new Error('The registrations answered in a shape this page does not read.')
+    }
+    return { items: items as OutreachCase[], nextCursor: cursor }
+  },
+  /**
+   * Records that registrations were exported (an audit row; Outreach answers 204). Sent after the file is saved, and never
+   * waited on: an Outreach without the route answers 404 or 405.
+   */
+  recordOutreachExport: (facilityId: string, input: { format: 'csv' | 'xlsx' | 'docx' | 'pdf'; count: number; campaignId?: string }) =>
+    client.post<void>('/api/v1/outreach/registration-cases/exports', input, { headers: facilityHeaders(facilityId) }),
   linkExistingOutreachCase: (facilityId: string, registrationCase: OutreachCase, canonicalPatientId: string, reason: string) =>
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
@@ -2628,6 +2777,43 @@ export const staffApi = {
     command: { localCommandId: string; temporaryPatientId: string }) =>
     client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
+
+  /**
+   * A registration's health checks (outreach-api 0118, proposed): `{ screening: null }` until any are saved. An Outreach
+   * without the route answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the page then shows no Health checks section.
+   */
+  outreachScreening: (facilityId: string, caseId: string, signal?: AbortSignal) =>
+    client.get<{ screening: OutreachScreening | null }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,
+      // Tried once for 10 s: a case opened with no signal says so quickly, and Try again is on the page.
+      { headers: facilityHeaders(facilityId), signal, dedupe: false, retry: NO_RETRY, timeoutMs: OUTREACH_SCREENING_READ_TIMEOUT_MS }),
+  /**
+   * Saves the whole screening: 201 the first time (no If-Match), 200 after, against the version read (If-Match, 412
+   * VERSION_CONFLICT when it changed since). The caller holds the Idempotency-Key, one per save attempt and the same on a
+   * retry of that attempt.
+   */
+  saveOutreachScreening: (facilityId: string, caseId: string, input: OutreachScreeningInput,
+    write: { idempotencyKey: string; version?: number }) =>
+    client.request<{ screening: OutreachScreening }>({ method: 'PUT',
+      path: `/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`, body: input,
+      headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': write.idempotencyKey,
+        ...(write.version !== undefined ? { 'If-Match': `"${write.version}"` } : {}) } }),
+
+  /**
+   * Assisted Health ID (outreach-api 0119, proposed; each way ships on its own): a code sent to the email the person gives
+   * (or by text message, not available yet), then confirmed; or, with no email or phone, an unverified Health ID with a
+   * claim code. Never sent again by itself: the caller holds the key, a new one for each code sent, each confirmation and
+   * each unverified Health ID, and the same on a retry of that attempt.
+   */
+  startOutreachHealthId: (facilityId: string, caseId: string, body: { channel: 'email'; email: string } | { channel: 'sms' }, idempotencyKey: string) =>
+    client.post<OutreachHealthIdStart>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/start`, body,
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_HEALTH_ID_TIMEOUT_MS }),
+  confirmOutreachHealthId: (facilityId: string, caseId: string, code: string, idempotencyKey: string) =>
+    client.post<OutreachHealthIdCreated>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/confirm`, { code },
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_HEALTH_ID_TIMEOUT_MS }),
+  createUnverifiedOutreachHealthId: (facilityId: string, caseId: string, idempotencyKey: string) =>
+    client.post<OutreachUnverifiedHealthId>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/create-unverified`, {},
+      // Its claim code is answered this once only, so the website waits longer than outreach-api does (about 35 s).
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_UNVERIFIED_HEALTH_ID_TIMEOUT_MS }),
 
   /*
    * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach

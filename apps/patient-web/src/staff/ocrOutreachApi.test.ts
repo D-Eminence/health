@@ -191,3 +191,82 @@ describe('Outreach registration case requests', () => {
     }
   })
 })
+
+/** Outreach health checks (outreach-api 0118): read, then the whole screening saved with the caller's key and version. */
+describe('Outreach health checks requests', () => {
+  it('reads the screening, and saves it with the key the caller holds, If-Match only after the first save', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    const requests = recordFetch({ screening: null })
+    const { staffApi } = await signedInStaffApi()
+    const input = { bpSystolic: 120, bpDiastolic: 80, pulseBpm: null, temperatureC: null, weightKg: null, heightCm: null, glucoseValue: null,
+      glucoseUnit: null, glucoseTiming: null, malariaRdt: 'negative' as const, hearingLeft: null, hearingRight: null, mainComplaint: null,
+      seenByClinician: null, clinicianName: null, outcome: null, medicinesGiven: null, referred: null, referredTo: null }
+
+    await staffApi.outreachScreening('facility-1', 'case-1')
+    await staffApi.saveOutreachScreening('facility-1', 'case-1', input, { idempotencyKey: 'k-1' })
+    await staffApi.saveOutreachScreening('facility-1', 'case-1', input, { idempotencyKey: 'k-2', version: 3 })
+
+    expect(requests.map(request => `${request.method} ${request.url.pathname}`)).toEqual([
+      'GET /api/v1/outreach/registration-cases/case-1/screening',
+      'PUT /api/v1/outreach/registration-cases/case-1/screening',
+      'PUT /api/v1/outreach/registration-cases/case-1/screening',
+    ])
+    expect(requests[1]!.body).toEqual(input)
+    expect(requests[1]!.headers.get('idempotency-key')).toBe('k-1')
+    expect(requests[1]!.headers.get('if-match')).toBeNull()
+    expect(requests[2]!.headers.get('idempotency-key')).toBe('k-2')
+    expect(requests[2]!.headers.get('if-match')).toBe('"3"')
+    for (const request of requests) expect(request.headers.get('x-facility-id')).toBe('facility-1')
+  })
+})
+
+/**
+ * How long the outreach requests wait (health #243 review, items 14 and the health-checks read): the gateway allows 60 s
+ * on the Health ID routes and outreach-api answers within about 35 s, so an answer that comes is never given up on; the
+ * health-checks read gives up after 10 s, tried once, so a case opened with no signal says so quickly.
+ */
+describe('Outreach waits', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  /** Every request answered after `plan.ms` with `plan.body`, unless the caller gives up first. Stubbed before the client loads. */
+  const plan = { ms: 0, body: {} as unknown }
+  function answerLater() {
+    const calls = vi.fn((_url: string | URL | Request, init: RequestInit) => new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Response(JSON.stringify(plan.body), { status: 201, headers: { 'Content-Type': 'application/json' } })), plan.ms)
+      init.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('The operation was aborted.', 'AbortError')) })
+    }))
+    vi.stubGlobal('fetch', calls)
+    return calls
+  }
+
+  async function outcome<T>(promise: Promise<T>, ms: number): Promise<'answered' | 'gave up' | 'still waiting'> {
+    let result: 'answered' | 'gave up' | 'still waiting' = 'still waiting'
+    void promise.then(() => { result = 'answered' }, () => { result = 'gave up' })
+    await vi.advanceTimersByTimeAsync(ms)
+    return result
+  }
+
+  it('waits up to 45 s for an unverified Health ID, and 40 s for a code sent or confirmed', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    answerLater()
+    const { staffApi } = await signedInStaffApi()
+    vi.useFakeTimers()
+    Object.assign(plan, { ms: 44_000, body: { healthId: 'HID-TEST01' } })
+    expect(await outcome(staffApi.createUnverifiedOutreachHealthId('facility-1', 'case-1', 'k-1'), 44_500)).toBe('answered')
+    Object.assign(plan, { ms: 39_000, body: { channel: 'email' } })
+    expect(await outcome(staffApi.startOutreachHealthId('facility-1', 'case-1', { channel: 'email', email: 'ada@example.test' }, 'k-2'), 39_500)).toBe('answered')
+    Object.assign(plan, { ms: 39_000, body: { healthId: 'HID-TEST01' } })
+    expect(await outcome(staffApi.confirmOutreachHealthId('facility-1', 'case-1', '123456', 'k-3'), 39_500)).toBe('answered')
+    Object.assign(plan, { ms: 50_000, body: { healthId: 'HID-TEST01' } })
+    expect(await outcome(staffApi.createUnverifiedOutreachHealthId('facility-1', 'case-1', 'k-4'), 46_000)).toBe('gave up')
+  })
+
+  it('reads the health checks once, giving up after 10 s', async () => {
+    const calls = answerLater()
+    const { staffApi } = await signedInStaffApi()
+    vi.useFakeTimers()
+    Object.assign(plan, { ms: 60_000, body: { screening: null } })
+    expect(await outcome(staffApi.outreachScreening('facility-1', 'case-1'), 10_500)).toBe('gave up')
+    expect(calls).toHaveBeenCalledTimes(1)
+  })
+})

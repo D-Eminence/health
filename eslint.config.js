@@ -166,6 +166,21 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
+    // Outreach with no signal (owner, 13 November 2026): on Health ID Outreach's own site only, registers the same /sw.js
+    // as pushDevice.ts as the app starts, for the offline app shell, and names the build files the page has loaded.
+    // Every other restriction stays, the Cache API and browser storage among them.
+    files: ['apps/patient-web/src/outreachShell.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
+    // Outreach with no signal: the one module allowed sessionStorage and localStorage beyond the portal hint, for the last
+    // confirmed session's few facts that open "No signal" mode on Outreach's own site (account id and name, outreach
+    // group, campaigns and their dates; never a token or anything about a person), 24 hours at most
+    // (docs/ARCHITECTURE.md). Every other restriction stays.
+    files: ['apps/patient-web/src/ehr-blue/departments/outreach/offlineStart.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
     // Open sign-up on outreach. (plan PR-5, the field critique): the one module allowed IndexedDB, for an outreach group's
     // registrations that could not be sent yet, keyed by their command and kept for the account and facility that saved
     // them, at most 14 days, until Health ID takes them (docs/ARCHITECTURE.md). Every other restriction stays.
@@ -173,11 +188,29 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
+    // Outreach's reload safety (the owner's "no hassle" rule, 14 November 2026): the one module allowed browser storage
+    // for outreach, sessionStorage for what this tab must keep across a reload (unsaved health checks, a Health ID code
+    // step, a just-made claim code for 15 minutes, the outreach group chosen), keyed by account and cleared on sign-out,
+    // and localStorage only for a cross-tab send lock holding a random command id (docs/ARCHITECTURE.md). Every other
+    // restriction stays, IndexedDB among them.
+    files: ['apps/patient-web/src/ehr-blue/departments/outreach/tabMemory.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
     // The portal's push-only worker (B6), a classic worker script: it shows a fixed notification and opens
     // Notifications. No fetch, Cache API, storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
     files: ['apps/patient-web/public/sw.js'],
-    languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly' } },
+    languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly', importScripts: 'readonly' } },
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
+    // Outreach's offline app shell, added by sw.js on Outreach's own sites only: a classic worker script that keeps the
+    // app's page and its content-hashed build files in its own versioned cache, and never an /api/ answer. No storage,
+    // IndexedDB or push (scripts/check-launch-build.mjs checks the build too).
+    files: ['apps/patient-web/public/sw-outreach.js'],
+    languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly', caches: 'readonly', fetch: 'readonly',
+      Response: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' } },
+    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
     // Tests construct fake transports and assert on storage behaviour.

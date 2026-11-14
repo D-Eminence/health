@@ -69,7 +69,7 @@ describe('Outreach organisers', () => {
     const row = (await screen.findByText('Ajegunle Health Volunteers', { selector: 'td strong' })).closest('tr')!
     expect(within(row).getByText('Funke Ade')).toBeTruthy()
     expect(within(row).getByText('+2348012345678')).toBeTruthy()
-    expect(within(row).getByText('Unverified organiser')).toBeTruthy()
+    expect(within(row).getByText('Active')).toBeTruthy()
     expect(within(row).getByText('CAC or IT number IT123456 (not checked)')).toBeTruthy()
     expect(within(row).getByText('1 invitation waiting')).toBeTruthy()
     expect(row.textContent).not.toContain('undefined')

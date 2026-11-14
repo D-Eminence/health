@@ -6,7 +6,7 @@ import { Alert, Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachGroupDetails } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
 import { OUTREACH_TERMS_PATH } from '../../../productHostname'
-import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION } from '../../../outreachTerms'
+import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION, organiserTermsAheadOfPage } from '../../../outreachTerms'
 import { isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../../outreachProblems'
 import { groupDetailsProblems } from '../../../outreachGroupDetails'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
@@ -40,7 +40,7 @@ export function StartOutreachGroup() {
     staffApi.outreachGroupAvailability().then(answer => {
       if (!active) return
       if (answer?.open === true && typeof answer.termsVersion === 'string' && answer.termsVersion
-        && answer.termsVersion !== ORGANISER_TERMS_VERSION) setTermsChanged(true)
+        && organiserTermsAheadOfPage(answer.termsVersion)) setTermsChanged(true)
       setOpen(answer?.open === true)
     }, () => { if (active) setOpen(false) })
     return () => { active = false }

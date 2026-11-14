@@ -1,18 +1,19 @@
-import { useRef, useState, type FormEvent, type MutableRefObject } from 'react'
-import { isHidApiError } from '@hid/http'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MutableRefObject } from 'react'
+import { isHidApiError, isStoppedRequest } from '@hid/http'
 import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { ArrowLeft } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
-import { Button } from '../../../kasuwa/ui'
+import { Alert, Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
-import { outreachProblemText } from '../../../outreachProblems'
-import { waitsForNetwork, type PendingRegistration } from './offlineQueue'
+import { isOutreachProblem, outreachProblemText } from '../../../outreachProblems'
+import { waitReason, waitsForNetwork, waitsForSignIn, type PendingRegistration, type WaitReason } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
+import { keepNewRegistration, keptNewRegistration, type NewRegistrationDraft } from './tabMemory'
 import { errorText } from '../parts/errors'
 import {
-  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, RETRY_NOTE,
-  type FieldErrors,
+  AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, outreachPhoneAccepted,
+  PHONE_FORMAT, PHONE_HINT, RETRY_NOTE, type CampaignsUnread, type FieldErrors,
 } from './outreachParts'
 
 /**
@@ -34,6 +35,9 @@ function campaignRefused(caught: unknown): boolean {
   return CAMPAIGN_REFUSALS.some(([status, code]) => caught.status === status && caught.code === code)
 }
 
+/** "No signal" mode, when this device could not keep the registration. */
+const KEEP_FAILED = 'This registration couldn’t be saved on this device. Try again.'
+
 const CAMPAIGN_FIELD = 'outreach-case-campaign'
 const CAMPAIGN_REFUSED_ID = 'outreach-case-campaign-refused'
 const SAVE_ID = 'outreach-case-save'
@@ -47,29 +51,81 @@ const SAVE_ID = 'outreach-case-save'
  */
 export type CaseAttempt = { signature: string; command: { localCommandId: string; temporaryPatientId: string } } | null
 
+/** Where the person lives ("Area, town or LGA"), as Outreach takes it (0118): up to 100 characters. */
+const AREA_LIMIT = 100
 /** A parent or guardian's name, as Outreach and the database take it: 2 to 120 characters. */
 const GUARDIAN_NAME_LIMIT = 120
 const UNDER_18_METHOD = 'This person is under 18. Choose “Their parent or guardian agreed for them”.'
+const GUARDIAN_NAME_WITHOUT_GUARDIAN = 'You entered a parent or guardian’s name. Choose “Their parent or guardian agreed for them”, or clear the name.'
 /** An age entered as a whole number under 18. */
 const isMinorAge = (age: string) => age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) < 18
+/**
+ * How the person agreed, for the age typed (Q76): a parent or guardian under 18, else what is shown, or the volunteer's
+ * own choice when what is shown is nothing or the guardian the age chose before it was corrected.
+ */
+function consentMethodFor(ageText: string, current: OutreachConsentMethod | '', chosen: OutreachConsentMethod): OutreachConsentMethod | '' {
+  if (isMinorAge(ageText)) return 'guardian'
+  return current === '' || current === 'guardian' ? chosen : current
+}
 
-type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'campaign' | 'notes'
-const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'campaign', 'notes']
+/**
+ * Said at the top of the form when the registration this tab kept (tabMemory.ts) is put back after a reload: the person
+ * may have gone meanwhile, so the volunteer checks it is them before saving.
+ */
+export const NEW_REGISTRATION_KEPT = 'The registration you were typing is back. Check it is still the same person, then save. To start again, press Cancel.'
+/** The form's fields kept for a reload, by their names. The language and how the person agreed are kept beside them. */
+const KEPT_FIELDS = ['guardianName', 'fullName', 'sex', 'ageYears', 'phone', 'area', 'campaignId', 'operationalNotes'] as const
+/** The fields only a volunteer types: with none of these, and nothing else changed, nothing is kept. */
+const TYPED_FIELDS = ['guardianName', 'fullName', 'ageYears', 'phone', 'area', 'operationalNotes'] as const
+
+/**
+ * The registration kept for this tab, as the form can use it: a language or a way of agreeing it does not offer (an
+ * older version, or changed by hand) is left at the form's own default.
+ */
+function restoredDraft(kept: NewRegistrationDraft | null) {
+  if (!kept) return null
+  const fields: Partial<Record<(typeof KEPT_FIELDS)[number], string>> = {}
+  for (const name of KEPT_FIELDS) if (kept.fields[name]) fields[name] = kept.fields[name]
+  const language = CONSENT_LANGUAGES.find(option => option.value === kept.language)?.value ?? 'en'
+  const chosenMethod = CONSENT_METHODS.find(option => option.value === kept.chosenMethod)?.value ?? 'verbal_read_aloud'
+  return { fields, language, chosenMethod }
+}
+
+type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'area' | 'campaign' | 'notes'
+const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'area', 'campaign', 'notes']
 const FIELD_ID: Record<CaseField, string> = {
   method: 'outreach-consent-method-verbal_read_aloud', guardian: 'outreach-consent-guardian',
-  name: 'outreach-case-name', age: 'outreach-case-age', phone: 'outreach-case-phone', campaign: 'outreach-case-campaign',
+  name: 'outreach-case-name', age: 'outreach-case-age', phone: 'outreach-case-phone', area: 'outreach-case-area', campaign: 'outreach-case-campaign',
   notes: 'outreach-case-notes',
 }
 
 /**
  * At an outreach group (open sign-up on outreach.): the group's name for the notice, and the device's queue, which keeps
- * a registration that could not be sent. A hospital's outreach team has neither.
+ * each registration from before it is first sent until Health ID takes it, so a reload while it is saving loses nothing.
+ * A hospital's outreach team has neither.
  */
 export interface OutreachGroupForm {
   readonly name: string
   readonly queue: (entry: Pick<PendingRegistration, 'localCommandId' | 'temporaryPatientId' | 'input'>) => Promise<void>
-  /** A registration was kept on this device: the form is cleared for the next person. */
-  readonly onQueued: (fullName: string) => void
+  /** Takes a registration off this device: Health ID took it, or refused it while the person is still here to correct it. */
+  readonly dequeue: (localCommandId: string) => Promise<void>
+  /** Claims a registration for sending (offlineQueue.ts claimSend): null while another sender has it. */
+  readonly claim: (localCommandId: string) => Promise<(() => void) | null>
+  /** A registration was kept on this device, and why it could not be sent: the form is cleared for the next person. */
+  readonly onQueued: (queued: {
+    readonly fullName: string
+    readonly localCommandId: string
+    readonly reason: WaitReason | 'session'
+    /** Their age as entered: under 18, the sign-up shown meanwhile says a parent or guardian must agree. */
+    readonly ageYears: number
+  }) => void
+}
+
+/** Why no campaign is listed, at an outreach group, when it isn't that the person is in none. */
+const GROUP_CAMPAIGNS_UNREAD: Readonly<Record<CampaignsUnread, string>> = {
+  loading: 'Your campaigns are still loading.',
+  offline: 'Your campaigns couldn’t be loaded without signal. Open Outreach again once you have signal, and keep it open to register people offline.',
+  failed: 'Your campaigns couldn’t be loaded. Go back to the list and press Refresh.',
 }
 
 /**
@@ -78,19 +134,38 @@ export interface OutreachGroupForm {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, group, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, accountId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, offline = false, onBack, onSending, onCreated }: {
   readonly facilityId: string
+  /**
+   * The signed-in account. With it, at an outreach group, what is typed is kept for this tab, account and facility
+   * (tabMemory.ts), so a reload or a tab the phone closed in the background loses nothing: it is back when New
+   * registration is opened again, until it is saved, cancelled or an hour passes, and signing out removes it. Without
+   * it, or at a hospital (whose outreach keeps nothing in the browser), nothing is kept.
+   */
+  readonly accountId?: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
   /** The campaigns a case may be registered under: active registration campaigns this membership belongs to. */
   readonly campaigns: readonly OutreachCampaign[]
+  /** Set when the campaigns, or their members, are still being read or couldn't be: none listed then says why, never "not in one". */
+  readonly campaignsUnread?: CampaignsUnread
   readonly attempt: MutableRefObject<CaseAttempt>
   /**
    * At an outreach group: the person's agreement comes first (the notice, its language, how they agreed, and a guardian
-   * for anyone under 18), a campaign is required, notes are kept short with no diagnoses, and a registration that could
+   * for anyone under 18), a campaign is required, notes keep no health check results (those go in Health checks), and a registration that could
    * not be sent waits on this device. Absent at a hospital, where the form is today's.
    */
   readonly group?: OutreachGroupForm
+  /**
+   * Outreach serves 0118 (its registrations carry `hasScreening`): only then the area field and notes of
+   * OUTREACH_NOTES_LIMIT characters; before it, no area and the earlier 280.
+   */
+  readonly healthChecksServed?: boolean
+  /**
+   * "No signal" mode (OfflineOutreach.tsx), at an outreach group: the session could not be read, so nothing is sent; the
+   * registration is kept on this device at once, with its command, and sent once the session is read again.
+   */
+  readonly offline?: boolean
   readonly onBack: () => void
   /** A case is being sent: what the last one said no longer applies. */
   readonly onSending: () => void
@@ -102,13 +177,79 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   const [refusedBy, setRefusedBy] = useState<{ readonly name: string | undefined } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
-  const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
-  const [method, setMethod] = useState<OutreachConsentMethod | ''>('')
+  // A registration this tab kept, typed before a reload (or before the phone closed the tab in the background), read once
+  // as the form opens: everything typed comes back, with the language and how the person agreed.
+  const keeper = group ? accountId : undefined
+  const [keptDraft] = useState(() => keeper ? restoredDraft(keptNewRegistration(keeper, facilityId)) : null)
+  const keptAge = (keptDraft?.fields.ageYears ?? '').trim()
+  const [keptNote, setKeptNote] = useState(keptDraft ? NEW_REGISTRATION_KEPT : '')
+  // The fields kept and not yet put back on the form: a campaign waits for the campaigns to be listed, the area for
+  // Outreach to be known to take one. Typed over (or chosen again), a field's kept value goes.
+  const unplaced = useRef<Partial<Record<string, string>>>({ ...keptDraft?.fields })
+  const [language, setLanguage] = useState<OutreachConsentLanguage>(keptDraft?.language ?? 'en')
+  // Read aloud is chosen by default (Q76); a guardian is chosen for an age under 18, and the volunteer's own choice
+  // (a guardian too, for an adult a guardian agreed for) comes back if the age is corrected to 18 or over. A registration
+  // kept for a reload comes back the same way: the volunteer's choice, or a guardian for the age kept if under 18.
+  const [shownMethod, setMethod] = useState<OutreachConsentMethod | ''>(() => keptDraft ? consentMethodFor(keptAge, '', keptDraft.chosenMethod) : 'verbal_read_aloud')
+  const chosenMethod = useRef<OutreachConsentMethod>(keptDraft?.chosenMethod ?? 'verbal_read_aloud')
+  /** How the person agreed, for the age typed: a guardian under 18, else what the volunteer chose. */
+  const methodForAge = (ageText: string, current: OutreachConsentMethod | ''): OutreachConsentMethod | '' => consentMethodFor(ageText, current, chosenMethod.current)
   // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
-  const [minorAge, setMinorAge] = useState(false)
-  const [notesLength, setNotesLength] = useState(0)
+  const [minorAge, setMinorAge] = useState(() => isMinorAge(keptAge))
+  const [notesLength, setNotesLength] = useState(keptDraft?.fields.operationalNotes?.length ?? 0)
   const focus = useFocusById()
-  const notesLimit = group ? OUTREACH_NOTES_LIMIT : 2000
+  const groupNotesLimit = healthChecksServed ? OUTREACH_NOTES_LIMIT : 280
+  const notesLimit = group ? groupNotesLimit : 2000
+
+  // The fields kept for a reload are put back on the form before it is shown, each as soon as it can be: a campaign once
+  // it is listed, the area once its field is shown.
+  useLayoutEffect(() => {
+    const element = formRef.current
+    if (!element) return
+    for (const [name, value] of Object.entries(unplaced.current)) {
+      const control = element.elements.namedItem(name)
+      if (value === undefined) continue
+      if (control instanceof HTMLSelectElement) {
+        if (![...control.options].some(option => option.value === value)) continue
+        control.value = value
+      } else if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+        control.value = value
+      } else {
+        continue
+      }
+      delete unplaced.current[name]
+    }
+  })
+
+  /**
+   * Keeps what is typed for this tab (tabMemory.ts), as it changes, so a reload or a tab the phone closed loses nothing;
+   * nothing typed keeps nothing. Not while a registration is being saved: once it is kept on this device or sent, what
+   * this tab kept is removed, and it is kept again only if the form still holds it after the answer (Health ID sent it
+   * back to correct, or this device could not keep it and it was not sent).
+   */
+  function keepTyped() {
+    const element = formRef.current
+    if (!keeper || busy || !element) return
+    const form = new FormData(element)
+    const fields: Record<string, string> = {}
+    for (const name of KEPT_FIELDS) {
+      const value = String(form.get(name) ?? '') || unplaced.current[name] || ''
+      if (value) fields[name] = value
+    }
+    const typed = TYPED_FIELDS.some(name => fields[name]?.trim()) || (fields.sex !== undefined && fields.sex !== 'unknown')
+      || language !== 'en' || chosenMethod.current !== 'verbal_read_aloud'
+    keepNewRegistration(keeper, facilityId, typed ? { fields, language, chosenMethod: chosenMethod.current } : null)
+  }
+  // The language and how they agreed are kept as they change, and the form again once a save has its answer.
+  useEffect(() => { if (!busy) keepTyped() }, [language, shownMethod, busy])
+
+  /** The form emptied for the next person (saved: kept on this device or sent), and nothing of it kept in this tab. */
+  function clearForm(element: HTMLFormElement) {
+    element.reset()
+    resetConsent()
+    unplaced.current = {}
+    if (keeper) keepNewRegistration(keeper, facilityId, null)
+  }
 
   function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -131,6 +272,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
 
   async function send(element: HTMLFormElement) {
     if (busy) return
+    const chosenOrShown = shownMethod
     const form = new FormData(element)
     const campaignId = String(form.get('campaignId') ?? '') || undefined
     const fullName = String(form.get('fullName') ?? '').trim()
@@ -138,34 +280,46 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     const age = String(form.get('ageYears') ?? '').trim()
     const ageYears = Number(age)
     const phone = String(form.get('phone') ?? '').trim() || undefined
+    const area = healthChecksServed ? String(form.get('area') ?? '').trim().replace(/\s+/g, ' ') || undefined : undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
     const guardianName = String(form.get('guardianName') ?? '').trim().replace(/\s+/g, ' ') || undefined
-    // The last answer no longer applies.
+    // Saved without leaving the age box (Enter): how the person agreed follows the age sent, as leaving the box does.
+    const method = group ? methodForAge(age, chosenOrShown) : chosenOrShown
+    if (group) {
+      setMinorAge(isMinorAge(age))
+      if (method !== chosenOrShown) setMethod(method)
+    }
+    // The last answer no longer applies, nor does the note that the registration kept for a reload is back.
     setError('')
     setRefusedBy(null)
-    // The form checks its own fields as Outreach does (CreateRegistrationCaseDto). A phone number and operational
-    // notes are taken at 3 characters or more, or none, as sent: trimmed, which a native minLength does not check.
+    setKeptNote('')
+    // The form checks its own fields as Outreach does (CreateRegistrationCaseDto): a phone number as Outreach reads it
+    // (normalizeOutreachPhone), and operational notes at 3 characters or more, or none, as sent: trimmed, which a native
+    // minLength does not check. A number Outreach would refuse is caught here, before it is sent or kept on this device.
     const errors: Partial<Record<CaseField, string>> = {}
     if (!fullName) errors.name = COMPLETE_FIELD
     if (!age) errors.age = COMPLETE_FIELD
     else if (!Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) errors.age = AGE_RANGE
-    if (phone !== undefined && phone.length < 3) errors.phone = AT_LEAST_THREE
+    if (phone !== undefined && !outreachPhoneAccepted(phone)) errors.phone = PHONE_FORMAT
+    if (area !== undefined && area.length > AREA_LIMIT) errors.area = `Keep the area to ${AREA_LIMIT} characters.`
     if (operationalNotes !== undefined && operationalNotes.length < 3) errors.notes = AT_LEAST_THREE
     if (group) {
       // At an outreach group, as Outreach and the database check: how the person agreed, a guardian for anyone under 18
-      // (or when a guardian agreed), a campaign, and notes of 280 characters at most.
+      // (or when a guardian agreed), a campaign, and notes of OUTREACH_NOTES_LIMIT (1000) characters at most.
       const minor = isMinorAge(age)
       if (!method) errors.method = 'Choose how the person agreed.'
       else if (minor && method !== 'guardian') errors.method = UNDER_18_METHOD
       if (!guardianName && (minor || method === 'guardian')) errors.guardian = minor
         ? 'This person is under 18. Enter the name of the parent or guardian who agreed.'
         : 'Enter the name of the parent or guardian who agreed.'
+      // A guardian's name is kept only when a guardian agreed: never beside "they agreed" for the person themselves.
+      else if (guardianName && method !== 'guardian') errors.guardian = GUARDIAN_NAME_WITHOUT_GUARDIAN
       else if (guardianName && guardianName.length < 2) errors.guardian = 'Enter at least 2 characters.'
       else if (guardianName && guardianName.length > GUARDIAN_NAME_LIMIT) errors.guardian = `Keep the name to ${GUARDIAN_NAME_LIMIT} characters.`
       if (!campaignId) errors.campaign = campaigns.length ? 'Choose the campaign this person is being registered in.'
-        : 'You can register people only in a running registration campaign you belong to.'
-      if (operationalNotes !== undefined && operationalNotes.length > OUTREACH_NOTES_LIMIT) {
-        errors.notes = `Keep notes to ${OUTREACH_NOTES_LIMIT} characters, and do not write diagnoses.`
+        : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You can register people only in a running registration campaign you belong to.'
+      if (operationalNotes !== undefined && operationalNotes.length > groupNotesLimit) {
+        errors.notes = `Keep notes to ${groupNotesLimit} characters. Record health check results in Health checks, not in the notes.`
       }
     }
     const first = FIELD_ORDER.find(field => errors[field])
@@ -176,7 +330,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
       return
     }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    const input: OutreachCaseInput = { campaignId, fullName, sex, ageYears, phone, operationalNotes,
+    const input: OutreachCaseInput = { campaignId, fullName, sex, ageYears, phone, ...(area ? { area } : {}), operationalNotes,
       ...(group && method ? { consent: { textVersion: REGISTRATION_NOTICE_VERSION, language, method, ...(guardianName ? { guardianName } : {}) } } : {}) }
     const signature = JSON.stringify([facilityId, input])
     if (attempt.current?.signature !== signature) {
@@ -185,26 +339,64 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
     const { command } = attempt.current
     onSending()
     setBusy(true)
+    // "No signal" mode (OfflineOutreach.tsx): kept on this device with its command, and no request is made. It is sent
+    // with the same command once the session is confirmed again, so it is registered once.
+    if (group && offline) {
+      try {
+        await group.queue({ ...command, input })
+        attempt.current = null
+        clearForm(element)
+        group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection', ageYears })
+      } catch {
+        setError(KEEP_FAILED)
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    // At an outreach group, the registration is kept on this device before it is sent, so a reload or a closed tab while
+    // it is saving loses nothing: it is under "Saved on this device" and sent again with the same command (registered
+    // once). Claimed first, so no other sender in this tab, or another tab, sends it at the same time.
+    const release = group ? await group.claim(command.localCommandId) : null
+    let kept = false
+    if (group && release) {
+      try { await group.queue({ ...command, input }); kept = true } catch { /* the device could not keep it: sent all the same */ }
+    }
+    // Kept on this device, with its command: a reload now finds it under "Saved on this device", so what this tab kept of
+    // the form goes, or the same person could be saved twice. Kept again if Health ID sends it back to correct.
+    if (kept && keeper) keepNewRegistration(keeper, facilityId, null)
     try {
       const created = await staffApi.createOutreachCase(facilityId, input, command)
+      // Taken by Health ID (or the registration it already made for this command): off this device before it is listed.
+      if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
       attempt.current = null
-      element.reset()
-      resetConsent()
+      clearForm(element)
+      release?.()
       onCreated(created)
     } catch (caught) {
-      if (group && waitsForNetwork(caught)) {
-        // Not reached Health ID, or it could not take it just now: kept on this device with its command, and sent again
-        // when the network is back. The same command is sent, so it is registered once.
+      release?.()
+      // Not reached Health ID, or it could not take it just now, or never judged (the session ended, or the page stopped
+      // the send): kept on this device with its command, and sent again when it can be. The same command is sent, so it
+      // is registered once.
+      const session = kept && (waitsForSignIn(caught) || isStoppedRequest(caught))
+      if (group && (waitsForNetwork(caught) || session)) {
         try {
-          await group.queue({ ...command, input })
+          if (!kept) await group.queue({ ...command, input })
           attempt.current = null
-          element.reset()
-          resetConsent()
-          group.onQueued(fullName)
+          clearForm(element)
+          group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught), ageYears })
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
       }
-      if (!group && campaignId && campaignRefused(caught)) {
+      // Health ID's answer (a refusal to correct here, with everything typed still on the form): not left waiting on the
+      // device, where it would be sent again as it is.
+      if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
+      if (area !== undefined && isOutreachProblem(caught, 'OUTREACH_AREA_INVALID')) {
+        // Said on the area field, with focus there (or an alert, when focus is in it already), as the form's own checks are.
+        const here = document.activeElement?.id === FIELD_ID.area
+        setProblems(previous => ({ errors: { area: outreachProblemText(caught, CREATE_FAILED) }, alert: here ? 'area' : undefined, seq: previous.seq + 1 }))
+        if (!here) focus(FIELD_ID.area)
+      } else if (!group && campaignId && campaignRefused(caught)) {
         // Said in plain words with the one way on, and focus on it: no retry with the same button helps here. Not at an
         // outreach group, whose registrations always need their campaign.
         setRefusedBy({ name: campaigns.find(campaign => campaign.id === campaignId)?.name })
@@ -219,7 +411,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
 
   function resetConsent() {
     setLanguage('en')
-    setMethod('')
+    setMethod('verbal_read_aloud')
+    chosenMethod.current = 'verbal_read_aloud'
     setMinorAge(false)
     setNotesLength(0)
   }
@@ -227,16 +420,29 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
   const fieldError = (field: CaseField) => problems.errors[field]
   const field = (key: CaseField) => ({ error: fieldError(key), alert: problems.alert === key, seq: problems.seq })
 
-  // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost.
-  const back = () => { if (!busy) onBack() }
+  // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost. Leaving the
+  // form (Cancel or Back to list) means the volunteer is done with it: what this tab kept of it goes too.
+  const back = () => {
+    if (busy) return
+    if (keeper) keepNewRegistration(keeper, facilityId, null)
+    onBack()
+  }
   return (
     <FormPage title="New registration"
       description={group ? 'Register someone you meet at your event, once they agree. They can link their own Health ID to it later.'
         : 'Register someone you meet in the field. They get a temporary record now, and you link it to their Health ID later.'}
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
-      <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}>
+      <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}
+        onChange={event => {
+          // Typed over or chosen again: a kept value not yet put back no longer applies.
+          const name = (event.target as { name?: unknown }).name
+          if (typeof name === 'string') delete unplaced.current[name]
+          keepTyped()
+        }}>
+        {keptNote ? <Alert intent="info" live={false} title={keptNote}>{null}</Alert> : null}
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
-        {group ? <ConsentStep group={group.name} language={language} method={method} minor={minorAge} onLanguage={setLanguage} onMethod={setMethod}
+        {group ? <ConsentStep group={group.name} language={language} method={shownMethod} minor={minorAge} onLanguage={setLanguage}
+          onMethod={choice => { setMethod(choice); chosenMethod.current = choice }}
           methodError={fieldError('method')} methodAlert={problems.alert === 'method'} guardian={field('guardian')} /> : null}
         <Step n={group ? 2 : 1} title="Who they are" hint={group ? 'As they say it.' : 'As they say it. You can correct it when you link their Health ID.'}>
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
@@ -253,23 +459,30 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
             </OutreachField>
             <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
               <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)}
-                onChange={group ? event => {
-                  const minor = isMinorAge(event.target.value.trim())
-                  setMinorAge(minor)
-                  if (minor) setMethod('guardian')
+                onBlur={group ? event => {
+                  // Decided once the age is typed, not on each keystroke: "35" passes through "3" on the way.
+                  const ageText = event.target.value.trim()
+                  setMinorAge(isMinorAge(ageText))
+                  setMethod(current => methodForAge(ageText, current))
                 } : undefined} />
             </OutreachField>
           </div>
         </Step>
         <Step n={group ? 3 : 2} title="How to reach them" hint="Optional. Used to follow up.">
-          <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
+          <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint={PHONE_HINT} {...field('phone')}>
             <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
           </OutreachField>
+          {healthChecksServed ? (
+            <OutreachField id={FIELD_ID.area} label="Area, town or LGA (optional)" hint="Where they live, so the team can follow up nearby." {...field('area')}>
+              <EhrInput name="area" maxLength={AREA_LIMIT} autoComplete="off" {...controlProps(FIELD_ID.area, fieldError('area'), true)} />
+            </OutreachField>
+          ) : null}
         </Step>
         <Step n={group ? 4 : 3} title="Campaign and notes">
           {group ? (
             <OutreachField id={FIELD_ID.campaign} label="Campaign" required {...field('campaign')}
-              hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.' : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
+              hint={campaigns.length ? 'Only running registration campaigns you belong to are listed.'
+                : campaignsUnread ? GROUP_CAMPAIGNS_UNREAD[campaignsUnread] : 'You aren’t in a running registration campaign yet. Ask your organiser.'}>
               <EhrSelect name="campaignId" required {...controlProps(FIELD_ID.campaign, fieldError('campaign'), true)}>
                 {campaigns.length !== 1 ? <option value="">Choose a campaign</option> : null}
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
@@ -277,7 +490,9 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
             </OutreachField>
           ) : showCampaign && (
             <OutreachField id={CAMPAIGN_FIELD} label="Campaign (optional)"
-              hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.' : 'You aren’t in an active registration campaign. You can save without one.'}>
+              hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.'
+                : campaignsUnread === 'loading' ? 'Campaigns are still loading. You can save without one.'
+                  : campaignsUnread ? 'Campaigns couldn’t be loaded. You can save without one.' : 'You aren’t in an active registration campaign. You can save without one.'}>
               <EhrSelect name="campaignId" {...controlProps(CAMPAIGN_FIELD, undefined, true)}>
                 <option value="">No campaign</option>
                 {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
@@ -285,7 +500,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
             </OutreachField>
           )}
           <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" {...field('notes')}
-            hint={group ? `Where you met them, what they need next. No diagnoses, test results or other health details. ${notesLength} of ${OUTREACH_NOTES_LIMIT} characters.`
+            hint={group ? `Where you met them, what they need next.${healthChecksServed ? ' Health check results go in Health checks once the registration is sent, not here.' : ''} ${notesLength} of ${groupNotesLimit} characters.`
               : 'Where you met them, what they need next. Not a clinical note.'}>
             <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={notesLimit} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)}
               onChange={group ? event => setNotesLength(event.target.value.length) : undefined} />
@@ -310,8 +525,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, grou
 }
 
 /**
- * The person's agreement, before anything about them is written down (open sign-up on outreach.): that the group is an
- * unverified organiser, and the notice, read to them or read by them, in the language chosen (any but English means it
+ * The person's agreement, before anything about them is written down (open sign-up on outreach.): the owner's one-line
+ * notice (Q76), read to them or read by them, in the language chosen (any but English means it
  * was read aloud in that language), how they agreed, and the name of the parent or guardian who agreed for anyone under
  * 18.
  */
@@ -328,10 +543,8 @@ function ConsentStep({ group, language, method, minor, onLanguage, onMethod, met
   readonly guardian: { error: string | undefined; alert: boolean; seq: number }
 }) {
   return (
-    <Step n={1} title="Their agreement" hint="Before you write anything down, give them this notice and ask if they agree.">
+    <Step n={1} title="Their agreement" hint="Before you write anything down, read this to them and ask if they agree.">
       <div className="rounded-xl bg-subtle p-4 text-body text-ink" aria-label="Registration notice" role="note">
-        {/* Health ID never verifies an outreach group (owner decision Q38), and the person is told so before agreeing. */}
-        <p className="m-0 mb-2"><strong>Unverified organiser.</strong> Health ID has not checked who runs {group.trim() || 'this outreach group'}.</p>
         {registrationNotice(group).map(line => <p key={line} className="m-0 mb-2 last:mb-0">{line}</p>)}
       </div>
       <OutreachField id="outreach-consent-language" label="Language the notice was given in" required

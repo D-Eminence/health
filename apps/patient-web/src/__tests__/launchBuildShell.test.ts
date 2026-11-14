@@ -167,3 +167,40 @@ describe('the launch build check refuses a build staging refuses', () => {
     expect(result.output).toMatch(reason)
   })
 })
+
+describe('Outreach\'s offline app shell (owner, 13 November 2026)', () => {
+  const SHELL = readFileSync(join(publicFiles, 'sw-outreach.js'), 'utf8')
+  // What Vite makes of apps/patient-web/src/outreachShell.ts: the other chunk allowed the worker API, registering /sw.js only.
+  const SHELL_CHUNK = 'assets/outreachShell-Wx9yZa12.js'
+  const SHELL_CODE = 'async function s(){await navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"});await navigator.serviceWorker.ready}export{s};\n'
+
+  it('accepts the real public files with outreachShell\'s chunk registering the same worker', () => {
+    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, [SHELL_CHUNK]: SHELL_CODE })
+    expect(result.output).not.toMatch(/failed/)
+    expect(result.status).toBe(0)
+  })
+
+  it.each([
+    ['a shell that keeps something in storage', { 'sw-outreach.js': `${SHELL}\nself.localStorage.setItem('x', '1')\n` }, /sw-outreach\.js uses localStorage/],
+    ['a shell that uses IndexedDB', { 'sw-outreach.js': `${SHELL}\nself.indexedDB.open('hid')\n` }, /sw-outreach\.js uses IndexedDB/],
+    ['a shell that shows notifications', { 'sw-outreach.js': `${SHELL}\nself.registration.showNotification('x')\n` }, /sw-outreach\.js uses push or notifications/],
+    ['a shell that keeps another cache', { 'sw-outreach.js': `${SHELL}\ncaches.open('hid-pages')\n` }, /sw-outreach\.js opens a cache other than its own/],
+    ['a shell that handles /api/', { 'sw-outreach.js': SHELL.replace("url.pathname.startsWith('/api/')", "url.pathname.startsWith('/nothing/')") },
+      /sw-outreach\.js does not leave \/api\/ alone/],
+    ['a shell with an unversioned cache', { 'sw-outreach.js': SHELL.replace("const SHELL_CACHE = 'hid-outreach-shell-v1'", "const SHELL_CACHE = 'pages'") },
+      /no versioned cache of its own/],
+    ['a shell that listens for push', { 'sw-outreach.js': `${SHELL}\nself.addEventListener('push', () => {})\n` }, /sw-outreach\.js listens for push/],
+    ['a shell that imports code', { 'sw-outreach.js': `${SHELL}\nimportScripts('/assets/x-AbCdEf12.js')\n` }, /sw-outreach\.js imports scripts/],
+    ['a push worker that adds the shell on every site', { 'sw.js': `${PUSH_WORKER}\nimportScripts('/sw-outreach.js')\n` },
+      /sw\.js imports \/sw-outreach\.js other than on Outreach's own sites/],
+    ['a push worker that adds the shell on another site', { 'sw.js': PUSH_WORKER.replace("'outreach.staging.healthidentitydirectory.com'", "'ehr.healthidentitydirectory.com'") },
+      /sw\.js imports \/sw-outreach\.js other than on Outreach's own sites/],
+    ['another worker beside them', { 'sw-other.js': SHELL }, /sw-other\.js is a service worker/],
+    ['outreachShell\'s chunk registering another script', { [SHELL_CHUNK]: SHELL_CODE.replace('"/sw.js"', '"/sw-outreach.js"') },
+      /registers \/sw-outreach\.js; only \/sw\.js may be registered/],
+  ])('refuses %s', (_name, files, reason) => {
+    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, [SHELL_CHUNK]: SHELL_CODE, ...files })
+    expect(result.status).toBe(1)
+    expect(result.output).toMatch(reason)
+  })
+})

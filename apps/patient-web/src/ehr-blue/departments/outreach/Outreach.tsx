@@ -1,7 +1,7 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
-import { ArrowRight, ChevronRight, CircleCheck, Megaphone, Plus, Search, UserPlus, Users } from 'lucide-react'
+import { ChevronRight, CircleCheck, Megaphone, Plus, Search, UserPlus, Users } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachOrganiserStatus } from '../../../staff/api'
@@ -16,16 +16,47 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { OutreachCampaignNew } from './OutreachCampaignNew'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
+import { CaseCard, ShowMore, useOutreachCases, type CasesRead } from './OutreachCaseList'
+import { GetHealthIdNow } from './GetHealthIdNow'
+import { OutreachExport } from './OutreachExport'
 import { OutreachNew, type CaseAttempt, type OutreachGroupForm } from './OutreachNew'
-import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam } from './outreachGroup'
-import { useOutreachQueue } from './offlineQueue'
+import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, OutreachTeam, queuedText, queueSyncText } from './outreachGroup'
+import { claimSend, noConnection, useOutreachQueue, type PendingRegistration, type QueueSyncResult } from './offlineQueue'
+import { keptCampaign, outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
+import { noteOutreachRegistrations, outreachServed } from './outreachServed'
+import { offlineShellHere } from '../../../productHostname'
 import {
-  ageText, campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, createdText, ErrorBox,
-  NO_FACILITY, nextStepText, servicesText, sexText, statusLabel, type MembersRead,
+  campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
+  NO_FACILITY, servicesText, type CampaignsUnread, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
 const PAGE_SIZE = 50
+
+/** How often the campaigns open now are judged again while the page is open. */
+const CAMPAIGN_CLOCK_MS = 60_000
+
+/** The registrations kept on this device as the page lists them, each with its state: what a note about a round was said of. */
+const queueShape = (entries: readonly PendingRegistration[]) => entries.map(entry => `${entry.localCommandId}:${entry.state}`).join(' ')
+
+/**
+ * Renders the page again every minute, and as it is shown again, while `enabled`: whether a campaign is open now is
+ * judged against the clock, so one that starts (or ends) while the page is open is offered (or withdrawn) in time.
+ */
+function useMinuteClock(enabled: boolean) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    const tick = () => setTick(previous => previous + 1)
+    const shown = () => { if (document.visibilityState === 'visible') tick() }
+    const timer = window.setInterval(tick, CAMPAIGN_CLOCK_MS)
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', shown)
+    }
+  }, [enabled])
+}
 
 /**
  * Where the page is: its lists, the create form, or one record. In memory only: nothing about
@@ -35,7 +66,7 @@ const PAGE_SIZE = 50
 type View =
   | { kind: 'list'; focus?: string }
   | { kind: 'new' }
-  | { kind: 'case'; id: string; snapshot: OutreachCase; created: boolean }
+  | { kind: 'case'; id: string; snapshot: OutreachCase; created: boolean; from?: { kind: 'campaign'; id: string; snapshot: OutreachCampaign } }
   | { kind: 'campaign'; id: string; snapshot: OutreachCampaign; created?: boolean }
   | { kind: 'newCampaign' }
 
@@ -75,13 +106,17 @@ interface Governance {
  */
 export function Outreach() {
   const { facility, facilityId, membershipId, permissions, actorId } = useDeptAccess()
-  const { lock } = useStaff()
+  const { lock, state } = useStaff()
+  const displayName = state.status === 'ready' ? state.session.actor.displayName : undefined
   // An outreach group's own facility (open sign-up on outreach.), as its roles say; a hospital's outreach team is not one.
   const group = isOutreachGroup(facility)
   const organiser = group && isOrganiser(facility)
   const canReadCases = permissions.includes('outreach.registration.read')
   const canReadCampaigns = permissions.includes('outreach.campaign.read')
   const canWrite = permissions.includes('outreach.registration.write')
+  // Export puts every registration's personal and health details in a file: at an outreach group, for its organiser only
+  // (as the session's roles say it), never a helper; a hospital's outreach team keeps it with reading registrations.
+  const canExport = canReadCases && (!group || organiser)
   // Campaign management is offered only where Outreach says it serves it, and is never asked of anyone who may not use it.
   // At an outreach group every member reading campaigns asks too, for where the group stands with Health ID.
   const askGovernance = canReadCampaigns && (permissions.includes('outreach.campaign.write') || group)
@@ -89,7 +124,8 @@ export function Outreach() {
   const canManage = askGovernance && permissions.includes('outreach.campaign.write') && governance.value?.managed === true
   const organiserStatus = group ? governance.value?.organiserStatus : undefined
   const campaigns = useFacilityRead(facilityId, canReadCampaigns, useCallback((id: string) => staffApi.outreachCampaigns(id), []), CAMPAIGNS_NOT_LOADED)
-  const cases = useFacilityRead(facilityId, canReadCases, useCallback((id: string) => staffApi.outreachCases(id), []), CASES_NOT_LOADED)
+  // The newest 100 first, as before paging; "Show more" adds older ones where Outreach pages the list (hid-system#247).
+  const cases = useOutreachCases(facilityId, canReadCases)
   const caseAttempt = useRef<CaseAttempt>(null)
 
   // Each campaign's members, as read for it, by campaign.
@@ -113,11 +149,42 @@ export function Outreach() {
       return { facilityId: facilityId ?? '', ids }
     })
   }, [facilityId])
-  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a case.
-  const caseCampaigns = useMemo(() => (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
-    && campaign.services.includes('registration') && campaignOpenNow(campaign)
-    && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)),
-  [campaigns.value, eligibleCampaigns, facilityId])
+  // Only active registration campaigns containing this facility membership, inside their start and end times, can take a
+  // case: judged at each render, and at least every minute.
+  useMinuteClock(canReadCampaigns)
+  const runningCampaigns = (campaigns.value ?? []).filter(campaign => campaign.status === 'active'
+    && campaign.services.includes('registration') && campaignOpenNow(campaign))
+  const caseCampaigns = runningCampaigns.filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
+
+  // Outreach with no signal (offlineStart.ts), on Health ID Outreach's own site, at an outreach group: the confirmed
+  // session's few facts, kept for a reload or a start with no signal, with the campaigns this volunteer is in.
+  // What Outreach serves, as its registrations show it, remembered for the session (outreachServed.ts): the day's first
+  // registration, and a list that can't be read, keep what was seen before.
+  noteOutreachRegistrations(cases.value)
+  const served = outreachServed()
+  const healthChecksServed = served.healthChecks
+  const memberCampaigns = (campaigns.value ?? []).filter(campaign => eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id))
+  // Which campaigns this volunteer is in is known only once the members of every campaign the facts would keep (running or
+  // coming) have been read at this group. Until then (a members read still on its way, or one that failed or timed out on
+  // weak signal) the campaigns are given as not known (null), and saveOutreachSnapshot keeps the ones kept before instead
+  // of an empty list: "No signal" mode must never lose a volunteer's campaigns to a read that hasn't answered.
+  const membersAnswered = campaigns.value !== null && campaigns.value.filter(campaign => keptCampaign(campaign)).every(campaign => {
+    const read = members.get(campaign.id)
+    return read !== undefined && read.facilityId === facilityId && read.items !== null
+  })
+  // Campaigns whose members read has not answered: what the facts kept before for them stays, beside the ones confirmed now.
+  const pendingCampaignIds = membersAnswered || campaigns.value === null ? [] : campaigns.value.filter(campaign => keptCampaign(campaign)
+    && !(members.get(campaign.id)?.facilityId === facilityId && members.get(campaign.id)?.items != null)).map(campaign => campaign.id)
+  const offlineFacts = group && facility && facilityId && actorId && state.status === 'ready' && campaigns.value !== null && offlineShellHere(window.location.hostname)
+    ? JSON.stringify({ actorId, displayName, facilityId, facilityName: facility.name, healthChecksServed, campaigns: memberCampaigns,
+      pendingCampaignIds })
+    : null
+  useEffect(() => {
+    if (!offlineFacts) return
+    saveOutreachSnapshot(outreachSnapshotOf(JSON.parse(offlineFacts) as Parameters<typeof outreachSnapshotOf>[0]))
+    // The "No signal" page and the build files this page loaded are kept by the offline app shell while there is signal.
+    void import('./OfflineOutreach').then(() => import('../../../outreachShell')).then(shell => shell.keepLoadedAssets(), () => undefined)
+  }, [offlineFacts])
 
   // The view belongs to the facility it was opened at; another facility opens on its lists.
   const [place, setPlace] = useState<{ facilityId: string | undefined; view: View }>({ facilityId, view: { kind: 'list' } })
@@ -149,24 +216,48 @@ export function Outreach() {
   const [createdNote, setCreatedNote] = useState<{ facilityId: string; text: string } | null>(null)
   const clearCreatedNote = useCallback(() => setCreatedNote(null), [])
   const refreshCases = cases.refresh
-  const onCreated = useCallback((created: OutreachCase) => {
-    if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
-    void refreshCases()
-    // Open the case made, as the design opens a saved record. The form keeps the user on it until the answer comes.
-    if (viewRef.current.kind === 'new' && created?.id) show({ kind: 'case', id: created.id, snapshot: created, created: true })
-  }, [facilityId, refreshCases, show])
 
   // At an outreach group, a registration that could not be sent waits on this device and is sent again (offlineQueue.ts).
   const queue = useOutreachQueue(group ? actorId : undefined, facilityId ?? '', useCallback((created: OutreachCase) => {
+    noteOutreachRegistrations([created])
     if (facilityId) setCreatedNote({ facilityId, text: `${createdText(created)} It was sent from this device.` })
     void refreshCases()
   }, [facilityId, refreshCases]))
-  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; text: string } | null>(null)
+  const syncQueue = queue.sync
+
+  const onCreated = useCallback((created: OutreachCase) => {
+    noteOutreachRegistrations([created])
+    if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
+    void refreshCases()
+    // Health ID just took a registration: what waits on this device is sent too, without waiting for an online event.
+    void syncQueue()
+    // Open the case made, as the design opens a saved record. The form keeps the user on it until the answer comes.
+    if (viewRef.current.kind === 'new' && created?.id) show({ kind: 'case', id: created.id, snapshot: created, created: true })
+  }, [facilityId, refreshCases, show, syncQueue])
+
+  // The registration just kept on this device, and why: said until it is sent (or refused, which the queue then shows).
+  const [queuedNote, setQueuedNote] = useState<{ facilityId: string; localCommandId: string; text: string; ageYears: number } | null>(null)
+  const queuedShown = queuedNote !== null && queuedNote.facilityId === facilityId
+    && queue.entries.some(entry => entry.localCommandId === queuedNote.localCommandId && entry.state === 'waiting')
+  // What "Send now" did, while the list is as that round left it: once another round sends one (or one is kept, removed or
+  // refused), its counts no longer hold and it goes. Also cleared as the next registration is sent.
+  const [sendNote, setSendNote] = useState<{ facilityId: string; result: QueueSyncResult } | null>(null)
+  const sendDone = sendNote ? sendNote.result.waiting === 0 && sendNote.result.refused === 0 : false
+  const sendShown = sendNote !== null && sendNote.facilityId === facilityId && queueShape(sendNote.result.left) === queueShape(queue.entries)
+  // A registration the list already holds (Health ID took it, and its answer was lost or is still on its way) is shown
+  // once, as the list's row: not under "Saved on this device" too, while the queue sends it again (answered the same).
+  const listedTemporary = new Set((cases.value ?? []).map(item => item.temporaryPatientId).filter(Boolean))
+  const queueShown = queue.entries.filter(entry => !listedTemporary.has(entry.temporaryPatientId))
+  const sendNow = () => {
+    void syncQueue().then(result => { if (result && facilityId) setSendNote({ facilityId, result }) })
+  }
   const groupForm: OutreachGroupForm | undefined = group && facility ? {
     name: facility.name,
     queue: entry => queue.add(entry),
-    onQueued: fullName => {
-      if (facilityId) setQueuedNote({ facilityId, text: `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.` })
+    dequeue: localCommandId => queue.discard(localCommandId),
+    claim: claimSend,
+    onQueued: ({ fullName, localCommandId, reason, ageYears }) => {
+      if (facilityId) setQueuedNote({ facilityId, localCommandId, text: queuedText(fullName, reason), ageYears })
       show({ kind: 'list' })
     },
   } : undefined
@@ -188,24 +279,41 @@ export function Outreach() {
     const read = members.get(campaignId)
     return read?.facilityId === facilityId ? read : undefined
   }
+  // Refresh reads each listed campaign's members again too: a read that failed is tried again, and someone just added to a
+  // campaign is offered it.
+  const refreshMembers = () => Promise.all([...members.values()].filter(read => read.facilityId === facilityId).map(read => read.refresh()))
   const campaignOf = (campaignId: string | undefined) => campaignId ? campaigns.value?.find(campaign => campaign.id === campaignId) : undefined
+  // Why the form lists no campaign, when it may not be that the person is in none: the campaigns, or a running campaign's
+  // members, are still being read, or couldn't be (opened with no signal, say).
+  const unread = (read: { readonly error: string; readonly caught?: unknown }): CampaignsUnread => read.error ? (noConnection(read.caught) ? 'offline' : 'failed') : 'loading'
+  const memberReads = runningCampaigns.map(campaign => membersOf(campaign.id))
+  const failedMembers = memberReads.find(read => read?.items === null && read.error)
+  const campaignsUnread: CampaignsUnread | undefined = !canReadCampaigns ? undefined
+    : campaigns.value === null ? unread(campaigns)
+      : failedMembers ? unread(failedMembers)
+        : memberReads.some(read => !read || read.items === null) ? 'loading' : undefined
 
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
-    content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} attempt={caseAttempt}
-      group={groupForm} onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null) }} onCreated={onCreated} />
+    content = <OutreachNew facilityId={facilityId} accountId={actorId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} campaignsUnread={campaignsUnread}
+      attempt={caseAttempt} group={groupForm} healthChecksServed={healthChecksServed}
+      onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null); setSendNote(null) }} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
     // A record the list no longer holds is not shown from memory, unless the list cannot say (not read, being read,
-    // or refused) or the create form has just made it.
-    const settled = canReadCases && cases.value !== null && !cases.loading && !cases.error
-    const item = listed ?? (view.created || !settled ? view.snapshot : null)
+    // or refused; or older registrations are left unread, as when it was opened after "Show more"), or it was opened
+    // from a campaign's page (read on its own), or the create form has just made it.
+    const settled = canReadCases && cases.value !== null && !cases.loading && !cases.error && !cases.more.available
+    const item = listed ?? (view.created || view.from || !settled ? view.snapshot : null)
+    const from = view.from
+    const back = from ? () => show({ kind: 'campaign', id: from.id, snapshot: from.snapshot }, `outreach-case-${view.id}-open`)
+      : () => backToList(`outreach-case-${view.id}-open`)
     content = item
-      ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite && !group} group={group}
-        created={view.created} listError={cases.error} onBack={() => backToList(`outreach-case-${item.id}-open`)}
+      ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite && !group} canWrite={canWrite} group={group}
+        created={view.created} listError={cases.error} onBack={back}
         onNew={canWrite ? () => show({ kind: 'new' }) : undefined}
         onChanged={cases.refresh} onFocusHeading={focusHeadingIfLost} />
-      : <RecordNotFound onBack={() => backToList()} />
+      : <RecordNotFound onBack={back} />
   } else if (view.kind === 'newCampaign' && canManage) {
     content = <OutreachCampaignNew facilityId={facilityId} onBack={() => backToList('outreach-new-campaign')}
       onUnsure={() => void campaigns.refresh()}
@@ -221,16 +329,32 @@ export function Outreach() {
     content = campaign
       ? <OutreachCampaignView key={campaign.id} facilityId={facilityId} campaign={campaign} members={membersOf(campaign.id)}
         manage={canManage} created={view.created} onChanged={campaigns.refresh}
+        exportAction={canExport ? <OutreachExport cases={cases.value} campaign={campaign} campaignOf={campaignOf} /> : undefined}
+        registrations={canReadCases ? { canLink: canWrite && !group, group,
+          onOpen: item => show({ kind: 'case', id: item.id, snapshot: item, created: false,
+            from: { kind: 'campaign', id: campaign.id, snapshot: campaign } }) } : undefined}
         onBack={() => backToList(`outreach-campaign-${campaign.id}-open`)} />
       : <RecordNotFound onBack={() => backToList()} />
   } else {
     content = (
-      <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} cases={cases} campaigns={campaigns}
-        group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
+      <OutreachList canReadCases={canReadCases} canReadCampaigns={canReadCampaigns} canWrite={canWrite} canExport={canExport} cases={cases} campaigns={campaigns}
+        refreshMembers={refreshMembers} group={group} campaignOf={campaignOf} onNew={() => show({ kind: 'new' })}
         top={group ? <>
           <OutreachGroupBanner status={organiserStatus} />
-          {queuedNote?.facilityId === facilityId ? <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert> : null}
-          <OutreachQueuePanel entries={queue.entries} durable={queue.durable} syncing={queue.syncing} onSync={() => void queue.sync()}
+          {queuedShown ? <>
+            <Alert intent="warning" title="Saved on this device">{queuedNote.text}</Alert>
+            {/* The person is still here: they can get their own Health ID on their phone while this one waits for signal. */}
+            {/* "Open it to create their Health ID", unless Outreach is known to make none (not from the list alone, which a
+                page opened with no signal has not read). */}
+            <GetHealthIdNow id="outreach-queued-health-id" queued={served.emailHealthId !== false} ageYears={queuedNote.ageYears} />
+          </> : null}
+          {sendShown && sendNote ? (
+            <Alert intent={sendDone ? 'success' : 'warning'}
+              title={sendNote.result.sent > 0 ? (sendDone ? 'Sent' : 'Not all sent') : (sendDone ? 'Nothing to send' : 'Not sent yet')}>
+              {queueSyncText(sendNote.result)}
+            </Alert>
+          ) : null}
+          <OutreachQueuePanel entries={queueShown} durable={queue.durable} syncing={queue.syncing} onSync={sendNow}
             onDiscard={id => void queue.discard(id)} />
         </> : undefined}
         bottom={organiser ? <OutreachTeam facilityId={facilityId} /> : undefined}
@@ -274,9 +398,11 @@ type CaseTab = 'waiting' | 'done' | 'all'
  * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
  * step on each), filtered by what still needs doing, then the campaigns (read only).
  */
-function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, group, top, bottom, campaignOf, onNew, onNewCampaign, onOpenCase,
-  onOpenCampaign }: {
+function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cases, campaigns, refreshMembers, group, top, bottom, campaignOf, onNew, onNewCampaign,
+  onOpenCase, onOpenCampaign }: {
   readonly canReadCases: boolean
+  /** Export is offered: reading registrations, and at an outreach group, its organiser. */
+  readonly canExport: boolean
   /** An outreach group's own Outreach (open sign-up on outreach.): nobody here links a Health ID. */
   readonly group: boolean
   /** Shown above the lists: an outreach group's standing with Health ID, and what waits on this device. */
@@ -285,8 +411,10 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   readonly bottom?: ReactNode
   readonly canReadCampaigns: boolean
   readonly canWrite: boolean
-  readonly cases: ListRead<OutreachCase>
+  readonly cases: CasesRead
   readonly campaigns: ListRead<OutreachCampaign>
+  /** Reads each listed campaign's members again, as Refresh reads the lists again. */
+  readonly refreshMembers: () => Promise<unknown>
   readonly campaignOf: (campaignId: string | undefined) => OutreachCampaign | undefined
   readonly onNew: () => void
   /** Opens "New campaign", where Outreach serves campaign management to this membership. */
@@ -299,7 +427,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   const [page, setPage] = useState(0)
   const focus = useFocusById()
   const loading = (canReadCases && cases.loading) || (canReadCampaigns && campaigns.loading)
-  const refresh = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined])
+  const refresh = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined,
+    canReadCampaigns ? refreshMembers() : undefined])
 
   // Newest first: the person just met is the one most likely to be looked for.
   const all = [...(cases.value ?? [])].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
@@ -322,7 +451,10 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
 
   return (
     <DeptPage title="Outreach" description="People registered in the field, and what each one needs next." primaryAction={newButton ?? undefined}
-      secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>}>
+      secondaryActions={<>
+        {canExport ? <OutreachExport cases={cases.value} campaignOf={campaignOf} /> : null}
+        <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>
+      </>}>
       <div className="flex flex-col gap-6">
         {top}
         {canReadCases ? (
@@ -360,6 +492,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
                 </nav>
               ) : null}
             </PageState>
+            {/* Outside the list's state: a search or tab that matches none of those loaded can still look further. */}
+            {listed ? <ShowMore more={cases.more} shown={all.length} searching={search.trim() !== ''} /> : null}
           </section>
         ) : null}
         {canReadCampaigns ? (
@@ -400,35 +534,6 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
         {bottom}
       </div>
     </DeptPage>
-  )
-}
-
-/** One registration as a card: who (large), age and sex, its status in words, and its next step. One button opens it. */
-function CaseCard({ item, campaign, canLink, group, onOpen }: {
-  readonly item: OutreachCase
-  readonly campaign: OutreachCampaign | undefined
-  readonly canLink: boolean
-  readonly group: boolean
-  readonly onOpen: () => void
-}) {
-  const waiting = caseWaiting(item)
-  return (
-    <li className="flex min-w-0 overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line">
-      <button type="button" id={`outreach-case-${item.id}-open`} onClick={onOpen}
-        className="flex w-full cursor-pointer flex-col gap-1.5 border-0 bg-transparent p-4 text-left text-ink transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)] sm:p-5">
-        <span className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-          <span className="min-w-0 flex-[1_1_10rem] text-[18px] font-semibold leading-tight break-words">{caseName(item)}</span>
-          <Badge size="sm" tone={caseTone(item.status)}>{statusLabel(item.status)}</Badge>
-        </span>
-        <span className="text-[14px] text-ink-2">{ageText(item)} · {sexText(item)}{campaign ? ` · ${campaign.name}` : ''}</span>
-        <span className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2 text-[13px]">
-          <span className={waiting ? 'inline-flex items-center gap-1 font-medium text-brand-ink' : 'text-ink-3'}>
-            {nextStepText(item, canLink, group)}{waiting && canLink ? <ArrowRight className="size-3.5" aria-hidden /> : null}
-          </span>
-          <span className="text-ink-3 tabular">Registered {dateText(item.createdAt)}</span>
-        </span>
-      </button>
-    </li>
   )
 }
 

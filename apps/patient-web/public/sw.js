@@ -4,6 +4,12 @@
  * the same fixed notification and never reads the message. Tapping it opens Notifications. It has no request
  * handler and keeps nothing: no stored responses, no storage, no network of its own, so nothing about a patient is
  * kept on the device. scripts/check-launch-build.mjs refuses a build whose sw.js does more; see pushWorker.test.ts.
+ *
+ * On Health ID Outreach's own sites only (OFFLINE_SHELL_HOSTS, as src/productHostname.ts names them), the page also
+ * registers this worker as it starts, and it adds /sw-outreach.js: the offline app shell, so that a volunteer who reloads
+ * or opens Outreach with no signal still gets the app. That file keeps only the app's own page and build files, never
+ * a Health ID answer or anything about a person; see outreachShellWorker.test.ts. Every other site runs only the
+ * lines above and below, as before.
  */
 const TITLE = 'Health ID'
 const OPTIONS = Object.freeze({
@@ -36,3 +42,10 @@ self.addEventListener('notificationclick', event => {
     return self.clients.openWindow(target)
   })())
 })
+
+// Health ID Outreach's sites: the offline app shell. Nowhere else, so the other sites' worker is the push worker alone.
+const OFFLINE_SHELL_HOSTS = Object.freeze(['outreach.healthidentitydirectory.com', 'outreach.staging.healthidentitydirectory.com'])
+if (OFFLINE_SHELL_HOSTS.includes(self.location.hostname)) {
+  // A shell that cannot load leaves the push worker working: notifications never depend on it.
+  try { importScripts('/sw-outreach.js') } catch { /* the app then works online only, as before */ }
+}

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { outreachPage } from '../../../../ehr-blue/departments/outreach/page'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_NETWORK, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
@@ -27,7 +28,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), lookupPatient: vi.fn(),
   // Campaign management (hid-system#222): asked of a membership that may write campaigns. Today's Outreach answers 404,
   // so these tests keep campaigns read only (OutreachCampaignAdmins.test.tsx has it served).
@@ -79,7 +80,13 @@ const LOOKED_UP = { authorization: { decision: 'allow', scope: 'read_records' },
 let setItem: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
+  // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
+  api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
+  // Today's Outreach serves no health checks (0118): the section is not shown.
+  api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   unprovided.clear()
   session.permissions = ALL
   session.facility = 'hospital'
@@ -245,8 +252,8 @@ describe('the list', () => {
     const two = card(await casesList(), 'Patient Two')
     expect(within(two).getByText('Linked')).toBeTruthy()
     expect(within(two).getByText('Done: nothing more to do')).toBeTruthy()
-    // No export: today's API has none, and a download would keep identifying data on the device.
-    expect(screen.queryByRole('button', { name: /export/i })).toBeNull()
+    // Export (owner, 13 Nov 2026): made on this device from the list as read, after a privacy note (OutreachExport.test.tsx).
+    expect(screen.getByRole('button', { name: 'Export' }).getAttribute('aria-disabled')).toBeNull()
   })
 
   it('says the list is loading', async () => {
@@ -411,7 +418,11 @@ describe('campaigns, read only', () => {
     expect(within(members).queryByText(/Reference|membersh/)).toBeNull()
     expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
-    expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
+    // Nothing to change; only Export, of this campaign's registrations (OutreachExport.test.tsx), and its registrations to open.
+    const registrations = await screen.findByRole('list', { name: 'Registrations in Demo screening week' })
+    expect(within(registrations).getAllByRole('button').map(button => button.textContent)).toEqual([expect.stringMatching(/^Patient One/)])
+    expect(screen.getAllByRole('button').filter(button => !registrations.contains(button))
+      .map(button => button.getAttribute('aria-label') ?? button.textContent).sort()).toEqual(['Back to list', 'Export'])
     // Back to the list, focus returns to the campaign opened.
     await press(screen.getByRole('button', { name: 'Back to list' }))
     expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))
@@ -643,7 +654,9 @@ describe('creating a registration case', () => {
 
   it.each([
     ['Notes for the team', { notes: '  ab ' }, 'outreach-case-notes', 'Enter at least 3 characters, or leave this blank.'],
-    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter at least 3 characters, or leave this blank.'],
+    // Outreach reads a phone number as E.164 (CreateRegistrationCaseDto normalizeOutreachPhone) and refuses anything else.
+    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'],
+    ['a phone number with no leading 0', { phone: '8031234567' }, 'outreach-case-phone', 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'],
     ['an empty full name', { fullName: '   ' }, 'outreach-case-name', 'Complete this field.'],
     ['an empty age', { age: '' }, 'outreach-case-age', 'Complete this field.'],
     ['an age over 130', { age: '131' }, 'outreach-case-age', 'Enter an age in whole years, from 0 to 130.'],
@@ -684,7 +697,7 @@ describe('creating a registration case', () => {
     await waitFor(() => expect(document.activeElement).toBe(phone))
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => { fireEvent.submit(form) })
-    const message = 'Enter at least 3 characters, or leave this blank.'
+    const message = 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'
     const first = await screen.findByRole('alert')
     expect(first.textContent).toBe(message)
     await act(async () => { fireEvent.submit(form) })

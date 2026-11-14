@@ -7,7 +7,7 @@ import { isOutreachProblem, outreachProblemText } from '../../../outreachProblem
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
-import type { PendingRegistration } from './offlineQueue'
+import type { PendingRegistration, QueueSyncResult, WaitReason } from './offlineQueue'
 
 /*
  * An outreach group (open sign-up on outreach., owner decisions of 11 November 2026): a volunteer, NGO or community
@@ -177,13 +177,50 @@ export function OutreachTeam({ facilityId }: { readonly facilityId: string }) {
 }
 
 /**
+ * What the page says as a registration is kept on this device: no connection, Health ID unavailable just now, or the
+ * session ended before it could be sent.
+ */
+export function queuedText(fullName: string, reason: WaitReason | 'session'): string {
+  return `${queuedWhy(fullName, reason)} ${CHECKS_AFTER_SENT}`
+}
+
+/** A registration kept on this device has no case yet, so its health checks can't be recorded until it is sent. */
+const CHECKS_AFTER_SENT = 'Health checks can be added once it is sent. Write the readings on paper until then.'
+
+function queuedWhy(fullName: string, reason: WaitReason | 'session'): string {
+  if (reason === 'session') return `${fullName}’s registration is saved on this device. It is sent once you are signed in again.`
+  return reason === 'unavailable'
+    ? `Health ID isn’t available right now. ${fullName}’s registration is saved on this device and will be sent automatically.`
+    : `No connection: ${fullName}’s registration is saved on this device. It is sent when you are back online.`
+}
+
+const registrations = (count: number) => `${count} registration${count === 1 ? '' : 's'}`
+
+/** What "Send now" did, in plain words: how many were sent, how many still wait and why, and how many Health ID refused. */
+export function queueSyncText({ sent, waiting, refused, reason }: Pick<QueueSyncResult, 'sent' | 'waiting' | 'refused' | 'reason'>): string {
+  const said: string[] = []
+  if (sent > 0) said.push(`Sent ${registrations(sent)} to Health ID.`)
+  if (waiting > 0 && reason === 'session') {
+    said.push(`${registrations(waiting)} couldn’t be sent yet. Sign in again to send ${waiting === 1 ? 'it: it stays' : 'them: they stay'} on this device until then.`)
+  } else if (waiting > 0) {
+    const why = reason === 'unavailable' ? ' because Health ID isn’t available right now'
+      : reason === 'connection' ? ' because there is no connection' : ''
+    said.push(`${registrations(waiting)} couldn’t be sent yet${why}. ${waiting === 1 ? 'It stays' : 'They stay'} on this device and will be tried again.`)
+  }
+  if (refused > 0) said.push(`${registrations(refused)} ${refused === 1 ? 'wasn’t' : 'weren’t'} accepted by Health ID: see below.`)
+  return said.length > 0 ? said.join(' ') : 'Nothing was waiting to be sent.'
+}
+
+/**
  * The registrations kept on this device, waiting for the network, or refused by Health ID once sent: "Send now", and
  * for a refused one what Health ID said and "Remove from this device".
  */
-export function OutreachQueuePanel({ entries, durable, syncing, onSync, onDiscard }: {
+export function OutreachQueuePanel({ entries, durable, syncing, offline = false, onSync, onDiscard }: {
   readonly entries: readonly PendingRegistration[]
   readonly durable: boolean
   readonly syncing: boolean
+  /** "No signal" mode (OfflineOutreach.tsx): nothing can be sent until the session is read again, so no "Send now". */
+  readonly offline?: boolean
   readonly onSync: () => void
   readonly onDiscard: (localCommandId: string) => void
 }) {
@@ -212,7 +249,8 @@ export function OutreachQueuePanel({ entries, durable, syncing, onSync, onDiscar
               </li>
             ))}
           </ul>
-          {waiting > 0 ? <EhrButton variant="secondary" busy={syncing} onClick={() => { if (!syncing) onSync() }}>{syncing ? 'Sending…' : 'Send now'}</EhrButton> : null}
+          {waiting > 0 && offline ? <p className="m-0 text-body text-ink-2">Needs signal to send. They are sent by themselves once you have signal.</p> : null}
+          {waiting > 0 && !offline ? <EhrButton variant="secondary" busy={syncing} onClick={() => { if (!syncing) onSync() }}>{syncing ? 'Sending…' : 'Send now'}</EhrButton> : null}
         </div>
       </Card>
     </section>

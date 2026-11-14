@@ -879,7 +879,10 @@ directly in the Google controls. Clinical request/response bodies are not
 intended for logs, public URLs or browser persistence. Provider facility
 selection is held in portal memory and sent as `X-Facility-ID` on scoped calls.
 Choosing a facility in the list only proposes it; Switch facility confirms it.
-The portal keeps nothing about the facility in browser storage. With
+The portal keeps nothing about the facility in browser storage, except the
+outreach group a tab chose, kept in that tab's sessionStorage so a login that
+works at a hospital and at an outreach group lands back on the group after a
+reload, while it is still one of the account's (`tabMemory.ts`, below). With
 hid-system's per-sign-in facility contract (D-Eminence/hid-system#47: ADR-046;
 open, not merged or deployed; hand-off C1; its migration 0080 must be
 renumbered to 0085, since hid-system `main` gave 0080 to hid-system#48, 0081 to
@@ -909,21 +912,64 @@ notifications (B6, below). ESLint enforces each where it is used plainly,
 through a property or by destructuring (`eslint.config.js`:
 `NO_BROWSER_STORAGE`, `NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`);
 computed or aliased access is left to review. `NO_SERVICE_WORKER` is lifted for
-exactly two files, `apps/patient-web/src/pushDevice.ts` and
-`apps/patient-web/public/sw.js`; every other rule stays on in both. `NO_INDEXED_DB` is lifted
+exactly three files, `apps/patient-web/src/pushDevice.ts`,
+`apps/patient-web/src/outreachShell.ts` and `apps/patient-web/public/sw.js`;
+every other rule stays on in each. `NO_INDEXED_DB` is lifted
 for exactly one file, `apps/patient-web/src/ehr-blue/departments/outreach/offlineQueue.ts`
-(open sign-up on outreach., plan PR-5): at an outreach group only, a registration
-that could not be sent (no network, a timeout, or Health ID briefly unavailable)
-is kept in IndexedDB with its command, keyed by its `localCommandId` (also its
+(open sign-up on outreach., plan PR-5): at an outreach group only, every new
+registration is kept there before it is first sent, so a reload or a closed tab
+while it is saving loses nothing, and one that could not be sent (no network, a
+timeout, or Health ID briefly unavailable) stays; each is kept in IndexedDB with its command, keyed by its `localCommandId` (also its
 Idempotency-Key, so sending it again registers the person once), for the account
-and facility that saved it, and sent again when the network is back (or, after a
-session ended, once the person signs in again). It is deleted as soon as Health
+and facility that saved it, and sent again, oldest first: when the page opens, when
+the network is back, when the page is shown again, after a registration Health ID
+took, and every 30 seconds while any waits and the page is shown (or, after a
+session ended, once the person signs in again). One that Health ID can't take just
+now (a server fault) waits without holding up the others, and is tried after them
+next time; too many requests, or Health ID unavailable twice in a row, ends the
+round, so a struggling Health ID is not sent every waiting registration every 30
+seconds. No connection, a timeout, a send stopped as the session ended, or a
+sign-in needed also ends the round, and none of these marks it refused. One
+registration is sent by one sender at a time: the form, "Send now" and the retries
+in a tab, and the tabs of a browser, each claim it first (Web Locks, or where a
+browser has none a lock in localStorage holding only its random command id, a
+random tab id and an expiry of 60 seconds). A registration the list already holds
+is shown once, as its row. It is taken off the device when Health ID answers the
+form with a refusal the person corrects there. It is deleted as soon as Health
 ID takes it, when the person removes a refused one, when the account that saved
 it signs out on that browser, and after 14 days in any case: the staff app
 sweeps entries older than 14 days as it starts and on every session change,
 whatever page is open, and only opens the database where one already exists.
 Hospitals' outreach teams keep today's behaviour:
-nothing is kept. This is a reviewed exception for field work with patchy
+nothing is kept. `NO_BROWSER_STORAGE` is lifted for exactly one more file,
+`apps/patient-web/src/ehr-blue/departments/outreach/tabMemory.ts` (the owner's
+"no hassle" rule for field work, 14 November 2026): at an outreach page, what this
+tab must keep across a reload goes in sessionStorage (kept through a reload of the
+tab, gone when the tab closes), keyed by account, and signing out removes it all:
+health checks typed and not saved yet on one registration (until saved; never in
+localStorage), a New registration half typed at an outreach group, by account and
+facility (what was typed, the language and how the person agreed; until it is
+saved, kept on this device or sent, or cancelled, and for an hour at most after it
+was last changed), a Health ID being made with an email code (that a code was sent and
+when, the email typed and the Idempotency-Key in use, never the code), a claim code
+just made with no email or phone, for 15 minutes, so the slip can still print it
+after an accidental reload (the screen does not show it again), the outreach group
+this tab last chose, and the tab's own random id. Its only localStorage value is
+the send lock above. This is a reviewed exception for field work with patchy
+networks; it needs the owner's sign-off before release.
+Outreach with no signal (owner, 13 November 2026): on Health ID
+Outreach's own site only, `NO_BROWSER_STORAGE` is also lifted for exactly one
+more file, `apps/patient-web/src/ehr-blue/departments/outreach/offlineStart.ts`,
+which keeps in sessionStorage and localStorage the last confirmed session's few
+facts that open Outreach in "No signal" mode when the session can't be read for
+want of a connection: the account id and display name, the outreach group's id
+and name, whether Outreach takes the health check fields, and the running or
+coming registration campaigns the volunteer is in, with their dates. Never a
+token, a cookie, an email address, a permission or anyone registered. They are
+deleted after 24 hours, on a deliberate sign-out, and when another account's
+session is confirmed on that browser. "No signal" mode sends nothing: new
+registrations go to the queue above, and are sent once the session is read
+again for that same account. This is a reviewed exception for field work with patchy
 networks; it needs the owner's sign-off before release. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
@@ -940,8 +986,18 @@ home screen, and 192, 512 and maskable 512 icons for installing it as an app
 continues the identity of an earlier HID app installed on the same host.
 The Notifications page offers "Install the Health ID app" where the browser has offered
 installing (`beforeinstallprompt`, held in memory), and the Home Screen steps on
-iPhone and iPad. Nothing is available offline: an installed app that cannot
-reach the network shows the browser's own offline page. Each app also serves
+iPhone and iPad. Nothing is available offline, except on Health ID Outreach's
+own site: an installed app that cannot reach the network shows the browser's
+own offline page. On Outreach's site (outreach. in production and staging), the
+page registers `/sw.js` as it starts (`outreachShell.ts`, a chunk of its own
+loaded there only), and the worker adds `/sw-outreach.js`, the offline app
+shell: a page opened is the network's own answer whenever it comes within 4
+seconds, else the app's page last kept; the build's content-hashed `/assets/`
+files are kept as they load and served from that copy. It keeps nothing else,
+never an `/api/` answer or another site's page, in one versioned cache whose
+older versions are deleted as a new worker starts; a new release's page
+replaces the one kept, and the files only the old one used are then deleted.
+The launch build check (`inspectOutreachShell`) refuses a shell that does more. Each app also serves
 `/service-worker.js`, which no
 Health ID page registers: when the browser checks a worker that hid-system's
 earlier apps registered on a host (scope `/`, caches named `hid-…`) for an

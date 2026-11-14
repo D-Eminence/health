@@ -3,16 +3,29 @@ import type { OutreachConsentLanguage, OutreachConsentMethod } from './staff/api
 /*
  * The words of open sign-up on outreach. (owner decisions of 11 November 2026): the organiser terms an organiser
  * accepts, and the notice each person is given before they are registered. The owner reviewed and approved the
- * joint-controller terms and the DPIA (decision 4): their version is 2026-11-01, the version Identity accepts.
+ * joint-controller terms and the DPIA (decision 4) as version 2026-11-01. Version 2026-11-14 is that same text with one
+ * sentence taken out of "Health ID does not check your group" (owner, in chat on 14 November 2026: "I don't want
+ * \"unverified\" anywhere"): that the people registered are told the group is unverified, which the one-line notice (Q76)
+ * no longer says. Identity accepts both versions; its availability read may still name 2026-11-01, which is older than
+ * this page's, so sign-up goes on (organiserTermsAheadOfPage).
  * Plain English throughout; nothing here decides anything, Identity and Outreach do.
  */
 
-/** The organiser terms' version, as Identity accepts it (identity-api OUTREACH_ORGANISER_TERMS_VERSION). */
-export const ORGANISER_TERMS_VERSION = '2026-11-01'
+/** The organiser terms' version, one Identity accepts (identity-api OUTREACH_ORGANISER_TERMS_VERSIONS). */
+export const ORGANISER_TERMS_VERSION = '2026-11-14'
+
+/**
+ * Whether the terms Identity names as current are newer than the ones this page shows, so the page must be reloaded
+ * before anyone accepts them. Versions are dates (YYYY-MM-DD), so they compare as text. Identity naming an older version
+ * (2026-11-01, while its availability read is not yet moved) is not a reason to stop sign-up: it accepts this page's too.
+ */
+export function organiserTermsAheadOfPage(identityVersion: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(identityVersion) ? identityVersion > ORGANISER_TERMS_VERSION : identityVersion !== ORGANISER_TERMS_VERSION
+}
 /** The registration notice's version, recorded with each person's agreement (outreach-api consent.textVersion). */
-export const REGISTRATION_NOTICE_VERSION = 'outreach-notice-2026-11-01'
+export const REGISTRATION_NOTICE_VERSION = 'outreach-notice-2026-11-14b'
 /** The longest note an outreach group may keep on a registration (outreach-api OUTREACH_NOTES_LIMIT). */
-export const OUTREACH_NOTES_LIMIT = 280
+export const OUTREACH_NOTES_LIMIT = 1000
 /** How long details never linked to a Health ID are kept (owner decision 3). */
 export const RETENTION_WORDS = '1 year after the campaign closes (or 1 year after it starts, if it is never closed)'
 
@@ -24,7 +37,7 @@ export interface TermsSection {
 }
 
 /**
- * The organiser terms (version 2026-11-01), as the organiser reads them before accepting, and on their own page. Health
+ * The organiser terms (version 2026-11-14), as the organiser reads them before accepting, and on their own page. Health
  * ID is a joint controller with each organiser; an organiser reports a breach within 24 hours; it is free for now.
  */
 export const ORGANISER_TERMS: readonly TermsSection[] = [
@@ -59,8 +72,8 @@ export const ORGANISER_TERMS: readonly TermsSection[] = [
       + 'requires it.',
   ] },
   { heading: 'Health ID does not check your group', paragraphs: [
-    'Health ID does not check who you are before your campaigns start. The people you register are told that your group is '
-      + 'an unverified organiser. Do not use a name that suggests you are a hospital, a ministry or another official body.',
+    'Health ID does not check who you are before your campaigns start. Do not use a name that suggests you are a hospital, '
+      + 'a ministry or another official body.',
     'Health ID may pause your group, or close a campaign, if these terms are not followed or if people report a problem. '
       + 'While your group is paused, nobody in it can register anyone.',
   ] },
@@ -86,10 +99,40 @@ export const ORGANISER_TERMS_SUMMARY: readonly string[] = [
 ]
 
 /**
- * The registration notice (version outreach-notice-2026-11-01), read to each person before they are registered, or read
- * by them. `group`: the outreach group's name, as the working facility is named.
+ * The registration notice (version outreach-notice-2026-11-14b), read to each person before they are registered.
+ * `group`: the outreach group's name, as the working facility is named. One line, in the owner's words (Q76, in chat on
+ * 2026-11-13): it replaces the longer 2026-11-14 notice and its line about the group not being checked.
  */
 export function registrationNotice(group: string): readonly string[] {
+  const who = group.trim() || 'This outreach group'
+  return [
+    `${who} will write down your details and today's health check results, to care for you and follow up and assign a Health ID for you. Only this team and Health ID can see them.`,
+  ]
+}
+
+/**
+ * The registration notice's earlier version (outreach-notice-2026-11-14), kept for the record: registrations agreed
+ * before the one-line notice (Q76) were given these words. Owner approved in chat on 2026-11-13: Q68; line 2 adds the
+ * area (Q71).
+ */
+export function registrationNotice20261114(group: string): readonly string[] {
+  const who = group.trim() || 'This outreach group'
+  return [
+    `${who} is registering people at this event on Health ID Outreach.`,
+    'We will write down your name, age and sex, the area where you live, your phone number or email if you want to give them, and the results of today\'s health checks, so the team can care for you and follow up.',
+    `Only this outreach team and Health ID can see your details. ${who} and Health ID are both responsible for looking after them.`,
+    'If you agree, we will also make a Health ID for you from these details. You can start using it later with your email, or with the code on your slip, and add the rest of your details then.',
+    `If you don't get a Health ID, your details are deleted ${RETENTION_WORDS}.`,
+    'You can say no to being registered. You can also say yes to being registered but no to a Health ID.',
+    'To have your details deleted sooner, or to complain, contact Health ID support.',
+  ]
+}
+
+/**
+ * The registration notice's earlier version (outreach-notice-2026-11-01), kept for the record: registrations agreed
+ * before 14 November 2026 were given these words. Outreach still accepts the version.
+ */
+export function registrationNotice20261101(group: string): readonly string[] {
   const who = group.trim() || 'This outreach group'
   return [
     `${who} is registering people at this event on Health ID Outreach.`,
@@ -113,7 +156,7 @@ export const CONSENT_LANGUAGES: ReadonlyArray<{ readonly value: OutreachConsentL
 
 /** How the person agreed, in the words the form offers. */
 export const CONSENT_METHODS: ReadonlyArray<{ readonly value: OutreachConsentMethod; readonly label: string; readonly hint: string }> = [
-  { value: 'verbal_read_aloud', label: 'I read it to them and they said yes', hint: 'Read every line of the notice to them.' },
+  { value: 'verbal_read_aloud', label: 'I read it to them and they said yes', hint: 'Read the notice above to them.' },
   { value: 'self_ticked', label: 'They read it themselves and agreed', hint: 'Let them read the notice on this screen.' },
   { value: 'guardian', label: 'Their parent or guardian agreed for them', hint: 'Needed for anyone under 18.' },
 ]

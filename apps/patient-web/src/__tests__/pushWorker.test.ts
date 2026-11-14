@@ -33,7 +33,7 @@ function window(url: string, { controlled = true } = {}): FakeWindow {
 
 type Listener = (event: Record<string, unknown>) => void
 
-function worker(windows: FakeWindow[] = []) {
+function worker(windows: FakeWindow[] = [], hostname = new URL(ORIGIN).hostname) {
   const listeners = new Map<string, Listener>()
   const added: string[] = []
   const waits: Promise<unknown>[] = []
@@ -41,7 +41,7 @@ function worker(windows: FakeWindow[] = []) {
     addEventListener: vi.fn((type: string, listener: Listener) => { added.push(type); listeners.set(type, listener) }),
     registration: { showNotification: vi.fn(async () => undefined) },
     clients: { matchAll: vi.fn(async () => windows), openWindow: vi.fn(async (url: string) => window(url)) },
-    location: { origin: ORIGIN },
+    location: { origin: ORIGIN, hostname },
     skipWaiting: vi.fn(),
   }
   const sandbox = {
@@ -151,7 +151,36 @@ describe('the push worker', () => {
 
   it('names none of them in its source, and has no request handler', () => {
     expect(script).not.toMatch(/addEventListener\s*\(\s*['"`](?:fetch|install|activate|message|sync|periodicsync)['"`]/)
-    expect(script).not.toMatch(/\bonfetch\b|\bcaches\b|\bimportScripts\b|\bindexedDB\b|\bfetch\s*\(|\blocalStorage\b|\bsessionStorage\b|\.data\b/)
+    expect(script).not.toMatch(/\bonfetch\b|\bcaches\b|\bindexedDB\b|\bfetch\s*\(|\blocalStorage\b|\bsessionStorage\b|\.data\b/)
     expect(script).not.toMatch(/skipWaiting|clients\.claim/)
+    // Its one import is Outreach's offline app shell, behind Outreach's own hosts (outreachShellWorker.test.ts).
+    expect([...script.matchAll(/\bimportScripts\b[^\n]*/g)].map(match => match[0])).toEqual(["importScripts('/sw-outreach.js') } catch { /* the app then works online only, as before */ }"])
+  })
+
+  it.each(['app.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com',
+    'pharmacy.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com', 'admin.healthidentitydirectory.com',
+    'ehr.staging.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost'])('on %s, imports nothing: the push worker alone', hostname => {
+    const run = worker([], hostname)
+    expect(run.sandbox.importScripts).not.toHaveBeenCalled()
+    expect([...run.added].sort()).toEqual(['notificationclick', 'push'])
+  })
+
+  it.each(['outreach.healthidentitydirectory.com', 'outreach.staging.healthidentitydirectory.com'])('on %s, adds the offline app shell and still shows the same notification', async hostname => {
+    const run = worker([], hostname)
+    expect(run.sandbox.importScripts).toHaveBeenCalledTimes(1)
+    expect(run.sandbox.importScripts).toHaveBeenCalledWith('/sw-outreach.js')
+    await run.fire('push', push())
+    expect(run.self.registration.showNotification).toHaveBeenCalledWith('Health ID', OPTIONS)
+  })
+
+  it('keeps working for push when the offline app shell cannot load', async () => {
+    const listeners = new Map<string, Listener>()
+    const self = { addEventListener: (type: string, listener: Listener) => listeners.set(type, listener),
+      registration: { showNotification: vi.fn(async () => undefined) }, location: { origin: 'https://outreach.healthidentitydirectory.com', hostname: 'outreach.healthidentitydirectory.com' } }
+    expect(() => runInNewContext(script, { self, URL, importScripts: () => { throw new TypeError('NetworkError') } })).not.toThrow()
+    const waits: Promise<unknown>[] = []
+    listeners.get('push')?.({ waitUntil: (work: Promise<unknown>) => waits.push(work) })
+    await Promise.all(waits)
+    expect(self.registration.showNotification).toHaveBeenCalledTimes(1)
   })
 })

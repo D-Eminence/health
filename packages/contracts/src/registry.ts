@@ -1143,8 +1143,35 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('outreach.campaignStatus','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/status',P,false,one('POST','outreach.campaign.write')),
   r('outreach.campaignMembers','outreach','/api/v1/outreach/registration-cases/campaigns/:campaignId/members',GP,false,{GET:['outreach.campaign.read'],POST:['outreach.campaign.write']}),
   r('outreach.cases','outreach','/api/v1/outreach/registration-cases',GP,false,{GET:['outreach.registration.read'],POST:['outreach.registration.write']}),
+  // The blue EHR's Outreach export (owner, 13 Nov 2026) records each file it saves; until served it answers 404 or 405, which
+  // the page ignores (ehr-blue/departments/outreach/OutreachExport.tsx).
+  proposed(r('outreach.caseExports','outreach','/api/v1/outreach/registration-cases/exports',P,false,one('POST','outreach.registration.read'),
+    'Body { format: csv|xlsx|docx|pdf, count, campaignId? }. Answers 204 and writes an audit row. The list read '
+    + '(outreach.cases GET) takes campaignId, limit (1..500, default 100) and before (a cursor) from hid-system#247, '
+    + 'and names the next page in X-Next-Cursor.')),
   r('outreach.case','outreach','/api/v1/outreach/registration-cases/:caseId',G,false,one('GET','outreach.registration.read')),
   r('outreach.linkExisting','outreach','/api/v1/outreach/registration-cases/:caseId/link-existing',P,false,one('POST','outreach.registration.write')),
+  // Health checks at an outreach event (outreach-api 0118): proposed until served; a 404 NOT_FOUND or API_ROUTE_NOT_FOUND
+  // hides the page's Health checks section.
+  proposed(r('outreach.caseScreening','outreach','/api/v1/outreach/registration-cases/:caseId/screening',['GET','PUT'],false,
+    { GET: ['outreach.registration.read'], PUT: ['outreach.registration.write'] },
+    'Outreach health checks (outreach-api 0118); not served by hid-system main (404). GET answers { screening: null | Screening } '
+    + 'with ETag "<version>". PUT takes the whole screening (nulls for what is not recorded) with Idempotency-Key, and If-Match '
+    + '"<version>" after the first save: 201 first, 200 after, { screening }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
+    + 'OUTREACH_SCREENING_EXISTS, IDEMPOTENCY_CONFLICT or OUTREACH_REGISTRATION_REDACTED, 422 OUTREACH_SCREENING_OUT_OF_RANGE or '
+    + 'OUTREACH_SCREENING_INCOMPLETE, 404 OUTREACH_REGISTRATION_NOT_FOUND.')),
+  // Assisted Health ID at an outreach event (outreach-api 0119): proposed until served; each way hides on a 404
+  // NOT_FOUND or API_ROUTE_NOT_FOUND of its own route.
+  proposed(r('outreach.healthIdStart','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/start',P,false,one('POST','outreach.registration.write'),
+    'Assisted Health ID (outreach-api 0119); not served by hid-system main (404). Idempotency-Key; { channel: "email", email } or '
+    + '{ channel: "sms" } answers 202 { channel, expiresAt, destinationHint, resendAfterSeconds }.')),
+  proposed(r('outreach.healthIdConfirm','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/confirm',P,false,one('POST','outreach.registration.write'),
+    'Assisted Health ID (outreach-api 0119); not served by hid-system main (404). Idempotency-Key; { code } (6 digits) answers 201 '
+    + '{ healthId, registration }; a replay answers the same.')),
+  proposed(r('outreach.healthIdCreateUnverified','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/create-unverified',P,false,
+    one('POST','outreach.registration.write'),
+    'Unverified Health ID (outreach-api, after 0119); not served by hid-system main (404). Idempotency-Key, body {}; answers 201 '
+    + '{ healthId, claimCode, registration }, the claim code this once only.')),
   // Open sign-up on outreach. (owner decisions of 11 November 2026): the public sign-up, a signed-in account's "Start an
   // outreach group", the organiser's team invitations and accepting one.
   proposed(r('enrollment.outreachOrganiserAvailability','enrollment','/api/v1/identity/outreach-organisers/availability',G,true,undefined,
