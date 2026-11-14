@@ -24,6 +24,8 @@
     "build:patient-web": "npm run build --workspace @hid/patient-web",
     "audit:boundaries": "node scripts/check-boundaries.mjs",
     "audit:launch-build": "node scripts/check-launch-build.mjs",
+    "check:live-release": "node scripts/check-live-release.mjs",
+    "test:live-release": "node --test scripts/check-live-release.test.mjs",
     "build:staging": "python scripts/build-staging.py",
     "test:release": "python -m unittest discover -s scripts -p test_staging_release.py",
     "build:production": "python scripts/build-production.py",
