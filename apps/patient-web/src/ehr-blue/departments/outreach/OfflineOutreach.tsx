@@ -68,7 +68,7 @@ export function OfflineOutreach({ snapshot, onSignal }: { readonly snapshot: Out
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
         <BrandLogo className="h-7 w-auto self-start" />
         {view === 'new' ? (
-          <OutreachNew facilityId={snapshot.facilityId} showCampaign campaigns={campaigns} attempt={attempt} group={group} offline
+          <OutreachNew facilityId={snapshot.facilityId} accountId={snapshot.actorId} showCampaign campaigns={campaigns} attempt={attempt} group={group} offline
             healthChecksServed={snapshot.healthChecksServed} onBack={() => setView('list')} onSending={() => setNote(null)} onCreated={() => setView('list')} />
         ) : (
           <DeptPage title="Outreach" description={`${snapshot.facilityName}${snapshot.displayName ? ` · ${snapshot.displayName}` : ''}`}

@@ -5,6 +5,9 @@
  * removes them all (forgetOutreachTab). What is kept here:
  *
  *  - unsaved health checks on one registration (HealthChecks.tsx), until they are saved;
+ *  - a New registration half typed (OutreachNew.tsx), by account and facility: what was typed, the language and how
+ *    the person agreed, until it is saved (kept on this device or sent), cancelled, or left untouched for
+ *    NEW_REGISTRATION_KEEP_MS;
  *  - a Health ID being made with an email code (CreateHealthId.tsx): that a code was sent, when, the email typed and the
  *    Idempotency-Key in use, never the code itself; and a claim code just made, for up to 15 minutes, so the slip can
  *    still print it after an accidental reload;
@@ -173,4 +176,46 @@ export function dropExpiredClaimCodes(now = Date.now()): void {
     }
     for (const key of expired) store.removeItem(key)
   } catch { /* nothing to delete */ }
+}
+
+/**
+ * How long a New registration half typed is kept after it was last changed. Long enough for a phone call or another app
+ * mid-form (Chrome may discard the tab meanwhile, or the volunteer pulls the page down and reloads it); after that the
+ * person met has most likely gone, and their details are not left in the tab for the next person registered.
+ */
+export const NEW_REGISTRATION_KEEP_MS = 60 * 60 * 1000
+
+/** What a New registration half typed keeps: the fields typed, by their form names, the language and how they agreed. */
+export interface NewRegistrationDraft {
+  readonly fields: Readonly<Record<string, string>>
+  readonly language: string
+  /** How the volunteer chose that the person agreed (a guardian is chosen for an age under 18 by the age itself). */
+  readonly chosenMethod: string
+}
+const newRegistrationKey = (accountId: string, facilityId: string) => `new-registration:${accountId}:${facilityId}`
+
+/**
+ * Keeps the New registration being typed for this tab, account and facility, for NEW_REGISTRATION_KEEP_MS from now;
+ * null forgets it (saved, cancelled, or nothing typed). Never throws.
+ */
+export function keepNewRegistration(accountId: string, facilityId: string, draft: NewRegistrationDraft | null, now = Date.now()): void {
+  writeTab(newRegistrationKey(accountId, facilityId), draft ? { ...draft, until: now + NEW_REGISTRATION_KEEP_MS } : null)
+}
+
+/**
+ * The New registration this tab kept for this account and facility, while its time lasts; one past its time, or not
+ * as it was kept, is deleted and null is returned.
+ */
+export function keptNewRegistration(accountId: string, facilityId: string, now = Date.now()): NewRegistrationDraft | null {
+  const key = newRegistrationKey(accountId, facilityId)
+  const kept = readTab<{ fields?: unknown; language?: unknown; chosenMethod?: unknown; until?: unknown }>(key)
+  if (!kept) return null
+  const fields = kept.fields && typeof kept.fields === 'object' && !Array.isArray(kept.fields) ? kept.fields as Record<string, unknown> : null
+  const usable = fields && Object.values(fields).every(value => typeof value === 'string')
+    && typeof kept.language === 'string' && typeof kept.chosenMethod === 'string' && typeof kept.until === 'number' && kept.until > now
+  if (!usable) {
+    writeTab(key, null)
+    return null
+  }
+  return { fields: fields as Record<string, string>, language: kept.language as string, chosenMethod: kept.chosenMethod as string }
 }

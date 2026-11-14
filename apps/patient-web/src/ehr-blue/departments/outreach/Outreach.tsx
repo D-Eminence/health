@@ -283,7 +283,7 @@ export function Outreach() {
 
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
-    content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} campaignsUnread={campaignsUnread}
+    content = <OutreachNew facilityId={facilityId} accountId={actorId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} campaignsUnread={campaignsUnread}
       attempt={caseAttempt} group={groupForm} healthChecksServed={healthChecksServed}
       onBack={() => backToList()} onSending={() => { clearCreatedNote(); setQueuedNote(null); setSendNote(null) }} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {

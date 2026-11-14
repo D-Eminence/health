@@ -566,7 +566,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
     // Registrations this login kept on this device and never sent go with it: the question above says so before.
     if (signedOut) await removeOutreachQueueEntriesFor(signedOut)
-    // And what outreach kept for this tab: health checks not saved, a Health ID code step, the group chosen.
+    // And what outreach kept for this tab: health checks not saved, a registration half typed, a Health ID code step, the
+    // group chosen.
     forgetOutreachTab()
     // So do Outreach's offline facts (offlineStart.ts): nothing opens "No signal" mode after a sign-out.
     clearOutreachSnapshot()

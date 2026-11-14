@@ -38,6 +38,8 @@ const pending = (id: string, fullName: string) => ({ id, campaignId: 'campaign-1
   temporaryPatientId: `tmp_${id}`, createdAt: '2026-11-11T09:00:00.000Z', rowVersion: 1 })
 
 beforeEach(() => {
+  // Each test is a fresh tab: nothing typed in an earlier test's New registration is kept for it (tabMemory.ts).
+  sessionStorage.clear()
   // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
   forgetOutreachServed()
   // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.

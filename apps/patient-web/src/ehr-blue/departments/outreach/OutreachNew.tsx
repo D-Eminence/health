@@ -1,14 +1,15 @@
-import { useRef, useState, type FormEvent, type MutableRefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MutableRefObject } from 'react'
 import { isHidApiError, isStoppedRequest } from '@hid/http'
 import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { ArrowLeft } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
-import { Button } from '../../../kasuwa/ui'
+import { Alert, Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachCaseInput, type OutreachConsentLanguage, type OutreachConsentMethod } from '../../../staff/api'
 import { CONSENT_LANGUAGES, CONSENT_METHODS, OUTREACH_NOTES_LIMIT, REGISTRATION_NOTICE_VERSION, registrationNotice } from '../../../outreachTerms'
 import { isOutreachProblem, outreachProblemText } from '../../../outreachProblems'
 import { waitReason, waitsForNetwork, waitsForSignIn, type PendingRegistration, type WaitReason } from './offlineQueue'
 import { useFocusById } from '../../../staff/focus'
+import { keepNewRegistration, keptNewRegistration, type NewRegistrationDraft } from './tabMemory'
 import { errorText } from '../parts/errors'
 import {
   AGE_RANGE, AT_LEAST_THREE, campaignRefusedText, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, outreachPhoneAccepted,
@@ -58,6 +59,37 @@ const UNDER_18_METHOD = 'This person is under 18. Choose “Their parent or guar
 const GUARDIAN_NAME_WITHOUT_GUARDIAN = 'You entered a parent or guardian’s name. Choose “Their parent or guardian agreed for them”, or clear the name.'
 /** An age entered as a whole number under 18. */
 const isMinorAge = (age: string) => age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) < 18
+/**
+ * How the person agreed, for the age typed (Q76): a parent or guardian under 18, else what is shown, or the volunteer's
+ * own choice when what is shown is nothing or the guardian the age chose before it was corrected.
+ */
+function consentMethodFor(ageText: string, current: OutreachConsentMethod | '', chosen: OutreachConsentMethod): OutreachConsentMethod | '' {
+  if (isMinorAge(ageText)) return 'guardian'
+  return current === '' || current === 'guardian' ? chosen : current
+}
+
+/**
+ * Said at the top of the form when the registration this tab kept (tabMemory.ts) is put back after a reload: the person
+ * may have gone meanwhile, so the volunteer checks it is them before saving.
+ */
+export const NEW_REGISTRATION_KEPT = 'The registration you were typing is back. Check it is still the same person, then save. To start again, press Cancel.'
+/** The form's fields kept for a reload, by their names. The language and how the person agreed are kept beside them. */
+const KEPT_FIELDS = ['guardianName', 'fullName', 'sex', 'ageYears', 'phone', 'area', 'campaignId', 'operationalNotes'] as const
+/** The fields only a volunteer types: with none of these, and nothing else changed, nothing is kept. */
+const TYPED_FIELDS = ['guardianName', 'fullName', 'ageYears', 'phone', 'area', 'operationalNotes'] as const
+
+/**
+ * The registration kept for this tab, as the form can use it: a language or a way of agreeing it does not offer (an
+ * older version, or changed by hand) is left at the form's own default.
+ */
+function restoredDraft(kept: NewRegistrationDraft | null) {
+  if (!kept) return null
+  const fields: Partial<Record<(typeof KEPT_FIELDS)[number], string>> = {}
+  for (const name of KEPT_FIELDS) if (kept.fields[name]) fields[name] = kept.fields[name]
+  const language = CONSENT_LANGUAGES.find(option => option.value === kept.language)?.value ?? 'en'
+  const chosenMethod = CONSENT_METHODS.find(option => option.value === kept.chosenMethod)?.value ?? 'verbal_read_aloud'
+  return { fields, language, chosenMethod }
+}
 
 type CaseField = 'method' | 'guardian' | 'name' | 'age' | 'phone' | 'area' | 'campaign' | 'notes'
 const FIELD_ORDER: readonly CaseField[] = ['method', 'guardian', 'name', 'age', 'phone', 'area', 'campaign', 'notes']
@@ -102,8 +134,15 @@ const GROUP_CAMPAIGNS_UNREAD: Readonly<Record<CampaignsUnread, string>> = {
  * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
  * its next step: linking it to a verified Health ID patient.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, offline = false, onBack, onSending, onCreated }: {
+export function OutreachNew({ facilityId, accountId, showCampaign, campaigns, campaignsUnread, attempt, group, healthChecksServed = false, offline = false, onBack, onSending, onCreated }: {
   readonly facilityId: string
+  /**
+   * The signed-in account. With it, at an outreach group, what is typed is kept for this tab, account and facility
+   * (tabMemory.ts), so a reload or a tab the phone closed in the background loses nothing: it is back when New
+   * registration is opened again, until it is saved, cancelled or an hour passes, and signing out removes it. Without
+   * it, or at a hospital (whose outreach keeps nothing in the browser), nothing is kept.
+   */
+  readonly accountId?: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
   /** The campaigns a case may be registered under: active registration campaigns this membership belongs to. */
@@ -138,22 +177,79 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
   const [refusedBy, setRefusedBy] = useState<{ readonly name: string | undefined } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [problems, setProblems] = useState<FieldErrors<CaseField>>({ errors: {}, seq: 0 })
-  const [language, setLanguage] = useState<OutreachConsentLanguage>('en')
+  // A registration this tab kept, typed before a reload (or before the phone closed the tab in the background), read once
+  // as the form opens: everything typed comes back, with the language and how the person agreed.
+  const keeper = group ? accountId : undefined
+  const [keptDraft] = useState(() => keeper ? restoredDraft(keptNewRegistration(keeper, facilityId)) : null)
+  const keptAge = (keptDraft?.fields.ageYears ?? '').trim()
+  const [keptNote, setKeptNote] = useState(keptDraft ? NEW_REGISTRATION_KEPT : '')
+  // The fields kept and not yet put back on the form: a campaign waits for the campaigns to be listed, the area for
+  // Outreach to be known to take one. Typed over (or chosen again), a field's kept value goes.
+  const unplaced = useRef<Partial<Record<string, string>>>({ ...keptDraft?.fields })
+  const [language, setLanguage] = useState<OutreachConsentLanguage>(keptDraft?.language ?? 'en')
   // Read aloud is chosen by default (Q76); a guardian is chosen for an age under 18, and the volunteer's own choice
-  // (a guardian too, for an adult a guardian agreed for) comes back if the age is corrected to 18 or over.
-  const [shownMethod, setMethod] = useState<OutreachConsentMethod | ''>('verbal_read_aloud')
-  const chosenMethod = useRef<OutreachConsentMethod>('verbal_read_aloud')
+  // (a guardian too, for an adult a guardian agreed for) comes back if the age is corrected to 18 or over. A registration
+  // kept for a reload comes back the same way: the volunteer's choice, or a guardian for the age kept if under 18.
+  const [shownMethod, setMethod] = useState<OutreachConsentMethod | ''>(() => keptDraft ? consentMethodFor(keptAge, '', keptDraft.chosenMethod) : 'verbal_read_aloud')
+  const chosenMethod = useRef<OutreachConsentMethod>(keptDraft?.chosenMethod ?? 'verbal_read_aloud')
   /** How the person agreed, for the age typed: a guardian under 18, else what the volunteer chose. */
-  const methodForAge = (ageText: string, current: OutreachConsentMethod | ''): OutreachConsentMethod | '' => {
-    if (isMinorAge(ageText)) return 'guardian'
-    return current === '' || current === 'guardian' ? chosenMethod.current : current
-  }
+  const methodForAge = (ageText: string, current: OutreachConsentMethod | ''): OutreachConsentMethod | '' => consentMethodFor(ageText, current, chosenMethod.current)
   // Under 18, only a parent or guardian can agree (as Outreach and the database check), so that is the only choice.
-  const [minorAge, setMinorAge] = useState(false)
-  const [notesLength, setNotesLength] = useState(0)
+  const [minorAge, setMinorAge] = useState(() => isMinorAge(keptAge))
+  const [notesLength, setNotesLength] = useState(keptDraft?.fields.operationalNotes?.length ?? 0)
   const focus = useFocusById()
   const groupNotesLimit = healthChecksServed ? OUTREACH_NOTES_LIMIT : 280
   const notesLimit = group ? groupNotesLimit : 2000
+
+  // The fields kept for a reload are put back on the form before it is shown, each as soon as it can be: a campaign once
+  // it is listed, the area once its field is shown.
+  useLayoutEffect(() => {
+    const element = formRef.current
+    if (!element) return
+    for (const [name, value] of Object.entries(unplaced.current)) {
+      const control = element.elements.namedItem(name)
+      if (value === undefined) continue
+      if (control instanceof HTMLSelectElement) {
+        if (![...control.options].some(option => option.value === value)) continue
+        control.value = value
+      } else if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+        control.value = value
+      } else {
+        continue
+      }
+      delete unplaced.current[name]
+    }
+  })
+
+  /**
+   * Keeps what is typed for this tab (tabMemory.ts), as it changes, so a reload or a tab the phone closed loses nothing;
+   * nothing typed keeps nothing. Not while a registration is being saved: once it is kept on this device or sent, what
+   * this tab kept is removed, and it is kept again only if the form still holds it after the answer (Health ID sent it
+   * back to correct, or this device could not keep it and it was not sent).
+   */
+  function keepTyped() {
+    const element = formRef.current
+    if (!keeper || busy || !element) return
+    const form = new FormData(element)
+    const fields: Record<string, string> = {}
+    for (const name of KEPT_FIELDS) {
+      const value = String(form.get(name) ?? '') || unplaced.current[name] || ''
+      if (value) fields[name] = value
+    }
+    const typed = TYPED_FIELDS.some(name => fields[name]?.trim()) || (fields.sex !== undefined && fields.sex !== 'unknown')
+      || language !== 'en' || chosenMethod.current !== 'verbal_read_aloud'
+    keepNewRegistration(keeper, facilityId, typed ? { fields, language, chosenMethod: chosenMethod.current } : null)
+  }
+  // The language and how they agreed are kept as they change, and the form again once a save has its answer.
+  useEffect(() => { if (!busy) keepTyped() }, [language, shownMethod, busy])
+
+  /** The form emptied for the next person (saved: kept on this device or sent), and nothing of it kept in this tab. */
+  function clearForm(element: HTMLFormElement) {
+    element.reset()
+    resetConsent()
+    unplaced.current = {}
+    if (keeper) keepNewRegistration(keeper, facilityId, null)
+  }
 
   function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -193,9 +289,10 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
       setMinorAge(isMinorAge(age))
       if (method !== chosenOrShown) setMethod(method)
     }
-    // The last answer no longer applies.
+    // The last answer no longer applies, nor does the note that the registration kept for a reload is back.
     setError('')
     setRefusedBy(null)
+    setKeptNote('')
     // The form checks its own fields as Outreach does (CreateRegistrationCaseDto): a phone number as Outreach reads it
     // (normalizeOutreachPhone), and operational notes at 3 characters or more, or none, as sent: trimmed, which a native
     // minLength does not check. A number Outreach would refuse is caught here, before it is sent or kept on this device.
@@ -248,8 +345,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
       try {
         await group.queue({ ...command, input })
         attempt.current = null
-        element.reset()
-        resetConsent()
+        clearForm(element)
         group.onQueued({ fullName, localCommandId: command.localCommandId, reason: 'connection', ageYears })
       } catch {
         setError(KEEP_FAILED)
@@ -266,13 +362,15 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
     if (group && release) {
       try { await group.queue({ ...command, input }); kept = true } catch { /* the device could not keep it: sent all the same */ }
     }
+    // Kept on this device, with its command: a reload now finds it under "Saved on this device", so what this tab kept of
+    // the form goes, or the same person could be saved twice. Kept again if Health ID sends it back to correct.
+    if (kept && keeper) keepNewRegistration(keeper, facilityId, null)
     try {
       const created = await staffApi.createOutreachCase(facilityId, input, command)
       // Taken by Health ID (or the registration it already made for this command): off this device before it is listed.
       if (kept) await group?.dequeue(command.localCommandId).catch(() => undefined)
       attempt.current = null
-      element.reset()
-      resetConsent()
+      clearForm(element)
       release?.()
       onCreated(created)
     } catch (caught) {
@@ -285,8 +383,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
         try {
           if (!kept) await group.queue({ ...command, input })
           attempt.current = null
-          element.reset()
-          resetConsent()
+          clearForm(element)
           group.onQueued({ fullName, localCommandId: command.localCommandId, reason: session ? 'session' : waitReason(caught), ageYears })
           return
         } catch { /* the device could not keep it: said as the refusal below */ }
@@ -323,14 +420,26 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, campaignsUnre
   const fieldError = (field: CaseField) => problems.errors[field]
   const field = (key: CaseField) => ({ error: fieldError(key), alert: problems.alert === key, seq: problems.seq })
 
-  // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost.
-  const back = () => { if (!busy) onBack() }
+  // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost. Leaving the
+  // form (Cancel or Back to list) means the volunteer is done with it: what this tab kept of it goes too.
+  const back = () => {
+    if (busy) return
+    if (keeper) keepNewRegistration(keeper, facilityId, null)
+    onBack()
+  }
   return (
     <FormPage title="New registration"
       description={group ? 'Register someone you meet at your event, once they agree. They can link their own Health ID to it later.'
         : 'Register someone you meet in the field. They get a temporary record now, and you link it to their Health ID later.'}
       actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
-      <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}>
+      <form ref={formRef} className="flex flex-col gap-4" noValidate onSubmit={createCase}
+        onChange={event => {
+          // Typed over or chosen again: a kept value not yet put back no longer applies.
+          const name = (event.target as { name?: unknown }).name
+          if (typeof name === 'string') delete unplaced.current[name]
+          keepTyped()
+        }}>
+        {keptNote ? <Alert intent="info" live={false} title={keptNote}>{null}</Alert> : null}
         <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
         {group ? <ConsentStep group={group.name} language={language} method={shownMethod} minor={minorAge} onLanguage={setLanguage}
           onMethod={choice => { setMethod(choice); chosenMethod.current = choice }}
