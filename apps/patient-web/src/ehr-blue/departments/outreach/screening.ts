@@ -256,6 +256,31 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
   return { input, errors, empty: !recorded }
 }
 
+/** The groups of fields saved together: a blood pressure is both numbers, a blood sugar is its reading, unit and timing. */
+const SCREENING_GROUPS: readonly (readonly (keyof OutreachScreeningInput)[])[] = [
+  ['bpSystolic', 'bpDiastolic'], ['glucoseValue', 'glucoseUnit', 'glucoseTiming'], ['seenByClinician', 'clinicianName'], ['referred', 'referredTo'],
+]
+
+/** The fields of the form (and of what Outreach keeps) that a refusal on `field` leaves unsaved. */
+export function skippedFields(field: string): readonly (keyof OutreachScreeningInput)[] {
+  if (field.startsWith('medicine-')) return ['medicinesGiven']
+  return SCREENING_GROUPS.find(group => (group as readonly string[]).includes(field)) ?? [field as keyof OutreachScreeningInput]
+}
+
+/**
+ * Save anyway (owner, 14 Nov 2026: "without input info like this they should be able continue"): the screening with
+ * every part the volunteer left unfinished or wrong (a blood sugar without its unit, one blood pressure number, a value out
+ * of range, an over-long note) kept as it was saved before, or empty when it never was, so the rest is saved and nothing
+ * already saved is lost. Returns the screening to send and the form fields left for the volunteer to finish.
+ */
+export function withUnfinishedLeftOut(input: OutreachScreeningInput, errors: Partial<Record<ScreeningField, string>>,
+  saved: OutreachScreeningInput | null): { input: OutreachScreeningInput; left: readonly (keyof OutreachScreeningInput)[] } {
+  const left = [...new Set(Object.keys(errors).flatMap(field => skippedFields(field)))]
+  const kept: Record<string, unknown> = { ...input }
+  for (const field of left) kept[field] = saved ? saved[field] : null
+  return { input: kept as unknown as OutreachScreeningInput, left }
+}
+
 /** The page's field a refusal's detail names (422 OUTREACH_SCREENING_OUT_OF_RANGE), when it names one. */
 export function fieldNamedIn(detail: string | null): Exclude<keyof OutreachScreeningInput, 'medicinesGiven'> | null {
   if (!detail) return null

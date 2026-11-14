@@ -11,7 +11,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, checkScreening, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
+  bmiOf, checkScreening, skippedFields, withUnfinishedLeftOut, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
   type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
 import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
@@ -35,6 +35,16 @@ function noSignal(error: unknown): boolean {
 }
 
 export const SCREENING_SAVED = 'Health checks saved.'
+/** What a save that left unfinished parts out says (owner, 14 Nov 2026: the volunteer can always continue). */
+export function savedExceptText(parts: readonly string[]): string {
+  return `Health checks saved, except ${parts.join(', ')}. Finish what is marked in red and save again, or leave it.`
+}
+const PART_WORDS: Readonly<Record<string, string>> = {
+  bpSystolic: 'blood pressure', bpDiastolic: 'blood pressure', glucoseValue: 'blood sugar', glucoseUnit: 'blood sugar', glucoseTiming: 'blood sugar',
+  pulseBpm: 'pulse', temperatureC: 'temperature', weightKg: 'weight', heightCm: 'height', mainComplaint: 'main complaint',
+  seenByClinician: 'clinician', clinicianName: 'clinician', outcome: 'outcome or advice', medicinesGiven: 'medicines given',
+  referred: 'referral', referredTo: 'referral',
+}
 export const SCREENING_RELOADED = 'Someone else saved checks for this person while you were typing. Press Show their checks: your typing stays.'
 export const SCREENING_RELOAD_OFFLINE = 'No signal: their checks couldn’t be loaded. Your typing is still here. Press Show their checks again when you have signal.'
 export const SCREENING_MERGED = 'Their checks are shown, with your changes put back in. Nothing is saved yet: check them, then press Save health checks.'
@@ -128,6 +138,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
   // The save last sent, and its key: the same screening sent again (after a lost answer or no signal) reuses the key; any
   // other save gets a new one. Cleared once saved.
   const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // A save that left unfinished parts out: what was typed in them, put back after the save, with their red notes.
+  const leftOut = useRef<{ readonly form: ScreeningForm; readonly left: readonly string[]; readonly errors: Partial<Record<ScreeningField, string>> } | null>(null)
   // A save whose answer never arrived: it may have been stored. Checked against Outreach before the next save.
   const unsure = useRef<{ input: OutreachScreeningInput; version: number | undefined } | null>(null)
   // The form as last read or saved: the volunteer's own changes are the fields that differ from it.
@@ -248,7 +260,17 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
   function update<K extends keyof ScreeningForm>(field: K, value: ScreeningForm[K]) {
     setForm(current => ({ ...current, [field]: value }))
     setNotice('')
+    // A red note goes as soon as its field (or a field saved with it, like a blood sugar's unit) is changed.
+    const group = new Set<string>(field === 'medicines' ? [] : skippedFields(field))
+    setProblems(previous => {
+      const stale = Object.keys(previous.errors).filter(key => key === field || group.has(key) || (field === 'medicines' && key.startsWith('medicine-')))
+      if (!stale.length) return previous
+      const errors = { ...previous.errors }
+      for (const key of stale) delete errors[key as ScreeningField]
+      return { errors, seq: previous.seq }
+    })
   }
+
 
   function refuse(errors: Partial<Record<ScreeningField, string>>) {
     const order: string[] = [...FIELD_ORDER.slice(0, FIELD_ORDER.indexOf('outcome') + 1),
@@ -267,8 +289,21 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
     setConflict(false)
     setReloadError('')
     setNotice('')
-    const { input, errors, empty } = checkScreening(form)
-    if (Object.keys(errors).length) { refuse(errors); return }
+    const { input: whole, errors, empty: nothing } = checkScreening(form)
+    let input = whole
+    let empty = nothing
+    leftOut.current = null
+    if (Object.keys(errors).length) {
+      // Unfinished or wrong parts never stop the rest being saved: they are left out (what was saved before stays) and
+      // stay on the page, marked, to finish and save again.
+      const saved = read.screening ? checkScreening(base.current).input : null
+      const partial = withUnfinishedLeftOut(whole, errors, saved)
+      const recorded = Object.values(partial.input).some(value => value !== null && value !== false)
+      if (!recorded || (saved && JSON.stringify(partial.input) === JSON.stringify(saved))) { refuse(errors); return }
+      input = partial.input
+      empty = false
+      leftOut.current = { form, left: partial.left, errors }
+    }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
     // Saved checks can't be cleared here (Outreach keeps a screening once recorded): say how to mark them instead.
     if (empty) { setFormError(read.screening ? SCREENING_CLEAR_HOW : NOTHING_RECORDED); focus(errorId); return }
@@ -309,10 +344,27 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
       unsure.current = null
       setRead({ kind: 'ready', screening: answer.screening })
       base.current = screeningForm(answer.screening)
-      setForm(base.current)
-      setNotice(SCREENING_SAVED)
+      const unfinished = leftOut.current
+      leftOut.current = null
+      if (unfinished) {
+        const back: Record<string, unknown> = { ...base.current }
+        for (const part of unfinished.left) {
+          const key = part === 'medicinesGiven' ? 'medicines' : part
+          back[key] = (unfinished.form as unknown as Record<string, unknown>)[key]
+        }
+        setForm(back as unknown as ScreeningForm)
+        setProblems(previous => ({ errors: unfinished.errors, seq: previous.seq + 1 }))
+        setNotice(savedExceptText([...new Set(unfinished.left.map(part => PART_WORDS[part] ?? part))]))
+      } else {
+        setForm(base.current)
+        setNotice(SCREENING_SAVED)
+      }
       onSaved?.()
     } catch (caught) {
+      // Not saved: the unfinished parts keep their red notes beside the reason.
+      const unfinished = leftOut.current
+      leftOut.current = null
+      if (unfinished) setProblems(previous => ({ errors: unfinished.errors, seq: previous.seq + 1 }))
       const code = isHidApiError(caught) ? caught.code : ''
       if (code === 'OUTREACH_SCREENING_EXISTS' || code === 'VERSION_CONFLICT' || code === 'IF_MATCH_REQUIRED') {
         // Saved by someone else since this was read (409 first save, 412 a newer version, 428 a version that is not one):
@@ -482,7 +534,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
         description={saved ? `Last saved ${dateText(saved.updatedAt || saved.recordedAt)}.` : 'Record any checks done today. Leave out what wasn’t done.'} />
       <div className="flex flex-col gap-4 p-5">
         {/* Mounted throughout, so a save is announced. */}
-        <div role="status">{notice ? <Alert intent="success" live={false} title={notice}>{null}</Alert> : null}</div>
+        <div role="status">{notice ? <Alert intent={notice === SCREENING_SAVED || notice === SCREENING_MERGED ? 'success' : 'warning'} live={false} title={notice}>{null}</Alert> : null}</div>
         {body}
       </div>
     </Card>
