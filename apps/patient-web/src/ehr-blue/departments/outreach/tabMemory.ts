@@ -88,7 +88,11 @@ export function unsavedHealthChecksFor(accountId: string): boolean {
     const own = `${PREFIX}health-checks:${accountId}:`
     for (let index = 0; index < store.length; index += 1) {
       const key = store.key(index)
-      if (key?.startsWith(own) && store.getItem(key)) return true
+      if (!key?.startsWith(own)) continue
+      // A draft with typed changes; one kept only because a save's answer was lost (no changes) is not counted.
+      let draft: { changes?: Record<string, unknown> } | null = null
+      try { draft = JSON.parse(store.getItem(key) ?? 'null') as { changes?: Record<string, unknown> } | null } catch { return true }
+      if (draft && (!draft.changes || Object.keys(draft.changes).length > 0)) return true
     }
   } catch { /* nothing readable is kept */ }
   return false

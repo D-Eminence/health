@@ -164,7 +164,11 @@ interface StaffContextValue {
   activateEnrollment(code: string): Promise<StaffMfaActivation>
   /** Opens the workspace with the session a sign-in step answered with. Throws, opening nothing, for a patient's. */
   completeSignIn(session: StaffSession): void
-  refresh(): Promise<void>
+  /**
+   * Reads the session again. `afterSignal`: "No signal" mode's own check (OutreachNoSignal onSignal) has just reached
+   * Health ID, with no registration half typed, so the read is not cut short into "No signal" mode again.
+   */
+  refresh(options?: { readonly afterSignal?: boolean }): Promise<void>
   /** Resolves false, changing nothing, when the session ended while the switch was answered. */
   selectFacility(id: string): Promise<boolean>
   signOut(): Promise<void>
@@ -431,7 +435,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     }
   }, [ask, setLock])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { readonly afterSignal?: boolean }) => {
     startStaffSessionGeneration()
     heardWhileOpening.current = false
     const sentIn = staffSessionGeneration()
@@ -451,7 +455,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // not take over: the volunteer may already be typing a registration in "No signal" mode, and swapping the page
     // would throw that typing away. "No signal" mode goes back online by itself, through its own signal check
     // (OfflineOutreach.tsx onSignal), which waits until no registration is half typed and then reads the session again.
-    const kept = readOutreachSnapshot()
+    // Handing back from "No signal" mode, its own check has just reached Health ID: no slow start, so a link that is slow
+    // but works goes online instead of opening "No signal" mode again at every check.
+    const kept = options?.afterSignal ? null : readOutreachSnapshot()
     let openedNoSignal = false
     const slow = kept ? window.setTimeout(() => {
       if (staffSessionGeneration() !== sentIn || status.current !== 'loading') return
@@ -747,7 +753,7 @@ function Gate({ children }: { children: ReactNode }) {
   // Outreach with no signal: its own page, from the last session's facts, until Health ID answers again.
   if (state.status === 'offline') {
     return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Outreach…</p></main>}>
-      <OfflineOutreach snapshot={state.snapshot} onSignal={() => void refresh()} />
+      <OfflineOutreach snapshot={state.snapshot} onSignal={() => void refresh({ afterSignal: true })} />
     </Suspense>
   }
   // Each state screen is the page: a main landmark, and an h1 where it has a title.

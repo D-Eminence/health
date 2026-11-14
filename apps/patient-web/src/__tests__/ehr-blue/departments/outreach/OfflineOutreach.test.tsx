@@ -188,6 +188,22 @@ describe('a slow start that opened "No signal" mode (findings 2, 4 and 7)', () =
     await waitFor(() => expect(screen.queryByText(/No signal. You can keep registering/)).toBeNull())
     expect(screen.queryByRole('heading', { level: 1, name: 'New registration' })).toBeNull()
   })
+
+  it('goes online on a link that is slow but works: every session read takes 8 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    keepFacts()
+    const slow = () => new Promise<Response>(resolve => { window.setTimeout(() => resolve(confirmed()), 8_000) })
+    serve({ [SESSION]: [slow, slow, slow, slow] })
+    await openStaffApp('/provider/outreach')
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
+    await screen.findByText(/No signal. You can keep registering/)
+    // Its own check reaches Health ID (8 s), then the hand-back reads the session again (8 s more): the workspace opens,
+    // and "No signal" mode is not opened again on the way.
+    await act(async () => { await vi.advanceTimersByTimeAsync(40_000) })
+    await waitFor(() => expect(screen.queryByText(/No signal. You can keep registering/)).toBeNull())
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+    expect(screen.queryByText(/No signal. You can keep registering/)).toBeNull()
+  })
 })
 
 describe('start-up as before', () => {
