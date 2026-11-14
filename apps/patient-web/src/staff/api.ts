@@ -1409,11 +1409,11 @@ export interface OutreachCase {
   /** Whether health checks are recorded for this registration (0118); absent from an earlier Outreach. */
   hasScreening?: boolean
   /**
-   * The genotype and blood group from this registration's health checks (0122, proposed), null when not recorded; absent
-   * from an earlier Outreach. Read only for the export.
+   * Whether those health checks hold at least one check (outreach-api with 0122's change): false for a form saved with
+   * nothing filled in. Absent from an earlier Outreach (then `hasScreening` stands in). A registration never carries a
+   * genotype or blood group: those are read one person at a time from their health checks.
    */
-  genotype?: OutreachGenotype | null
-  bloodGroup?: OutreachBloodGroup | null
+  hasRecordedChecks?: boolean
   /**
    * The Health ID made for this person at outreach (outreach-api 0119), null while none; absent from an earlier Outreach,
    * which makes none. With `healthIdCreatedByOutreach`, whether outreach made it.
@@ -2803,7 +2803,7 @@ export const staffApi = {
    * A registration's health checks (outreach-api 0118, proposed): `{ screening: null }` until any are saved. An Outreach
    * without the route answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the page then shows no Health checks section. An
    * Outreach that takes genotype and blood group (0122) may also answer `accepts: ['genotype', 'bloodGroup']`, and its
-   * saved screening carries both keys.
+   * saved screening carries both keys; `accepts: []` while its database does not have them yet.
    */
   outreachScreening: (facilityId: string, caseId: string, signal?: AbortSignal) =>
     client.get<{ screening: OutreachScreening | null; accepts?: readonly string[] }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,

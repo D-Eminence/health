@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  bmiOf, checkScreening, extrasOf, FIELD_LABELS, fieldNamedIn, medicineRow, parseNumber, screeningForm, type ScreeningForm,
+  bmiOf, checkScreening, checksRecorded, extrasOf, FIELD_LABELS, fieldNamedIn, medicineRow, parseNumber, screeningForm, type ScreeningForm,
 } from '../../../../ehr-blue/departments/outreach/screening'
 import {
-  forgetOutreachServed, noteOutreachRegistrations, noteOutreachScreening, servedScreeningExtras,
+  forgetOutreachServed, noteOutreachRegistrations, noteOutreachScreening, recordedChecksServed, servedScreeningExtras,
 } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import type { OutreachCase } from '../../../../staff/api'
 
@@ -181,15 +181,34 @@ describe('what Outreach takes in health checks (outreachServed.ts)', () => {
     expect(servedScreeningExtras()).toEqual([])
   })
 
-  it('learns from accepts, from a saved screening’s keys, or from registrations, and keeps it for the session', () => {
+  it('learns from accepts or from a saved screening’s keys, and keeps it for the session; an empty accepts says nothing', () => {
+    noteOutreachScreening({ screening: null, accepts: [] })
+    expect(servedScreeningExtras()).toEqual([])
     noteOutreachScreening({ screening: null, accepts: ['bloodGroup', 'somethingElse'] })
     expect(servedScreeningExtras()).toEqual(['bloodGroup'])
     noteOutreachScreening({ screening: { genotype: null } })
     expect(servedScreeningExtras()).toEqual(['genotype', 'bloodGroup'])
     noteOutreachScreening({ screening: null })
     expect(servedScreeningExtras()).toEqual(['genotype', 'bloodGroup'])
-    forgetOutreachServed()
+  })
+
+  it('never learns them from registrations (they carry no health value), but learns hasRecordedChecks there', () => {
     noteOutreachRegistrations([{ id: 'case-1', hasScreening: true, genotype: null, bloodGroup: 'A+' } as unknown as OutreachCase])
-    expect(servedScreeningExtras()).toEqual(['genotype', 'bloodGroup'])
+    expect(servedScreeningExtras()).toEqual([])
+    expect(recordedChecksServed()).toBe(false)
+    noteOutreachRegistrations([{ id: 'case-2', hasScreening: true, hasRecordedChecks: false } as unknown as OutreachCase])
+    expect(recordedChecksServed()).toBe(true)
+    noteOutreachRegistrations([{ id: 'case-3', hasScreening: true } as unknown as OutreachCase])
+    expect(recordedChecksServed()).toBe(true)
+    forgetOutreachServed()
+    expect(recordedChecksServed()).toBe(false)
+  })
+
+  it('counts checks as recorded on hasRecordedChecks, else on hasScreening (an earlier Outreach)', () => {
+    expect(checksRecorded({ hasScreening: true, hasRecordedChecks: false })).toBe(false)
+    expect(checksRecorded({ hasScreening: true, hasRecordedChecks: true })).toBe(true)
+    expect(checksRecorded({ hasScreening: true })).toBe(true)
+    expect(checksRecorded({ hasScreening: false })).toBe(false)
+    expect(checksRecorded({})).toBe(false)
   })
 })

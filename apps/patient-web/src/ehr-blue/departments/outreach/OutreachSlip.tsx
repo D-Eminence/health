@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { OutreachCampaign, OutreachCase } from '../../../staff/api'
 import { dateText } from '../parts/format'
 import { ageText, caseName, sexText } from './outreachParts'
+import { checksRecorded } from './screening'
 import './outreachSlip.css'
 
 /*
@@ -106,7 +107,7 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, c
           </> : byEmail ? <p className="hid-outreach-slip-note">{FORGOT_PASSWORD}</p> : null}
         </section>
       ) : <p>{typeof item.ageYears === 'number' && item.ageYears < 18 ? GET_HEALTH_ID_LATER_MINOR : GET_HEALTH_ID_LATER}</p>}
-      {item.hasScreening ? <p>{CHECKS_RECORDED}</p> : null}
+      {checksRecorded(item) ? <p>{CHECKS_RECORDED}</p> : null}
       <p className="hid-outreach-slip-foot">Show this slip if you visit a clinic or come back to the outreach.</p>
     </article>
   )

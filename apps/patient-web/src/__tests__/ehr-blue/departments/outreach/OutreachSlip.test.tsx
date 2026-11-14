@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
@@ -81,6 +81,16 @@ describe('the outreach slip', () => {
     expect(text).not.toMatch(/HID-/)
     expect(text).not.toContain(CHECKS_RECORDED)
     expect(text).not.toContain('Claim code')
+  })
+
+  it('says nothing of health checks for a form saved with nothing filled in (hasRecordedChecks false)', () => {
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN}
+      item={{ ...ITEM, hasScreening: true, hasRecordedChecks: false } as never} healthId={null} />)
+    expect(document.body.textContent).not.toContain(CHECKS_RECORDED)
+    cleanup()
+    render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN}
+      item={{ ...ITEM, hasScreening: true, hasRecordedChecks: true } as never} healthId={null} />)
+    expect(document.body.textContent).toContain(CHECKS_RECORDED)
   })
 
   it('says a parent or guardian can get a Health ID later for anyone under 18 (17), and the person themselves at 18', () => {

@@ -1159,10 +1159,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'with ETag "<version>". PUT takes the whole screening (nulls for what is not recorded) with Idempotency-Key, and If-Match '
     + '"<version>" after the first save: 201 first, 200 after, { screening }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
     + 'OUTREACH_SCREENING_EXISTS, IDEMPOTENCY_CONFLICT or OUTREACH_REGISTRATION_REDACTED, 422 OUTREACH_SCREENING_OUT_OF_RANGE or '
-    + 'OUTREACH_SCREENING_INCOMPLETE, 404 OUTREACH_REGISTRATION_NOT_FOUND. Every field is optional, and an empty first save is '
-    + 'saved. Genotype and blood group (0122, proposed): genotype AA|AS|AC|SS|SC|CC|unknown and bloodGroup '
+    + 'OUTREACH_SCREENING_INCOMPLETE, 404 OUTREACH_REGISTRATION_NOT_FOUND. Every field is optional; an empty first save is '
+    + 'sent only once registrations carry hasRecordedChecks (false for such a save, so the slip and export never call it recorded). '
+    + 'Genotype and blood group (0122, proposed): genotype AA|AS|AC|SS|SC|CC|unknown and bloodGroup '
     + 'A+|A-|B+|B-|AB+|AB-|O+|O-|unknown, null when not recorded; sent only to an Outreach whose GET or PUT answers '
-    + 'accepts: ["genotype", "bloodGroup"] or whose screening carries those keys (an earlier one answers 400 VALIDATION_FAILED).')),
+    + 'accepts: ["genotype", "bloodGroup"] (an empty accepts means its database does not have them yet) or whose screening '
+    + 'carries those keys (an earlier one answers 400 VALIDATION_FAILED, a database without them 409 '
+    + 'OUTREACH_SCREENING_FIELDS_NOT_TAKEN). Only this per-person read and save carry them (with their audit rows): '
+    + 'registrations and the export never do.')),
   // Assisted Health ID at an outreach event (outreach-api 0119): proposed until served; each way hides on a 404
   // NOT_FOUND or API_ROUTE_NOT_FOUND of its own route.
   proposed(r('outreach.healthIdStart','outreach','/api/v1/outreach/registration-cases/:caseId/health-id/start',P,false,one('POST','outreach.registration.write'),

@@ -1,6 +1,7 @@
 import type { OutreachCampaign, OutreachCase, OutreachCasesPage } from '../../../staff/api'
 import { birthDateText, dateText } from '../parts/format'
 import { statusLabel } from './outreachParts'
+import { checksRecorded } from './screening'
 
 /*
  * Export of the registrations a person can already see on Outreach (the list read, GET outreach/registration-cases),
@@ -39,6 +40,7 @@ export type ExportCase = OutreachCase & {
   readonly healthId?: unknown
   readonly hid?: unknown
   readonly hasScreening?: unknown
+  readonly hasRecordedChecks?: unknown
   readonly healthIdCreatedByOutreach?: unknown
 }
 
@@ -74,12 +76,6 @@ const CONSENT_METHOD: Readonly<Record<string, string>> = {
 const RELATIONSHIP: Readonly<Record<string, string>> = {
   parent: 'Parent', mother: 'Mother', father: 'Father', guardian: 'Guardian', grandparent: 'Grandparent', sibling: 'Brother or sister',
   relative: 'Relative', other: 'Other',
-}
-// Genotype and blood group (0122) as a file writes them: the code itself, in plain ASCII ("A-", never the screen's "A−",
-// which a PDF's fonts cannot print), and "Not known". Only codes Outreach takes are written.
-const GENOTYPE: Readonly<Record<string, string>> = { AA: 'AA', AS: 'AS', AC: 'AC', SS: 'SS', SC: 'SC', CC: 'CC', unknown: 'Not known' }
-const BLOOD_GROUP: Readonly<Record<string, string>> = {
-  'A+': 'A+', 'A-': 'A-', 'B+': 'B+', 'B-': 'B-', 'AB+': 'AB+', 'AB-': 'AB-', 'O+': 'O+', 'O-': 'O-', unknown: 'Not known',
 }
 
 const consentOf = (item: ExportCase) => record(item.consent)
@@ -130,9 +126,10 @@ export const OUTREACH_EXPORT_COLUMNS: readonly ExportColumn[] = [
   { heading: 'Status', value: item => statusLabel(item.status) },
   { heading: 'Health ID', optional: true, value: healthId },
   { heading: 'Health ID made at outreach', optional: true, value: item => yesNo(item.healthIdCreatedByOutreach) },
-  { heading: 'Health check done', optional: true, value: item => yesNo(item.hasScreening) },
-  { heading: 'Genotype', optional: true, value: item => words(GENOTYPE, text(item.genotype)) },
-  { heading: 'Blood group', optional: true, value: item => words(BLOOD_GROUP, text(item.bloodGroup)) },
+  // "Yes" only when a check was recorded: a health checks form saved with nothing filled in is "No". Genotype and blood
+  // group are never exported: they are read one person at a time (owner decision pending on exporting them).
+  { heading: 'Health check done', optional: true,
+    value: item => ('hasScreening' in item || 'hasRecordedChecks' in item ? yesNo(checksRecorded(item)) : '') },
   { heading: 'Possible duplicate', optional: true, value: item => (item.possibleDuplicate === true ? 'Yes' : '') },
   { heading: 'Parent or guardian', optional: true, value: item => text(item.guardianName) || text(consentOf(item)?.guardianName) },
   { heading: 'Parent or guardian’s relationship', optional: true, value: item => words(RELATIONSHIP, text(item.guardianRelationship).toLowerCase()) },

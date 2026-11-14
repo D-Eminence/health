@@ -13,6 +13,11 @@ describe('today’s numbers', () => {
       .toEqual({ registered: 3, healthChecks: 2, healthIds: 1 })
   })
 
+  it('does not count a health checks form saved with nothing filled in', () => {
+    expect(outreachNumbers([row('a', { hasScreening: true, hasRecordedChecks: false }), row('b', { hasScreening: true, hasRecordedChecks: true }),
+      row('c', { hasScreening: false, hasRecordedChecks: false })])).toEqual({ registered: 3, healthChecks: 1 })
+  })
+
   it('leaves out a count Outreach does not send yet, never showing it as 0', () => {
     expect(outreachNumbers([row('a'), row('b')])).toEqual({ registered: 2 })
   })

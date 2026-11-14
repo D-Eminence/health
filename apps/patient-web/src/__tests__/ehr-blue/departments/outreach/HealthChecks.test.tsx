@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { renderDept } from '../harness'
 import { CHECK_WEIGHT_HEIGHT, HealthChecks, leaveHealthChecks, SEE_CLINICIAN, SCREENING_CLASH, SCREENING_MERGED, SCREENING_NO_SIGNAL, SCREENING_RELOAD_OFFLINE, SCREENING_INCOMPLETE, SCREENING_INVALID, SCREENING_KEPT, SCREENING_NOT_FOUND, SCREENING_OFFLINE,
-  SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
+  NOTHING_TO_SAVE, SCREENING_REDACTED, SCREENING_RELOADED } from '../../../../ehr-blue/departments/outreach/HealthChecks'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
-import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
+import { forgetOutreachServed, noteOutreachRegistrations } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { memoryQueueStore, setOutreachQueueStore } from '../../../../ehr-blue/departments/outreach/offlineQueue'
 import { REGISTRATION_NOTICE_VERSION, registrationNotice, registrationNotice20261114, registrationNotice20261101 } from '../../../../outreachTerms'
 
@@ -63,6 +63,9 @@ beforeEach(() => {
   sessionStorage.clear()
   localStorage.clear()
 })
+
+/** Outreach says which registrations hold checks (hasRecordedChecks), as its list does once it has this change. */
+const servesRecordedChecks = () => noteOutreachRegistrations([{ id: 'case-seen', hasScreening: false, hasRecordedChecks: false } as never])
 
 async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
@@ -454,6 +457,7 @@ describe('Health checks', () => {
   })
 
   it('nothing is required: a first save with nothing filled in is still saved, all null (owner, 14 Nov 2026)', async () => {
+    servesRecordedChecks()
     api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, {}) })
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
@@ -463,10 +467,25 @@ describe('Health checks', () => {
     expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual(NULLS)
     expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBeUndefined()
     expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
-    expect(within(region()).queryByText('Enter at least one health check before saving.')).toBeNull()
+    expect(within(region()).queryByText(NOTHING_TO_SAVE)).toBeNull()
+  })
+
+  it('sends no empty first save while Outreach does not say which registrations hold checks (the slip would say recorded)', async () => {
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    await press(saveButton())
+    expect(await within(region()).findByText(NOTHING_TO_SAVE)).toBeTruthy()
+    expect(NOTHING_TO_SAVE).toBe('Enter at least one health check before saving.')
+    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+    // A check typed is saved as before.
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 70 }) })
+    type(/^Pulse/, '70')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
   })
 
   it('a unit or timing chosen alone is not sent: the save goes with nothing recorded', async () => {
+    servesRecordedChecks()
     api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, {}) })
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
@@ -831,6 +850,7 @@ describe('Health checks: genotype and blood group', () => {
   })
 
   it('nothing is required: left blank they are sent as null, and a form with nothing at all still saves', async () => {
+    servesRecordedChecks()
     api.outreachScreening.mockResolvedValue({ screening: null, accepts: ACCEPTS })
     api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { genotype: null, bloodGroup: null }) })
     renderChecks()
@@ -942,6 +962,18 @@ describe('the registration’s area and the list', () => {
     const kemi = await screen.findByRole('button', { name: /Kemi Balogun/ })
     expect(kemi.textContent).toContain('Health checks recorded')
     expect(screen.getByRole('button', { name: /Ada Obi/ }).textContent).not.toContain('Health checks recorded')
+  })
+
+  it('a form saved with nothing filled in is neither “Health checks recorded” nor out of “No health checks yet”', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-a', { hasScreening: true, hasRecordedChecks: false }),
+      pending('case-b', { fullName: 'Ada Obi', hasScreening: true, hasRecordedChecks: true })])
+    renderDept(<Outreach />)
+    const kemi = await screen.findByRole('button', { name: /Kemi Balogun/ })
+    expect(kemi.textContent).not.toContain('Health checks recorded')
+    expect(screen.getByRole('button', { name: /Ada Obi/ }).textContent).toContain('Health checks recorded')
+    // Still waiting at the vitals station: counted under "No health checks yet", and not in "Health checks done".
+    expect(screen.getByRole('button', { name: /No health checks yet/ }).textContent).toContain('1')
+    expect(screen.getByRole('region', { name: 'Registration numbers' }).textContent).toContain('Health checks done1')
   })
 
   it('reads the one-line notice the owner chose (Q76), and keeps the 2026-11-14 notice for the record', () => {

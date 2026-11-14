@@ -25,6 +25,7 @@ import { isOrganiser, isOutreachGroup, OutreachGroupBanner, OutreachQueuePanel, 
 import { claimSend, noConnection, useOutreachQueue, type PendingRegistration, type QueueSyncResult } from './offlineQueue'
 import { keptCampaign, outreachSnapshotOf, saveOutreachSnapshot } from './offlineStart'
 import { noteOutreachRegistrations, outreachServed } from './outreachServed'
+import { checksRecorded } from './screening'
 import { offlineShellHere } from '../../../productHostname'
 import {
   campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
@@ -484,8 +485,10 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   // A tab no longer offered (Outreach stopped saying which have health checks) falls back to the first.
   const tab: CaseTab = chosenTab === 'noChecks' && !checksKnown ? 'waiting' : chosenTab
   const setTab = onTab
-  const noChecks = all.filter(item => item.hasScreening === false)
-  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'noChecks' ? item.hasScreening === false : (tab === 'waiting') === caseWaiting(item))
+  // A health checks form saved with nothing filled in still counts as no health checks.
+  const withoutChecks = (item: OutreachCase) => 'hasScreening' in item && !checksRecorded(item)
+  const noChecks = all.filter(withoutChecks)
+  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'noChecks' ? withoutChecks(item) : (tab === 'waiting') === caseWaiting(item))
   const rows = all.filter(item => inTab(item) && matchesSearch(search, caseSearchText(item)))
   useAutoRefresh(cases, search.trim() !== '' && rows.length === 0)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))

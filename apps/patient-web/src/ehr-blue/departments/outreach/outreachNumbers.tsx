@@ -1,4 +1,5 @@
 import type { OutreachCase } from '../../../staff/api'
+import { checksRecorded } from './screening'
 
 /**
  * Registration numbers (owner, 14 Nov 2026: the frontend-only part of the campaign dashboard in the Outreach backend handover):
@@ -16,7 +17,7 @@ export function outreachNumbers(cases: readonly OutreachCase[]): OutreachNumbers
   const idsKnown = cases.some(item => 'healthId' in item)
   return {
     registered: cases.length,
-    ...(checksKnown ? { healthChecks: cases.filter(item => item.hasScreening === true).length } : {}),
+    ...(checksKnown ? { healthChecks: cases.filter(checksRecorded).length } : {}),
     ...(idsKnown ? { healthIds: cases.filter(item => Boolean(item.healthId)).length } : {}),
   }
 }

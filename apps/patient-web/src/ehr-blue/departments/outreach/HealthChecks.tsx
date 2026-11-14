@@ -14,7 +14,7 @@ import {
   bmiOf, checkScreening, extrasOf, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, sameField, sameForm, screeningForm,
   type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
-import { noteOutreachScreening, servedScreeningExtras } from './outreachServed'
+import { noteOutreachScreening, recordedChecksServed, servedScreeningExtras } from './outreachServed'
 import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
 
 /*
@@ -51,6 +51,8 @@ export const SCREENING_INVALID = 'Health ID couldn’t accept these health check
 export const SCREENING_CLASH = 'This save clashed with an earlier one. Check the health checks, then press Save again.'
 export const SCREENING_FAILED = 'The health checks could not be saved. Please retry.'
 export const SCREENING_NOT_LOADED = 'Health checks could not be loaded.'
+/** A first save with nothing filled in, while Outreach does not yet say which registrations hold checks. */
+export const NOTHING_TO_SAVE = 'Enter at least one health check before saving.'
 export const SCREENING_CLEAR_HOW = 'To remove these checks, write why in Outcome or advice (for example, entered on the wrong person), then save.'
 export const GLUCOSE_HINT = 'Like 5.6 mmol/L or 101 mg/dL. Choose the unit shown on the meter. If it shows HI or LO, leave the reading empty, write HI or LO in Outcome or advice and tell a clinician.'
 export const MALARIA_HINT = 'If the test was invalid (no control line), do it again with a new test. If you can’t, choose Not done.'
@@ -292,9 +294,11 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
     const { input, errors, empty } = checkScreening(form, extras)
     if (Object.keys(errors).length) { refuse(errors); return }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    // Nothing is required: a first save with nothing filled in is still saved (owner, 14 Nov 2026). Saved checks can't be
-    // cleared here, though (Outreach keeps a screening once recorded): say how to mark them instead.
+    // Nothing is required: a first save with nothing filled in is still saved (owner, 14 Nov 2026), once Outreach says
+    // which registrations hold checks (hasRecordedChecks), so the slip and the export never call it "recorded". Saved
+    // checks can't be cleared here, though (Outreach keeps a screening once recorded): say how to mark them instead.
     if (empty && read.screening) { setFormError(SCREENING_CLEAR_HOW); focus(errorId); return }
+    if (empty && !recordedChecksServed()) { setFormError(NOTHING_TO_SAVE); focus(errorId); return }
     void send(input, read.screening?.version)
   }
 

@@ -10,8 +10,11 @@ import type { OutreachCase, OutreachScreeningExtra } from '../../../staff/api'
  * - Health ID with no email (0120): registrations carry `healthIdStatus`, unless its route answered 404 (not served),
  *   which then holds for the session.
  * - Genotype and blood group in health checks (0122): a health checks read or save answers `accepts` naming them, or
- *   its screening carries the `genotype` and `bloodGroup` keys, or registrations carry them. Until then they are neither
- *   shown nor sent: an earlier Outreach refuses a field it does not know (400 VALIDATION_FAILED).
+ *   its screening carries the `genotype` and `bloodGroup` keys. Until then they are neither shown nor sent: an earlier
+ *   Outreach refuses a field it does not know (400 VALIDATION_FAILED). Registrations never carry them.
+ * - Whether checks were recorded (with 0122's change): registrations carry `hasRecordedChecks`. Only then is a first
+ *   health checks save with nothing filled in sent, since only then do the slip and the export tell it apart from
+ *   checks that were done.
  *
  * Each is true once seen (served), false while only answers without it have been seen, and undefined while nothing
  * has been seen. Copy only: Outreach decides what it takes.
@@ -23,6 +26,7 @@ let healthChecks: Known
 let emailHealthId: Known
 let unverifiedHealthId: Known
 let unverifiedRefused = false
+let recordedChecks: Known
 const screeningExtras = new Set<OutreachScreeningExtra>()
 const EXTRAS: readonly OutreachScreeningExtra[] = ['genotype', 'bloodGroup']
 
@@ -33,7 +37,12 @@ export function noteOutreachRegistrations(items: readonly OutreachCase[] | null 
   healthChecks = healthChecks || carry('hasScreening')
   emailHealthId = emailHealthId || carry('healthId')
   unverifiedHealthId = !unverifiedRefused && (unverifiedHealthId || carry('healthIdStatus'))
-  for (const key of EXTRAS) if (carry(key)) screeningExtras.add(key)
+  recordedChecks = recordedChecks || carry('hasRecordedChecks')
+}
+
+/** Whether registrations say if their health checks hold any check (`hasRecordedChecks`), as seen this session. */
+export function recordedChecksServed(): boolean {
+  return recordedChecks === true
 }
 
 /**
@@ -86,5 +95,6 @@ export function forgetOutreachServed(): void {
   emailHealthId = undefined
   unverifiedHealthId = undefined
   unverifiedRefused = false
+  recordedChecks = undefined
   screeningExtras.clear()
 }

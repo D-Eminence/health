@@ -189,6 +189,15 @@ const GLUCOSE_RANGE: Readonly<Record<OutreachGlucoseUnit, { low: number; high: n
 }
 
 /** The fields an Outreach may not take yet (0122), in the order they are sent. */
+/**
+ * Whether a registration's health checks hold at least one check: `hasRecordedChecks` when Outreach answers it (false
+ * for a form saved with nothing filled in), else `hasScreening` (an earlier Outreach, where an empty save was never sent).
+ * The slip, the export, the list badge, the numbers and the "No health checks yet" tab all say "recorded" only on this.
+ */
+export function checksRecorded(item: { readonly hasScreening?: unknown; readonly hasRecordedChecks?: unknown }): boolean {
+  return typeof item.hasRecordedChecks === 'boolean' ? item.hasRecordedChecks : item.hasScreening === true
+}
+
 export const SCREENING_EXTRAS: readonly OutreachScreeningExtra[] = ['genotype', 'bloodGroup']
 
 /** The extra fields a screening as sent carries: those Outreach was known to take when it was made. */
