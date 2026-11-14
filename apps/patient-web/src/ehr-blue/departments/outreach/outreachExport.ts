@@ -334,10 +334,10 @@ export interface ScreeningsRead {
  * Reads the health checks of each registration that has them (hasScreening true), SCREENING_READS_AT_ONCE at a time,
  * never all at once. A read that fails leaves that person's out (counted in `failed`) and the rest go on; once
  * SCREENING_FAILURES_TO_STOP have failed one after another, the rest are not tried and are counted as failed too.
- * `onProgress` is told how many are done of how many.
+ * `onProgress` is told how many are done of how many. Once `signal` is aborted (the person pressed Cancel), no more are tried.
  */
 export async function readScreenings(cases: readonly OutreachCase[], readOne: (caseId: string) => Promise<{ screening: OutreachScreening | null }>,
-  onProgress: (done: number, total: number) => void = () => {}): Promise<ScreeningsRead> {
+  onProgress: (done: number, total: number) => void = () => {}, signal?: AbortSignal): Promise<ScreeningsRead> {
   const wanted = cases.filter(item => item.hasScreening === true).map(item => item.id)
   const screenings = new Map<string, OutreachScreening | null>()
   let failed = 0
@@ -346,7 +346,7 @@ export async function readScreenings(cases: readonly OutreachCase[], readOne: (c
   let next = 0
   if (wanted.length > 0) onProgress(0, wanted.length)
   async function worker() {
-    while (next < wanted.length) {
+    while (next < wanted.length && !signal?.aborted) {
       const caseId = wanted[next]!
       next += 1
       if (failedInARow >= SCREENING_FAILURES_TO_STOP) {

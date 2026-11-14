@@ -39,25 +39,51 @@ export interface OutreachTotals {
  * first page again (`firstPage` is a new page then: the minute's refresh, Refresh, a new registration), so never more
  * often than the list. Only while older registrations are left to read: when the first page has everything, the list's
  * own count is the total. A read that fails keeps the last numbers read; null until one is read.
+ *
+ * One read at a time: a request cannot be cancelled, so a new first page while a read is running (an outreach group's
+ * queue sending one registration after another) only asks for one more read once it ends, and the running read's
+ * numbers are kept (older but whole numbers beat none).
  */
 export function useOutreachTotals(facilityId: string | undefined, enabled: boolean, firstPage: OutreachCasesPage | null,
   campaignId?: string): OutreachTotals | null {
   const key = `${facilityId ?? ''}\u0000${campaignId ?? ''}`
   const [read, setRead] = useState<{ key: string; totals: OutreachTotals } | null>(null)
-  const request = useRef(0)
   const needed = Boolean(facilityId && enabled && firstPage?.nextCursor)
+  /** What the page asks for now: a read that ends looks here, to keep its numbers and to know whether to read again. */
+  const wanted = useRef({ needed, facilityId, campaignId, key })
+  const running = useRef(false)
+  /** A new first page came while a read was running: read once more when it ends. */
+  const again = useRef(false)
+  const mounted = useRef(true)
   useEffect(() => {
-    if (!needed || !facilityId) return undefined
-    const seq = ++request.current
-    readAllCases(before => staffApi.outreachCasesPage(facilityId, { limit: EXPORT_PAGE_SIZE, before, ...(campaignId ? { campaignId } : {}) }))
-      .then(all => {
-        if (seq !== request.current) return
-        const rows = campaignId ? all.cases.filter(item => item.campaignId === campaignId) : all.cases
-        setRead({ key, totals: { counted: outreachNumbers(rows), capped: all.capped, latestOnly: all.latestOnly } })
-      }, () => {
-        // Nothing to say: the last numbers read stay until a read succeeds.
-      })
-    return () => { request.current += 1 }
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+  useEffect(() => {
+    wanted.current = { needed, facilityId, campaignId, key }
+    if (!needed || !facilityId) return
+    if (running.current) {
+      again.current = true
+      return
+    }
+    const start = (facility: string, campaign: string | undefined, readKey: string) => {
+      running.current = true
+      again.current = false
+      readAllCases(before => staffApi.outreachCasesPage(facility, { limit: EXPORT_PAGE_SIZE, before, ...(campaign ? { campaignId: campaign } : {}) }))
+        .then(all => {
+          if (!mounted.current || wanted.current.key !== readKey) return
+          const rows = campaign ? all.cases.filter(item => item.campaignId === campaign) : all.cases
+          setRead({ key: readKey, totals: { counted: outreachNumbers(rows), capped: all.capped, latestOnly: all.latestOnly } })
+        }, () => {
+          // Nothing to say: the last numbers read stay until a read succeeds.
+        })
+        .finally(() => {
+          running.current = false
+          const now = wanted.current
+          if (again.current && mounted.current && now.needed && now.facilityId) start(now.facilityId, now.campaignId, now.key)
+        })
+    }
+    start(facilityId, campaignId, key)
   }, [needed, facilityId, campaignId, firstPage, key])
   return read && read.key === key ? read.totals : null
 }

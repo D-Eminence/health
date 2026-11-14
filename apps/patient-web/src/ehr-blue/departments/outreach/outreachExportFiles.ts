@@ -1,3 +1,4 @@
+import type { jsPDF } from 'jspdf'
 import type { ExportMeta, ExportTable } from './outreachExport'
 
 /*
@@ -95,18 +96,44 @@ function wordRuns(value: string, properties: string) {
     `<w:r>${properties ? `<w:rPr>${properties}</w:rPr>` : ''}${index ? '<w:br/>' : ''}<w:t xml:space="preserve">${xmlText(line)}</w:t></w:r>`).join('')
 }
 
-/** A4 landscape, in twentieths of a point, with half-inch margins. */
-const PAGE = { width: 16838, height: 11906, margin: 720 }
+/** The longest word in a column (heading and cells), in characters, up to 30: what a cell is kept wide enough for. */
+function longestWord(table: ExportTable, index: number) {
+  let longest = 0
+  for (const value of [table.headings[index] ?? '', ...table.rows.map(row => row[index] ?? '')]) {
+    for (const word of value.split(/\s+/)) longest = Math.max(longest, [...word].length)
+  }
+  return Math.min(30, longest)
+}
+
+/** Word's pages, in twentieths of a point, landscape: A4, A3, then as wide as Word allows (22 inches). Half-inch margins. */
+const WORD_PAGES = [{ width: 16838, height: 11906 }, { width: 23811, height: 16838 }, { width: 31680, height: 16838 }] as const
+const WORD_MARGIN = 720
+/** About one character of 8 pt text, and a cell's padding and border, in twentieths of a point. */
+const WORD_CHARACTER = 95
+const WORD_CELL_PADDING = 160
 
 /**
- * The table as a Word document: A4 landscape, the title and what the file holds above a bordered table whose heading
- * row repeats on every page.
+ * The Word table's page and column widths: each column at least as wide as its longest word (so a word is never cut in
+ * two, "Tempera" / "ture"), on the smallest page that holds them all (A4, then A3, then wider); the room left is shared
+ * as the columns' lengths ask.
  */
-export async function docxBytes(table: ExportTable, meta: ExportMeta): Promise<Uint8Array<ArrayBuffer>> {
-  const usable = PAGE.width - 2 * PAGE.margin
+export function wordLayout(table: ExportTable): { page: { width: number; height: number }; widths: number[] } {
+  const least = table.headings.map((_, index) => longestWord(table, index) * WORD_CHARACTER + WORD_CELL_PADDING)
+  const needed = least.reduce((sum, width) => sum + width, 0)
+  const page = WORD_PAGES.find(option => option.width - 2 * WORD_MARGIN >= needed) ?? WORD_PAGES[WORD_PAGES.length - 1]!
+  const usable = page.width - 2 * WORD_MARGIN
+  if (needed > usable) return { page, widths: least.map(width => Math.floor((width * usable) / needed)) }
   const weights = table.headings.map((_, index) => widthOf(table, index))
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1
-  const widths = weights.map(weight => Math.floor((usable * weight) / total))
+  return { page, widths: least.map((width, index) => width + Math.floor(((usable - needed) * weights[index]!) / total)) }
+}
+
+/**
+ * The table as a Word document: landscape (A4, or a larger page when the columns need it), the title and what the file
+ * holds above a bordered table whose heading row repeats on every page.
+ */
+export async function docxBytes(table: ExportTable, meta: ExportMeta): Promise<Uint8Array<ArrayBuffer>> {
+  const { page, widths } = wordLayout(table)
   const border = (side: string) => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="9AA4B2"/>`
   const tableCell = (value: string, index: number, heading: boolean) => `<w:tc><w:tcPr><w:tcW w:w="${widths[index]}" w:type="dxa"/>`
     + `${heading ? '<w:shd w:val="clear" w:color="auto" w:fill="E7EEF7"/>' : ''}</w:tcPr>`
@@ -121,8 +148,8 @@ export async function docxBytes(table: ExportTable, meta: ExportMeta): Promise<U
     + '<w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="60" w:type="dxa"/>'
     + '<w:bottom w:w="40" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tblCellMar></w:tblPr>'
     + `<w:tblGrid>${widths.map(width => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>${head}${body.join('')}</w:tbl><w:p/>`
-    + `<w:sectPr><w:pgSz w:w="${PAGE.width}" w:h="${PAGE.height}" w:orient="landscape"/>`
-    + `<w:pgMar w:top="${PAGE.margin}" w:right="${PAGE.margin}" w:bottom="${PAGE.margin}" w:left="${PAGE.margin}" w:header="360" w:footer="360" w:gutter="0"/>`
+    + `<w:sectPr><w:pgSz w:w="${page.width}" w:h="${page.height}" w:orient="landscape"/>`
+    + `<w:pgMar w:top="${WORD_MARGIN}" w:right="${WORD_MARGIN}" w:bottom="${WORD_MARGIN}" w:left="${WORD_MARGIN}" w:header="360" w:footer="360" w:gutter="0"/>`
     + '</w:sectPr></w:body></w:document>'
   return zip({
     '[Content_Types].xml': `${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
@@ -162,11 +189,55 @@ export function pdfText(value: string): string {
 const base64Of = (dataUrl: string) => dataUrl.slice(dataUrl.indexOf(',') + 1)
 export const PDF_FONT = 'NotoSans'
 
+/** The PDF table's text size and cell padding, in points. */
+const PDF_FONT_SIZE = 7
+const PDF_CELL_PADDING = 3
+/** The widest a PDF column is made for its longest line, in points; a longer line wraps between words. */
+const PDF_COLUMN_MOST = 170
+
+/**
+ * Each PDF column's widths, in points: `least`, its longest word (narrower would cut a word in two), and `ample`, its
+ * longest line up to PDF_COLUMN_MOST (never less than `least`). `measure` gives the width of words in the table's font
+ * (bold for a heading).
+ */
+export function pdfColumnWidths(table: ExportTable, measure: (words: string, bold: boolean) => number): { least: number[]; ample: number[] } {
+  const known = new Map<string, number>()
+  const width = (words: string, bold: boolean) => {
+    const key = `${bold ? 'b' : 'n'}${words}`
+    let found = known.get(key)
+    if (found === undefined) known.set(key, found = measure(words, bold))
+    return found
+  }
+  const columns = table.headings.map((heading, index) => {
+    let word = 0
+    let line = 0
+    const look = (value: string, bold: boolean) => {
+      for (const part of value.split('\n')) {
+        if (!part) continue
+        line = Math.max(line, width(part, bold))
+        for (const piece of part.split(/\s+/)) if (piece) word = Math.max(word, width(piece, bold))
+      }
+    }
+    look(heading, true)
+    for (const row of table.rows) look(row[index] ?? '', false)
+    const least = Math.min(word, 2 * PDF_COLUMN_MOST)
+    const padded = (inner: number) => Math.ceil(inner + 2 * PDF_CELL_PADDING + 1)
+    return { least: padded(least), ample: padded(Math.max(least, Math.min(line, PDF_COLUMN_MOST))) }
+  })
+  return { least: columns.map(column => column.least), ample: columns.map(column => column.ample) }
+}
+
 /**
  * The table as a PDF: A4 landscape, the title and what the file holds above a table whose heading row repeats on every
- * page, and "Page 1 of 3" at the foot of each page.
+ * page, and "Page 1 of 3" at the foot of each page. A table too wide for the page (health check results add many
+ * columns) is not squeezed letter by letter: its columns go on across further pages, the person's name on each.
  */
 export async function pdfBytes(table: ExportTable, meta: ExportMeta): Promise<ArrayBuffer> {
+  return (await pdfDocument(table, meta)).output('arraybuffer')
+}
+
+/** The PDF as jsPDF holds it (pdfBytes writes it out). */
+export async function pdfDocument(table: ExportTable, meta: ExportMeta): Promise<jsPDF> {
   // The font is part of this chunk's lazy imports: only a PDF export loads it (about 250 kB with both weights).
   const [{ jsPDF }, { autoTable }, regular, bold] = await Promise.all([import('jspdf'), import('jspdf-autotable'),
     import('./fonts/NotoSans-Regular.ttf?inline'), import('./fonts/NotoSans-Bold.ttf?inline')])
@@ -185,14 +256,31 @@ export async function pdfBytes(table: ExportTable, meta: ExportMeta): Promise<Ar
   doc.setFontSize(9)
   const subtitle = doc.splitTextToSize(pdfText(meta.subtitle), width - 2 * margin) as string[]
   doc.text(subtitle, margin, margin + 24)
+  doc.setFontSize(PDF_FONT_SIZE)
+  let bolded: boolean | undefined
+  const { least, ample } = pdfColumnWidths(table, (words, bold) => {
+    if (bold !== bolded) doc.setFont(PDF_FONT, bold ? 'bold' : 'normal')
+    bolded = bold
+    return doc.getTextWidth(pdfText(words))
+  })
+  doc.setFont(PDF_FONT, 'normal')
+  // Too wide only when even each column's longest word cannot fit across the page; otherwise the table fits as before.
+  const wide = least.reduce((sum, columnWidth) => sum + columnWidth, 0) > width - 2 * margin
+  const name = table.headings.indexOf('Full name')
   autoTable(doc, {
     head: [table.headings.map(pdfText)],
     body: table.rows.map(row => row.map(pdfText)),
     startY: margin + 30 + subtitle.length * 11,
     margin: { top: margin, left: margin, right: margin, bottom: margin + 10 },
     theme: 'grid',
-    styles: { font: PDF_FONT, fontSize: 7, cellPadding: 3, overflow: 'linebreak', valign: 'top' },
+    styles: { font: PDF_FONT, fontSize: PDF_FONT_SIZE, cellPadding: PDF_CELL_PADDING, overflow: 'linebreak', valign: 'top' },
     headStyles: { fillColor: [231, 238, 247], textColor: [16, 24, 40], fontStyle: 'bold' },
+    ...(wide ? {
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: name >= 0 ? name : 0,
+      horizontalPageBreakBehaviour: 'immediately' as const,
+      columnStyles: Object.fromEntries(ample.map((columnWidth, index) => [index, { cellWidth: columnWidth }])),
+    } : {}),
   })
   const pages = doc.getNumberOfPages()
   doc.setFontSize(8)
@@ -200,5 +288,5 @@ export async function pdfBytes(table: ExportTable, meta: ExportMeta): Promise<Ar
     doc.setPage(page)
     doc.text(`Page ${page} of ${pages}`, width - margin, height - margin / 2, { align: 'right' })
   }
-  return doc.output('arraybuffer')
+  return doc
 }

@@ -320,6 +320,53 @@ describe('Outreach export', () => {
       expect(saved.saveFile).toHaveBeenCalledTimes(1)
     })
 
+    it('stops on Cancel while health checks are being read: no more reads, nothing saved, and a new export works', async () => {
+      const MANY = Array.from({ length: 12 }, (_, i) => screened(`case-${i}`, `Patient ${i}`, 50 - i))
+      api.outreachCasesPage.mockResolvedValue({ items: MANY, nextCursor: null })
+      const waiting: Array<() => void> = []
+      const signals: Array<AbortSignal | undefined> = []
+      api.outreachScreening.mockImplementation((_facility: string, caseId: string, signal?: AbortSignal) => {
+        signals.push(signal)
+        return new Promise(resolve => { waiting.push(() => resolve(stored(caseId, { pulseBpm: 70 }))) })
+      })
+      render(<OutreachExport cases={MANY} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(within(dialog()).getByText('Reading health checks 0 of 12…')).toBeTruthy()
+      expect(api.outreachScreening).toHaveBeenCalledTimes(3)
+      const cancel = within(dialog()).getByRole('button', { name: 'Cancel' }) as HTMLButtonElement
+      expect(cancel.disabled).toBe(false)
+      await press(cancel)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(signals.every(signal => signal?.aborted === true)).toBe(true)
+      // The reads already sent end: no more are sent, and no file is made.
+      await act(async () => { while (waiting.length) waiting.shift()!() })
+      expect(api.outreachScreening).toHaveBeenCalledTimes(3)
+      expect(saved.saveFile).not.toHaveBeenCalled()
+      expect(api.recordOutreachExport).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(exportButton())
+
+      // Export again: it starts afresh and saves.
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => stored(caseId, { pulseBpm: 70 }))
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      expect(api.outreachScreening).toHaveBeenCalledTimes(3 + 12)
+    })
+
+    it('saves nothing when Escape is pressed while the registrations are being read', async () => {
+      let answer: (page: { items: OutreachCase[]; nextCursor: null }) => void = () => {}
+      api.outreachCasesPage.mockImplementation(() => new Promise(resolve => { answer = resolve }))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await act(async () => { answer({ items: PEOPLE, nextCursor: null }) })
+      expect(api.outreachScreening).not.toHaveBeenCalled()
+      expect(saved.saveFile).not.toHaveBeenCalled()
+    })
+
     it('reads no health checks when the registrations could not be read', async () => {
       api.outreachCasesPage.mockRejectedValue(new TypeError('Failed to fetch'))
       render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { pdfBytes } from '../../../../ehr-blue/departments/outreach/outreachExportFiles'
+import { pdfBytes, pdfDocument, pdfText } from '../../../../ehr-blue/departments/outreach/outreachExportFiles'
+import { rowsFor, type ExportCase } from '../../../../ehr-blue/departments/outreach/outreachExport'
+import type { OutreachScreening } from '../../../../staff/api'
 
 /*
  * The PDF as jsPDF really writes it (no stand-in): Noto Sans is embedded, and the names' letters are in it as written,
@@ -34,5 +36,54 @@ describe('the PDF export', () => {
     // ọ ẹ ṣ, the grave, acute and macron tone marks, and Hausa's hooked letters among them.
     expect(needed).toEqual(expect.arrayContaining(['1ECD', '1EB8', '1E62', '0300', '0301', '0304', '0181', '018A', '0198', '01B3']))
     expect(needed.filter(code => !mapped.has(code))).toEqual([])
+  })
+
+  it('goes on across pages rather than cutting words when health check results make the table wide', async () => {
+    const screening: OutreachScreening = {
+      bpSystolic: 120, bpDiastolic: 80, pulseBpm: 72, temperatureC: 36.8, weightKg: 64.5, heightCm: 165, glucoseValue: 5.4, glucoseUnit: 'mmol/L',
+      glucoseTiming: 'fasting', malariaRdt: 'negative', hearingLeft: 'refer', hearingRight: 'refer', mainComplaint: 'Headache for 3 days',
+      seenByClinician: true, clinicianName: 'Demo Nurse', outcome: 'Genotype: AS. Blood group: O+. Drink more water and rest.',
+      medicinesGiven: [{ name: 'Paracetamol', dose: '500 mg' }], referred: true, referredTo: 'Demo General Hospital',
+      caseId: 'case-1', version: 1, recordedAt: '2026-11-14T10:00:00.000Z', recordedByMembershipId: 'membership-1', updatedAt: '2026-11-14T10:00:00.000Z',
+    }
+    const people: ExportCase[] = Array.from({ length: 10 }, (_, i) => ({
+      id: `case-${i}`, campaignId: 'campaign-1', status: 'identity_resolution_pending', fullName: `Patient Number ${i}`, ageYears: 34, sex: 'female',
+      phone: '+2348000000001', address: '12 Demo Street, Ibadan', createdAt: '2026-11-14T09:30:00.000Z', rowVersion: 1, hasScreening: true,
+      healthId: 'HID-AB12CD', healthIdCreatedByOutreach: true, registeredByName: 'Demo Volunteer', operationalNotes: 'Came with her mother.',
+      screening,
+    }))
+    const context = { campaignOf: () => ({ name: 'Demo screening week' }) }
+    type Row = { cells: Record<number, { text: string[]; raw: unknown }> }
+    type Drawn = { lastAutoTable: { head: Row[]; body: Row[]; settings: { horizontalPageBreak: boolean } } }
+    /** Every piece of a line drawn in a cell that is not a whole word of what the cell holds. */
+    const cutWords = (drawn: Drawn['lastAutoTable']) => {
+      const cut: string[] = []
+      for (const row of [...drawn.head, ...drawn.body]) {
+        for (const cell of Object.values(row.cells)) {
+          const words = new Set(pdfText(String(cell.raw)).split(/\s+/))
+          for (const line of cell.text) for (const piece of line.split(/\s+/)) if (piece && !words.has(piece)) cut.push(`${String(cell.raw)} → ${piece}`)
+        }
+      }
+      return cut
+    }
+
+    const table = rowsFor(people, context)
+    expect(table.headings).toContain('Hearing left')
+    const doc = await pdfDocument(table, { title: 'Outreach registrations', subtitle: '10 registrations.' })
+    const drawn = (doc as unknown as Drawn).lastAutoTable
+    // "Didn’t pass (needs a full hearing test)" and "Temperature (°C)" are never broken inside a word.
+    expect(cutWords(drawn)).toEqual([])
+    expect(drawn.settings.horizontalPageBreak).toBe(true)
+    // A few pages, not one letter per line over dozens.
+    expect(doc.getNumberOfPages()).toBeLessThanOrEqual(4)
+
+    // Without health check results the table fits across one page as it always has.
+    const plain = rowsFor(people.map(({ screening: _, ...item }) => ({ ...item, hasScreening: false })), context)
+    expect(plain.headings).not.toContain('Hearing left')
+    const plainDoc = await pdfDocument(plain, { title: 'Outreach registrations', subtitle: '10 registrations.' })
+    const plainDrawn = (plainDoc as unknown as Drawn).lastAutoTable
+    expect(plainDrawn.settings.horizontalPageBreak).toBe(false)
+    expect(cutWords(plainDrawn)).toEqual([])
+    expect(plainDoc.getNumberOfPages()).toBe(1)
   })
 })

@@ -106,6 +106,31 @@ describe('registration numbers on Outreach', () => {
     expect(totalsReads()).toHaveLength(2)
   })
 
+  it('runs one read of every registration at a time, keeps its numbers, and reads once more after list reads that came meanwhile', async () => {
+    const waiting: Array<(answer: { items: ReturnType<typeof rows>; nextCursor: string | null }) => void> = []
+    everyone = () => new Promise(resolve => { waiting.push(resolve) })
+    renderDept(<Outreach />)
+    await screen.findByRole('list', { name: 'Registrations' })
+    await waitFor(() => expect(totalsReads()).toHaveLength(1))
+
+    // The list is read again three times (a queue of registrations sending, Refresh) while that read is still running.
+    for (let i = 0; i < 3; i += 1) await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })) })
+    await act(async () => { await Promise.resolve() })
+    expect(api.outreachCasesPage.mock.calls.filter(call => (call[1] as { limit?: number }).limit !== 500).length).toBeGreaterThanOrEqual(4)
+    expect(totalsReads()).toHaveLength(1)
+    expect(numbers()).toContain('Registered100')
+
+    // It ends: its numbers are shown (not thrown away), and one more read starts, only one.
+    await act(async () => { waiting.shift()!({ items: rows(1, 138), nextCursor: null }) })
+    await waitFor(() => expect(numbers()).toContain('Registered138'))
+    await waitFor(() => expect(totalsReads()).toHaveLength(2))
+    await act(async () => { waiting.shift()!({ items: rows(1, 140), nextCursor: null }) })
+    await waitFor(() => expect(numbers()).toContain('Registered140'))
+    await act(async () => { await Promise.resolve() })
+    expect(totalsReads()).toHaveLength(2)
+    expect(waiting).toHaveLength(0)
+  })
+
   it('counts what is loaded, and says so, until every registration is read', async () => {
     everyone = () => new Promise(() => {})
     renderDept(<Outreach />)

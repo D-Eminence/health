@@ -5,7 +5,7 @@ import {
   readAllCases, readScreenings, screeningsFailed, SCREENING_FAILURES_TO_STOP, EXPORT_CAPPED, EXPORT_LATEST_100,
   buildExport, exportFileName, exportMeta, OUTREACH_EXPORT_COLUMNS, rowsFor, safeCell, slug, toCsv, UTF8_BOM, type ExportCase, type ExportContext,
 } from '../../../../ehr-blue/departments/outreach/outreachExport'
-import { columnName, docxBytes, pdfText, xlsxBytes, xmlText } from '../../../../ehr-blue/departments/outreach/outreachExportFiles'
+import { columnName, docxBytes, pdfText, wordLayout, xlsxBytes, xmlText } from '../../../../ehr-blue/departments/outreach/outreachExportFiles'
 
 /*
  * Outreach export: the columns (one list for every format), CSV as RFC 4180 with a UTF-8 byte order mark and no
@@ -31,6 +31,7 @@ vi.mock('jspdf', () => ({
     setPage() {}
     text(...args: unknown[]) { pdf.text(...args) }
     splitTextToSize(value: string) { return [value] }
+    getTextWidth(value: string) { return value.length * 3.5 }
     getNumberOfPages() { return 2 }
     output() { return new TextEncoder().encode('%PDF-fake').buffer }
   },
@@ -216,6 +217,24 @@ describe('Word', () => {
     expect(strFromU8(files['[Content_Types].xml']!)).toContain('wordprocessingml.document.main+xml')
   })
 
+  it('keeps every word whole: a wide table gets a larger page, never columns too narrow for their words', async () => {
+    const few = wordLayout({ headings: ['Full name', 'Notes'], rows: [['Adébáyọ̀', 'Line one']] })
+    expect(few.page).toEqual({ width: 16838, height: 11906 })
+    const wordsWide = (word: string) => [...word].length * 95 + 160
+    const headings = ['Full name', ...HEALTH_CHECK_HEADINGS, 'Phone number', 'Campaign', 'Registered on', 'Registered by', 'Status', 'Health ID',
+      'Area or address', 'Age (years)', 'Sex', 'Notes for the team']
+    const row = headings.map(heading => (heading.startsWith('Hearing') ? 'Didn’t pass (needs a full hearing test)' : `${heading} value`))
+    const wide = wordLayout({ headings, rows: [row] })
+    expect(wide.page.width).toBeGreaterThan(16838)
+    headings.forEach((heading, index) => {
+      const longest = Math.max(...[heading, row[index]!].flatMap(value => value.split(/\s+/)).map(wordsWide))
+      expect(wide.widths[index]).toBeGreaterThanOrEqual(longest)
+    })
+    expect(wide.widths.reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(wide.page.width - 2 * 720)
+    const document = strFromU8(unzipSync(await docxBytes({ headings, rows: [row] }, { title: 'T', subtitle: 'S' }))['word/document.xml']!)
+    expect(document).toContain(`<w:pgSz w:w="${wide.page.width}" w:h="${wide.page.height}" w:orient="landscape"/>`)
+  })
+
   it('keeps Word text as written: a spreadsheet does not run it', async () => {
     const document = strFromU8(unzipSync(await docxBytes({ headings: ['Phone'], rows: [['+234']] }, { title: 'T', subtitle: 'S' }))['word/document.xml']!)
     expect(document).toContain('>+234<')
@@ -237,7 +256,9 @@ describe('PDF', () => {
     // A TrueType file starts 00 01 00 00.
     for (const data of pdf.files.values()) expect([...atob(data.slice(0, 8)).slice(0, 4)].map(c => c.charCodeAt(0))).toEqual([0, 1, 0, 0])
     expect(pdf.added).toEqual([['NotoSans-Regular.ttf', 'NotoSans', 'normal'], ['NotoSans-Bold.ttf', 'NotoSans', 'bold']])
-    expect(pdf.fonts).toEqual([['NotoSans', 'bold'], ['NotoSans', 'normal']])
+    // The title in bold, then the text; the columns are measured in the same font.
+    expect(pdf.fonts.slice(0, 2)).toEqual([['NotoSans', 'bold'], ['NotoSans', 'normal']])
+    expect(pdf.fonts.every(([name]) => name === 'NotoSans')).toBe(true)
     const texts = pdf.text.mock.calls.map(call => call[0])
     expect(texts).toContain('Outreach registrations: Demo')
     expect(texts).toEqual(expect.arrayContaining(['Page 1 of 2', 'Page 2 of 2']))
@@ -278,6 +299,16 @@ describe('reading every page', () => {
     expect(result.cases).toHaveLength(10000)
     expect(result.capped).toBe(true)
     expect(EXPORT_CAPPED).toBe('Showing the first 10,000 registrations. The file holds only these.')
+  })
+
+  it('goes on across pages, the name on each, when the columns cannot fit across one page', async () => {
+    const headings = ['Phone number', 'Full name', ...HEALTH_CHECK_HEADINGS]
+    await buildExport('pdf', { headings, rows: [headings.map(() => 'A-very-long-word-that-cannot-break')] }, { title: 'T', subtitle: 'S' })
+    expect(pdf.autoTable).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      horizontalPageBreak: true, horizontalPageBreakRepeat: 1, columnStyles: expect.objectContaining({ 0: { cellWidth: expect.any(Number) } }),
+    }))
+    await buildExport('pdf', { headings: ['Full name', 'Sex'], rows: [['Patient One', 'Female']] }, { title: 'T', subtitle: 'S' })
+    expect(pdf.autoTable.mock.lastCall![1]).not.toHaveProperty('horizontalPageBreak')
   })
 
   it('marks exactly 100 rows with no cursor as an older Outreach’s newest 100, and fewer as complete', async () => {
@@ -381,6 +412,17 @@ describe('health check results', () => {
     const read = await readScreenings(cases, readOne)
     expect(read.failed).toBe(20)
     expect(readOne.mock.calls.length).toBeLessThanOrEqual(SCREENING_FAILURES_TO_STOP + 2)
+  })
+
+  it('tries no more once the export is stopped', async () => {
+    const cases = Array.from({ length: 10 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+    const stop = new AbortController()
+    const readOne = vi.fn(async (caseId: string) => {
+      if (caseId === 'case-1') stop.abort()
+      return { screening: screening({ caseId }) }
+    })
+    await readScreenings(cases, readOne, () => {}, stop.signal)
+    expect(readOne.mock.calls.length).toBeLessThanOrEqual(3)
   })
 
   it('reads nothing when no one has health checks', async () => {
