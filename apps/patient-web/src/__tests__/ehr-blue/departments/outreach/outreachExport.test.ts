@@ -59,12 +59,12 @@ const HEALTH_CHECK_HEADINGS = ['Blood pressure', 'Pulse', 'Temperature (°C)', '
   'Medicines given', 'Referred', 'Referred to']
 
 describe('the columns', () => {
-  it('writes the core columns in words, newest first, with no internal id or code', () => {
-    const table = rowsFor([older, basic], context)
-    expect(table.headings).toEqual(['Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
-    expect(table.rows[0]).toEqual(['Adébáyọ̀ Ọlọ́run', 'Female', '34', '+2348000000001', 'Demo screening week',
+  it('writes the core columns in words, the first registered first and numbered, with no internal id or code', () => {
+    const table = rowsFor([basic, older], context)
+    expect(table.headings).toEqual(['No.', 'Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
+    expect(table.rows[0]).toEqual(['1', 'Patient Two', 'Male', '51', '', 'No campaign', expect.stringMatching(/^13 Nov 2026/), 'Linked'])
+    expect(table.rows[1]).toEqual(['2', 'Adébáyọ̀ Ọlọ́run', 'Female', '34', '+2348000000001', 'Demo screening week',
       expect.stringMatching(/^14 Nov 2026, \d{2}:\d{2}$/), 'Waiting to link'])
-    expect(table.rows[1]).toEqual(['Patient Two', 'Male', '51', '', 'No campaign', expect.stringMatching(/^13 Nov 2026/), 'Linked'])
     const all = JSON.stringify(table)
     for (const hidden of ['c0a5e000', 'tmp_', 'identity_resolution_pending', 'campaign-1', 'rowVersion']) expect(all).not.toContain(hidden)
   })
@@ -77,9 +77,10 @@ describe('the columns', () => {
       operationalNotes: 'Needs a follow-up call, please',
     }
     const table = rowsFor([full, older], context)
-    // Every column but the health check results, which come only with a screening read for the file (below).
-    expect(table.headings).toEqual(OUTREACH_EXPORT_COLUMNS.map(column => column.heading).filter(heading => !HEALTH_CHECK_HEADINGS.includes(heading)))
-    const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[0]![index]]))
+    // The number, then every column but the health check results, which come only with a screening read for the file (below).
+    expect(table.headings).toEqual(['No.', ...OUTREACH_EXPORT_COLUMNS.map(column => column.heading).filter(heading => !HEALTH_CHECK_HEADINGS.includes(heading))])
+    // The older registration is first.
+    const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[1]![index]]))
     expect(row).toMatchObject({
       'Date of birth': '4 Mar 2012', 'Area or address': 'Ward 3, Ibadan North', 'Registered by': 'Demo Enumerator', 'Health ID': 'HID-ZDEMAAA2', 'Health ID made at outreach': 'Yes',
       'Health check done': 'No', 'Possible duplicate': 'Yes', 'Parent or guardian': 'Demo Guardian', 'Parent or guardian’s relationship': 'Mother',
@@ -87,10 +88,11 @@ describe('the columns', () => {
       'Notice version': 'notice-2026-11', 'Notes for the team': 'Needs a follow-up call, please',
     })
     expect(Number(row['Age (years)'])).toBeGreaterThanOrEqual(14)
+    expect(row['No.']).toBe('2')
     // The other registration has none of them: its cells are empty, not "undefined".
-    expect(table.rows[1]!.filter(cell => cell === '')).toHaveLength(table.headings.length - 6)
+    expect(table.rows[0]!.filter(cell => cell === '')).toHaveLength(table.headings.length - 7)
     // Absent on its own row, "Health ID made at outreach" is said only where it was sent.
-    expect(table.rows[1]![table.headings.indexOf('Health ID made at outreach')]).toBe('')
+    expect(table.rows[0]![table.headings.indexOf('Health ID made at outreach')]).toBe('')
     expect(JSON.stringify(table)).not.toMatch(/undefined|null/)
   })
 
@@ -98,8 +100,8 @@ describe('the columns', () => {
     const odd: ExportCase = { ...basic, sex: 'x_code', status: 'something_new', registeredBy: 'a0000000-0000-4000-8000-000000000001',
       consent: { method: 'new_method', language: 'zz' }, guardianRelationship: 'cousin_code', healthId: 'a0000000-0000-4000-8000-000000000002', healthIdCreatedByOutreach: 'yes' as unknown as boolean, campaignId: 'campaign-gone' }
     const table = rowsFor([odd], context)
-    expect(table.headings).toEqual(['Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
-    expect(table.rows[0]).toEqual(['Adébáyọ̀ Ọlọ́run', '', '34', '+2348000000001', 'A campaign not listed here', expect.any(String), 'Status not known'])
+    expect(table.headings).toEqual(['No.', 'Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
+    expect(table.rows[0]).toEqual(['1', 'Adébáyọ̀ Ọlọ́run', '', '34', '+2348000000001', 'A campaign not listed here', expect.any(String), 'Status not known'])
   })
 
   it('takes a later column in one place, reaching every format', () => {
@@ -340,7 +342,8 @@ describe('health check results', () => {
     const table = rowsFor([checked, { ...older, hasScreening: false }], context)
     const done = table.headings.indexOf('Health check done')
     expect(table.headings.slice(done + 1, done + 1 + HEALTH_CHECK_HEADINGS.length)).toEqual(HEALTH_CHECK_HEADINGS)
-    const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[0]![index]]))
+    // The older registration (no health checks) is first; this one second.
+    const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[1]![index]]))
     expect(row).toMatchObject({
       'Health check done': 'Yes', 'Blood pressure': '120/80', Pulse: '72', 'Temperature (°C)': '36.8', 'Weight (kg)': '64.5', 'Height (cm)': '165',
       'Blood sugar': '5.4 mmol/L, fasting', 'Malaria test': 'Negative', 'Hearing left': 'Passed', 'Hearing right': 'Didn’t pass (needs a full hearing test)',
@@ -348,7 +351,7 @@ describe('health check results', () => {
       'Outcome or advice': 'Drink more water.', 'Medicines given': 'Paracetamol (500 mg); ORS', Referred: 'Yes', 'Referred to': 'Demo General Hospital',
     })
     // The registration with no health checks has none of them: empty cells, never "null".
-    expect(HEALTH_CHECK_HEADINGS.map(heading => table.rows[1]![table.headings.indexOf(heading)])).toEqual(HEALTH_CHECK_HEADINGS.map(() => ''))
+    expect(HEALTH_CHECK_HEADINGS.map(heading => table.rows[0]![table.headings.indexOf(heading)])).toEqual(HEALTH_CHECK_HEADINGS.map(() => ''))
     expect(JSON.stringify(table)).not.toMatch(/undefined|null|not_done|"refer"|"pass"|"negative"/)
   })
 
@@ -390,7 +393,8 @@ describe('health check results', () => {
       })
     })
     const progress: string[] = []
-    const reading = readScreenings(cases, readOne, (done, total) => progress.push(`${done} of ${total}`))
+    // No further tries here (they are tested below): one round, as it reads.
+    const reading = readScreenings(cases, readOne, (done, total) => progress.push(`${done} of ${total}`), undefined, [])
     while (asked.length < 8 || releases.length > 0) {
       await Promise.resolve()
       await Promise.resolve()
@@ -401,17 +405,76 @@ describe('health check results', () => {
     expect(most).toBe(3)
     expect(asked).toEqual(['case-0', 'case-1', 'case-2', 'case-3', 'case-5', 'case-6', 'case-8', 'case-9'])
     expect(read.failed).toBe(2)
+    expect(read.failedIds).toEqual(['case-2', 'case-8'])
     expect([...read.screenings.keys()].sort()).toEqual(['case-0', 'case-1', 'case-3', 'case-5', 'case-6', 'case-9'])
+    // Progress counts those read: the two not read are not counted.
     expect(progress[0]).toBe('0 of 8')
-    expect(progress.at(-1)).toBe('8 of 8')
+    expect(progress.at(-1)).toBe('6 of 8')
   })
 
-  it('stops trying once reads keep failing (no signal), counting the rest as not read', async () => {
+  it('stops trying in a round once reads keep failing (no signal), counting the rest as not read', async () => {
     const cases = Array.from({ length: 20 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
     const readOne = vi.fn(async () => { throw new TypeError('Failed to fetch') })
-    const read = await readScreenings(cases, readOne)
+    const read = await readScreenings(cases, readOne, () => {}, undefined, [0, 0])
     expect(read.failed).toBe(20)
-    expect(readOne.mock.calls.length).toBeLessThanOrEqual(SCREENING_FAILURES_TO_STOP + 2)
+    expect(read.failedIds).toEqual(cases.map(item => item.id))
+    // Three rounds (the first and two more tries), each stopping after a run of failures.
+    expect(readOne.mock.calls.length).toBeLessThanOrEqual(3 * (SCREENING_FAILURES_TO_STOP + 2))
+  })
+
+  it('tries again those that failed, after waiting, so a moment of weak signal leaves no one out', async () => {
+    vi.useFakeTimers()
+    try {
+      const cases = Array.from({ length: 4 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+      const tries = new Map<string, number>()
+      const readOne = vi.fn(async (caseId: string) => {
+        const n = (tries.get(caseId) ?? 0) + 1
+        tries.set(caseId, n)
+        // case-1 fails once, then reads; case-3 never reads.
+        if ((caseId === 'case-1' && n === 1) || caseId === 'case-3') throw new TypeError('Failed to fetch')
+        return { screening: screening({ caseId, pulseBpm: 60 + n }) }
+      })
+      const reading = readScreenings(cases, readOne)
+      await vi.advanceTimersByTimeAsync(1999)
+      // Nothing is tried again before the first wait is over.
+      expect(tries.get('case-1')).toBe(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(tries.get('case-1')).toBe(2)
+      await vi.advanceTimersByTimeAsync(5000)
+      const read = await reading
+      expect([...read.screenings.keys()].sort()).toEqual(['case-0', 'case-1', 'case-2'])
+      expect(read.failed).toBe(1)
+      expect(read.failedIds).toEqual(['case-3'])
+      // The one that read on the second try is not tried a third time; the one that never reads is tried three times.
+      expect(tries.get('case-1')).toBe(2)
+      expect(tries.get('case-3')).toBe(3)
+      expect(tries.get('case-0')).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops at once when the export is stopped while it waits to try again', async () => {
+    vi.useFakeTimers()
+    try {
+      const cases = Array.from({ length: 2 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+      const stop = new AbortController()
+      const readOne = vi.fn(async (caseId: string) => {
+        if (caseId === 'case-1') throw new TypeError('Failed to fetch')
+        return { screening: screening({ caseId }) }
+      })
+      const reading = readScreenings(cases, readOne, () => {}, stop.signal)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(readOne).toHaveBeenCalledTimes(2)
+      stop.abort()
+      // It answers without waiting out the 2 s, and tries nothing more.
+      const read = await reading
+      expect(readOne).toHaveBeenCalledTimes(2)
+      expect(read.failedIds).toEqual(['case-1'])
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('tries no more once the export is stopped', async () => {
@@ -427,12 +490,21 @@ describe('health check results', () => {
 
   it('reads nothing when no one has health checks', async () => {
     const readOne = vi.fn()
-    expect(await readScreenings([basic, { ...older, hasScreening: false }], readOne)).toEqual({ screenings: new Map(), failed: 0 })
+    expect(await readScreenings([basic, { ...older, hasScreening: false }], readOne)).toEqual({ screenings: new Map(), failed: 0, failedIds: [] })
     expect(readOne).not.toHaveBeenCalled()
   })
 
   it('says plainly how many people’s health checks are blank', () => {
     expect(screeningsFailed(3)).toBe('3 people’s health checks couldn’t be read and are blank in the file. Export again with better signal.')
     expect(screeningsFailed(1)).toBe('1 person’s health checks couldn’t be read and are blank in the file. Export again with better signal.')
+  })
+
+  it('names those whose health checks are blank, at most 20 and how many more', () => {
+    expect(screeningsFailed(2, ['Patient One', 'Patient Two']))
+      .toBe('2 people’s health checks couldn’t be read and are blank in the file. Patient One, Patient Two. Export again with better signal.')
+    const many = Array.from({ length: 23 }, (_, i) => `Patient ${i + 1}`)
+    const said = screeningsFailed(23, many)
+    expect(said).toContain('Patient 20 and 3 more.')
+    expect(said).not.toContain('Patient 21')
   })
 })

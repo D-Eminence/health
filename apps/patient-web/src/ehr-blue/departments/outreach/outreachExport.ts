@@ -203,15 +203,17 @@ export interface ExportTable {
 }
 
 /**
- * The registrations as a table, newest first (as the list shows them): every column, less the optional ones no
+ * The registrations as a table, the first registered first and numbered (No.): every column, less the optional ones no
  * registration has a value for.
  */
 export function rowsFor(cases: readonly ExportCase[], context: ExportContext, columns: readonly ExportColumn[] = OUTREACH_EXPORT_COLUMNS): ExportTable {
-  const sorted = [...cases].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
-  const cells = sorted.map(item => columns.map(column => column.value(item, context)))
-  const kept = columns.map((column, index) => !column.optional || cells.some(row => row[index] !== ''))
+  // The first person registered first (owner, 14 Nov 2026), numbered in that order.
+  const sorted = [...cases].sort((a, b) => (Date.parse(a.createdAt ?? '') || 0) - (Date.parse(b.createdAt ?? '') || 0))
+  const numbered: readonly ExportColumn[] = [{ heading: 'No.', value: () => '' }, ...columns]
+  const cells = sorted.map((item, row) => numbered.map((column, index) => (index === 0 ? String(row + 1) : column.value(item, context))))
+  const kept = numbered.map((column, index) => !column.optional || cells.some(row => row[index] !== ''))
   return {
-    headings: columns.filter((_, index) => kept[index]).map(column => column.heading),
+    headings: numbered.filter((_, index) => kept[index]).map(column => column.heading),
     rows: cells.map(row => row.filter((_, index) => kept[index])),
   }
 }
@@ -324,54 +326,84 @@ export const SCREENING_READS_AT_ONCE = 3
 /** Reads that fail one after another before the rest are left unread (no signal): each waits up to 10 s. */
 export const SCREENING_FAILURES_TO_STOP = 6
 
-/** The health checks read for a file, and how many people's could not be read. */
+/** The health checks read for a file, and whose could not be read even after trying again. */
 export interface ScreeningsRead {
   readonly screenings: ReadonlyMap<string, OutreachScreening | null>
   readonly failed: number
+  /** The registrations whose health checks are still not read, in the order they were asked for. */
+  readonly failedIds: readonly string[]
+}
+
+/** How long to wait before each further try at the health checks that failed (owner: every person's in the file). */
+export const SCREENING_RETRY_WAITS_MS: readonly number[] = [2000, 5000]
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    if (signal?.aborted) { resolve(); return }
+    const timer = setTimeout(done, ms)
+    function done() { clearTimeout(timer); signal?.removeEventListener('abort', done); resolve() }
+    signal?.addEventListener('abort', done)
+  })
 }
 
 /**
  * Reads the health checks of each registration that has them (hasScreening true), SCREENING_READS_AT_ONCE at a time,
- * never all at once. A read that fails leaves that person's out (counted in `failed`) and the rest go on; once
- * SCREENING_FAILURES_TO_STOP have failed one after another, the rest are not tried and are counted as failed too.
- * `onProgress` is told how many are done of how many. Once `signal` is aborted (the person pressed Cancel), no more are tried.
+ * never all at once. A read that fails is left for later and the rest go on; once SCREENING_FAILURES_TO_STOP have failed
+ * one after another in a round, the rest of that round are not tried. Those that failed are then tried again, after each
+ * wait in SCREENING_RETRY_WAITS_MS, so a moment of weak signal leaves no one out; only those still not read after every
+ * try are `failedIds`. `onProgress` is told how many are read of how many. Once `signal` is aborted (the person pressed
+ * Cancel), no more are tried.
  */
 export async function readScreenings(cases: readonly OutreachCase[], readOne: (caseId: string) => Promise<{ screening: OutreachScreening | null }>,
-  onProgress: (done: number, total: number) => void = () => {}, signal?: AbortSignal): Promise<ScreeningsRead> {
+  onProgress: (done: number, total: number) => void = () => {}, signal?: AbortSignal,
+  retryWaitsMs: readonly number[] = SCREENING_RETRY_WAITS_MS): Promise<ScreeningsRead> {
   const wanted = cases.filter(item => item.hasScreening === true).map(item => item.id)
   const screenings = new Map<string, OutreachScreening | null>()
-  let failed = 0
-  let failedInARow = 0
-  let done = 0
-  let next = 0
   if (wanted.length > 0) onProgress(0, wanted.length)
-  async function worker() {
-    while (next < wanted.length && !signal?.aborted) {
-      const caseId = wanted[next]!
-      next += 1
-      if (failedInARow >= SCREENING_FAILURES_TO_STOP) {
-        failed += 1
-      } else {
+
+  async function round(ids: readonly string[]): Promise<string[]> {
+    const failedIds = new Set<string>()
+    let failedInARow = 0
+    let next = 0
+    async function worker() {
+      while (next < ids.length && !signal?.aborted) {
+        const caseId = ids[next]!
+        next += 1
+        if (failedInARow >= SCREENING_FAILURES_TO_STOP) { failedIds.add(caseId); continue }
         try {
           const answer = await readOne(caseId)
           screenings.set(caseId, answer?.screening ?? null)
           failedInARow = 0
+          onProgress(screenings.size, wanted.length)
         } catch {
-          failed += 1
+          failedIds.add(caseId)
           failedInARow += 1
         }
       }
-      done += 1
-      onProgress(done, wanted.length)
     }
+    await Promise.all(Array.from({ length: Math.min(SCREENING_READS_AT_ONCE, ids.length) }, worker))
+    // Those never reached (Cancel) count as not read too.
+    return ids.filter(id => failedIds.has(id) || !screenings.has(id))
   }
-  await Promise.all(Array.from({ length: Math.min(SCREENING_READS_AT_ONCE, wanted.length) }, worker))
-  return { screenings, failed }
+
+  let left = await round(wanted)
+  for (const ms of retryWaitsMs) {
+    if (!left.length || signal?.aborted) break
+    await wait(ms, signal)
+    if (signal?.aborted) break
+    left = await round(left)
+  }
+  return { screenings, failed: left.length, failedIds: left }
 }
 
-/** What the file says is missing when some people's health checks could not be read. */
-export function screeningsFailed(count: number): string {
-  return `${count} ${count === 1 ? 'person’s' : 'people’s'} health checks couldn’t be read and are blank in the file. Export again with better signal.`
+/**
+ * What the file says is missing when some people's health checks could not be read after every try: how many, and who,
+ * so no one is left out without it being said.
+ */
+export function screeningsFailed(count: number, names: readonly string[] = []): string {
+  const who = names.filter(Boolean)
+  const list = who.length ? ` ${who.slice(0, 20).join(', ')}${who.length > 20 ? ` and ${who.length - 20} more` : ''}.` : ''
+  return `${count} ${count === 1 ? 'person’s' : 'people’s'} health checks couldn’t be read and are blank in the file.${list} Export again with better signal.`
 }
 
 const MIME: Readonly<Record<ExportFormat, string>> = {

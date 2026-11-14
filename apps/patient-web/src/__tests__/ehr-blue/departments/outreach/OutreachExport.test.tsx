@@ -94,7 +94,10 @@ describe('Outreach export', () => {
     const [blob, name] = saved.saveFile.mock.calls[0] as [Blob, string]
     expect(name).toBe('outreach-all-registrations-2026-11-14.csv')
     const csv = await blob.text()
-    expect(csv).toContain('Full name,Sex,Age (years),Phone number,Campaign,Registered on,Status')
+    expect(csv).toContain('No.,Full name,Sex,Age (years),Phone number,Campaign,Registered on,Status')
+    // The first registered first (Patient Two, 08:00), numbered.
+    expect(csv.indexOf('2,Patient One,')).toBeGreaterThan(csv.indexOf('1,Patient Two,'))
+    expect(csv).toContain('1,Patient Two,')
     // A phone number is written as it is: nothing a spreadsheet would run.
     expect(csv).toContain('Patient One,Female,34,+2348000000001,Demo Screening Week,')
     expect(csv).toContain('Patient Two,Male,51,,Demo follow-up,')
@@ -120,7 +123,8 @@ describe('Outreach export', () => {
     await press(within(dialog()).getByRole('button', { name: 'Export' }))
     expect(maker).toHaveBeenCalledTimes(1)
     const [table, meta] = maker.mock.calls[0] as unknown as [{ rows: string[][] }, { title: string }]
-    expect(table.rows.map(row => row[0])).toEqual(['Patient One'])
+    // Numbered first, then the name.
+    expect(table.rows.map(row => row.slice(0, 2))).toEqual([['1', 'Patient One']])
     expect(meta.title).toBe('Outreach registrations: Demo Screening Week')
     const [, name] = saved.saveFile.mock.calls[0] as [Blob, string]
     expect(name).toBe(`outreach-demo-screening-week-2026-11-14.${extension}`)
@@ -178,7 +182,9 @@ describe('Outreach export', () => {
     await act(async () => { release() })
     const [table] = files.xlsxBytes.mock.calls[0] as unknown as [{ rows: string[][] }]
     expect(table.rows).toHaveLength(1030)
-    expect(table.rows[0]![0]).toBe('Patient 1')
+    // The first registered (the oldest, Patient 1030) is at the top, numbered 1; the newest last.
+    expect(table.rows[0]!.slice(0, 2)).toEqual(['1', 'Patient 1030'])
+    expect(table.rows.at(-1)!.slice(0, 2)).toEqual(['1030', 'Patient 1'])
     expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'xlsx', count: 1030 })
     expect(screen.getAllByRole('status').map(status => status.textContent)).not.toContain('Only the latest 100 registrations could be exported.')
   })
@@ -274,34 +280,69 @@ describe('Outreach export', () => {
       const [headings, ...lines] = csvRows(csv)
       const cell = (line: number, heading: string) => lines[line]![headings!.indexOf(heading)]
       expect(headings).toEqual(expect.arrayContaining(['Health check done', 'Blood pressure', 'Malaria test', 'Genotype', 'Blood group', 'Outcome or advice']))
-      expect(cell(0, 'Blood pressure')).toBe('130/85')
-      expect(cell(0, 'Malaria test')).toBe('Positive')
-      expect(cell(0, 'Genotype')).toBe('AA')
-      expect(cell(0, 'Blood group')).toBe('A+')
-      expect(cell(0, 'Outcome or advice')).toBe('See a doctor this week.')
+      // The first registered first: Patient Dayo (08:20) to Patient Ada (08:50), numbered 1 to 4.
+      expect(lines.map(line => [cell(lines.indexOf(line), 'No.'), cell(lines.indexOf(line), 'Full name')])).toEqual([
+        ['1', 'Patient Dayo'], ['2', 'Patient Chika'], ['3', 'Patient Bisi'], ['4', 'Patient Ada'],
+      ])
+      expect(cell(3, 'Blood pressure')).toBe('130/85')
+      expect(cell(3, 'Malaria test')).toBe('Positive')
+      expect(cell(3, 'Genotype')).toBe('AA')
+      expect(cell(3, 'Blood group')).toBe('A+')
+      expect(cell(3, 'Outcome or advice')).toBe('See a doctor this week.')
       // Patient Dayo has no health checks: nothing is read for them, and their cells are empty.
-      expect(cell(3, 'Full name')).toBe('Patient Dayo')
-      expect(cell(3, 'Blood pressure')).toBe('')
+      expect(cell(0, 'Blood pressure')).toBe('')
       expect(screen.getByRole('status', { hidden: true }).textContent ?? '').not.toMatch(/couldn’t be read/)
     })
 
-    it('leaves blank the health checks that could not be read, makes the file anyway, and says how many', async () => {
+    /** The waits before each further try are real setTimeouts: these tests move the clock on instead of waiting. */
+    async function exportWithClock() {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      vi.setSystemTime(new Date(2026, 10, 14, 9, 0))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    }
+
+    it('tries again a health check that could not be read, so it is in the file with nothing missing', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      let bisiTries = 0
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => {
+        if (caseId === 'case-b' && ++bisiTries === 1) throw new TypeError('Failed to fetch')
+        return stored(caseId, { pulseBpm: 80 })
+      })
+      await exportWithClock()
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      expect(bisiTries).toBe(2)
+      const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
+      const [headings, ...lines] = csvRows(csv)
+      const name = headings!.indexOf('Full name')
+      const pulse = headings!.indexOf('Pulse')
+      expect(lines.map(line => [line[name], line[pulse]])).toEqual([
+        ['Patient Dayo', ''], ['Patient Chika', '80'], ['Patient Bisi', '80'], ['Patient Ada', '80'],
+      ])
+      expect(document.body.textContent ?? '').not.toMatch(/couldn’t be read/)
+    })
+
+    it('leaves blank only the health checks that could not be read after every try, makes the file anyway, and names who', async () => {
       api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
       api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => {
         if (caseId === 'case-b') throw new TypeError('Failed to fetch')
         return stored(caseId, { pulseBpm: 80 })
       })
-      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
-      await press(exportButton())
-      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      await exportWithClock()
       expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      // Tried three times in all: the first round and two more.
+      expect(api.outreachScreening.mock.calls.filter(call => call[1] === 'case-b')).toHaveLength(3)
       const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
       const [headings, ...lines] = csvRows(csv)
+      const name = headings!.indexOf('Full name')
       const pulse = headings!.indexOf('Pulse')
-      expect(lines.map(line => [line[0], line[pulse]])).toEqual([
-        ['Patient Ada', '80'], ['Patient Bisi', ''], ['Patient Chika', '80'], ['Patient Dayo', ''],
+      expect(lines.map(line => [line[name], line[pulse]])).toEqual([
+        ['Patient Dayo', ''], ['Patient Chika', '80'], ['Patient Bisi', ''], ['Patient Ada', '80'],
       ])
-      expect(screen.getByText(screeningsFailed(1))).toBeTruthy()
+      expect(screen.getByText(screeningsFailed(1, ['Patient Bisi']))).toBeTruthy()
       expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'csv', count: 4 })
     })
 

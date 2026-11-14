@@ -106,14 +106,18 @@ export function OutreachExport({ cases, campaign, campaignOf }: {
         setError('There are no registrations to export now. Refresh the list to check.')
         return
       }
-      // Each person's health check results, read a few at a time; one that can't be read is left blank and the rest go on.
+      // Each person's health check results, read a few at a time; one that can't be read is tried again twice, and anyone
+      // still not read is named.
       // Not tried when the registrations themselves couldn't be read (no signal): the file holds those on screen.
       if (facilityId && readAll) {
         const checks = await readScreenings(rows, caseId => staffApi.outreachScreening(facilityId, caseId, controller.signal),
           (doneSoFar, total) => say(`Reading health checks ${doneSoFar} of ${total}…`), controller.signal)
         if (stopped()) return
         rows = rows.map(item => (checks.screenings.has(item.id) ? { ...item, screening: checks.screenings.get(item.id) ?? null } : item))
-        if (checks.failed > 0) warning = [warning, screeningsFailed(checks.failed)].filter(Boolean).join(' ')
+        if (checks.failed > 0) {
+          const missed = checks.failedIds.map(id => rows.find(item => item.id === id)?.fullName ?? '').filter(Boolean)
+          warning = [warning, screeningsFailed(checks.failed, missed)].filter(Boolean).join(' ')
+        }
       }
       say(`Preparing ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}…`)
       const now = new Date()
