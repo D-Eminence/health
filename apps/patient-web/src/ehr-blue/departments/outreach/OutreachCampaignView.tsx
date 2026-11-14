@@ -12,9 +12,10 @@ import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../pa
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { CaseCard, ShowMore, useOutreachCases } from './OutreachCaseList'
+import { healthIdUnavailable, noConnection } from './offlineQueue'
 import { OutreachNumbers } from './outreachNumbers'
 import {
-  CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignStarted, campaignStatusLabel,
+  CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignOpenNow, campaignStarted, campaignStatusLabel,
   COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, OutreachField, REASON_LENGTH, RETRY_NOTE,
   servicesText, STAFF_NOT_LOADED, type FieldErrors, type MembersRead,
 } from './outreachParts'
@@ -52,12 +53,17 @@ type ActionField = 'reason' | 'person'
  * has started), close it (for good, after a confirmation) and add people to it, each with what Outreach asks for; its
  * other members and staff are told that only its admins change it. Elsewhere it is read only, as before.
  */
-export function OutreachCampaignView({ facilityId, campaign, members, manage, created = false, exportAction, registrations, onBack, onChanged }: {
+export function OutreachCampaignView({ facilityId, campaign, members, manage, group = false, created = false, exportAction, registrations, onBack, onChanged }: {
   readonly facilityId: string
   readonly campaign: OutreachCampaign
   readonly members: MembersRead | undefined
   /** Outreach serves campaign management and this membership may write campaigns. */
   readonly manage: boolean
+  /**
+   * The working facility is an outreach group, whose helpers join it and are in no campaign until added. Only there is
+   * everyone not in the campaign yet offered at once: at a hospital that would be every member of its staff.
+   */
+  readonly group?: boolean
   /** Opened from "New campaign", which made it. */
   readonly created?: boolean
   /** "Export" for this campaign's registrations (OutreachExport.tsx), for those who can read them. */
@@ -99,6 +105,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const canOpen = admin && campaign.status === 'planned' && started
   const canClose = admin && !closed
   const canAdd = admin && !closed
+  // At an outreach group only: everyone who has joined it and isn't in this campaign yet, added at once.
+  const canAddEveryone = group && canAdd
   // A form stays open only while the campaign, as last read, still offers it.
   const shown = action === 'open' ? (canOpen ? action : null) : action === 'close' ? (canClose ? action : null)
     : action === 'add' ? (canAdd ? action : null) : null
@@ -193,9 +201,11 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   }
 
   /**
-   * Adds everyone at the facility who isn't in this campaign yet as an enumerator, one after another (never at once).
-   * Someone already in it counts as added. A refusal that means the campaign is out of date stops the rest and is said
-   * as "Add a person" says it; any other refusal is listed by name once the rest are added.
+   * Adds everyone at the outreach group who isn't in this campaign yet as an enumerator, one after another (never at
+   * once). Someone already in it counts as added. A refusal that means the campaign is out of date stops the rest and is
+   * said as "Add a person" says it; so does a failure that would meet every request the same way (no signal, too slow,
+   * Health ID unavailable, signed out, no access). Any other refusal is about that person: listed by name once the rest
+   * are added.
    */
   async function addEveryone() {
     if (busy || addingAll.current) return
@@ -207,7 +217,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
     let added = 0
     const missed: string[] = []
     let stale = false
-    let staleRefusal: unknown
+    let stopped = false
+    let stopRefusal: unknown
     try {
       for (const person of people) {
         try {
@@ -218,23 +229,33 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
             added += 1
           } else if (isHidApiError(caught) && CAMPAIGN_STALE.has(caught.code)) {
             stale = true
-            staleRefusal = caught
+            stopRefusal = caught
+            break
+          } else if (noConnection(caught) || healthIdUnavailable(caught) || (isHidApiError(caught) && (caught.status === 401 || caught.status === 403))) {
+            stopped = true
+            stopRefusal = caught
             break
           } else {
             missed.push(person.name)
           }
         }
       }
+      const missedText = missed.length
+        ? `${missed.length === 1 ? '1 person' : `${missed.length} people`} couldn’t be added: ${missed.join(', ')}.` : ''
       if (added) {
+        // Said only as it will be: the registration form lists a campaign once it is open and takes registrations.
+        const registering = campaign.services.includes('registration')
+        const running = registering && campaign.status === 'active' && campaignOpenNow(campaign)
         setDone(`${added === 1 ? 'Added 1 person as an enumerator.' : `Added ${added} people as enumerators.`}`
-          + ' They can register people once they press Refresh.')
+          + (running ? ' They can register people once they press Refresh.'
+            : registering ? ' They can register people once the campaign is open and they press Refresh.' : ''))
         focus(ids.done)
       }
-      if (stale) await refused(staleRefusal, MEMBER_ADD_FAILED)
-      else if (missed.length) {
-        setError(`${missed.length === 1 ? '1 person' : `${missed.length} people`} couldn’t be added: ${missed.join(', ')}. Try again.`)
-      }
-      await Promise.all([staff.refresh(), members?.refresh()])
+      if (stale) await refused(stopRefusal, MEMBER_ADD_FAILED)
+      else if (stopped) setError([campaignErrorText(stopRefusal, MEMBER_ADD_FAILED), missedText].filter(Boolean).join(' '))
+      else if (missed.length) setError(`${missedText} Try again.`)
+      // With no signal, reading again would only wait as long again: the button still counts who is left to add.
+      if (!(stopped && noConnection(stopRefusal))) await Promise.all([staff.refresh(), members?.refresh()])
     } finally {
       addingAll.current = false
       setBusy(false)
@@ -312,7 +333,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
         ? <Button key="add" id={canOpen ? undefined : ids.first} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
           onClick={() => choose('add')}>Add a person</Button>
         : <p key="add" className="hid-ehr-dept-muted m-0">Everyone active at this facility is already in this campaign.</p>) : null,
-      canAdd && candidates.length
+      canAddEveryone && candidates.length
         ? <Button key="add-everyone" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}
           onClick={() => void addEveryone()}>{busy ? 'Adding…' : candidates.length === 1
             ? 'Add the 1 person who has joined' : `Add everyone who has joined (${candidates.length})`}</Button> : null,
