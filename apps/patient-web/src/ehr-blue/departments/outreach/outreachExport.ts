@@ -75,6 +75,12 @@ const RELATIONSHIP: Readonly<Record<string, string>> = {
   parent: 'Parent', mother: 'Mother', father: 'Father', guardian: 'Guardian', grandparent: 'Grandparent', sibling: 'Brother or sister',
   relative: 'Relative', other: 'Other',
 }
+// Genotype and blood group (0122) as a file writes them: the code itself, in plain ASCII ("A-", never the screen's "A−",
+// which a PDF's fonts cannot print), and "Not known". Only codes Outreach takes are written.
+const GENOTYPE: Readonly<Record<string, string>> = { AA: 'AA', AS: 'AS', AC: 'AC', SS: 'SS', SC: 'SC', CC: 'CC', unknown: 'Not known' }
+const BLOOD_GROUP: Readonly<Record<string, string>> = {
+  'A+': 'A+', 'A-': 'A-', 'B+': 'B+', 'B-': 'B-', 'AB+': 'AB+', 'AB-': 'AB-', 'O+': 'O+', 'O-': 'O-', unknown: 'Not known',
+}
 
 const consentOf = (item: ExportCase) => record(item.consent)
 const yesNo = (value: unknown) => (value === true ? 'Yes' : value === false ? 'No' : '')
@@ -125,6 +131,8 @@ export const OUTREACH_EXPORT_COLUMNS: readonly ExportColumn[] = [
   { heading: 'Health ID', optional: true, value: healthId },
   { heading: 'Health ID made at outreach', optional: true, value: item => yesNo(item.healthIdCreatedByOutreach) },
   { heading: 'Health check done', optional: true, value: item => yesNo(item.hasScreening) },
+  { heading: 'Genotype', optional: true, value: item => words(GENOTYPE, text(item.genotype)) },
+  { heading: 'Blood group', optional: true, value: item => words(BLOOD_GROUP, text(item.bloodGroup)) },
   { heading: 'Possible duplicate', optional: true, value: item => (item.possibleDuplicate === true ? 'Yes' : '') },
   { heading: 'Parent or guardian', optional: true, value: item => text(item.guardianName) || text(consentOf(item)?.guardianName) },
   { heading: 'Parent or guardian’s relationship', optional: true, value: item => words(RELATIONSHIP, text(item.guardianRelationship).toLowerCase()) },

@@ -4,16 +4,17 @@ import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { HeartPulse, Plus, Trash2 } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
 import { Alert, Button, Card, CardHeader } from '../../../kasuwa/ui'
-import { staffApi, type OutreachScreening, type OutreachScreeningInput } from '../../../staff/api'
+import { staffApi, type OutreachScreening, type OutreachScreeningExtra, type OutreachScreeningInput } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { controlProps, ErrorBox, OutreachField, type FieldErrors } from './outreachParts'
 import {
-  bmiOf, checkScreening, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, NOTHING_RECORDED, sameField, sameForm, screeningForm,
+  bmiOf, checkScreening, extrasOf, implausibleBmi, outsideUsualRange, FIELD_LABELS, FIELD_ORDER, fieldNamedIn, MEDICINES_LIMIT, medicineRow, mergeMedicines, sameField, sameForm, screeningForm,
   type MedicineRow, type ScreeningField, type ScreeningForm,
 } from './screening'
+import { noteOutreachScreening, servedScreeningExtras } from './outreachServed'
 import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
 
 /*
@@ -23,6 +24,9 @@ import { readTab, unsavedHealthChecks, writeTab } from './tabMemory'
  * sent later by itself: it is said plainly, and everything typed stays on the page to save again with signal. What is
  * typed and not saved yet is kept for this tab (sessionStorage, tabMemory.ts), so a reload brings it back on top of the
  * checks as last saved; it goes once saved, when the tab closes, or on sign-out. Never in localStorage.
+ *
+ * Every field is optional, and a first save with nothing filled in is still saved (owner, 14 Nov 2026). Genotype and
+ * blood group (0122, proposed) are shown and sent only once Outreach is known to take them (outreachServed.ts).
  */
 
 /** The 404 codes that mean Outreach does not serve the route yet (not that the registration is missing). */
@@ -83,6 +87,12 @@ const GLUCOSE_TIMINGS = [{ value: 'fasting', label: 'Fasting' }, { value: 'rando
 const MALARIA = [{ value: 'positive', label: 'Positive' }, { value: 'negative', label: 'Negative' }, { value: 'not_done', label: 'Not done' }] as const
 const HEARING = [{ value: 'pass', label: 'Passed' }, { value: 'refer', label: 'Didn’t pass (needs a full hearing test)' }, { value: 'not_done', label: 'Not done' }] as const
 const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] as const
+const GENOTYPE = [{ value: 'AA', label: 'AA' }, { value: 'AS', label: 'AS' }, { value: 'AC', label: 'AC' }, { value: 'SS', label: 'SS' },
+  { value: 'SC', label: 'SC' }, { value: 'CC', label: 'CC' }, { value: 'unknown', label: 'Not known' }] as const
+// The minus is shown as − (U+2212), which a screen reader says as "minus"; the code sent stays ASCII ('A-').
+const BLOOD_GROUP = [{ value: 'A+', label: 'A+' }, { value: 'A-', label: 'A−' }, { value: 'B+', label: 'B+' }, { value: 'B-', label: 'B−' },
+  { value: 'AB+', label: 'AB+' }, { value: 'AB-', label: 'AB−' }, { value: 'O+', label: 'O+' }, { value: 'O-', label: 'O−' },
+  { value: 'unknown', label: 'Not known' }] as const
 
 /** One group of the form, headed for a screen reader and a quick glance. */
 function Group({ id, title, children }: { readonly id: string; readonly title: string; readonly children: ReactNode }) {
@@ -125,6 +135,8 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
   // then. If reading their checks fails, the typing and this state stay, with why.
   const [conflict, setConflict] = useState(false)
   const [reloadError, setReloadError] = useState('')
+  // Genotype and blood group: shown and sent only once Outreach is known to take them (remembered for the session).
+  const [extras, setExtras] = useState<OutreachScreeningExtra[]>(servedScreeningExtras)
   // The save last sent, and its key: the same screening sent again (after a lost answer or no signal) reuses the key; any
   // other save gets a new one. Cleared once saved.
   const attempt = useRef<{ signature: string; key: string } | null>(null)
@@ -140,11 +152,19 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
   const headingId = id('heading')
   const errorId = id('error')
 
+  /** Learns from a health checks answer which extra fields Outreach takes. */
+  const learn = useCallback((answer: Parameters<typeof noteOutreachScreening>[0]) => {
+    noteOutreachScreening(answer)
+    const known = servedScreeningExtras()
+    setExtras(current => (current.join() === known.join() ? current : known))
+  }, [])
+
   /** Reads the screening; null when it could not be read (said on the section). */
   const load = useCallback(async (signal?: AbortSignal, keepForm = false): Promise<OutreachScreening | null | undefined> => {
     try {
       const answer = await staffApi.outreachScreening(facilityId, caseId, signal)
       const screening = answer?.screening ?? null
+      learn(answer)
       setRead({ kind: 'ready', screening })
       base.current = screeningForm(screening)
       if (!keepForm) {
@@ -180,7 +200,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
       else setRead({ kind: 'failed', text: errorText(caught, SCREENING_NOT_LOADED) })
       return undefined
     }
-  }, [facilityId, caseId, draftKey])
+  }, [facilityId, caseId, draftKey, learn])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -221,7 +241,9 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
     setBusy(true)
     let theirs: OutreachScreening | null
     try {
-      theirs = (await staffApi.outreachScreening(facilityId, caseId))?.screening ?? null
+      const answer = await staffApi.outreachScreening(facilityId, caseId)
+      theirs = answer?.screening ?? null
+      learn(answer)
     } catch (caught) {
       // Nothing is replaced: the typing, and the way to try again, stay on the page.
       setReloadError(noSignal(caught) ? SCREENING_RELOAD_OFFLINE : errorText(caught, SCREENING_NOT_LOADED))
@@ -267,11 +289,12 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
     setConflict(false)
     setReloadError('')
     setNotice('')
-    const { input, errors, empty } = checkScreening(form)
+    const { input, errors, empty } = checkScreening(form, extras)
     if (Object.keys(errors).length) { refuse(errors); return }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
-    // Saved checks can't be cleared here (Outreach keeps a screening once recorded): say how to mark them instead.
-    if (empty) { setFormError(read.screening ? SCREENING_CLEAR_HOW : NOTHING_RECORDED); focus(errorId); return }
+    // Nothing is required: a first save with nothing filled in is still saved (owner, 14 Nov 2026). Saved checks can't be
+    // cleared here, though (Outreach keeps a screening once recorded): say how to mark them instead.
+    if (empty && read.screening) { setFormError(SCREENING_CLEAR_HOW); focus(errorId); return }
     void send(input, read.screening?.version)
   }
 
@@ -283,7 +306,9 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
       setBusy(true)
       let current: OutreachScreening | null | undefined
       try {
-        current = (await staffApi.outreachScreening(facilityId, caseId))?.screening ?? null
+        const answer = await staffApi.outreachScreening(facilityId, caseId)
+        current = answer?.screening ?? null
+        learn(answer)
       } catch (caught) {
         setBusy(false)
         setFormError(noSignal(caught) ? SCREENING_OFFLINE : errorText(caught, SCREENING_FAILED))
@@ -292,11 +317,13 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
       }
       setBusy(false)
       unsure.current = null
-      const held = current ? checkScreening(screeningForm(current)).input : null
-      if (current && (current.version ?? 0) !== (previous.version ?? 0) && JSON.stringify(held) === JSON.stringify(previous.input)) {
+      // Compared on the fields each save carried, so a save made before Outreach was known to take genotype and blood group
+      // still matches what it stored.
+      const held = (sent: OutreachScreeningInput) => (current ? JSON.stringify(checkScreening(screeningForm(current), extrasOf(sent)).input) : null)
+      if (current && (current.version ?? 0) !== (previous.version ?? 0) && held(previous.input) === JSON.stringify(previous.input)) {
         setRead({ kind: 'ready', screening: current })
         base.current = screeningForm(current)
-        if (JSON.stringify(held) === JSON.stringify(input)) { setForm(base.current); setNotice(SCREENING_SAVED); onSaved?.(); return }
+        if (held(input) === JSON.stringify(input)) { setForm(base.current); setNotice(SCREENING_SAVED); onSaved?.(); return }
         version = current.version
       }
     }
@@ -307,6 +334,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
       const answer = await staffApi.saveOutreachScreening(facilityId, caseId, input, { idempotencyKey: attempt.current.key, version })
       attempt.current = null
       unsure.current = null
+      learn(answer)
       setRead({ kind: 'ready', screening: answer.screening })
       base.current = screeningForm(answer.screening)
       setForm(base.current)
@@ -355,7 +383,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
         if (/^\d{1,4}\.\d+$/.test(typed) && rounded >= 30 && rounded <= 250) update('heightCm', String(rounded))
       } : undefined} />
   )
-  const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
+  const choice = <K extends 'glucoseUnit' | 'glucoseTiming' | 'malariaRdt' | 'genotype' | 'bloodGroup' | 'hearingLeft' | 'hearingRight' | 'seenByClinician' | 'referred'>(
     key: K, options: ReadonlyArray<{ readonly value: string; readonly label: string }>) => (
     <EhrSelect name={key} value={form[key]} disabled={!canWrite || busy} onChange={event => update(key, event.target.value as ScreeningForm[K])} {...control(key)}>
       <option value="">Not recorded</option>
@@ -400,6 +428,14 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
         <Group id={id('malaria')} title="Malaria test">
           <OutreachField id={id('malariaRdt')} label="Malaria rapid test (RDT)" hint={MALARIA_HINT} {...field('malariaRdt')}>{choice('malariaRdt', MALARIA)}</OutreachField>
         </Group>
+        {extras.length ? (
+          <Group id={id('blood')} title="Blood tests">
+            <div className="grid grid-cols-2 gap-3">
+              {extras.includes('genotype') ? <OutreachField id={id('genotype')} label="Genotype" {...field('genotype')}>{choice('genotype', GENOTYPE)}</OutreachField> : null}
+              {extras.includes('bloodGroup') ? <OutreachField id={id('bloodGroup')} label="Blood group" {...field('bloodGroup')}>{choice('bloodGroup', BLOOD_GROUP)}</OutreachField> : null}
+            </div>
+          </Group>
+        ) : null}
         <Group id={id('hearing')} title="Hearing">
           <div className="grid grid-cols-2 gap-3">
             <OutreachField id={id('hearingLeft')} label="Left ear" {...field('hearingLeft')}>{choice('hearingLeft', HEARING)}</OutreachField>
@@ -479,7 +515,7 @@ export function HealthChecks({ facilityId, caseId, canWrite, ageYears, onSaved }
   return (
     <Card aria-labelledby={headingId}>
       <CardHeader as="h2" titleId={headingId} icon={HeartPulse} iconTone="brand" title="Health checks"
-        description={saved ? `Last saved ${dateText(saved.updatedAt || saved.recordedAt)}.` : 'Record any checks done today. Leave out what wasn’t done.'} />
+        description={saved ? `Last saved ${dateText(saved.updatedAt || saved.recordedAt)}.` : 'Every check is optional. Record what was done today and leave out the rest.'} />
       <div className="flex flex-col gap-4 p-5">
         {/* Mounted throughout, so a save is announced. */}
         <div role="status">{notice ? <Alert intent="success" live={false} title={notice}>{null}</Alert> : null}</div>

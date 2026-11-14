@@ -1409,6 +1409,12 @@ export interface OutreachCase {
   /** Whether health checks are recorded for this registration (0118); absent from an earlier Outreach. */
   hasScreening?: boolean
   /**
+   * The genotype and blood group from this registration's health checks (0122, proposed), null when not recorded; absent
+   * from an earlier Outreach. Read only for the export.
+   */
+  genotype?: OutreachGenotype | null
+  bloodGroup?: OutreachBloodGroup | null
+  /**
    * The Health ID made for this person at outreach (outreach-api 0119), null while none; absent from an earlier Outreach,
    * which makes none. With `healthIdCreatedByOutreach`, whether outreach made it.
    */
@@ -1458,6 +1464,15 @@ export type OutreachGlucoseTiming = 'fasting' | 'random'
 export type OutreachMalariaRdt = 'positive' | 'negative' | 'not_done'
 export type OutreachHearing = 'pass' | 'refer' | 'not_done'
 export interface OutreachMedicineGiven { name: string; dose?: string | null }
+/**
+ * Genotype and blood group (outreach-api 0122, proposed; owner, 14 Nov 2026), both optional. The same codes in the
+ * database, the API and this website: plain ASCII ('A-' with a hyphen-minus), 'unknown' for "Not known". The page shows
+ * the minus as − (U+2212); a file writes the code as it is.
+ */
+export type OutreachGenotype = 'AA' | 'AS' | 'AC' | 'SS' | 'SC' | 'CC' | 'unknown'
+export type OutreachBloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-' | 'unknown'
+/** The screening fields an Outreach may or may not take: sent only once Outreach is known to take them. */
+export type OutreachScreeningExtra = 'genotype' | 'bloodGroup'
 
 /**
  * A registration's health checks as outreach-api 0118 takes them: the whole screening each time, null for anything not
@@ -1484,6 +1499,12 @@ export interface OutreachScreeningInput {
   medicinesGiven: OutreachMedicineGiven[] | null
   referred: boolean | null
   referredTo: string | null
+  /**
+   * Sent only to an Outreach known to take them (0122): an earlier Outreach refuses a body with an unknown field (400
+   * VALIDATION_FAILED), so a body without them stays valid.
+   */
+  genotype?: OutreachGenotype | null
+  bloodGroup?: OutreachBloodGroup | null
 }
 
 /** A saved screening: what was sent, and who saved it when, at its version (the ETag the next save sends as If-Match). */
@@ -2780,10 +2801,12 @@ export const staffApi = {
 
   /**
    * A registration's health checks (outreach-api 0118, proposed): `{ screening: null }` until any are saved. An Outreach
-   * without the route answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the page then shows no Health checks section.
+   * without the route answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the page then shows no Health checks section. An
+   * Outreach that takes genotype and blood group (0122) may also answer `accepts: ['genotype', 'bloodGroup']`, and its
+   * saved screening carries both keys.
    */
   outreachScreening: (facilityId: string, caseId: string, signal?: AbortSignal) =>
-    client.get<{ screening: OutreachScreening | null }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,
+    client.get<{ screening: OutreachScreening | null; accepts?: readonly string[] }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,
       // Tried once for 10 s: a case opened with no signal says so quickly, and Try again is on the page.
       { headers: facilityHeaders(facilityId), signal, dedupe: false, retry: NO_RETRY, timeoutMs: OUTREACH_SCREENING_READ_TIMEOUT_MS }),
   /**
@@ -2793,7 +2816,7 @@ export const staffApi = {
    */
   saveOutreachScreening: (facilityId: string, caseId: string, input: OutreachScreeningInput,
     write: { idempotencyKey: string; version?: number }) =>
-    client.request<{ screening: OutreachScreening }>({ method: 'PUT',
+    client.request<{ screening: OutreachScreening; accepts?: readonly string[] }>({ method: 'PUT',
       path: `/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`, body: input,
       headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': write.idempotencyKey,
         ...(write.version !== undefined ? { 'If-Match': `"${write.version}"` } : {}) } }),

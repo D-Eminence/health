@@ -67,20 +67,21 @@ describe('the columns', () => {
       ...basic, ageYears: undefined, dateOfBirth: '2012-03-04', address: 'Ward 3, Ibadan North', registeredByName: 'Demo Enumerator',
       consent: { textVersion: 'notice-2026-11', language: 'yo', method: 'guardian', guardianName: 'Demo Guardian' },
       guardianPhone: '08000000002', guardianRelationship: 'mother', healthId: 'hid-zdemaaa2', healthIdCreatedByOutreach: true, hasScreening: false, possibleDuplicate: true,
-      operationalNotes: 'Needs a follow-up call, please',
+      genotype: 'AS', bloodGroup: 'O-', operationalNotes: 'Needs a follow-up call, please',
     }
     const table = rowsFor([full, older], context)
     expect(table.headings).toEqual(OUTREACH_EXPORT_COLUMNS.map(column => column.heading))
     const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[0]![index]]))
     expect(row).toMatchObject({
       'Date of birth': '4 Mar 2012', 'Area or address': 'Ward 3, Ibadan North', 'Registered by': 'Demo Enumerator', 'Health ID': 'HID-ZDEMAAA2', 'Health ID made at outreach': 'Yes',
-      'Health check done': 'No', 'Possible duplicate': 'Yes', 'Parent or guardian': 'Demo Guardian', 'Parent or guardian’s relationship': 'Mother',
+      'Health check done': 'No', 'Genotype': 'AS', 'Blood group': 'O-', 'Possible duplicate': 'Yes', 'Parent or guardian': 'Demo Guardian', 'Parent or guardian’s relationship': 'Mother',
       'Parent or guardian’s phone': '08000000002', 'How they agreed': 'Their parent or guardian agreed', 'Notice language': 'Yoruba',
       'Notice version': 'notice-2026-11', 'Notes for the team': 'Needs a follow-up call, please',
     })
     expect(Number(row['Age (years)'])).toBeGreaterThanOrEqual(14)
     // The other registration has none of them: its cells are empty, not "undefined".
     expect(table.rows[1]!.filter(cell => cell === '')).toHaveLength(table.headings.length - 6)
+    expect(table.headings.indexOf('Genotype')).toBe(table.headings.indexOf('Health check done') + 1)
     // Absent on its own row, "Health ID made at outreach" is said only where it was sent.
     expect(table.rows[1]![table.headings.indexOf('Health ID made at outreach')]).toBe('')
     expect(JSON.stringify(table)).not.toMatch(/undefined|null/)
@@ -94,10 +95,60 @@ describe('the columns', () => {
     expect(table.rows[0]).toEqual(['Adébáyọ̀ Ọlọ́run', '', '34', '+2348000000001', 'A campaign not listed here', expect.any(String), 'Status not known'])
   })
 
+  it('writes genotype and blood group as their codes in plain ASCII, "Not known" in words, and leaves out a code it does not know', () => {
+    const cases: ExportCase[] = [
+      { ...basic, id: 'c0a5e000-0000-4000-8000-000000000011', genotype: 'SS', bloodGroup: 'AB-' },
+      { ...basic, id: 'c0a5e000-0000-4000-8000-000000000012', genotype: 'unknown', bloodGroup: 'unknown' },
+      { ...basic, id: 'c0a5e000-0000-4000-8000-000000000013', genotype: null, bloodGroup: null },
+      { ...basic, id: 'c0a5e000-0000-4000-8000-000000000014', genotype: 'XX' as never, bloodGroup: 'A−' as never },
+    ]
+    const table = rowsFor(cases, context)
+    const column = (heading: string) => table.rows.map(row => row[table.headings.indexOf(heading)])
+    expect(column('Genotype')).toEqual(['SS', 'Not known', '', ''])
+    expect(column('Blood group')).toEqual(['AB-', 'Not known', '', ''])
+    // No screen-only minus sign (U+2212) reaches a file: a PDF's fonts print it as "?".
+    expect(JSON.stringify(table)).not.toContain('\u2212')
+    expect(JSON.stringify(table)).not.toContain('−')
+  })
+
+  it('has no genotype or blood group columns while no registration carries them (an Outreach before 0122)', () => {
+    const table = rowsFor([basic, older, { ...basic, id: 'c0a5e000-0000-4000-8000-000000000015', hasScreening: true }], context)
+    expect(table.headings).not.toContain('Genotype')
+    expect(table.headings).not.toContain('Blood group')
+  })
+
   it('takes a later column in one place, reaching every format', () => {
     const table = rowsFor([basic], context, [...OUTREACH_EXPORT_COLUMNS, { heading: 'Blood pressure', value: () => '120/80' }])
     expect(table.headings.at(-1)).toBe('Blood pressure')
     expect(table.rows[0]!.at(-1)).toBe('120/80')
+  })
+})
+
+describe('genotype and blood group in every format', () => {
+  const table = rowsFor([{ ...basic, genotype: 'AS', bloodGroup: 'O-' }, { ...older, genotype: 'unknown', bloodGroup: 'A+' }], context)
+
+  it('CSV: as written, never made a formula ("A+" and "O-" start with a letter)', () => {
+    const csv = toCsv(table)
+    expect(csv.split('\r\n')[0]).toContain(',Genotype,Blood group')
+    expect(csv).toContain(',AS,O-')
+    expect(csv).toContain(',Not known,A+')
+    expect(csv).not.toContain("'O-")
+  })
+
+  it('Excel and Word: the same words in the sheet and the table', async () => {
+    const sheet = strFromU8(unzipSync(await xlsxBytes(table, exportMeta(undefined, 2, new Date())))['xl/worksheets/sheet1.xml']!)
+    for (const cell of ['Genotype', 'Blood group', 'AS', 'O-', 'Not known', 'A+']) expect(sheet).toContain(`>${cell}<`)
+    const document = strFromU8(unzipSync(await docxBytes(table, { title: 'T', subtitle: 'S' }))['word/document.xml']!)
+    for (const cell of ['Genotype', 'Blood group', 'AS', 'O-', 'Not known', 'A+']) expect(document).toContain(`>${cell}<`)
+  })
+
+  it('PDF: the codes print as they are (ASCII), with no "?"', async () => {
+    pdf.autoTable.mockClear()
+    await buildExport('pdf', table, { title: 'T', subtitle: 'S' })
+    const drawn = pdf.autoTable.mock.calls[0]![1] as { head: string[][]; body: string[][] }
+    expect(drawn.head[0]).toEqual(expect.arrayContaining(['Genotype', 'Blood group']))
+    expect(drawn.body.flat()).toEqual(expect.arrayContaining(['AS', 'O-', 'Not known', 'A+']))
+    expect(['AB-', 'O-', 'Not known'].map(pdfText)).toEqual(['AB-', 'O-', 'Not known'])
   })
 })
 

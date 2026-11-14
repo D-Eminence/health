@@ -217,8 +217,6 @@ describe('Health checks', () => {
   it('checks every field before sending anything, focus on the first refused', async () => {
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
-    await press(saveButton())
-    expect(within(region()).getByText('Enter at least one health check before saving.')).toBeTruthy()
     type(/Blood pressure, top number/, '120')
     type(/^Temperature/, '36.55')
     type(/^Reading/, '5')
@@ -455,13 +453,28 @@ describe('Health checks', () => {
     expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
   })
 
-  it('saves nothing when only a unit or timing is chosen', async () => {
+  it('nothing is required: a first save with nothing filled in is still saved, all null (owner, 14 Nov 2026)', async () => {
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, {}) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    expect(region().textContent).toContain('Every check is optional. Record what was done today and leave out the rest.')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual(NULLS)
+    expect(api.saveOutreachScreening.mock.calls[0]![3].version).toBeUndefined()
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    expect(within(region()).queryByText('Enter at least one health check before saving.')).toBeNull()
+  })
+
+  it('a unit or timing chosen alone is not sent: the save goes with nothing recorded', async () => {
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, {}) })
     renderChecks()
     await waitFor(() => expect(saveButton()).toBeTruthy())
     const unit = within(region()).getByRole('combobox', { name: /unit/i }) as HTMLSelectElement
     fireEvent.change(unit, { target: { value: unit.options[1]!.value } })
     await press(saveButton())
-    expect(api.saveOutreachScreening).not.toHaveBeenCalled()
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual(NULLS)
   })
 
   it('rounds a height to whole centimetres as the field is left', async () => {
@@ -762,6 +775,124 @@ describe('Health checks through a reload', () => {
     expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
     expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(kept()).toEqual([]))
+  })
+})
+
+/*
+ * Genotype and blood group (outreach-api 0122, proposed; owner, 14 Nov 2026): optional, shown and sent only once Outreach
+ * is known to take them, as an earlier Outreach refuses a body with a field it does not know (400 VALIDATION_FAILED).
+ */
+describe('Health checks: genotype and blood group', () => {
+  const ACCEPTS = ['genotype', 'bloodGroup']
+  const combo = (name: RegExp | string) => within(region()).getByRole('combobox', { name }) as HTMLSelectElement
+  const optionsOf = (name: RegExp | string) => within(combo(name)).getAllByRole('option').map(option => option.textContent)
+
+  it('are hidden and never sent while Outreach is not known to take them (an earlier Outreach)', async () => {
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 72 }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    expect(within(region()).queryByRole('group', { name: 'Blood tests' })).toBeNull()
+    expect(within(region()).queryByRole('combobox', { name: /Genotype/ })).toBeNull()
+    expect(within(region()).queryByRole('combobox', { name: /Blood group/ })).toBeNull()
+    type(/^Pulse/, '72')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    const body = api.saveOutreachScreening.mock.calls[0]![2]
+    expect(body).toEqual({ ...NULLS, pulseBpm: 72 })
+    expect(Object.keys(body)).not.toContain('genotype')
+    expect(Object.keys(body)).not.toContain('bloodGroup')
+  })
+
+  it('stay hidden for a saved screening without their keys', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: saved(1, { pulseBpm: 72 }) })
+    renderChecks()
+    await waitFor(() => expect(box(/^Pulse/).value).toBe('72'))
+    expect(within(region()).queryByRole('group', { name: 'Blood tests' })).toBeNull()
+  })
+
+  it('are shown in Blood tests, after the malaria test, and sent when Outreach says it takes them', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: null, accepts: ACCEPTS })
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { genotype: 'AS', bloodGroup: 'O-' }), accepts: ACCEPTS })
+    renderChecks()
+    const group = await within(region()).findByRole('group', { name: 'Blood tests' })
+    const groups = within(region()).getAllByRole('group').map(each => each.getAttribute('aria-labelledby'))
+    expect(groups.indexOf(group.getAttribute('aria-labelledby'))).toBe(groups.indexOf(within(region()).getByRole('group', { name: 'Malaria test' }).getAttribute('aria-labelledby')) + 1)
+    expect(optionsOf(/Genotype/)).toEqual(['Not recorded', 'AA', 'AS', 'AC', 'SS', 'SC', 'CC', 'Not known'])
+    // The minus as a real minus sign on screen; the code sent stays plain ASCII.
+    expect(optionsOf(/Blood group/)).toEqual(['Not recorded', 'A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−', 'Not known'])
+    expect([...combo(/Blood group/).options].map(option => option.value)).toEqual(['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown'])
+    choose(/Genotype/, 'AS')
+    choose(/Blood group/, 'O-')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual({ ...NULLS, genotype: 'AS', bloodGroup: 'O-' })
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+    expect(combo(/Blood group/).value).toBe('O-')
+  })
+
+  it('nothing is required: left blank they are sent as null, and a form with nothing at all still saves', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: null, accepts: ACCEPTS })
+    api.saveOutreachScreening.mockResolvedValueOnce({ screening: saved(1, { genotype: null, bloodGroup: null }) })
+    renderChecks()
+    await within(region()).findByRole('group', { name: 'Blood tests' })
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect(api.saveOutreachScreening.mock.calls[0]![2]).toEqual({ ...NULLS, genotype: null, bloodGroup: null })
+    expect(await within(region()).findByText('Health checks saved.')).toBeTruthy()
+  })
+
+  it('are shown, filled and read only on the saved checks when the screening carries them', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: saved(2, { genotype: 'SS', bloodGroup: 'unknown' }) })
+    renderChecks(false)
+    await within(region()).findByRole('group', { name: 'Blood tests' })
+    expect(combo(/Genotype/).value).toBe('SS')
+    expect(combo(/Blood group/).selectedOptions[0]!.textContent).toBe('Not known')
+    expect(combo(/Genotype/).disabled).toBe(true)
+  })
+
+  it('once seen, are known for the session: a later case with no checks yet shows them', async () => {
+    api.outreachScreening.mockResolvedValueOnce({ screening: saved(1, { genotype: null, bloodGroup: 'B+' }) })
+    const first = renderChecks()
+    await within(region()).findByRole('group', { name: 'Blood tests' })
+    first.unmount()
+    cleanup()
+    api.outreachScreening.mockResolvedValue({ screening: null })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    expect(within(region()).getByRole('group', { name: 'Blood tests' })).toBeTruthy()
+  })
+
+  it('marks Genotype when Outreach refuses its value (422 OUTREACH_SCREENING_OUT_OF_RANGE)', async () => {
+    api.outreachScreening.mockResolvedValue({ screening: null, accepts: ACCEPTS })
+    api.saveOutreachScreening.mockRejectedValueOnce(new HidApiError(422, 'x', { code: 'OUTREACH_SCREENING_OUT_OF_RANGE', detail: 'genotype is outside the accepted values' }))
+    renderChecks()
+    await within(region()).findByRole('group', { name: 'Blood tests' })
+    choose(/Genotype/, 'CC')
+    await press(saveButton())
+    expect(await within(region()).findByText('Genotype is outside what Health ID accepts. Check it and try again.')).toBeTruthy()
+  })
+
+  it('after a lost answer, a save made before they were known still matches what Outreach stored (no false clash)', async () => {
+    // The first read says nothing about them; the save's answer is lost; the next read shows the screening with their keys.
+    api.outreachScreening.mockResolvedValueOnce({ screening: null })
+      .mockResolvedValueOnce({ screening: saved(1, { pulseBpm: 75, genotype: null, bloodGroup: null }) })
+    api.saveOutreachScreening.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ screening: saved(2, { pulseBpm: 75, temperatureC: 37.2, genotype: null, bloodGroup: null }) })
+    renderChecks()
+    await waitFor(() => expect(saveButton()).toBeTruthy())
+    type(/^Pulse/, '75')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(1))
+    expect('genotype' in api.saveOutreachScreening.mock.calls[0]![2]).toBe(false)
+    type(/^Temperature/, '37.2')
+    await press(saveButton())
+    await waitFor(() => expect(api.saveOutreachScreening).toHaveBeenCalledTimes(2))
+    // Carried on from version 1 (the lost save landed), not as a clash. That save was made before they were known, so it
+    // goes as typed; the fields are shown from then on.
+    expect(api.saveOutreachScreening.mock.calls[1]![3].version).toBe(1)
+    expect(api.saveOutreachScreening.mock.calls[1]![2]).toEqual({ ...NULLS, pulseBpm: 75, temperatureC: 37.2 })
+    expect(within(region()).queryByText(SCREENING_RELOADED)).toBeNull()
+    expect(await within(region()).findByRole('group', { name: 'Blood tests' })).toBeTruthy()
   })
 })
 

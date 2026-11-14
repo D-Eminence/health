@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  bmiOf, checkScreening, fieldNamedIn, medicineRow, NOTHING_RECORDED, parseNumber, screeningForm, type ScreeningForm,
+  bmiOf, checkScreening, extrasOf, FIELD_LABELS, fieldNamedIn, medicineRow, parseNumber, screeningForm, type ScreeningForm,
 } from '../../../../ehr-blue/departments/outreach/screening'
+import {
+  forgetOutreachServed, noteOutreachRegistrations, noteOutreachScreening, servedScreeningExtras,
+} from '../../../../ehr-blue/departments/outreach/outreachServed'
+import type { OutreachCase } from '../../../../staff/api'
 
 /* The health checks' own rules, as outreach-api 0118 checks them. Fictional values only. */
 
@@ -9,12 +13,11 @@ const empty = screeningForm(null)
 const form = (changes: Partial<ScreeningForm>): ScreeningForm => ({ ...empty, ...changes })
 
 describe('checkScreening', () => {
-  it('sends null for everything not recorded, and says when nothing is', () => {
+  it('sends null for everything not recorded, and says when nothing is: nothing is required, so that is no error', () => {
     const { input, errors, empty: nothing } = checkScreening(empty)
     expect(errors).toEqual({})
     expect(nothing).toBe(true)
     expect(Object.values(input).every(value => value === null)).toBe(true)
-    expect(NOTHING_RECORDED).toBe('Enter at least one health check before saving.')
   })
 
   it('takes every field in range, as Outreach takes them', () => {
@@ -126,5 +129,67 @@ describe('the helpers', () => {
     expect(saved).toMatchObject({ bpSystolic: '130', bpDiastolic: '85', temperatureC: '37.2', malariaRdt: 'positive', seenByClinician: 'yes',
       referred: 'no', clinicianName: 'Dr Demo' })
     expect(saved.medicines.map(row => [row.name, row.dose])).toEqual([['ACT', '']])
+  })
+})
+
+describe('genotype and blood group (0122)', () => {
+  it('leaves both keys out unless Outreach is known to take them, so an earlier Outreach is never sent a field it refuses', () => {
+    const { input } = checkScreening(form({ genotype: 'AS', bloodGroup: 'O-', pulseBpm: '72' }))
+    expect('genotype' in input).toBe(false)
+    expect('bloodGroup' in input).toBe(false)
+    expect(extrasOf(input)).toEqual([])
+  })
+
+  it('sends both when taken: the code chosen, or null when not chosen', () => {
+    expect(checkScreening(form({ genotype: 'AS', bloodGroup: 'O-' }), ['genotype', 'bloodGroup']).input).toMatchObject({ genotype: 'AS', bloodGroup: 'O-' })
+    const blank = checkScreening(form({ pulseBpm: '72' }), ['genotype', 'bloodGroup'])
+    expect(blank.errors).toEqual({})
+    expect(blank.input).toMatchObject({ pulseBpm: 72, genotype: null, bloodGroup: null })
+    expect(extrasOf(blank.input)).toEqual(['genotype', 'bloodGroup'])
+    // Only the one taken is sent.
+    const one = checkScreening(form({ genotype: 'SS', bloodGroup: 'A+' }), ['genotype']).input
+    expect(one.genotype).toBe('SS')
+    expect('bloodGroup' in one).toBe(false)
+  })
+
+  it('counts "Not known" as recorded, and blank ones as nothing', () => {
+    expect(checkScreening(form({ genotype: 'unknown' }), ['genotype', 'bloodGroup']).empty).toBe(false)
+    expect(checkScreening(empty, ['genotype', 'bloodGroup']).empty).toBe(true)
+  })
+
+  it('fills the form from a saved screening, and from one without the keys (an earlier Outreach)', () => {
+    const saved = { ...checkScreening(empty).input, genotype: 'AC', bloodGroup: 'B-', caseId: 'case-1', version: 1, recordedAt: '', recordedByMembershipId: '', updatedAt: '' } as const
+    expect(screeningForm(saved)).toMatchObject({ genotype: 'AC', bloodGroup: 'B-' })
+    const { genotype: _g, bloodGroup: _b, ...older } = saved
+    expect(screeningForm(older)).toMatchObject({ genotype: '', bloodGroup: '' })
+  })
+
+  it('names the field a refusal names, in plain words', () => {
+    expect(fieldNamedIn('bloodGroup must be one of the following values')).toBe('bloodGroup')
+    expect(fieldNamedIn('genotype must be one of the following values')).toBe('genotype')
+    expect([FIELD_LABELS.genotype, FIELD_LABELS.bloodGroup]).toEqual(['Genotype', 'Blood group'])
+  })
+})
+
+describe('what Outreach takes in health checks (outreachServed.ts)', () => {
+  beforeEach(() => forgetOutreachServed())
+
+  it('knows nothing from an answer with no screening and no accepts, or a screening without the keys', () => {
+    noteOutreachScreening({ screening: null })
+    noteOutreachScreening({ screening: { caseId: 'case-1', pulseBpm: 70 } })
+    noteOutreachScreening(null)
+    expect(servedScreeningExtras()).toEqual([])
+  })
+
+  it('learns from accepts, from a saved screening’s keys, or from registrations, and keeps it for the session', () => {
+    noteOutreachScreening({ screening: null, accepts: ['bloodGroup', 'somethingElse'] })
+    expect(servedScreeningExtras()).toEqual(['bloodGroup'])
+    noteOutreachScreening({ screening: { genotype: null } })
+    expect(servedScreeningExtras()).toEqual(['genotype', 'bloodGroup'])
+    noteOutreachScreening({ screening: null })
+    expect(servedScreeningExtras()).toEqual(['genotype', 'bloodGroup'])
+    forgetOutreachServed()
+    noteOutreachRegistrations([{ id: 'case-1', hasScreening: true, genotype: null, bloodGroup: 'A+' } as unknown as OutreachCase])
+    expect(servedScreeningExtras()).toEqual(['genotype', 'bloodGroup'])
   })
 })

@@ -1,5 +1,6 @@
 import type {
-  OutreachGlucoseTiming, OutreachGlucoseUnit, OutreachHearing, OutreachMalariaRdt, OutreachScreening, OutreachScreeningInput,
+  OutreachBloodGroup, OutreachGenotype, OutreachGlucoseTiming, OutreachGlucoseUnit, OutreachHearing, OutreachMalariaRdt, OutreachScreening,
+  OutreachScreeningExtra, OutreachScreeningInput,
 } from '../../../staff/api'
 
 /*
@@ -33,6 +34,8 @@ export interface ScreeningForm {
   readonly malariaRdt: '' | OutreachMalariaRdt
   readonly hearingLeft: '' | OutreachHearing
   readonly hearingRight: '' | OutreachHearing
+  readonly genotype: '' | OutreachGenotype
+  readonly bloodGroup: '' | OutreachBloodGroup
   readonly mainComplaint: string
   readonly seenByClinician: YesNo
   readonly clinicianName: string
@@ -48,7 +51,7 @@ export type ScreeningField = Exclude<keyof ScreeningForm, 'medicines'> | `medici
 /** The order fields are checked in, for focus on the first refused (medicine rows follow `outcome`). */
 export const FIELD_ORDER: readonly Exclude<keyof ScreeningForm, 'medicines'>[] = [
   'bpSystolic', 'bpDiastolic', 'pulseBpm', 'temperatureC', 'weightKg', 'heightCm', 'glucoseValue', 'glucoseUnit', 'glucoseTiming',
-  'malariaRdt', 'hearingLeft', 'hearingRight', 'mainComplaint', 'seenByClinician', 'clinicianName', 'outcome', 'referred', 'referredTo',
+  'malariaRdt', 'genotype', 'bloodGroup', 'hearingLeft', 'hearingRight', 'mainComplaint', 'seenByClinician', 'clinicianName', 'outcome', 'referred', 'referredTo',
 ]
 
 /** What each of Outreach's fields is called on the page, for a refusal that names one (422 OUTREACH_SCREENING_OUT_OF_RANGE). */
@@ -56,6 +59,7 @@ export const FIELD_LABELS: Readonly<Record<Exclude<keyof OutreachScreeningInput,
   bpSystolic: 'Blood pressure, top number', bpDiastolic: 'Blood pressure, bottom number', pulseBpm: 'Pulse',
   temperatureC: 'Temperature', weightKg: 'Weight', heightCm: 'Height', glucoseValue: 'Blood sugar reading',
   glucoseUnit: 'Blood sugar unit', glucoseTiming: 'Fasting or random', malariaRdt: 'Malaria rapid test',
+  genotype: 'Genotype', bloodGroup: 'Blood group',
   hearingLeft: 'Left ear', hearingRight: 'Right ear', mainComplaint: 'Main complaint', seenByClinician: 'Seen by a clinician',
   clinicianName: 'Clinician’s name', outcome: 'Outcome or advice', referred: 'Referred', referredTo: 'Referred to',
 }
@@ -120,6 +124,7 @@ export function screeningForm(saved: OutreachScreening | null): ScreeningForm {
     temperatureC: text(saved?.temperatureC), weightKg: text(saved?.weightKg), heightCm: text(saved?.heightCm),
     glucoseValue: text(saved?.glucoseValue), glucoseUnit: saved?.glucoseUnit ?? '', glucoseTiming: saved?.glucoseTiming ?? '',
     malariaRdt: saved?.malariaRdt ?? '', hearingLeft: saved?.hearingLeft ?? '', hearingRight: saved?.hearingRight ?? '',
+    genotype: saved?.genotype ?? '', bloodGroup: saved?.bloodGroup ?? '',
     mainComplaint: saved?.mainComplaint ?? '', seenByClinician: yesNo(saved?.seenByClinician), clinicianName: saved?.clinicianName ?? '',
     outcome: saved?.outcome ?? '', medicines: (saved?.medicinesGiven ?? []).map(medicine => medicineRow(medicine.name, medicine.dose ?? '')),
     referred: yesNo(saved?.referred), referredTo: saved?.referredTo ?? '',
@@ -183,14 +188,24 @@ const GLUCOSE_RANGE: Readonly<Record<OutreachGlucoseUnit, { low: number; high: n
   'mg/dL': { low: 18, high: 720, words: 'from 18 to 720 mg/dL' },
 }
 
-export const NOTHING_RECORDED = 'Enter at least one health check before saving.'
+/** The fields an Outreach may not take yet (0122), in the order they are sent. */
+export const SCREENING_EXTRAS: readonly OutreachScreeningExtra[] = ['genotype', 'bloodGroup']
+
+/** The extra fields a screening as sent carries: those Outreach was known to take when it was made. */
+export function extrasOf(input: OutreachScreeningInput): OutreachScreeningExtra[] {
+  return SCREENING_EXTRAS.filter(key => key in input)
+}
 
 /**
- * The form checked as Outreach checks it: the screening to send, or the errors by field (and a form-level error when
- * nothing at all is recorded). Choices that only go with another answer (the clinician's name, where they were referred,
- * a blood sugar's unit and timing) are sent only with it.
+ * The form checked as Outreach checks it: the screening to send, and the errors by field. Every field is optional: a
+ * form with nothing in it is `empty`, which the page still saves the first time (owner, 14 Nov 2026). Choices that only
+ * go with another answer (the clinician's name, where they were referred, a blood sugar's unit and timing) are sent only
+ * with it. Genotype and blood group are sent only when `extras` names them (an Outreach known to take them), as null
+ * when not chosen; otherwise their keys are left out, as an earlier Outreach refuses a field it does not know.
  */
-export function checkScreening(form: ScreeningForm): { input: OutreachScreeningInput; errors: Partial<Record<ScreeningField, string>>; empty: boolean } {
+export function checkScreening(form: ScreeningForm, extras: readonly OutreachScreeningExtra[] = []): {
+  input: OutreachScreeningInput; errors: Partial<Record<ScreeningField, string>>; empty: boolean
+} {
   const errors: Partial<Record<ScreeningField, string>> = {}
   const number = (field: keyof ScreeningForm & string, decimals: number, low: number, high: number, words: string) => {
     const typed = (form[field] as string).trim()
@@ -250,6 +265,8 @@ export function checkScreening(form: ScreeningForm): { input: OutreachScreeningI
     mainComplaint, seenByClinician: seen, clinicianName, outcome,
     medicinesGiven: medicines.length ? medicines.map(row => ({ name: squeeze(row.name), dose: squeeze(row.dose) || null })) : null,
     referred, referredTo,
+    ...(extras.includes('genotype') ? { genotype: form.genotype || null } : {}),
+    ...(extras.includes('bloodGroup') ? { bloodGroup: form.bloodGroup || null } : {}),
   }
   // Nothing to record unless some value reaches Outreach: a unit, timing or hidden clinician name alone is not a check.
   const recorded = Object.values(input).some(value => value !== null && value !== false)

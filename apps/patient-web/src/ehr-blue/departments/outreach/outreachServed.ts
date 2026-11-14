@@ -1,4 +1,4 @@
-import type { OutreachCase } from '../../../staff/api'
+import type { OutreachCase, OutreachScreeningExtra } from '../../../staff/api'
 
 /*
  * What this Outreach serves, as its answers have shown it, remembered for the rest of the session: in this module's
@@ -9,6 +9,9 @@ import type { OutreachCase } from '../../../staff/api'
  * - Health ID by email (0119): registrations carry `healthId`.
  * - Health ID with no email (0120): registrations carry `healthIdStatus`, unless its route answered 404 (not served),
  *   which then holds for the session.
+ * - Genotype and blood group in health checks (0122): a health checks read or save answers `accepts` naming them, or
+ *   its screening carries the `genotype` and `bloodGroup` keys, or registrations carry them. Until then they are neither
+ *   shown nor sent: an earlier Outreach refuses a field it does not know (400 VALIDATION_FAILED).
  *
  * Each is true once seen (served), false while only answers without it have been seen, and undefined while nothing
  * has been seen. Copy only: Outreach decides what it takes.
@@ -20,6 +23,8 @@ let healthChecks: Known
 let emailHealthId: Known
 let unverifiedHealthId: Known
 let unverifiedRefused = false
+const screeningExtras = new Set<OutreachScreeningExtra>()
+const EXTRAS: readonly OutreachScreeningExtra[] = ['genotype', 'bloodGroup']
 
 /** Learns what Outreach serves from registrations as it answered them (the list, or one just saved). */
 export function noteOutreachRegistrations(items: readonly OutreachCase[] | null | undefined): void {
@@ -28,6 +33,24 @@ export function noteOutreachRegistrations(items: readonly OutreachCase[] | null 
   healthChecks = healthChecks || carry('hasScreening')
   emailHealthId = emailHealthId || carry('healthId')
   unverifiedHealthId = !unverifiedRefused && (unverifiedHealthId || carry('healthIdStatus'))
+  for (const key of EXTRAS) if (carry(key)) screeningExtras.add(key)
+}
+
+/**
+ * Learns which extra health check fields Outreach takes from a health checks read or save as it answered: `accepts`
+ * naming them, or a saved screening carrying their keys. An answer without either (no checks saved yet, or an earlier
+ * Outreach) says nothing, and what was seen before still holds.
+ */
+export function noteOutreachScreening(answer: { readonly screening?: object | null; readonly accepts?: unknown } | null | undefined): void {
+  if (!answer || typeof answer !== 'object') return
+  const accepts = Array.isArray(answer.accepts) ? answer.accepts : []
+  const screening = answer.screening && typeof answer.screening === 'object' ? answer.screening : null
+  for (const key of EXTRAS) if (accepts.includes(key) || (screening && key in screening)) screeningExtras.add(key)
+}
+
+/** The extra health check fields Outreach is known to take this session (0122), in the order they are sent. */
+export function servedScreeningExtras(): OutreachScreeningExtra[] {
+  return EXTRAS.filter(key => screeningExtras.has(key))
 }
 
 /** Outreach answered 404 (route not served) to "No email or phone": not offered again, and not promised, this session. */
@@ -63,4 +86,5 @@ export function forgetOutreachServed(): void {
   emailHealthId = undefined
   unverifiedHealthId = undefined
   unverifiedRefused = false
+  screeningExtras.clear()
 }
