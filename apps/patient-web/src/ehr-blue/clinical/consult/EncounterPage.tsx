@@ -35,7 +35,7 @@ import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
 import { KINDS, learnFrom } from './orders/orders'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
-import { VitalsCard } from './Vitals'
+import { LatestVitals, VitalsCard } from './Vitals'
 
 /** One encounter's page, or the chart's own state. */
 export function EncounterPage() {
@@ -561,6 +561,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
       </DetailMeta>
       {readsNone ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : null}
+      {reads.vitals ? <LatestVitals list={vitals} /> : null}
       <DetailGrid>
         <SavedRecord title="Note" items={saved}>
           {writes.notes && note?.status === 'draft' && seen ? (

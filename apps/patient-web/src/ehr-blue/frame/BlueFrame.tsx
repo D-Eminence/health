@@ -41,8 +41,8 @@ import { PLAIN, plainErrorText } from '@hid/http'
  */
 const CLINICAL_SIDEBAR: Readonly<Record<string, string>> = {
   patients: 'Front desk', registration: 'Front desk', 'in-person-check': 'Front desk', appointments: 'Front desk', journey: 'Front desk',
-  triage: 'Care', clinical: 'Care', nursing: 'Care', 'nursing-tasks': 'Care', requests: 'Care',
-  inpatient: 'Wards & units', wards: 'Wards & units', emergency: 'Wards & units', maternity: 'Wards & units',
+  triage: 'Care', clinical: 'Care', nursing: 'Care', 'nursing-tasks': 'Care', requests: 'Care', emergency: 'Care',
+  inpatient: 'Wards & units', wards: 'Wards & units', maternity: 'Wards & units',
   surgery: 'Wards & units', icu: 'Wards & units', dental: 'Wards & units',
 }
 
@@ -378,8 +378,8 @@ export function BlueFrame() {
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === switching ? <span className="text-ink-3">Opening…</span> : null}{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
                 {/* My profile is a sample that saves nothing: the demo facilities' alone. */}
                 {isDemoFacility(facility?.id) ? <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li> : null}
-                {/* Help: the support assistant where this build offers it (each staff product site's build, not the admin console). */}
-                {supportChatOffered() ? <li><button type="button" onClick={() => { close(); setSamplePanel('help') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><CircleHelp className="size-4" aria-hidden />Help</button></li> : null}
+                {/* Help: the Help page, with the support assistant where this build offers it. */}
+                <li><button type="button" onClick={() => { close(); if (supportChatOffered()) setSamplePanel('help'); else navigate('/provider/help') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><CircleHelp className="size-4" aria-hidden />Help</button></li>
               </ul>,
             }}
             nav={nav}
@@ -394,7 +394,9 @@ export function BlueFrame() {
             </>}
             headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} />
               {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
-              {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
+              {/* Help: the support assistant where the build offers it, with the guides one click inside; otherwise the
+                  Help page of guides and what's new (QA P1-7). */}
+              <SupportHelpButton onOpen={() => supportChatOffered() ? setSamplePanel('help') : navigate('/provider/help')} />
               <NotificationsButton /></div>}
             tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
               : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
@@ -442,7 +444,8 @@ export function BlueFrame() {
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
             {/* Help opens the support assistant, never the sample panel: the menu offers Help only where the chat is served. */}
             <AccountSamplePanel panel={samplePanel === 'help' && supportChatOffered() ? null : samplePanel} onClose={() => setSamplePanel(null)} />
-            <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)} />
+            <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)}
+              onGuides={location.pathname.startsWith('/provider/help') ? undefined : () => { setSamplePanel(null); navigate('/provider/help') }} />
           </AppShell>
         </EhrAppShell>
       </AttentionProvider>

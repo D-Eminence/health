@@ -120,7 +120,7 @@ const STAFF_PERMISSIONS = [
   'identity.consent.read', 'identity.consent.write', 'identity.break-glass.write', 'identity.patient-access-pin.verify', 'audit.read',
   'ehr.encounter.read', 'ehr.encounter.write', 'ehr.note.read', 'ehr.note.write', 'ehr.vital.read', 'ehr.vital.write',
   'ehr.diagnosis.read', 'ehr.diagnosis.write', 'ehr.prescription.read', 'ehr.prescription.write', 'ehr.lab-request.read',
-  'ehr.lab-request.write', 'ehr.document.read', 'ehr.document.write', 'ehr.imported-history.read',
+  'ehr.lab-request.write', 'ehr.document.read', 'ehr.document.write', 'ehr.imported-history.read', 'ehr.record-chat.use',
   'lab.work-item.read', 'lab.work-item.accept', 'lab.accession.create', 'lab.accession.read', 'lab.specimen.collect',
   'lab.specimen.receive', 'lab.specimen.reject', 'lab.execution.read', 'lab.execution.start', 'lab.execution.complete',
   'lab.result.enter', 'lab.result.verify', 'lab.result.release', 'lab.result.correct', 'lab.result.released.read',
@@ -160,6 +160,8 @@ const staffSession = () => {
   }
 }
 const DEMO_PATIENT_ID = 'a0000000-0000-4000-8000-000000000001'
+const TODAY_VISIT = { id: 'enc-today', patientId: DEMO_PATIENT_ID, facilityId: '98d00002-0000-4000-8000-000000000001', encounterType: 'ambulatory', status: 'in-progress', startedAt: iso(-40 * MIN), chiefComplaint: 'Fever and headache for three days', rowVersion: 1 }
+const TODAY_VITALS = { id: 'v-today', patientId: DEMO_PATIENT_ID, encounterId: 'enc-today', createdAt: iso(-30 * MIN), recordedAt: iso(-30 * MIN), status: 'final', systolicMmhg: 132, diastolicMmhg: 84, pulseBpm: 104, temperatureC: 38.6, respiratoryRate: 20, oxygenSaturationPercent: 97, weightKg: 64, heightCm: 168, source: 'manual' }
 
 // Pharmacy's queue, as GET /pharmacy/work-items sends it today: this facility's own work carries no `patient` (only routed
 // work does: BACKEND-NEEDS.md), no priority, no image and no quantity. Dispensings made here are kept for the session.
@@ -456,12 +458,21 @@ function staffRoute(method, path) {
     authorization: { decision: 'allow', consentGrantId: 'grant-1', expiresAt: iso(2 * 60 * MIN), breakGlass: false },
     patient: { patientId: DEMO_PATIENT_ID, hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth: '1991-03-04', gender: 'female', version: 1 },
   }]
+  // What the demo patient's grant permits here: reading and adding records, as an approved request gives.
+  if (method === 'POST' && path === '/identity/consent-status') return [200, {
+    patientId: DEMO_PATIENT_ID, facilityId: '98d00002-0000-4000-8000-000000000001', purpose: 'direct-care', readAllowed: true, writeAllowed: true, expiresAt: iso(2 * 60 * MIN),
+  }]
   if (method !== 'GET') return null
   const dispensing = /^\/pharmacy\/dispensings\/([^/]+)$/.exec(path)
   if (dispensing) {
     const entry = [...pharmacyDispensed.values()].find(done => done.id === decodeURIComponent(dispensing[1]))
     return entry ? [200, { id: entry.id, version: entry.version, reversed: entry.reversed }] : null
   }
+  // One open visit for the demo patient, with a vitals reading, so the consultation page can be reviewed.
+  const visit = /^\/ehr\/patients\/[^/]+\/encounters(?:\/(enc-today)(?:\/([a-z-]+))?)?$/.exec(path)
+  if (visit && !visit[1]) return [200, { items: [TODAY_VISIT], nextCursor: null }]
+  if (visit && visit[1] && !visit[2]) return [200, TODAY_VISIT]
+  if (visit && visit[2] === 'vitals') return [200, { items: [TODAY_VITALS], nextCursor: null }]
   if (/^\/ehr\/patients\/[^/]+\/encounters(\/[^/]+\/[a-z-]+)?$/.test(path) || path === '/ehr/documents') return [200, { items: [], nextCursor: null }]
   switch (path) {
     case '/identity/access-requests': return [200, [

@@ -329,7 +329,10 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
   const [form, setForm] = useState(0)
   const [success, setSuccess] = useState('')
   const [pageError, setPageError] = useState('')
-  const [handling, setHandling] = useState('draft')
+  // Sending to this facility's Lab is what a doctor means by a lab request: it is the first choice where the role may
+  // send (QA N-7); a draft stays one choice away. The send still asks to confirm the patient.
+  const firstHandling = orderRights(chart, false).canSendToLab ? 'active' : 'draft'
+  const [handling, setHandling] = useState(firstHandling)
   const [handlingError, setHandlingError] = useState('')
   const [priority, setPriority] = useState('routine')
   const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
@@ -359,7 +362,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
 
   const reset = () => {
     setForm(count => count + 1)
-    setHandling('draft')
+    setHandling(firstHandling)
     setPriority('routine')
     setChoice(NO_DESTINATION)
   }
@@ -523,7 +526,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
             </EhrSelect>
           </EhrField>
           <EhrField label={<>Request handling<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
-            <EhrSelect ref={handlingRef} required value={handling} aria-describedby={warningId}
+            <EhrSelect ref={handlingRef} required value={handling} aria-describedby={handling === 'draft' || sendingElsewhere ? warningId : undefined}
               onChange={event => { setHandling(event.target.value); setHandlingError(''); setRouteErrors({}) }}>
               <option value="draft">Save as a draft</option>
               {canSendToLab ? <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option> : null}
@@ -535,7 +538,9 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
           <DestinationFields context={context} kind="lab_request" priority={priority} value={choice} onChange={setChoice}
             errors={routeErrors} queryRef={queryRef} attestedRef={attestedRef} />
         ) : null}
-        <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{labDraftWarning(sendingElsewhere, canSendToLab, routable)}</div>
+        {/* The draft warning only while a draft (or a send elsewhere) is chosen: once "send" is chosen it no longer applies (QA N-8). */}
+        {handling === 'draft' || sendingElsewhere
+          ? <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{labDraftWarning(sendingElsewhere, canSendToLab, routable)}</div> : null}
         {canSendToLab && !sendingElsewhere ? <p className="hid-ehr-clinical-note">{LAB_ACTIVE_NOTE}</p> : null}
       </RecordForm>
     </EhrCard>

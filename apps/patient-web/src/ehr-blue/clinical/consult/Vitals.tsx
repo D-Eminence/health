@@ -85,3 +85,22 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
     </EhrCard>
   )
 }
+
+/**
+ * The visit's latest vitals at the top of the consultation (QA P1-14), so the doctor never leaves the page to see them:
+ * the newest reading not entered in error, with units and flags, and when it was taken. A corrected reading shows no
+ * numbers here, only that it was corrected, and the full list below says what changed. Nothing is read: it is the
+ * encounter page's own list. Nothing shows until there is a reading.
+ */
+export function LatestVitals({ list }: { list: RecordList<ClinicalRecord> }) {
+  const latest = (list.items ?? []).find(vital => !isRetracted(vital))
+  if (!latest) return null
+  const recorded = formatWhen(latest.createdAt)
+  return (
+    <section aria-label="Latest vitals" className="hid-ehr-clinical-latest-vitals">
+      <p className="hid-ehr-clinical-latest-vitals-title">Latest vitals{recorded ? <span> · {recorded}</span> : null}</p>
+      {correctionNumber(latest) === 0 ? <Readings values={latest} />
+        : <p className="hid-ehr-clinical-cell-sub">These vitals were corrected. See Vitals below for the current values.</p>}
+    </section>
+  )
+}

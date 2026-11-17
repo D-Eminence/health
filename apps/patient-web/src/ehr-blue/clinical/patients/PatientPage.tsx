@@ -8,6 +8,7 @@ import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { HEALTH_FIELDS, type HealthFields, type ReportedHealthProfile } from '../../../profileParity'
 import { ChartGate, type Chart } from '../parts/chart'
+import { PatientAssistant } from '../parts/PatientAssistant'
 import { LoadingRows } from '../../../kasuwa/parts'
 import { consultationLabel, visitClassLabel } from '../../../plainLabels'
 import { formatDate, formatWhen } from '../parts/format'
@@ -275,7 +276,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
       <div className="flex min-w-0 flex-col gap-5">
         <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
           actions={emergency ? (showSummary ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button> : undefined)
-            : showChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
+            : <><PatientAssistant chart={chart} size="md" />{showChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : null}</>} />
         {/* Read only, said once: the chart's own sentence, with no step to ask for more (owner, 10 Nov 2026). */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice}</Alert> : null}

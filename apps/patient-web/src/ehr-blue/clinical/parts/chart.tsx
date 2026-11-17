@@ -5,6 +5,7 @@ import { PatientBanner } from '../../../kasuwa/parts'
 import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
 import type { ActivePatient } from '../../../staff/App'
+import { PatientAssistant } from './PatientAssistant'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
@@ -168,9 +169,9 @@ const CHART_REFUSALS: Readonly<Record<string, string>> = {
 }
 
 /** The open patient's banner, the same on every chart page: who is open and what this access allows. */
-export function ChartBanner({ chart, compact = false, sticky = false }: { chart: Chart; compact?: boolean; sticky?: boolean }) {
+export function ChartBanner({ chart, compact = false, sticky = false, action }: { chart: Chart; compact?: boolean; sticky?: boolean; action?: ReactNode }) {
   return <PatientBanner name={chart.facts.name} hid={chart.facts.hid} dateOfBirth={chart.facts.dateOfBirth} sex={chart.facts.sex}
-    status={accessStatus(chart)} compact={compact} sticky={sticky} />
+    status={accessStatus(chart)} compact={compact} sticky={sticky} action={action} />
 }
 
 function accessStatus(chart: Chart): { label: string; tone: Tone } {
@@ -223,7 +224,8 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   }
   return (
     <>
-      {banner ? <ChartBanner chart={chart} sticky /> : null}
+      {/* The record assistant rides in the banner, so it is one click away on every chart page (QA P1-9). */}
+      {banner ? <ChartBanner chart={chart} sticky action={<PatientAssistant chart={chart} />} /> : null}
       {banner && chart.purpose === 'direct-care' ? (
         // Today's line and "Change patient →" under the patient's name (staff/routes/Clinical.tsx:1767-1768).
         <p className="mt-2 mb-4 text-[13px] text-ink-2">

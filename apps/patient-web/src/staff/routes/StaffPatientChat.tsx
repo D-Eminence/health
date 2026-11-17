@@ -10,14 +10,14 @@ import { StagingStaffPatientChat } from './StagingStaffPatientChat'
  * It is for direct care: when Identity ends or changes the member's access to the patient (consent withdrawn, a
  * session that ended, break-glass), the assistant closes and says so.
  */
-type PatientChatProps = { facilityId: string; facilityName: string; patientId: string; patientName: string; hid: string }
+/** `inline`: shown open, with no toggle of its own (inside the patient banner's drawer, QA P1-9). */
+type PatientChatProps = { facilityId: string; facilityName: string; patientId: string; patientName: string; hid: string; inline?: boolean }
 export function StaffPatientChat(props: PatientChatProps) {
   return usesNovuBackend() ? <StagingStaffPatientChat {...props} /> : <MainStaffPatientChat {...props} />
 }
-function MainStaffPatientChat({facilityId,facilityName,patientId,patientName,hid}:{
-  facilityId:string;facilityName:string;patientId:string;patientName:string;hid:string
-}) {
-  const [open,setOpen]=useState(false)
+function MainStaffPatientChat({facilityId,facilityName,patientId,patientName,hid,inline=false}:PatientChatProps) {
+  const [toggled,setOpen]=useState(false)
+  const open=inline||toggled
   const [denied,setDenied]=useState(false)
   const onAccessEnded=useCallback(()=>setDenied(true),[])
   const api=useMemo<StaffRecordChatApi>(()=>({
@@ -27,9 +27,9 @@ function MainStaffPatientChat({facilityId,facilityName,patientId,patientName,hid
     clear:signal=>staffApi.clearRecordChatHistory(facilityId,patientId,signal),
   }),[facilityId,patientId])
   return <section className="staff-patient-chat" aria-label={`Record assistant for ${patientName}`}>
-    <button type="button" className="record-chat-reset" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>
+    {inline?null:<button type="button" className="record-chat-reset" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>
       {open?'Close patient assistant':'Ask about this patient'}
-    </button>
+    </button>}
     {open&&(denied?<p role="alert">Patient access has ended or changed. Reopen the patient through governed access.</p>
       :<StaffRecordChat api={api} patientName={patientName} hid={hid} facilityName={facilityName} onAccessEnded={onAccessEnded} />)}
   </section>
