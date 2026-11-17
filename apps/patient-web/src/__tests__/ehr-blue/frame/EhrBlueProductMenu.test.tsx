@@ -136,6 +136,34 @@ describe('the menu on a single product’s site', () => {
   })
 })
 
+describe('the phone tabs on a single product’s site', () => {
+  beforeEach(() => { withFramePages() })
+  const tabs = () => within(screen.getByRole('navigation', { name: 'Quick' })).getAllByRole('link')
+    .map(link => [link.textContent, link.getAttribute('href')])
+
+  // Classic listed both on every site (parity report 3.1 #7); the phone's three tabs are where a pharmacist looks first.
+  it.each(SITES)('on %s (%s) puts Patients and Access requests beside the product’s own page', async (_product, host, id, name, own) => {
+    await openOn(host, id, name, [own, ...FIND_AND_ASK])
+    expect(tabs().slice(1)).toEqual([['Patients', '/provider/patients'], ['Access', '/provider/requests']])
+  })
+
+  it('leaves them out for a session allowed neither, and never shows the same place twice', async () => {
+    await openOn('lab.healthidentitydirectory.com', DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
+    const labels = tabs().map(([label]) => label)
+    expect(labels).not.toContain('Patients')
+    expect(labels).not.toContain('Access')
+    const hrefs = tabs().map(([, href]) => href)
+    expect(new Set(hrefs).size).toBe(hrefs.length)
+  })
+
+  it('on the real registry at a clinic, keeps Staff and Audit for a session allowed neither', async () => {
+    vi.doUnmock('../../../ehr-blue/routes'); vi.resetModules()
+    await openOn('lab.healthidentitydirectory.com', REAL_FACILITY, 'Riverside Laboratory (fictional)', ['lab.work-item.read', 'audit.read'])
+    expect(tabs().map(([label]) => label)).toContain('Audit')
+    expect(tabs().map(([label]) => label)).not.toContain('Patients')
+  })
+})
+
 describe('a single product at an address that names no product', () => {
   beforeEach(() => { withFramePages() })
 
@@ -170,21 +198,36 @@ describe('at a clinic, on the real registry', () => {
 describe('the Start menu', () => {
   beforeEach(() => { withFramePages() })
 
-  // Registration stays in the EHR only. A single product's site draws no Start menu, and its sidebar lists no Patient
-  // registration, so the frame adds no way to registration there, even for a session that holds registration's
-  // permissions. This checks only the frame. The Patients page has its own "Register a patient" button. It shows on the
-  // EHR's site only (clinical/patients/PatientsWorkspace.tsx), and 'Patients opened from the menu' below checks that end
-  // to end.
-  it.each(SITES)('draws no Start menu on %s (%s), and its sidebar lists no Patient registration', async (_product, host, id, name, own) => {
+  // Registration stays in the EHR only. A single product's site keeps a Start menu with the two ways to a record its
+  // staff have, Find a patient and Ask a patient for access (parity report 3.1 #7), and nothing else: never Register a
+  // patient or Record vitals, even for a session that holds their permissions. The Patients page has its own "Register a
+  // patient" button. It shows on the EHR's site only (clinical/patients/PatientsWorkspace.tsx), and 'Patients opened from
+  // the menu' below checks that end to end.
+  it.each(SITES)('on %s (%s) offers only finding a patient and asking for access in Start, and no Patient registration', async (_product, host, id, name, own) => {
     await openOn(host, id, name, [own, ...FIND_AND_ASK, ...EHR_ONLY])
     expect(listedInMenu('Patients')).toBe(true)
-    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Start' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    const start = screen.getByRole('dialog', { name: 'Start' })
+    expect(within(start).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/provider/patients', '/provider/requests'])
+    expect(within(start).getByRole('link', { name: /^Find a patient/ })).toBeTruthy()
+    expect(within(start).getByRole('link', { name: /^Ask a patient for access/ })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/Register a patient/)
     // The frame's own menu offers no way there either. (What's left, the demo review page open below it, lists every
     // page, so the check stays on the menu.)
     expect(within(nav()).queryByRole('link', { name: /registration/i })).toBeNull()
     expect(nav().querySelector('a[href="/provider/registration"]')).toBeNull()
+  })
+
+  it.each(SITES)('on %s (%s) offers each by its own permission: asking for access alone', async (_product, host, id, name, own) => {
+    await openOn(host, id, name, [own, 'identity.consent.write', ...EHR_ONLY])
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    const start = screen.getByRole('dialog', { name: 'Start' })
+    expect(within(start).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/provider/requests'])
+  })
+
+  it.each(SITES)('on %s (%s) draws no Start menu for a session allowed neither', async (_product, host, id, name, own) => {
+    await openOn(host, id, name, [own, ...EHR_ONLY])
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull()
   })
 
   it('at a hospital still offers finding, registering and asking a patient for access', async () => {
