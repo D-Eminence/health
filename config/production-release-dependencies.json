@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "All nine at e50ac518 as deployed by hid-system #253 (release backend-44089885714-1-7eacb0a20d5777c2, run 44089885714, live 2026-11-17 13:34 UTC): 0122 Access PIN 24 h read and write and 0123 sealed QA tenant, signed by the owner in chat on 2026-11-17 (\"Q84 0122 0123 signed, release, no and no.\"). Builds on 4880ee42/91e9fb0a (0120, 0121 and the 24-hour outreach sign-in).",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44126679473-1-27c99ab008771a3f (hid-system #256, 73eae090, live 2026-11-17 16:47 UTC: Q88 product sign-in gate and Q89 staff reset, no migration; it rebuilt identity-api, ehr-api and notification-api; the other services stay at e50ac518 from hid-system #253, owner-signed Q84). Owner approved Q88/Q89 in chat on 2026-11-17 (\"Q88 recommended, Q89 recommended\").",
   "backend_commits": {
-    "gateway": "73eae090918db166b01812a663b5a131fb1ec639",
+    "gateway": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
     "identity-api": "73eae090918db166b01812a663b5a131fb1ec639",
     "ehr-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "lab-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "pharmacy-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "ocr-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "outreach-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "support-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "lab-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "pharmacy-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "ocr-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "outreach-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "support-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
     "notification-api": "73eae090918db166b01812a663b5a131fb1ec639"
   }
 }
