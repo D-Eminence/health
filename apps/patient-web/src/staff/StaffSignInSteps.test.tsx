@@ -115,7 +115,9 @@ describe('the password step', () => {
   // STAFF_MFA_FACTOR_UNPROVEN, the other right-password refusal, is said in the portal's words (StaffMfaSignIn.test.tsx).
   it.each([
     ['NO_ACTIVE_FACILITY_MEMBERSHIP', 'Your account has no active facility membership. Ask your organization administrator for access.',
-      'You aren’t active at any facility yet. Ask your facility administrator for access.'],
+      'You aren’t part of a facility or outreach group yet.'],
+    // Owner's answer to Q88: the right password at no facility whose work is this site's (here, the EHR's).
+    ['PRODUCT_NOT_AUTHORISED', 'Not authorised for this product.', 'This account isn’t set up for Health ID EHR.'],
   ])('says a right password it refuses (403 %s) in plain words, and stays', async (code, detail, said) => {
     const calls = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [() => problem(403, code, detail)] })
     await openSignIn()

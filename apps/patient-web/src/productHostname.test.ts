@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  START_OUTREACH_GROUP_PATH,
+  startOutreachGroupHere,
+  startOutreachGroupHref,
   isPlatformAdminHostname,
   isPlatformAdminRoute,
   isStaffProductRoute,
@@ -416,5 +419,25 @@ describe('patientSignInHref', () => {
     ['preview.pages.dev', '/sign-in'],
   ])('on %s is %s', (hostname, href) => {
     expect(patientSignInHref(hostname)).toBe(href)
+  })
+})
+
+// Q88 (17 Nov 2026): each other product site keeps only the facilities that fit it, so a group started there could
+// never be opened there. "Start an outreach group" runs on Health ID Outreach, and points there from the other sites.
+describe('startOutreachGroupHref', () => {
+  it.each([
+    ['outreach.healthidentitydirectory.com', true, START_OUTREACH_GROUP_PATH],
+    ['outreach.staging.healthidentitydirectory.com', true, START_OUTREACH_GROUP_PATH],
+    ['ehr.healthidentitydirectory.com', false, 'https://outreach.healthidentitydirectory.com/provider/start-outreach-group'],
+    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', false, 'https://outreach.healthidentitydirectory.com/provider/start-outreach-group'],
+    ['pharmacy.healthidentitydirectory.com', false, 'https://outreach.healthidentitydirectory.com/provider/start-outreach-group'],
+    ['migrate.staging.healthidentitydirectory.com', false,
+      'https://outreach.staging.healthidentitydirectory.com/provider/start-outreach-group'],
+    ['staging.healthidentitydirectory.com', true, START_OUTREACH_GROUP_PATH],
+    ['localhost', true, START_OUTREACH_GROUP_PATH],
+    ['preview.pages.dev', true, START_OUTREACH_GROUP_PATH],
+  ])('on %s: runs here %s, at %s', (hostname, here, href) => {
+    expect(startOutreachGroupHere(hostname)).toBe(here)
+    expect(startOutreachGroupHref(hostname)).toBe(href)
   })
 })

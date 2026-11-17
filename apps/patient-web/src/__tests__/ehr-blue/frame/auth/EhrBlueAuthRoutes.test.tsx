@@ -98,7 +98,7 @@ describe('with the clinic switch on', () => {
 
   it('recovers on the blue page', async () => {
     await open('/provider/recover')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reset your password.' })).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.recovery).toBe(1)
   })
