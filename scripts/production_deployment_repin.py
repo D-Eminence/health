@@ -47,6 +47,8 @@ FRONTEND_WORKFLOWS = ("production-frontends.yml", "production-frontend-rollback.
 # The backend receipt is written right after current.json. A receipt not yet readable this soon after is waited for;
 # later it is a fault.
 RECEIPT_GRACE = dt.timedelta(minutes=10)
+# Pages of 100 unfinished runs read per status before giving up (fails closed).
+RUN_PAGES = 10
 COMMIT = re.compile(r"[a-f0-9]{40}")
 DEPLOYED_BACKEND_RELEASE = re.compile(r"backend-[0-9]+-[0-9]+-[a-f0-9]{16}")
 FRONTEND_RELEASE = re.compile(r"frontend-(?:[0-9]+-[0-9]+-[a-f0-9]{16}|bootstrap-[a-f0-9]{24})")
@@ -140,8 +142,23 @@ def check_expected(expected, backend_receipt):
     require(backend_receipt["candidate"]["source_commit"] == expected, "LIVE_BACKEND_IS_NOT_THE_EXPECTED_COMMIT")
 
 
+def check_main_released(head, head_runs, frontend_receipt):
+    """A re-pin commit carries everything on main with it. Only re-pin on top of a main commit that is either
+    already live or was never put to a website release: one whose release failed, was refused, cancelled or later
+    rolled back is never released again automatically, as part of a re-pin or otherwise."""
+    if not head_runs:
+        return
+    if any(run.get("status") in ACTIVE for run in head_runs):
+        raise Wait("WEBSITE_RELEASE_RUNNING_FOR_MAIN")
+    if any(run.get("status") != "completed" or run.get("conclusion") != "success" for run in head_runs):
+        raise Hold("WEBSITE_RELEASE_FAILED_FOR_MAIN:" + str(head)[:12])
+    live = ((frontend_receipt or {}).get("candidate") or {}).get("source_commit")
+    if live != head:
+        raise Hold("MAIN_RELEASED_BUT_NOT_LIVE:" + str(head)[:12])
+
+
 def decide(*, index, index_meta, backend_receipt, frontend_receipt, declaration, lease_item, active_runs,
-           head_runs, compare, clock, expected_commit=None):
+           head, head_runs, compare, clock, expected_commit=None):
     """Returns (action, reason, pins). Raises ReleaseError to refuse, Wait to look again later."""
     declared = declaration.get("backend_commits")
     require(isinstance(declared, dict) and declared, "HID_FRONTEND_BACKEND_COMPATIBILITY_DECLARATION_REQUIRED")
@@ -168,6 +185,7 @@ def decide(*, index, index_meta, backend_receipt, frontend_receipt, declaration,
         if compare(declared[name], live[name]) not in ("ahead", "identical"):
             raise Hold("PINS_NOT_BEHIND_LIVE_BACKEND:" + name)
     if changed:
+        check_main_released(head, head_runs, frontend_receipt)
         return "repin", release_id + ":" + ",".join(changed), live
     # Main already pins the live backend; only the website release is missing. Release each main commit at most
     # once automatically: a failed or skipped release is reported by its own run and left to a person.
@@ -225,13 +243,35 @@ def lease(aws):
                                              "ConsistentRead": True}).get("Item", {})
 
 
+def workflow_file(run):
+    """The workflow file a run belongs to: ".github/workflows/x.yml" (or "...x.yml@refs/heads/b") gives x.yml."""
+    path = run.get("path")
+    return path.split("@", 1)[0].rsplit("/", 1)[-1] if isinstance(path, str) else None
+
+
 def active(github, workflows, branch):
-    names = []
-    for workflow in workflows:
-        body = github.get("actions/workflows/" + workflow + "/runs?per_page=100&branch=" + branch)
-        names += [workflow + "#" + str(r.get("id")) for r in body.get("workflow_runs", [])
-                  if r.get("status") in ACTIVE and r.get("event") != "pull_request"]
-    return names
+    """Unfinished runs of these workflows on branch. Listed from the repository's runs, one unfinished status at a
+    time, never by workflow file: a workflow GitHub has not registered (one that exists only on a non-default
+    branch) answers 404 by file name, while its runs still appear here. Any refusal of the listing itself fails
+    closed, so nothing is re-pinned or released while GitHub cannot say what runs."""
+    names = set()
+    for status in sorted(ACTIVE):
+        for page in range(1, RUN_PAGES + 1):
+            rows = github.get("actions/runs?per_page=100&branch=" + branch + "&status=" + status
+                              + "&page=" + str(page)).get("workflow_runs")
+            require(isinstance(rows, list), "GITHUB_RUNS_UNREADABLE")
+            for run in rows:
+                if run.get("event") == "pull_request" or run.get("status") not in ACTIVE:
+                    continue
+                name = workflow_file(run)
+                # A run whose workflow GitHub does not name could be a release: counted as one.
+                if name is None or name in workflows:
+                    names.add(str(name) + "#" + str(run.get("id")))
+            if len(rows) < 100:
+                break
+        else:
+            raise ReleaseError("GITHUB_RUN_PAGINATION_LIMIT")
+    return sorted(names)
 
 
 def gather():
@@ -253,7 +293,7 @@ def gather():
                                         + head).get("workflow_runs", []) if r.get("event") != "pull_request"]
     return dict(index=index, index_meta=meta, backend_receipt=backend_receipt, frontend_receipt=frontend_receipt,
                 declaration=json.loads(DECLARATION.read_text()), lease_item=lease(aws), active_runs=runs,
-                head_runs=head_runs, compare=compare, clock=dt.datetime.now(dt.timezone.utc),
+                head=head, head_runs=head_runs, compare=compare, clock=dt.datetime.now(dt.timezone.utc),
                 expected_commit=os.environ.get("EXPECTED_BACKEND_COMMIT", "").strip() or None)
 
 

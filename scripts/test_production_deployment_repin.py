@@ -7,7 +7,7 @@ import production_deployment_core as c
 import production_deployment_repin as r
 from test_production_deployment_core import index as base_index
 
-OLD, NEW, OTHER = 'a'*40, 'b'*40, 'd'*40
+OLD, NEW, OTHER, HEAD = 'a'*40, 'b'*40, 'd'*40, 'c'*40
 NOW = dt.datetime(2026, 11, 17, 18, 0, tzinfo=dt.timezone.utc)
 BACKEND_ID = 'backend-44089885714-1-7eacb0a20d5777c2'
 FRONTEND_ID = 'frontend-44090000000-1-0123456789abcdef'
@@ -31,10 +31,10 @@ def facts(live=NEW, released=OLD, pinned=OLD, deployed=('identity-api',), **over
                      'repository_id':'1317340803','branch':'staging-novu-ci-20261005','source_commit':live,
                      'components':list(deployed)}}
     frontend_receipt = {'kind':'frontend','status':'success','candidate':{'release_id':FRONTEND_ID,'operation':'deploy',
-        'backend_dependencies':declaration(released)}}
+        'source_commit':HEAD,'backend_dependencies':declaration(released)}}
     value = dict(index=index, index_meta={'VersionId':'v1','LastModified':'Tue, 17 Nov 2026 17:55:00 GMT'},
                  backend_receipt=backend_receipt, frontend_receipt=frontend_receipt, declaration=declaration(pinned),
-                 lease_item={}, active_runs=[], head_runs=[], compare=lambda old, new: 'ahead', clock=NOW)
+                 lease_item={}, active_runs=[], head=HEAD, head_runs=[], compare=lambda old, new: 'ahead', clock=NOW)
     value.update(overrides)
     return value
 
@@ -110,6 +110,28 @@ class RepinTests(unittest.TestCase):
         with self.assertRaisesRegex(r.Hold, 'ALREADY_ATTEMPTED'):
             r.decide(**facts(pinned=NEW, head_runs=[{'status':'completed','conclusion':'failure'}]))
 
+    def test_repin_never_carries_a_main_commit_whose_website_release_did_not_succeed(self):
+        # Main's head already went to a website release that failed, was refused, cancelled or skipped: a re-pin
+        # commit on top would release that change again. Held for a person.
+        for conclusion in ('failure', 'cancelled', 'skipped', 'action_required', 'timed_out', None):
+            with self.assertRaisesRegex(r.Hold, 'WEBSITE_RELEASE_FAILED_FOR_MAIN'):
+                r.decide(**facts(head_runs=[{'status':'completed','conclusion':conclusion}]))
+        # A failure next to a success is still held: it cannot be told apart from a refused attempt.
+        with self.assertRaisesRegex(r.Hold, 'WEBSITE_RELEASE_FAILED_FOR_MAIN'):
+            r.decide(**facts(head_runs=[{'status':'completed','conclusion':'success'},
+                                        {'status':'completed','conclusion':'failure'}]))
+        # Released successfully once but no longer live (a later rollback or another release replaced it).
+        value = facts(head_runs=[{'status':'completed','conclusion':'success'}])
+        value['frontend_receipt']['candidate']['source_commit'] = OTHER
+        with self.assertRaisesRegex(r.Hold, 'MAIN_RELEASED_BUT_NOT_LIVE'): r.decide(**value)
+        with self.assertRaisesRegex(r.Wait, 'RUNNING_FOR_MAIN'):
+            r.decide(**facts(head_runs=[{'status':'in_progress'}]))
+        # Main is what production's website runs: the re-pin changes only the pins.
+        self.assertEqual(r.decide(**facts(head_runs=[{'status':'completed','conclusion':'success'}]))[0], 'repin')
+        # Main never went to a website release: re-pinned and released once, as before.
+        value = facts(); value['frontend_receipt']['candidate']['source_commit'] = OTHER
+        self.assertEqual(r.decide(**value)[0], 'repin')
+
     def test_explicit_commit_only_confirms_what_production_runs(self):
         self.assertEqual(r.decide(**facts(expected_commit=NEW))[0], 'repin')
         self.assertEqual(r.decide(**facts(expected_commit=None))[0], 'repin')
@@ -149,6 +171,67 @@ class RepinTests(unittest.TestCase):
         spec = __import__('importlib.util').util.spec_from_file_location('w', here.parents[1]/'scripts/deploy-production-workers.py')
         workers = __import__('importlib.util').util.module_from_spec(spec); spec.loader.exec_module(workers)
         self.assertEqual(workers.dependency_commits(json.loads(text), 'novu-v1'), pins)
+
+
+class FakeGitHub:
+    """Answers like GitHub for a repository whose rollback workflow exists only on a non-default branch: looked up
+    by file name it is 404, yet its runs are listed with the repository's runs."""
+    def __init__(self, runs, fail=None):
+        self.runs, self.fail, self.paths = runs, fail, []
+
+    def get(self, suffix):
+        self.paths.append(suffix)
+        if suffix.startswith('actions/workflows/'):
+            raise c.ReleaseError('GITHUB_HTTP_404')
+        if self.fail:
+            raise c.ReleaseError(self.fail)
+        query = dict(part.split('=', 1) for part in suffix.split('?', 1)[1].split('&'))
+        rows = [run for run in self.runs if run['status'] == query['status'] and run['head_branch'] == query['branch']]
+        page, size = int(query.get('page', '1')), int(query['per_page'])
+        return {'total_count': len(rows), 'workflow_runs': rows[(page-1)*size:page*size]}
+
+
+def run(id, workflow, status, branch='staging-novu-ci-20261005', event='workflow_dispatch'):
+    return {'id': id, 'path': workflow, 'status': status, 'head_branch': branch, 'event': event}
+
+
+class ActiveRunTests(unittest.TestCase):
+    BRANCH = 'staging-novu-ci-20261005'
+
+    def test_an_unregistered_rollback_workflow_does_not_fail_the_run_and_its_runs_still_count(self):
+        github = FakeGitHub([
+            run(1, '.github/workflows/production-backend-rollback.yml', 'waiting'),
+            run(2, '.github/workflows/production-backend-images.yml@refs/heads/staging-novu-ci-20261005', 'queued'),
+            run(3, '.github/workflows/production-backend-images.yml', 'completed'),
+            run(4, '.github/workflows/tuf-local-gates.yml', 'in_progress'),
+            run(5, '.github/workflows/production-backend-images.yml', 'in_progress', event='pull_request'),
+            run(6, '.github/workflows/production-backend-images.yml', 'in_progress', branch='main')])
+        self.assertEqual(r.active(github, r.BACKEND_WORKFLOWS, self.BRANCH),
+                         ['production-backend-images.yml#2', 'production-backend-rollback.yml#1'])
+        self.assertFalse([path for path in github.paths if path.startswith('actions/workflows/')])
+        self.assertEqual({path.split('status=')[1].split('&')[0] for path in github.paths}, set(r.ACTIVE))
+        self.assertEqual(r.active(FakeGitHub([]), r.BACKEND_WORKFLOWS, self.BRANCH), [])
+
+    def test_any_other_answer_from_github_still_fails_closed(self):
+        for code in ('GITHUB_HTTP_404', 'GITHUB_HTTP_403', 'GITHUB_HTTP_500', 'GITHUB_TRANSPORT_UNAVAILABLE'):
+            with self.assertRaisesRegex(c.ReleaseError, code):
+                r.active(FakeGitHub([], fail=code), r.BACKEND_WORKFLOWS, self.BRANCH)
+        class Garbled(FakeGitHub):
+            def get(self, suffix): return {'message': 'unexpected'}
+        with self.assertRaisesRegex(c.ReleaseError, 'GITHUB_RUNS_UNREADABLE'):
+            r.active(Garbled([]), r.BACKEND_WORKFLOWS, self.BRANCH)
+        # A run GitHub does not attribute to a workflow could be a release: it blocks.
+        unnamed = run(7, None, 'queued')
+        self.assertEqual(r.active(FakeGitHub([unnamed]), r.BACKEND_WORKFLOWS, self.BRANCH), ['None#7'])
+
+    def test_every_page_of_unfinished_runs_is_read_and_too_many_fails_closed(self):
+        many = [run(i, '.github/workflows/tuf-local-gates.yml', 'queued') for i in range(150)]
+        many.append(run(999, '.github/workflows/production-backend-rollback.yml', 'queued'))
+        self.assertEqual(r.active(FakeGitHub(many), r.BACKEND_WORKFLOWS, self.BRANCH),
+                         ['production-backend-rollback.yml#999'])
+        endless = [run(i, '.github/workflows/tuf-local-gates.yml', 'queued') for i in range(100 * r.RUN_PAGES)]
+        with self.assertRaisesRegex(c.ReleaseError, 'PAGINATION_LIMIT'):
+            r.active(FakeGitHub(endless), r.BACKEND_WORKFLOWS, self.BRANCH)
 
 
 if __name__ == '__main__': unittest.main()
