@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { PORTAL_HOSTNAMES, resolveStaffProductHostname } from './productHostname'
-import { loginOpensSite, offeredHere, otherStaffSites, ownProductPage, rightSiteHref, siteElsewhere, siteNameOf, siteOf, siteServing, sitesThisLoginOpens } from './productSites'
+import { loginOpensSite, offeredHere, otherStaffSites, ownProductPage, rightSiteHref, siteElsewhere, siteNameOf, siteOf, siteServing, sitesThisLoginOpens,
+  startOutreachGroupRunsHere } from './productSites'
 import { opensInProduct } from './ehr-blue/frame/product'
 
 /** Each product on its own site: which host a site is, and where an address another site serves goes. */
@@ -216,6 +217,32 @@ describe('sitesThisLoginOpens (actor.products, Q97)', () => {
   it('a doctor opens Health ID EHR and Migrate only', () => {
     const doctor = ['ehr', 'migrate']
     expect((['ehr', 'lab', 'pharmacy', 'migrate', 'outreach'] as const).filter(key => loginOpensSite(key, doctor))).toEqual(['ehr', 'migrate'])
+  })
+})
+
+describe('startOutreachGroupRunsHere (decision 5 with Q97)', () => {
+  const DOCTOR = ['ehr', 'migrate']
+  const ADMINISTRATOR = ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach']
+  it('runs on Health ID Outreach and hosts with no product for every login, as before', () => {
+    for (const products of [undefined, DOCTOR, ADMINISTRATOR, ['lab']]) {
+      expect(startOutreachGroupRunsHere('outreach.healthidentitydirectory.com', products)).toBe(true)
+      expect(startOutreachGroupRunsHere('localhost', products)).toBe(true)
+    }
+  })
+
+  it('runs on Health ID EHR only for a login Health ID Outreach refuses', () => {
+    expect(startOutreachGroupRunsHere('ehr.healthidentitydirectory.com', DOCTOR)).toBe(true)
+    expect(startOutreachGroupRunsHere('ehr.staging.healthidentitydirectory.com', DOCTOR)).toBe(true)
+    expect(startOutreachGroupRunsHere('ehr.healthidentitydirectory.com', ADMINISTRATOR)).toBe(false)
+    // An Identity before Q97 sends no actor.products: the link to Health ID Outreach, as before.
+    expect(startOutreachGroupRunsHere('ehr.healthidentitydirectory.com', undefined)).toBe(false)
+  })
+
+  it('never runs on a single product’s site, which opens the page in no menu', () => {
+    for (const hostname of ['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com']) {
+      expect(startOutreachGroupRunsHere(hostname, DOCTOR)).toBe(false)
+      expect(startOutreachGroupRunsHere(hostname, ['lab'])).toBe(false)
+    }
   })
 })
 

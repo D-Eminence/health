@@ -80,10 +80,18 @@ describe('Other Health ID sites, by actor.products (Q97)', () => {
     }
   })
 
-  it('Switch facility on ehr. offers a doctor no outreach group to start on Health ID Outreach, where the login is refused', async () => {
+  it('Switch facility on ehr. lets a doctor start an outreach group on ehr. itself, never on Health ID Outreach (refused)', async () => {
     await openWith(EHR, DOCTOR, ['doctor'], ['ehr', 'migrate'], '/provider/institutions')
-    expect(await screen.findByRole('heading', { level: 1 })).toBeTruthy()
+    // Decision 5 still holds: the same login can start its own group, here, and the group then opens on Outreach.
+    const link = await screen.findByRole('link', { name: 'Start an outreach group' })
+    expect(link.getAttribute('href')).toBe('/provider/start-outreach-group')
     expect(screen.queryByRole('link', { name: 'Start one on Health ID Outreach' })).toBeNull()
+    expect(linksTo('outreach.healthidentitydirectory.com')).toEqual([])
+  })
+
+  it('Switch facility on lab. offers a lab-only login no outreach group to start', async () => {
+    await openWith(LAB, ADMINISTRATOR, ['lab_scientist'], ['lab'], '/provider/institutions')
+    expect(await screen.findByRole('heading', { level: 1 })).toBeTruthy()
     expect(screen.queryByText(/Run outreach events with your own volunteer group/)).toBeNull()
     expect(linksTo('outreach.healthidentitydirectory.com')).toEqual([])
   })

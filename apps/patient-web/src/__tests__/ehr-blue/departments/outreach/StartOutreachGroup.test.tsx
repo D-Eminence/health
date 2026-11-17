@@ -126,10 +126,36 @@ describe('Start an outreach group', () => {
       expect(staff.selectFacility).not.toHaveBeenCalled()
     })
 
-  // Q97: each staff site for its own job. A doctor's login is refused on Health ID Outreach, so nothing links there.
-  it('on ehr., for a login that cannot open Health ID Outreach, says so and links nowhere', async () => {
+  // Q97: each staff site for its own job. A doctor's login is refused on Health ID Outreach, so nothing links there; the
+  // same login can still start its own group (decision 5): the form runs on Health ID EHR, and the group opens on Outreach.
+  it('on ehr., for a login that cannot open Health ID Outreach, runs the form there and points to Outreach once started', async () => {
     staff.products = ['ehr', 'migrate']
+    // The session read again after the start lists Health ID Outreach, the new group's site.
+    staff.refresh.mockImplementation(async () => { staff.products = ['ehr', 'migrate', 'outreach'] })
     vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
+    open()
+    fireEvent.change(await screen.findByRole('textbox', { name: /Group name/ }), { target: { value: 'Yaba Health Volunteers' } })
+    expect(screen.getByText(/the group runs on Health ID Outreach/)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Switch facility')
+    expect(api.outreachGroupAvailability).toHaveBeenCalledTimes(1)
+    fireEvent.change(screen.getByRole('textbox', { name: /Phone number/ }), { target: { value: '08012345678' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /accept the organiser terms/ }))
+    await press('Start my outreach group')
+    expect(api.startOutreachGroup).toHaveBeenCalledTimes(1)
+    expect(staff.refresh).toHaveBeenCalledTimes(1)
+    // The group's membership fits Health ID Outreach only: it is not chosen here.
+    expect(staff.selectFacility).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: 'Your outreach group is ready' })).toBeTruthy()
+    expect(screen.getByText(/Sign in there with this\s+same login to open Yaba Health Volunteers/)).toBeTruthy()
+    const link = screen.getByRole('link', { name: 'Go to Health ID Outreach' })
+    expect(link.getAttribute('href')).toBe('https://outreach.healthidentitydirectory.com/')
+    expect(document.body.textContent).not.toContain('Switch facility')
+    expect(document.body.textContent).not.toMatch(/unverified/i)
+  })
+
+  it('on lab., for a login that cannot open Health ID Outreach, says so and links nowhere', async () => {
+    staff.products = ['lab']
+    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com' })
     open()
     expect(await screen.findByText(/this login isn’t set up for Health ID Outreach/)).toBeTruthy()
     expect(screen.queryByRole('link')).toBeNull()
