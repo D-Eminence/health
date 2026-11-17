@@ -81,8 +81,6 @@ function errorText(error: unknown, fallback: string, routed = false) {
 // OCR takes document and patient IDs only as version 4 UUIDs (ocr-api DTOs, @IsUUID('4')).
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function shortId(value: string) { return `••••${value.slice(-6)}` }
-
 function dateText(value: string | undefined) {
   return value ? new Date(value).toLocaleString() : 'Not available'
 }
@@ -1704,7 +1702,7 @@ export function Ocr() {
       {/* Mounted throughout, so a message put in it is announced. */}
       <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
     </Card>
-      {visibleJob ? <Card className="staff-card"><h2 id="ocr-job-title" tabIndex={-1}>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p>{visibleJob.patientConfirmation && <p>Source patient confirmed {dateText(visibleJob.patientConfirmation.confirmedAt)}</p>}<Button id="ocr-refresh-submit" tone="secondary" size="sm" onClick={() => void lookup().then(reloaded => focus(reloaded ? 'ocr-refresh-submit' : 'ocr-find-submit', true))} disabled={busy}>Refresh status</Button>
+      {visibleJob ? <Card className="staff-card"><h2 id="ocr-job-title" tabIndex={-1}>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge></div>{visibleJob.patientConfirmation && <p>Source patient confirmed {dateText(visibleJob.patientConfirmation.confirmedAt)}</p>}<Button id="ocr-refresh-submit" tone="secondary" size="sm" onClick={() => void lookup().then(reloaded => focus(reloaded ? 'ocr-refresh-submit' : 'ocr-find-submit', true))} disabled={busy}>Refresh status</Button>
         {canRetryJob && permissions.includes('ocr.job.write') && <form className="staff-form" noValidate onSubmit={event => void retry(event)}><Field label="Retry reason" htmlFor="ocr-retry-reason" error={problemText(problem, 'ocr-retry-reason')} required><Textarea id="ocr-retry-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-retry-reason')} /></Field>{retryError && <p className="staff-error" role="alert">{retryError}</p>}<Button id="ocr-retry-submit" size="sm" type="submit" disabled={busy || !visibleJob.version}>{busy ? 'Retrying…' : 'Retry job'}</Button></form>}
         {visibleJob.status === 'failed' && !canRetryJob && <p className="staff-muted">The extraction attempt limit has been reached. This job cannot be retried.</p>}
         {extractions === null && <p className="staff-muted" role="status">Loading extractions…</p>}

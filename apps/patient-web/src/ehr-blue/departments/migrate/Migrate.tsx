@@ -19,7 +19,7 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptContextLine, DeptFacts, DeptHistory, DeptLinkButton, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
 import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
-import { dateText, matchesSearch, shortId } from '../parts/format'
+import { dateText, matchesSearch } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
 import { NewJobPick, type NewJobPicked } from './NewJobPick'
 import { READING_DELETED, readingDeleted } from './readingDeleted'
@@ -127,9 +127,9 @@ function patientWords(job: OcrJob) {
   return job.patientId ? 'Patient (name not shown)' : 'Patient not given'
 }
 
-/** A job's name: the file name of its document when this page knows it, as uploaded; otherwise the end of its document's ID. */
+/** A job's name: the file name of its document when this page knows it, as uploaded; otherwise "Scanned document", never any part of its document's ID (IDs on screen). */
 function jobName(job: OcrJob, fileNames: ReadonlyMap<string, string>) {
-  return fileNames.get(job.documentId) ?? `Document ${shortId(job.documentId)}`
+  return fileNames.get(job.documentId) ?? 'Scanned document'
 }
 
 /** A field name OCR read ("dateOfBirth", "test_name") as words: "Date of birth", "Test name". */
@@ -198,9 +198,6 @@ function scannedText(text: string) {
 function jobFacts(job: OcrJob): DeptFact[] {
   return [
     { label: 'Status', value: jobStatusWords(job.status) },
-    { label: 'Version', value: String(job.version ?? 'unknown') },
-    { label: 'Provider', value: job.provider },
-    { label: 'Document', value: shortId(job.documentId) },
     // Said in words, never any part of the patient's record id (owner rule, IDs on screen).
     { label: 'Patient', value: job.patientId ? 'Name not shown' : 'Not given' },
     { label: 'Source patient', value: job.patientConfirmation ? `Confirmed ${dateText(job.patientConfirmation.confirmedAt)}` : 'Not confirmed' },
@@ -668,7 +665,7 @@ export function Migrate() {
 
   // Render functions, not components: a component declared here would be a new type on each render, and remount.
   function jobList() {
-    const shown = rows.filter(row => matchesSearch(search, [row.job.documentId, fileNames.get(row.job.documentId), shortId(row.job.documentId), row.job.id,
+    const shown = rows.filter(row => matchesSearch(search, [row.job.documentId, fileNames.get(row.job.documentId), row.job.id,
       statusWords(row.job.status), jobStatusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
     if (!canRead) return <DeptSection title="Document OCR">
@@ -685,8 +682,7 @@ export function Migrate() {
             { id: 'record', header: 'Record', cell: row => <DeptRecordName id={`ocr-row-${row.job.id}`} name={jobName(row.job, fileNames)}
               onOpen={() => openRecord(row.job)} /> },
             { id: 'patient', header: 'Patient / context', cell: row => <div className="hid-ehr-dept-record-name">
-              <span>{patientWords(row.job)}</span>
-              <span className="hid-ehr-dept-reference">{`${row.job.provider} · version ${row.job.version ?? 'unknown'}`}</span></div> },
+              <span>{patientWords(row.job)}</span></div> },
             { id: 'status', header: 'Status', cell: row => <EhrBadge tone={statusTone(row.job.status)}>{jobStatusWords(row.job.status)}</EhrBadge> },
             { id: 'read', header: 'Last read', cell: row => dateText(row.readAt) },
             { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: row => <div className="hid-ehr-dept-table-actions">
@@ -708,8 +704,8 @@ export function Migrate() {
           {/* Mounted with the form, so the answer that a document has no job is announced; Create record stays outside it. */}
           <div id="ocr-find-result" role="status">{nothingFound && <>
             <p className="hid-ehr-state-title">No OCR job for this document</p>
-            <p className="hid-ehr-state-message">{canWrite ? `Document ${shortId(currentDocument)} has no extraction job yet. Create one for a verified patient document.`
-              : `Document ${shortId(currentDocument)} has no extraction job yet.`}</p>
+            <p className="hid-ehr-state-message">{canWrite ? 'This document has no extraction job yet. Create one for a verified patient document.'
+              : 'This document has no extraction job yet.'}</p>
           </>}</div>
           {nothingFound && canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
         </div>

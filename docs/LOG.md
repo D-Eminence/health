@@ -3129,6 +3129,9 @@ From the launch audit of the patient Records, Notifications and chat pages (RN-0
     either id shows.
   - Patient Records: lab tests and medicines say their status in words
     (`labRequestStatusLabel`, `medicineStatusLabel` in `plainLabels.ts`).
+  - Document OCR (blue Migrate and classic): a job no longer shows its
+    document id, version or provider; a job whose file name is not known is
+    named "Scanned document".
 - Tests render fictional UUIDs and assert they, and any part of them, are absent.
 - Left for the owner (not changed): the order and share-invitation references
   staff and patients read to each other (8 to 16 characters), the staff

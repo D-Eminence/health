@@ -123,7 +123,8 @@ describe('Extract with OCR on the EHR’s own site', () => {
     // The blue Document OCR, straight to the document's reading: sent for reading at once (this account writes OCR
     // jobs), with no form to fill in.
     expect(await screen.findByRole('heading', { level: 2, name: 'Progress' })).toBeTruthy()
-    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Document ••••0000c1'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Scanned document'])
+    expect(document.body.textContent).not.toMatch(/••••|0000c1/)
     expect(screen.queryByRole('form', { name: 'Find document job' })).toBeNull()
     // The hand-off is spent: the history entry keeps no ids.
     await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
