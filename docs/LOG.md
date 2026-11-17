@@ -3107,3 +3107,23 @@ From the launch audit of the patient Records, Notifications and chat pages (RN-0
 - **Review (2026-11-05).** An independent review found four more; each fixed, test first. The 44px Previous versions and "Which records can I ask about?" had lost their open/close arrow (a flex summary draws none): they stay list items, with padding and a 44px minimum height (RN-21). On one record type, a search that found nothing said so twice: the page's "Nothing matches" with Clear search is now the only message, older records add no second "no match" line, and a search that matches only other types says how many and offers Show all record types (RN-19). New conversation on the hid-system main chat screen (`Chat.tsx`) deleted at once: it now asks first, as the staging screen does (RN-16). When Try again on old-account notifications finds none, focus no longer drops to the page: a quiet "No notifications from an old account." takes it (RN-22).
 - **Checked** in Chromium on the preview against the mock gateway at 320, 360, 390 and 1366px, light and dark: no sideways scroll, the older-records card readable in dark mode, a download failure in view beside its file, the empty Records page with one designed empty state, notification links and focus after Mark as read, and the chat tab title. Not checked on a real phone or on production.
 - **Not done here.** RN-02 and RN-15 are for the owner and the backend. Still needing the backend: paging (a cursor) for records and notifications and a Mark all as read route (RN-08, RN-11), and a facility name on visits and notes (RN-17). A build switch that keeps patient uploads off until the NDPA sign-off (RN-01, HCS-02) is the owner's call.
+
+## 2026-11-17: Prescribe form: strength, form, how long for, quantity and priority (hid-system 0125)
+
+Ola's prescription details, on the prescribe form of the blue EHR. Tests first
+(`prescribe-dispensing-details.test.tsx`).
+
+- **Shown only when the EHR takes them.** The form reads this consultation's prescriptions list once; only an answer
+  with `dispensingDetails: true` adds Strength, Form, How long for (with Days, weeks or months), Quantity to dispense
+  (with Quantity unit) and Priority, before Instructions. Without the flag, or if the list cannot be read, the form and
+  its request body are today's, key for key.
+- **Checked as the EHR checks them** (hid-system #255, `CreatePrescriptionWithDetailsDto`): a whole number of 1 to 3650
+  with its unit, a quantity above 0 with up to 4 decimal places (at most 99999999.9999) with its unit, 80 characters
+  for the strength and the quantity unit. Each pair goes together. Only the details given are sent, under the EHR's
+  names (`strength`, `doseForm`, `durationValue`, `durationUnit`, `quantityToDispense`, `quantityUnit`, `priority`).
+- **Refusals in plain words.** A refused detail is marked at its field; an incomplete pair says which; if the EHR has
+  stopped taking the details since the list was read, the form says so, takes them off, and the next save sends
+  today's body.
+- **A saved prescription's page** shows each detail the EHR answered (for example "7 days", "21 capsules"), and none
+  for a prescription without them.
+- **Not verified live.** Component tests only; the backend (0125) is not released yet and its setting is off.

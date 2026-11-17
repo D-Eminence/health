@@ -18,6 +18,7 @@ import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValue, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
+import { checkDetails, detailsBody, detailsRefusal, takesDispensingDetails, withDetailFields } from '../../../prescriptionDetails'
 import { KINDS, learnFrom, orderRights, patientWord, sentFrom, useFlash, type CreateWarning, type OrderKind, type Sent } from './orders'
 import { ACK_REFUSED_ERROR, checkAllergies, MEDICINE_CHANGED_ERROR, warnAfterRefusal } from './prescribingAllergies'
 import { DestinationFields, type RouteErrors } from './Routing'
@@ -178,7 +179,10 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   const [success, setSuccess] = useState('')
   const [crossFacilityOrders, setCrossFacilityOrders] = useState(false)
   const rights = orderRights(chart, crossFacilityOrders)
-  useCrossFacility(chart, encounterId, 'pharmacy', setCrossFacilityOrders)
+  // The dispensing details (hid-system 0125): asked for and sent only once the prescriptions list says the EHR takes them.
+  const [details, setDetails] = useState(false)
+  const fields = withDetailFields(PRESCRIPTION_FIELDS, details)
+  useCrossFacility(chart, encounterId, 'pharmacy', setCrossFacilityOrders, setDetails)
   // The allergy warning (hid-system 0117): shown for one medicine, with its token; the prescriber ticks and gives a
   // reason to go ahead. Any edit of the medicine drops it at once (the warning, the tick, the reason and the token).
   const ack = useAllergyAcknowledgement()
@@ -208,11 +212,11 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
 
   const validate = (values: FormValues): FieldErrors => {
     const quantity = value(values, 'doseQuantity')
-    if (quantity && (!DOSE_NUMBER.test(quantity) || Number(quantity) <= 0)) return { doseQuantity: DOSE_NUMBER_TEXT }
-    if (!quantity === !doseUnitOf(values)) return {}
+    if (quantity && (!DOSE_NUMBER.test(quantity) || Number(quantity) <= 0)) return { doseQuantity: DOSE_NUMBER_TEXT, ...checkDetails(values, details) }
+    if (!quantity === !doseUnitOf(values)) return checkDetails(values, details)
     // The missing half is marked: the dose, the unit, or the unit typed for "Other…".
     const missing = quantity ? value(values, 'doseUnitChoice') === OTHER_UNIT ? 'doseUnit' : 'doseUnitChoice' : 'doseQuantity'
-    return { [missing]: DOSE_PAIR }
+    return { [missing]: DOSE_PAIR, ...checkDetails(values, details) }
   }
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {
@@ -226,6 +230,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       frequency: value(values, 'frequency'),
       instructions: value(values, 'instructions'),
       status: 'draft',
+      ...detailsBody(values, details),
     }
     const medicine = medicineOf(values)
     const current = stillIn(medicine)
@@ -239,7 +244,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       if (!acknowledgement) return { formError: ALLERGY_GO_AHEAD_ERROR }
     }
     // The create's digest covers the acknowledgement: another reason or token is another create.
-    const key = attempt.key(JSON.stringify(['prescriptions', values, acknowledgement]))
+    const key = attempt.key(JSON.stringify(['prescriptions', values, acknowledgement, ...details ? [true] : []]))
     try {
       if (!chart.canWrite) throw new PlainError(NO_CHANGES)
       await chart.verify()
@@ -282,7 +287,9 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
         ack.refuseReason()
         return { formError: ACK_REFUSED_ERROR }
       }
-      return refused(caught, PRESCRIPTION_FIELDS)
+      const detailsRefused = details ? detailsRefusal(caught) : null
+      if (detailsRefused?.notTaken) setDetails(false)
+      return detailsRefused ?? refused(caught, fields)
     }
   }
 
@@ -291,7 +298,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       <OrderContext />
       <RecordedAllergies allergies={allergies.state} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
+      <RecordForm key={form} fields={fields} validate={validate} onSubmit={submit} submitLabel="Save draft"
         confirm={confirmSave} onFieldChange={medicineEdited}>
         <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
         {ack.warning ? <AllergyWarningPanel idPrefix="rx" headingLevel={2} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
@@ -306,18 +313,22 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
  * Whether this encounter's orders may be sent to another facility now: today's page learns it from the records list
  * (`crossFacilityOrders`), so it is read once, only when this build and member could send one.
  */
-function useCrossFacility(chart: Chart, encounterId: string, kind: OrderKind, set: (open: boolean) => void) {
+function useCrossFacility(chart: Chart, encounterId: string, kind: OrderKind, set: (open: boolean) => void, setDetails?: (takes: boolean) => void) {
   const could = orderRights(chart, true).canRoute(kind)
   const { facilityId, patientId } = chart
   useEffect(() => {
-    if (!could) return
+    // The prescriptions list also says whether the EHR takes the dispensing details, so the prescribe form reads it.
+    if (!could && !setDetails) return
     let active = true
     staffApi.records(facilityId, patientId, encounterId, KINDS[kind].record).then(
-      answer => { const open = learnFrom(answer); if (active) set(open) },
-      () => { if (active) set(false) },
+      answer => {
+        const open = could && learnFrom(answer)
+        if (active) { if (could) set(open); setDetails?.(takesDispensingDetails(answer)) }
+      },
+      () => { if (active) { if (could) set(false); setDetails?.(false) } },
     )
     return () => { active = false }
-  }, [could, facilityId, patientId, encounterId, kind, set])
+  }, [could, facilityId, patientId, encounterId, kind, set, setDetails])
 }
 
 function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: string }) {
