@@ -261,17 +261,27 @@
   font-size: 14px;
 }
 
+/* Actions as buttons sized to their words, side by side and wrapping; a chosen action's form takes the full width
+   under them (UX review, 17 Nov 2026). */
 .hid-ehr .hid-ehr-dept-action-stack {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
+.hid-ehr .hid-ehr-dept-action-stack > * {
+  flex: 1 1 100%;
+}
+
 .hid-ehr .hid-ehr-dept-action-stack > .hid-ehr-button {
-  width: 100%;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding-inline: 16px;
 }
 
 .hid-ehr .hid-ehr-dept-action-stack > .hid-ehr-button[aria-expanded='true'] {
-  background: var(--ehr-surface-tint);
+  box-shadow: 0 0 0 2px var(--ehr-brand);
 }
 
 .hid-ehr .hid-ehr-dept-action-form {

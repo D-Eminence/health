@@ -413,6 +413,13 @@ export function BlueFrame() {
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
               {switchError ? <Alert intent="error" title="That facility couldn’t be opened">{switchError}</Alert> : null}
               <RedirectNotice />
+              {/* A page the sidebar doesn't list (a sample opened from a record's history, a page reached by its address)
+                  says where it is, since no menu line lights up for it (UX review, 17 Nov 2026). */}
+              {match && !listed.some(page => page.path === match.page.path || (match.page.tabOf !== undefined && basePath(page.path) === match.page.tabOf)) && match.page.group !== ''
+                ? <nav aria-label="Where you are" className="mb-3 flex flex-wrap items-center gap-1.5 text-[13px] text-ink-3">
+                    <span>{sidebarGroupOf(match.page, product)}</span><span aria-hidden="true">›</span>
+                    <span aria-current="page" className="font-medium text-ink">{match.page.label}</span>
+                  </nav> : null}
               <ReviewBanner />
               {/* A lab, pharmacy or outreach on its own may land on its own first page and never see Home's card. */}
               {/* Only above its own pages: it leaves when another page opens, and its "Done" is not shown again. While the

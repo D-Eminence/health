@@ -331,15 +331,18 @@
 }
 
 /* Full-width outline action buttons, 8px apart. */
+/* A record's actions read as buttons, not as a stack of input-like boxes (UX review, 17 Nov 2026): sized to their words,
+   side by side and wrapping, the lead action filled (frame/actionVariant.ts), 44px tall to tap. */
 .hid-ehr .hid-ehr-clinical-action-list {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
 .hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button {
-  width: 100%;
+  min-height: 44px;
+  padding-inline: 16px;
 }
 
 /* An action that cannot run yet keeps focus (aria-disabled, not disabled), so the kit's :disabled look misses it:

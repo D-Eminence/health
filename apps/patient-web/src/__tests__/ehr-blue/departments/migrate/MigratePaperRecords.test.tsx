@@ -181,7 +181,7 @@ describe('From paper records: dormant until Lab and Pharmacy serve the lists', (
     answers[PHARMACY] = notServed(code)
     await settled()
     expect(section()).toBeNull()
-    expect(screen.queryByText(/paper records/i)).toBeNull()
+    expect(screen.queryByText(/from paper records/i)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 

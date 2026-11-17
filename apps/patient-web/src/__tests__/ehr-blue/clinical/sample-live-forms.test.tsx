@@ -108,9 +108,8 @@ describe('review item 8: a sample hand-off never opens a live create form', () =
       const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section')!
       expect(within(actions).queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
       expect(within(actions).queryByRole('button', { name: 'Create consultation' })).toBeNull()
-      // The design draws "Continue care" on every visit, as its capture for a role that may create neither does.
-      const heading = within(actions).getByRole('heading', { level: 3, name: 'Continue care' })
-      expect(heading.nextElementSibling).toBeNull()
+      // With no hand-off the role may create, no bare "Continue care" heading either.
+      expect(within(actions).queryByRole('heading', { level: 3, name: 'Continue care' })).toBeNull()
       expect(continueCareButtons()).toEqual([])
       expect(within(actions).queryAllByRole('button', { name: /^Create / })).toEqual([])
       view.unmount()
