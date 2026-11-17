@@ -10,7 +10,7 @@ import { ACCESS_ENDED } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
-import { ShareInvitationsForMe, SharedWithYou } from '../patients/SharingCards'
+import { SharedWithYouCard } from '../patients/SharingCards'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, OPEN_SHARED, actionUnavailable, administratorOf } from './access'
 import { PinAccess } from './PinAccess'
 import { RequestAccess } from './RequestAccess'
@@ -177,9 +177,8 @@ function RequestList() {
           nobody sees it twice. Each card keeps its own permission checks; opening a shared record needs a patient
           lookup, which such a role cannot make, so Open says why and does nothing. */}
       {facility && !can('identity.patient.read') ? <div className="flex flex-col gap-6 empty:hidden">
-        <SharedWithYou facilityId={facility.id} permissions={permissions} busy={false}
+        <SharedWithYouCard facilityId={facility.id} permissions={permissions} busy={false}
           openUnavailable={actionUnavailable(OPEN_SHARED, permissions, administrator)} onOpen={() => {}} />
-        <ShareInvitationsForMe facilityId={facility.id} permissions={permissions} />
       </div> : null}
     </div>
   )

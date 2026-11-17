@@ -430,7 +430,7 @@ const outreachCases = () => [
   { id: 'oc-4', fullName: 'Segun Adewale', ageYears: 45, sex: 'unknown', temporaryPatientId: 'tmp_4e6f0b77', phone: null, operationalNotes: null, createdAt: iso(-2 * DAY), rowVersion: 1 },
 ].map(item => ({ ...item, status: outreachLinked.has(item.id) ? 'identity_resolved' : 'identity_resolution_pending', rowVersion: item.rowVersion + (outreachLinked.has(item.id) && item.id !== 'oc-3' ? 1 : 0) }))
 
-function staffRoute(method, path) {
+function staffRoute(method, path, request = {}) {
   if (method === 'POST' && path === '/auth/facility') return [200, staffSession()]
   const dispense = method === 'POST' && /^\/pharmacy\/work-items\/([^/]+)\/dispensings$/.exec(path)
   if (dispense) {
@@ -454,6 +454,10 @@ function staffRoute(method, path) {
     outreachLinked.add(id)
     return [200, outreachCases().find(item => item.id === id)]
   }
+  // Preview only: HID-NEWPATNT is a Health ID no patient has; HID-ELSEWHRE a patient whose record this facility can't open.
+  const askedHid = String(request.body?.hid ?? '').toUpperCase()
+  if (method === 'POST' && path === '/identity/patient-lookup' && askedHid === 'HID-NEWPATNT') return [404, { code: 'PATIENT_NOT_FOUND', status: 404, detail: 'No patient has this Health ID.' }]
+  if (method === 'POST' && path === '/identity/patient-lookup' && askedHid === 'HID-ELSEWHRE') return [200, { authorization: { decision: 'deny' } }]
   if (method === 'POST' && path === '/identity/patient-lookup') return [200, {
     authorization: { decision: 'allow', consentGrantId: 'grant-1', expiresAt: iso(2 * 60 * MIN), breakGlass: false },
     patient: { patientId: DEMO_PATIENT_ID, hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth: '1991-03-04', gender: 'female', version: 1 },
