@@ -4,6 +4,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { AdminActor, AuditEvent } from '../api'
 import { AuditPage } from '../Audit'
 import { FacilityDetailPage } from '../Facilities'
+import { ACTION_GROUPS } from '../auditWords'
+import { AUDIT_ACTION_LABELS } from '../../audit/actionLabels'
 import { StepUpProvider } from '../StepUp'
 
 /**
@@ -101,6 +103,51 @@ describe('platform audit rows in plain English', () => {
     expect(within(screen.getByLabelText('Result')).getByRole('option', { name: 'Refused' })).toBeTruthy()
     expect(onScreen()).not.toMatch(CODE_ON_SCREEN)
     expect(onScreen()).not.toMatch(/admin\.account/)
+  })
+
+  it('gives every listed action exactly one option, and no two options read alike', () => {
+    const choices = ACTION_GROUPS.flatMap(group => group.choices)
+    const codes = choices.map(choice => choice.code)
+    expect([...codes].sort()).toEqual(Object.keys(AUDIT_ACTION_LABELS).sort())
+    expect(new Set(codes).size).toBe(codes.length)
+    const texts = choices.map(choice => choice.text)
+    expect(new Set(texts).size).toBe(texts.length)
+    for (const text of texts) expect(text).not.toMatch(/[a-z]+\.[a-z]+|[A-Z]{2,}_/)
+  })
+
+  it('tells the two role refusals apart in words and filters each by its own code', async () => {
+    openAudit()
+    await screen.findByText('Support disabled an account')
+    const what = screen.getByLabelText('What happened') as HTMLSelectElement
+    const refusals = within(what).getAllByRole('option', { name: /^Their role here does not allow this action/ }) as HTMLOptionElement[]
+    expect(refusals.map(option => option.textContent)).toEqual([
+      'Their role here does not allow this action (accounts, facilities and staff)',
+      'Their role here does not allow this action (health records, scanned documents, or not signed in)'])
+    fireEvent.change(what, { target: { value: refusals[1]?.value } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ action: 'security.authorization.denied' }, undefined, expect.anything()))
+    expect(what.selectedOptions[0]?.textContent).toBe(refusals[1]?.textContent)
+    fireEvent.change(what, { target: { value: refusals[0]?.value } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ action: 'security.authorization' }, undefined, expect.anything()))
+    expect(onScreen()).not.toMatch(/security\./)
+  })
+
+  it('never reads Any action while a filter from a link is on', async () => {
+    openAudit('/admin/audit?action=security.authorization.denied')
+    await screen.findByText('Support disabled an account')
+    const what = screen.getByLabelText('What happened') as HTMLSelectElement
+    expect(what.selectedOptions[0]?.textContent).toBe('Their role here does not allow this action (health records, scanned documents, or not signed in)')
+    expect(within(what).queryByRole('option', { name: 'The action from your link' })).toBeNull()
+  })
+
+  it('says a link\'s action with no option of its own as The action from your link', async () => {
+    openAudit(`/admin/audit?action=${encodeURIComponent('api.ehr.note.read.request')}`)
+    await screen.findByText('Support disabled an account')
+    expect(mocks.audit).toHaveBeenCalledWith({ action: 'api.ehr.note.read.request' }, undefined, expect.anything())
+    const what = screen.getByLabelText('What happened') as HTMLSelectElement
+    expect(what.selectedOptions[0]?.textContent).toBe('The action from your link')
+    expect(onScreen()).not.toMatch(/api\.|ehr\./)
   })
 
   it('finds an error reference without showing one', async () => {

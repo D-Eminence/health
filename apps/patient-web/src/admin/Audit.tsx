@@ -4,7 +4,7 @@ import { usesNovuBackend } from '../backendContract'
 import { adminApi, type AuditEvent, type AuditFilters } from './api'
 import { failure } from './problems'
 import { Page, Refresh, ResourceView, Status, Table, date, useResource, useUrlFilters } from './ui'
-import { ACTION_GROUPS, OUTCOME_CHOICES, adminAuditRow, isListedAction, purposeText } from './auditWords'
+import { ACTION_GROUPS, OUTCOME_CHOICES, adminAuditRow, hasActionOption, purposeText } from './auditWords'
 import { Alert, Button, Field, Input, Select } from '../kasuwa/ui'
 
 const FILTER_KEYS = ['actor', 'action', 'outcome', 'facilityId', 'resourceType', 'resourceId', 'correlationId', 'from', 'to'] as const
@@ -108,8 +108,9 @@ export function AuditPage() {
   }
 
   const extra = (['correlationId', 'from', 'to'] as const).filter(name => values[name]).length
-  // An action from a link that has no words of its own is chosen, and said, without its code.
-  const linkedAction = values.action && !isListedAction(values.action) ? values.action : ''
+  // An action from a link that has no option of its own is chosen, and said, without its code, so the filter never reads
+  // "Any action" while one is on.
+  const linkedAction = values.action && !hasActionOption(values.action) ? values.action : ''
   return <Page eyebrow="Security" title="Audit" description="What happened on the platform and in facilities, newest first. Each search is recorded."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <form className="flex flex-col gap-4 rounded-xl bg-surface p-4 ring-1 ring-line" onSubmit={apply} role="search" aria-label="Filter audit events">

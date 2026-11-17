@@ -55,16 +55,42 @@ export interface ActionChoice { readonly code: string; readonly text: string }
 export interface ActionGroup { readonly area: string; readonly choices: readonly ActionChoice[] }
 
 /**
+ * Words that tell apart two listed actions whose rows read the same, added only to their filter options (never to the
+ * rows), so each code keeps its own option: the backend filters the action by exact match. Each is said from where
+ * Health ID writes the code (hid-system services' security guards).
+ */
+const TELL_APART: Readonly<Record<string, string>> = {
+  // Identity's guard: a signed-in person at a facility, refused an account, facility or staff request.
+  'security.authorization': 'accounts, facilities and staff',
+  // The health record and document reading guards, and Identity's guard for a request with no one signed in.
+  'security.authorization.denied': 'health records, scanned documents, or not signed in',
+}
+const ORDINALS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth']
+
+/**
  * Every listed action as a choice in words, grouped by area and sorted, for the What happened filter; the code is only
- * the option's value. Two codes with the same words keep the first.
+ * the option's value. Every listed code keeps its own option. When codes read the same, each option says what tells
+ * them apart in brackets (TELL_APART), or, for a pair no one has worded yet, "(second kind)", "(third kind)" and so on,
+ * so no two options read alike and none shows a code.
  */
 export const ACTION_GROUPS: readonly ActionGroup[] = (() => {
+  const codes = Object.keys(AUDIT_ACTION_LABELS)
+  const words = new Map(codes.map(code =>
+    [code, adminAuditRow({ action: code, outcome: 'success', actorType: 'staff', resourceType: null }).what]))
+  const sharing = new Map<string, string[]>()
+  for (const code of codes) sharing.set(words.get(code) ?? '', [...(sharing.get(words.get(code) ?? '') ?? []), code])
+  const used = new Set<string>()
   const groups = new Map<string, ActionChoice[]>()
-  const seen = new Set<string>()
-  for (const code of Object.keys(AUDIT_ACTION_LABELS)) {
-    const text = adminAuditRow({ action: code, outcome: 'success', actorType: 'staff', resourceType: null }).what
-    if (seen.has(text)) continue
-    seen.add(text)
+  for (const code of codes) {
+    const plain = words.get(code) ?? ''
+    const same = sharing.get(plain) ?? [code]
+    let text = plain
+    if (same.length > 1) {
+      const apart = Object.hasOwn(TELL_APART, code) ? TELL_APART[code] : undefined
+      text = apart ? `${plain} (${apart})` : same.indexOf(code) === 0 ? plain : `${plain} (${ORDINALS[same.indexOf(code) - 1] ?? 'another'} kind)`
+    }
+    for (let n = 2; used.has(text); n += 1) text = `${plain} (kind ${n})`
+    used.add(text)
     const area = auditAreaName(code)
     groups.set(area, [...(groups.get(area) ?? []), { code, text }])
   }
@@ -72,4 +98,7 @@ export const ACTION_GROUPS: readonly ActionGroup[] = (() => {
     .sort((a, b) => a.area.localeCompare(b.area))
 })()
 
-export const isListedAction = (code: string) => Object.hasOwn(AUDIT_ACTION_LABELS, code)
+const OPTION_CODES: ReadonlySet<string> = new Set(ACTION_GROUPS.flatMap(group => group.choices.map(choice => choice.code)))
+
+/** Whether the What happened filter has an option for this code; a link's code without one is said as "The action from your link". */
+export const hasActionOption = (code: string) => OPTION_CODES.has(code)
