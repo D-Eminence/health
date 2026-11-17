@@ -9,6 +9,7 @@ import { OUTREACH_TERMS_PATH, PRODUCT_SITE_NAMES, startOutreachGroupHere, startO
 import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION, organiserTermsAheadOfPage } from '../../../outreachTerms'
 import { isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../../outreachProblems'
 import { groupDetailsProblems } from '../../../outreachGroupDetails'
+import { loginOpensSite } from '../../../productSites'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
 
 type Field = 'groupName' | 'phone' | 'registrationNumber' | 'terms'
@@ -50,6 +51,11 @@ export function StartOutreachGroup() {
   }, [here])
 
   if (state.status !== 'ready') return null
+  if (!here && !loginOpensSite('outreach', state.session.actor.products)) {
+    // Each staff site for its own job (Q97): this login is refused on Health ID Outreach, so no link goes there.
+    return <FormPage title="Start an outreach group" description={`Outreach groups are run on ${PRODUCT_SITE_NAMES.outreach}, `
+      + `and this login isn’t set up for ${PRODUCT_SITE_NAMES.outreach}. Your work here stays exactly as it is.`}>{null}</FormPage>
+  }
   if (!here) {
     return <FormPage title="Start an outreach group" description={`Outreach groups are run on ${PRODUCT_SITE_NAMES.outreach}. `
       + 'Sign in there with the same login to start yours. Your work here stays exactly as it is.'}>

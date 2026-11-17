@@ -8,6 +8,7 @@ import { PRODUCTS, productHere } from './product'
 import { roleNames } from '../../staff/staffAccess'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 import { PRODUCT_SITE_NAMES, startOutreachGroupHere, startOutreachGroupHref } from '../../productHostname'
+import { loginOpensSite } from '../../productSites'
 
 /** Why the question is asked: as Identity reports the selection, 'lost' mid-session, or 'switch' from the account menu. */
 export type WorkspaceQuestion = FacilityChoiceReason | 'lost' | 'switch'
@@ -106,8 +107,10 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
       </ul>
       {error ? <Alert intent="error" title="That facility couldn’t be opened">{error}</Alert> : null}
       {/* Owner decision 5 of 11 November 2026: the same login can also run its own outreach group. It runs on Health ID
-          Outreach only: another product site keeps only the facilities that fit it (Q88), so it could never open the group. */}
-      {reason === 'switch' ? <p className="m-0 text-sm text-ink-2">Run outreach events with your own volunteer group?{' '}
+          Outreach only: another product site keeps only the facilities that fit it (Q88), so it could never open the group.
+          Offered from another site only to a login that can open Health ID Outreach (actor.products, Q97): a doctor's,
+          nurse's or receptionist's login is refused there. Without actor.products (an Identity before Q97), as before. */}
+      {reason === 'switch' && (startOutreachGroupHere(window.location.hostname) || loginOpensSite('outreach', actor.products)) ? <p className="m-0 text-sm text-ink-2">Run outreach events with your own volunteer group?{' '}
         {startOutreachGroupHere(window.location.hostname)
           ? <Link className="font-medium text-brand-ink underline" to={startOutreachGroupHref(window.location.hostname)}>Start an outreach group</Link>
           : <a className="font-medium text-brand-ink underline" href={startOutreachGroupHref(window.location.hostname)}>

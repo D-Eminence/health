@@ -237,6 +237,21 @@ export function otherStaffSites(paths: readonly string[], hostname: string = win
 }
 
 /**
+ * Whether this login can open the staff site `key` (owner decision Q97: each staff site for its own job), by Identity's
+ * actor.products (staff/api.ts Actor). A doctor, clinician, nurse or receptionist opens ehr and migrate only; a hospital
+ * administrator opens every site of their own hospital. When the session does not say (an Identity before Q97, or a
+ * value that is not a list), every site, as before: Identity still refuses on the site itself.
+ */
+export function loginOpensSite(key: SiteKey, products: unknown): boolean {
+  return !Array.isArray(products) || (products as readonly unknown[]).includes(key)
+}
+
+/** Of `sites`, those this login can open (loginOpensSite), in the same order. */
+export function sitesThisLoginOpens<T extends { readonly key: SiteKey }>(sites: readonly T[], products: unknown): T[] {
+  return sites.filter(site => loginOpensSite(site.key, products))
+}
+
+/**
  * The staff site `key` when this host is another staff site: null on that site itself, and on any other host. The main
  * site is not a staff site: its staff pages are the portal's own rule (staffSignIn.tsx), and where staging's serves
  * them (#114, #115) they work as on a local build, for every facility.

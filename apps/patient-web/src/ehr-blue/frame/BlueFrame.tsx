@@ -11,7 +11,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { roleNames, selfServiceReview } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
+import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, sitesThisLoginOpens, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
@@ -99,11 +99,13 @@ export function navigationGroups(pages: readonly EhrBluePage[], product: Product
  * site, which serves every page. With single sign-on on, each link says which site and page it leaves (siteSwitch.ts
  * switchHref: `backPath`, when it passes the check); off, it is today's siteHref. The only link from a product site to
  * the EHR site is Demo Hospital's "Open Hospital EHR" button below (FacilityOnAnotherSite): the owner's one named
- * exception, demo only (2 Nov 2026, productSites.ts). This group never adds one.
+ * exception, demo only (2 Nov 2026, productSites.ts). This group never adds one. Only the sites this login can open
+ * are listed (`products`, Identity's actor.products, owner decision Q97): a doctor is never offered the Lab, Pharmacy
+ * or Outreach sites; without it (an Identity before Q97) every site, as before.
  */
-export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string | null = null): NavGroup | null {
+export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string | null = null, products?: unknown): NavGroup | null {
   const hostname = window.location.hostname
-  const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
+  const sites = sitesThisLoginOpens(otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname), products)
   return sites.length === 0 ? null : {
     title: 'Other Health ID sites',
     collapsible: true,
@@ -114,10 +116,11 @@ export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string 
 
 /**
  * Of the other sites the sidebar links to, those whose product this session may use at its facility (pageAccess.ts
- * productUsable): a site listed only for a page that asks for nothing (the pharmacy's menu) is left out.
+ * productUsable): a site listed only for a page that asks for nothing (the pharmacy's menu) is left out, as is a site
+ * this login cannot open (Identity's actor.products, Q97).
  */
 function usableSites(pages: readonly EhrBluePage[], session: StaffSession, hostname: string, backPath: string | null): UsableSite[] {
-  return otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
+  return sitesThisLoginOpens(otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname), session.actor.products)
     .filter(site => productUsable(BLUE_PAGES, session, site.hostname))
     .map(site => ({ key: site.key, name: SITE_NAMES[site.key], href: switchHref(site, hostname, backPath) }))
 }
@@ -351,7 +354,7 @@ export function BlueFrame() {
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   // Each product on its own site: the other sites that serve the rest of what this session may open.
-  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
+  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath, session.actor.products)
   if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }

@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { PORTAL_HOSTNAMES, resolveStaffProductHostname } from './productHostname'
-import { offeredHere, otherStaffSites, ownProductPage, rightSiteHref, siteElsewhere, siteNameOf, siteOf, siteServing } from './productSites'
+import { loginOpensSite, offeredHere, otherStaffSites, ownProductPage, rightSiteHref, siteElsewhere, siteNameOf, siteOf, siteServing, sitesThisLoginOpens } from './productSites'
 import { opensInProduct } from './ehr-blue/frame/product'
 
 /** Each product on its own site: which host a site is, and where an address another site serves goes. */
@@ -189,6 +189,33 @@ describe('otherStaffSites', () => {
       .toEqual(['lab.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com'])
     expect(otherStaffSites(paths, 'ehr.healthidentitydirectory.com')).toEqual([])
     expect(otherStaffSites(paths, 'localhost')).toEqual([])
+  })
+})
+
+describe('sitesThisLoginOpens (actor.products, Q97)', () => {
+  const PATHS = ['/provider/outreach', '/provider/laboratory', '/provider/pharmacy', '/provider/ocr']
+  const fromLab = () => otherStaffSites(PATHS, 'lab.healthidentitydirectory.com')
+
+  it('keeps every site for a hospital administrator, who opens all five', () => {
+    expect(sitesThisLoginOpens(fromLab(), ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach']).map(site => site.key))
+      .toEqual(['pharmacy', 'migrate', 'outreach'])
+  })
+
+  it('keeps only the sites the login opens, in the same order', () => {
+    expect(sitesThisLoginOpens(fromLab(), ['lab', 'outreach']).map(site => site.key)).toEqual(['outreach'])
+    expect(sitesThisLoginOpens(fromLab(), ['lab'])).toEqual([])
+    expect(sitesThisLoginOpens(fromLab(), [])).toEqual([])
+  })
+
+  it('keeps every site as before when Identity does not say (absent, or not a list)', () => {
+    for (const products of [undefined, null, 'lab', { lab: true }]) {
+      expect(sitesThisLoginOpens(fromLab(), products).map(site => site.key), String(products)).toEqual(['pharmacy', 'migrate', 'outreach'])
+    }
+  })
+
+  it('a doctor opens Health ID EHR and Migrate only', () => {
+    const doctor = ['ehr', 'migrate']
+    expect((['ehr', 'lab', 'pharmacy', 'migrate', 'outreach'] as const).filter(key => loginOpensSite(key, doctor))).toEqual(['ehr', 'migrate'])
   })
 })
 
