@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { StartOutreachGroup } from '../../../../ehr-blue/departments/outreach/StartOutreachGroup'
@@ -27,6 +27,8 @@ beforeEach(() => {
   staff.refresh.mockResolvedValue(undefined)
   staff.selectFacility.mockResolvedValue(true)
 })
+
+afterEach(() => { vi.unstubAllGlobals() })
 
 function open() {
   return render(<MemoryRouter initialEntries={['/provider/start-outreach-group']}><Routes>
@@ -100,5 +102,28 @@ describe('Start an outreach group', () => {
     open()
     expect(await screen.findByText('Signing up to run outreach isn’t open at the moment. Please try again later.')).toBeTruthy()
     expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  // Q88 (17 Nov 2026): ehr.'s session keeps only the facilities that fit the EHR, so a group started there could never
+  // be opened there (its organiser membership fits outreach. alone). The page points to Health ID Outreach instead.
+  it.each(['ehr.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com'])(
+    'on %s offers no form, sends nothing, and points to Health ID Outreach', async (hostname) => {
+      vi.stubGlobal('location', { ...window.location, hostname })
+      open()
+      const link = await screen.findByRole('link', { name: 'Go to Health ID Outreach' })
+      expect(link.getAttribute('href')).toBe(`https://outreach.${hostname.replace(/^[a-z]+\./, '')}/provider/start-outreach-group`)
+      expect(screen.getByText(/Sign in there with the same login to start yours/)).toBeTruthy()
+      expect(document.body.textContent).not.toContain('Switch facility')
+      expect(screen.queryByRole('textbox')).toBeNull()
+      expect(api.outreachGroupAvailability).not.toHaveBeenCalled()
+      expect(api.startOutreachGroup).not.toHaveBeenCalled()
+      expect(staff.selectFacility).not.toHaveBeenCalled()
+    })
+
+  it('on outreach. runs the form as before', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'outreach.healthidentitydirectory.com' })
+    open()
+    expect(await screen.findByRole('textbox', { name: /Group name/ })).toBeTruthy()
+    expect(api.outreachGroupAvailability).toHaveBeenCalledTimes(1)
   })
 })

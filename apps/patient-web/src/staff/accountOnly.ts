@@ -2,7 +2,7 @@ import type { StaffSession } from './api'
 import { resolveStaffProductHostname } from '../productHostname'
 
 /** "Start an outreach group" (owner decision 5 of 11 November 2026): the one page an account-only session opens. */
-export const START_OUTREACH_GROUP_PATH = '/provider/start-outreach-group'
+export { START_OUTREACH_GROUP_PATH } from '../productHostname'
 
 /**
  * Whether a staff session holds the account only, with no facility (owner's answer to Q88, 17 Nov 2026): a verified

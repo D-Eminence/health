@@ -2,10 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
-import { Alert, Button } from '../../../kasuwa/ui'
+import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { staffApi, type OutreachGroupDetails } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
-import { OUTREACH_TERMS_PATH } from '../../../productHostname'
+import { OUTREACH_TERMS_PATH, PRODUCT_SITE_NAMES, startOutreachGroupHere, startOutreachGroupHref } from '../../../productHostname'
 import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION, organiserTermsAheadOfPage } from '../../../outreachTerms'
 import { isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../../outreachProblems'
 import { groupDetailsProblems } from '../../../outreachGroupDetails'
@@ -33,9 +33,12 @@ export function StartOutreachGroup() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [started, setStarted] = useState<string | null>(null)
+  // Health ID Outreach runs this page (Q88): elsewhere a new group could never be opened, so this page points there.
+  const here = startOutreachGroupHere(window.location.hostname)
 
   // Fails safe: the form shows only once Identity says it is open.
   useEffect(() => {
+    if (!here) return
     let active = true
     staffApi.outreachGroupAvailability().then(answer => {
       if (!active) return
@@ -44,9 +47,18 @@ export function StartOutreachGroup() {
       setOpen(answer?.open === true)
     }, () => { if (active) setOpen(false) })
     return () => { active = false }
-  }, [])
+  }, [here])
 
   if (state.status !== 'ready') return null
+  if (!here) {
+    return <FormPage title="Start an outreach group" description={`Outreach groups are run on ${PRODUCT_SITE_NAMES.outreach}. `
+      + 'Sign in there with the same login to start yours. Your work here stays exactly as it is.'}>
+      <FormActions sticky={false} align="start">
+        <a className={buttonClass({ variant: 'primary' })} href={startOutreachGroupHref(window.location.hostname)}>
+          Go to {PRODUCT_SITE_NAMES.outreach}</a>
+      </FormActions>
+    </FormPage>
+  }
   // No facility or outreach group yet (owner's answer to Q88): this is the only page the login opens, on outreach.
   const accountOnly = state.session.actor.facilities.length === 0
 
