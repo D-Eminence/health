@@ -17,7 +17,7 @@ import {
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
-import { staffLoginAction } from '../productHostname'
+import { staffLoginAction, type StaffProductKey } from '../productHostname'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
@@ -49,6 +49,15 @@ export interface Actor {
   permissions: string[]
   facilities: Facility[]
   facility?: Facility
+  /**
+   * The staff product sites this login can open (hid-system INTERFACE_CONTRACT section 53, owner decision Q97: each
+   * staff site for its own job), in the fixed order ehr, lab, pharmacy, migrate, outreach. Worked out by Identity with
+   * the sign-in's own rule over all the account's active memberships, so the same on every site: ['outreach'] for a
+   * login with no facility yet (Q88), [] for a platform administrator with no membership. Staff actors only; an
+   * Identity before Q97 sends none, and then every site is offered as before (productSites.ts sitesThisLoginOpens).
+   * Copy only: Identity decides every sign-in and request.
+   */
+  products?: readonly StaffProductKey[]
 }
 
 /**

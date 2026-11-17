@@ -1,4 +1,4 @@
-import type { StaffProductKey } from './productHostname'
+import { startOutreachGroupHere, type StaffProductKey } from './productHostname'
 import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
 
 /**
@@ -234,6 +234,33 @@ export function otherStaffSites(paths: readonly string[], hostname: string = win
   if (!here) return []
   const elsewhere = new Set(paths.map(path => siteServing(path, hostname)?.key).filter(key => key !== undefined))
   return STAFF_SITES.filter(key => key !== here.key && elsewhere.has(key)).map(key => siteIn(here.deployment, key))
+}
+
+/**
+ * Whether this login can open the staff site `key` (owner decision Q97: each staff site for its own job), by Identity's
+ * actor.products (staff/api.ts Actor). A doctor, clinician, nurse or receptionist opens ehr and migrate only; a hospital
+ * administrator opens every site of their own hospital. When the session does not say (an Identity before Q97, or a
+ * value that is not a list), every site, as before: Identity still refuses on the site itself.
+ */
+export function loginOpensSite(key: SiteKey, products: unknown): boolean {
+  return !Array.isArray(products) || (products as readonly unknown[]).includes(key)
+}
+
+/**
+ * Whether "Start an outreach group" (owner decision 5 of 11 November 2026: the same login can also run its own outreach
+ * group) runs on this site for this login, its form shown here rather than a link to Health ID Outreach. Where
+ * startOutreachGroupHere says (Health ID Outreach, and any host that is not a product site); and on Health ID EHR for a
+ * login that cannot open Health ID Outreach (actor.products, owner decision Q97: a doctor's, clinician's, nurse's or
+ * receptionist's), which Health ID Outreach would refuse, so decision 5 still holds for them. Identity accepts the start
+ * from any staff site; the new group then opens on Health ID Outreach, where the group's membership is admitted.
+ */
+export function startOutreachGroupRunsHere(hostname: string, products: unknown): boolean {
+  return startOutreachGroupHere(hostname) || (siteOf(hostname)?.key === 'ehr' && !loginOpensSite('outreach', products))
+}
+
+/** Of `sites`, those this login can open (loginOpensSite), in the same order. */
+export function sitesThisLoginOpens<T extends { readonly key: SiteKey }>(sites: readonly T[], products: unknown): T[] {
+  return sites.filter(site => loginOpensSite(site.key, products))
 }
 
 /**

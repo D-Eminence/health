@@ -37,7 +37,7 @@ import { healthIdUnavailable, noConnection, outreachEntriesLeftFor, purgeExpired
 import { dropExpiredClaimCodes, forgetOutreachTab, halfTypedRegistrationFor, rememberTabFacility, tabFacilityToRestore, unsavedHealthChecksFor } from '../ehr-blue/departments/outreach/tabMemory'
 import { NoSignalBanner } from '../ehr-blue/departments/outreach/noSignal'
 import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, touchOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
-import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
+import { offeredHere, otherStaffSites, siteElsewhere, siteHref, sitesThisLoginOpens, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -1009,10 +1009,11 @@ function Shell() {
   const { actor } = state.session
   const currentFacility = actor.facility
   // Each product on its own site (productSites.ts): the sidebar lists what this site's product opens, and links to the
-  // other products' sites for their own pages the facility may open. A demo facility works on its own site.
+  // other products' sites for their own pages the facility may open, those this login can open (actor.products, Q97).
+  // A demo facility works on its own site.
   const permitted = visibleNavigation(currentFacility)
   const visible = permitted.filter(item => offeredHere(item.to))
-  const otherSites = otherStaffSites(permitted.map(item => item.to))
+  const otherSites = sitesThisLoginOpens(otherStaffSites(permitted.map(item => item.to)), actor.products)
   const demoSite = demoFacilitySite(currentFacility?.id)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null
   const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
