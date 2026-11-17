@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
-import { AuthLayout } from '../../../AuthLayout'
+import { AuthLayout, type AuthStep } from '../../../AuthLayout'
 import { PRODUCTS, productOf, type Product } from '../product'
 import {
   providerEnrollmentHref, resolveStaffProductHostname, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
@@ -20,14 +20,17 @@ export interface BlueAuthLayoutProps {
   readonly titleRef?: Ref<HTMLHeadingElement & HTMLParagraphElement>
   /** The row of other ways in under the form. */
   readonly links?: boolean
+  /** The steps above the title, as app.'s password reset shows them (AuthLayout). */
+  readonly steps?: readonly AuthStep[]
+  readonly stepsLabel?: string
   readonly children: ReactNode
 }
 
-export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, children }: BlueAuthLayoutProps) {
+export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, steps, stepsLabel, children }: BlueAuthLayoutProps) {
   return (
     <div className="hid-ehr-blue-auth contents">
       <AuthLayout brandTo={authHrefs().signIn} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
-        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede}>
+        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede} steps={steps} stepsLabel={stepsLabel}>
         {children}
         {links ? <BlueAuthLinks /> : null}
       </AuthLayout>

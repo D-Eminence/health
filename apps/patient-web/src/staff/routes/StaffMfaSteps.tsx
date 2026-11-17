@@ -8,6 +8,7 @@ import { OtpauthQr } from '../../mfa/OtpauthQr'
 import { RecoveryCodes, type RecoveryCodesButton } from '../../mfa/RecoveryCodes'
 import { SIX_DIGIT_CODE_FIELD, formatSetupKey, isRecoveryCode, isSixDigitCode, sixDigitCode } from '../../mfa/codes'
 import '../../mfa/mfa.css'
+import { NO_FACILITY_YET, productNotAuthorised } from '../../staffSignInRefusals'
 
 /**
  * The second step of staff sign-in (hid-system #71, ADR-054, 0088), after the
@@ -75,6 +76,9 @@ function refusalOf(caught: unknown, step: StepName): Refusal {
   if (!isHidApiError(caught)) return { then: 'stay', field: false, message: plainErrorText(caught, STEP_FAILED) }
   switch (caught.code) {
     case 'MFA_CHALLENGE_INVALID': return { then: 'restart', message: CHALLENGE_SPENT }
+    // The right password and code, but no facility here (owner's answer to Q88): back to sign in, saying why.
+    case 'PRODUCT_NOT_AUTHORISED': return { then: 'restart', message: productNotAuthorised() }
+    case 'NO_ACTIVE_FACILITY_MEMBERSHIP': return { then: 'restart', message: NO_FACILITY_YET }
     case 'STAFF_MFA_FACTOR_UNPROVEN': return { then: 'restart', message: STAFF_MFA_FACTOR_UNPROVEN }
     case 'MFA_ENROLLMENT_PROOF_REQUIRED': return { then: 'email', message: 'Confirm it is you first: ask for a code by email, then enter it.' }
     case 'MFA_ENROLLMENT_PROOF_COMPLETE': return { then: 'proven' }

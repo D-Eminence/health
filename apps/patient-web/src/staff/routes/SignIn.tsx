@@ -19,6 +19,8 @@ import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntr
 import { OpenStaffPage } from '../../staffSignIn'
 import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
 import { capturedStaffInvitation } from '../invitationCapture'
+import { NO_FACILITY_YET, productNotAuthorised } from '../../staffSignInRefusals'
+import { opensAccountOnly, START_OUTREACH_GROUP_PATH } from '../accountOnly'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -41,7 +43,7 @@ const STAFF_MFA_LOOK: StaffMfaLook = {
 /** The sign-in step's own words: a refused password, and anything else that stopped it. Never Identity's text. */
 const SIGN_IN_FAILED = 'We couldn’t sign you in. Check your connection and try again.'
 const SIGN_IN_CODES: Readonly<Record<string, string>> = {
-  NO_ACTIVE_FACILITY_MEMBERSHIP: 'You aren’t active at any facility yet. Ask your facility administrator for access.',
+  NO_ACTIVE_FACILITY_MEMBERSHIP: NO_FACILITY_YET,
 }
 const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
   400: 'Check your email address and password, then try again.',
@@ -56,6 +58,7 @@ const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
 function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
+  if (isHidApiError(caught) && caught.code === 'PRODUCT_NOT_AUTHORISED') return productNotAuthorised()
   return plainErrorText(caught, SIGN_IN_FAILED, { codes: SIGN_IN_CODES, statuses: SIGN_IN_STATUSES, audience: 'facility' })
 }
 
@@ -69,6 +72,8 @@ function passwordRefusal(caught: unknown): string {
  */
 function getStaffLandingPath(search: string, session: StaffSession): string {
   // An invitation link carried through this sign-in (Novu, P4b) is accepted first, whatever the return address.
+  // An account with no facility yet, on outreach.: the one page it opens (owner's answer to Q88).
+  if (opensAccountOnly(session)) return START_OUTREACH_GROUP_PATH
   if (usesNovuBackend() && capturedStaffInvitation()) return STAFF_JOIN_PATH
   const product = resolveStaffProductHostname(window.location.hostname)?.route
   const returnTo = staffReturnPath(new URLSearchParams(search).get('returnTo'))

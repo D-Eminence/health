@@ -47,6 +47,8 @@ export function StartOutreachGroup() {
   }, [])
 
   if (state.status !== 'ready') return null
+  // No facility or outreach group yet (owner's answer to Q88): this is the only page the login opens, on outreach.
+  const accountOnly = state.session.actor.facilities.length === 0
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -61,10 +63,12 @@ export function StartOutreachGroup() {
       const registration = details.registrationNumber?.replace(/\s+/g, '').toUpperCase()
       const answer = await staffApi.startOutreachGroup({ groupName: details.groupName.trim(), kind: details.kind, phone: details.phone.trim(),
         ...(registration ? { registrationNumber: registration } : {}), termsVersion: ORGANISER_TERMS_VERSION, acceptTerms: true })
-      // Open the new group: its membership is new, so the session is read again first.
+      // Open the new group: its membership is new, so the session is read again first. A login with no facility before
+      // (account only) chooses the group straight away: that answer carries the new membership, and reading the session
+      // first would open the workspace around this page before the group is chosen.
       let switched = false
       try {
-        await refresh()
+        if (!accountOnly) await refresh()
         switched = await selectFacility(answer.facilityId)
       } catch { /* said below: the group exists, and Switch facility opens it */ }
       if (switched) navigate('/provider/outreach')
@@ -78,8 +82,10 @@ export function StartOutreachGroup() {
     }
   }
 
-  const description = 'Run outreach events with your own volunteer group, using the login you already have. Your hospital '
-    + 'work stays exactly as it is: use Switch facility to move between them.'
+  const description = accountOnly
+    ? 'Run outreach events with your own volunteer group, using the login you already have. You become its organiser.'
+    : 'Run outreach events with your own volunteer group, using the login you already have. Your hospital '
+      + 'work stays exactly as it is: use Switch facility to move between them.'
   if (open === null) return <FormPage title="Start an outreach group" description={description}><p role="status">Checking that this is open…</p></FormPage>
   if (!open) {
     return <FormPage title="Start an outreach group" description={description}>
@@ -93,6 +99,14 @@ export function StartOutreachGroup() {
     </FormPage>
   }
   if (started) {
+    // With no facility before, the session is read again to open the group (the workspace then opens around it).
+    if (accountOnly) {
+      return <FormPage title="Your outreach group is ready" description={`You are the organiser of ${started}.`}>
+        <Alert intent="success" title="Group started">Open {started}, then create its first campaign and invite your team.</Alert>
+        <FormActions sticky={false} align="start"><Button variant="primary"
+          onClick={() => { void refresh().then(() => navigate('/provider/outreach'), () => undefined) }}>Open my outreach group</Button></FormActions>
+      </FormPage>
+    }
     return <FormPage title="Your outreach group is ready" description={`You are the organiser of ${started}.`}>
       <Alert intent="success" title="Group started">Use Switch facility to open {started}, then create its first campaign and
         invite your team.</Alert>

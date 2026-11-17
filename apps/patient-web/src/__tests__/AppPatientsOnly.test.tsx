@@ -202,7 +202,7 @@ describe('elsewhere, every staff page stays each site’s own', () => {
     'on %s, /provider/recover is the site’s own password recovery', async hostname => {
       serveFrom(hostname)
       open('/provider/recover')
-      expect(await screen.findByRole('heading', { level: 1, name: 'Recover account access' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { level: 1, name: 'Reset your password.' })).toBeTruthy()
       expect(screen.getByRole('textbox', { name: /email/i })).toBeTruthy()
       await settle()
       expect(replace).not.toHaveBeenCalled()
