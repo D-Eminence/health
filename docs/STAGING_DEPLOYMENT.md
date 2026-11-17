@@ -107,6 +107,38 @@ also from a link in another site (for example in webmail), where the landing
 page asks once more from the site itself; and that the public site's `/products/<slug>` answers 308 to that product site
 while its `/patients` stays where it is.
 
+## After each website release: live check
+
+Once a website release is live (staging or production), run the read-only live
+check from the repository root:
+
+```sh
+npm run check:live-release                    # production
+npm run check:live-release -- --env staging   # staging
+```
+
+It reads each site (`app`, `ehr`, `migrate`, `lab`, `pharmacy`, `outreach`,
+hosts from `config/<env>.json`) the way a stranger's browser does: the page that
+serves the portal build (`/sign-in`, or `/provider/sign-in` on a product site),
+the scripts it loads and the scripts those load, on that site's own address
+only, and, where an expectation asks for it, the front page's HTML. It makes GET
+requests only, signs in to nothing, sends no cookie and no patient data, never
+reads an API address, and follows a redirect only within the same site. It
+prints a `PASS` or `FAIL` line for each expectation on each site and a summary,
+and exits 0 when all pass, 1 when any fails, and 2 when a site could not be read
+(the output names it).
+
+Before each release, update `EXPECTATIONS` at the top of
+`scripts/check-live-release.mjs`: for each PR in the release, the exact words it
+ships (`expect: 'present'`) and the words it removes (`expect: 'absent'`),
+copied from the source, curly apostrophes included. Words built from a template
+literal are split around each `${...}`, so use a fixed run of words. Words that
+ship switched off prove only that the code shipped; #227's entry shows how the
+switch next to them is read. An expectation for a PR that is not live yet keeps
+`enabled: false` (or is run with `--enable <id>`); flip it when that PR is live.
+`--list` shows the list, and `--only <site>` checks one site. To try a change to
+the list, serve a local build and pass `--base-url-override <site>=<url>`.
+
 ## Developer handoff
 
 The supplied new patient UI does not render the `importedRecords` response from
