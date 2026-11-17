@@ -45,6 +45,12 @@ const AREA_CHIP: Readonly<Record<AreaTone, string>> = {
   brand: 'bg-brand-soft text-brand', success: 'bg-success-soft text-success', violet: 'bg-violet-soft text-violet',
   warn: 'bg-warn-soft text-warn', info: 'bg-info-soft text-info', danger: 'bg-danger-soft text-danger', neutral: 'bg-subtle text-ink-2',
 }
+/** The sidebar's name for the area a page sits in: the clinical pages split into Front desk and Care, as the menu does. */
+function areaName(page: { readonly path: string; readonly group: string }): string {
+  if (page.group !== 'Clinical') return page.group
+  return FRONT_DESK.has(basePath(page.path)) ? 'Front desk' : 'Care'
+}
+
 export function areaTone(page: { readonly path: string; readonly group: string }): AreaTone {
   const base = basePath(page.path)
   if (base === 'emergency') return 'danger'
@@ -218,7 +224,7 @@ export function BlueHome() {
           {shortcuts.length > 0
             ? <Card><ul className="m-0 list-none divide-y divide-line p-0">
                 {shortcuts.map(page => <li key={page.path}><ListRow to={pageHrefOf(page)} leading={<span className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg [&_svg]:size-[18px] ${AREA_CHIP[areaTone(page)]}`}>{page.icon}</span>}
-                  title={page.label} subtitle={page.status === 'sample' ? 'Sample' : page.group} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}
+                  title={page.label} subtitle={page.status === 'sample' ? 'Sample' : areaName(page)} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}
               </ul></Card>
             : <p className="m-0 px-1 text-[13px] text-ink-3">Pin the pages you use most. Choose Edit to add them.</p>}
           {/* Today's Overview rule: none of the six clinical modules' permissions held (an administrator's audit and billing are not). */}
