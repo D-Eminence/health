@@ -35,7 +35,8 @@ jobs:
           npm run check
           npm run test:edge
           npm run test:release
-          npm audit --audit-level=high
+          npm run test:audit-gate
+          npm run audit:dependencies
       - name: Build every staging frontend using public configuration
         run: npm run build:staging
       - name: Validate compiled Workers without deploying
