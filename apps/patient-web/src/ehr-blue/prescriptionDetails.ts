@@ -1,5 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import { refusedFields } from '../staff/fieldProblem'
+import { priorityLabel } from '../staff/orderRoutes'
 import type { FieldDef, FieldErrors, FormValues } from './clinical/parts/RecordForm'
 
 /**
@@ -32,14 +33,13 @@ export const DURATION_UNITS = [
   { value: 'day', label: 'Days' }, { value: 'week', label: 'Weeks' }, { value: 'month', label: 'Months' },
 ] as const
 
-export const PRESCRIPTION_PRIORITIES = [
-  { value: 'routine', label: 'Routine' }, { value: 'urgent', label: 'Urgent' },
-  { value: 'asap', label: 'As soon as possible' }, { value: 'stat', label: 'Stat (straight away)' },
-] as const
+/** The EHR's priorities, in the words the rest of the app uses for them (staff orderRoutes' priorityLabel). */
+export const PRESCRIPTION_PRIORITIES: readonly { value: string; label: string }[] = ['routine', 'urgent', 'asap', 'stat']
+  .map(value => ({ value, label: priorityLabel(value) ?? value }))
 
 export const STRENGTH_HINT = 'As written on the pack, for example 500 mg.'
 export const QUANTITY_HINT = 'The pharmacist checks this before handing it over.'
-export const PRIORITY_HINT = 'The pharmacy prepares urgent prescriptions first.'
+export const PRIORITY_HINT = 'The pharmacy sees this on the prescription. It does not alert them, so phone if it cannot wait.'
 export const DURATION_NUMBER_TEXT = 'Enter how long as a whole number from 1 to 3650.'
 export const DURATION_PAIR = 'Enter both how long and days, weeks or months, or leave both blank.'
 export const QUANTITY_NUMBER_TEXT = 'Enter the quantity as a number above 0, like 21 or 2.5 (up to 8 digits and 4 decimal places).'

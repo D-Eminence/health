@@ -3117,6 +3117,7 @@ Ola's prescription details, on the prescribe form of the blue EHR. Tests first
   with `dispensingDetails: true` adds Strength, Form, How long for (with Days, weeks or months), Quantity to dispense
   (with Quantity unit) and Priority, before Instructions. Without the flag, or if the list cannot be read, the form and
   its request body are today's, key for key.
+  The form now reads the prescriptions list once when it opens, for every prescriber, to learn whether the details are taken.
 - **Checked as the EHR checks them** (hid-system #255, `CreatePrescriptionWithDetailsDto`): a whole number of 1 to 3650
   with its unit, a quantity above 0 with up to 4 decimal places (at most 99999999.9999) with its unit, 80 characters
   for the strength and the quantity unit. Each pair goes together. Only the details given are sent, under the EHR's
@@ -3125,5 +3126,7 @@ Ola's prescription details, on the prescribe form of the blue EHR. Tests first
   stopped taking the details since the list was read, the form says so, takes them off, and the next save sends
   today's body.
 - **A saved prescription's page** shows each detail the EHR answered (for example "7 days", "21 capsules"), and none
-  for a prescription without them.
+  for a prescription without them. Stat reads "Stat", as everywhere else in the app.
+- **Priority's hint** says only what is true: the pharmacy sees it on the prescription, it does not alert them, so
+  phone if it cannot wait (the pharmacy work list is not sorted by priority).
 - **Not verified live.** Component tests only; the backend (0125) is not released yet and its setting is off.
