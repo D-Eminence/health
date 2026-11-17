@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type * as StaffApi from '../../../../staff/api'
@@ -180,7 +180,7 @@ describe('BlueSignIn', () => {
     try {
       expect(siteName()).toBe(name)
       const recoveryPage = open('/provider/recover', <BlueRecovery />)
-      expect(document.title).toBe(`Recover account access · ${name}`)
+      expect(document.title).toBe(`Reset your password · ${name}`)
       recoveryPage.unmount()
       open('/provider/invitation', <BlueStaffInvitation />)
       expect(document.title).toBe(`Accept your invitation · ${name}`)
@@ -210,6 +210,90 @@ describe('BlueSignIn', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(`Error: ${STAFF_MFA_FACTOR_UNPROVEN}`))
   })
 
+  // Owner's answer to Q88 (17 Nov 2026): a right password with no facility here is told so, never "isn't right".
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'Health ID EHR'],
+    ['lab.healthidentitydirectory.com', 'Health ID Lab'],
+    ['pharmacy.healthidentitydirectory.com', 'Health ID Pharmacy'],
+    ['migrate.staging.healthidentitydirectory.com', 'Health ID Migrate'],
+    ['outreach.healthidentitydirectory.com', 'Health ID Outreach'],
+  ])('on %s, says an account not set up for this product in the site\'s own name (403 PRODUCT_NOT_AUTHORISED)', async (hostname, name) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      staff.login.mockRejectedValueOnce(new HidApiError(403, 'Not authorised for this product.', { code: 'PRODUCT_NOT_AUTHORISED' }))
+      open('/provider/sign-in', <BlueSignIn />)
+      signInWith('demo.scientist@example.test', 'fictional-password-1')
+      const refusal = await screen.findByRole('alert')
+      expect(refusal.textContent).toBe(`Error: This account isn’t set up for ${name}.`)
+      expect(document.body.textContent).not.toContain('Not authorised for this product.')
+      expect(document.body.textContent).not.toContain('isn’t right')
+      expect(staff.completeSignIn).not.toHaveBeenCalled()
+      expect(screen.getByTestId('where').textContent).toBe('/provider/sign-in')
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('says a login that is part of no facility or outreach group yet so (403 NO_ACTIVE_FACILITY_MEMBERSHIP)', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com', replace: vi.fn() })
+    try {
+      staff.login.mockRejectedValueOnce(new HidApiError(403, 'No active facility membership.', { code: 'NO_ACTIVE_FACILITY_MEMBERSHIP' }))
+      open('/provider/sign-in', <BlueSignIn />)
+      signInWith('demo.new@example.test', 'fictional-password-1')
+      const refusal = await screen.findByRole('alert')
+      expect(refusal.textContent).toMatch(/^Error: You aren’t part of a facility or outreach group yet\./)
+      expect(document.body.textContent).not.toContain('No active facility membership.')
+      expect(staff.completeSignIn).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('keeps the wrong-password words for a wrong password on every product site', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'outreach.healthidentitydirectory.com', replace: vi.fn() })
+    try {
+      staff.login.mockRejectedValueOnce(new HidApiError(401, 'Invalid credentials', { code: 'INVALID_CREDENTIALS' }))
+      open('/provider/sign-in', <BlueSignIn />)
+      signInWith('demo.organiser@example.test', 'not-the-password')
+      expect((await screen.findByRole('alert')).textContent).toBe('Error: That email address or password isn’t right. Try again.')
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('goes back to the password step with the product\'s words when the authenticator step is refused for the product', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'pharmacy.healthidentitydirectory.com', replace: vi.fn() })
+    try {
+      staff.login.mockResolvedValue({ kind: 'challenge', challenge: { status: 'mfa_required', expiresAt: '2026-11-30T12:05:00.000Z' } })
+      staff.verifyMfa.mockRejectedValueOnce(new HidApiError(403, 'Not authorised for this product.', { code: 'PRODUCT_NOT_AUTHORISED' }))
+      open('/provider/sign-in', <BlueSignIn />)
+      signInWith('demo.nurse@example.test', 'fictional-password-1')
+      fireEvent.change(await screen.findByLabelText(/Authenticator code/), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+      expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
+      expect(document.body.textContent).toContain('This account isn’t set up for Health ID Pharmacy.')
+      expect(staff.completeSignIn).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  // An account-only session (Q88-2): outreach. lands straight on "Start an outreach group"; no other site gets one.
+  it('lands an account with no facility yet on "Start an outreach group" on outreach.', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'outreach.healthidentitydirectory.com', replace: vi.fn() })
+    try {
+      staff.login.mockResolvedValue({ kind: 'session', session: SESSION })
+      open('/provider/sign-in?returnTo=%2Fprovider%2Fpatients', <BlueSignIn />)
+      signInWith('demo.nurse@example.test', 'fictional-password-1')
+      await waitFor(() => expect(staff.completeSignIn).toHaveBeenCalledWith(SESSION))
+      await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/start-outreach-group'))
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it.each(['lab.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com'])('on %s, lands a session with no facility as before', async hostname => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      staff.login.mockResolvedValue({ kind: 'session', session: SESSION })
+      open('/provider/sign-in', <BlueSignIn />)
+      signInWith('demo.nurse@example.test', 'fictional-password-1')
+      await waitFor(() => expect(staff.completeSignIn).toHaveBeenCalledWith(SESSION))
+      await waitFor(() => expect(screen.getByTestId('where').textContent).not.toBe('/provider/sign-in'))
+      expect(screen.getByTestId('where').textContent).not.toBe('/provider/start-outreach-group')
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('goes on to today\'s authenticator step, which takes the page\'s heading', async () => {
     staff.login.mockResolvedValue({ kind: 'challenge', challenge: { status: 'mfa_required', expiresAt: '2026-11-30T12:05:00.000Z' } })
     open('/provider/sign-in', <BlueSignIn />)
@@ -226,66 +310,111 @@ describe('BlueSignIn', () => {
 })
 
 describe('BlueRecovery', () => {
-  it('runs today\'s recovery: work email, code, then a new password', async () => {
-    recovery.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', deliveryChannels: ['email', 'sms'], expiresInSeconds: 600, resendAfterSeconds: 60 })
+  const CHALLENGE = { accepted: true, challengeId: 'challenge-1', deliveryChannels: ['email', 'sms'], expiresInSeconds: 600, resendAfterSeconds: 60 }
+  const REFUSED = 'That code is wrong or has expired. Check the latest message, or start again for a new code.'
+  const steps = () => [...screen.getByRole('list', { name: 'Steps to reset your password' }).querySelectorAll('li')]
+  const currentStep = () => steps().find(step => step.getAttribute('aria-current') === 'step')?.textContent
+
+  // Owner's answer to Q89 (17 Nov 2026): the staff reset looks and works as app.'s (routes/Recovery.tsx).
+  it('runs as app.\'s reset: the steps, the work email, six boxes that send the code, one new password', async () => {
+    recovery.start.mockResolvedValue(CHALLENGE)
     recovery.verify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified-1' })
     recovery.complete.mockResolvedValue({ completed: true })
     open('/provider/recover', <BlueRecovery />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
+    expect(screen.getByRole('heading', { level: 1, name: 'Reset your password.' })).toBeDefined()
+    expect(steps().map(step => step.textContent)).toEqual(['1Your account', '2Code', '3New password'])
+    expect(currentStep()).toBe('1Your account')
+    // The work email only, with app.'s hint; no lede, and no row of other ways in.
+    expect(screen.getByRole('textbox', { name: 'Work email' }).getAttribute('type')).toBe('email')
+    expect(screen.getByText('We’ll send a code to the verified email on your account.')).toBeDefined()
+    expect(screen.queryByText('For staff accounts.')).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Other ways in' })).toBeNull()
+    for (const gone of ['Register a hospital', 'Recover access', 'Accept invitation']) expect(screen.queryByRole('link', { name: gone })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Back to sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: ' demo.nurse@example.test ' } })
     // The local environment's Turnstile stand-in gives the token, as today.
-    fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send code' }))
     await waitFor(() => expect(recovery.start).toHaveBeenCalledWith('demo.nurse@example.test', 'local-turnstile-disabled'))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Recovery code' }), { target: { value: '12a3456' } })
-    expect((screen.getByRole('textbox', { name: 'Recovery code' }) as HTMLInputElement).value).toBe('123456')
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    // Six boxes; the sixth digit sends the code with no button pressed.
+    const first = await screen.findByRole('textbox', { name: /Digit 1 of 6/ })
+    expect(screen.getAllByRole('textbox', { name: /Digit \d of 6/ })).toHaveLength(6)
+    expect(currentStep()).toBe('2Code')
+    expect(screen.getByText('Enter the 6-digit code we sent.')).toBeDefined()
+    await act(async () => { fireEvent.change(first, { target: { value: '123456' } }) })
     await waitFor(() => expect(recovery.verify).toHaveBeenCalledWith('challenge-1', '123456'))
-    fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'a-fictional-passphrase' } })
-    // While the confirmation still agrees with the start of the password, nothing is said; then the mismatch is.
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-fictional-pass' } })
-    expect(screen.queryByText('Passwords do not match.')).toBeNull()
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-fictional-wrong' } })
-    expect(screen.getByText('Passwords do not match.')).toBeDefined()
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-fictional-passphrase' } })
+    expect(recovery.verify).toHaveBeenCalledTimes(1)
+    // One new password, with Show and app.'s hint; no confirmation to match.
+    const password = await screen.findByLabelText('New password')
+    expect(currentStep()).toBe('3New password')
+    expect(screen.getByText('At least 12 characters. Tap Show to check it.')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Show new password' })).toBeDefined()
+    expect(screen.queryByLabelText('Confirm new password')).toBeNull()
+    fireEvent.change(password, { target: { value: 'too-short' } })
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
-    expect(await screen.findByRole('heading', { level: 2, name: 'Password reset complete.' })).toBeDefined()
+    expect(screen.getByText('Use at least 12 characters.')).toBeDefined()
+    expect(recovery.complete).not.toHaveBeenCalled()
+    fireEvent.change(password, { target: { value: 'a-fictional-passphrase' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Your password is reset.' })).toBeDefined()
     expect(recovery.complete).toHaveBeenCalledWith('challenge-1', 'verified-1', 'a-fictional-passphrase')
+    expect(screen.queryByRole('list', { name: 'Steps to reset your password' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
   })
 
-  it('says a refused code in Identity\'s words, on the code field', async () => {
-    recovery.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', deliveryChannels: ['email', 'sms'], expiresInSeconds: 600, resendAfterSeconds: 60 })
-    recovery.verify.mockRejectedValue(new HidApiError(400, 'The code is invalid or has expired.', { code: 'OTP_INVALID_OR_EXPIRED' }))
-    open('/provider/recover', <BlueRecovery />)
-    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
-    fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Recovery code' }), { target: { value: '000000' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
-    expect(await screen.findByText('That code is wrong or has expired. Check the latest message, or start again for a new code.')).toBeDefined()
-    expect(screen.getByRole('textbox', { name: 'Recovery code' }).getAttribute('aria-invalid')).toBe('true')
-    // Boxed as a refusal (the redesign's Alert), whether or not it is announced (role=alert is not on every path).
-    expect(screen.getByText('That code is wrong or has expired. Check the latest message, or start again for a new code.').closest('[data-intent="error"]')).not.toBeNull()
+  it('offers app.\'s way back during the code step: a different email, the wait, then a new code', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      recovery.start.mockResolvedValue(CHALLENGE)
+      open('/provider/recover', <BlueRecovery />)
+      fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
+      fireEvent.click(await screen.findByRole('button', { name: 'Send code' }))
+      await screen.findByRole('textbox', { name: /Digit 1 of 6/ })
+      const different = screen.getByRole('button', { name: 'Use a different email' })
+      const wait = screen.getByText('Wait for a new code before starting again with the same email.')
+      expect(different.getAttribute('aria-describedby')).toBe(wait.id)
+      expect(screen.queryByRole('button', { name: 'Start again for a new code' })).toBeNull()
+      await act(async () => { vi.advanceTimersByTime(60_000) })
+      expect(screen.getByText('No code? Start again to get a new one.')).toBeDefined()
+      fireEvent.click(screen.getByRole('button', { name: 'Start again for a new code' }))
+      expect((await screen.findByRole('textbox', { name: 'Work email' }) as HTMLInputElement).value).toBe('demo.nurse@example.test')
+    } finally { vi.useRealTimers() }
   })
 
-  it('boxes a refused code the same when the form is sent with Enter', async () => {
-    recovery.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', deliveryChannels: ['email', 'sms'], expiresInSeconds: 600, resendAfterSeconds: 60 })
-    recovery.verify.mockRejectedValue(new HidApiError(400, 'The code is invalid or has expired.', { code: 'OTP_INVALID_OR_EXPIRED' }))
+  it('says a refused code in plain words, at the boxes, which are marked', async () => {
+    recovery.start.mockResolvedValue(CHALLENGE)
+    recovery.verify.mockRejectedValue(new HidApiError(403, 'The code is invalid or has expired.', { code: 'OTP_INVALID_OR_EXPIRED' }))
     open('/provider/recover', <BlueRecovery />)
     fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
-    fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))
-    const code = await screen.findByRole('textbox', { name: 'Recovery code' })
-    fireEvent.change(code, { target: { value: '000000' } })
-    fireEvent.submit(code.closest('form')!)
-    expect((await screen.findByText('That code is wrong or has expired. Check the latest message, or start again for a new code.')).closest('[data-intent="error"]')).not.toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Send code' }))
+    const first = await screen.findByRole('textbox', { name: /Digit 1 of 6/ })
+    await act(async () => { fireEvent.change(first, { target: { value: '000000' } }) })
+    expect(await screen.findByText(REFUSED)).toBeDefined()
+    expect(document.body.textContent).not.toContain('The code is invalid or has expired.')
+    for (const box of screen.getAllByRole('textbox', { name: /Digit \d of 6/ })) expect(box.getAttribute('aria-invalid')).toBe('true')
+    // The wrong-code budget, as on app.
+    expect(screen.getByText(/After 5 wrong codes within 15 minutes/)).toBeDefined()
   })
+
+  it('says a refusal that is not about the code in a boxed alert, never Identity\'s words', async () => {
+    recovery.start.mockRejectedValue(new HidApiError(503, 'Upstream unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    open('/provider/recover', <BlueRecovery />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Send code' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.getAttribute('data-intent')).toBe('error')
+    expect(document.body.textContent).not.toContain('Upstream unavailable')
+    expect((screen.getByRole('textbox', { name: 'Work email' }) as HTMLInputElement).value).toBe('demo.nurse@example.test')
+  })
+
   it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.staging.healthidentitydirectory.com',
     'outreach.healthidentitydirectory.com'])('on the product site %s, shows the recovery itself, which hid-system accepts there', hostname => {
     const replace = vi.fn()
     vi.stubGlobal('location', { ...window.location, hostname, replace })
     try {
       open('/provider/recover', <BlueRecovery />)
-      expect(screen.getByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
+      expect(screen.getByRole('heading', { level: 1, name: 'Reset your password.' })).toBeDefined()
       expect(screen.getByRole('textbox', { name: 'Work email' })).toBeDefined()
-      expect(screen.getByRole('button', { name: 'Send recovery code' })).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Send code' })).toBeDefined()
       expect(replace).not.toHaveBeenCalled()
       expect(screen.queryByText(/main Health ID site|main site/)).toBeNull()
       // Its way back is this site's own sign-in.

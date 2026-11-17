@@ -294,6 +294,27 @@ export function outreachSignUpHref(hostname: string): string {
     ? `https://${PRODUCT_SITE_HOSTNAMES[deployment].outreach}${PROVIDER_ENROLLMENT_PATH}` : OUTREACH_SIGNUP_PATH
 }
 
+/** "Start an outreach group" (owner decision 5 of 11 November 2026): the page's address on the site that runs it. */
+export const START_OUTREACH_GROUP_PATH = '/provider/start-outreach-group'
+
+/**
+ * Whether this site runs "Start an outreach group": Health ID Outreach, in each deployment, and any site that is not a
+ * product site (staging's portal, a local or preview build). Each other product site keeps only the memberships that fit
+ * it (owner's answer to Q88, 17 Nov 2026), so a group started there could never be opened there: its organiser
+ * membership fits outreach. alone.
+ */
+export function startOutreachGroupHere(hostname: string): boolean {
+  const product = resolveStaffProductHostname(hostname)
+  return !product || product.key === 'outreach'
+}
+
+/** Where "Start an outreach group" is, from this site: this site's own page where it runs, else outreach.'s in this deployment. */
+export function startOutreachGroupHref(hostname: string): string {
+  const deployment = deploymentOf(hostname)
+  if (startOutreachGroupHere(hostname) || !deployment) return START_OUTREACH_GROUP_PATH
+  return `https://${PRODUCT_SITE_HOSTNAMES[deployment].outreach}${START_OUTREACH_GROUP_PATH}`
+}
+
 /** "Registering a hospital? Use Health ID EHR": the EHR site's facility sign-up in this deployment, else this build's own. */
 export function hospitalSignUpHref(hostname: string): string {
   const deployment = deploymentOf(hostname)
