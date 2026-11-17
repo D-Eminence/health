@@ -7,6 +7,11 @@ decides, from production state alone, whether that is needed and safe right now:
   plan     read-only. Reads production/current.json and the release receipts it names (release-read role), the
            deployment lease, and GitHub's run records. Prints one JSON line and writes action=none|repin|dispatch
            to GITHUB_OUTPUT. With action=repin it has rewritten the declaration in the working tree.
+           --dry-run: the same reads and decision, but nothing is written, not even the working tree; it prints
+           each pin it would change instead.
+           EXPECTED_BACKEND_COMMIT (optional, from a manual run): the full hid-system commit the operator expects
+           the live backend release to be built from. Production must match it or the run is refused. It only
+           confirms; the pins still come service by service from current.json.
   recheck  read-only, just before the website release is dispatched: nothing started meanwhile, the lease is
            free and the declaration in the working tree still matches what production runs.
 
@@ -127,8 +132,16 @@ def assert_idle(lease_item, runs, clock):
         raise Wait("RELEASE_RUNNING:" + ",".join(sorted(runs)))
 
 
+def check_expected(expected, backend_receipt):
+    """A manual run may name the commit it expects production's backend release to be. Never an override."""
+    if not expected:
+        return
+    require(COMMIT.fullmatch(expected), "EXPECTED_BACKEND_COMMIT_MUST_BE_40_HEX")
+    require(backend_receipt["candidate"]["source_commit"] == expected, "LIVE_BACKEND_IS_NOT_THE_EXPECTED_COMMIT")
+
+
 def decide(*, index, index_meta, backend_receipt, frontend_receipt, declaration, lease_item, active_runs,
-           head_runs, compare, clock):
+           head_runs, compare, clock, expected_commit=None):
     """Returns (action, reason, pins). Raises ReleaseError to refuse, Wait to look again later."""
     declared = declaration.get("backend_commits")
     require(isinstance(declared, dict) and declared, "HID_FRONTEND_BACKEND_COMPATIBILITY_DECLARATION_REQUIRED")
@@ -140,6 +153,7 @@ def decide(*, index, index_meta, backend_receipt, frontend_receipt, declaration,
             raise Wait("BACKEND_RECEIPT_NOT_WRITTEN_YET")
         raise ReleaseError("BACKEND_RECEIPT_UNREADABLE")
     release_id = check_backend_receipt(index, backend_receipt)
+    check_expected(expected_commit, backend_receipt)
     released, rolled_back = released_pins(index, frontend_receipt)
     if all(released.get(name) == commit for name, commit in live.items()):
         return "none", "WEBSITE_ALREADY_RELEASED_AGAINST_LIVE_BACKEND", live
@@ -239,8 +253,8 @@ def gather():
                                         + head).get("workflow_runs", []) if r.get("event") != "pull_request"]
     return dict(index=index, index_meta=meta, backend_receipt=backend_receipt, frontend_receipt=frontend_receipt,
                 declaration=json.loads(DECLARATION.read_text()), lease_item=lease(aws), active_runs=runs,
-                head_runs=head_runs, compare=compare,
-                clock=dt.datetime.now(dt.timezone.utc))
+                head_runs=head_runs, compare=compare, clock=dt.datetime.now(dt.timezone.utc),
+                expected_commit=os.environ.get("EXPECTED_BACKEND_COMMIT", "").strip() or None)
 
 
 def output(**values):
@@ -251,19 +265,46 @@ def output(**values):
                 sink.write(key + "=" + str(values[key]).replace("\n", " ") + "\n")
 
 
-def plan():
+def changes(declared, pins):
+    return {name: {"from": declared.get(name), "to": commit} for name, commit in pins.items()
+            if declared.get(name) != commit}
+
+
+def summarise(values, changed):
+    """A short summary on the run page, so a dry run shows what a real run would do."""
+    if not os.environ.get("GITHUB_STEP_SUMMARY"):
+        return
+    lines = ["### Automatic re-pin" + (" (dry run, nothing written)" if values.get("dry_run") else ""), "",
+             "Action: `" + values["action"] + "` - " + str(values["reason"]), ""]
+    if changed:
+        lines += ["| Service | Pinned now | Live in production |", "|---|---|---|"]
+        lines += ["| " + name + " | `" + str(c["from"])[:12] + "` | `" + c["to"][:12] + "` |"
+                  for name, c in sorted(changed.items())]
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as sink:
+        sink.write("\n".join(lines) + "\n")
+
+
+def plan(dry_run=False):
     facts = gather()
     try:
         action, reason, pins = decide(**facts)
     except Wait as wait:
-        return output(action="none", reason=str(wait))
+        values = dict(action="none", reason=str(wait), dry_run=dry_run)
+        summarise(values, {})
+        return output(**values)
     except Hold as hold:
         print("::warning title=Automatic re-pin held::" + str(hold), flush=True)
-        return output(action="none", reason=str(hold))
-    if action == "repin":
+        values = dict(action="none", reason=str(hold), dry_run=dry_run)
+        summarise(values, {})
+        return output(**values)
+    changed = changes(facts["declaration"]["backend_commits"], pins)
+    if action == "repin" and not dry_run:
         DECLARATION.write_text(rewrite(facts["declaration"], pins, facts["index"]["backend_release"],
                                        facts["index_meta"]))
-    output(action=action, reason=reason, backend_release=facts["index"]["backend_release"], pins=pins)
+    values = dict(action=action, reason=reason, backend_release=facts["index"]["backend_release"], pins=pins,
+                  changes=changed, dry_run=dry_run)
+    summarise(values, changed)
+    output(**values)
 
 
 def recheck():
@@ -287,9 +328,12 @@ def recheck():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=["plan", "recheck"])
+    parser.add_argument("--dry-run", action="store_true", help="plan only: decide and report, write nothing")
     args = parser.parse_args()
+    if args.dry_run and args.mode != "plan":
+        parser.error("--dry-run applies to plan only")
     try:
-        plan() if args.mode == "plan" else recheck()
+        plan(args.dry_run) if args.mode == "plan" else recheck()
     except ReleaseError as error:
         print(json.dumps({"action": "refused", "code": str(error)}), flush=True)
         raise SystemExit(1)

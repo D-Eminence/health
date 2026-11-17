@@ -110,6 +110,37 @@ class RepinTests(unittest.TestCase):
         with self.assertRaisesRegex(r.Hold, 'ALREADY_ATTEMPTED'):
             r.decide(**facts(pinned=NEW, head_runs=[{'status':'completed','conclusion':'failure'}]))
 
+    def test_explicit_commit_only_confirms_what_production_runs(self):
+        self.assertEqual(r.decide(**facts(expected_commit=NEW))[0], 'repin')
+        self.assertEqual(r.decide(**facts(expected_commit=None))[0], 'repin')
+        with self.assertRaisesRegex(c.ReleaseError, 'NOT_THE_EXPECTED_COMMIT'): r.decide(**facts(expected_commit=OTHER))
+        # Checked even when nothing would change, so a wrong expectation is never reported as success.
+        with self.assertRaisesRegex(c.ReleaseError, 'NOT_THE_EXPECTED_COMMIT'):
+            r.decide(**facts(released=NEW, pinned=NEW, expected_commit=OTHER))
+        for bad in ('b'*12, 'B'*40, 'b'*40 + '\n--x'):
+            with self.assertRaisesRegex(c.ReleaseError, 'MUST_BE_40_HEX'): r.decide(**facts(expected_commit=bad))
+
+    def test_dry_run_reports_the_changes_and_writes_nothing(self):
+        value = facts()
+        written, summary = [], []
+        original = (r.gather, r.DECLARATION, r.output)
+        class Declaration:
+            def write_text(self, text): written.append(text)
+        try:
+            r.gather, r.DECLARATION = (lambda: value), Declaration()
+            r.output = lambda **values: summary.append(values)
+            r.plan(dry_run=True)
+            self.assertEqual(written, [])
+            self.assertEqual(summary[-1]['action'], 'repin')
+            self.assertTrue(summary[-1]['dry_run'])
+            self.assertEqual(set(summary[-1]['changes']), set(NINE))
+            self.assertEqual(summary[-1]['changes']['gateway'], {'from': OLD, 'to': NEW})
+            r.plan(dry_run=False)
+            self.assertEqual(len(written), 1)
+            self.assertEqual(json.loads(written[0])['backend_commits'], {name: NEW for name in NINE})
+        finally:
+            r.gather, r.DECLARATION, r.output = original
+
     def test_rewrite_keeps_the_checked_declaration_shape(self):
         here = pathlib.Path(__file__).resolve().parents[1]/'config/production-release-dependencies.json'
         current = json.loads(here.read_text())
