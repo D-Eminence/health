@@ -7,6 +7,7 @@ import { useStaff } from '../../staff/App'
 import { PRODUCTS, productHere } from './product'
 import { roleNames } from '../../staff/staffAccess'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
+import { PRODUCT_SITE_NAMES, startOutreachGroupHere, startOutreachGroupHref } from '../../productHostname'
 
 /** Why the question is asked: as Identity reports the selection, 'lost' mid-session, or 'switch' from the account menu. */
 export type WorkspaceQuestion = FacilityChoiceReason | 'lost' | 'switch'
@@ -104,9 +105,13 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
         })}
       </ul>
       {error ? <Alert intent="error" title="That facility couldn’t be opened">{error}</Alert> : null}
-      {/* Owner decision 5 of 11 November 2026: the same login can also run its own outreach group. */}
+      {/* Owner decision 5 of 11 November 2026: the same login can also run its own outreach group. It runs on Health ID
+          Outreach only: another product site keeps only the facilities that fit it (Q88), so it could never open the group. */}
       {reason === 'switch' ? <p className="m-0 text-sm text-ink-2">Run outreach events with your own volunteer group?{' '}
-        <Link className="font-medium text-brand-ink underline" to="/provider/start-outreach-group">Start an outreach group</Link></p> : null}
+        {startOutreachGroupHere(window.location.hostname)
+          ? <Link className="font-medium text-brand-ink underline" to={startOutreachGroupHref(window.location.hostname)}>Start an outreach group</Link>
+          : <a className="font-medium text-brand-ink underline" href={startOutreachGroupHref(window.location.hostname)}>
+            Start one on {PRODUCT_SITE_NAMES.outreach}</a>}</p> : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {reason === 'switch' ? <Button icon={ArrowLeft} onClick={() => navigate('/provider')}>Back to Home</Button> : <span />}
         <Button variant="ghost" icon={LogOut} onClick={() => void leave()}>Sign out</Button>

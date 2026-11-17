@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "identity-api at 91e9fb0a as deployed by hid-system #252 (outreach sign-in lasts 24 hours; no database change; release 07:14 UTC 2026-11-14). All other services at 4880ee42, as deployed after hid-system #249 (0120 Health ID with no email, signed by the owner in chat on 2026-11-13: \"Q77 0120 signed\"), #250 (0121 outreach registration reads once per query, \"Q78 0121 signed\") and #251 (one declaration for both, retried under \"Q82 yes\"): release run 43521287214; 0120 aaaf65e7…d2d5 and 0121 f03a404a…43fe applied 2026-11-13 22:50 UTC. Builds on 8d6d9736 (0118, \"Q69 0118 signed\") and 2ddf1be6 (0119).",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44126679473-1-27c99ab008771a3f (hid-system #256, 73eae090, live 2026-11-17 16:47 UTC: Q88 product sign-in gate and Q89 staff reset, no migration; it rebuilt identity-api, ehr-api and notification-api; the other services stay at e50ac518 from hid-system #253, owner-signed Q84). Owner approved Q88/Q89 in chat on 2026-11-17 (\"Q88 recommended, Q89 recommended\").",
   "backend_commits": {
-    "gateway": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "identity-api": "91e9fb0abe2fe15c4afd7a49cfa259f09819827c",
-    "ehr-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "lab-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "pharmacy-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "ocr-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "outreach-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "support-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "notification-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7"
+    "gateway": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "identity-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "ehr-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "lab-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "pharmacy-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "ocr-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "outreach-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "support-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
+    "notification-api": "73eae090918db166b01812a663b5a131fb1ec639"
   }
 }

@@ -170,7 +170,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
       await onChanged()
       onFocusHeading()
     } catch (caught) {
-      // Linking needs access to write the record: a share for care, not a PIN (which gives read only).
+      // Linking needs access to add to the record: an Access PIN (24 hours, to see and add to), a share for care, or an
+      // approved request to see and add to it. Read-only access is refused.
       if (isHidApiError(caught) && caught.status === 403 && NO_WRITE.has(caught.code)) refuse({ patient: LINK_NEEDS_SHARE })
       else { setError(errorText(caught, LINK_FAILED)); setReadAgain(true) }
       // Read the case again, so a retry is checked against its latest version, not the one refused.

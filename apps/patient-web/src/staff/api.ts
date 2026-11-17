@@ -2392,6 +2392,9 @@ export const staffApi = {
   requestAccess: (facilityId: string, hid: string, scope: 'read_records' | 'write_records', reason: string, durationMinutes: number) =>
     client.post<AccessRequest>('/api/v1/identity/access-requests', { hid: hid.trim().toUpperCase(), scope, reason, durationMinutes },
       { headers: facilityHeaders(facilityId) }),
+  // A patient's Access PIN opens their records for 24 hours, to see and add to (owner, 10 Nov 2026): hid-system's
+  // database (0122) gives 1440 minutes whatever is asked. The call asks for 60, which Identity accepts both before that
+  // release (at most 60) and after it (5 to 1440), so the website and the backend can be released in either order.
   verifyPin: (facilityId: string, hid: string, pin: string) =>
     client.post<GrantResult>('/api/v1/identity/standard-access/pin', { hid: hid.trim().toUpperCase(), pin, durationMinutes: 60 },
       { headers: facilityHeaders(facilityId) }),

@@ -15,7 +15,7 @@ import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
-import { isAdult, paperRecordsLineForRequest, PIN_COVERS } from '../paperRecordsWording'
+import { isAdult, paperRecordsLineForRequest, PIN_ALLOWS, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
@@ -1303,7 +1303,7 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-busy={loading || undefined}>
       <Badge size="sm" tone={profile.accessPinConfigured ? 'success' : 'neutral'}>{profile.accessPinConfigured ? 'Set' : 'Not set'}</Badge>
       {/* The paper records part only to an adult (under-18s are refused paper records). */}
-      {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
+      {isAdult(profile.dateOfBirth) ? PIN_COVERS : PIN_ALLOWS}</p>
     <Saved>{notice}</Saved>
     {/* On a phone, Save PIN goes under the field and its hint; wider, beside the field. */}
     <form onSubmit={event => void configurePin(event)} className="flex flex-col items-start gap-3 sm:flex-row sm:gap-2">
