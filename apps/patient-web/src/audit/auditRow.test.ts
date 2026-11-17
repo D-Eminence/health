@@ -130,6 +130,37 @@ describe('an audit event in words', () => {
     expect(what('records.viewed.by-clinic', { actorType: 'legacy' })).toBe('Activity from the previous Health ID system')
   })
 
+  it('words real backend codes, request records and an unknown code with no code, route, method or ID', () => {
+    // Action codes the backend writes today (hid-system services), some not in the spec's table yet, and one unknown.
+    const codes = ['admin.account.sessions-revoked', 'audit.events.list', 'auth.authorization.denied', 'auth.login.refused',
+      'commercial.demo-request.submitted', 'ehr.allergy.create', 'ehr.allergy.entered-in-error', 'ehr.encounter.read',
+      'ehr.lab-request.lab-handoff.eligibility-checked', 'ehr.order-route.wrong-patient-overview.item', 'ehr.patient.chat.source.read',
+      'identity.consent-grant.patient-share', 'identity.nin.verify', 'identity.registration-case.approve-new', 'lab.import.list',
+      'ocr.quality.summary.read', 'security.authorization.denied', 'staff-login', 'read_records', 'OUTREACH_CASE_CREATED',
+      'ehr.d0a1b2c3-4567-4abc-8def-0123456789ab.read', 'ehr./v1/patients.read', 'SOMETHING_NEW_HAPPENED']
+    const shownCode = /[A-Z]{2,}_[A-Z_]+|\/v1\/|\b(GET|POST|PUT|PATCH|DELETE)\b|[0-9a-f]{8}-[0-9a-f]{4}/
+    for (const action of codes) {
+      for (const outcome of ['success', 'denied', 'failure'] as const) {
+        for (const actorType of ['staff', 'patient', 'system', 'platform', 'workload', 'unknown']) {
+          const row = auditRow(event(action, { outcome, actorType, resourceType: 'http-request' }))
+          expect(`${row?.what} ${row?.who} ${row?.outcomeText}`, action).not.toMatch(shownCode)
+        }
+      }
+    }
+    expect(what('ehr.allergy.create')).toBe('Patient record: Added allergy')
+    expect(what('OUTREACH_CASE_CREATED')).toBe('Another action')
+    // The request log is never a row on a facility's page; GET /v1/... routes included.
+    expect(auditRow(event('api.get./v1/patients/:patientId'))).toBeNull()
+  })
+
+  it('says Another action for an undotted code that is not one of the previous system\'s, never the code', () => {
+    expect(auditRow(event('SOMETHING_NEW_HAPPENED'))).toMatchObject({ what: 'Another action', who: 'Staff member', outcomeText: 'Allowed' })
+    expect(what('unknownaction', { actorType: 'system' })).toBe('Another action')
+    expect(what('Something-New', { outcome: 'denied' })).toBe('Another action')
+    expect(what('SOMETHING_NEW_HAPPENED', { actorType: 'legacy' })).toBe('Activity from the previous Health ID system')
+    expect(what('access_requested')).toBe('Activity from the previous Health ID system')
+  })
+
   it('words a code the spec does not list by the fallback rule, never by the code', () => {
     expect(what('lab.sample-batch.create')).toBe('Lab: Added sample batch')
     expect(what('ehr.encounter.list.export')).toBe('Patient record: Exported list')

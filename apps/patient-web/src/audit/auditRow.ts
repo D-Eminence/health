@@ -41,6 +41,11 @@ const WHO: Readonly<Record<string, string>> = {
 }
 const SOMEONE = 'Someone'
 
+/** Who did it, in words, from the actor type as stored; one not known is 'Someone', never the type. */
+export function auditWho(actorType: string): string {
+  return own(WHO, actorType) ?? SOMEONE
+}
+
 /**
  * Labels that already say their outcome, so a refused or failed row keeps them as written (the spec's "No prefix" list,
  * with its *.email.failed, *.email.retry-scheduled and *.notification.failed codes, and four more labels that say it
@@ -167,6 +172,16 @@ const FALLBACK_AREAS: Readonly<Record<string, string>> = {
   admin: 'Health ID support', commercial: 'Health ID website',
 }
 
+/** The previous system's action names: lower-case words joined by '_' ('organization_registered'). */
+const LEGACY_CODE = /^[a-z]+(_[a-z]+)+$/
+/** What a row says when nothing about its code is known. */
+export const ANOTHER_ACTION = 'Another action'
+
+/** The area a code belongs to, in words ('Patient record' for an 'ehr' code), or 'Other' for one not known. */
+export function auditAreaName(code: string): string {
+  return own(FALLBACK_AREAS, code.split('.')[0] ?? '') ?? 'Other'
+}
+
 /** A word of a code that can be shown as a thing: plain lowercase words. Anything else (an ID, a path) is never shown. */
 const PLAIN_WORD = /^[a-z]+([-_][a-z]+)*$/
 
@@ -243,11 +258,15 @@ export function auditRow(event: AuditEventFacts): AuditRow | null {
       ? outcome === 'denied' || outcome === 'failure' ? attempt(SELF_CHECKED, outcome, false) : SELF_CHECKED
       : listedWhat(listedCode, listed, { ...event, outcome: outcome ?? 'success' })
     if (replay) what = `${what} (repeated)`
-  } else if (event.actorType === 'legacy' || !code.includes('.')) what = own(LEGACY_ACTION_LABELS, code) ?? LEGACY_ACTIVITY
-  else ({ what, outcome } = fallbackWhat(code, event.actorType, outcome))
+  } else if (event.actorType === 'legacy' || !code.includes('.')) {
+    // An undotted code is the previous system's (lower-case words joined by '_'), unless it fits no such pattern: then
+    // nothing about it is known, and the row says so without the code.
+    what = own(LEGACY_ACTION_LABELS, code)
+      ?? (event.actorType === 'legacy' || LEGACY_CODE.test(code) ? LEGACY_ACTIVITY : ANOTHER_ACTION)
+  } else ({ what, outcome } = fallbackWhat(code, event.actorType, outcome))
   return {
     what,
-    who: own(WHO, event.actorType) ?? SOMEONE,
+    who: auditWho(event.actorType),
     outcome,
     outcomeText: outcome ? OUTCOME_TEXT[outcome] : 'Outcome not recorded',
   }
