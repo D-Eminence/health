@@ -538,6 +538,14 @@ describe('Ask the patient for access (once New external record access)', () => {
 })
 
 describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
+  it('says the PIN lets staff see and add to the patient’s records for 24 hours, before the Health ID', () => {
+    open('/pin')
+    const said = screen.getByText('Their PIN lets you see and add to their records for 24 hours.')
+    expect(said.closest('form')).toBe((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).form)
+    expect(said.compareDocumentPosition(screen.getByLabelText(labelled('Health ID'))) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/60 minutes|one hour|read-only|view only/i)
+  })
+
   it('verifies the PIN without spaces, waits for the session, then opens the patient through the lookup', async () => {
     open('/pin')
     expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
