@@ -3,10 +3,10 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44126679473-1-27c99ab008771a3f (hid-system #256, 73eae090, live 2026-11-17 16:47 UTC: Q88 product sign-in gate and Q89 staff reset, no migration; it rebuilt identity-api, ehr-api and notification-api; the other services stay at e50ac518 from hid-system #253, owner-signed Q84). Owner approved Q88/Q89 in chat on 2026-11-17 (\"Q88 recommended, Q89 recommended\").",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44191805565-1-eabb17bfa38eb493 (hid-system #265, 7831b440, live 2026-11-17 22:55 UTC: Q97 each staff site for its own job and actor.products, no migration; it rebuilt identity-api only). ehr-api and notification-api stay at 73eae090 (hid-system #256, Q88/Q89); the other services at e50ac518 (hid-system #253, owner-signed Q84). Owner approved Q97 in chat on 2026-11-17 (\"Q97 A\").",
   "backend_commits": {
     "gateway": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "identity-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "identity-api": "7831b440b1a7fb5f3a47e8786239d721aa503652",
     "ehr-api": "73eae090918db166b01812a663b5a131fb1ec639",
     "lab-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
     "pharmacy-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
