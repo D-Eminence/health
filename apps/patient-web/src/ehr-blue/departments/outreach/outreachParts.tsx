@@ -162,7 +162,7 @@ export const HEALTH_ID_FORMAT = 'Enter the Health ID as it’s written on their 
 export const HEALTH_ID_NOT_FOUND = 'No one has this Health ID. Check it with them and try again.'
 export const HEALTH_ID_NO_ACCESS = 'You can’t open this person’s record yet. Ask them to share their record with you, or approve your access request.'
 export const HEALTH_ID_ROLE = 'Your role can’t look people up by Health ID. Ask your facility administrator to link this registration, or to change your role.'
-export const LINK_NEEDS_SHARE = 'To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'
+export const LINK_NEEDS_SHARE = 'To link this registration, you need access to add to their record. Ask them to enter their Access PIN, share their record with your facility for care, or approve your request to see and add to it.'
 export const LOOKUP_FAILED = 'We couldn’t check this Health ID. Try again.'
 
 /** A Health ID as Identity takes it (patient-lookup.dto.ts): HID- and 6 to 32 letters and digits, no I, O, 0 or 1. */
