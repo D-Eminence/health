@@ -89,6 +89,19 @@ const actions = () => screen.getByRole('heading', { level: 2, name: /^(Available
   .closest('section') as HTMLElement
 const statusText = () => screen.getAllByRole('status').map(region => region.textContent ?? '').join(' ')
 
+describe('a campaign’s page', () => {
+  it('shows no reference or version (no ids on screen)', async () => {
+    const id = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
+    api.outreachCampaigns.mockResolvedValue([{ ...PLANNED, id }])
+    renderDept(<Outreach />)
+    await openCampaign('Demo screening week')
+    const page = document.body.textContent ?? ''
+    expect(page).toContain('Demo screening week')
+    expect(page).not.toContain(id)
+    expect(page).not.toMatch(/For Health ID support|Reference|version 3/)
+  })
+})
+
 describe('who is offered campaign management', () => {
   it('asks Outreach only for a membership that may write campaigns', async () => {
     session.permissions = ['outreach.campaign.read']

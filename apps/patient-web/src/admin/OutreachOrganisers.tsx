@@ -136,8 +136,9 @@ function SuspendAction({ organiser, name, onDone }: { organiser: OutreachOrganis
 
 /**
  * A campaign whose only admin has gone (field critique 5): close it, or make another active member of the group its
- * admin. Both need the campaign's reference, and closing needs its version too: the organiser or a member reads both from
- * the campaign's page ("For Health ID support"). Identity refuses a close whose version is not the campaign's current one.
+ * admin. Both need the campaign's reference, and closing needs its version too. Neither is shown on the campaign's page
+ * (no ids on screen, health#183), so support takes both from Health ID's own records. Identity refuses a close whose
+ * version is not the campaign's current one.
  */
 function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
   const governed = useGovernedSubmit()
@@ -179,7 +180,7 @@ function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
       <label htmlFor="outreach-rescue-version">Campaign version (to close it)</label>
       <input id="outreach-rescue-version" inputMode="numeric" autoComplete="off" maxLength={9} value={version}
         aria-describedby="outreach-rescue-version-hint" onChange={event => setVersion(event.target.value.replace(/\D/g, ''))} />
-      <small id="outreach-rescue-version-hint" className="admin-note">The number shown with the reference on the campaign’s page, under “For Health ID support”.</small>
+      <small id="outreach-rescue-version-hint" className="admin-note">The campaign’s current version, from Health ID’s records. The campaign’s page does not show it.</small>
       <label htmlFor="outreach-rescue-member">Member reference (to make them admin)</label>
       <input id="outreach-rescue-member" autoComplete="off" spellCheck={false} value={membershipId} onChange={event => setMembershipId(event.target.value)} />
       <label htmlFor="outreach-rescue-reason">Why</label>

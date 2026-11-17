@@ -278,8 +278,6 @@ export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
     { label: 'Starts', value: dateText(campaign.startsAt) },
     // Outreach sends its end on every campaign (null: none set); an older answer leaves it out, and so does this.
     ...(campaign.endsAt !== undefined ? [{ label: 'Ends', value: campaign.endsAt ? dateText(campaign.endsAt) : 'No end date' }] : []),
-    // What Health ID support asks for when a campaign has lost its only admin: its reference and, to close it, its version.
-    { label: 'For Health ID support', value: <span className="break-all">Reference {campaign.id}, version {campaign.rowVersion}</span> },
   ]
 }
 
