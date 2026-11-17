@@ -5,14 +5,14 @@
   "reviewed_by": "D-Eminence",
   "review_reference": "All nine at e50ac518 as deployed by hid-system #253 (release backend-44089885714-1-7eacb0a20d5777c2, run 44089885714, live 2026-11-17 13:34 UTC): 0122 Access PIN 24 h read and write and 0123 sealed QA tenant, signed by the owner in chat on 2026-11-17 (\"Q84 0122 0123 signed, release, no and no.\"). Builds on 4880ee42/91e9fb0a (0120, 0121 and the 24-hour outreach sign-in).",
   "backend_commits": {
-    "gateway": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "identity-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "ehr-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "lab-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "pharmacy-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "ocr-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "outreach-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "support-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "notification-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619"
+    "gateway": "73eae090918db166b01812a663b5a131fb1ec639",
+    "identity-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "ehr-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "lab-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "pharmacy-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "ocr-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "outreach-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "support-api": "73eae090918db166b01812a663b5a131fb1ec639",
+    "notification-api": "73eae090918db166b01812a663b5a131fb1ec639"
   }
 }
