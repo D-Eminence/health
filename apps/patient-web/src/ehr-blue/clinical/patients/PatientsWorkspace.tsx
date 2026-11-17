@@ -1,7 +1,7 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
 import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
@@ -19,6 +19,9 @@ import {
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { SharedWithYouCard } from './SharingCards'
+
+/** How long the Health ID field rests before a whole Health ID in it is looked up by itself. */
+export const AUTO_LOOKUP_MS = 600
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
@@ -127,6 +130,28 @@ function PatientList() {
     }
   }
 
+  // The Health ID last looked up, so the same one is never looked up twice in a row (each lookup is recorded).
+  const lookedUp = useRef<string | null>(null)
+
+  /**
+   * As soon as the field holds a whole Health ID (pasted, scanned or typed) and stays still for a moment, it is looked
+   * up with no press of Find (owner, 18 Nov 2026): the patient opens, or the page says what to do next. The pause keeps
+   * a Health ID being typed from being looked up at every letter.
+   */
+  useEffect(() => {
+    if (!canLook || busy) return
+    const normalized = normalizeHealthIdInput(hid)
+    if (healthIdProblem(normalized) !== null || lookedUp.current === normalized) return
+    const timer = window.setTimeout(() => {
+      lookedUp.current = normalized
+      clearFeedback()
+      setProblem(null)
+      void open(normalized)
+    }, AUTO_LOOKUP_MS)
+    return () => window.clearTimeout(timer)
+    // open and clearFeedback are this render's; only a change of the Health ID (or who may look) starts a new wait.
+  }, [hid, canLook, busy])
+
   function search() {
     if (busy || !canLook) return
     clearFeedback()
@@ -142,6 +167,7 @@ function PatientList() {
       return
     }
     setProblem(null)
+    lookedUp.current = normalized
     void open(normalized)
   }
 
@@ -176,7 +202,7 @@ function PatientList() {
   const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
 
   return (
-    <FormPage title="Find a patient" description="Type their Health ID. A patient you can see opens at once."
+    <FormPage title="Find a patient" description="Paste or type their Health ID. It’s checked as soon as it’s complete."
       actions={registers ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
       {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 

@@ -192,6 +192,25 @@ describe('Find a patient', () => {
     expect(document.title).not.toContain(PATIENT_NAME)
   })
 
+  it('looks a whole Health ID up by itself once it is pasted, with no press of Find, and ', async () => {
+    open()
+    fireEvent.change(searchField(), { target: { value: 'hid-zdem' } })
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    // The incomplete one was never looked up; the whole one was, first (the patient's page checks access again after).
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+    expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
+  })
+
+  it('says what to do next by itself for a pasted Health ID no patient has', async () => {
+    staff.permissions = [...ALL, 'identity.registration.write']
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
+    open()
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`, undefined, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+  })
+
   it('opens nothing when the session or facility changed while the lookup ran', async () => {
     staff.setActivePatient.mockReturnValue(false)
     open()
