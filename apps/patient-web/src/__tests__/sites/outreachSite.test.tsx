@@ -113,6 +113,14 @@ describe(SITE, () => {
     ])
   })
 
+  // "Start an outreach group" opens here, unlisted (owner's answer to Q88): Switch facility links to it, and it is the
+  // one page a login with no facility yet opens on this site. It used to send the person to /provider.
+  it('opens "Start an outreach group" at its address, signed in, on this site', async () => {
+    await openBlueOn(SITE, { id: OUTREACH_DEMO, name: 'Demo Outreach' }, EVERY_PERMISSION, [], '/provider/start-outreach-group')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Start an outreach group' })).toBeTruthy()
+    expect(offeredHere('/provider/start-outreach-group', SITE)).toBe(true)
+  })
+
   it('opens nothing of Demo Pharmacy here: it works on its own site', async () => {
     const other = facility(OUTREACH_DEMO, 'Another facility', ['audit.read'])
     await openBlueOn(SITE, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, EVERY_PERMISSION, [other])

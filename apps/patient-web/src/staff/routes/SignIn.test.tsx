@@ -210,7 +210,7 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
     act(() => callbacks[0]?.('token-1'))
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('You aren’t active at any facility yet. Ask your facility administrator for access.')
+    expect((await screen.findByRole('alert')).textContent).toBe('You aren’t part of a facility or outreach group yet.')
     const applied = screen.getByText(/Applied as a doctor or nurse\? You can sign in once your application is approved\./)
     expect(within(applied).getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
   })
@@ -232,7 +232,7 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
       act(() => callbacks[0]?.('token-1'))
       fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-      expect((await screen.findByRole('alert')).textContent).toBe('You aren’t active at any facility yet. Ask your facility administrator for access.')
+      expect((await screen.findByRole('alert')).textContent).toBe('You aren’t part of a facility or outreach group yet.')
       expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
       expect(screen.queryByText(/Applied as a doctor or nurse/)).toBeNull()
       expect(screen.queryByRole('link', { name: /clinician application|Check your application/ })).toBeNull()

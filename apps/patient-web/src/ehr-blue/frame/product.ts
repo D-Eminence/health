@@ -106,6 +106,12 @@ export function productLists(product: Product, path: string): boolean {
 const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'patients', 'requests'])
 
 /**
+ * "Start an outreach group" (owner decision 5 of 11 November 2026) opens unlisted on Health ID Outreach: Switch facility
+ * links to it, and it is the one page a login with no facility yet opens there (owner's answer to Q88, 17 Nov 2026).
+ */
+const START_OUTREACH_GROUP = 'start-outreach-group'
+
+/**
  * The products with a till of their own (Till / End of day). It leads to the money pages at their own addresses
  * ("No tills yet" → Payment setup: commerce/EndOfDay.tsx), so those open there, unlisted, as commerce/page.tsx says.
  */
@@ -120,6 +126,7 @@ const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 export function opensInProduct(product: Product, path: string): boolean {
   const base = basePath(path)
   return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base) || (TILLS.has(product) && COUNTER_PAGES.has(base))
+    || (product === 'outreach' && base === START_OUTREACH_GROUP)
 }
 
 /**
