@@ -621,14 +621,14 @@ export function Migrate() {
   }
 
   // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
-  if (!facilityId || !canRead) return <DeptPage title="Document OCR">
+  if (!facilityId || !canRead) return <DeptPage title="Scan paper records">
     <DeptNotice tone="critical" role="alert">{NO_DOCUMENT_OCR}</DeptNotice>
   </DeptPage>
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
   const creating = view === 'new' && canWrite
   const quality = view === 'quality' && readsQuality
-  const title = detail ? jobName(detail, fileNames) : creating ? 'New document job' : quality ? 'Reading quality' : 'Document OCR'
+  const title = detail ? jobName(detail, fileNames) : creating ? 'New document job' : quality ? 'Reading quality' : 'Scan paper records'
   // Mounted throughout, in the same place in every view, so a message put in it is announced.
   const status = <div key="status" id="ocr-status" role="status" className="hid-ehr-dept-migrate-status">{notice && <DeptNotice tone="positive">{notice}</DeptNotice>}</div>
   return <>
@@ -668,7 +668,7 @@ export function Migrate() {
     const shown = rows.filter(row => matchesSearch(search, [row.job.documentId, fileNames.get(row.job.documentId), row.job.id,
       statusWords(row.job.status), jobStatusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
-    if (!canRead) return <DeptSection title="Document OCR">
+    if (!canRead) return <DeptSection title="Scan paper records">
       <DeptNotice tone="critical">{NO_DOCUMENT_OCR}</DeptNotice>
     </DeptSection>
     return <>
@@ -698,7 +698,7 @@ export function Migrate() {
             <EhrInput value={findDocument} required autoComplete="off"
               onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
           </EhrField>
-          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
+          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" variant="secondary" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
         </form>
         <div className={nothingFound ? 'hid-ehr-empty-state hid-ehr-dept-migrate-none' : undefined}>
           {/* Mounted with the form, so the answer that a document has no job is announced; Create record stays outside it. */}

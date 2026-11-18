@@ -178,7 +178,7 @@ function onlyCalled(...names: Array<keyof typeof api>) {
 
 describe('Migrate page entry', () => {
   it('is listed under Network & Services as Document OCR, at today\'s OCR address, for OCR job read, partial', () => {
-    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Document OCR', permission: 'ocr.job.read', status: 'partial' })
+    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Scan paper records', permission: 'ocr.job.read', status: 'partial' })
   })
 
   it('refuses at its address in plain words that name no permission', () => {
@@ -191,7 +191,7 @@ describe('Migrate page entry', () => {
   it('refuses a membership without OCR job read, even with document read and write, in plain words, and reads nothing', () => {
     session.permissions = ['ehr.document.read', 'ehr.document.write', 'ocr.job.write']
     renderMigrate()
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Scan paper records'])
     expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([OCR_REFUSAL])
     expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
     expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
@@ -222,7 +222,7 @@ describe('Migrate page entry', () => {
 describe('Migrate list view', () => {
   it('shows one h1, the migration notice, Find document job, and the list with its columns empty', () => {
     renderMigrate()
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Scan paper records'])
     // The owner took the migration notice out: the list says what it holds in its search hint.
     expect(screen.queryByText('Project migration is not available yet')).toBeNull()
     expect(heading('Find document job')).toBeTruthy()
@@ -1174,7 +1174,7 @@ describe('Migrate: facility, account and hand-over', () => {
     session.facilityId = DEMO_LABORATORY_ID
     view.rerender(<MemoryRouter><div className="hid-ehr"><Migrate /></div></MemoryRouter>)
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull())
-    expect(screen.getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Scan paper records' })).toBeTruthy()
     expect(screen.getByText('No matching records')).toBeTruthy()
     onlyCalled('findOcrJob', 'ocrExtractions', 'ocrValidations')
   })
@@ -1301,14 +1301,14 @@ describe('Migrate: Extract with OCR goes straight to the reading', () => {
     await press(screen.getByRole('button', { name: 'Leave' }))
     expect(screen.getByText('Somewhere else')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Browser back' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Scan paper records' })).toBeTruthy()
     expect(screen.getByTestId('history-state').textContent).toBe('null')
     expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
     // A reload: the browser opens the same entry again, with the state it holds now (none).
     const kept = JSON.parse(screen.getByTestId('history-state').textContent ?? 'null') as typeof HANDED.state | null
     view.unmount()
     render(app(kept ? { ...HANDED, state: kept } : HANDED.pathname))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Scan paper records' })).toBeTruthy()
     expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
     await act(async () => { await Promise.resolve() })
     expect(api.findOcrJob).toHaveBeenCalledTimes(1)
@@ -1325,7 +1325,7 @@ describe('Migrate: Extract with OCR goes straight to the reading', () => {
     // The facility changes while the document is being sent: the line gives way to the new facility's empty list.
     session.facilityId = DEMO_LABORATORY_ID
     view.rerender(app(HANDED))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Scan paper records' })).toBeTruthy()
     expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
     await act(async () => { made(queued) })
     expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull()
@@ -2284,7 +2284,7 @@ describe('Migrate: rehearsal fixes on the record', () => {
     await screen.findByRole('heading', { name: 'Progress' })
     await press(button('Document OCR menu'))
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Progress' })).toBeNull())
-    expect(screen.getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Scan paper records' })).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(heading('Find document job')))
   })
 })

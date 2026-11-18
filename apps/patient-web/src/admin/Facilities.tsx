@@ -210,7 +210,7 @@ function FacilityAudit({ facilityId }: { facilityId: string }) {
 export function FacilityDetailPage({ actor }: { actor: AdminActor }) {
   const { facilityId = '' } = useParams()
   if (!FACILITY_ID.test(facilityId)) {
-    return <Page eyebrow="Facility" title="Facility not found" description="This link does not contain a valid facility ID.">
+    return <Page eyebrow="Facility" title="Facility not found" description="This link does not contain a valid facility ID." back={{ to: '/admin/facilities', label: 'Back to facilities' }}>
       <Link className="self-start text-sm font-medium text-brand-ink" to="/admin/facilities">← All facilities</Link>
     </Page>
   }
@@ -228,7 +228,7 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
   // ... and the designation for registration in person, which its own change reads again by itself.
   const [refreshes, setRefreshes] = useState(0)
   const reload = () => { resource.reload(); setRevision(value => value + 1); setRefreshes(value => value + 1) }
-  return <Page eyebrow="Facility" title={resource.data?.name ?? 'Facility'} description="The platform record for one facility."
+  return <Page eyebrow="Facility" title={resource.data?.name ?? 'Facility'} description="The platform record for one facility." back={{ to: '/admin/facilities', label: 'Back to facilities' }}
     action={<Refresh onClick={reload} disabled={resource.loading} />}>
     <Link className="self-start text-sm font-medium text-brand-ink" to="/admin/facilities">← All facilities</Link>
     <ResourceView resource={resource}>{facility => <div className="admin-stack">

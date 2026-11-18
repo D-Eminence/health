@@ -36,7 +36,7 @@ const STATUS_FILTERS = [...listOf('ACCESS_REQUEST_STATUSES'), ...listOf('ACCESS_
 describe('clinicalReturnPath: the pages a sign-in may come back to', () => {
   it('reads twenty workspaces from pages.ts, six of them live (a guard on the readers below)', () => {
     expect(pageSegments).toHaveLength(20)
-    expect(livePages).toEqual(['patients', 'triage', 'clinical', 'nursing', 'emergency', 'requests'])
+    expect(livePages).toEqual(['patients', 'triage', 'clinical', 'nursing', 'requests', 'emergency'])
     expect(STATUS_FILTERS).toEqual(['pending', 'approved', 'denied', 'revoked', 'expired', 'active', 'closed'])
   })
 

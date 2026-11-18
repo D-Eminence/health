@@ -4,7 +4,6 @@ import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { ClinicalRecord, Encounter } from '../../../../staff/api'
 import { usesNovuBackend } from '../../../../backendContract'
 import { ChartGate, type Chart } from '../../parts/chart'
-import { Step } from '../../parts/Detail'
 import { ErrorBox, Loading, RecordNotFound } from '../../parts/Notices'
 import { StatusBadge } from '../../parts/StatusBadge'
 import { useWorkspaceHref } from '../../parts/Workspace'
@@ -135,17 +134,18 @@ export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Ch
 
   return (
     <div className="hid-ehr-clinical-orders-connected">
-      {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton></Step> : null}
-      {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton></Step> : null}
-      {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
-          never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
-          the sample is closed to would land on Home instead. */}
-      {chart.canWrite && isDemoFacility(chart.facilityId) ? (
-        <>
-          {sampleCan('radiology', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton></Step> : null}
-          {sampleCan('referrals', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton></Step> : null}
-        </>
-      ) : null}
+      {/* The ways to order, side by side, each with its icon (owner, 18 Nov 2026): one row, not a stack of boxes. */}
+      <div className="hid-ehr-clinical-action-list">
+        {createRx ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton> : null}
+        {createLab ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton> : null}
+        {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
+            never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
+            the sample is closed to would land on Home instead. */}
+        {chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('radiology', 'create')
+          ? <EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton> : null}
+        {chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('referrals', 'create')
+          ? <EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton> : null}
+      </div>
       {createRx || createLab ? <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p> : null}
       {loading ? <Loading label="Loading records…" /> : null}
       {lists.map(({ kind, list }) => list.error ? <ErrorBox key={kind}>{list.error}</ErrorBox> : null)}

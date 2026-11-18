@@ -15,6 +15,8 @@ import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
+import { PageGuideButton } from '../ehr-blue/frame/PageGuide'
+import { portalGuideFor } from './portalGuides'
 import { isAdult, paperRecordsLineForRequest, PIN_ALLOWS, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
@@ -166,7 +168,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     onSignOut={onSignOut}
     signingOut={signingOut}
     headerStart={<NavLink to="/" aria-label="Health ID home" className="inline-flex items-center no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /></NavLink>}
-    headerActions={<NotificationBell />}
+    // The Guide for the page open now, beside the notifications on every page (owner, 18 Nov 2026).
+    headerActions={<div className="flex items-center gap-2"><PortalGuide /><NotificationBell /></div>}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
       ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: addsFiles ? 'A visit, result or medicine, with a photo' : 'A visit, result or medicine', icon: FilePlus2, main: true }] : []),
@@ -648,18 +651,32 @@ export function RecordsPage() {
     || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
   const [opened, setOpened] = useState<OpenRecord | null>(null)
   const row = (record: OpenRecord, key: string) => <RecordRow key={key} record={record} onOpen={setOpened} />
-  const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = {
-    encounters: item => row({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }, item.id),
-    notes: item => row({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }, item.id),
-    vitals: item => row({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }, item.id),
+  const OPEN: { readonly [S in RecordSection]: (item: Row<S>) => OpenRecord } = {
+    encounters: item => ({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }),
+    notes: item => ({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }),
+    vitals: item => ({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }),
     // Plain: the name and its date. The code is for clinicians, so it is kept to the record's own view.
-    diagnoses: item => row({ section: 'diagnoses', title: item.display, meta: plainCode(item.clinicalStatus), detail: item.notes, when: item.onsetAt,
-      extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }, item.id),
-    prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
-      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, medicineStatusLabel(item.status)].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
-    labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${labRequestStatusLabel(item.status)}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
-    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
+    diagnoses: item => ({ section: 'diagnoses', title: item.display, meta: plainCode(item.clinicalStatus), detail: item.notes, when: item.onsetAt,
+      extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }),
+    prescriptions: item => ({ section: 'prescriptions', title: item.medicationDisplay,
+      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, medicineStatusLabel(item.status)].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }),
+    labRequests: item => ({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${labRequestStatusLabel(item.status)}`, detail: item.clinicalInformation, when: item.createdAt }),
+    documents: item => ({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }),
   }
+  const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = Object.fromEntries(
+    (Object.keys(OPEN) as RecordSection[]).map(section => [section, (item: { id: string }) => row((OPEN[section] as (item: unknown) => OpenRecord)(item), item.id)])) as never
+  // Opened from Home's "Latest from your providers" (/records?open=encounter-<id> or note-<id>): that record opens here,
+  // in its drawer over the list, and the address is cleared (flow review, 18 Nov 2026).
+  const openAsked = params.get('open')
+  useEffect(() => {
+    if (!openAsked || !ready) return
+    const [kind, ...rest] = openAsked.split('-')
+    const id = rest.join('-')
+    const section: RecordSection | null = kind === 'encounter' ? 'encounters' : kind === 'note' ? 'notes' : null
+    const item = section ? (ready[section] as { id: string }[]).find(entry => entry.id === id) : undefined
+    if (section && item) setOpened((OPEN[section] as (item: unknown) => OpenRecord)(item))
+    setParams(current => { const next = new URLSearchParams(current); next.delete('open'); return next }, { replace: true })
+  }, [openAsked, ready, setParams])
   const NONE: { readonly [S in RecordSection]: string } = {
     encounters: 'No completed visits yet.', notes: 'No signed clinical notes yet.', vitals: 'No vitals recorded yet.', diagnoses: 'No diagnoses recorded.',
     prescriptions: 'No medicines prescribed.', labRequests: 'No lab tests requested.', documents: 'No documents uploaded.',
@@ -1333,4 +1350,17 @@ function AccessPinSettings({ profile, loading, onChanged }: {
 export function SettingsRedirect() {
   const { hash } = useLocation()
   return <Navigate to={{ pathname: '/profile', hash }} replace />
+}
+
+/** The page names the portal's Guide says it is for. */
+const PORTAL_PAGE_NAMES: readonly (readonly [RegExp, string])[] = [
+  [/^\/$/, 'Home'], [/^\/records/, 'Records'], [/^\/access\/share/, 'Share your records'], [/^\/access/, 'Access & sharing'],
+  [/^\/profile/, 'Profile'], [/^\/notifications/, 'Notifications'],
+]
+
+/** The portal's Guide button, for the page open now. */
+function PortalGuide() {
+  const { pathname } = useLocation()
+  const name = PORTAL_PAGE_NAMES.find(([pattern]) => pattern.test(pathname))?.[1] ?? 'This page'
+  return <PageGuideButton look="portal" guide={portalGuideFor(pathname)} label={name} />
 }

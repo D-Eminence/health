@@ -9,7 +9,8 @@ import { ReadingQualityPage, ReadingQualityRefusal } from './ReadingQualityPage'
 export const migratePage: EhrBluePage = {
   path: 'ocr',
   group: 'Network & Services',
-  label: 'Document OCR',
+  // Plain words for clinical staff, not "Document OCR" (QA P1-10).
+  label: 'Scan paper records',
   permission: 'ocr.job.read',
   // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
   status: 'partial',

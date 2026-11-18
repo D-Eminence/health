@@ -8,6 +8,8 @@ import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { HEALTH_FIELDS, type HealthFields, type ReportedHealthProfile } from '../../../profileParity'
 import { ChartGate, type Chart } from '../parts/chart'
+import { PatientAssistant } from '../parts/PatientAssistant'
+import { fromPatient } from '../parts/cameFrom'
 import { LoadingRows } from '../../../kasuwa/parts'
 import { consultationLabel, visitClassLabel } from '../../../plainLabels'
 import { formatDate, formatWhen } from '../parts/format'
@@ -275,7 +277,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
       <div className="flex min-w-0 flex-col gap-5">
         <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
           actions={emergency ? (showSummary ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button> : undefined)
-            : showChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
+            : <><PatientAssistant chart={chart} size="md" />{showChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : null}</>} />
         {/* Read only, said once: the chart's own sentence, with no step to ask for more (owner, 10 Nov 2026). */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice}</Alert> : null}
@@ -287,8 +289,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
           {product !== 'ehr' && noSteps ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">{ON_HOSPITAL_EHR}</p> : null}
           <ul className="m-0 list-none divide-y divide-line p-0">
-            {showStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
-            {showVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'), { state: fromPatient(href('open')) })} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'), { state: fromPatient(href('open')) })} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities, and only to a design role
                 that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
             {showWalkIn ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
@@ -444,7 +446,7 @@ function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean
       : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet.{canStart ? ' Start a consultation to begin one.' : ''}</p>
       : <>
         <ul ref={list} className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
-          <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={consultationLabel(item)}
+          <ListRow onClick={() => navigate(href.to('consult', item.id), { state: fromPatient(href('open')) })} leading={<IconChip size="sm" icon={Stethoscope} />} title={consultationLabel(item)}
             subtitle={visitSubtitle(item)}
             trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{sexText(item.status)}</Badge>} />
         </li>)}</ul>

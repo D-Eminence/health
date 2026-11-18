@@ -11,7 +11,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { roleNames, selfServiceReview } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
+import { otherStaffSites, ownProductPage, servedHere, siteElsewhere, siteOf, sitesThisLoginOpens, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { switchArrival, switchHref, switchingOn, type SwitchArrival } from '../../siteSwitch'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, pageListedInProduct, pageOpensInProduct, productHere, type Product } from './product'
@@ -19,11 +19,14 @@ import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pa
 import { productUsable } from './pageAccess'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
+import { AtLocation, RouteDrawerPanel, useRouteDrawer, type RouteDrawerState } from './routeDrawer'
 import { facilityRefusal } from './ChooseWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
 import { useListedChanges } from './listedChanges'
 import { NotFoundPage } from './NotFoundPage'
+import { PageGuideButton } from './PageGuide'
+import { guideFor, SAMPLE_GUIDE } from './pageGuides'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
@@ -41,8 +44,8 @@ import { PLAIN, plainErrorText } from '@hid/http'
  */
 const CLINICAL_SIDEBAR: Readonly<Record<string, string>> = {
   patients: 'Front desk', registration: 'Front desk', 'in-person-check': 'Front desk', appointments: 'Front desk', journey: 'Front desk',
-  triage: 'Care', clinical: 'Care', nursing: 'Care', 'nursing-tasks': 'Care', requests: 'Care',
-  inpatient: 'Wards & units', wards: 'Wards & units', emergency: 'Wards & units', maternity: 'Wards & units',
+  triage: 'Care', clinical: 'Care', nursing: 'Care', 'nursing-tasks': 'Care', requests: 'Care', emergency: 'Care',
+  inpatient: 'Wards & units', wards: 'Wards & units', maternity: 'Wards & units',
   surgery: 'Wards & units', icu: 'Wards & units', dental: 'Wards & units',
 }
 
@@ -99,11 +102,13 @@ export function navigationGroups(pages: readonly EhrBluePage[], product: Product
  * site, which serves every page. With single sign-on on, each link says which site and page it leaves (siteSwitch.ts
  * switchHref: `backPath`, when it passes the check); off, it is today's siteHref. The only link from a product site to
  * the EHR site is Demo Hospital's "Open Hospital EHR" button below (FacilityOnAnotherSite): the owner's one named
- * exception, demo only (2 Nov 2026, productSites.ts). This group never adds one.
+ * exception, demo only (2 Nov 2026, productSites.ts). This group never adds one. Only the sites this login can open
+ * are listed (`products`, Identity's actor.products, owner decision Q97): a doctor is never offered the Lab, Pharmacy
+ * or Outreach sites; without it (an Identity before Q97) every site, as before.
  */
-export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string | null = null): NavGroup | null {
+export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string | null = null, products?: unknown): NavGroup | null {
   const hostname = window.location.hostname
-  const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
+  const sites = sitesThisLoginOpens(otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname), products)
   return sites.length === 0 ? null : {
     title: 'Other Health ID sites',
     collapsible: true,
@@ -114,10 +119,11 @@ export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string 
 
 /**
  * Of the other sites the sidebar links to, those whose product this session may use at its facility (pageAccess.ts
- * productUsable): a site listed only for a page that asks for nothing (the pharmacy's menu) is left out.
+ * productUsable): a site listed only for a page that asks for nothing (the pharmacy's menu) is left out, as is a site
+ * this login cannot open (Identity's actor.products, Q97).
  */
 function usableSites(pages: readonly EhrBluePage[], session: StaffSession, hostname: string, backPath: string | null): UsableSite[] {
-  return otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
+  return sitesThisLoginOpens(otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname), session.actor.products)
     .filter(site => productUsable(BLUE_PAGES, session, site.hostname))
     .map(site => ({ key: site.key, name: SITE_NAMES[site.key], href: switchHref(site, hostname, backPath) }))
 }
@@ -204,6 +210,14 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
  * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
+  // A short form or a single record opened from a page sits in a drawer over it (routeDrawer.tsx): the frame then shows
+  // the page under it, and the drawer the address itself.
+  // One tree either way, so opening or closing a drawer never remounts the frame or the page under it.
+  const { drawer, closed, location } = useRouteDrawer()
+  return <AtLocation location={drawer?.background ?? location}><BlueFrameBody drawer={drawer} closed={closed} /></AtLocation>
+}
+
+function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; closed: number }) {
   const { state, lock, signOut, selectFacility, activePatient } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
@@ -246,7 +260,9 @@ export function BlueFrame() {
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, ownPageOpen, listedNow])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
-  const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
+  // A tab the menu would not list for this session (a lab's own till where Finance lists the facility's) is not drawn
+  // either, unless it is the page open now.
+  const tabs = match && product === 'ehr' ? pageTabs(allowed.filter(page => page === match.page || !session || (page.listed?.(session) ?? true)), match.page) : []
   // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
   // opens, so none of them leads to a page the frame sends to the product's Home (below).
   const openHere = useMemo(() => allowed.filter(page => pageOpensInProduct(product, page, servedHere)), [allowed, product])
@@ -357,7 +373,7 @@ export function BlueFrame() {
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   // Each product on its own site: the other sites that serve the rest of what this session may open.
-  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath)
+  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)), backPath, session.actor.products)
   if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
@@ -404,8 +420,8 @@ export function BlueFrame() {
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === switching ? <span className="text-ink-3">Opening…</span> : null}{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
                 {/* My profile is a sample that saves nothing: the demo facilities' alone. */}
                 {isDemoFacility(facility?.id) ? <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li> : null}
-                {/* Help: the support assistant where this build offers it (each staff product site's build, not the admin console). */}
-                {supportChatOffered() ? <li><button type="button" onClick={() => { close(); setSamplePanel('help') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><CircleHelp className="size-4" aria-hidden />Help</button></li> : null}
+                {/* Help: the Help page, with the support assistant where this build offers it. */}
+                <li><button type="button" onClick={() => { close(); if (supportChatOffered()) setSamplePanel('help'); else navigate('/provider/help') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><CircleHelp className="size-4" aria-hidden />Help</button></li>
               </ul>,
             }}
             nav={nav}
@@ -419,8 +435,13 @@ export function BlueFrame() {
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
             headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} />
+              {/* The Guide for the page open now, in plain sight on every page (owner, 18 Nov 2026). */}
+              <PageGuideButton guide={match?.page.status === 'sample' ? SAMPLE_GUIDE : guideFor(location.pathname)} label={shownTitle}
+                onAllGuides={() => navigate('/provider/help')} onSupport={supportChatOffered() ? () => setSamplePanel('help') : undefined} />
               {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
-              {supportChatOffered() ? <SupportHelpButton onOpen={() => setSamplePanel('help')} /> : null}
+              {/* Help: the support assistant where the build offers it, with the guides one click inside; otherwise the
+                  Help page of guides and what's new (QA P1-7). */}
+              <SupportHelpButton onOpen={() => supportChatOffered() ? setSamplePanel('help') : navigate('/provider/help')} />
               <NotificationsButton /></div>}
             tabs={phoneTabs}
             create={startItems.length > 0 ? { label: 'Start', items: startItems } : undefined}
@@ -429,6 +450,13 @@ export function BlueFrame() {
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
               {switchError ? <Alert intent="error" title="That facility couldn’t be opened">{switchError}</Alert> : null}
               <RedirectNotice />
+              {/* A page the sidebar doesn't list (a sample opened from a record's history, a page reached by its address)
+                  says where it is, since no menu line lights up for it (UX review, 17 Nov 2026). */}
+              {match && !listed.some(page => page.path === match.page.path || (match.page.tabOf !== undefined && basePath(page.path) === match.page.tabOf)) && match.page.group !== ''
+                ? <nav aria-label="Where you are" className="mb-3 flex flex-wrap items-center gap-1.5 text-[13px] text-ink-3">
+                    <span>{sidebarGroupOf(match.page, product)}</span><span aria-hidden="true">›</span>
+                    <span aria-current="page" className="font-medium text-ink">{match.page.label}</span>
+                  </nav> : null}
               <ReviewBanner />
               {/* A lab, pharmacy or outreach on its own may land on its own first page and never see Home's card. */}
               {/* Only above its own pages: it leaves when another page opens, and its "Done" is not shown again. While the
@@ -446,7 +474,7 @@ export function BlueFrame() {
                 />
               ) : null}
               {/* A page that fails would take the frame with it: the boundary keeps the sidebar and the account menu. */}
-              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>
+              <BluePageBoundary key={`${match?.page.keepsState ? match.page.path : location.pathname}#${closed}`}>
                 {/* A page's own <Routes> resolve from its address: index is the page, "new" is <page>/new. */}
                 <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
                   <Routes>
@@ -455,15 +483,44 @@ export function BlueFrame() {
                   </Routes>
                 </UNSAFE_RouteContext.Provider>
               </BluePageBoundary>
+              {drawer ? <DrawnPage drawer={drawer} session={session} viewing={viewing} todayPage={todayPage} /> : null}
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
             {/* Help opens the support assistant, never the sample panel: the menu offers Help only where the chat is served. */}
             <AccountSamplePanel panel={samplePanel === 'help' && supportChatOffered() ? null : samplePanel} onClose={() => setSamplePanel(null)} />
-            <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)} />
+            <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)}
+              onGuides={location.pathname.startsWith('/provider/help') ? undefined : () => { setSamplePanel(null); navigate('/provider/help') }} />
           </AppShell>
         </EhrAppShell>
       </AttentionProvider>
     </OpenPagesProvider></BluePagesProvider>
+  )
+}
+
+/**
+ * The address a drawer holds, rendered as the frame renders a page (its own routes, its page context), inside the drawer.
+ * A page this session may not open says so there, as it would as a page.
+ */
+function DrawnPage({ drawer, session, viewing, todayPage }: {
+  drawer: RouteDrawerState; session: StaffSession | null; viewing: Parameters<typeof pageAllowed>[2]; todayPage: ReturnType<typeof useOutlet>
+}) {
+  const match = matchBluePage(BLUE_PAGES, drawer.drawn.pathname)
+  if (!match) return null
+  const allowedHere = pageAllowed(match.page, session, viewing)
+  return (
+    <AtLocation location={drawer.drawn}>
+      <RouteDrawerPanel drawer={drawer} fallbackTitle={match.page.label}>
+        <BluePageBoundary key={drawer.drawn.pathname}>
+          <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
+            <Routes>
+              <Route path={`${pageHrefOf(match.page)}/*`} element={<TodayPageProvider value={todayPage}>{allowedHere
+                ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
+                : <DeniedPage label={match.page.label} facility={session?.actor.facility?.name ?? 'this facility'} />}</TodayPageProvider>} />
+            </Routes>
+          </UNSAFE_RouteContext.Provider>
+        </BluePageBoundary>
+      </RouteDrawerPanel>
+    </AtLocation>
   )
 }

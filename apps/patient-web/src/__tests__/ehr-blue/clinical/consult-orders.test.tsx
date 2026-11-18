@@ -254,7 +254,7 @@ describe('Connected orders', () => {
     open(ENCOUNTER_ID)
     fireEvent.click(await screen.findByRole('button', { name: 'New prescription' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Add prescriptions' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to consultation' }))
     fireEvent.click(await screen.findByRole('button', { name: 'New lab request' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Add lab requests' })).toBeTruthy()
   })
@@ -644,7 +644,7 @@ describe('New pharmacy (prescription)', () => {
 
   it('goes back to the encounter', async () => {
     await form()
-    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to consultation' }))
     const actions = await screen.findByRole('region', { name: 'Available actions' })
     expect(within(actions).getByRole('button', { name: 'New prescription' })).toBeTruthy()
   })
@@ -2232,7 +2232,7 @@ describe('Keyboard and roles', () => {
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
     const save = await screen.findByRole('button', { name: 'Save draft' })
     expect(save.getAttribute('type')).toBe('submit')
-    expect(screen.getByRole('button', { name: 'Back to list' }).getAttribute('type')).toBe('button')
+    expect(screen.getByRole('button', { name: 'Back to consultation' }).getAttribute('type')).toBe('button')
     await act(async () => { fireEvent.submit(save.closest('form')!) })
     expect(document.activeElement).toBe(field('Medication'))
   })

@@ -121,7 +121,8 @@ describe.each(ALL)('%s', id => {
       expect(submit).toBeTruthy()
       for (const field of action.fields ?? []) expect(within(actionsCard()).getByLabelText(labelled(field.label))).toBeTruthy()
     }
-    expect(Boolean(screen.queryByRole('heading', { name: 'Continue care' }))).toBe(Boolean(definition.continueCare))
+    // Continue care shows only on a workspace that has hand-offs, and only with one the role may create.
+    if (!definition.continueCare) expect(screen.queryByRole('heading', { name: 'Continue care' })).toBeNull()
   })
 })
 

@@ -268,3 +268,19 @@ view that ends in a done state. These are not in the API (`/api/v1/outreach/regi
    but `staff/api.ts` has no calls for them and campaign governance isn't decided, so campaigns stay read only.
 6. **Member names**: `GET …/campaigns/:id/members` returns membership IDs only; the campaign view can only show
    "Membership abc12345". Send the member's display name.
+
+## Find a patient: telling "no such patient" apart (Q100, pending)
+
+Find a patient can offer "Register a new patient" when no patient has the Health ID typed. Today it can't tell that
+case apart: `POST /api/v1/identity/patient-lookup` answers **404 with code `NOT_FOUND`** both for a Health ID no
+patient has and for a patient this facility may not see. So the live page shows the lookup as refused, and the page
+guide tells staff to register a new patient from Patient registration instead.
+
+**Decision needed (Q100, "No such patient")**
+
+- Keep one answer for both, so a lookup never reveals whether a Health ID exists (see E10 in
+  `docs/BACKEND_OWNER_HANDOFF.md`). The UI stays as it is now.
+- Or answer a Health ID no patient has with 404 and code `PATIENT_NOT_FOUND`. The UI already has the panel for it
+  (`ehr-blue/clinical/patients/PatientsWorkspace.tsx`); it shows only on that code, so it needs no other change.
+
+The mock gateway answers `HID-NEWPATNT` as the live API does today (404 `NOT_FOUND`).

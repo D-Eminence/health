@@ -212,7 +212,7 @@ describe('Consultation record', () => {
       Note: 'History\nCough for three days.',
     })
     // The note's actions; every other live action is behind one More actions menu at the card's end.
-    expect(actions().getAllByRole('button').map(button => button.textContent?.replace('▾', ''))).toEqual(['Sign note', 'Add notes', 'More actions'])
+    expect(actions().getAllByRole('button').map(button => button.textContent?.replace('▾', ''))).toEqual(['Sign note', 'Add notes', 'Print discharge summary', 'More actions'])
     expect(moreButton().getAttribute('aria-haspopup')).toBe('menu')
     expect(menuLabels()).toEqual(MENU)
     // The orders are a card of their own now, after the diagnoses.
@@ -252,7 +252,7 @@ describe('Consultation record', () => {
       if (paper) papers[paper.getAttribute('data-clinical-print')!] = paper.textContent ?? ''
     })
     await openEncounter()
-    const printing = within(card('Print'))
+    const printing = within(card('Actions'))
     fireEvent.click(await printing.findByRole('button', { name: 'Print prescription' }))
     act(() => { window.dispatchEvent(new Event('afterprint')) })
     fireEvent.click(printing.getByRole('button', { name: 'Print discharge summary' }))
@@ -277,7 +277,7 @@ describe('Consultation record', () => {
     let printed = ''
     vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print]')?.textContent ?? '' })
     await openEncounter()
-    fireEvent.click(within(card('Print')).getByRole('button', { name: 'Print discharge summary' }))
+    fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
     expect(printed).toContain('Cough for three days.')
     expect(printed).not.toContain('Demo Clinician')
     expect(document.querySelector('[data-clinical-print] .hid-clinical-paper-sign .hid-clinical-paper-line')?.textContent).toBe('')
@@ -293,7 +293,7 @@ describe('Consultation record', () => {
     const papers: string[] = []
     vi.spyOn(window, 'print').mockImplementation(() => { papers.push(document.querySelector('[data-clinical-print="prescription"]')?.textContent ?? '') })
     await openEncounter()
-    fireEvent.click(await within(card('Print')).findByRole('button', { name: 'Print prescription' }))
+    fireEvent.click(await within(card('Actions')).findByRole('button', { name: 'Print prescription' }))
     act(() => { window.dispatchEvent(new Event('afterprint')) })
     expect(papers[0]).toContain('Demo Clinician')
     // A prescription written under a colleague's membership: the name is left for handwriting.
@@ -303,7 +303,7 @@ describe('Consultation record', () => {
     ]
     cleanup()
     await openEncounter()
-    fireEvent.click(await within(card('Print')).findByRole('button', { name: 'Print prescription' }))
+    fireEvent.click(await within(card('Actions')).findByRole('button', { name: 'Print prescription' }))
     expect(papers[1]).toContain('Ibuprofen')
     expect(papers[1]).not.toContain('Demo Clinician')
   })
@@ -313,7 +313,7 @@ describe('Consultation record', () => {
     let printed = ''
     vi.spyOn(window, 'print').mockImplementation(() => { printed = document.querySelector('[data-clinical-print]')?.textContent ?? '' })
     await openEncounter()
-    fireEvent.click(within(card('Print')).getByRole('button', { name: 'Print discharge summary' }))
+    fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
     // ALL carries no prescription or lab request read.
     expect(printed).toMatch(/Medicines on discharge\s*Not available to you\. Check the patient’s record\./)
     expect(printed).not.toContain('None active at this visit')
@@ -328,9 +328,9 @@ describe('Consultation record', () => {
     })
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
-    const button = within(card('Print')).getByRole('button', { name: 'Print discharge summary' })
+    const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
     await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
-    expect(within(card('Print')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
     fireEvent.click(button)
     expect(printSpy).not.toHaveBeenCalled()
   })
@@ -341,7 +341,7 @@ describe('Consultation record', () => {
       kind === 'prescriptions' ? new Promise(() => {}) : { items: records[kind] ?? [], nextCursor: null })
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
-    const button = within(card('Print')).getByRole('button', { name: 'Print discharge summary' })
+    const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(button)
     expect(printSpy).not.toHaveBeenCalled()
@@ -358,16 +358,16 @@ describe('Consultation record', () => {
       if (paper) papers[paper.getAttribute('data-clinical-print')!] = paper.textContent ?? ''
     })
     await openEncounter()
-    fireEvent.click(await within(card('Print')).findByRole('button', { name: 'Print prescription' }))
+    fireEvent.click(await within(card('Actions')).findByRole('button', { name: 'Print prescription' }))
     act(() => { window.dispatchEvent(new Event('afterprint')) })
-    fireEvent.click(within(card('Print')).getByRole('button', { name: 'Print discharge summary' }))
+    fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
     expect(papers.prescription).toContain('This visit has more prescriptions on later pages of the record')
     expect(papers.discharge).toContain('More are on later pages of the record')
   })
 
   it('offers only the discharge summary when the visit has no prescription to print', async () => {
     await openEncounter()
-    const printing = within(card('Print'))
+    const printing = within(card('Actions'))
     expect(printing.getByRole('button', { name: 'Print discharge summary' })).toBeTruthy()
     expect(printing.queryByRole('button', { name: 'Print prescription' })).toBeNull()
   })
@@ -384,10 +384,10 @@ describe('Consultation record', () => {
     const row = (name: string) => history.getByText(name).closest('li') as HTMLElement
     const link = (name: string) => history.getByRole('link', { name }).getAttribute('href')
     expect(link(consultationLabel(OTHER))).toBe(`/provider/clinical/${OTHER.id}`)
+    // Notes, diagnoses and documents are read in their own sections above, so History does not list them again.
     for (const label of ['Notes · Consultation note', 'Diagnoses · Malaria (fictional)', 'Documents · referral-letter.pdf']) {
-      expect(history.getByText(label).tagName).toBe('SPAN')
+      expect(history.queryByText(label)).toBeNull()
     }
-    expect(within(row('Notes · Consultation note')).getByText('Draft')).toBeTruthy()
     // A nursing observation is not a clinical note row: it links to its own page, as the nursing pages name it.
     expect(history.queryByText('Notes · Vitals')).toBeNull()
     expect(link(`Nursing observations · ${formatWhen(observation.createdAt)}`)).toBe(`/provider/nursing/${ENCOUNTER_ID}~${observation.id}`)
@@ -484,9 +484,6 @@ describe('Consultation record', () => {
     const saved = within(card('Note'))
     const values = Object.fromEntries(saved.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
     expect(values.Diagnosis).toBe('Fever (fictional)')
-    const history = within(card('History'))
-    expect(within(history.getByText('Diagnoses · Malaria (fictional)').closest('li') as HTMLElement).getByText('Refuted')).toBeTruthy()
-    expect(within(history.getByText('Diagnoses · Fever (fictional)').closest('li') as HTMLElement).getByText('Active')).toBeTruthy()
     expect(within(card('Diagnoses')).getByText('Active · Refuted')).toBeTruthy()
   })
 
@@ -952,12 +949,12 @@ describe('Consultation record: diagnoses', () => {
     expect(details.querySelector(':scope > div')?.textContent).toBe('Code: ICD-10 B54')
     // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
     expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
-    const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
-    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Code system', 'Code', 'Diagnosis', 'Clinical status', 'Verification', 'Notes'])
+    const form = diagnoses.getByRole('button', { name: 'Add diagnosis' }).closest('form') as HTMLFormElement
+    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification', 'Notes'])
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
     expect((await diagnoses.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
     expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(document.body.textContent).not.toContain('shorter than or equal to 500 characters')
@@ -965,7 +962,7 @@ describe('Consultation record: diagnoses', () => {
     expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
     expect(card('Diagnoses').textContent).not.toContain('Display')
 
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses',
       { codeSystem: 'ICD-10', code: 'R50.9', display: 'Fever', clinicalStatus: 'active', verificationStatus: 'unconfirmed', notes: undefined }, expect.any(String))
@@ -1054,7 +1051,7 @@ describe('Consultation record: diagnoses', () => {
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever (fictional)' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
     await waitFor(() => expect(release).not.toBeNull())
     const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
     // Today's disabled={recordsLoading} (Clinical.tsx:1828).
@@ -1237,7 +1234,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-10-30T08:40:00.000Z' }]
     api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'on_hold' })
     await openEncounter()
-    expect(actions().getAllByRole('button').map(button => button.textContent?.replace('▾', ''))).toEqual(['Amend signed note', 'Add notes', 'More actions'])
+    expect(actions().getAllByRole('button').map(button => button.textContent?.replace('▾', ''))).toEqual(['Amend signed note', 'Add notes', 'Print discharge summary', 'More actions'])
     expect(menuLabels()).toEqual(['Resume consultation', 'Cancel consultation', 'Mark as entered in error', 'Mark note entered in error'])
   })
 
@@ -1296,7 +1293,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     await openEncounter()
     fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
     const saved = within(card('Note'))
-    expect(saved.getByText('Optional. Add its code to save it as this consultation’s diagnosis.')).toBeTruthy()
+    expect(saved.getByText('Optional. Start typing and pick from the list to fill its ICD-10 code, so it’s saved as this consultation’s diagnosis.')).toBeTruthy()
     expect((saved.getByLabelText(labelled('Code system')) as HTMLInputElement).placeholder).toBe('ICD-10')
     expect((saved.getByLabelText(labelled('Clinical status')) as HTMLSelectElement).value).toBe('active')
     expect((saved.getByLabelText(labelled('Verification')) as HTMLSelectElement).value).toBe('unconfirmed')

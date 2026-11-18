@@ -103,3 +103,27 @@ describe('the shared drawer, as it opens on its title', () => {
     expect(focused()).toBe(screen.getByRole('radio', { name: 'A day' }))
   })
 })
+
+describe('drawers opened one over another', () => {
+  it('names each by its own title: no two share an id, and the one on top is named by its own', () => {
+    function Nested() {
+      const [inner, setInner] = useState(false)
+      return <Drawer open onClose={() => {}} title="Find a patient">
+        <button type="button" onClick={() => setInner(true)}>New patient registration</button>
+        <Drawer open={inner} onClose={() => setInner(false)} title="New patient registration"><p>The form</p></Drawer>
+      </Drawer>
+    }
+    render(<Nested />)
+    fireEvent.click(screen.getByRole('button', { name: 'New patient registration' }))
+    const dialogs = screen.getAllByRole('dialog')
+    expect(dialogs).toHaveLength(2)
+    const titles = dialogs.map(dialog => document.getElementById(dialog.getAttribute('aria-labelledby') ?? ''))
+    expect(titles.map(title => title?.textContent)).toEqual(['Find a patient', 'New patient registration'])
+    // Each title is inside its own drawer, and the ids differ.
+    titles.forEach((title, at) => expect(title?.closest('[role="dialog"]')).toBe(dialogs[at]))
+    expect(new Set(titles.map(title => title?.id)).size).toBe(2)
+    expect(screen.getByRole('dialog', { name: 'New patient registration' })).toBe(dialogs[1])
+    // The drawer on top opens on its own title.
+    expect(document.activeElement).toBe(titles[1])
+  })
+})
