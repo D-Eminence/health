@@ -9,10 +9,11 @@ import { staffApi } from '../api'
  * contract StaffRecordChat follows (ADR-069). The explicit novu-v1 build profile selects this implementation.
  */
 /** The caller keys this component by actor/membership/facility/patient/purpose. */
-export function StagingStaffPatientChat({facilityId,facilityName,patientId,patientName,hid}:{
-  facilityId:string;facilityName:string;patientId:string;patientName:string;hid:string
+export function StagingStaffPatientChat({facilityId,facilityName,patientId,patientName,hid,inline=false}:{
+  facilityId:string;facilityName:string;patientId:string;patientName:string;hid:string;inline?:boolean
 }) {
-  const [open,setOpen]=useState(false)
+  const [toggled,setOpen]=useState(false)
+  const open=inline||toggled
   const [denied,setDenied]=useState(false)
   const api=useMemo<StagingChatConversationApi>(()=>{
     const protect=async<T,>(operation:Promise<T>):Promise<T>=>{
@@ -30,9 +31,9 @@ export function StagingStaffPatientChat({facilityId,facilityName,patientId,patie
     }
   },[facilityId,patientId])
   return <section className="staff-patient-chat" aria-label={`Record assistant for ${patientName}`}>
-    <button type="button" className="record-chat-reset" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>
+    {inline?null:<button type="button" className="record-chat-reset" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>
       {open?'Close patient assistant':'Ask about this patient'}
-    </button>
+    </button>}
     {open&&(denied?<p role="alert">Patient access has ended or changed. Reopen the patient through governed access.</p>
       :<StagingChatConversation api={api} staff={{patientName,hid,facilityName}} />)}
   </section>

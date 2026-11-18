@@ -440,9 +440,14 @@
 
 .hid-ehr .hid-ehr-blue-actions-vertical {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-actions-vertical > .hid-ehr-button {
+  min-height: 44px;
+  padding-inline: 16px;
 }
 
 .hid-ehr .hid-ehr-blue-record-form {
@@ -1134,4 +1139,37 @@
 .hid-ehr .hid-ehr-more-details > summary:focus-visible {
   outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
   outline-offset: var(--ehr-focus-ring-offset);
+}
+
+/* Help's link to the guides, above the support assistant (QA P1-7). */
+.hid-ehr .hid-ehr-support-guides {
+  margin: 0 0 12px;
+}
+
+.hid-ehr .hid-ehr-support-guides button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* A page opened in a side drawer (routeDrawer.tsx): the drawer's header carries its title and closes it, so the page's
+   own title, Back arrow and "Change patient" line are not drawn twice. The patient banner stays: it says whose record
+   this is. */
+.hid-route-drawer .hid-ehr-page-title-row,
+.hid-route-drawer .hid-ehr-page-title,
+.hid-route-drawer .hid-ehr-chart-line,
+.hid-route-drawer [data-page-title] { display: none; }
+.hid-route-drawer [data-layout="column"] { max-width: none; }
+.hid-route-drawer .hid-ehr-page-heading { margin-top: 0; }
+.hid-route-drawer .hid-ehr-clinical-page { padding: 0; max-width: none; }
+/* The patient banner stays in view at the top of the drawer as the form scrolls under it. */
+.hid-route-drawer .sticky { top: -1.25rem; }
+/* On a phone the drawer covers the tab bar, so a form's sticky Save sits at the drawer's own bottom edge. */
+@media (max-width: 639px) {
+  .hid-ehr .hid-route-drawer .hid-ehr-clinical-form-footer-sticky,
+  .hid-route-drawer .max-sm\:sticky { bottom: -1.25rem; }
 }

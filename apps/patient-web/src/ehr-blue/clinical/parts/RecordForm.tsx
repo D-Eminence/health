@@ -20,6 +20,11 @@ export interface FieldDef {
    */
   readonly blank?: boolean
   readonly suggestions?: readonly string[]
+  /**
+   * Other fields filled when this one's value is one of its suggestions with a known code (picking "Malaria,
+   * unspecified" fills its ICD-10 code): the clinician sees them filled, and can still change them.
+   */
+  readonly fills?: (value: string) => Readonly<Record<string, string>> | null
   readonly hint?: string
   readonly placeholder?: string
   readonly maxLength?: number
@@ -189,7 +194,11 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
               error={errors[field.key]}
               disabled={disabled}
               register={register(field.key)}
-              onChange={value => change(field.key, typeof value === 'string' && field.normalise ? field.normalise(value) : value)}
+              onChange={value => {
+                change(field.key, typeof value === 'string' && field.normalise ? field.normalise(value) : value)
+                const filled = typeof value === 'string' ? field.fills?.(value) : null
+                if (filled) for (const [key, fill] of Object.entries(filled)) change(key, fill)
+              }}
             />
           ))
           return group.length > 1 ? <div key={group[0]!.key} className="hid-ehr-clinical-form-row">{controls}</div> : controls
@@ -277,15 +286,29 @@ function FieldControl({ id, field, value, error, disabled, register, onChange }:
       </EhrSelect>
     )
   } else if (kind === 'textarea') {
+    const typed = typeof value === 'string' ? value : ''
     control = (
-      <EhrTextarea
-        {...common}
-        rows={3}
-        maxLength={field.maxLength}
-        placeholder={field.placeholder}
-        value={typeof value === 'string' ? value : ''}
-        onChange={event => onChange(event.target.value)}
-      />
+      <>
+        <EhrTextarea
+          {...common}
+          rows={3}
+          maxLength={field.maxLength}
+          placeholder={field.placeholder}
+          value={typed}
+          onChange={event => onChange(event.target.value)}
+        />
+        {/* Common words one tap away (owner, 18 Nov 2026): each adds itself to what is typed, and can be edited. */}
+        {field.suggestions?.length && !disabled ? (
+          <div className="hid-ehr-clinical-quick-words" role="group" aria-label={`Quick add to ${field.label}`}>
+            {field.suggestions.map(word => (
+              <button key={word} type="button" className="hid-ehr-clinical-quick-word"
+                onClick={() => onChange(typed.trim() ? `${typed.trimEnd().replace(/[,.]$/, '')}, ${word.toLowerCase()}` : word)}>
+                {word}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </>
     )
   } else {
     const listId = field.suggestions?.length ? `${id}-suggestions` : undefined

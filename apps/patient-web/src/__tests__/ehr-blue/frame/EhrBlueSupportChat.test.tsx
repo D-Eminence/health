@@ -780,7 +780,7 @@ describe('the privacy guard against generated questions', () => {
 })
 
 describe('where the build does not offer it', () => {
-  it('offers no Help in the account menu, and asks nothing', async () => {
+  it('offers Help as the guides page, with no support assistant, and asks nothing', async () => {
     build.supportChatEnabled = false
     const here = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     const sent = serve({ [SESSION]: [sessionAt(here, [here])] })
@@ -788,9 +788,11 @@ describe('where the build does not offer it', () => {
     await screen.findByRole('heading', { level: 1, name: homeHeading() })
     fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
     expect(screen.getByRole('button', { name: 'My profile' })).toBeDefined()
-    // Neither in the header nor in the facility menu.
-    expect(screen.queryByRole('button', { name: 'Help' })).toBeNull()
-    expect(document.querySelector('.hid-ehr-host-actions')?.textContent).not.toContain('Help')
+    // Help is in the header and the facility menu (QA P1-7): without the assistant it opens the Help page of guides.
+    expect(screen.getAllByRole('button', { name: 'Help' }).length).toBe(2)
+    fireEvent.click(within(document.querySelector('.hid-ehr-host-actions') as HTMLElement).getByRole('button', { name: 'Help' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Help' })).toBeDefined()
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull()
     expect(screen.queryByText(NOTICE)).toBeNull()
     expect(sent.some(call => call.route === SUPPORT)).toBe(false)
   })

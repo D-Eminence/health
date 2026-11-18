@@ -130,9 +130,11 @@ const words = (value: string | null | undefined) => value ? value.replace(/[_-]+
  * The patient on every clinical screen: name, Health ID, date of birth with age, and sex, always in the same place and
  * shape, so the person acting never has to remember who is open (working memory; wrong-patient prevention).
  */
-export function PatientBanner({ name, hid, dateOfBirth, sex, status, sticky = false, compact = false }: {
+export function PatientBanner({ name, hid, dateOfBirth, sex, status, sticky = false, compact = false, action }: {
   name: string; hid: string; dateOfBirth?: string | null; sex?: string | null
   status?: { label: string; tone: Tone } | null; sticky?: boolean; compact?: boolean
+  /** One action that belongs with the patient on every page (the record assistant). */
+  action?: ReactNode
 }) {
   const age = ageOf(dateOfBirth)
   const initials = name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -148,6 +150,7 @@ export function PatientBanner({ name, hid, dateOfBirth, sex, status, sticky = fa
       </p>
     </div>
     {status ? <Badge size="sm" tone={status.tone}>{status.label}</Badge> : null}
+    {action}
   </section>
 }
 

@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44126679473-1-27c99ab008771a3f (hid-system #256, 73eae090, live 2026-11-17 16:47 UTC: Q88 product sign-in gate and Q89 staff reset, no migration; it rebuilt identity-api, ehr-api and notification-api; the other services stay at e50ac518 from hid-system #253, owner-signed Q84). Owner approved Q88/Q89 in chat on 2026-11-17 (\"Q88 recommended, Q89 recommended\").",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44339052029-1-c6d504463610e4f8 (hid-system #269 merge afec3f75, Akos EHR backend wave 1, no migration; deployed and verified 2026-11-18 about 16:15 UTC). That release rebuilt identity-api, ehr-api, lab-api, pharmacy-api and ocr-api at afec3f75; gateway, outreach-api, support-api and notification-api stay at 498e2f82 (hid-system #268, the owner-signed 0124-0127 release, Q98). New browser-facing routes are additive (open-today visit, latest vitals, order progress, registration-case list, staff profile, OCR job list, NIN status); changeReason becomes optional only for a first note signature or first prescription activation. Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "identity-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "ehr-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "lab-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "pharmacy-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "ocr-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "outreach-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "support-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "notification-api": "73eae090918db166b01812a663b5a131fb1ec639"
+    "gateway": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "identity-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "ehr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "lab-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "pharmacy-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "ocr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "outreach-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "support-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "notification-api": "498e2f822c711a1dd67175cc99a019d81c15bce3"
   }
 }

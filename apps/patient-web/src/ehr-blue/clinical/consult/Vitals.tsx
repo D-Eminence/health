@@ -13,6 +13,7 @@ import {
   CORRECTION_UNREAD, LOADING_CORRECTION, RETRACTED_TEXT, correctionNumber, isRetracted, useCorrections, vitalName, vitalStatus,
 } from '../triage/vitals'
 import { ListPaging } from './Notes'
+import { fromHere } from '../parts/cameFrom'
 import type { RecordList } from './records'
 
 /** Today's Vitals tab: its heading and its empty list (staff/routes/Clinical.tsx:27, :1850, :1853), saying consultation. */
@@ -44,7 +45,7 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
       title={VITALS_TITLE}
       // Today's Add vitals saves to the encounter shown (Clinical.tsx:1898): the form opens with this visit chosen. Only
       // its record id goes, in router state, as Home's order link and the OCR hand-off do; never in the address.
-      actions={canRecord ? <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')} state={{ visitId: encounterId }}>{RECORD_VITALS}</Link> : undefined}
+      actions={canRecord ? <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')} state={fromHere(href(encounterId), 'Back to consultation', { visitId: encounterId })}>{RECORD_VITALS}</Link> : undefined}
     >
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
@@ -85,3 +86,4 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
     </EhrCard>
   )
 }
+

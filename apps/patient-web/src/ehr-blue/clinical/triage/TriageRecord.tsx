@@ -1,7 +1,7 @@
 import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { encounterTitle } from '../consult/encounters'
@@ -107,6 +107,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   const href = useWorkspaceHref()
   const location = useLocation()
   const { facilityId, patientId } = chart
+  const toVisit = chart.can('ehr.encounter.read') ? href.to('consult', encounter.id) : null
   const [success, setSuccess] = useState(() => (location.state as { saved?: unknown } | null)?.saved === true ? RECORD_SAVED : '')
   const [pageError, setPageError] = useState('')
   const [open, setOpen] = useState(false)
@@ -192,6 +193,8 @@ function VitalRecord({ chart, encounter, vital, reload }: {
       <RecordHeading title={vitalName(vital)} backHref={href()} />
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
+      {/* Just saved: the way back to the consultation these vitals belong to, so the doctor never hunts for it (QA N-10). */}
+      {success === RECORD_SAVED && toVisit ? <p className="hid-ehr-clinical-note"><Link className="hid-ehr-clinical-link" to={toVisit}>Back to consultation</Link></p> : null}
       <DetailMeta
         status={vitalStatus(vital)}
         note={number > 0 ? `Corrected (correction ${number})` : undefined}

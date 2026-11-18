@@ -12,7 +12,7 @@ import { patientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { offeredHealthId, dropOfferedHealthId } from '../consent/access'
 import {
-  COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_WHEN, NOT_GRANTED, REASON_MAX, REASON_MIN, REASON_TOO_SHORT,
+  COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_SHORT, NOTICE_WHEN, NOT_GRANTED, REASON_MAX, REASON_MIN, REASON_TOO_SHORT,
   actionUnavailable, breakGlassRefusal, emergencyNotice, healthIdProblem,
 } from './access'
 import { PlainError, plainErrorText } from '@hid/http'
@@ -151,8 +151,14 @@ export function BreakGlassCard() {
   return (
     <Card>
       <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
-        {/* The whole notice, as today's (Patients.tsx:243): when to use it, who is told on Novu, and what it opens. */}
-        <Alert intent="warning" live={false} title={NOTICE_WHEN}>{emergencyNotice(usesNovuBackend())}</Alert>
+        {/* One line when care can't wait (QA P1-16); the whole notice, as today's (Patients.tsx:243), under More details. */}
+        <Alert intent="warning" live={false} title={NOTICE_WHEN}>
+          {NOTICE_SHORT}
+          <details className="mt-1.5">
+            <summary className="cursor-pointer font-medium underline underline-offset-2">More details</summary>
+            <p className="m-0 mt-1.5">{emergencyNotice(usesNovuBackend())}</p>
+          </details>
+        </Alert>
         <Field label="Health ID" htmlFor={controlId('hid')} hint={HID_FORMAT} hintId={`${controlId('hid')}-hint`} error={errorFor('hid')} errorId={`${controlId('hid')}-error`}>
           <Input id={controlId('hid')} required autoComplete="off" spellCheck={false} value={hid} placeholder="HID-ADA2345"
             className="font-medium tracking-[.06em] uppercase" aria-invalid={problems.hid ? true : undefined} aria-describedby={describe('hid', true)}

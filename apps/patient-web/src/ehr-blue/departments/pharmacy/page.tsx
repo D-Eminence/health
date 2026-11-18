@@ -1,3 +1,5 @@
+import { financeListed } from '../commerce/page'
+import { productHere } from '../../frame/product'
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
 import { useStaff } from '../../../staff/App'
@@ -81,10 +83,12 @@ export const pharmacyPages: EhrBluePage[] = [
   { path: 'pharmacy/products', group: GROUP, label: 'Products & prices', permission: 'billing.catalogue.read', status: 'partial', icon: icon(Tags),
     element: <PriceList kinds={['drug', 'other']} title="Products & prices" description="What you sell and what it costs: cash and each HMO’s price." />,
     visible: pointOfCareShown },
+  // The till and payment setup are the facility's, the same pages Finance lists: where Finance is in the menu, they are
+  // listed there only, never twice under two names (flow review, 18 Nov 2026). Their addresses still open.
   { path: 'pharmacy/till', group: GROUP, label: 'Till / End of day', permission: 'billing.shift.own', status: 'partial', icon: icon(CalendarCheck), element: <EndOfDay />,
-    visible: pointOfCareShown },
+    visible: pointOfCareShown, listed: session => !(productHere(session) === 'ehr' && financeListed(session)) },
   { path: 'pharmacy/settings', group: GROUP, label: 'Payment setup', permission: 'billing.settings.manage', status: 'partial', icon: icon(SlidersHorizontal),
-    element: <PaymentSetup />, visible: pointOfCareShown },
+    element: <PaymentSetup />, visible: pointOfCareShown, listed: session => !(productHere(session) === 'ehr' && financeListed(session)) },
 ]
 
 /** Prescriptions, by the name earlier code knew Pharmacy's page by. */

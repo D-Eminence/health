@@ -28,7 +28,7 @@ import {
   AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTERS_FAILED,
   NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_ON_LATER_PAGE, NOTE_STATUS_ON_LATER_PAGE, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
   RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
-  WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
+  WRITE_NOTE_LABEL, consultationNote, contentCheck, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
   isoNow, newDiagnosisBody, newDiagnosisCheck, reasonCheck, recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
 } from './encounters'
 import { NotesCard } from './Notes'
@@ -543,7 +543,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
 
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit
   // quietly behind More actions.
-  const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : 'secondary'
+  // With no note to sign yet, the next step (Add notes) is the primary: the page always shows one way forward.
+  const lead = actions.find(item => item.id === 'sign') ?? actions[0]
+  const variantOf = (item: ActionDef) => item === lead ? 'primary' : 'secondary'
 
   // In the order a clinician works: the note, every note, vitals, diagnoses, orders, documents, then history and earlier versions.
   return (
@@ -561,6 +563,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
       </DetailMeta>
       {readsNone ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : null}
+      {/* The visit's vitals first, once (owner, 18 Nov 2026): the doctor sees them before writing, and Record vitals is
+          beside them. Not repeated further down or under History. */}
+      {reads.vitals ? (
+        <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
+      ) : null}
       <DetailGrid>
         <SavedRecord title="Note" items={saved}>
           {writes.notes && note?.status === 'draft' && seen ? (
@@ -592,6 +599,17 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
               ))}
             </ActionList>
           ) : more.length === 0 ? <NoActions /> : null}
+          {/* Printing is an action on this consultation: it sits with the others, not in a card of its own. */}
+          {!readsNone ? (
+            <>
+              <ActionList>
+                {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
+                <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={!summaryReady || undefined}
+                  aria-describedby={summaryReady ? undefined : `${actionsId}-print-wait`}>Print discharge summary</EhrButton>
+              </ActionList>
+              {summaryReady ? null : <p id={`${actionsId}-print-wait`} className="hid-ehr-clinical-note">{DISCHARGE_WAIT}</p>}
+            </>
+          ) : null}
           <MoreActions id={moreId} items={more.map(({ id, label }) => ({ id, label }))} selected={selected} onSelect={choose} />
           {action ? (
             <RecordForm
@@ -614,25 +632,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           ) : null}
         </EhrCard>
       </DetailGrid>
-      {!readsNone ? (
-        <EhrCard title="Print">
-          <ActionList>
-            {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
-            <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={!summaryReady || undefined}
-              aria-describedby={summaryReady ? undefined : `${actionsId}-print-wait`}>Print discharge summary</EhrButton>
-          </ActionList>
-          {summaryReady ? null : <p id={`${actionsId}-print-wait`}>{DISCHARGE_WAIT}</p>}
-        </EhrCard>
-      ) : null}
       {reads.notes ? (
         <NotesCard
           chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}
           onReloadFailed={(failure, first) => addFailed(reloadFailed(failure, { notes: on => on.notes.reload(first) }))}
         />
-      ) : null}
-      {/* Today's tab order: Notes, Vitals, Diagnoses (Clinical.tsx:25-32). */}
-      {reads.vitals ? (
-        <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
       ) : null}
       {reads.diagnoses ? (
         <DiagnosesCard
@@ -649,7 +653,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {reads.documents ? (
         <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
       ) : null}
-      <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
+      {/* Every record of the visit that opens on its own page, and the patient's other consultations here. Notes,
+          diagnoses and documents are read in full in their own sections above, so they are not listed again (owner,
+          18 Nov 2026: nothing said twice). */}
+      <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs })}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
       </HistoryCard>
       <VersionsCard versions={versionItems(note, revisions.items)} />
@@ -691,19 +698,16 @@ type Lists = { readonly [K in 'notes' | 'diagnoses' | 'vitals' | 'prescriptions'
  * observations come from the notes page the Notes card shows, as the other notes do: today's Notes tab lists every
  * note of each "Record pages" page, whatever its type (Clinical.tsx), so paging the card reaches every observation.
  */
-function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, others: readonly Encounter[], lists: Lists, documents: RecordList<{ id: string; fileName: string; status: string }>): HistoryItem[] {
-  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link?: (record: ClinicalRecord) => string) =>
-    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), ...(link ? { href: link(record) } : {}) }))
+function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, others: readonly Encounter[], lists: Lists): HistoryItem[] {
+  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link: (record: ClinicalRecord) => string) =>
+    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), href: link(record) }))
   const notes = lists.notes.items ?? []
   return [
     ...others.map(item => ({ key: `encounter-${item.id}`, label: encounterTitle(item), href: href(item.id), status: item.status })),
-    ...rows(notes.filter(note => !isObservation(note)), 'Notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
     ...rows(notes.filter(isObservation), 'Nursing observations', record => formatWhen(record.createdAt) || 'Observation', observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
-    ...rows(lists.diagnoses.items ?? [], 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
     ...rows(lists.vitals.items ?? [], 'Vitals', record => formatWhen(record.createdAt) || 'Vitals', vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
     ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
     ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
-    ...(documents.items ?? []).map(item => ({ key: `document-${item.id}`, label: `Documents · ${item.fileName}`, status: item.status || 'uploaded' })),
   ]
 }
 

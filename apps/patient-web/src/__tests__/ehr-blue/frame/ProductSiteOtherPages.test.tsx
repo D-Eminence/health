@@ -226,6 +226,18 @@ describe('what a product opens without listing it still opens', () => {
       .toEqual({ where: '/provider/requests', heading: 'Access requests (stand-in)' })
   })
 
+  it.each(SITES)('%s: Help, where the Guide’s All guides leads, for any role', async (site, own) => {
+    expect(await settle(site, [own], '/provider/help')).toEqual({ where: '/provider/help', heading: 'Help' })
+    expect(screen.getByRole('heading', { level: 2, name: 'Guides for your role' })).toBeTruthy()
+  })
+
+  it.each(SITES)('%s: the Guide’s All guides opens Help', async (site, own, home, heading) => {
+    expect(await settle(site, [own], home)).toEqual({ where: home, heading })
+    fireEvent.click(screen.getByRole('button', { name: 'Guide' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'All guides' }))
+    expect(await landed()).toEqual({ where: '/provider/help', heading: 'Help' })
+  })
+
   it('lab.: Patients', async () => {
     expect(await settle('lab.healthidentitydirectory.com', ['lab.work-item.read', 'identity.patient.read'], '/provider/patients'))
       .toEqual({ where: '/provider/patients', heading: 'Patients (stand-in)' })

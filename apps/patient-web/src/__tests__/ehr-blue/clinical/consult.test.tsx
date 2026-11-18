@@ -179,7 +179,7 @@ describe('Consultation list', () => {
     await screen.findByRole('table', { name: 'Consultations' })
     expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
     const line = screen.getByText(/· Direct care access\./)
-    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Change patient →`)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Patient page · Change patient →`)
     expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
   })
 

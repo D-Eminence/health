@@ -88,7 +88,7 @@ function links() {
 
 const TAYLOR_DENTAL = [
   'Appointments · Review of results [checked-in]',
-  'Patient visits · b57e94c9 [consulting]',
+  'Patient visits · Persistent fever and headache [consulting]',
   'Patient visits · Review of results [waiting]',
   'Triage & Vitals · 329417b6 [completed]',
   'Consultation · fd276688 [signed]',
@@ -139,7 +139,7 @@ describe('audit 17: the design’s connected history rows from the live modules,
     open(id, recordId)
     expect(historyRows()).toEqual(worded([
       'Appointments · Medication review [booked]',
-      'Patient visits · 203099a6 [consulting]',
+      'Patient visits · Cough follow-up [consulting]',
       'Triage & Vitals · cbcf4b88 [completed]',
       'Consultation · 5f459730 [signed]',
       'Laboratory · Full blood count [processing]',
@@ -153,7 +153,7 @@ describe('audit 17: the design’s connected history rows from the live modules,
     open('surgery', IDS.surgery)
     expect(historyRows()).toEqual(worded([
       'Appointments · Patient requested another day [cancelled]',
-      'Patient visits · 11e3fd1b [waiting]',
+      'Patient visits · Abdominal pain [waiting]',
       'Triage & Vitals · 8f2c2b76 [draft]',
       'Consultation · 4fe5735c [draft]',
       'Inpatient / Wards · Awaiting bed (fictional) [requested]',
@@ -166,7 +166,7 @@ describe('audit 17: the design’s connected history rows from the live modules,
     open('nursing-tasks', IDS.taskObs)
     expect(historyRows()).toEqual(worded([
       'Appointments · Review of results [checked-in]',
-      'Patient visits · b57e94c9 [consulting]',
+      'Patient visits · Persistent fever and headache [consulting]',
       'Patient visits · Review of results [waiting]',
       'Triage & Vitals · 329417b6 [completed]',
       'Inpatient / Wards · Observation (fictional) [admitted]',

@@ -318,7 +318,7 @@ export function Overview() {
             : contributions.length === 0 ? <EmptyState compact icon={Stethoscope} title="No visits or notes yet"
                 description="Show your Health ID card at your next visit. Visits and notes appear here once a provider signs them." />
             : <ul className="m-0 list-none divide-y divide-line p-0">{contributions.map(row => <li key={row.id}>
-                <ListRow to="/records" leading={<IconChip size="sm" icon={row.kind === NOTE ? NotebookPen : Stethoscope} />}
+                <ListRow to={`/records?open=${encodeURIComponent(row.id)}`} leading={<IconChip size="sm" icon={row.kind === NOTE ? NotebookPen : Stethoscope} />}
                   title={row.title} subtitle={[row.kind, when(row.at, false)].filter(Boolean).join(' · ')} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>}
         </Card>
         </>}

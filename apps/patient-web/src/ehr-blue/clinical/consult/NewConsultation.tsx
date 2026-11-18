@@ -1,3 +1,4 @@
+import { COMPLAINTS } from '../parts/vocabulary'
 import { EhrCard } from '@hid/ui/ehr'
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -37,7 +38,7 @@ const START_REQUIRES = 'To start a consultation, you need current access to this
 const ENCOUNTER_FIELDS: readonly FieldDef[] = [
   { key: 'encounterType', label: 'Type of visit', required: true, choices: ENCOUNTER_TYPES },
   // Today's textarea (staff/routes/Clinical.tsx:455): a complaint keeps its line breaks.
-  { key: 'complaint', label: 'Presenting complaint', type: 'textarea', required: true, maxLength: 4000 },
+  { key: 'complaint', label: 'Presenting complaint', type: 'textarea', required: true, maxLength: 4000, suggestions: COMPLAINTS },
 ]
 // The note's fields are optional, as today: type and complaint alone start the encounter, and the draft note is written
 // only when History, Examination, Clinical note or Follow-up has text.

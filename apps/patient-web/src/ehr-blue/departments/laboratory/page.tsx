@@ -1,3 +1,5 @@
+import { financeListed } from '../commerce/page'
+import { productHere } from '../../frame/product'
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, ClipboardList, FileText, FlaskConical, Plus, SlidersHorizontal, Tags } from 'lucide-react'
 import type { StaffSession } from '../../../staff/api'
@@ -72,9 +74,10 @@ export const labPages: EhrBluePage[] = [
   { path: 'laboratory/tests', group: GROUP, label: 'Tests & prices', tabOf: 'laboratory', permission: 'billing.catalogue.read', status: 'partial',
     icon: icon(Tags), element: <PriceList kinds={['lab_test']} title="Tests & prices" description="The tests you offer and what each costs: cash and each HMO’s price." />,
     visible: pointOfCareShown },
-  { path: 'laboratory/till', group: GROUP, label: 'Till / End of day', tabOf: 'laboratory', permission: 'billing.shift.own', status: 'partial',
+  // Till and payment setup are the facility's, as Finance lists them: where Finance is in the menu they are not repeated here.
+  { path: 'laboratory/till', group: GROUP, label: 'Till / End of day', tabOf: 'laboratory', permission: 'billing.shift.own', status: 'partial', listed: session => !(productHere(session) === 'ehr' && financeListed(session)),
     icon: icon(CalendarCheck), element: <EndOfDay />, visible: pointOfCareShown },
-  { path: 'laboratory/settings', group: GROUP, label: 'Payment setup', tabOf: 'laboratory', permission: 'billing.settings.manage', status: 'partial',
+  { path: 'laboratory/settings', group: GROUP, label: 'Payment setup', tabOf: 'laboratory', permission: 'billing.settings.manage', status: 'partial', listed: session => !(productHere(session) === 'ehr' && financeListed(session)),
     icon: icon(SlidersHorizontal), element: <PaymentSetup />, visible: pointOfCareShown },
   // The old New walk-in address: never listed and no tab, it opens New request (where New request shows).
   { path: 'laboratory/new-walk-in', group: GROUP, label: 'New request', permission: 'lab.walk-in.create', status: 'partial', listed: () => false,

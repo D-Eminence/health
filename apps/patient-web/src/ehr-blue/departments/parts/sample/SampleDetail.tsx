@@ -1,3 +1,4 @@
+import { actionVariant } from '../../../frame/actionVariant'
 import { useId, useState } from 'react'
 import { EhrBadge, EhrButton } from '@hid/ui/ehr'
 import { useSampleCan } from '../../../frame/sampleAccess'
@@ -118,8 +119,8 @@ export function SampleDetail({ base, definition, record, onBack, onAct, onEdit, 
         aside={(
           <DeptActions empty="No further actions for your permission and this record state.">
             {available.length === 0 ? [] : [
-              ...available.map(action => (
-                <EhrButton key={action.id} variant="secondary" aria-expanded={action.id === selectedId}
+              ...available.map((action, index) => (
+                <EhrButton key={action.id} variant={actionVariant(action.label, index, available.map(other => other.label))} aria-expanded={action.id === selectedId}
                   aria-controls={action.id === selectedId ? formId : undefined}
                   onClick={() => setSelectedId(current => current === action.id ? null : action.id)}>
                   {action.label}
