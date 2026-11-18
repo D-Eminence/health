@@ -366,7 +366,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
         <EhrInput name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required />
       </EhrField>
       <FormRefusal error={uploadError} />
-      <div className="hid-ehr-dept-form-actions"><EhrButton id="migrate-document-submit" type="submit" busy={busy}>{busy ? 'Uploading…' : 'Upload document'}</EhrButton></div>
+      <div className="hid-ehr-dept-form-actions"><EhrButton id="migrate-document-submit" type="submit" variant="secondary" busy={busy}>{busy ? 'Uploading…' : 'Upload document'}</EhrButton></div>
       {/* Mounted throughout, so what an upload says is announced. */}
       <div role="status">{notice && <DeptNotice tone="positive">{notice}</DeptNotice>}</div>
     </form>}

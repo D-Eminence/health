@@ -68,6 +68,8 @@ export const GUIDES: readonly Guide[] = [
 
 /** What changed in this release, newest first: one line each. */
 export const WHATS_NEW: readonly string[] = [
+  'Typing a diagnosis suggests matches and fills its ICD-10 code. Lab tests, medicines, routes and how often are suggested too.',
+  'Common complaints are one tap under the complaint box.',
   'Guide, in the top bar of every page, explains that page. Press ? to open it.',
   'Find a patient checks a Health ID as soon as it’s pasted, and offers Register a new patient when no one has it.',
   'Back takes you to where you came from: a consultation started from a patient’s page returns to the patient.',

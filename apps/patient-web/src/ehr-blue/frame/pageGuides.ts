@@ -77,7 +77,10 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
       'Under Orders, select New lab request or New prescription. Confirm the patient before you send.',
       'Under Vitals, select Record vitals to add readings to this visit.',
     ],
-    tips: ['The line under the patient banner has Patient page and Change patient.', BACK_TIP],
+    tips: [
+      'Start typing a diagnosis (for example "mal") and pick from the list: its ICD-10 code fills in. Lab tests fill their LOINC code where one is known; medicines, routes and how often are suggested too.',
+      'Under the complaint box, tap a common complaint to add it.',
+      'The line under the patient banner has Patient page and Change patient.', BACK_TIP],
   },
   nursing: {
     purpose: 'Nursing observations for the open patient.',

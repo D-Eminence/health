@@ -702,7 +702,7 @@ export function Migrate() {
             <EhrInput value={findDocument} required autoComplete="off"
               onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
           </EhrField>
-          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
+          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" variant="secondary" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
         </form>
         <div className={nothingFound ? 'hid-ehr-empty-state hid-ehr-dept-migrate-none' : undefined}>
           {/* Mounted with the form, so the answer that a document has no job is announced; Create record stays outside it. */}

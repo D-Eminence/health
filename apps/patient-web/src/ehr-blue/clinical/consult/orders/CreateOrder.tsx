@@ -1,3 +1,4 @@
+import { codeOf, FREQUENCIES, LAB_TESTS, MEDICINES, namesOf, ROUTES } from '../../parts/vocabulary'
 import { isHidApiError, PlainError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -47,13 +48,13 @@ const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
  */
 // Today's labels and placeholders, word for word (Clinical.tsx:567); the unit is picked from a list.
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
-  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500 },
+  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500, suggestions: MEDICINES, hint: 'Start typing the generic name and pick from the list.' },
   { key: 'doseQuantity', label: 'Dose quantity', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
   { key: 'doseUnitChoice', label: 'Dose unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
   { key: 'doseUnit', label: 'Other unit', maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
-  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100 },
-  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240 },
+  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100, suggestions: ROUTES },
+  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240, suggestions: FREQUENCIES },
   { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, maxLength: 4000 },
 ]
 
@@ -65,7 +66,9 @@ function doseUnitOf(values: FormValues): string {
 
 /** The lab request's fields and limits, with today's labels (Clinical.tsx:570); Priority and Request handling follow as controlled choices. */
 const LAB_FIELDS: readonly FieldDef[] = [
-  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500 },
+  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500, suggestions: namesOf(LAB_TESTS),
+    hint: 'Start typing and pick from the list. The commonest tests fill their LOINC code.',
+    fills: value => { const code = codeOf(LAB_TESTS, value); return code ? { testCode: code, testCodeSystem: 'LOINC' } : null } },
   { key: 'testCodeSystem', label: 'Test code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
   { key: 'testCode', label: 'Test code', required: true, maxLength: 100, row: 'code' },
   { key: 'specimenTypeCode', label: 'Specimen type code', maxLength: 100 },
