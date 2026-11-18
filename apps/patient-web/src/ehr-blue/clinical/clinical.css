@@ -125,11 +125,14 @@
 }
 
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-warning {
-  background: var(--ehr-warning-banner-surface);
+  background: var(--color-warn-soft);
+  color: var(--color-ink);
 }
 
+/* Theme tokens, not fixed tints: readable in light and dark (QA P1-17). */
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-critical {
-  background: #fff0ee;
+  background: var(--color-danger-soft);
+  color: var(--color-ink);
 }
 
 .hid-ehr .hid-ehr-clinical-banner-title {
@@ -328,15 +331,18 @@
 }
 
 /* Full-width outline action buttons, 8px apart. */
+/* A record's actions read as buttons, not as a stack of input-like boxes (UX review, 17 Nov 2026): sized to their words,
+   side by side and wrapping, the lead action filled (frame/actionVariant.ts), 44px tall to tap. */
 .hid-ehr .hid-ehr-clinical-action-list {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
 .hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button {
-  width: 100%;
+  min-height: 44px;
+  padding-inline: 16px;
 }
 
 /* An action that cannot run yet keeps focus (aria-disabled, not disabled), so the kit's :disabled look misses it:
@@ -898,8 +904,8 @@
   padding: 12px 16px;
   border: 1px solid var(--ehr-line);
   border-radius: 10px;
-  background: #fff7e6;
-  color: var(--ehr-ink);
+  background: var(--color-warn-soft);
+  color: var(--color-ink);
 }
 
 /* A diagnosis row and its change form. */
@@ -1162,7 +1168,7 @@
 }
 
 .hid-ehr .hid-ehr-clinical-orders-notice.hid-ehr-clinical-orders-danger {
-  background: #fff0ee;
+  background: var(--color-danger-soft);
 }
 
 .hid-ehr .hid-ehr-clinical-orders-notice > p {
@@ -1457,4 +1463,40 @@
 .hid-ehr .hid-ehr-clinical-cell-sub-inline {
   color: var(--ehr-muted);
   font-size: 12px;
+}
+
+/* The patient banner stays at the top while a chart page scrolls: a field moved to by Tab or by an error link stops
+   below it, never under it (QA P1-15). The banner sits 64-80px down and is about 72px tall. */
+.hid-ehr .hid-ehr-clinical-page :is(input, textarea, select, button, [tabindex]) {
+  scroll-margin-top: 11rem;
+}
+
+/* Common words under a text box, one tap to add (owner, 18 Nov 2026). */
+.hid-ehr .hid-ehr-clinical-quick-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-quick-word {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ehr-border);
+  border-radius: 999px;
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-quick-word:hover {
+  border-color: var(--ehr-brand);
+  color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-clinical-quick-word:focus-visible {
+  outline: 2px solid var(--ehr-brand);
+  outline-offset: 2px;
 }

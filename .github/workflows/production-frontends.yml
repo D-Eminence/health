@@ -36,7 +36,8 @@ jobs:
           npm run test:release
           npm run test:production-release
           python -m unittest discover -s scripts -p 'test_production_deployment*.py'
-          npm audit --audit-level=high
+          npm run test:audit-gate
+          npm run audit:dependencies
       - name: Build immutable production frontend candidates
         run: npm run build:production
       - name: Compile Workers without deployment

@@ -110,8 +110,9 @@ function actionLabels() {
 
 /** "Continue care"'s buttons: the row right after its sub-heading, if any. */
 function continueCare() {
-  const heading = within(actionsCard()).getByRole('heading', { level: 3, name: 'Continue care' })
-  const row = heading.nextElementSibling as HTMLElement | null
+  // No hand-off the role may create: no heading either (a section shows only with content).
+  const heading = within(actionsCard()).queryByRole('heading', { level: 3, name: 'Continue care' })
+  const row = heading?.nextElementSibling as HTMLElement | null | undefined
   return row ? within(row).getAllByRole('button').map(button => button.textContent) : []
 }
 
@@ -172,7 +173,7 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     // The capture is a Doctor's: every connected row still shows.
     expect(historyRows()).toEqual(worded([
       'Appointments · Medication review [booked]',
-      'Patient visits · 203099a6 [consulting]',
+      'Patient visits · Cough follow-up [consulting]',
       'Triage & Vitals · cbcf4b88 [completed]',
       'Consultation · 5f459730 [signed]',
       'Laboratory · Full blood count [processing]',
@@ -182,7 +183,7 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     ]))
   })
 
-  it('audit 16: a Receptionist’s Continue care offers no target it may not create, and the heading still shows (journey-3-detail.png)', () => {
+  it('audit 16: a Receptionist’s Continue care offers no target it may not create, and then no heading (journey-3-detail.png)', () => {
     signedInAs('receptionist')
     const visit = open('journey', `/${IDS.visitTaylor}`)
     // Patient visits' actions have no verb of their own: "edit", which a Receptionist has.
@@ -211,7 +212,7 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
   it('audit 16: a Receptionist’s history drops Radiology, Inpatient, Dental and Nursing tasks rows (appointments-3-detail.png, journey-3-detail.png)', () => {
     const doctor = open('appointments', `/${IDS.apptTaylor}`)
     const all = within(historyCard()).getAllByRole('link').map(link => link.textContent)
-    for (const row of ['Radiology · Abdominal ultrasound', 'Inpatient / Wards · Observation (fictional)', 'Dental · 503fafd8', 'Nursing tasks · 4-hourly observations']) {
+    for (const row of ['Radiology · Abdominal ultrasound', 'Inpatient / Wards · Observation (fictional)', 'Dental · Toothache', 'Nursing tasks · 4-hourly observations']) {
       expect(all).toContain(row)
     }
     doctor.unmount()
@@ -221,7 +222,7 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     expect(within(actionsCard()).getByText(NO_ACTIONS)).toBeTruthy()
     expect(within(historyCard()).getByText('Only records your role can see are listed.')).toBeTruthy()
     // The live modules' fictional rows (Triage & Vitals, Consultation, Laboratory, Pharmacy, Nursing observations) go too.
-    expect(historyRows()).toEqual(worded(['Patient visits · b57e94c9 [consulting]', 'Patient visits · Review of results [waiting]']))
+    expect(historyRows()).toEqual(worded(['Patient visits · Persistent fever and headache [consulting]', 'Patient visits · Review of results [waiting]']))
     appointment.unmount()
 
     open('journey', `/${IDS.visitTaylor}`)

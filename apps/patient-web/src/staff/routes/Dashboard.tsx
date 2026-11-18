@@ -9,7 +9,7 @@ import { useStaff } from '../App'
 import { accessRequestsError } from './AccessRequests'
 import { FacilityCheckCard } from './ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
-import { offeredHere, servedHere, SITE_PRODUCT_NAMES, siteOf } from '../../productSites'
+import { loginOpensSite, offeredHere, SITE_PRODUCT_NAMES, siteOf, siteServing } from '../../productSites'
 import { isHidApiError } from '@hid/http'
 import { roleLabels } from '../staffAccess'
 import {
@@ -236,7 +236,11 @@ export function Dashboard() {
   const requestsHere = permissions.includes('identity.consent.write') && offeredHere('/provider/requests')
   const workspaces = modules.filter(module => permissions.includes(module.permission))
   const workspacesHere = workspaces.filter(module => offeredHere(module.to))
-  const workspacesElsewhere = workspaces.some(module => !servedHere(module.to))
+  // Another site's, linked in the sidebar: only a site this login can open (actor.products, Q97), as the sidebar lists.
+  const workspacesElsewhere = workspaces.some(module => {
+    const site = siteServing(module.to, window.location.hostname)
+    return site !== null && loginOpensSite(site.key, session?.actor.products)
+  })
   // A role whose workspaces are all the hospital EHR's has none on a product site, which leaves them out and links to
   // none of them: the Overview says so, by the product's plain name, rather than show an empty list.
   const noWorkspaceHere = workspaces.length > 0 && workspacesHere.length === 0 && !workspacesElsewhere

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { StartOutreachGroup } from '../../../../ehr-blue/departments/outreach/StartOutreachGroup'
@@ -8,11 +8,16 @@ import { StartOutreachGroup } from '../../../../ehr-blue/departments/outreach/St
  * "Start an outreach group" (owner decision 5 of 11 November 2026): a hospital worker's login starts its own outreach
  * group, becomes its organiser and keeps its hospital roles, then opens the new group. Fictional data only.
  */
-const staff = vi.hoisted(() => ({ selectFacility: vi.fn(), refresh: vi.fn() }))
+const staff = vi.hoisted(() => ({ selectFacility: vi.fn(), refresh: vi.fn(), products: undefined as readonly string[] | undefined }))
 vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext } = await import('../harness')
-  return { useStaff: () => ({ ...staffContext(fakeFacility(['ehr.encounter.read'], { name: 'Demo Hospital', roles: ['doctor'] })),
-    selectFacility: staff.selectFacility, refresh: staff.refresh }) }
+  return { useStaff: () => {
+    const context = staffContext(fakeFacility(['ehr.encounter.read'], { name: 'Demo Hospital', roles: ['doctor'] }))
+    // actor.products as Identity sends it from Q97 on; none from an Identity before it.
+    const actor = { ...context.state.session.actor, ...(staff.products ? { products: staff.products } : {}) }
+    return { ...context, state: { ...context.state, session: { ...context.state.session, actor } },
+      selectFacility: staff.selectFacility, refresh: staff.refresh }
+  } }
 })
 const api = vi.hoisted(() => ({ outreachGroupAvailability: vi.fn(), startOutreachGroup: vi.fn() }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
@@ -21,12 +26,15 @@ const NEW_GROUP = '0e7c0000-0000-4000-8000-000000000003'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  staff.products = undefined
   api.outreachGroupAvailability.mockResolvedValue({ open: true, termsVersion: '2026-11-01' })
   api.startOutreachGroup.mockResolvedValue({ started: true, organizationId: 'org-3', facilityId: NEW_GROUP, membershipId: 'm-3', organiserStatus: 'active',
     label: 'Unverified organiser' })
   staff.refresh.mockResolvedValue(undefined)
   staff.selectFacility.mockResolvedValue(true)
 })
+
+afterEach(() => { vi.unstubAllGlobals() })
 
 function open() {
   return render(<MemoryRouter initialEntries={['/provider/start-outreach-group']}><Routes>
@@ -100,5 +108,75 @@ describe('Start an outreach group', () => {
     open()
     expect(await screen.findByText('Signing up to run outreach isn’t open at the moment. Please try again later.')).toBeTruthy()
     expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  // Q88 (17 Nov 2026): ehr.'s session keeps only the facilities that fit the EHR, so a group started there could never
+  // be opened there (its organiser membership fits outreach. alone). The page points to Health ID Outreach instead.
+  it.each(['ehr.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com'])(
+    'on %s offers no form, sends nothing, and points to Health ID Outreach', async (hostname) => {
+      vi.stubGlobal('location', { ...window.location, hostname })
+      open()
+      const link = await screen.findByRole('link', { name: 'Go to Health ID Outreach' })
+      expect(link.getAttribute('href')).toBe(`https://outreach.${hostname.replace(/^[a-z]+\./, '')}/provider/start-outreach-group`)
+      expect(screen.getByText(/Sign in there with the same login to start yours/)).toBeTruthy()
+      expect(document.body.textContent).not.toContain('Switch facility')
+      expect(screen.queryByRole('textbox')).toBeNull()
+      expect(api.outreachGroupAvailability).not.toHaveBeenCalled()
+      expect(api.startOutreachGroup).not.toHaveBeenCalled()
+      expect(staff.selectFacility).not.toHaveBeenCalled()
+    })
+
+  // Q97: each staff site for its own job. A doctor's login is refused on Health ID Outreach, so nothing links there; the
+  // same login can still start its own group (decision 5): the form runs on Health ID EHR, and the group opens on Outreach.
+  it('on ehr., for a login that cannot open Health ID Outreach, runs the form there and points to Outreach once started', async () => {
+    staff.products = ['ehr', 'migrate']
+    // The session read again after the start lists Health ID Outreach, the new group's site.
+    staff.refresh.mockImplementation(async () => { staff.products = ['ehr', 'migrate', 'outreach'] })
+    vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
+    open()
+    fireEvent.change(await screen.findByRole('textbox', { name: /Group name/ }), { target: { value: 'Yaba Health Volunteers' } })
+    expect(screen.getByText(/the group runs on Health ID Outreach/)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Switch facility')
+    expect(api.outreachGroupAvailability).toHaveBeenCalledTimes(1)
+    fireEvent.change(screen.getByRole('textbox', { name: /Phone number/ }), { target: { value: '08012345678' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /accept the organiser terms/ }))
+    await press('Start my outreach group')
+    expect(api.startOutreachGroup).toHaveBeenCalledTimes(1)
+    expect(staff.refresh).toHaveBeenCalledTimes(1)
+    // The group's membership fits Health ID Outreach only: it is not chosen here.
+    expect(staff.selectFacility).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: 'Your outreach group is ready' })).toBeTruthy()
+    expect(screen.getByText(/Sign in there with this\s+same login to open Yaba Health Volunteers/)).toBeTruthy()
+    const link = screen.getByRole('link', { name: 'Go to Health ID Outreach' })
+    expect(link.getAttribute('href')).toBe('https://outreach.healthidentitydirectory.com/')
+    expect(document.body.textContent).not.toContain('Switch facility')
+    expect(document.body.textContent).not.toMatch(/unverified/i)
+  })
+
+  it('on lab., for a login that cannot open Health ID Outreach, says so and links nowhere', async () => {
+    staff.products = ['lab']
+    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com' })
+    open()
+    expect(await screen.findByText(/this login isn’t set up for Health ID Outreach/)).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/unverified/i)
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(api.outreachGroupAvailability).not.toHaveBeenCalled()
+    expect(api.startOutreachGroup).not.toHaveBeenCalled()
+  })
+
+  it('on ehr., for a login that can open Health ID Outreach, still points there', async () => {
+    staff.products = ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach']
+    vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
+    open()
+    const link = await screen.findByRole('link', { name: 'Go to Health ID Outreach' })
+    expect(link.getAttribute('href')).toBe('https://outreach.healthidentitydirectory.com/provider/start-outreach-group')
+  })
+
+  it('on outreach. runs the form as before', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'outreach.healthidentitydirectory.com' })
+    open()
+    expect(await screen.findByRole('textbox', { name: /Group name/ })).toBeTruthy()
+    expect(api.outreachGroupAvailability).toHaveBeenCalledTimes(1)
   })
 })

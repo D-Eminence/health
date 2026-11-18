@@ -37,13 +37,11 @@ const pages = [
     start: api.recoveryStart, verify: api.recoveryVerify, open: () => render(<MemoryRouter><Recovery /></MemoryRouter>),
     // Six boxes (CodeBoxes.tsx): the sixth digit sends the code.
     send: (code: HTMLElement, value: string) => enterCode(code, value) },
-  { name: 'provider', field: 'Work email', identifier: 'clinician@example.test', same: /same work email/,
-    different: 'Use a different work email', sendCode: 'Send recovery code', codeLabel: 'Recovery code',
+  // The staff and admin resets look and work as the patient's (owner's answer to Q89): six boxes, the sixth digit sends.
+  { name: 'provider', field: 'Work email', identifier: 'clinician@example.test', same: /^No code\? Start again to get a new one\./,
+    different: 'Use a different email', sendCode: 'Send code', codeLabel: 'Code',
     start: principal.start, verify: principal.verify, open: () => render(<MemoryRouter><PrincipalRecovery audience="staff" /></MemoryRouter>),
-    send: async (code: HTMLElement, value: string) => {
-      fireEvent.change(code, { target: { value } })
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
-    } },
+    send: (code: HTMLElement, value: string) => enterCode(code, value) },
 ] as const
 const NEW_CODE = 'Start again for a new code'
 

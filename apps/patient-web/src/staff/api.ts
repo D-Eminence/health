@@ -17,7 +17,7 @@ import {
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
-import { staffLoginAction } from '../productHostname'
+import { staffLoginAction, type StaffProductKey } from '../productHostname'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
@@ -49,6 +49,15 @@ export interface Actor {
   permissions: string[]
   facilities: Facility[]
   facility?: Facility
+  /**
+   * The staff product sites this login can open (hid-system INTERFACE_CONTRACT section 53, owner decision Q97: each
+   * staff site for its own job), in the fixed order ehr, lab, pharmacy, migrate, outreach. Worked out by Identity with
+   * the sign-in's own rule over all the account's active memberships, so the same on every site: ['outreach'] for a
+   * login with no facility yet (Q88), [] for a platform administrator with no membership. Staff actors only; an
+   * Identity before Q97 sends none, and then every site is offered as before (productSites.ts sitesThisLoginOpens).
+   * Copy only: Identity decides every sign-in and request.
+   */
+  products?: readonly StaffProductKey[]
 }
 
 /**
@@ -2392,6 +2401,9 @@ export const staffApi = {
   requestAccess: (facilityId: string, hid: string, scope: 'read_records' | 'write_records', reason: string, durationMinutes: number) =>
     client.post<AccessRequest>('/api/v1/identity/access-requests', { hid: hid.trim().toUpperCase(), scope, reason, durationMinutes },
       { headers: facilityHeaders(facilityId) }),
+  // A patient's Access PIN opens their records for 24 hours, to see and add to (owner, 10 Nov 2026): hid-system's
+  // database (0122) gives 1440 minutes whatever is asked. The call asks for 60, which Identity accepts both before that
+  // release (at most 60) and after it (5 to 1440), so the website and the backend can be released in either order.
   verifyPin: (facilityId: string, hid: string, pin: string) =>
     client.post<GrantResult>('/api/v1/identity/standard-access/pin', { hid: hid.trim().toUpperCase(), pin, durationMinutes: 60 },
       { headers: facilityHeaders(facilityId) }),

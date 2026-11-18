@@ -16,13 +16,17 @@ import {
 } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
+import { codeOf, DIAGNOSES, namesOf } from '../parts/vocabulary'
 
 // Today's "Add diagnoses" fields, in its order and words (Clinical.tsx:566).
+// The diagnosis first, with suggestions as it is typed: picking one fills its ICD-10 code and code system (owner,
+// 18 Nov 2026). Today's "Display" (Clinical.tsx:568) is the record's field name; the form says what it is.
 const ADD_FIELDS: readonly FieldDef[] = [
+  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500, suggestions: namesOf(DIAGNOSES),
+    hint: 'Start typing, then pick from the list to fill its ICD-10 code.',
+    fills: value => { const code = codeOf(DIAGNOSES, value); return code ? { code, codeSystem: 'ICD-10' } : null } },
   { key: 'codeSystem', label: 'Code system', required: true, placeholder: 'ICD-10', maxLength: 255, row: 'code' },
   { key: 'code', label: 'Code', required: true, maxLength: 100, row: 'code' },
-  // Today's "Display" (Clinical.tsx:568) is the record's field name; the form says what it is.
-  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500 },
   { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
   { key: 'verificationStatus', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
@@ -203,7 +207,7 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
       {canWrite ? (
         <>
           <SubHeading>Add diagnoses</SubHeading>
-          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Save record" submitVariant="secondary" onSubmit={add} />
+          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Add diagnosis" submitVariant="secondary" onSubmit={add} />
         </>
       ) : null}
     </EhrCard>

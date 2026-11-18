@@ -1,3 +1,4 @@
+import { actionVariant } from '../actionVariant'
 import {
   useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode,
   type RefObject,
@@ -447,8 +448,8 @@ function SampleDetail({ module, base, id }: { readonly module: Module; readonly 
           <EhrCard title="Available actions">
             {available.length ? (
               <div className="hid-ehr-blue-actions-vertical">
-                {available.map(action => (
-                  <EhrButton key={action.id} variant="secondary" onClick={() => setSelected(action)}>
+                {available.map((action, index) => (
+                  <EhrButton key={action.id} variant={actionVariant(action.label, index, available.map(other => other.label))} onClick={() => setSelected(action)}>
                     {action.label}
                   </EhrButton>
                 ))}

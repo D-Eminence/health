@@ -5,6 +5,7 @@ import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
 import { isHidApiError, PLAIN, PlainError, plainErrorText } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment, type StaffSession } from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
+import { opensAccountOnly } from './accountOnly'
 import {
   announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
   setStaffSessionFacilities, setStaffSessionReady, staffReturnPath, staffSessionEndReason, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
@@ -36,7 +37,7 @@ import { healthIdUnavailable, noConnection, outreachEntriesLeftFor, purgeExpired
 import { dropExpiredClaimCodes, forgetOutreachTab, halfTypedRegistrationFor, rememberTabFacility, tabFacilityToRestore, unsavedHealthChecksFor } from '../ehr-blue/departments/outreach/tabMemory'
 import { NoSignalBanner } from '../ehr-blue/departments/outreach/noSignal'
 import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, touchOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
-import { offeredHere, otherStaffSites, siteElsewhere, siteHref, siteOf, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
+import { offeredHere, otherStaffSites, siteElsewhere, siteHref, siteOf, sitesThisLoginOpens, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -47,6 +48,8 @@ const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame
 // Outreach with no signal, on Health ID Outreach's own site only: loaded (and so kept by the offline app shell) while
 // there is signal, by the Outreach page itself (Outreach.tsx), and opened from here when the session can't be read.
 const OfflineOutreach = lazy(() => import('../ehr-blue/departments/outreach/OfflineOutreach'))
+// A staff login with no facility yet, on outreach.: "Start an outreach group" alone (owner's answer to Q88).
+const AccountOnlyOutreach = lazy(() => import('../ehr-blue/departments/outreach/AccountOnlyOutreach'))
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
@@ -773,7 +776,7 @@ function Gate({ children }: { children: ReactNode }) {
     </Suspense>
   }
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
-  if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
+  if (state.status === 'loading') return <main className="staff-centered staff-centered-quiet"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
   if (state.status === 'signed-out') {
     // Signed out on the join page (an invitation's link, Novu, P4b), the sign-in comes back to it; the link itself
@@ -787,12 +790,17 @@ function Gate({ children }: { children: ReactNode }) {
     const signInPath = productRoute ? `/provider/sign-in?returnTo=${encodeURIComponent(productRoute)}` : '/provider/sign-in'
     return <Navigate to={signInPath} replace />
   }
-  if (state.session.actor.facilities.length === 0) return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></main>
+  // A staff login with no facility yet: on outreach. it opens "Start an outreach group" and nothing else; anywhere else
+  // identity-api refuses its sign-in, and a session that still arrives (a platform administrator's) is told so here.
+  const accountOnly = opensAccountOnly(state.session)
+  if (state.session.actor.facilities.length === 0 && !accountOnly) return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></main>
   // Locked, the workspace is hidden and inert but stays mounted: nothing reloads,
   // and a session the server still accepts gets it back as it was.
   return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}{noSignal && lock === null && <NoSignalBanner />}
     {signOutQuestion && <SignOutPrompt question={signOutQuestion} />}
-    <div hidden={lock !== null} inert={lock !== null || signOutQuestion !== null}>{children}</div></>
+    <div hidden={lock !== null} inert={lock !== null || signOutQuestion !== null}>{accountOnly
+      ? <Suspense fallback={<main className="staff-centered"><p role="status">Opening Start an outreach group…</p></main>}><AccountOnlyOutreach /></Suspense>
+      : children}</div></>
 }
 
 /**
@@ -924,6 +932,7 @@ function ProviderTitle() {
         : state.status === 'error' ? 'Session unavailable'
           : state.status === 'offline' ? 'Outreach (no signal)'
           : lock === 'unconfirmed' ? 'Session not confirmed'
+            : state.status === 'ready' && opensAccountOnly(state.session) ? 'Start an outreach group'
             : state.status === 'ready' && state.session.actor.facilities.length === 0 ? 'No facility assignment'
               // The question holds the page back (Shell shows it in the page's place), so it names the tab.
               : state.status === 'ready' && (state.facilityLost || facilityChoiceNeeded(state.session)) ? 'Where are you working?'
@@ -1000,10 +1009,11 @@ function Shell() {
   const { actor } = state.session
   const currentFacility = actor.facility
   // Each product on its own site (productSites.ts): the sidebar lists what this site's product opens, and links to the
-  // other products' sites for their own pages the facility may open. A demo facility works on its own sites.
+  // other products' sites for their own pages the facility may open, those this login can open (actor.products, Q97).
+  // A demo facility works on its own site.
   const permitted = visibleNavigation(currentFacility)
   const visible = permitted.filter(item => offeredHere(item.to))
-  const otherSites = otherStaffSites(permitted.map(item => item.to))
+  const otherSites = sitesThisLoginOpens(otherStaffSites(permitted.map(item => item.to)), actor.products)
   const demoSite = demoFacilitySiteFrom(currentFacility?.id, siteOf(window.location.hostname)?.key)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null
   const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`

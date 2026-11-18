@@ -23,7 +23,9 @@ function required(label: string): ReactNode {
  * identity" are not asked (owner decisions D11, D12). Without NIN verification enabled, the form says so in today's
  * words and nothing can be sent.
  */
-export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack }: {
+export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false }: {
+  /** In the side drawer over the list: the drawer's own X closes it, so no Back to list. */
+  readonly inDrawer?: boolean
   readonly availability: Availability
   readonly busy: boolean
   readonly problems: FormProblems
@@ -37,7 +39,7 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
   const { capabilities } = availability
   const enabled = capabilities?.nin.enabled === true
   return (
-    <DeptPage title={NEW_TITLE} className="hid-ehr-dept-registration-page" primaryAction={(
+    <DeptPage title={NEW_TITLE} className="hid-ehr-dept-registration-page" primaryAction={inDrawer ? undefined : (
       // Unavailable while the NIN is verified, so its answer (a refusal to correct, or the case made) is not lost.
       <EhrButton variant="secondary" className="hid-ehr-dept-registration-unavailable" aria-disabled={busy || undefined}
         onClick={() => { if (!busy) onBack() }}>{BACK_TO_LIST}</EhrButton>
@@ -90,7 +92,7 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
             </fieldset>
           </form>
         )}
-        <UnavailableAction label={DISTINCT_PERSON} reason={NO_OVERRIDE} variant="primary" />
+        <UnavailableAction label={DISTINCT_PERSON} reason={NO_OVERRIDE} variant="secondary" />
       </DeptSection>
     </DeptPage>
   )

@@ -2,13 +2,14 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
-import { Alert, Button } from '../../../kasuwa/ui'
+import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { staffApi, type OutreachGroupDetails } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
-import { OUTREACH_TERMS_PATH } from '../../../productHostname'
+import { OUTREACH_TERMS_PATH, PRODUCT_SITE_NAMES, startOutreachGroupHere, startOutreachGroupHref } from '../../../productHostname'
 import { ORGANISER_TERMS_SUMMARY, ORGANISER_TERMS_VERSION, organiserTermsAheadOfPage } from '../../../outreachTerms'
 import { isOutreachProblem, outreachProblemText, SIGNUP_CLOSED, signupClosed, TERMS_CHANGED } from '../../../outreachProblems'
 import { groupDetailsProblems } from '../../../outreachGroupDetails'
+import { loginOpensSite, siteElsewhere, siteHref, startOutreachGroupRunsHere } from '../../../productSites'
 import { controlProps, ErrorBox, OutreachField } from './outreachParts'
 
 type Field = 'groupName' | 'phone' | 'registrationNumber' | 'terms'
@@ -33,9 +34,16 @@ export function StartOutreachGroup() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [started, setStarted] = useState<string | null>(null)
+  // Health ID Outreach runs this page (Q88): elsewhere a new group could never be opened, so this page points there.
+  // Except on Health ID EHR for a login Health ID Outreach refuses (Q97: a doctor, clinician, nurse or receptionist): the
+  // form runs here, so the same login can still start its own group (decision 5), and the group then opens there.
+  const outreachHere = startOutreachGroupHere(window.location.hostname)
+  const here = startOutreachGroupRunsHere(window.location.hostname, state.status === 'ready' ? state.session.actor.products : undefined)
+  const outreachSite = outreachHere ? null : siteElsewhere('outreach')
 
   // Fails safe: the form shows only once Identity says it is open.
   useEffect(() => {
+    if (!here) return
     let active = true
     staffApi.outreachGroupAvailability().then(answer => {
       if (!active) return
@@ -44,9 +52,29 @@ export function StartOutreachGroup() {
       setOpen(answer?.open === true)
     }, () => { if (active) setOpen(false) })
     return () => { active = false }
-  }, [])
+  }, [here])
 
   if (state.status !== 'ready') return null
+  // Started (or starting) on Health ID EHR: the session read again now lists Health ID Outreach (the new group's site), so
+  // the page that ran the form stays on it, and says what was done.
+  const runsHere = here || busy || started !== null
+  if (!runsHere && !loginOpensSite('outreach', state.session.actor.products)) {
+    // Each staff site for its own job (Q97): this login is refused on Health ID Outreach, so no link goes there. Only on a
+    // single product's site (Lab, Pharmacy, Migrate), which opens this page in no menu: on Health ID EHR the form runs.
+    return <FormPage title="Start an outreach group" description={`Outreach groups are run on ${PRODUCT_SITE_NAMES.outreach}, `
+      + `and this login isn’t set up for ${PRODUCT_SITE_NAMES.outreach}. Your work here stays exactly as it is.`}>{null}</FormPage>
+  }
+  if (!runsHere) {
+    return <FormPage title="Start an outreach group" description={`Outreach groups are run on ${PRODUCT_SITE_NAMES.outreach}. `
+      + 'Sign in there with the same login to start yours. Your work here stays exactly as it is.'}>
+      <FormActions sticky={false} align="start">
+        <a className={buttonClass({ variant: 'primary' })} href={startOutreachGroupHref(window.location.hostname)}>
+          Go to {PRODUCT_SITE_NAMES.outreach}</a>
+      </FormActions>
+    </FormPage>
+  }
+  // No facility or outreach group yet (owner's answer to Q88): this is the only page the login opens, on outreach.
+  const accountOnly = state.session.actor.facilities.length === 0
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -61,11 +89,15 @@ export function StartOutreachGroup() {
       const registration = details.registrationNumber?.replace(/\s+/g, '').toUpperCase()
       const answer = await staffApi.startOutreachGroup({ groupName: details.groupName.trim(), kind: details.kind, phone: details.phone.trim(),
         ...(registration ? { registrationNumber: registration } : {}), termsVersion: ORGANISER_TERMS_VERSION, acceptTerms: true })
-      // Open the new group: its membership is new, so the session is read again first.
+      // Open the new group: its membership is new, so the session is read again first. A login with no facility before
+      // (account only) chooses the group straight away: that answer carries the new membership, and reading the session
+      // first would open the workspace around this page before the group is chosen.
       let switched = false
       try {
-        await refresh()
-        switched = await selectFacility(answer.facilityId)
+        if (!accountOnly) await refresh()
+        // Chosen here only on Health ID Outreach (and hosts with no product). On Health ID EHR (Q97) the group's
+        // membership fits Health ID Outreach only, so it opens there, not here.
+        if (outreachHere) switched = await selectFacility(answer.facilityId)
       } catch { /* said below: the group exists, and Switch facility opens it */ }
       if (switched) navigate('/provider/outreach')
       else setStarted(details.groupName.trim())
@@ -78,8 +110,13 @@ export function StartOutreachGroup() {
     }
   }
 
-  const description = 'Run outreach events with your own volunteer group, using the login you already have. Your hospital '
-    + 'work stays exactly as it is: use Switch facility to move between them.'
+  const description = accountOnly
+    ? 'Run outreach events with your own volunteer group, using the login you already have. You become its organiser.'
+    : !outreachHere
+      ? 'Run outreach events with your own volunteer group, using the login you already have. You become its organiser, and '
+        + `the group runs on ${PRODUCT_SITE_NAMES.outreach}. Your hospital work here stays exactly as it is.`
+      : 'Run outreach events with your own volunteer group, using the login you already have. Your hospital '
+        + 'work stays exactly as it is: use Switch facility to move between them.'
   if (open === null) return <FormPage title="Start an outreach group" description={description}><p role="status">Checking that this is open…</p></FormPage>
   if (!open) {
     return <FormPage title="Start an outreach group" description={description}>
@@ -93,6 +130,25 @@ export function StartOutreachGroup() {
     </FormPage>
   }
   if (started) {
+    // With no facility before, the session is read again to open the group (the workspace then opens around it).
+    if (accountOnly) {
+      return <FormPage title="Your outreach group is ready" description={`You are the organiser of ${started}.`}>
+        <Alert intent="success" title="Group started">Open {started}, then create its first campaign and invite your team.</Alert>
+        <FormActions sticky={false} align="start"><Button variant="primary"
+          onClick={() => { void refresh().then(() => navigate('/provider/outreach'), () => undefined) }}>Open my outreach group</Button></FormActions>
+      </FormPage>
+    }
+    if (!outreachHere) {
+      // Started on Health ID EHR (Q97): the group opens on Health ID Outreach, where this login now signs in with it.
+      return <FormPage title="Your outreach group is ready" description={`You are the organiser of ${started}.`}>
+        <Alert intent="success" title="Group started">Your group runs on {PRODUCT_SITE_NAMES.outreach}. Sign in there with this
+          same login to open {started}, then create its first campaign and invite your team. Your work here stays exactly as
+          it is.</Alert>
+        {outreachSite ? <FormActions sticky={false} align="start">
+          <a className={buttonClass({ variant: 'primary' })} href={siteHref(outreachSite)}>Go to {PRODUCT_SITE_NAMES.outreach}</a>
+        </FormActions> : null}
+      </FormPage>
+    }
     return <FormPage title="Your outreach group is ready" description={`You are the organiser of ${started}.`}>
       <Alert intent="success" title="Group started">Use Switch facility to open {started}, then create its first campaign and
         invite your team.</Alert>

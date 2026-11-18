@@ -58,7 +58,8 @@ npm run audit:boundaries
 npm run check
 npm run test:edge
 npm run test:release
-npm audit --audit-level=high
+npm run test:audit-gate
+npm run audit:dependencies
 npm run build:staging
 python scripts/prepare-staging-workers.py --dry-run
 ```

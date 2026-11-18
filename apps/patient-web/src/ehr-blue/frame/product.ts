@@ -100,10 +100,17 @@ export function productLists(product: Product, path: string): boolean {
  *    keeps it to the demo facilities.
  *  - Facility setup: a facility that signed itself up works on its product's site (signup/AfterSubmit.tsx). Its own
  *    `visible` keeps it to those facilities' staff managers.
- *  - Patients and Access requests: a lab scientist or a pharmacist reaches a record only through a request the patient
- *    approves (parity report 3.1 #7), and the Notifications drawer's "access requests waiting" leads there.
+ *  - Help: the Guide in the top bar of every page leads there ("All guides": PageGuide.tsx), as does Help in the top
+ *    bar and the account menu. It lists nothing anywhere (pages.ts), so it is opened, not listed.
+ * (Patients and Access requests are not among them: every product lists them, by permission, through SHARED above.)
  */
-const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'patients', 'requests'])
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'help'])
+
+/**
+ * "Start an outreach group" (owner decision 5 of 11 November 2026) opens unlisted on Health ID Outreach: Switch facility
+ * links to it, and it is the one page a login with no facility yet opens there (owner's answer to Q88, 17 Nov 2026).
+ */
+const START_OUTREACH_GROUP = 'start-outreach-group'
 
 /**
  * The products with a till of their own (Till / End of day). It leads to the money pages at their own addresses
@@ -120,6 +127,7 @@ const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 export function opensInProduct(product: Product, path: string): boolean {
   const base = basePath(path)
   return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base) || (TILLS.has(product) && COUNTER_PAGES.has(base))
+    || (product === 'outreach' && base === START_OUTREACH_GROUP)
 }
 
 /**

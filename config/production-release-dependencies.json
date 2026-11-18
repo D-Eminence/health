@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "identity-api at 91e9fb0a as deployed by hid-system #252 (outreach sign-in lasts 24 hours; no database change; release 07:14 UTC 2026-11-14). All other services at 4880ee42, as deployed after hid-system #249 (0120 Health ID with no email, signed by the owner in chat on 2026-11-13: \"Q77 0120 signed\"), #250 (0121 outreach registration reads once per query, \"Q78 0121 signed\") and #251 (one declaration for both, retried under \"Q82 yes\"): release run 43521287214; 0120 aaaf65e7…d2d5 and 0121 f03a404a…43fe applied 2026-11-13 22:50 UTC. Builds on 8d6d9736 (0118, \"Q69 0118 signed\") and 2ddf1be6 (0119).",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44339052029-1-c6d504463610e4f8 (hid-system #269 merge afec3f75, Akos EHR backend wave 1, no migration; deployed and verified 2026-11-18 about 16:15 UTC). That release rebuilt identity-api, ehr-api, lab-api, pharmacy-api and ocr-api at afec3f75; gateway, outreach-api, support-api and notification-api stay at 498e2f82 (hid-system #268, the owner-signed 0124-0127 release, Q98). New browser-facing routes are additive (open-today visit, latest vitals, order progress, registration-case list, staff profile, OCR job list, NIN status); changeReason becomes optional only for a first note signature or first prescription activation. Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "identity-api": "91e9fb0abe2fe15c4afd7a49cfa259f09819827c",
-    "ehr-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "lab-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "pharmacy-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "ocr-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "outreach-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "support-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7",
-    "notification-api": "4880ee428747c1e9f4ed9246e68f72bf5f683ea7"
+    "gateway": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "identity-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "ehr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "lab-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "pharmacy-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "ocr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "outreach-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "support-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "notification-api": "498e2f822c711a1dd67175cc99a019d81c15bce3"
   }
 }

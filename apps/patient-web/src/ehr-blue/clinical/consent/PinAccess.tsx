@@ -16,6 +16,11 @@ import {
 import { PlainError, plainErrorText } from '@hid/http'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
+/**
+ * What a patient's Access PIN gives, said before it is used: all of their records, to see and add to, for 24 hours
+ * (owner, 10 Nov 2026; hid-system grants write_records for 1440 minutes). The same roles may use it as before.
+ */
+export const PIN_GIVES = 'Their PIN lets you see and add to their records for 24 hours.'
 const PIN_NOT_RIGHT = 'That PIN isn’t right. Check it with the patient and try again.'
 /**
  * A PIN check Identity refused, in plain words. Identity answers every failed check with 403 PATIENT_PIN_ACCESS_DENIED
@@ -103,6 +108,7 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
       back={{ to: href(), label: backLabel }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
+          <p className="m-0 text-[13px] text-ink-2">{PIN_GIVES}</p>
           {isDemoFacility(facility?.id) ? <p className="m-0 text-[13px] text-ink-3">{DEMO_PIN_NOTE}</p> : null}
           <Field label="Health ID" htmlFor={hidId} hint={HID_FORMAT} hintId={`${hidId}-hint`} error={shown('hid')} errorId={`${hidId}-error`}>
             <Input id={hidId} autoComplete="off" spellCheck={false} required value={hid} placeholder="HID-ADA2345"

@@ -17,6 +17,9 @@ import { Avatar, cx, type Icon } from './ui'
 import { keepTabInside, ThemeSwitch } from './interactive'
 import { focusLost, focusPageHeading } from '../pageFocus'
 
+/** Router state on a move made from the menu or the tab bar: a page chosen there opens as a page, never in a drawer. */
+export const MENU_STATE = { menu: true } as const
+
 /** Whether the sidebar is folded to its rail: kept for the visit only (nothing is stored in the browser). */
 let railed = false
 
@@ -190,7 +193,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const badge = (count: number) => <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1.5 text-[11px] font-semibold text-surface tabular" aria-label={`${count} new`}>{count}</span>
 
   const navLink = (item: NavItem) => (
-    <NavLink to={item.to} end={item.end} title={rail ? item.label : undefined}
+    <NavLink to={item.to} state={MENU_STATE} end={item.end} title={rail ? item.label : undefined}
       className={({ isActive }) => cx('relative flex h-11 items-center gap-3 rounded-xl no-underline transition-colors duration-75',
         rail ? 'mx-auto w-11 justify-center' : 'px-3 text-sm font-medium',
         isActive ? 'bg-hover font-semibold text-ink' : 'text-ink-2 hover:bg-hover/60 hover:text-ink')}>
@@ -280,7 +283,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     {nav.map((group, i) => <div key={group.title ?? i}>
       {group.title && <p className="m-0 px-1 pb-2 text-[13px] font-medium text-ink-3">{group.title}</p>}
       <ul className="m-0 list-none divide-y divide-line overflow-hidden rounded-2xl bg-surface p-0 ring-1 ring-line">
-        {group.items.map(item => <li key={item.to}><Link to={item.to} className={row}>
+        {group.items.map(item => <li key={item.to}><Link to={item.to} state={MENU_STATE} className={row}>
           <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-tray text-ink-2"><item.icon className="size-[18px]" aria-hidden /></span>
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.badge ? badge(item.badge) : null}
@@ -340,12 +343,12 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}
       {/* Up to three places, Menu last; ➕ in the middle when there is something to start. */}
       <div className="mx-auto grid max-w-xl items-end" style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 3) + 1 + (create ? 1 : 0)}, minmax(0, 1fr))` }}>
-        {tabs.slice(0, 2).map(t => <NavLink key={t.to} to={t.to} end={t.end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(t, isActive && !menu)}</NavLink>)}
+        {tabs.slice(0, 2).map(t => <NavLink key={t.to} to={t.to} state={MENU_STATE} end={t.end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(t, isActive && !menu)}</NavLink>)}
         {create ? <div className="flex justify-center pb-1.5">
           <button ref={plus} type="button" onClick={() => setCreating(true)} aria-label={create.label}
             className="-mt-5 inline-flex size-14 cursor-pointer items-center justify-center rounded-full border-0 bg-brand-fill text-white shadow-[0_10px_24px_-8px_rgba(23,92,211,.7)] ring-4 ring-surface transition-transform active:scale-95"><Plus className="size-7" aria-hidden /></button>
         </div> : null}
-        {tabs[2] ? <NavLink to={tabs[2].to} end={tabs[2].end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(tabs[2]!, isActive && !menu)}</NavLink> : null}
+        {tabs[2] ? <NavLink to={tabs[2].to} state={MENU_STATE} end={tabs[2].end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(tabs[2]!, isActive && !menu)}</NavLink> : null}
         <button type="button" onClick={() => menu ? closeMenu() : openMenu()} aria-pressed={menu} className={cx(tabCls(menu), 'cursor-pointer border-0 bg-transparent')}>{tabInner({ icon: MenuIcon, label: 'Menu' }, menu)}</button>
       </div>
     </nav>

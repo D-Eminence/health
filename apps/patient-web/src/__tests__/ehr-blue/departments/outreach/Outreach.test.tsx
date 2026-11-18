@@ -1144,12 +1144,12 @@ describe('linking a registration by Health ID', () => {
     expect(api.outreachCases).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['IDENTITY_AUTHORIZATION_DENIED', 'OUTREACH_PATIENT_ACCESS_REQUIRED'])('says a link refused for want of write access (%s) at the field: they must share for care', async code => {
+  it.each(['IDENTITY_AUTHORIZATION_DENIED', 'OUTREACH_PATIENT_ACCESS_REQUIRED'])('says a link refused for want of write access (%s) at the field: a PIN, a share for care or an approved request', async code => {
     api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Existing patient access is not authorized', { code }))
     const form = await openLinkForm()
     await link(HID, 'Same name, age and phone')
     const field = healthIdField(form)
-    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'))
+    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, you need access to add to their record. Ask them to enter their Access PIN, share their record with your facility for care, or approve your request to see and add to it.'))
     expect(field.getAttribute('aria-invalid')).toBe('true')
     await waitFor(() => expect(document.activeElement).toBe(field))
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
@@ -1164,7 +1164,7 @@ describe('linking a registration by Health ID', () => {
     await link(HID, 'Same name, age and phone')
     expect((await within(form).findByRole('alert')).textContent).toBe(SAID_REFUSED)
     expect(healthIdField(form).getAttribute('aria-invalid')).toBeNull()
-    expect(screen.queryByText(/A PIN only lets you view/)).toBeNull()
+    expect(screen.queryByText(/To link this registration, you need access to add/)).toBeNull()
     expect(document.body.textContent).not.toContain('ACCESS_DENIED')
     expect(document.body.textContent).not.toContain('Access denied')
   })

@@ -1,0 +1,117 @@
+name: Re-pin the website to the live backend
+# Owner decision Q94 5: after every successful production backend release, pin each backend service in
+# config/production-release-dependencies.json to the commit production now runs, then run the website release.
+# Reads production state only (production/current.json and its release receipts, through the release-read role);
+# a message from another workflow is at most a reason to look sooner. See scripts/production_deployment_repin.py.
+on:
+  schedule:
+    - cron: '4,19,34,49 * * * *'
+  # Lets hid-system's backend release ask for a look as soon as it finishes, once it has a credential for that.
+  repository_dispatch:
+    types: [production-backend-released]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: read production and report what would change; commit and release nothing. Works even while the automatic re-pin is switched off.'
+        type: boolean
+        default: true
+      backend_commit:
+        description: 'Optional: the full 40-character hid-system commit you expect the live backend release to be built from. The run refuses if production differs. It only confirms; each pin still comes from production/current.json.'
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: production-backend-repin
+  cancel-in-progress: false
+env:
+  RELEASE_BUCKET: ${{ vars.RELEASE_BUCKET }}
+  RELEASE_KMS_KEY_ARN: ${{ vars.RELEASE_KMS_KEY_ARN }}
+  EXPECTED_BACKEND_COMMIT: ${{ inputs.backend_commit }}
+jobs:
+  plan:
+    # PRODUCTION_AUTO_REPIN_ENABLED is the owner's switch. Off (unset), only a manual dry run does anything.
+    if: >-
+      (vars.PRODUCTION_AUTO_REPIN_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run))
+      && github.ref == 'refs/heads/main' && github.repository_id == '1428636965'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Read-only: most runs find nothing to do and never get a token that can write.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write   # the release-read role; no environment, so the OIDC subject is ref:refs/heads/main
+    outputs:
+      action: ${{ steps.plan.outputs.action }}
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.PRODUCTION_RELEASE_READ_ROLE_ARN }}
+          aws-region: eu-west-1
+          allowed-account-ids: '659225405023'
+          role-duration-seconds: 900
+          unset-current-credentials: true
+      - name: Decide from production state (read-only, writes nothing)
+        id: plan
+        run: python scripts/production_deployment_repin.py plan --dry-run
+  release:
+    needs: plan
+    # Never on a dry run, and only with the owner's switch on (a manual dry run may run while it is off).
+    if: >-
+      needs.plan.outputs.action != 'none' && needs.plan.outputs.action != ''
+      && vars.PRODUCTION_AUTO_REPIN_ENABLED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write   # push the re-pin commit to main
+      actions: write    # start production-frontends.yml (workflow_dispatch, the one event GITHUB_TOKEN may start)
+      id-token: write   # the release-read role, as above
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.PRODUCTION_RELEASE_READ_ROLE_ARN }}
+          aws-region: eu-west-1
+          allowed-account-ids: '659225405023'
+          role-duration-seconds: 900
+          unset-current-credentials: true
+      # Decided again from fresh reads: anything that changed since the plan job is seen here.
+      - name: Decide again and rewrite the declaration
+        id: plan
+        run: python scripts/production_deployment_repin.py plan
+      - name: Check the re-pinned declaration as the website release will
+        if: steps.plan.outputs.action == 'repin'
+        run: |
+          git diff --name-only --exit-code -- . ':!config/production-release-dependencies.json'
+          python -m unittest discover -s scripts -p 'test_production_deployment*.py'
+          python -m unittest discover -s scripts -p test_production_release.py
+      - name: Commit the re-pin to main
+        if: steps.plan.outputs.action == 'repin'
+        env:
+          REASON: ${{ steps.plan.outputs.reason }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --quiet -m "Re-pin the website to the backend live in production" -m "Automatic (owner decision Q94 5): $REASON" -- config/production-release-dependencies.json
+          # Fast-forward only: if main moved since checkout, this fails and the next run starts again.
+          git push origin HEAD:refs/heads/main
+      - name: Confirm nothing started meanwhile
+        id: recheck
+        if: steps.plan.outputs.action == 'repin' || steps.plan.outputs.action == 'dispatch'
+        run: python scripts/production_deployment_repin.py recheck
+      - name: Start the website release
+        if: steps.recheck.outputs.action == 'dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run production-frontends.yml --repo "$GITHUB_REPOSITORY" --ref main

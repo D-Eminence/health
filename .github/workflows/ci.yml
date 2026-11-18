@@ -56,5 +56,9 @@ jobs:
       - name: Launch build check
         run: npm run audit:launch-build
 
+      # High and critical advisories fail, except a written, expiring exception in
+      # security/npm-audit-exceptions.json (scripts/npm-audit-gate.mjs).
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: |
+          npm run test:audit-gate
+          npm run audit:dependencies

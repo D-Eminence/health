@@ -9,6 +9,8 @@ import { useDeptAccess } from '../parts/access'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { RegistrationList } from './RegistrationList'
 import { RegistrationNew } from './RegistrationNew'
+import { NEW_TITLE } from './registrationText'
+import { Drawer } from '../../../kasuwa/interactive'
 import { RegistrationRecord } from './RegistrationRecord'
 import { DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
 import { useCommandKey, useFormProblems } from './registrationParts'
@@ -99,12 +101,16 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // step that removes its own form (a decision, an enrollment), to the case's heading only if focus was lost
   // (Registration.tsx 185, 209). A request made while the workspace is locked waits until it opens.
   const root = useRef<HTMLDivElement>(null)
+  // The new registration drawer's own title: another drawer (a route drawer under it) has a title of its own.
+  const drawerTitle = useRef<HTMLHeadingElement>(null)
   const [focusRequest, setFocusRequest] = useState<{ readonly id?: string; readonly ifLost: boolean } | null>(null)
   useLayoutEffect(() => {
     if (!focusRequest || lock != null) return
     setFocusRequest(null)
     if (focusRequest.ifLost && !focusLost()) return
-    const target = (focusRequest.id ? document.getElementById(focusRequest.id) : null) ?? root.current?.querySelector<HTMLElement>('h1') ?? null
+    // The new form sits in a drawer over the list: its heading is the drawer's own title.
+    const heading = viewKind.current === 'new' ? drawerTitle.current : root.current?.querySelector<HTMLElement>('h1')
+    const target = (focusRequest.id ? document.getElementById(focusRequest.id) : null) ?? heading ?? null
     if (!target) return
     if (target.tagName === 'H1' && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
     target.focus()
@@ -319,11 +325,26 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     refresh: () => { if (!capabilityLoading) void refreshCapabilities() },
   }
 
+  const list = (
+    <RegistrationList availability={availability} caseIdInput={caseIdInput} onCaseIdInput={setCaseIdInput} caseLoading={caseLoading}
+      busy={busy} problems={caseProblems} error={error?.at === 'find' ? error.text : ''} message={message} visits={visits}
+      onFind={() => { if (!caseLoading && !busy) void loadCase(caseIdInput, 'find') }}
+      onNew={() => go({ kind: 'new' })}
+      onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })} />
+  )
   let content
   if (view.kind === 'new') {
+    // The new registration opens in a side drawer over the list (owner, 18 Nov 2026); the case it makes opens as a page.
     content = (
-      <RegistrationNew availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
-        onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />
+      <>
+        {list}
+        <Drawer open size="lg" title={NEW_TITLE} titleRef={drawerTitle} onClose={() => { if (!busy) go({ kind: 'list' }) }}>
+          <div className="hid-route-drawer">
+            <RegistrationNew inDrawer availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
+              onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />
+          </div>
+        </Drawer>
+      </>
     )
   } else if (view.kind === 'case' && shown) {
     content = (
@@ -334,13 +355,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         onReview={(event, action) => void review(event, action)} onEnroll={event => void enroll(event)} />
     )
   } else {
-    content = (
-      <RegistrationList availability={availability} caseIdInput={caseIdInput} onCaseIdInput={setCaseIdInput} caseLoading={caseLoading}
-        busy={busy} problems={caseProblems} error={error?.at === 'find' ? error.text : ''} message={message} visits={visits}
-        onFind={() => { if (!caseLoading && !busy) void loadCase(caseIdInput, 'find') }}
-        onNew={() => go({ kind: 'new' })}
-        onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })} />
-    )
+    content = list
   }
 
   return (

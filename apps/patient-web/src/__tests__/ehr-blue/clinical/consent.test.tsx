@@ -346,7 +346,7 @@ describe('Patient sharing on Access requests (parity 3.1 #14)', () => {
     expect(screen.getByText(/^Your role at this facility can’t open a patient’s record\./)).toBeTruthy()
     expect(document.body.textContent).not.toContain('identity.patient.read')
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
-    expect(await screen.findByText('You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.')).toBeTruthy()
+    expect(await screen.findByText('Accepted. The patient confirms next, then they appear here with Open.')).toBeTruthy()
     expect(api.acceptShareInvitation).toHaveBeenCalledWith(FACILITY_ID, 'inv-1')
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
@@ -538,6 +538,14 @@ describe('Ask the patient for access (once New external record access)', () => {
 })
 
 describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
+  it('says the PIN lets staff see and add to the patient’s records for 24 hours, before the Health ID', () => {
+    open('/pin')
+    const said = screen.getByText('Their PIN lets you see and add to their records for 24 hours.')
+    expect(said.closest('form')).toBe((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).form)
+    expect(said.compareDocumentPosition(screen.getByLabelText(labelled('Health ID'))) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/60 minutes|one hour|read-only|view only/i)
+  })
+
   it('verifies the PIN without spaces, waits for the session, then opens the patient through the lookup', async () => {
     open('/pin')
     expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()

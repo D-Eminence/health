@@ -5,6 +5,10 @@
 body { margin: 0; }
 #root { min-height: 100svh; }
 .staff-centered { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; color: var(--color-muted); }
+/* The session check on a refresh usually answers in well under a second: nothing shows unless it takes longer (QA P1-2). */
+.staff-centered-quiet { animation: staff-centered-show 160ms ease-out 700ms both; }
+@keyframes staff-centered-show { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .staff-centered-quiet { animation-duration: 1ms; } }
 .staff-state-logo { display: block; width: auto; height: 32px; }
 .staff-session-ended { max-width: 46ch; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; color: var(--color-ink); }
 .staff-session-ended h1 { margin: 0; font-size: 22px; font-weight: 600; }

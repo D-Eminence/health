@@ -23,7 +23,7 @@ const icon = (I: typeof Wallet) => <I aria-hidden strokeWidth={1.8} />
  */
 export const COUNTER_MENU_PERMISSIONS: string[] = ['pharmacy.work-item.read', 'pharmacy.walk-in.create']
 const FINANCE_PERMISSIONS: readonly string[] = ['billing.payment.confirm', 'billing.shift.manage']
-const financeListed = (session: StaffSession) => {
+export const financeListed = (session: StaffSession) => {
   const held = session.actor.facility?.permissions ?? []
   return FINANCE_PERMISSIONS.some(permission => held.includes(permission)) || !COUNTER_MENU_PERMISSIONS.some(permission => held.includes(permission))
 }

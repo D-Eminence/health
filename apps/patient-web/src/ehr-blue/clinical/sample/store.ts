@@ -113,7 +113,8 @@ export function sampleDefinition(id: string): SampleDefinition | undefined {
 
 /** The design's record title: name, title, number, test, modality, procedure, reason, sample code or lot, else the id. */
 export function recordName(record: Pick<SampleRecord, 'id' | 'data'>): string {
-  const keys = ['name', 'title', 'number', 'test', 'modality', 'procedure', 'reason', 'sampleCode', 'lot']
+  // A plain name before an id: what the record is about (a complaint, a diagnosis), never a code where words exist.
+  const keys = ['name', 'title', 'number', 'test', 'modality', 'procedure', 'reason', 'complaint', 'chiefComplaint', 'diagnosis', 'service', 'sampleCode', 'lot']
   for (const key of keys) {
     const value = record.data[key]
     if (value) return String(value)
