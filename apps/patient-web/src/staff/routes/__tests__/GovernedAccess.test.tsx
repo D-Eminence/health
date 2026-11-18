@@ -206,7 +206,7 @@ describe('record changes follow the grant', () => {
     api.lookupPatient.mockResolvedValue(allowedLookup('c0000000-0000-4000-8000-000000000001'))
   })
 
-  it('hides changes under a read-only grant (a patient PIN or a read request)', async () => {
+  it('hides changes under a read-only grant (a read request)', async () => {
     api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care',
       readAllowed: true, writeAllowed: false })
     render(<MemoryRouter><Clinical /></MemoryRouter>)
