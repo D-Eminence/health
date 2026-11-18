@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactElement } from 'react'
 import { DEMO_HOSPITAL_ID, renderDept, type FakeFacility } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
+import { Drawer } from '../../../../kasuwa/interactive'
 import { registrationPage } from '../../../../ehr-blue/departments/registration/page'
 import { BluePagesProvider, OpenPagesProvider } from '../../../../ehr-blue/frame/pageContext'
 import type { EhrBluePage } from '../../../../ehr-blue/frame/types'
@@ -95,8 +96,12 @@ async function press(button: HTMLElement) {
   button.focus()
   await act(async () => { fireEvent.click(button) })
 }
-// The new form opens in a side drawer over the list: its heading is then the drawer's title.
-const heading = () => document.getElementById('hid-drawer-title') ?? screen.getByRole('heading', { level: 1 })
+// The new form opens in a side drawer over the list: its heading is then the drawer's own title (the last drawer's).
+function drawerTitle() {
+  const id = screen.queryAllByRole('dialog').at(-1)?.getAttribute('aria-labelledby')
+  return id ? document.getElementById(id) : null
+}
+const heading = () => drawerTitle() ?? screen.getByRole('heading', { level: 1 })
 const drawer = () => within(screen.getByRole('dialog'))
 const status = () => {
   const region = document.getElementById('registration-status')
@@ -338,6 +343,18 @@ describe('the list view', () => {
 })
 
 describe('the new record form', () => {
+  it('in a drawer over another drawer, focuses its own drawer’s title, not the one under it', async () => {
+    renderDept(<Drawer open onClose={() => {}} title="Find a patient"><PatientRegistration /></Drawer>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
+    await screen.findByLabelText(/^National Identity Number/)
+    const [outer, inner] = screen.getAllByRole('dialog')
+    expect(outer!.getAttribute('aria-labelledby')).not.toBe(inner!.getAttribute('aria-labelledby'))
+    const own = document.getElementById(inner!.getAttribute('aria-labelledby')!)
+    expect(own?.textContent).toBe('New patient registration')
+    expect(inner!.contains(own)).toBe(true)
+    expect(document.activeElement).toBe(own)
+  })
+
   it('opens on its heading with today\'s live fields, the desk\'s contact and existing Health ID required, and no allergies', async () => {
     const nin = await openNew()
     expect(heading().textContent).toBe('New patient registration')

@@ -3,7 +3,7 @@
  * theme toggle. The theme follows the device (prefers-color-scheme); a change made with the toggle holds for the visit
  * only, since this repository persists nothing in browser storage.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react'
 import { Moon, Sun, X } from 'lucide-react'
 import { cx } from './ui'
 
@@ -20,6 +20,11 @@ function useLayer(open: boolean) {
     return () => { const i = openLayers.lastIndexOf(me); if (i >= 0) openLayers.splice(i, 1) }
   }, [open])
   return () => openLayers[openLayers.length - 1] === id.current
+}
+
+/** Whether a dialog or drawer of this kit is open: a page-wide key shortcut stands down under one. */
+export function layerOpen(): boolean {
+  return openLayers.length > 0
 }
 
 const CONTROLS = 'a[href], area[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable="true"]'
@@ -122,14 +127,18 @@ export function Modal({ open, onClose, title, description, children, footer, siz
  * A drawer: the detail of one thing and what to do with it, without leaving the list (paytrail's Modal, side-docked).
  * From the right on a computer, a sheet from the bottom within thumb reach on a phone. Focus moves in as it opens, stays
  * inside while it is open (Tab and Shift+Tab go round its own controls), and goes back to what opened it as it closes;
- * Escape and the backdrop close it.
+ * Escape and the backdrop close it. Each drawer names itself by its own title (its own id), so a drawer opened over
+ * another is not named by the one under it.
  */
-export function Drawer({ open, onClose, title, description, icon, children, footer, size = 'md' }: {
+export function Drawer({ open, onClose, title, description, icon, children, footer, size = 'md', titleRef }: {
   open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; icon?: ReactNode; children?: ReactNode; footer?: ReactNode
   /** 'lg' for a whole form or record (frame/routeDrawer.tsx): wider, and almost the full height on a phone. */
   size?: 'md' | 'lg'
+  /** This drawer's own title (its h2), for a page that moves focus to it. */
+  titleRef?: Ref<HTMLHeadingElement>
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   const closeRef = useRef(onClose)
   const onTop = useLayer(open)
   const topRef = useRef(onTop)
@@ -152,13 +161,13 @@ export function Drawer({ open, onClose, title, description, icon, children, foot
   if (!open) return null
   return <div className="fixed inset-0 z-[var(--z-drawer)] flex items-end justify-center sm:items-stretch sm:justify-end">
     <div className="absolute inset-0 animate-fade-in bg-[#101828]/45 backdrop-blur-[2px]" onClick={onClose} />
-    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="hid-drawer-title"
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId}
       className={cx('hid-drawer relative flex w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-[var(--shadow-dialog)] ring-1 ring-line sm:max-h-none sm:rounded-none sm:rounded-l-2xl',
         size === 'lg' ? 'max-h-[96vh] sm:w-[min(760px,100vw_-_2rem)]' : 'max-h-[90vh] sm:w-[min(440px,100vw_-_2rem)]')}>
       <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line-strong sm:hidden" aria-hidden="true" />
       <div className="flex items-start gap-3 border-b border-line px-5 py-4">
         {icon}
-        <div className="min-w-0 flex-1"><h2 id="hid-drawer-title" tabIndex={-1} className="m-0 text-title-2 [overflow-wrap:anywhere] text-ink outline-none">{title}</h2>
+        <div className="min-w-0 flex-1"><h2 ref={titleRef} id={titleId} tabIndex={-1} className="m-0 text-title-2 [overflow-wrap:anywhere] text-ink outline-none">{title}</h2>
           {description && <p className="m-0 mt-1 text-[13px] text-ink-3">{description}</p>}</div>
         <button type="button" onClick={onClose} aria-label="Close" className="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-ink-3 hover:bg-hover hover:text-ink sm:size-9"><X className="size-4" /></button>
       </div>

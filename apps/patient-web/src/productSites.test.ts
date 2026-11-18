@@ -163,7 +163,7 @@ describe('offeredHere', () => {
   it.each(['lab', 'pharmacy', 'migrate', 'outreach'] as const)('offers on %s exactly the pages its product opens', product => {
     const hostname = `${product}.healthidentitydirectory.com`
     for (const page of ['', 'patients', 'requests', 'registration', 'in-person-check', 'clinical', 'laboratory', 'pharmacy', 'ocr',
-      'outreach', 'audit', 'billing', 'staff', 'institutions', 'whats-left', 'onboarding', 'payments', 'end-of-day']) {
+      'outreach', 'audit', 'billing', 'staff', 'institutions', 'whats-left', 'onboarding', 'payments', 'end-of-day', 'help']) {
       expect(offeredHere(page ? `/provider/${page}` : '/provider', hostname), `${page} on ${hostname}`).toBe(opensInProduct(product, page))
     }
   })

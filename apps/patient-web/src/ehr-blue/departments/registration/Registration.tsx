@@ -101,13 +101,15 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // step that removes its own form (a decision, an enrollment), to the case's heading only if focus was lost
   // (Registration.tsx 185, 209). A request made while the workspace is locked waits until it opens.
   const root = useRef<HTMLDivElement>(null)
+  // The new registration drawer's own title: another drawer (a route drawer under it) has a title of its own.
+  const drawerTitle = useRef<HTMLHeadingElement>(null)
   const [focusRequest, setFocusRequest] = useState<{ readonly id?: string; readonly ifLost: boolean } | null>(null)
   useLayoutEffect(() => {
     if (!focusRequest || lock != null) return
     setFocusRequest(null)
     if (focusRequest.ifLost && !focusLost()) return
     // The new form sits in a drawer over the list: its heading is the drawer's own title.
-    const heading = viewKind.current === 'new' ? document.getElementById('hid-drawer-title') : root.current?.querySelector<HTMLElement>('h1')
+    const heading = viewKind.current === 'new' ? drawerTitle.current : root.current?.querySelector<HTMLElement>('h1')
     const target = (focusRequest.id ? document.getElementById(focusRequest.id) : null) ?? heading ?? null
     if (!target) return
     if (target.tagName === 'H1' && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
@@ -336,7 +338,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     content = (
       <>
         {list}
-        <Drawer open size="lg" title={NEW_TITLE} onClose={() => { if (!busy) go({ kind: 'list' }) }}>
+        <Drawer open size="lg" title={NEW_TITLE} titleRef={drawerTitle} onClose={() => { if (!busy) go({ kind: 'list' }) }}>
           <div className="hid-route-drawer">
             <RegistrationNew inDrawer availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
               onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />

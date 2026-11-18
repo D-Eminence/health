@@ -4,9 +4,11 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
-import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { AUTO_LOOKUP_MS, PatientsWorkspace, fieldClock, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
+import { RecordHeading } from '../../../ehr-blue/clinical/parts/Notices'
+import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
@@ -61,8 +63,17 @@ const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health ID
 const CONSENT = { patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true }
 const ENCOUNTER = { id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }
 
+/**
+ * The Health ID field's clock: each change of the field comes `gap` ms after the one before. A person types a letter
+ * 120 ms or so after the last; a scanner types one every few ms. Every test types at a person's pace unless it says.
+ */
+const TYPED_MS = 120
+const fieldTime = { at: 0, gap: TYPED_MS }
+
 beforeEach(() => {
   vi.clearAllMocks()
+  fieldTime.gap = TYPED_MS
+  vi.spyOn(fieldClock, 'now').mockImplementation(() => (fieldTime.at += fieldTime.gap))
   dropOfferedHealthId()
   registry.acceptNeeds = null
   staff.permissions = [...ALL]
@@ -192,9 +203,11 @@ describe('Find a patient', () => {
     expect(document.title).not.toContain(PATIENT_NAME)
   })
 
-  it('looks a whole Health ID up by itself once it is pasted, with no press of Find, and ', async () => {
+  it('looks a whole Health ID up by itself once it is pasted, with no press of Find', async () => {
     open()
     fireEvent.change(searchField(), { target: { value: 'hid-zdem' } })
+    // The paste adds only the last four letters to what was typed: it is the paste, not its length, that counts.
+    fireEvent.paste(searchField())
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
     // The incomplete one was never looked up; the whole one was, first (the patient's page checks access again after).
@@ -202,13 +215,112 @@ describe('Find a patient', () => {
     expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
   })
 
-  it('says what to do next by itself for a pasted Health ID no patient has', async () => {
-    staff.permissions = [...ALL, 'identity.registration.write']
-    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
+  it('looks up by itself a Health ID put in by the browser in one go (a paste or an autofill, by its input type)', async () => {
+    open()
+    fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa' } })
+    fireEvent.input(searchField(), { target: { value: PATIENT_HID }, inputType: 'insertReplacementText' })
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('looks up by itself a Health ID scanned in at once (one change adds six letters or more)', async () => {
     open()
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
-    expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`, undefined, { timeout: 2000 })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('never looks up a typed Health ID by itself: a pause partway through a longer one looks up nobody', async () => {
+    open()
+    // Typed one letter at a time: HID-ZDEMAA is itself a whole Health ID (six letters), the start of HID-ZDEMAAA2.
+    for (const letter of 'ZDEMAA') fireEvent.change(searchField(), { target: { value: `${searchField().value}${letter}` } })
+    expect(searchField().value).toBe('HID-ZDEMAA')
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    // Typed to the end, it still waits for Find.
+    for (const letter of 'A2') fireEvent.change(searchField(), { target: { value: `${searchField().value}${letter}` } })
+    expect(searchField().value).toBe(PATIENT_HID)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
+    fireEvent.click(findButton())
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('a key pressed after a paste that changed nothing is typing again: the letter typed is not looked up by itself', async () => {
+    open()
+    for (const letter of 'ZDEMA') fireEvent.change(searchField(), { target: { value: `${searchField().value}${letter}` } })
+    // A paste that changes nothing (the clipboard was empty), then a letter typed.
+    fireEvent.paste(searchField())
+    fireEvent.keyDown(searchField(), { key: 'A' })
+    fireEvent.change(searchField(), { target: { value: 'HID-ZDEMAA' } })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  /** A scanner (or a person) puts the letters in one change each, as the browser gives them: one letter, typed. */
+  function typeEach(letters: string, gap: number) {
+    fieldTime.gap = gap
+    for (const letter of letters) {
+      fireEvent.input(searchField(), { target: { value: `${searchField().value}${letter}` }, inputType: 'insertText' })
+    }
+  }
+
+  it('looks up by itself a Health ID a scanner types in a burst, one letter at a time, a few ms apart', async () => {
+    open()
+    typeEach(PATIENT_HID.slice('HID-'.length), 10)
+    expect(searchField().value).toBe(PATIENT_HID)
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    // Only the whole Health ID was looked up: the letters kept coming before the shorter one's wait was over.
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+    expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
+  })
+
+  it('looks up a scanned Health ID by itself when the scanner types the HID- prefix too', async () => {
+    open()
+    typeEach(PATIENT_HID, 8)
+    expect(searchField().value).toBe(PATIENT_HID)
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('does not look up by itself the same letters typed 120 ms apart: typing ends with Find', async () => {
+    open()
+    typeEach(PATIENT_HID.slice('HID-'.length), 120)
+    expect(searchField().value).toBe(PATIENT_HID)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('a burst that stops partway, then slower letters: neither the six letters of the burst nor the whole Health ID is looked up by itself', async () => {
+    open()
+    // HID-ZDEMAA, itself a whole Health ID, arrives in a burst: the start of HID-ZDEMAAA2.
+    typeEach('ZDEMAA', 10)
+    expect(searchField().value).toBe('HID-ZDEMAA')
+    // A pause, shorter than the wait before a lookup, then the rest at a person's pace.
+    fieldTime.at += 200
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 200)) })
+    typeEach('A2', 120)
+    expect(searchField().value).toBe(PATIENT_HID)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    fireEvent.click(findButton())
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('shows a pasted Health ID the live API answers 404 NOT_FOUND for as a refused lookup, with no Register a new patient', async () => {
+    // Today's identity-api answers NOT_FOUND both for a Health ID no patient has and for one this facility can't see.
+    staff.permissions = [...ALL, 'identity.registration.write']
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient not found.', { code: 'NOT_FOUND' }))
+    open()
+    fireEvent.paste(searchField())
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    expect(await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`, undefined, { timeout: 2000 })).toBeTruthy()
     expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Register a new patient' })).toBeNull()
   })
 
   it('opens nothing when the session or facility changed while the lookup ran', async () => {
@@ -506,6 +618,46 @@ describe('The open patient’s page', () => {
     expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
+  })
+
+  it('keeps no patient name in history: Back to the patient is named from the patient open in memory as the page draws', async () => {
+    staff.permissions = [...ALL, ...WRITES]
+    staff.activePatient = activePatient()
+    /** What the page opened from the patient's page keeps in history, and its Back, as a record page draws it. */
+    function Opened() {
+      const { state } = useLocation()
+      return <><output data-testid="kept">{JSON.stringify(state)}</output><RecordHeading title="Opened" backHref={`${BASE}/clinical`} /></>
+    }
+    const kept: unknown[] = []
+    for (const step of [/^Start a consultation/, /^Record vitals/, new RegExp(`^${consultationLabel(ENCOUNTER)}`)]) {
+      const page = render(
+        <MemoryRouter initialEntries={[`${BASE}/patients/open`]}>
+          <Routes>
+            <Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} />
+            <Route path={`${BASE}/clinical/*`} element={<Workspace path="consult"><Opened /></Workspace>} />
+            <Route path={`${BASE}/triage/*`} element={<Workspace path="triage"><Opened /></Workspace>} />
+          </Routes>
+        </MemoryRouter>,
+      )
+      fireEvent.click(await screen.findByRole('button', { name: step }))
+      const state = screen.getByTestId('kept').textContent ?? ''
+      kept.push(JSON.parse(state))
+      expect(state).not.toContain(PATIENT_NAME)
+      expect(state).not.toContain(PATIENT_HID)
+      // Named for the patient as it draws, and going back to their page.
+      fireEvent.click(screen.getByRole('button', { name: `Back to ${PATIENT_NAME}` }))
+      expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+      page.unmount()
+    }
+    expect(kept).toEqual(Array(3).fill({ from: { to: `${BASE}/patients/open`, label: 'Back to patient', patient: true } }))
+    // With no patient open in memory, Back keeps its plain name.
+    staff.activePatient = null
+    render(
+      <MemoryRouter initialEntries={[{ pathname: `${BASE}/clinical/new`, state: kept[0] }]}>
+        <Routes><Route path={`${BASE}/clinical/*`} element={<Workspace path="consult"><Opened /></Workspace>} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: 'Back to patient' })).toBeTruthy()
   })
 
   it('hand-off 01: offers Start a consultation and Record vitals only to a role that may write them', () => {
@@ -1515,7 +1667,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expectNoHealthIdInAnyAddress()
     })
 
-    it('a Health ID no patient has offers registering a new patient, not ways to get access', async () => {
+    it('dormant until the backend answers Q100: a PATIENT_NOT_FOUND answer offers registering a new patient, not ways to get access', async () => {
       staff.permissions = [...WITH_ACCESS, 'identity.registration.write']
       api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
       openTracked()
