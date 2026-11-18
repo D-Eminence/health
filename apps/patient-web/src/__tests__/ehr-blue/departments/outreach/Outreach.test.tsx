@@ -1123,6 +1123,17 @@ describe('linking a registration by Health ID', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('does not offer an Access PIN to a member whose role cannot use one (a receptionist): a share for care or an approved request only', async () => {
+    // Only doctors, clinicians and nurses may use a patient's Access PIN, and the access it gives is theirs alone.
+    session.permissions = ALL.filter(permission => permission !== 'identity.patient-access-pin.verify')
+    api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Existing patient access is not authorized', { code: 'IDENTITY_AUTHORIZATION_DENIED' }))
+    const form = await openLinkForm()
+    await link(HID, 'Same name, age and phone')
+    const field = healthIdField(form)
+    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, you need access to add to their record. Ask them to share their record with your facility for care, or approve your request to see and add to it.'))
+    expect(document.body.textContent).not.toContain('Access PIN')
+  })
+
   it('says a refusal alert in the field when focus is in it already', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient was not found', { code: 'NOT_FOUND' }))
     const form = await openLinkForm()
@@ -1145,6 +1156,8 @@ describe('linking a registration by Health ID', () => {
   })
 
   it.each(['IDENTITY_AUTHORIZATION_DENIED', 'OUTREACH_PATIENT_ACCESS_REQUIRED'])('says a link refused for want of write access (%s) at the field: a PIN, a share for care or an approved request', async code => {
+    // A doctor, clinician or nurse: their role may use an Access PIN (identity.patient-access-pin.verify).
+    session.permissions = [...ALL, 'identity.patient-access-pin.verify']
     api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Existing patient access is not authorized', { code }))
     const form = await openLinkForm()
     await link(HID, 'Same name, age and phone')
