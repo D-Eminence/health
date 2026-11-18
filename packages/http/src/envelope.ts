@@ -62,6 +62,8 @@ export interface ParsedErrorEnvelope {
   readonly retryAt: string | null
   /** The actions a refused review lacks, as their codes (D17); null when the problem has none. */
   readonly required: readonly string[] | null
+  /** The problem's `retryAfterSeconds` member: how long until the refused command may be tried again; else null. */
+  readonly retryInSeconds: number | null
 }
 
 /**
@@ -121,6 +123,15 @@ function readRequired(value: unknown): readonly string[] | null {
 }
 
 /**
+ * The problem's `retryAfterSeconds` member (hid-system 0137: 409 NIN_CHECK_IN_PROGRESS, 409 NIN_CHECK_HELD and 504
+ * QOREID_TIMEOUT carry it): a whole number of seconds from 0 to 7 days. Anything else is not one, so no other value can
+ * reach a page.
+ */
+function readRetryAfterSeconds(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 604_800 ? value : null
+}
+
+/**
  * Reads the backend's error envelope out of a failed response.
  *
  * Only fields the backend actually documents are trusted. Anything absent
@@ -159,6 +170,7 @@ export function parseErrorEnvelope(
     attemptsLeft: readAttemptsLeft(record?.attemptsLeft),
     retryAt: readRetryAfter(record?.retryAfter),
     required: readRequired(record?.required),
+    retryInSeconds: readRetryAfterSeconds(record?.retryAfterSeconds),
   }
 }
 

@@ -4,6 +4,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DESK_PREFIX, FIELD, START_HEADING, type Availability } from './registrationModel'
 import { ErrorBox, UnavailableAction, type FormProblems } from './registrationParts'
+import { NIN_STILL_CHECKING } from '../../../ninCheck'
 import { DeskFields } from '../../collected/DeskFields'
 import {
   BACK_TO_LIST, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, DISTINCT_PERSON, DOB_LABEL,
@@ -23,7 +24,7 @@ function required(label: string): ReactNode {
  * identity" are not asked (owner decisions D11, D12). Without NIN verification enabled, the form says so in today's
  * words and nothing can be sent.
  */
-export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false }: {
+export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false, stillChecking = false, held = false }: {
   /** In the side drawer over the list: the drawer's own X closes it, so no Back to list. */
   readonly inDrawer?: boolean
   readonly availability: Availability
@@ -31,6 +32,10 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
   readonly problems: FormProblems
   /** What the last verification's refusal said. */
   readonly error: string
+  /** The NIN check has been waiting a few seconds: the form says it is still checking. */
+  readonly stillChecking?: boolean
+  /** Identity holds this NIN for now: the error says until when, and Verify is off until then. */
+  readonly held?: boolean
   /** Any change to the form: the next verification gets a new Idempotency-Key. */
   readonly onInput: () => void
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -86,8 +91,10 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
               {/* Where the design says how its duplicate review works: what today says the NIN goes through. */}
               <p className="hid-ehr-dept-registration-lead">{START_TEXT}</p>
               <ErrorBox message={error} />
+              {/* Kept mounted, so the line is a change of a live region, not a new one. */}
+              <div role="status">{stillChecking ? <p className="hid-ehr-dept-registration-lead">{NIN_STILL_CHECKING}</p> : null}</div>
               <div className="hid-ehr-dept-registration-footer">
-                <EhrButton type="submit" busy={busy}>{busy ? VERIFYING : VERIFY}</EhrButton>
+                <EhrButton type="submit" busy={busy} disabled={held}>{busy ? VERIFYING : VERIFY}</EhrButton>
               </div>
             </fieldset>
           </form>

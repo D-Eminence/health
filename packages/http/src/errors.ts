@@ -46,6 +46,8 @@ export interface HidApiErrorOptions {
   readonly retryAt?: string | null
   /** The problem's `required` member: the actions a refused review lacks (D17, support's review). */
   readonly required?: readonly string[] | null
+  /** The problem's `retryAfterSeconds` member: seconds until the refused command may be tried again (hid-system 0137). */
+  readonly retryInSeconds?: number | null
   readonly cause?: unknown
 }
 
@@ -88,6 +90,12 @@ export class HidApiError extends Error {
    * when the problem has none.
    */
   readonly required: readonly string[] | null
+  /**
+   * The problem's `retryAfterSeconds` member: how many seconds from the answer until the refused command may be tried
+   * again (hid-system 0137, a NIN check in progress, on hold or taking longer than usual). A count, never a submitted
+   * value; null when the problem has none. Not the `Retry-After` header, which the retry loop reads (retryAfterSeconds).
+   */
+  readonly retryInSeconds: number | null
 
   constructor(status: number, message: string, options: HidApiErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -102,6 +110,7 @@ export class HidApiError extends Error {
     this.attemptsLeft = options.attemptsLeft ?? null
     this.retryAt = options.retryAt ?? null
     this.required = options.required ?? null
+    this.retryInSeconds = options.retryInSeconds ?? null
   }
 
   /** True when the caller should send the user back through authentication. */
