@@ -158,7 +158,7 @@ export function PageHeader({ title, description, actions, eyebrow, titleRef, bac
   return <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
     <div className="min-w-0 flex-[1_1_20rem]">
       {eyebrow && <div className={cx('mb-2', back && 'pl-[38px]')}>{eyebrow}</div>}
-      <div className="flex items-center gap-1">
+      <div data-page-title className="flex items-center gap-1">
         {back ? <BackButton to={back.to} label={back.label} /> : null}
         <h1 ref={titleRef} tabIndex={-1} className="m-0 min-w-0 text-title-1 break-words text-ink outline-none">{title}</h1>
       </div>

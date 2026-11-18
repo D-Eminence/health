@@ -6,11 +6,13 @@ import { Drawer } from '../../kasuwa/interactive'
  * Short forms and single records open in a side drawer over the page they were opened from (owner, 18 Nov 2026: "instead
  * of opening another page, it's supposed to be the side drawer"), so the list or the consultation stays where it was.
  *
+ * Find a patient opens in a drawer from a button (Home's Find a patient, Change patient), and as a page from the menu.
  * Each keeps its own address: opened by its link or after a refresh it is a full page as before, and Back closes the
  * drawer. Only these addresses open in a drawer; long step-by-step work (registration, lab work, dispensing, scanning
  * records) stays a page of its own.
  */
 const DRAWER_PATHS: readonly RegExp[] = [
+  /^\/provider\/patients$/,
   /^\/provider\/clinical\/new$/,
   /^\/provider\/clinical\/[^/]+\/orders\/new\/(pharmacy|laboratory)$/,
   /^\/provider\/clinical\/[^/]+\/orders\/(pharmacy|laboratory)\/[^/]+$/,
@@ -28,6 +30,11 @@ const DRAWER_PATHS: readonly RegExp[] = [
 export function opensInDrawer(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, '')
   return DRAWER_PATHS.some(pattern => pattern.test(path))
+}
+
+/** A page chosen from the menu or the tab bar (kasuwa/AppShell MENU_STATE) opens as a page. */
+function fromMenu(state: unknown): boolean {
+  return typeof state === 'object' && state !== null && (state as { menu?: unknown }).menu === true
 }
 
 export interface RouteDrawerState {
@@ -54,7 +61,7 @@ export function useRouteDrawer(): { readonly drawer: RouteDrawerState | null; re
   const [closed, setClosed] = useState(0)
 
   let entry = backgrounds.current.get(location.key)
-  if (!entry && opensInDrawer(location.pathname) && navigationType !== 'POP' && previous.current && previous.current.key !== location.key) {
+  if (!entry && opensInDrawer(location.pathname) && !fromMenu(location.state) && navigationType !== 'POP' && previous.current && previous.current.key !== location.key) {
     const before = previous.current
     const under = opensInDrawer(before.pathname) ? backgrounds.current.get(before.key)?.background : before
     if (under) {

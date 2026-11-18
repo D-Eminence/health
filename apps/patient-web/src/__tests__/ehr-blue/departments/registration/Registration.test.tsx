@@ -95,7 +95,9 @@ async function press(button: HTMLElement) {
   button.focus()
   await act(async () => { fireEvent.click(button) })
 }
-const heading = () => screen.getByRole('heading', { level: 1 })
+// The new form opens in a side drawer over the list: its heading is then the drawer's title.
+const heading = () => document.getElementById('hid-drawer-title') ?? screen.getByRole('heading', { level: 1 })
+const drawer = () => within(screen.getByRole('dialog'))
 const status = () => {
   const region = document.getElementById('registration-status')
   if (!region) throw new Error('The status region is mounted throughout.')
@@ -377,7 +379,7 @@ describe('the new record form', () => {
   it('without NIN verification enabled, says so in today\'s words and sends nothing', async () => {
     api.registrationCapabilities.mockResolvedValue(DEFERRED)
     const nin = await openNew()
-    expect(screen.getByText('NIN checks are not available right now, so new registrations cannot be started here. Try again later.')).toBeTruthy()
+    expect(drawer().getByText('NIN checks are not available right now, so new registrations cannot be started here. Try again later.')).toBeTruthy()
     // The whole fieldset is disabled, so none of it can be used or sent.
     expect(nin.matches(':disabled')).toBe(true)
     expect(screen.getByLabelText(/^First name/).matches(':disabled')).toBe(true)
@@ -421,7 +423,7 @@ describe('the new record form', () => {
     const nin = await openNew()
     fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
     await waitFor(() => expectRefused(nin, 'Enter the 11 digit NIN.'))
-    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     const again = await screen.findByLabelText(/^National Identity Number/)
     expect(again.getAttribute('aria-invalid')).toBeNull()
@@ -433,16 +435,16 @@ describe('the new record form', () => {
     api.registrationCapabilities.mockRejectedValueOnce(new Error('network down'))
     renderDept(<PatientRegistration />)
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Registration capabilities could not be loaded.')
+    expect((await drawer().findByRole('alert')).textContent).toBe('Registration capabilities could not be loaded.')
     const reading = deferred<unknown>()
     api.registrationCapabilities.mockReturnValueOnce(reading.promise)
-    const button = screen.getByRole('button', { name: 'Check again' })
+    const button = drawer().getByRole('button', { name: 'Check again' })
     await press(button)
     expect(button.isConnected).toBe(true)
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.textContent).toBe('Checking…')
     expect(document.activeElement).toBe(button)
-    expect(screen.getByText('Checking whether NIN checks are working…')).toBeTruthy()
+    expect(drawer().getByText('Checking whether NIN checks are working…')).toBeTruthy()
     await act(async () => { reading.resolve(ENABLED) })
     const nin = await screen.findByLabelText(/^National Identity Number/)
     expect(nin.matches(':disabled')).toBe(false)
@@ -564,7 +566,8 @@ describe('the new record form', () => {
     expect(document.activeElement).toBe(button)
     expect(nin.readOnly).toBe(true)
     await act(async () => { fireEvent.click(button) })
-    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    // The drawer stays open while the NIN is checked, so its answer is not lost.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(heading().textContent).toBe('New patient registration')
     expect(api.resolveNin).toHaveBeenCalledTimes(1)
     await act(async () => { verifying.resolve(pending()) })
@@ -640,7 +643,7 @@ describe('Find registration case', () => {
     expect(first.isConnected).toBe(true)
     expect(first.value).toBe('Patient')
     expect(document.activeElement).toBe(first)
-    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     const table = await screen.findByRole('region', { name: 'Registration cases' })
     // Listed by when it was reopened, never by its ID.
     expect(within(table).getByRole('button', { name: 'Earlier registration' })).toBeTruthy()

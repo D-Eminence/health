@@ -1161,7 +1161,9 @@
    this is. */
 .hid-route-drawer .hid-ehr-page-title-row,
 .hid-route-drawer .hid-ehr-page-title,
-.hid-route-drawer .hid-ehr-chart-line { display: none; }
+.hid-route-drawer .hid-ehr-chart-line,
+.hid-route-drawer [data-page-title] { display: none; }
+.hid-route-drawer [data-layout="column"] { max-width: none; }
 .hid-route-drawer .hid-ehr-page-heading { margin-top: 0; }
 .hid-route-drawer .hid-ehr-clinical-page { padding: 0; max-width: none; }
 /* The patient banner stays in view at the top of the drawer as the form scrolls under it. */
