@@ -134,7 +134,7 @@ describe(SITE, () => {
     expect(blueProduct()).toBe('Migrate')
     expect(blueAddresses(nav).filter(address => !offeredHere(address, SITE))).toEqual([])
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
-    expect(await page.findByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
+    expect(await page.findByRole('heading', { level: 1, name: 'Scan paper records' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: /works on/ })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Open Hospital EHR' })).toBeNull()
 
