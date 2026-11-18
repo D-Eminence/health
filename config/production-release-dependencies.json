@@ -3,10 +3,10 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44339052029-1-c6d504463610e4f8 (hid-system #269 merge afec3f75, Akos EHR backend wave 1, no migration; deployed and verified 2026-11-18 about 16:15 UTC). That release rebuilt identity-api, ehr-api, lab-api, pharmacy-api and ocr-api at afec3f75; gateway, outreach-api, support-api and notification-api stay at 498e2f82 (hid-system #268, the owner-signed 0124-0127 release, Q98). New browser-facing routes are additive (open-today visit, latest vitals, order progress, registration-case list, staff profile, OCR job list, NIN status); changeReason becomes optional only for a first note signature or first prescription activation. Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44410720234-1-f14ac5b3031e474b (hid-system #271 merge c0935a62, deployed and verified 2026-11-18 about 23:00 UTC: identity-api waits 12 s for a QoreID NIN answer instead of 5 s; no migration, no browser-facing change). It rebuilt identity-api only; ehr-api, lab-api, pharmacy-api and ocr-api stay at afec3f75 (hid-system #269), gateway, outreach-api, support-api and notification-api at 498e2f82 (hid-system #268). Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
     "gateway": "498e2f822c711a1dd67175cc99a019d81c15bce3",
-    "identity-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "identity-api": "c0935a62d114623bf3db4eb54798ec30c79f4b13",
     "ehr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
     "lab-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
     "pharmacy-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",

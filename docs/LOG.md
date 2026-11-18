@@ -3119,6 +3119,29 @@ Branch `claude/ehr-frame-parity`, after merging main. Each item was checked agai
 - **Not done here:** "Use the classic EHR" (2.3, owner decision), and the status labels in What's left (#21's other half).
 - **Gates:** typecheck, lint, boundaries, the full vitest (9859 tests; the one stale file above failed and passes after its update, rerun alone), the patient-web build and the launch-build check.
 
+## 2026-11-17: Prescribe form: strength, form, how long for, quantity and priority (hid-system 0125)
+
+Ola's prescription details, on the prescribe form of the blue EHR. Tests first
+(`prescribe-dispensing-details.test.tsx`).
+
+- **Shown only when the EHR takes them.** The form reads this consultation's prescriptions list once; only an answer
+  with `dispensingDetails: true` adds Strength, Form, How long for (with Days, weeks or months), Quantity to dispense
+  (with Quantity unit) and Priority, before Instructions. Without the flag, or if the list cannot be read, the form and
+  its request body are today's, key for key.
+  The form now reads the prescriptions list once when it opens, for every prescriber, to learn whether the details are taken.
+- **Checked as the EHR checks them** (hid-system #255, `CreatePrescriptionWithDetailsDto`): a whole number of 1 to 3650
+  with its unit, a quantity above 0 with up to 4 decimal places (at most 99999999.9999) with its unit, 80 characters
+  for the strength and the quantity unit. Each pair goes together. Only the details given are sent, under the EHR's
+  names (`strength`, `doseForm`, `durationValue`, `durationUnit`, `quantityToDispense`, `quantityUnit`, `priority`).
+- **Refusals in plain words.** A refused detail is marked at its field; an incomplete pair says which; if the EHR has
+  stopped taking the details since the list was read, the form says so, takes them off, and the next save sends
+  today's body.
+- **A saved prescription's page** shows each detail the EHR answered (for example "7 days", "21 capsules"), and none
+  for a prescription without them. Stat reads "Stat", as everywhere else in the app.
+- **Priority's hint** says only what is true: the pharmacy sees it on the prescription, it does not alert them, so
+  phone if it cannot wait (the pharmacy work list is not sorted by priority).
+- **Not verified live.** Component tests only; the backend (0125) is not released yet and its setting is off.
+
 ## 2026-11-18: NIN checks wait for QoreID, say plainly why they could not finish
 
 Branch `claude/nin-check-waits`, hid-system #258 hand-over of 18 Nov, item 2. The sign-up's NIN start
