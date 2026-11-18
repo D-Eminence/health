@@ -71,7 +71,7 @@ export const WHATS_NEW: readonly string[] = [
   'Find a patient (from a button), a new registration, New consultation, Record vitals, new prescriptions and lab requests, and Ask for access open in a side panel over the page you’re on. Close it, or press Esc, to carry on where you were.',
   'Typing a diagnosis suggests matches and fills its ICD-10 code. Lab tests, medicines, routes and how often are suggested too.',
   'Common complaints are one tap under the complaint box.',
-  'Guide, in the top bar of every page, explains that page. Press ? to open it.',
+  'Guide, in the top bar of every page, explains that page. Press ? to open it, when you’re not typing in a box.',
   'Find a patient checks a pasted or scanned Health ID at once. A typed one is checked when you select Find.',
   'Back takes you to where you came from: a consultation started from a patient’s page returns to the patient.',
   'Today’s work on Home opens each test or prescription itself.',

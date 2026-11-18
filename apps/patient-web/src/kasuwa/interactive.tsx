@@ -22,6 +22,11 @@ function useLayer(open: boolean) {
   return () => openLayers[openLayers.length - 1] === id.current
 }
 
+/** Whether a dialog or drawer of this kit is open: a page-wide key shortcut stands down under one. */
+export function layerOpen(): boolean {
+  return openLayers.length > 0
+}
+
 const CONTROLS = 'a[href], area[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable="true"]'
 
 /**
