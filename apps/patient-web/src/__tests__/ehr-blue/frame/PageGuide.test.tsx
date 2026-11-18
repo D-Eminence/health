@@ -6,9 +6,9 @@ import { PAGE_GUIDES } from '../../../ehr-blue/frame/pageGuides'
 import { Drawer } from '../../../kasuwa/interactive'
 
 /**
- * The Guide's "?" key (WCAG 2.1.4, character key shortcuts): it opens the page's guide only where "?" can't be typed by
- * mistake. Not in a field, a list or editable text, not with Ctrl, Alt or Cmd, and not while another dialog or drawer
- * is open over the page.
+ * The Guide's shortcut, Alt, Shift and / together: a "?" typed alone never opens it (WCAG 2.1.4, character key
+ * shortcuts). Not in a field, a list or editable text, not with Ctrl or Cmd as well, and not while another dialog or
+ * drawer is open over the page.
  */
 function Page({ other = false }: { other?: boolean }) {
   const [drawer, setDrawer] = useState(other)
@@ -24,16 +24,40 @@ function Page({ other = false }: { other?: boolean }) {
 }
 
 const guide = () => screen.queryByRole('dialog', { name: 'Guide: Patients' })
-const press = (target: Element, init: KeyboardEventInit = {}) => fireEvent.keyDown(target, { key: '?', shiftKey: true, ...init })
+/** Alt, Shift and / together, as a Windows or Linux keyboard gives them ("?"); a test can change any part. */
+const press = (target: Element, init: KeyboardEventInit = {}) =>
+  fireEvent.keyDown(target, { key: '?', code: 'Slash', altKey: true, shiftKey: true, ...init })
 
-describe('the Guide’s ? key', () => {
-  it('opens the guide from the page, with the Shift it is typed with', () => {
+describe('the Guide’s shortcut, Alt, Shift and /', () => {
+  it('opens the guide from the page', () => {
     render(<Page />)
     const button = screen.getByRole('button', { name: 'Somewhere on the page' })
     button.focus()
     press(button)
     expect(guide()).toBeTruthy()
-    expect(guide()!.textContent).toContain('Press ? on any page to open its guide (not while you’re typing in a box).')
+    expect(guide()!.textContent).toContain('Press Alt, Shift and / together on any page to open its guide (not while you’re typing in a box).')
+  })
+
+  it('opens the guide on a Mac, where Option and Shift with / give another character', () => {
+    render(<Page />)
+    press(document.body, { key: '¿' })
+    expect(guide()).toBeTruthy()
+  })
+
+  it('a ? typed alone does nothing, with or without the Shift it is typed with', () => {
+    render(<Page />)
+    const button = screen.getByRole('button', { name: 'Somewhere on the page' })
+    button.focus()
+    press(button, { altKey: false })
+    press(button, { altKey: false, shiftKey: false })
+    press(document.body, { altKey: false })
+    expect(guide()).toBeNull()
+  })
+
+  it('does nothing with Alt and / but no Shift', () => {
+    render(<Page />)
+    press(document.body, { key: '/', shiftKey: false })
+    expect(guide()).toBeNull()
   })
 
   it.each(['Note', 'Story', 'Unit'])('is typed, not a shortcut, in %s', label => {
@@ -52,7 +76,7 @@ describe('the Guide’s ? key', () => {
     expect(guide()).toBeNull()
   })
 
-  it.each([['Ctrl', { ctrlKey: true }], ['Alt', { altKey: true }], ['Cmd', { metaKey: true }]] as const)('does nothing with %s held', (_, held) => {
+  it.each([['Ctrl', { ctrlKey: true }], ['Cmd', { metaKey: true }]] as const)('does nothing with %s held as well', (_, held) => {
     render(<Page />)
     press(document.body, held)
     expect(guide()).toBeNull()
@@ -63,7 +87,7 @@ describe('the Guide’s ? key', () => {
     expect(screen.getByRole('dialog', { name: 'Ask for access' })).toBeTruthy()
     press(document.body)
     expect(guide()).toBeNull()
-    // Closed, the page's ? opens the guide again.
+    // Closed, the shortcut opens the guide again.
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Ask for access' })).toBeNull()
     press(document.body)

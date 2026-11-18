@@ -7,8 +7,8 @@ import type { PageGuide } from './pageGuides'
 
 /**
  * The Guide (owner, 18 Nov 2026): in the top bar on every page, it opens beside the page with what this page is for
- * and how to use it, so nobody has to look for help. "?" opens it from the keyboard too, only where it can't be typed by
- * mistake (WCAG 2.1.4, guideShortcut). All guides (the Help page) and the support chat are one step from it.
+ * and how to use it, so nobody has to look for help. Alt, Shift and / together open it from the keyboard too
+ * (guideShortcut). All guides (the Help page) and the support chat are one step from it.
  */
 export function PageGuideButton({ guide, label, onAllGuides, onSupport, look = 'ehr' }: {
   /** The open page's guide (pageGuides.ts guideFor), or null where none is written. */
@@ -23,7 +23,7 @@ export function PageGuideButton({ guide, label, onAllGuides, onSupport, look = '
   readonly onSupport?: () => void
 }) {
   const [open, setOpen] = useState(false)
-  // "?" opens the guide, except while typing or while another dialog or drawer is open.
+  // Alt, Shift and / together open the guide, except while typing or while another dialog or drawer is open.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!guideShortcut(event)) return
@@ -57,7 +57,7 @@ export function PageGuideButton({ guide, label, onAllGuides, onSupport, look = '
               {guide.tips.map(tip => <li key={tip}>{tip}</li>)}
             </ul>
           </section> : null}
-          <p className="m-0 text-[12px] text-ink-3">Press ? on any page to open its guide (not while you’re typing in a box).</p>
+          <p className="m-0 text-[12px] text-ink-3">Press Alt, Shift and / together on any page to open its guide (not while you’re typing in a box).</p>
         </div>
         : <p className="m-0 text-sm text-ink-2">This page has no guide yet.{onAllGuides ? ' All guides lists the steps for the work your role does.' : ''}</p>}
       </Drawer>
@@ -73,12 +73,16 @@ function typedInto(element: Element | null): boolean {
 }
 
 /**
- * Whether a key press is the Guide's "?" (WCAG 2.1.4, character key shortcuts): "?" alone, with no modifier but the
- * Shift it is typed with; not while focus is in a field, a list or editable text, where "?" is typed; and not while a
- * dialog or drawer is open over the page, whose keys are its own.
+ * Whether a key press is the Guide's shortcut: Alt, Shift and the / key together. Alt is not a key that types, so a
+ * "?" typed alone never opens the guide (WCAG 2.1.4, character key shortcuts: a shortcut needs a modifier that does
+ * not type). It is matched by the key's place (event.code Slash), not the character it gives, because on a Mac
+ * Option changes the character. Not with Ctrl or Cmd held as well; not while focus is in a field, a list or editable
+ * text, where Option and Shift with / types a character on a Mac; and not while a dialog or drawer is open over the
+ * page, whose keys are its own.
  */
 export function guideShortcut(event: KeyboardEvent): boolean {
-  if (event.key !== '?' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return false
+  if (event.code !== 'Slash' || !event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return false
+  if (event.isComposing || event.defaultPrevented) return false
   if (typedInto(event.target instanceof Element ? event.target : null) || typedInto(document.activeElement)) return false
   return !layerOpen() && document.querySelector('[aria-modal="true"], dialog[open]') === null
 }
