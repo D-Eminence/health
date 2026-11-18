@@ -39,8 +39,10 @@ export function SupportHelpButton({ onOpen }: { readonly onOpen: () => void }) {
 }
 
 /** The account menu's Help: the support assistant, in a drawer of the blue frame. */
-export function SupportChatDrawer({ open, onClose }: { readonly open: boolean; readonly onClose: () => void }) {
+export function SupportChatDrawer({ open, onClose, onGuides }: { readonly open: boolean; readonly onClose: () => void; readonly onGuides?: () => void }) {
   return <EhrDrawer open={open} title="Help" onClose={onClose}>
+    {/* The Help page's guides for this role, and what's new (QA P1-7), one click from the assistant. */}
+    {onGuides ? <p className="hid-ehr-support-guides"><button type="button" className="hid-ehr-clinical-link" onClick={onGuides}>Guides for your role and what’s new</button></p> : null}
     <BlueSupportChat contact={getEnvironment().supportContact ?? ''} />
   </EhrDrawer>
 }

@@ -33,6 +33,8 @@ export const NOTICE_WHEN = 'Only when the patient can’t consent and care can�
  */
 export const NOTICE_BEFORE = 'Emergency access opens part of this patient’s record without their approval. It is recorded with your name, this '
   + 'facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.'
+/** The notice in one line (QA P1-16): care can't wait, so the rest is under "More details". */
+export const NOTICE_SHORT = 'Recorded with your name and reason. The patient can see it. It ends by itself.'
 /** Patients.tsx:47: only verified contacts the patient chose to notify are told, and only while the alerts are on. */
 export const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
 /**

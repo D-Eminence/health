@@ -1,3 +1,4 @@
+import { codeOf, DIAGNOSES, namesOf } from '../parts/vocabulary'
 import { isHidApiError } from '@hid/http'
 import { useLayoutEffect, useRef } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
@@ -221,7 +222,9 @@ export function composeNote(sections: readonly (readonly [string, string])[]): s
  * a code system and code, the assessment is saved as this encounter's diagnosis, as New consultation saves it.
  */
 export const NEW_DIAGNOSIS_FIELDS: readonly FieldDef[] = [
-  { key: 'diagnosis', label: 'Diagnosis', maxLength: 500, hint: 'Optional. Add its code to save it as this consultation’s diagnosis.' },
+  { key: 'diagnosis', label: 'Diagnosis', maxLength: 500, suggestions: namesOf(DIAGNOSES),
+    hint: 'Optional. Start typing and pick from the list to fill its ICD-10 code, so it’s saved as this consultation’s diagnosis.',
+    fills: value => { const code = codeOf(DIAGNOSES, value); return code ? { diagnosisCode: code, diagnosisCodeSystem: 'ICD-10' } : null } },
   { key: 'diagnosisCodeSystem', label: 'Code system', placeholder: 'ICD-10', maxLength: 255, row: 'code' },
   { key: 'diagnosisCode', label: 'Code', maxLength: 100, row: 'code' },
   { key: 'diagnosisClinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },

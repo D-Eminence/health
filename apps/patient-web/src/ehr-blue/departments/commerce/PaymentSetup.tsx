@@ -187,7 +187,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
           <div className="flex gap-2">
             <Input aria-label="HMO name" placeholder="NHIA, Hygeia HMO…" autoComplete="off" value={newHmo} className="flex-1"
               onChange={event => setNewHmo(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addHmo() } }} />
-            <Button icon={Plus} onClick={addHmo} disabled={newHmo.trim().length < 2}>Add</Button>
+            <Button icon={Plus} onClick={addHmo} disabled={newHmo.trim().length < 2}>Add HMO</Button>
           </div>
           {tried && errors.hmos ? <p className="m-0 text-xs font-medium text-danger-ink">{errors.hmos}</p> : null}
           <Field label="Line at the foot of each receipt" optional htmlFor={`${ids}-footer`} className="border-t border-line pt-4">
@@ -225,7 +225,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
             <div className="flex gap-2">
               <Input aria-label="Till name" placeholder="Pharmacy till, Lab till…" autoComplete="off" value={newTill} className="flex-1"
                 onChange={event => setNewTill(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addTill() } }} />
-              <Button icon={Plus} onClick={addTill} disabled={newTill.trim().length < 2}>Add</Button>
+              <Button icon={Plus} onClick={addTill} disabled={newTill.trim().length < 2}>Add till</Button>
             </div>
             {tried && errors.tills ? <p className="m-0 text-xs font-medium text-danger-ink">{errors.tills}</p> : null}
           </div> : null}

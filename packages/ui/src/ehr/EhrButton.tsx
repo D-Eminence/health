@@ -12,6 +12,7 @@
 
 import { useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode, type Ref } from 'react'
 import { cx } from '../primitives'
+import { actionIcon } from './actionIcon'
 
 export type EhrButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger'
 export type EhrButtonSize = 'md' | 'sm'
@@ -27,15 +28,19 @@ interface EhrButtonBaseProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
 }
 
 export interface EhrButtonProps extends EhrButtonBaseProps {
-  /** A decorative icon before the label. */
+  /**
+   * A decorative icon before the label. Left out, an action worded as one ("New prescription", "Save draft", "Print")
+   * gets the matching icon (actionIcon.tsx); `null` asks for none.
+   */
   readonly icon?: ReactNode
   readonly children: ReactNode
 }
 
 export function EhrButton({ icon, children, className, ...props }: EhrButtonProps) {
+  const shown = icon === undefined ? (props.variant === 'quiet' ? null : actionIcon(children)) : icon
   return (
     <ButtonBase {...props} className={className}>
-      {icon !== undefined ? <span className="hid-ehr-button-icon" aria-hidden="true">{icon}</span> : null}
+      {shown !== null && shown !== undefined ? <span className="hid-ehr-button-icon" aria-hidden="true">{shown}</span> : null}
       {children}
     </ButtonBase>
   )

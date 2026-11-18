@@ -23,10 +23,45 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, 
 import { Drawer } from '../../kasuwa/interactive'
 import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
+import { fromHere } from '../clinical/parts/cameFrom'
 import { HomeBillingCard, HomePeopleCard } from './adminCards'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
 const MAX_SHORTCUTS = 6
+
+/**
+ * The shortcuts each person picked at each facility, for as long as this tab is open: Home leaving and coming back
+ * (any page change) keeps them. Nothing is stored on the device; keeping them across a reload or another device needs
+ * a saved preference on the account (backend).
+ */
+const pickedShortcuts = new Map<string, readonly string[]>()
+
+/**
+ * One colour per area of work, the same as the area's place in the sidebar, so a shortcut says at a glance where it
+ * leads (the label still says it: never colour alone).
+ */
+type AreaTone = 'brand' | 'success' | 'violet' | 'warn' | 'info' | 'danger' | 'neutral'
+const FRONT_DESK = new Set(['patients', 'registration', 'in-person-check', 'appointments', 'journey'])
+const AREA_CHIP: Readonly<Record<AreaTone, string>> = {
+  brand: 'bg-brand-soft text-brand', success: 'bg-success-soft text-success', violet: 'bg-violet-soft text-violet',
+  warn: 'bg-warn-soft text-warn', info: 'bg-info-soft text-info', danger: 'bg-danger-soft text-danger', neutral: 'bg-subtle text-ink-2',
+}
+/** The sidebar's name for the area a page sits in: the clinical pages split into Front desk and Care, as the menu does. */
+function areaName(page: { readonly path: string; readonly group: string }): string {
+  if (page.group !== 'Clinical') return page.group
+  return FRONT_DESK.has(basePath(page.path)) ? 'Front desk' : 'Care'
+}
+
+export function areaTone(page: { readonly path: string; readonly group: string }): AreaTone {
+  const base = basePath(page.path)
+  if (base === 'emergency') return 'danger'
+  if (page.group === 'Clinical') return FRONT_DESK.has(base) ? 'brand' : base === 'requests' ? 'brand' : 'success'
+  if (page.group === 'Diagnostics') return 'violet'
+  if (page.group === 'Pharmacy') return 'info'
+  if (page.group === 'Finance') return 'warn'
+  if (page.group === 'Network & Services') return 'brand'
+  return 'neutral'
+}
 
 /**
  * Home: the welcome heading with one primary action (Find a patient), Needs attention (each waiting thing once),
@@ -38,7 +73,7 @@ const MAX_SHORTCUTS = 6
  *   on a facility administrator's Home, Patient billing in their place.
  * - People, for whoever manages the facility's staff: the staff read live at a demo facility where Staff is listed, a
  *   sample figure at the other demo facilities, and the way to Staff & access.
- * - The shortcuts a person picks are kept in memory only.
+ * - The shortcuts a person picks are kept in memory for the tab (pickedShortcuts), so leaving Home keeps them.
  * Each demo role's dashboard replaces it from the account menu ("View Home as").
  */
 export function BlueHome() {
@@ -51,7 +86,9 @@ export function BlueHome() {
   const incoming = useIncomingServices(facility)
   const [period, setPeriod] = useState('7')
   const [customizing, setCustomizing] = useState(false)
-  const [chosen, setChosen] = useState<readonly string[] | null>(null)
+  const shortcutKey = state.status === 'ready' ? `${state.session.actor.id}|${state.session.actor.facility?.id ?? ''}` : ''
+  const [chosen, setChosenState] = useState<readonly string[] | null>(() => pickedShortcuts.get(shortcutKey) ?? null)
+  const setChosen = (next: readonly string[]) => { pickedShortcuts.set(shortcutKey, next); setChosenState(next) }
   useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
   // Home reads the access requests each time it opens, as today's Overview does.
   const reloadRequests = useReloadAccessRequests()
@@ -98,9 +135,10 @@ export function BlueHome() {
     sure: incoming.sure.filter(receivedHere) }
   const work = [
     ...labItems.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test', meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`,
-      to: '/provider/laboratory', icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
+      // Each row opens its own test, not the whole list, and its Back comes Home (flow review, 18 Nov 2026).
+      to: `/provider/laboratory/work/${encodeURIComponent(item.id)}`, icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
     ...rxItems.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine', meta: 'Pharmacy · to dispense',
-      to: '/provider/pharmacy', icon: Pill, urgent: false })),
+      to: `/provider/pharmacy/prescriptions/${encodeURIComponent(item.id)}`, icon: Pill, urgent: false })),
   ]
   const attention = [
     ...(pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
@@ -164,7 +202,7 @@ export function BlueHome() {
             ? (labRead.state === 'loading' || rxRead.state === 'loading') && work.length === 0 ? <LoadingRows rows={2} label="Loading today's work" />
               : work.length > 0
                 ? <ul className="m-0 list-none divide-y divide-line p-0">{work.map(w => <li key={w.key}>
-                    <ListRow to={w.to} leading={<IconChip size="sm" icon={w.icon} tone={w.urgent ? 'danger' : 'neutral'} />} title={w.title} subtitle={w.meta}
+                    <ListRow to={w.to} state={fromHere('/provider', 'Back to Home')} leading={<IconChip size="sm" icon={w.icon} tone={w.urgent ? 'danger' : 'neutral'} />} title={w.title} subtitle={w.meta}
                       trailing={w.urgent ? <Badge tone="danger" size="sm" solid>Urgent</Badge> : <ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>
                 : <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Tests and prescriptions show here once they are accepted.</p>
             : <ul className="m-0 list-none divide-y divide-line p-0">
@@ -187,8 +225,8 @@ export function BlueHome() {
           <SectionHeader id="hid-ehr-blue-shortcuts" title="Shortcuts" action={<Button variant="link" size="sm" onClick={() => setCustomizing(true)}>Edit</Button>} />
           {shortcuts.length > 0
             ? <Card><ul className="m-0 list-none divide-y divide-line p-0">
-                {shortcuts.map(page => <li key={page.path}><ListRow to={pageHrefOf(page)} leading={<span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-subtle text-ink-2 [&_svg]:size-[18px]">{page.icon}</span>}
-                  title={page.label} subtitle={page.status === 'sample' ? 'Sample' : page.group} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}
+                {shortcuts.map(page => <li key={page.path}><ListRow to={pageHrefOf(page)} leading={<span className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg [&_svg]:size-[18px] ${AREA_CHIP[areaTone(page)]}`}>{page.icon}</span>}
+                  title={page.label} subtitle={page.status === 'sample' ? 'Sample' : areaName(page)} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}
               </ul></Card>
             : <p className="m-0 px-1 text-[13px] text-ink-3">Pin the pages you use most. Choose Edit to add them.</p>}
           {/* Today's Overview rule: none of the six clinical modules' permissions held (an administrator's audit and billing are not). */}
@@ -213,7 +251,7 @@ export function BlueHome() {
         </Card> : null}
       </div>
     </div>
-    <Drawer open={customizing} title="Edit shortcuts" description={`Choose up to ${MAX_SHORTCUTS}. They stay until you sign out or reload.`} onClose={() => setCustomizing(false)}
+    <Drawer open={customizing} title="Edit shortcuts" description={`Choose up to ${MAX_SHORTCUTS}. They stay while this tab is open.`} onClose={() => setCustomizing(false)}
       footer={<Button variant="primary" onClick={() => setCustomizing(false)}>Done</Button>}>
       <fieldset className="m-0 flex flex-col gap-1 border-0 p-0">
         <legend className="sr-only">Shortcuts for Home</legend>

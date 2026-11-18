@@ -77,6 +77,8 @@ export function VitalsForm({ mode, visits = [], initialVisit = null, visitHint, 
   const sending = useRef(false)
   const controls = useRef(new Map<string, HTMLElement>())
   const order = ['visit', ...VITAL_FIELDS.map(field => field.name), 'reason']
+  // BMI from the weight and height typed (QA P1-11): shown to the clinician, never sent.
+  const bmi = bodyMassIndex(values.weightKg, values.heightCm)
   // The visit chosen, as the page shown has it when it is there (today's selection, Clinical.tsx:1288-1292); one on
   // another page is still offered, first.
   const chosen = visit ? visits.find(encounter => encounter.id === visit.id) ?? visit : null
@@ -198,6 +200,7 @@ export function VitalsForm({ mode, visits = [], initialVisit = null, visitHint, 
             )
           })}
           {errors[VALUES] ? <p id={groupErrorId} className="hid-ehr-clinical-field-error hid-ehr-clinical-triage-group-error">{errors[VALUES]}</p> : null}
+          {bmi ? <p className="hid-ehr-clinical-note hid-ehr-clinical-form-full">BMI {bmi} kg/m² · worked out from weight and height, not saved</p> : null}
         </div>
         {mode === 'correct' ? (
           <EhrField className="hid-ehr-clinical-form-full" label={<>Reason for correction<span aria-hidden="true"> *</span></>} error={errors.reason}>
@@ -212,4 +215,12 @@ export function VitalsForm({ mode, visits = [], initialVisit = null, visitHint, 
       </div>
     </form>
   )
+}
+
+/** Body mass index to one decimal place, from kilograms and centimetres within the form's own limits; null otherwise. */
+export function bodyMassIndex(weightKg: string | undefined, heightCm: string | undefined): string | null {
+  const weight = Number(weightKg?.trim() || NaN)
+  const height = Number(heightCm?.trim() || NaN) / 100
+  if (!Number.isFinite(weight) || !Number.isFinite(height) || weight < 0.2 || weight > 700 || height < 0.2 || height > 3) return null
+  return (weight / (height * height)).toFixed(1)
 }

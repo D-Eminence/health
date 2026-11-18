@@ -1,3 +1,4 @@
+import { codeOf, FREQUENCIES, LAB_TESTS, MEDICINES, namesOf, ROUTES } from '../../parts/vocabulary'
 import { isHidApiError, PlainError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -47,13 +48,13 @@ const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
  */
 // Today's labels and placeholders, word for word (Clinical.tsx:567); the unit is picked from a list.
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
-  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500 },
+  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500, suggestions: MEDICINES, hint: 'Start typing the generic name and pick from the list.' },
   { key: 'doseQuantity', label: 'Dose quantity', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
   { key: 'doseUnitChoice', label: 'Dose unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
   { key: 'doseUnit', label: 'Other unit', maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
-  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100 },
-  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240 },
+  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100, suggestions: ROUTES },
+  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240, suggestions: FREQUENCIES },
   { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, maxLength: 4000 },
 ]
 
@@ -65,7 +66,9 @@ function doseUnitOf(values: FormValues): string {
 
 /** The lab request's fields and limits, with today's labels (Clinical.tsx:570); Priority and Request handling follow as controlled choices. */
 const LAB_FIELDS: readonly FieldDef[] = [
-  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500 },
+  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500, suggestions: namesOf(LAB_TESTS),
+    hint: 'Start typing and pick from the list. The commonest tests fill their LOINC code.',
+    fills: value => { const code = codeOf(LAB_TESTS, value); return code ? { testCode: code, testCodeSystem: 'LOINC' } : null } },
   { key: 'testCodeSystem', label: 'Test code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
   { key: 'testCode', label: 'Test code', required: true, maxLength: 100, row: 'code' },
   { key: 'specimenTypeCode', label: 'Specimen type code', maxLength: 100 },
@@ -103,7 +106,7 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const info = KINDS[kind]
   const back = href(encounterId)
   // Today's form heading, "Add {tab}" (Clinical.tsx:561).
-  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} />
+  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} backLabel="Back to consultation" />
 
   // As in classic, an order is added only where it can be read back: the saved order opens next.
   if (!chart.can(info.write) || !chart.can(info.read)) {
@@ -329,7 +332,10 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
   const [form, setForm] = useState(0)
   const [success, setSuccess] = useState('')
   const [pageError, setPageError] = useState('')
-  const [handling, setHandling] = useState('draft')
+  // Sending to this facility's Lab is what a doctor means by a lab request: it is the first choice where the role may
+  // send (QA N-7); a draft stays one choice away. The send still asks to confirm the patient.
+  const firstHandling = orderRights(chart, false).canSendToLab ? 'active' : 'draft'
+  const [handling, setHandling] = useState(firstHandling)
   const [handlingError, setHandlingError] = useState('')
   const [priority, setPriority] = useState('routine')
   const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
@@ -359,7 +365,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
 
   const reset = () => {
     setForm(count => count + 1)
-    setHandling('draft')
+    setHandling(firstHandling)
     setPriority('routine')
     setChoice(NO_DESTINATION)
   }
@@ -523,7 +529,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
             </EhrSelect>
           </EhrField>
           <EhrField label={<>Request handling<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
-            <EhrSelect ref={handlingRef} required value={handling} aria-describedby={warningId}
+            <EhrSelect ref={handlingRef} required value={handling} aria-describedby={handling === 'draft' || sendingElsewhere ? warningId : undefined}
               onChange={event => { setHandling(event.target.value); setHandlingError(''); setRouteErrors({}) }}>
               <option value="draft">Save as a draft</option>
               {canSendToLab ? <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option> : null}
@@ -535,7 +541,9 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
           <DestinationFields context={context} kind="lab_request" priority={priority} value={choice} onChange={setChoice}
             errors={routeErrors} queryRef={queryRef} attestedRef={attestedRef} />
         ) : null}
-        <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{labDraftWarning(sendingElsewhere, canSendToLab, routable)}</div>
+        {/* The draft warning only while a draft (or a send elsewhere) is chosen: once "send" is chosen it no longer applies (QA N-8). */}
+        {handling === 'draft' || sendingElsewhere
+          ? <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{labDraftWarning(sendingElsewhere, canSendToLab, routable)}</div> : null}
         {canSendToLab && !sendingElsewhere ? <p className="hid-ehr-clinical-note">{LAB_ACTIVE_NOTE}</p> : null}
       </RecordForm>
     </EhrCard>

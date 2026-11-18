@@ -41,7 +41,7 @@ describe('page statuses', () => {
     ['audit', 'Audit trail', 'audit.read'],
     ['billing', 'Facility subscription', 'billing.subscription.read'],
     ['outreach', 'Outreach', undefined],
-    ['ocr', 'Document OCR', 'ocr.job.read'],
+    ['ocr', 'Scan paper records', 'ocr.job.read'],
     ['staff', 'Staff & access', 'workforce.manage'],
     ['laboratory', 'Laboratory', 'lab.work-item.read'],
     ['laboratory/work/*', 'Work list', 'lab.work-item.read'],
@@ -145,7 +145,7 @@ describe('What\'s left on a product\'s own site', () => {
   // Pages only a hospital's EHR has: none may be listed on a lab's, pharmacy's, outreach team's or migration site.
   // Patients and Access requests are every product's too (product.ts, parity report 3.1 #7).
   const EHR_ONLY = ['Patient registration', 'Home', 'In-person check', 'Triage & Vitals', 'Consultation', 'Nursing observations',
-    'Emergency', 'Radiology', 'Patient billing', 'Facility subscription', 'Reports & Analytics']
+    'Emergency access', 'Radiology', 'Patient billing', 'Facility subscription', 'Reports & Analytics']
 
   /** What's left lists only this product's own pages and the shared ones, says so, counts only those, and notes no EHR part. */
   function expectOnly(table: HTMLElement, product: string, home: string, own: readonly string[], other: string) {

@@ -220,7 +220,7 @@ export function ClinicianApplicationsPage({ actor }: { actor: AdminActor }) {
 export function ClinicianApplicationPage({ actor }: { actor: AdminActor }) {
   const { applicationId = '' } = useParams()
   if (!APPLICATION_ID.test(applicationId)) {
-    return <Page eyebrow="Clinician application" title="Application not found" description="This link does not contain a valid application ID.">
+    return <Page eyebrow="Clinician application" title="Application not found" description="This link does not contain a valid application ID." back={{ to: '/admin/clinicians', label: 'Back to clinician applications' }}>
       <p><Link to="/admin/clinicians">← All clinician applications</Link></p>
     </Page>
   }
@@ -242,7 +242,7 @@ function ApplicationReview({ applicationId, actor }: { applicationId: string; ac
   // Every outcome reloads the application: its state, version and the caller's hints come from the server.
   const outcome = (next: Outcome) => { setNotice(next); reload() }
 
-  return <Page eyebrow="Clinician application" title={resource.data?.applicant.fullName ?? 'Clinician application'}
+  return <Page eyebrow="Clinician application" back={{ to: '/admin/clinicians', label: 'Back to clinician applications' }} title={resource.data?.applicant.fullName ?? 'Clinician application'}
     description="Check the licence, the person and their employment before step 1. A different Super Admin approves in step 2."
     action={<Refresh onClick={reload} disabled={resource.loading} />}>
     <p><Link to="/admin/clinicians">← All clinician applications</Link></p>

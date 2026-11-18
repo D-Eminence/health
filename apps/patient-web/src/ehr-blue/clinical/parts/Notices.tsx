@@ -1,6 +1,7 @@
+import { cameFrom } from './cameFrom'
 import { EhrBackButton, EhrButton, EhrPageHeading, EhrSkeleton } from '@hid/ui/ehr'
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 /** The design's generic failure line, for an operation whose own message would be technical. */
 export const ACTION_FAILED = 'That didn’t work. What you saved is safe; please try again.'
@@ -50,6 +51,10 @@ export function ListHeading({ title, createHref, createLabel = 'New record' }: {
 /** A record or create page's heading: Back as an arrow just before the title ("Back to list" names it), then the title. */
 export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: { title: ReactNode; backHref: string; backLabel?: string }) {
   const navigate = useNavigate()
+  // Opened from another page that said where it was (cameFrom.ts), Back goes back there, named for it: a consultation
+  // started from the patient's page returns to the patient, not to a list the person never saw (flow review, 18 Nov 2026).
+  const from = cameFrom(useLocation().state)
+  if (from) { backHref = from.to; backLabel = from.label }
   const mark = useRef<HTMLSpanElement>(null)
   // The frame moves focus to the page's h1 as the address changes (pageFocus.ts); a record still loading has none, so
   // focus waits on the frame's page wrapper. The heading takes it from that container once the record shows.

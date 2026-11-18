@@ -124,8 +124,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
  * inside while it is open (Tab and Shift+Tab go round its own controls), and goes back to what opened it as it closes;
  * Escape and the backdrop close it.
  */
-export function Drawer({ open, onClose, title, description, icon, children, footer }: {
+export function Drawer({ open, onClose, title, description, icon, children, footer, size = 'md' }: {
   open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; icon?: ReactNode; children?: ReactNode; footer?: ReactNode
+  /** 'lg' for a whole form or record (frame/routeDrawer.tsx): wider, and almost the full height on a phone. */
+  size?: 'md' | 'lg'
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
@@ -151,7 +153,8 @@ export function Drawer({ open, onClose, title, description, icon, children, foot
   return <div className="fixed inset-0 z-[var(--z-drawer)] flex items-end justify-center sm:items-stretch sm:justify-end">
     <div className="absolute inset-0 animate-fade-in bg-[#101828]/45 backdrop-blur-[2px]" onClick={onClose} />
     <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="hid-drawer-title"
-      className="hid-drawer relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-[var(--shadow-dialog)] ring-1 ring-line sm:max-h-none sm:w-[min(440px,100vw_-_2rem)] sm:rounded-none sm:rounded-l-2xl">
+      className={cx('hid-drawer relative flex w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-[var(--shadow-dialog)] ring-1 ring-line sm:max-h-none sm:rounded-none sm:rounded-l-2xl',
+        size === 'lg' ? 'max-h-[96vh] sm:w-[min(760px,100vw_-_2rem)]' : 'max-h-[90vh] sm:w-[min(440px,100vw_-_2rem)]')}>
       <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line-strong sm:hidden" aria-hidden="true" />
       <div className="flex items-start gap-3 border-b border-line px-5 py-4">
         {icon}

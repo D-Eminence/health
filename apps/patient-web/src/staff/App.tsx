@@ -776,7 +776,7 @@ function Gate({ children }: { children: ReactNode }) {
     </Suspense>
   }
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
-  if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
+  if (state.status === 'loading') return <main className="staff-centered staff-centered-quiet"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
   if (state.status === 'signed-out') {
     // Signed out on the join page (an invitation's link, Novu, P4b), the sign-in comes back to it; the link itself

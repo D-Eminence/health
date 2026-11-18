@@ -1,6 +1,7 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
+import { isHidApiError } from '@hid/http'
 import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
 import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
@@ -17,7 +18,10 @@ import {
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
-import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
+import { SharedWithYouCard } from './SharingCards'
+
+/** How long the Health ID field rests before a whole Health ID in it is looked up by itself. */
+export const AUTO_LOOKUP_MS = 600
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
@@ -89,6 +93,8 @@ function PatientList() {
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<{ hid: string; message: string } | null>(null)
+  // Health ID answered that no patient has this Health ID: the next step is registering them, not asking for access.
+  const [unknown, setUnknown] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(() => noticeOf(location.state))
   const searchBox = useRef<HTMLFormElement>(null)
@@ -100,7 +106,7 @@ function PatientList() {
   const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
   const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
 
-  function clearFeedback() { setNotice(''); setError(''); setRefused(null) }
+  function clearFeedback() { setNotice(''); setError(''); setRefused(null); setUnknown(null) }
 
   /** Today's openPatient from a typed or shared Health ID: an allowed lookup opens the patient's page. */
   async function open(candidate: string) {
@@ -112,7 +118,10 @@ function PatientList() {
       const message = lookupRefusal(caught, facility?.roles ?? [])
       // The refused Health ID goes in the field (a refused share's too), so "Obtain access" hands over the patient the
       // panel names.
-      if (isRefusedLookup(caught)) {
+      if (isHidApiError(caught) && caught.status === 404 && caught.code === 'PATIENT_NOT_FOUND') {
+        setHid(candidate)
+        setUnknown(candidate)
+      } else if (isRefusedLookup(caught)) {
         setHid(candidate)
         setRefused({ hid: candidate, message })
       } else setError(message)
@@ -120,6 +129,28 @@ function PatientList() {
       setBusy(false)
     }
   }
+
+  // The Health ID last looked up, so the same one is never looked up twice in a row (each lookup is recorded).
+  const lookedUp = useRef<string | null>(null)
+
+  /**
+   * As soon as the field holds a whole Health ID (pasted, scanned or typed) and stays still for a moment, it is looked
+   * up with no press of Find (owner, 18 Nov 2026): the patient opens, or the page says what to do next. The pause keeps
+   * a Health ID being typed from being looked up at every letter.
+   */
+  useEffect(() => {
+    if (!canLook || busy) return
+    const normalized = normalizeHealthIdInput(hid)
+    if (healthIdProblem(normalized) !== null || lookedUp.current === normalized) return
+    const timer = window.setTimeout(() => {
+      lookedUp.current = normalized
+      clearFeedback()
+      setProblem(null)
+      void open(normalized)
+    }, AUTO_LOOKUP_MS)
+    return () => window.clearTimeout(timer)
+    // open and clearFeedback are this render's; only a change of the Health ID (or who may look) starts a new wait.
+  }, [hid, canLook, busy])
 
   function search() {
     if (busy || !canLook) return
@@ -136,6 +167,7 @@ function PatientList() {
       return
     }
     setProblem(null)
+    lookedUp.current = normalized
     void open(normalized)
   }
 
@@ -170,7 +202,7 @@ function PatientList() {
   const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
 
   return (
-    <FormPage title="Find a patient" description="Search by Health ID to open their record, or to get access if you don’t have it yet."
+    <FormPage title="Find a patient" description="Paste or type their Health ID. It’s checked as soon as it’s complete."
       actions={registers ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
       {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 
@@ -180,7 +212,7 @@ function PatientList() {
           <div className="flex gap-2">
             <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
               required aria-required="true" aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
-              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null); setRefused(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
+              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null); setRefused(null); setUnknown(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
             {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost
                 while the lookup runs, and a second press looks nothing up (search() returns while one is on its way). */}
             <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-busy={busy || undefined} aria-disabled={busy || undefined} className="h-11">Find</Button>
@@ -189,32 +221,42 @@ function PatientList() {
           {hidError ? <p id="patient-hid-problem" className="m-0 text-[13px] font-medium text-danger-ink">{hidError}</p> : null}
         </form>
 
-        {/* Obtain access (today's card title), always on offer under the search, for the Health ID in the field: asking
-            the patient, the patient's Access PIN and emergency access, as today's "Obtain access" card offers them. */}
-        <div role="group" aria-labelledby="patients-other-access" className="border-t border-line p-5">
-          <h2 id="patients-other-access" className="m-0 mb-3 text-title-3 text-ink">Obtain access</h2>
-          {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
-          {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
-          {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
-          {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
-          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
-            <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary busy={busy}
-              unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => otherWay('request')} />
-            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." busy={busy}
-              unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
-            {offersEmergency ? <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and recorded." danger busy={busy}
-              unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} /> : null}
-          </ul>
-        </div>
+        {/* No patient has this Health ID: say so, and offer registering them where this role may (owner, 17 Nov 2026). */}
+        {unknown ? <div className="border-t border-line p-5">
+          <div className="flex flex-wrap items-start gap-3">
+            <IconChip icon={UserPlus} tone="brand" />
+            <div role="alert" className="min-w-0 flex-[1_1_16rem]"><p className="m-0 text-title-3 text-ink">No patient has the Health ID {unknown}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{registers ? 'Check it with the patient. If they’re new, register them and they get a Health ID.' : 'Check it with the patient and try again.'}</p></div>
+            {registers ? <Button variant="primary" icon={UserPlus} to="/provider/registration">Register a new patient</Button> : null}
+          </div>
+        </div> : null}
 
-        {/* No access yet: which patient, and why. Every way in is Obtain access's above, for the Health ID now in the field,
-            so one patient is never offered two sets of them handing over different Health IDs. */}
+        {/* No access yet: which patient, and why. */}
         {refused ? <div className="border-t border-line p-5">
           <div className="flex items-start gap-3">
             <IconChip icon={Lock} tone="warn" />
             <div role="alert" className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
           </div>
+        </div> : null}
+
+        {/* The ways in, offered only once Find was refused, so a patient this facility may open opens at once with nothing
+            to pick (owner, 17 Nov 2026). The Access PIN leads, for the patient who is with you; asking them is next;
+            emergency access last. Each is for the Health ID in the field. */}
+        {refused ? <div role="group" aria-labelledby="patients-other-access" className="border-t border-line p-5 pt-0">
+          <h2 id="patients-other-access" className="sr-only">Obtain access</h2>
+          {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
+          {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
+          {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
+          {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
+          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
+            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." primary busy={busy}
+              unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
+            <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." busy={busy}
+              unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => otherWay('request')} />
+            {offersEmergency ? <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and recorded." danger busy={busy}
+              unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} /> : null}
+          </ul>
         </div> : null}
         {error ? <div className="border-t border-line p-5"><Alert intent="error" title="Couldn’t check access">{error}</Alert></div> : null}
         {/* Mounted throughout, so what an access step says is announced. */}
@@ -238,8 +280,7 @@ function PatientList() {
       </section> : null}
 
       <div className="flex flex-col gap-6 empty:hidden">
-        <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy} onOpen={openShared} />
-        <ShareInvitationsForMe facilityId={facility?.id} permissions={permissions} />
+        <SharedWithYouCard facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy} onOpen={openShared} />
       </div>
     </FormPage>
   )

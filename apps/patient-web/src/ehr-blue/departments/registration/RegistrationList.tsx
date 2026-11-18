@@ -71,7 +71,7 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
             {/* The button beside the field, as the design's search spans its card; the field's error goes under both. */}
             <div className="hid-ehr-dept-registration-find-row">
               <EhrInput value={caseIdInput} onChange={event => onCaseIdInput(event.target.value)} autoComplete="off" spellCheck={false} required />
-              <EhrButton type="submit" busy={caseLoading === 'find'} className="hid-ehr-dept-registration-unavailable"
+              <EhrButton type="submit" variant="secondary" busy={caseLoading === 'find'} className="hid-ehr-dept-registration-unavailable"
                 aria-disabled={busy || caseLoading !== null || undefined}>
                 {caseLoading === 'find' ? LOADING : LOAD_CASE}
               </EhrButton>
