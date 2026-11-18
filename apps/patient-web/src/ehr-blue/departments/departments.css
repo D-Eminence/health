@@ -261,17 +261,27 @@
   font-size: 14px;
 }
 
+/* Actions as buttons sized to their words, side by side and wrapping; a chosen action's form takes the full width
+   under them (UX review, 17 Nov 2026). */
 .hid-ehr .hid-ehr-dept-action-stack {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
+.hid-ehr .hid-ehr-dept-action-stack > * {
+  flex: 1 1 100%;
+}
+
 .hid-ehr .hid-ehr-dept-action-stack > .hid-ehr-button {
-  width: 100%;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding-inline: 16px;
 }
 
 .hid-ehr .hid-ehr-dept-action-stack > .hid-ehr-button[aria-expanded='true'] {
-  background: var(--ehr-surface-tint);
+  box-shadow: 0 0 0 2px var(--ehr-brand);
 }
 
 .hid-ehr .hid-ehr-dept-action-form {
@@ -422,12 +432,26 @@
   background: var(--ehr-tint);
 }
 
+/* Warning and error banners use the theme's own tokens, so their text passes WCAG AA (4.5:1) in light and dark: a
+   fixed pale yellow under the dark theme's light text was unreadable (QA P1-17). */
 .hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-caution {
-  background: #fff7e6;
+  border-color: color-mix(in srgb, var(--color-warn-ink) 35%, transparent);
+  background: var(--color-warn-soft);
+  color: var(--color-ink);
 }
 
 .hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-critical {
-  background: #fff0ee;
+  border-color: color-mix(in srgb, var(--color-danger-ink) 35%, transparent);
+  background: var(--color-danger-soft);
+  color: var(--color-ink);
+}
+
+.hid-ehr .hid-ehr-dept-notice-caution .hid-ehr-dept-notice-title {
+  color: var(--color-warn-ink);
+}
+
+.hid-ehr .hid-ehr-dept-notice-critical .hid-ehr-dept-notice-title {
+  color: var(--color-danger-ink);
 }
 
 .hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-positive {
@@ -442,14 +466,15 @@
 }
 
 .hid-ehr .hid-ehr-dept-notice-box.hid-ehr-dept-notice-critical {
-  border: 1px solid #e9bcb9;
-  background: var(--ehr-danger-50);
-  color: var(--ehr-danger-text);
+  border: 1px solid color-mix(in srgb, var(--color-danger-ink) 35%, transparent);
+  background: var(--color-danger-soft);
+  color: var(--color-danger-ink);
 }
 
 .hid-ehr .hid-ehr-dept-notice-box.hid-ehr-dept-notice-caution {
-  background: #fff7e6;
-  color: var(--ehr-warning-banner-text);
+  border: 1px solid color-mix(in srgb, var(--color-warn-ink) 35%, transparent);
+  background: var(--color-warn-soft);
+  color: var(--color-warn-ink);
 }
 
 .hid-ehr .hid-ehr-dept-notice-box.hid-ehr-dept-notice-positive {

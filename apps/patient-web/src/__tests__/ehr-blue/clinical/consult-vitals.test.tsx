@@ -141,11 +141,13 @@ describe('Consultation record: Vitals card', () => {
     expect(card.queryByText('No vitals for this consultation.')).toBeNull()
   })
 
-  it('sits between Notes and Diagnoses, as today’s tabs do', async () => {
+  it('comes first, before the note, so the doctor sees the readings before writing (owner, 18 Nov 2026)', async () => {
     staff.permissions = [...READS, 'ehr.note.read', 'ehr.diagnosis.read']
     await openEncounter()
     const titles = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
-    expect(titles.slice(titles.indexOf('Notes'), titles.indexOf('Notes') + 3)).toEqual(['Notes', 'Vitals', 'Diagnoses'])
+    expect(titles.indexOf('Vitals')).toBeGreaterThanOrEqual(0)
+    expect(titles.indexOf('Vitals')).toBeLessThan(titles.indexOf('Note'))
+    expect(titles.slice(titles.indexOf('Notes'), titles.indexOf('Notes') + 2)).toEqual(['Notes', 'Diagnoses'])
   })
 
   it('says today’s sentence when the visit has no vitals', async () => {

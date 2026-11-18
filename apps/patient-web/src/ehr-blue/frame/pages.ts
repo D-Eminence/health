@@ -7,6 +7,8 @@ import { LivePage, StaffAccessPage } from './LivePages'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { FacilityProfileSample, FacilitySetupSample, PlatformReviewSample, ReportsSample } from './admin/AdminSamples'
 import { WhatsLeft } from './WhatsLeft'
+import { HelpPage } from './HelpPage'
+import { CircleHelp } from 'lucide-react'
 import { FacilitySubscriptionPage } from './BlueSubscription'
 import { ChooseWorkspacePage } from './ChooseWorkspace'
 import { DesignTourIndex, JourneyTour } from './tour/DesignTour'
@@ -99,7 +101,7 @@ export const pages: EhrBluePage[] = [
   sample('ambulance', 'Network & Services', 'Dispatch', 'truck'),
   sample('bloodbank', 'Network & Services', 'Blood Bank', 'droplet'),
   sample('telemedicine', 'Network & Services', 'Telemedicine', 'video'),
-  live('ocr', 'Network & Services', 'Document OCR', 'document', 'ocr.job.read'),
+  live('ocr', 'Network & Services', 'Scan paper records', 'document', 'ocr.job.read'),
   live('outreach', 'Network & Services', 'Outreach', 'outreach', 'outreach.registration.read'),
 
   sample('shifts', 'People', 'Shifts & Roster', 'clock'),
@@ -126,6 +128,11 @@ export const pages: EhrBluePage[] = [
   // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2).
   demoOnly(page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample))),
   live('audit', 'Insight', 'Audit trail', 'history', 'audit.read'),
+
+  // Help: short guides for each role's work and what's new (QA P1-7). Every staff member, every facility; it reads nothing.
+  { path: 'help', group: '', label: 'Help', icon: createElement(CircleHelp, { size: 18, strokeWidth: 1.65 }), status: 'live', element: createElement(HelpPage),
+    // Reached from Help in the top bar and the account menu, so it takes no sidebar line of its own.
+    listed: () => false },
 
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),
