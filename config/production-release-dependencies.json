@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44191805565-1-eabb17bfa38eb493 (hid-system #265, 7831b440, live 2026-11-17 22:55 UTC: Q97 each staff site for its own job and actor.products, no migration; it rebuilt identity-api only). ehr-api and notification-api stay at 73eae090 (hid-system #256, Q88/Q89); the other services at e50ac518 (hid-system #253, owner-signed Q84). Owner approved Q97 in chat on 2026-11-17 (\"Q97 A\").",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44315646896-1-d3c3a94f07fbec4a (production-backend-images run 44315646896, hid-system #268 merge 498e2f82, deployed and verified 2026-11-18 about 14:00 UTC). It carries migrations 0124 and 0125 (Ola's lab and pharmacy, #254/#255), 0126 (Q90 A/Q91 A product admission) and 0127 (single sign-on, inactive without its AUTH_SSO_* settings, Q96 A), signed by the owner D-Eminence in chat on 2026-11-18 (Q98: \"Q98 0124 0125 0126 0127 signed, release\"), with the OpenSSL runtime assessment and gateway VEX approved as Q99 A. That release rebuilt all twelve services at 498e2f82, so every pin moves to it. Re-pin under standing approval Q94 4/5 (website-only, no migration in this repository).",
   "backend_commits": {
-    "gateway": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "identity-api": "7831b440b1a7fb5f3a47e8786239d721aa503652",
-    "ehr-api": "73eae090918db166b01812a663b5a131fb1ec639",
-    "lab-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "pharmacy-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "ocr-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "outreach-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "support-api": "e50ac518a01f17bf3d51b6e2cbd5952d97a19619",
-    "notification-api": "73eae090918db166b01812a663b5a131fb1ec639"
+    "gateway": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "identity-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "ehr-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "lab-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "pharmacy-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "ocr-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "outreach-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "support-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
+    "notification-api": "498e2f822c711a1dd67175cc99a019d81c15bce3"
   }
 }
