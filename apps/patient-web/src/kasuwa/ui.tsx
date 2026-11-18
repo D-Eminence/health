@@ -4,7 +4,7 @@
  * (Modal, Segmented, Switch, ThemeToggle) live in ./interactive.tsx.
  */
 import type { ComponentType, HTMLAttributes, ReactNode, SVGProps } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useInRouterContext, useLocation } from 'react-router-dom'
 import { ArrowLeft, CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
 import { Illustration, type IllustrationName } from './illustrations'
 
@@ -128,11 +128,33 @@ export function BackButton({ to, label, className }: { to: string; label: string
   </Link>
 }
 
+/**
+ * The page this one was opened from, when the router state names a provider address with a label ({ from: { to,
+ * label } }, ehr-blue/clinical/parts/cameFrom.ts). Outside a router, none.
+ */
+function useCameFrom(): { to: string; label: string } | null {
+  const routed = useInRouterContext()
+  return routed ? cameFromState(useLocationState()) : null
+}
+function useLocationState(): unknown {
+  return useLocation().state
+}
+function cameFromState(state: unknown): { to: string; label: string } | null {
+  if (!state || typeof state !== 'object' || !('from' in state)) return null
+  const from = (state as { from?: unknown }).from
+  if (!from || typeof from !== 'object') return null
+  const { to, label } = from as { to?: unknown; label?: unknown }
+  return typeof to === 'string' && to.startsWith('/provider') && !to.startsWith('//') && typeof label === 'string' && label ? { to, label } : null
+}
+
 export function PageHeader({ title, description, actions, eyebrow, titleRef, back }: {
   title: ReactNode; description?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode; titleRef?: React.Ref<HTMLHeadingElement>
   /** Where Back goes, and its name: "Back to patients". Drawn as an arrow before the title. */
   back?: { to: string; label: string }
 }) {
+  // Opened from another page that said where it was (router state `from`), Back returns there by name.
+  const came = useCameFrom()
+  if (back && came) back = came
   return <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
     <div className="min-w-0 flex-[1_1_20rem]">
       {eyebrow && <div className={cx('mb-2', back && 'pl-[38px]')}>{eyebrow}</div>}
@@ -297,8 +319,8 @@ export function Select({ className, children, controlSize = 'md', ...rest }: Rea
 }
 
 /* ---- Lists ---- */
-export function ListRow({ to, leading, title, subtitle, trailing, className, onClick, disabled, describedBy }: {
-  to?: string; leading?: ReactNode; title: ReactNode; subtitle?: ReactNode; trailing?: ReactNode; className?: string; onClick?: () => void
+export function ListRow({ to, state, leading, title, subtitle, trailing, className, onClick, disabled, describedBy }: {
+  to?: string; state?: unknown; leading?: ReactNode; title: ReactNode; subtitle?: ReactNode; trailing?: ReactNode; className?: string; onClick?: () => void
   /** A button row only: turned off, pointing (`describedBy`, an element id) to why. */
   disabled?: boolean; describedBy?: string
 }) {
@@ -311,7 +333,7 @@ export function ListRow({ to, leading, title, subtitle, trailing, className, onC
     {trailing && <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">{trailing}</div>}
   </>
   const cls = cx('flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5', (to || onClick) && 'no-underline transition-colors', (to || onClick) && !disabled && 'hover:bg-subtle', className)
-  if (to) return <Link to={to} className={cls}>{inner}</Link>
+  if (to) return <Link to={to} state={state} className={cls}>{inner}</Link>
   if (onClick) return <button type="button" onClick={onClick} disabled={disabled} aria-describedby={describedBy}
     className={cx(cls, 'w-full border-0 bg-transparent text-left', disabled && 'cursor-not-allowed opacity-60')}>{inner}</button>
   return <div className={cls}>{inner}</div>

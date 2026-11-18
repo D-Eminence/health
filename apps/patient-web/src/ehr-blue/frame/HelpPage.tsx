@@ -19,19 +19,20 @@ interface Guide {
  */
 export const GUIDES: readonly Guide[] = [
   { id: 'register', title: 'Register a new patient', permission: 'identity.registration.write', steps: [
-    'Open Patient registration.',
+    'Open Patient registration and select Create record.',
     'Check the patient’s NIN, then fill in their details.',
-    'Select Create record. The patient gets a Health ID.',
+    'Finish the steps. The patient gets a Health ID.',
   ], note: 'If NIN checks are unavailable, new registrations can’t be started yet. Try again later.' },
   { id: 'find', title: 'Find a patient and get access', permission: 'identity.patient.read', steps: [
-    'Open Patients and type the patient’s Health ID (it starts with HID-).',
-    'If you already have access, select Open.',
-    'If not, choose Ask the patient (they approve on their phone) or Use their Access PIN.',
+    'Open Patients and paste or type the patient’s Health ID (it starts with HID-). It’s checked as soon as it’s complete.',
+    'If you can see the patient, their page opens at once.',
+    'If not, choose Use their Access PIN (if they’re with you) or Ask the patient (they approve on their phone).',
+    'If no patient has that Health ID, select Register a new patient.',
   ], note: 'Use Emergency access only when the patient can’t consent and care can’t wait.' },
   { id: 'vitals', title: 'Record vitals', permission: 'ehr.vital.write', steps: [
     'Open the patient, then select Record vitals.',
     'Choose the visit, then enter the readings. Values outside the normal adult range are flagged as you type.',
-    'Select Save. Back to consultation takes you to the visit.',
+    'Select Save record. Back to consultation takes you to the visit.',
   ] },
   { id: 'consult', title: 'Run a consultation', permission: 'ehr.encounter.write', steps: [
     'Open the patient, then select Start a consultation.',
@@ -40,13 +41,13 @@ export const GUIDES: readonly Guide[] = [
   ], note: 'The latest vitals show at the top of the consultation. Ask about this patient sits in the patient banner on every page.' },
   { id: 'lab-order', title: 'Order a lab test', permission: 'ehr.lab-request.write', steps: [
     'In the consultation, open Orders and select New lab request.',
-    'Enter the test, confirm the patient, and choose Send to this facility’s lab.',
-    'The request shows as sent on the consultation.',
+    'Enter the test. Request handling is set to send it to this facility’s lab.',
+    'Select Create lab request, then confirm the patient and select Send lab request.',
   ] },
   { id: 'prescribe', title: 'Prescribe a medicine', permission: 'ehr.prescription.write', steps: [
     'In the consultation, open Orders and select New prescription.',
-    'Enter the medicine, dose, unit, route and how often.',
-    'Confirm the patient and activate the prescription.',
+    'Enter the medicine, dose, unit, route, how often and instructions, then select Save draft.',
+    'On the saved prescription, activate it so the pharmacy receives it.',
   ] },
   { id: 'lab', title: 'Process lab work', permission: 'lab.work-item.read', steps: [
     'Open Laboratory. Waiting for sample lists new requests.',
@@ -56,7 +57,7 @@ export const GUIDES: readonly Guide[] = [
   { id: 'dispense', title: 'Dispense a prescription', permission: 'pharmacy.work-item.read', steps: [
     'Open Prescriptions. To dispense lists what is waiting.',
     'Open the prescription and check the patient, medicine and dose.',
-    'Record what you dispensed.',
+    'Tick each step of Pick and hand over, enter the quantity, and select Dispense.',
   ] },
   { id: 'emergency', title: 'Use emergency access', permission: 'identity.break-glass.write', steps: [
     'Open Emergency access (under Care, beside Access requests).',
@@ -67,6 +68,10 @@ export const GUIDES: readonly Guide[] = [
 
 /** What changed in this release, newest first: one line each. */
 export const WHATS_NEW: readonly string[] = [
+  'Guide, in the top bar of every page, explains that page. Press ? to open it.',
+  'Find a patient checks a Health ID as soon as it’s pasted, and offers Register a new patient when no one has it.',
+  'Back takes you to where you came from: a consultation started from a patient’s page returns to the patient.',
+  'Today’s work on Home opens each test or prescription itself.',
   'Ask about this patient is in the patient banner on every chart page.',
   'The latest vitals show at the top of each consultation.',
   'After saving vitals, Back to consultation takes you straight back.',
@@ -96,7 +101,7 @@ export function HelpPage() {
               <li key={guide.id}>
                 <details className="group px-5 py-3">
                   <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-ink">{guide.title}</summary>
-                  <ol className="m-0 mt-1 flex flex-col gap-1.5 pl-5 text-sm text-ink-2">
+                  <ol className="m-0 mt-1 list-decimal space-y-1.5 pl-5 text-sm text-ink-2">
                     {guide.steps.map(step => <li key={step}>{step}</li>)}
                   </ol>
                   {guide.note ? <p className="m-0 mt-2 text-[13px] text-ink-3">{guide.note}</p> : null}
@@ -108,7 +113,7 @@ export function HelpPage() {
       </Card>
       <Card>
         <CardHeader as="h2" title="What’s new" icon={Sparkles} iconTone="brand" />
-        <ul className="m-0 flex flex-col gap-1.5 px-5 pb-5 pl-10 text-sm text-ink-2">
+        <ul className="m-0 list-disc space-y-1.5 px-5 pb-5 pl-10 text-sm text-ink-2">
           {WHATS_NEW.map(line => <li key={line}>{line}</li>)}
         </ul>
       </Card>

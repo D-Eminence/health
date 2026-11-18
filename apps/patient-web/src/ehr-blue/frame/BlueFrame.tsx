@@ -24,6 +24,8 @@ import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
 import { useListedChanges } from './listedChanges'
 import { NotFoundPage } from './NotFoundPage'
+import { PageGuideButton } from './PageGuide'
+import { guideFor, SAMPLE_GUIDE } from './pageGuides'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
@@ -240,7 +242,9 @@ export function BlueFrame() {
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, ownPageOpen, listedNow])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
-  const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
+  // A tab the menu would not list for this session (a lab's own till where Finance lists the facility's) is not drawn
+  // either, unless it is the page open now.
+  const tabs = match && product === 'ehr' ? pageTabs(allowed.filter(page => page === match.page || !session || (page.listed?.(session) ?? true)), match.page) : []
   // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
   // opens, so none of them leads to a page the frame sends to the product's Home (below).
   const openHere = useMemo(() => allowed.filter(page => pageOpensInProduct(product, page, servedHere)), [allowed, product])
@@ -393,6 +397,9 @@ export function BlueFrame() {
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
             headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} />
+              {/* The Guide for the page open now, in plain sight on every page (owner, 18 Nov 2026). */}
+              <PageGuideButton guide={match?.page.status === 'sample' ? SAMPLE_GUIDE : guideFor(location.pathname)} label={shownTitle}
+                onAllGuides={() => navigate('/provider/help')} onSupport={supportChatOffered() ? () => setSamplePanel('help') : undefined} />
               {/* Help in plain sight, where the build offers the support assistant (the facility menu keeps its own). */}
               {/* Help: the support assistant where the build offers it, with the guides one click inside; otherwise the
                   Help page of guides and what's new (QA P1-7). */}

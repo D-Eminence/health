@@ -23,6 +23,7 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, 
 import { Drawer } from '../../kasuwa/interactive'
 import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
+import { fromHere } from '../clinical/parts/cameFrom'
 import { HomeBillingCard, HomePeopleCard } from './adminCards'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
@@ -134,9 +135,10 @@ export function BlueHome() {
     sure: incoming.sure.filter(receivedHere) }
   const work = [
     ...labItems.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test', meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`,
-      to: '/provider/laboratory', icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
+      // Each row opens its own test, not the whole list, and its Back comes Home (flow review, 18 Nov 2026).
+      to: `/provider/laboratory/work/${encodeURIComponent(item.id)}`, icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
     ...rxItems.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine', meta: 'Pharmacy · to dispense',
-      to: '/provider/pharmacy', icon: Pill, urgent: false })),
+      to: `/provider/pharmacy/prescriptions/${encodeURIComponent(item.id)}`, icon: Pill, urgent: false })),
   ]
   const attention = [
     ...(pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
@@ -200,7 +202,7 @@ export function BlueHome() {
             ? (labRead.state === 'loading' || rxRead.state === 'loading') && work.length === 0 ? <LoadingRows rows={2} label="Loading today's work" />
               : work.length > 0
                 ? <ul className="m-0 list-none divide-y divide-line p-0">{work.map(w => <li key={w.key}>
-                    <ListRow to={w.to} leading={<IconChip size="sm" icon={w.icon} tone={w.urgent ? 'danger' : 'neutral'} />} title={w.title} subtitle={w.meta}
+                    <ListRow to={w.to} state={fromHere('/provider', 'Back to Home')} leading={<IconChip size="sm" icon={w.icon} tone={w.urgent ? 'danger' : 'neutral'} />} title={w.title} subtitle={w.meta}
                       trailing={w.urgent ? <Badge tone="danger" size="sm" solid>Urgent</Badge> : <ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>
                 : <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Tests and prescriptions show here once they are accepted.</p>
             : <ul className="m-0 list-none divide-y divide-line p-0">

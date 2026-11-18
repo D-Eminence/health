@@ -103,7 +103,7 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const info = KINDS[kind]
   const back = href(encounterId)
   // Today's form heading, "Add {tab}" (Clinical.tsx:561).
-  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} />
+  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} backLabel="Back to consultation" />
 
   // As in classic, an order is added only where it can be read back: the saved order opens next.
   if (!chart.can(info.write) || !chart.can(info.read)) {

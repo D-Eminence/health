@@ -1,3 +1,4 @@
+import { cameFrom } from '../../clinical/parts/cameFrom'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrButton } from '@hid/ui/ehr'
@@ -154,6 +155,9 @@ function PrescriptionQueue() {
   function back() {
     // Focusable while a request runs, but a press does nothing: the record must stay to say how it ended.
     if (recording) return
+    // Opened from another page that said where it was (Home's Today's work): Back returns there.
+    const came = cameFrom(location.state)
+    if (came) { navigate(came.to); return }
     const id = selected?.id
     // Opened from the list: step back in history, so the browser's Back doesn't reopen it. Else (a shared address) replace.
     if ((location.state as { fromQueue?: unknown } | null)?.fromQueue === true) navigate(-1)
@@ -204,7 +208,7 @@ function PrescriptionQueue() {
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
-      onBack={selected ? back : undefined} backLabel="Back to prescriptions" backUnavailable={selected ? recording : undefined}
+      onBack={selected ? back : undefined} backLabel={cameFrom(location.state)?.label ?? "Back to prescriptions"} backUnavailable={selected ? recording : undefined}
       primaryAction={!selected && pointOfCareOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>
