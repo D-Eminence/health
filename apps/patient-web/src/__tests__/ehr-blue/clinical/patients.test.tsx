@@ -310,8 +310,20 @@ describe('Find a patient', () => {
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
-  it('shows a pasted Health ID the live API answers 404 NOT_FOUND for as a refused lookup, with no Register a new patient', async () => {
-    // Today's identity-api answers NOT_FOUND both for a Health ID no patient has and for one this facility can't see.
+  it('says what to do next by itself for a pasted Health ID no patient has (Q100 B: 404 PATIENT_NOT_FOUND)', async () => {
+    staff.permissions = [...ALL, 'identity.registration.write']
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'No patient has this Health ID.', { code: 'PATIENT_NOT_FOUND' }))
+    open()
+    fireEvent.paste(searchField())
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`, undefined, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('link', { name: 'Register a new patient' }).getAttribute('href')).toBe('/provider/registration')
+    expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
+  })
+
+  it('shows a pasted Health ID answered 404 NOT_FOUND (a patient not available here) as a refused lookup, with no Register a new patient', async () => {
+    // Since Q100 B identity-api answers NOT_FOUND only for a patient that exists but this facility can't see.
     staff.permissions = [...ALL, 'identity.registration.write']
     api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient not found.', { code: 'NOT_FOUND' }))
     open()
@@ -1667,7 +1679,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expectNoHealthIdInAnyAddress()
     })
 
-    it('dormant until the backend answers Q100: a PATIENT_NOT_FOUND answer offers registering a new patient, not ways to get access', async () => {
+    it('Q100 B: a PATIENT_NOT_FOUND answer offers registering a new patient, not ways to get access', async () => {
       staff.permissions = [...WITH_ACCESS, 'identity.registration.write']
       api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
       openTracked()
@@ -1676,6 +1688,18 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeTruthy()
       expect(screen.queryByRole('group', { name: 'Obtain access' })).toBeNull()
       expect(screen.getByRole('link', { name: 'Register a new patient' }).getAttribute('href')).toBe('/provider/registration')
+    })
+
+    it('Q100 B: a role that does not register is told no patient has the Health ID, with no Register a new patient', async () => {
+      staff.permissions = [...WITH_ACCESS]
+      api.lookupPatient.mockRejectedValue(new HidApiError(404, 'No patient has this Health ID.', { code: 'PATIENT_NOT_FOUND' }))
+      openTracked()
+      fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+      fireEvent.click(findButton())
+      expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeTruthy()
+      expect(screen.getByText('Check it with the patient and try again.')).toBeTruthy()
+      expect(screen.queryByRole('link', { name: 'Register a new patient' })).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Obtain access' })).toBeNull()
     })
 
     it('parity (area 7): Emergency access opens the Emergency page, “Emergency access”, with the Health ID typed, and sends nothing more', async () => {

@@ -41,7 +41,7 @@ const whatsNew = () => {
 const EHR_ONLY_LINES = [
   /^Typing a diagnosis suggests matches/, /^Common complaints are one tap/, /^Back takes you to where you came from/, /^Today’s work on Home/,
   /^Ask about this patient is in the patient banner/, /^The latest vitals show/, /^After saving vitals/, /^Emergency access sits beside Access requests/,
-  /^Find a patient \(from a button\), a new registration/,
+  /^Find a patient \(from a button\), a new registration/, /^Find a patient says when no patient has the Health ID/,
 ]
 const EMERGENCY_NOTE = 'Use Emergency access only when the patient can’t consent and care can’t wait.'
 
@@ -53,7 +53,7 @@ describe('Help, on the site it is open on', () => {
     expect(screen.getByText(EMERGENCY_NOTE)).toBeTruthy()
     const lines = whatsNew()
     for (const line of EHR_ONLY_LINES) expect(lines.some(text => line.test(text)), String(line)).toBe(true)
-    expect(lines).toHaveLength(12)
+    expect(lines).toHaveLength(13)
   })
 
   it('on lab., lists only the lab’s guide, none of the hospital’s (no Find a patient, no Register a new patient), and no EHR-only line', () => {
