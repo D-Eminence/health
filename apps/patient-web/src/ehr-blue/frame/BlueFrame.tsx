@@ -19,6 +19,7 @@ import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pa
 import { productUsable } from './pageAccess'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
+import { AtLocation, RouteDrawerPanel, useRouteDrawer, type RouteDrawerState } from './routeDrawer'
 import { facilityRefusal } from './ChooseWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
@@ -200,6 +201,14 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
  * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
+  // A short form or a single record opened from a page sits in a drawer over it (routeDrawer.tsx): the frame then shows
+  // the page under it, and the drawer the address itself.
+  // One tree either way, so opening or closing a drawer never remounts the frame or the page under it.
+  const { drawer, closed, location } = useRouteDrawer()
+  return <AtLocation location={drawer?.background ?? location}><BlueFrameBody drawer={drawer} closed={closed} /></AtLocation>
+}
+
+function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; closed: number }) {
   const { state, lock, signOut, selectFacility, activePatient } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
@@ -444,7 +453,7 @@ export function BlueFrame() {
                 />
               ) : null}
               {/* A page that fails would take the frame with it: the boundary keeps the sidebar and the account menu. */}
-              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>
+              <BluePageBoundary key={`${match?.page.keepsState ? match.page.path : location.pathname}#${closed}`}>
                 {/* A page's own <Routes> resolve from its address: index is the page, "new" is <page>/new. */}
                 <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
                   <Routes>
@@ -453,6 +462,7 @@ export function BlueFrame() {
                   </Routes>
                 </UNSAFE_RouteContext.Provider>
               </BluePageBoundary>
+              {drawer ? <DrawnPage drawer={drawer} session={session} viewing={viewing} todayPage={todayPage} /> : null}
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
@@ -464,5 +474,32 @@ export function BlueFrame() {
         </EhrAppShell>
       </AttentionProvider>
     </OpenPagesProvider></BluePagesProvider>
+  )
+}
+
+/**
+ * The address a drawer holds, rendered as the frame renders a page (its own routes, its page context), inside the drawer.
+ * A page this session may not open says so there, as it would as a page.
+ */
+function DrawnPage({ drawer, session, viewing, todayPage }: {
+  drawer: RouteDrawerState; session: StaffSession | null; viewing: Parameters<typeof pageAllowed>[2]; todayPage: ReturnType<typeof useOutlet>
+}) {
+  const match = matchBluePage(BLUE_PAGES, drawer.drawn.pathname)
+  if (!match) return null
+  const allowedHere = pageAllowed(match.page, session, viewing)
+  return (
+    <AtLocation location={drawer.drawn}>
+      <RouteDrawerPanel drawer={drawer} fallbackTitle={match.page.label}>
+        <BluePageBoundary key={drawer.drawn.pathname}>
+          <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
+            <Routes>
+              <Route path={`${pageHrefOf(match.page)}/*`} element={<TodayPageProvider value={todayPage}>{allowedHere
+                ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
+                : <DeniedPage label={match.page.label} facility={session?.actor.facility?.name ?? 'this facility'} />}</TodayPageProvider>} />
+            </Routes>
+          </UNSAFE_RouteContext.Provider>
+        </BluePageBoundary>
+      </RouteDrawerPanel>
+    </AtLocation>
   )
 }

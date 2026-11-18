@@ -228,7 +228,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
       {banner ? <ChartBanner chart={chart} sticky action={<PatientAssistant chart={chart} />} /> : null}
       {banner && chart.purpose === 'direct-care' ? (
         // Today's line and "Change patient →" under the patient's name (staff/routes/Clinical.tsx:1767-1768).
-        <p className="mt-2 mb-4 text-[13px] text-ink-2">
+        <p className="hid-ehr-chart-line mt-2 mb-4 text-[13px] text-ink-2">
           HID {chart.patient.hid} · {DIRECT_CARE}
           {/* The way back to the patient's own page from every chart page (flow review, 18 Nov 2026). */}
           {can('identity.patient.read') ? <>{' '}<Link className="font-medium text-brand-ink underline underline-offset-2" to={href.to('patients', 'open')}>Patient page</Link> ·</> : null}

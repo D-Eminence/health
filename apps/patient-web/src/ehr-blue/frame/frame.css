@@ -1155,3 +1155,19 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* A page opened in a side drawer (routeDrawer.tsx): the drawer's header carries its title and closes it, so the page's
+   own title, Back arrow and "Change patient" line are not drawn twice. The patient banner stays: it says whose record
+   this is. */
+.hid-route-drawer .hid-ehr-page-title-row,
+.hid-route-drawer .hid-ehr-page-title,
+.hid-route-drawer .hid-ehr-chart-line { display: none; }
+.hid-route-drawer .hid-ehr-page-heading { margin-top: 0; }
+.hid-route-drawer .hid-ehr-clinical-page { padding: 0; max-width: none; }
+/* The patient banner stays in view at the top of the drawer as the form scrolls under it. */
+.hid-route-drawer .sticky { top: -1.25rem; }
+/* On a phone the drawer covers the tab bar, so a form's sticky Save sits at the drawer's own bottom edge. */
+@media (max-width: 639px) {
+  .hid-ehr .hid-route-drawer .hid-ehr-clinical-form-footer-sticky,
+  .hid-route-drawer .max-sm\:sticky { bottom: -1.25rem; }
+}
