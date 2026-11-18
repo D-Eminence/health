@@ -288,7 +288,7 @@ describe('the page entries', () => {
   })
 
   it('lists the lab’s pages in order, each with the permission it needs', () => {
-    expect(labPages.filter(page => page.listed === undefined).map(page => [page.path, page.label, page.permission])).toEqual([
+    expect(labPages.filter(page => page.listed === undefined || page.tabOf === 'laboratory').map(page => [page.path, page.label, page.permission])).toEqual([
       ['laboratory/new', 'New request', 'lab.walk-in.create'],
       ['laboratory/work/*', 'Work list', 'lab.work-item.read'],
       ['laboratory/results/*', 'Results', 'lab.work-item.read'],
