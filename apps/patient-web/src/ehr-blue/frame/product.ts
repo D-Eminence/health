@@ -100,9 +100,11 @@ export function productLists(product: Product, path: string): boolean {
  *    keeps it to the demo facilities.
  *  - Facility setup: a facility that signed itself up works on its product's site (signup/AfterSubmit.tsx). Its own
  *    `visible` keeps it to those facilities' staff managers.
+ *  - Help: the Guide in the top bar of every page leads there ("All guides": PageGuide.tsx), as does Help in the top
+ *    bar and the account menu. It lists nothing anywhere (pages.ts), so it is opened, not listed.
  * (Patients and Access requests are not among them: every product lists them, by permission, through SHARED above.)
  */
-const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding'])
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'help'])
 
 /**
  * "Start an outreach group" (owner decision 5 of 11 November 2026) opens unlisted on Health ID Outreach: Switch facility
