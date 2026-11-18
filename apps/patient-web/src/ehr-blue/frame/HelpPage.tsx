@@ -24,10 +24,10 @@ export const GUIDES: readonly Guide[] = [
     'Finish the steps. The patient gets a Health ID.',
   ], note: 'If NIN checks are unavailable, new registrations can’t be started yet. Try again later.' },
   { id: 'find', title: 'Find a patient and get access', permission: 'identity.patient.read', steps: [
-    'Open Patients and paste or type the patient’s Health ID (it starts with HID-). It’s checked as soon as it’s complete.',
+    'Open Patients and paste or scan the patient’s Health ID (it starts with HID-). If you type it, select Find.',
     'If you can see the patient, their page opens at once.',
     'If not, choose Use their Access PIN (if they’re with you) or Ask the patient (they approve on their phone).',
-    'If no patient has that Health ID, select Register a new patient.',
+    'If the patient isn’t found, check the Health ID with them. If they’re new, register them from Patient registration in the menu, or ask a colleague who registers patients.',
   ], note: 'Use Emergency access only when the patient can’t consent and care can’t wait.' },
   { id: 'vitals', title: 'Record vitals', permission: 'ehr.vital.write', steps: [
     'Open the patient, then select Record vitals.',
@@ -72,7 +72,7 @@ export const WHATS_NEW: readonly string[] = [
   'Typing a diagnosis suggests matches and fills its ICD-10 code. Lab tests, medicines, routes and how often are suggested too.',
   'Common complaints are one tap under the complaint box.',
   'Guide, in the top bar of every page, explains that page. Press ? to open it.',
-  'Find a patient checks a Health ID as soon as it’s pasted, and offers Register a new patient when no one has it.',
+  'Find a patient checks a pasted or scanned Health ID at once. A typed one is checked when you select Find.',
   'Back takes you to where you came from: a consultation started from a patient’s page returns to the patient.',
   'Today’s work on Home opens each test or prescription itself.',
   'Ask about this patient is in the patient banner on every chart page.',

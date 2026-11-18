@@ -29,10 +29,10 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
   patients: {
     purpose: 'Find a patient by their Health ID and open their record, or get access when you don’t have it yet.',
     steps: [
-      'Paste or type the Health ID (it starts with HID-). It’s checked as soon as it’s complete; you don’t need to press Find.',
+      'Paste or scan the Health ID (it starts with HID-) and it’s checked at once. If you type it, select Find or press Enter.',
       'If you can see the patient, their page opens at once.',
       'If you don’t have access yet, choose Use their Access PIN (if they’re with you), Ask the patient, or Emergency access.',
-      'If no patient has that Health ID, select Register a new patient.',
+      'If the patient isn’t found, check the Health ID with them. If they’re new, register them with Register a patient at the top of this page, or Patient registration in the menu. If you don’t see either, ask a colleague who registers patients.',
       'Patients who shared their record with you, and invitations to accept, are under Shared with you.',
     ],
     tips: [

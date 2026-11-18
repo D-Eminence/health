@@ -20,8 +20,26 @@ import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { SharedWithYouCard } from './SharingCards'
 
-/** How long the Health ID field rests before a whole Health ID in it is looked up by itself. */
+/** How long the Health ID field rests, after a whole Health ID arrived in it at once, before it is looked up by itself. */
 export const AUTO_LOOKUP_MS = 600
+
+/**
+ * The fewest letters one change of the field adds for it to count as a whole Health ID arriving at once (a scanner
+ * types fast but each letter is its own change; a paste or an autofill is one change). Six is the shortest Health ID.
+ */
+const ARRIVES_AT_ONCE = 6
+/** The browser's names for a change that puts in text from elsewhere in one go: a paste, or an autofill or suggestion. */
+const AT_ONCE_INPUT_TYPES: ReadonlySet<string> = new Set(['insertFromPaste', 'insertReplacementText'])
+
+/**
+ * Whether a change of the Health ID field brought a whole Health ID at once (pasted, scanned in one go, or filled in),
+ * not a letter typed. Only such a change is looked up by itself: a Health ID is 6 to 32 letters and digits, so a pause
+ * while typing a long one would otherwise look up a shorter, different patient (review of #263).
+ */
+function arrivedAtOnce(native: Event, pasted: boolean, before: string, after: string): boolean {
+  const inputType = (native as Partial<InputEvent>).inputType
+  return pasted || (typeof inputType === 'string' && AT_ONCE_INPUT_TYPES.has(inputType)) || after.length - before.length >= ARRIVES_AT_ONCE
+}
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
@@ -94,9 +112,17 @@ function PatientList() {
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<{ hid: string; message: string } | null>(null)
   // Health ID answered that no patient has this Health ID: the next step is registering them, not asking for access.
+  // Dormant for now: today's identity-api answers 404 NOT_FOUND both for a Health ID no patient has and for a patient
+  // this facility can't see, so a live lookup never says PATIENT_NOT_FOUND. It waits on the backend's answer to Q100
+  // ("No such patient", BACKEND-NEEDS.md); until then a 404 is shown as a refused lookup.
   const [unknown, setUnknown] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(() => noticeOf(location.state))
+  // Whether the Health ID in the field arrived whole at once (pasted or scanned): only then is it looked up by itself.
+  // A Health ID typed, or handed over from Registration, waits for Find or Enter.
+  const [atOnce, setAtOnce] = useState(false)
+  // A paste into the field, until the change it makes: the change's own input type is not given by every browser.
+  const pasting = useRef(false)
   const searchBox = useRef<HTMLFormElement>(null)
   const canLook = !!facility && can('identity.patient.read')
   const administrator = administratorOf(facility, permissions)
@@ -134,12 +160,12 @@ function PatientList() {
   const lookedUp = useRef<string | null>(null)
 
   /**
-   * As soon as the field holds a whole Health ID (pasted, scanned or typed) and stays still for a moment, it is looked
-   * up with no press of Find (owner, 18 Nov 2026): the patient opens, or the page says what to do next. The pause keeps
-   * a Health ID being typed from being looked up at every letter.
+   * A whole Health ID pasted or scanned in at once is looked up with no press of Find (owner, 18 Nov 2026): the patient
+   * opens, or the page says what to do next. A typed one is never looked up by itself, however long the typist pauses:
+   * part of a longer Health ID can be a whole, different one (review of #263), so typing ends with Find or Enter.
    */
   useEffect(() => {
-    if (!canLook || busy) return
+    if (!canLook || busy || !atOnce) return
     const normalized = normalizeHealthIdInput(hid)
     if (healthIdProblem(normalized) !== null || lookedUp.current === normalized) return
     const timer = window.setTimeout(() => {
@@ -150,7 +176,7 @@ function PatientList() {
     }, AUTO_LOOKUP_MS)
     return () => window.clearTimeout(timer)
     // open and clearFeedback are this render's; only a change of the Health ID (or who may look) starts a new wait.
-  }, [hid, canLook, busy])
+  }, [hid, atOnce, canLook, busy])
 
   function search() {
     if (busy || !canLook) return
@@ -202,7 +228,7 @@ function PatientList() {
   const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
 
   return (
-    <FormPage title="Find a patient" description="Paste or type their Health ID. It’s checked as soon as it’s complete."
+    <FormPage title="Find a patient" description="Paste or scan their Health ID and it’s checked at once. If you type it, select Find."
       actions={registers ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
       {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 
@@ -212,7 +238,13 @@ function PatientList() {
           <div className="flex gap-2">
             <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
               required aria-required="true" aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
-              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null); setRefused(null); setUnknown(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
+              onKeyDown={() => { pasting.current = false }} onPaste={() => { pasting.current = true }}
+              onChange={event => {
+                const next = normalizeHealthIdInput(event.target.value)
+                setAtOnce(arrivedAtOnce(event.nativeEvent, pasting.current, hid, next))
+                pasting.current = false
+                setHid(next); setProblem(null); setRefused(null); setUnknown(null)
+              }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
             {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost
                 while the lookup runs, and a second press looks nothing up (search() returns while one is on its way). */}
             <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-busy={busy || undefined} aria-disabled={busy || undefined} className="h-11">Find</Button>

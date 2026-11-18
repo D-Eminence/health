@@ -4,7 +4,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
-import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { AUTO_LOOKUP_MS, PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
 import { shareDay } from '../../../shareRecords'
@@ -192,9 +192,11 @@ describe('Find a patient', () => {
     expect(document.title).not.toContain(PATIENT_NAME)
   })
 
-  it('looks a whole Health ID up by itself once it is pasted, with no press of Find, and ', async () => {
+  it('looks a whole Health ID up by itself once it is pasted, with no press of Find', async () => {
     open()
     fireEvent.change(searchField(), { target: { value: 'hid-zdem' } })
+    // The paste adds only the last four letters to what was typed: it is the paste, not its length, that counts.
+    fireEvent.paste(searchField())
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
     // The incomplete one was never looked up; the whole one was, first (the patient's page checks access again after).
@@ -202,13 +204,61 @@ describe('Find a patient', () => {
     expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
   })
 
-  it('says what to do next by itself for a pasted Health ID no patient has', async () => {
-    staff.permissions = [...ALL, 'identity.registration.write']
-    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
+  it('looks up by itself a Health ID put in by the browser in one go (a paste or an autofill, by its input type)', async () => {
+    open()
+    fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa' } })
+    fireEvent.input(searchField(), { target: { value: PATIENT_HID }, inputType: 'insertReplacementText' })
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('looks up by itself a Health ID scanned in at once (one change adds six letters or more)', async () => {
     open()
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
-    expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`, undefined, { timeout: 2000 })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('never looks up a typed Health ID by itself: a pause partway through a longer one looks up nobody', async () => {
+    open()
+    // Typed one letter at a time: HID-ZDEMAA is itself a whole Health ID (six letters), the start of HID-ZDEMAAA2.
+    for (const letter of 'ZDEMAA') fireEvent.change(searchField(), { target: { value: `${searchField().value}${letter}` } })
+    expect(searchField().value).toBe('HID-ZDEMAA')
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    // Typed to the end, it still waits for Find.
+    for (const letter of 'A2') fireEvent.change(searchField(), { target: { value: `${searchField().value}${letter}` } })
+    expect(searchField().value).toBe(PATIENT_HID)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
+    fireEvent.click(findButton())
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('a key pressed after a paste that changed nothing is typing again: the letter typed is not looked up by itself', async () => {
+    open()
+    for (const letter of 'ZDEMA') fireEvent.change(searchField(), { target: { value: `${searchField().value}${letter}` } })
+    // A paste that changes nothing (the clipboard was empty), then a letter typed.
+    fireEvent.paste(searchField())
+    fireEvent.keyDown(searchField(), { key: 'A' })
+    fireEvent.change(searchField(), { target: { value: 'HID-ZDEMAA' } })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('shows a pasted Health ID the live API answers 404 NOT_FOUND for as a refused lookup, with no Register a new patient', async () => {
+    // Today's identity-api answers NOT_FOUND both for a Health ID no patient has and for one this facility can't see.
+    staff.permissions = [...ALL, 'identity.registration.write']
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient not found.', { code: 'NOT_FOUND' }))
+    open()
+    fireEvent.paste(searchField())
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    expect(await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`, undefined, { timeout: 2000 })).toBeTruthy()
     expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Register a new patient' })).toBeNull()
   })
 
   it('opens nothing when the session or facility changed while the lookup ran', async () => {
@@ -1515,7 +1565,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expectNoHealthIdInAnyAddress()
     })
 
-    it('a Health ID no patient has offers registering a new patient, not ways to get access', async () => {
+    it('dormant until the backend answers Q100: a PATIENT_NOT_FOUND answer offers registering a new patient, not ways to get access', async () => {
       staff.permissions = [...WITH_ACCESS, 'identity.registration.write']
       api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
       openTracked()
