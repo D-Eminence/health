@@ -1394,8 +1394,9 @@ export function Clinical() {
   }, [visibleRecords])
 
   // What the current grant permits, from the server (POST /identity/consent-status).
-  // A patient PIN or a read-only request authorizes reading only; changes stay
-  // hidden until the server reports write access, and whenever the check fails.
+  // A read-only request authorizes reading only (an Access PIN gives 24 hours of
+  // read and write since hid-system 0122); changes stay hidden until the server
+  // reports write access, and whenever the check fails.
   const accessScope = JSON.stringify([facility?.id, patientId])
   const [writeAccess, setWriteAccess] = useState<{ scope: string; allowed: boolean; failed: boolean } | null>(null)
   useEffect(() => {

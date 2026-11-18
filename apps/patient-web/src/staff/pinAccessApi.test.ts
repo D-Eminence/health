@@ -11,9 +11,9 @@ const FACILITY = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
 
 /**
  * A patient's Access PIN opens their records for 24 hours, to see and add to (owner, 10 Nov 2026): hid-system's database
- * (0122) gives 1440 minutes whatever is asked. The website asks for 60, which Identity accepts before that release (at
- * most 60) and after it (5 to 1440), so neither release order breaks the PIN. The scope is Identity's to set, so the
- * request names none.
+ * (0122, live since 17 Nov 2026) gives 1440 minutes whatever is asked. The website asks for 60, which Identity accepts
+ * (5 to 1440). It ships only with that backend (the release dependencies pin it): before 0122 a PIN gave 60 minutes of
+ * reading only. The scope is Identity's to set, so the request names none.
  */
 describe('the Access PIN call', () => {
   it('asks for 60 minutes, which Identity accepts before and after the 24-hour change, at the selected facility', async () => {
