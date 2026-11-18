@@ -7,6 +7,8 @@ import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical
 import { AUTO_LOOKUP_MS, PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
+import { RecordHeading } from '../../../ehr-blue/clinical/parts/Notices'
+import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
@@ -556,6 +558,46 @@ describe('The open patient’s page', () => {
     expect(screen.queryByRole('heading', { name: 'Visits here' })).toBeNull()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
+  })
+
+  it('keeps no patient name in history: Back to the patient is named from the patient open in memory as the page draws', async () => {
+    staff.permissions = [...ALL, ...WRITES]
+    staff.activePatient = activePatient()
+    /** What the page opened from the patient's page keeps in history, and its Back, as a record page draws it. */
+    function Opened() {
+      const { state } = useLocation()
+      return <><output data-testid="kept">{JSON.stringify(state)}</output><RecordHeading title="Opened" backHref={`${BASE}/clinical`} /></>
+    }
+    const kept: unknown[] = []
+    for (const step of [/^Start a consultation/, /^Record vitals/, new RegExp(`^${consultationLabel(ENCOUNTER)}`)]) {
+      const page = render(
+        <MemoryRouter initialEntries={[`${BASE}/patients/open`]}>
+          <Routes>
+            <Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} />
+            <Route path={`${BASE}/clinical/*`} element={<Workspace path="consult"><Opened /></Workspace>} />
+            <Route path={`${BASE}/triage/*`} element={<Workspace path="triage"><Opened /></Workspace>} />
+          </Routes>
+        </MemoryRouter>,
+      )
+      fireEvent.click(await screen.findByRole('button', { name: step }))
+      const state = screen.getByTestId('kept').textContent ?? ''
+      kept.push(JSON.parse(state))
+      expect(state).not.toContain(PATIENT_NAME)
+      expect(state).not.toContain(PATIENT_HID)
+      // Named for the patient as it draws, and going back to their page.
+      fireEvent.click(screen.getByRole('button', { name: `Back to ${PATIENT_NAME}` }))
+      expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+      page.unmount()
+    }
+    expect(kept).toEqual(Array(3).fill({ from: { to: `${BASE}/patients/open`, label: 'Back to patient', patient: true } }))
+    // With no patient open in memory, Back keeps its plain name.
+    staff.activePatient = null
+    render(
+      <MemoryRouter initialEntries={[{ pathname: `${BASE}/clinical/new`, state: kept[0] }]}>
+        <Routes><Route path={`${BASE}/clinical/*`} element={<Workspace path="consult"><Opened /></Workspace>} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: 'Back to patient' })).toBeTruthy()
   })
 
   it('hand-off 01: offers Start a consultation and Record vitals only to a role that may write them', () => {
