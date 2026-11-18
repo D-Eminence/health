@@ -14,7 +14,7 @@ import { errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import {
   ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HAS_HEALTH_ID, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
-  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, healthIdMadeText, LINK_FAILED, LINK_NEEDS_SHARE, LOOKUP_FAILED,
+  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, healthIdMadeText, LINK_FAILED, LINK_NEEDS_SHARE, LINK_NEEDS_SHARE_NO_PIN, LOOKUP_FAILED,
   NO_HEALTH_ID_YET, OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
@@ -95,7 +95,9 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
   const doneId = `outreach-case-${item.id}-done`
-  const { facility, actorId } = useDeptAccess()
+  const { facility, actorId, permissions } = useDeptAccess()
+  // Only a role that may use a patient's Access PIN (doctor, clinician, nurse) is told to ask for it.
+  const canUsePin = permissions.includes('identity.patient-access-pin.verify')
   // The Health ID made here just now, with its claim code when made with no email, for the slip. After a reload
   // the claim code is printed for 15 minutes from this tab's own copy (tabMemory.ts), never shown on screen again.
   const [madeHere, setMadeHere] = useState<MadeHere | null>(null)
@@ -170,9 +172,9 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
       await onChanged()
       onFocusHeading()
     } catch (caught) {
-      // Linking needs access to add to the record: an Access PIN (24 hours, to see and add to), a share for care, or an
-      // approved request to see and add to it. Read-only access is refused.
-      if (isHidApiError(caught) && caught.status === 403 && NO_WRITE.has(caught.code)) refuse({ patient: LINK_NEEDS_SHARE })
+      // Linking needs access to add to the record: an Access PIN (24 hours, to see and add to; doctors, clinicians and
+      // nurses only), a share for care, or an approved request to see and add to it. Read-only access is refused.
+      if (isHidApiError(caught) && caught.status === 403 && NO_WRITE.has(caught.code)) refuse({ patient: canUsePin ? LINK_NEEDS_SHARE : LINK_NEEDS_SHARE_NO_PIN })
       else { setError(errorText(caught, LINK_FAILED)); setReadAgain(true) }
       // Read the case again, so a retry is checked against its latest version, not the one refused.
       await onChanged()
