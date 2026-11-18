@@ -24,21 +24,50 @@ import { SharedWithYouCard } from './SharingCards'
 export const AUTO_LOOKUP_MS = 600
 
 /**
- * The fewest letters one change of the field adds for it to count as a whole Health ID arriving at once (a scanner
- * types fast but each letter is its own change; a paste or an autofill is one change). Six is the shortest Health ID.
+ * The fewest letters that count as a whole Health ID arriving at once: added by one change (a paste or an autofill),
+ * or arriving in one burst (a scanner). Six is the shortest Health ID.
  */
 const ARRIVES_AT_ONCE = 6
+/**
+ * The longest gap, in milliseconds, between one letter and the next for both to be one burst. Most barcode scanners
+ * (USB, Bluetooth, a phone's) type each letter as its own change a few milliseconds apart; a person types them 80 ms or
+ * more apart, so any slower letter starts a new burst.
+ */
+const BURST_GAP_MS = 35
 /** The browser's names for a change that puts in text from elsewhere in one go: a paste, or an autofill or suggestion. */
 const AT_ONCE_INPUT_TYPES: ReadonlySet<string> = new Set(['insertFromPaste', 'insertReplacementText'])
 
+/** The clock the Health ID field times its letters by. Tests set the time it gives. */
+export const fieldClock = { now: (): number => performance.now() }
+
+/** The letters that arrived one after another, each within BURST_GAP_MS of the one before, and when the last came. */
+interface Burst { readonly letters: number; readonly at: number }
+
 /**
- * Whether a change of the Health ID field brought a whole Health ID at once (pasted, scanned in one go, or filled in),
- * not a letter typed. Only such a change is looked up by itself: a Health ID is 6 to 32 letters and digits, so a pause
- * while typing a long one would otherwise look up a shorter, different patient (review of #263).
+ * The burst after a change of the Health ID field. A change that takes letters out (a deletion), or comes from a held
+ * key repeating, or comes later than BURST_GAP_MS after the one before, ends the burst; the letters it adds start the
+ * next one.
  */
-function arrivedAtOnce(native: Event, pasted: boolean, before: string, after: string): boolean {
+function nextBurst(burst: Burst | null, native: Event, before: string, after: string, at: number, broken: boolean): Burst | null {
+  const inputType = (native as Partial<InputEvent>).inputType
+  const deletes = typeof inputType === 'string' ? inputType.startsWith('delete') : after.length < before.length
+  if (deletes) return null
+  // A scanner's letter can shorten what is kept ("HID-HID" becomes "HID-"): each change brings at least one letter.
+  const added = Math.max(1, after.length - before.length)
+  const continues = burst !== null && !broken && at - burst.at <= BURST_GAP_MS
+  return { letters: (continues ? burst.letters : 0) + added, at }
+}
+
+/**
+ * Whether a change of the Health ID field brought a whole Health ID at once (pasted, scanned, or filled in), not a
+ * letter typed. Only such a change is looked up by itself: a Health ID is 6 to 32 letters and digits, so a pause while
+ * typing a long one would otherwise look up a shorter, different patient (review of #263). A scanner types each letter
+ * as its own change, so the last six letters (or more) arriving in one burst count as arriving at once.
+ */
+function arrivedAtOnce(native: Event, pasted: boolean, before: string, after: string, burst: Burst | null): boolean {
   const inputType = (native as Partial<InputEvent>).inputType
   return pasted || (typeof inputType === 'string' && AT_ONCE_INPUT_TYPES.has(inputType)) || after.length - before.length >= ARRIVES_AT_ONCE
+    || (burst !== null && burst.letters >= ARRIVES_AT_ONCE)
 }
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
@@ -118,11 +147,15 @@ function PatientList() {
   const [unknown, setUnknown] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(() => noticeOf(location.state))
-  // Whether the Health ID in the field arrived whole at once (pasted or scanned): only then is it looked up by itself.
+  // Whether the Health ID in the field arrived whole at once (pasted, or scanned in one burst): only then is it looked up
+  // by itself.
   // A Health ID typed, or handed over from Registration, waits for Find or Enter.
   const [atOnce, setAtOnce] = useState(false)
   // A paste into the field, until the change it makes: the change's own input type is not given by every browser.
   const pasting = useRef(false)
+  // The letters arriving fast, one after another, as a scanner types them; and whether a held key (repeating) broke it.
+  const burst = useRef<Burst | null>(null)
+  const repeating = useRef(false)
   const searchBox = useRef<HTMLFormElement>(null)
   const canLook = !!facility && can('identity.patient.read')
   const administrator = administratorOf(facility, permissions)
@@ -238,11 +271,13 @@ function PatientList() {
           <div className="flex gap-2">
             <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
               required aria-required="true" aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
-              onKeyDown={() => { pasting.current = false }} onPaste={() => { pasting.current = true }}
+              onKeyDown={event => { pasting.current = false; repeating.current = event.repeat }} onPaste={() => { pasting.current = true }}
               onChange={event => {
                 const next = normalizeHealthIdInput(event.target.value)
-                setAtOnce(arrivedAtOnce(event.nativeEvent, pasting.current, hid, next))
+                burst.current = nextBurst(burst.current, event.nativeEvent, hid, next, fieldClock.now(), repeating.current)
+                setAtOnce(arrivedAtOnce(event.nativeEvent, pasting.current, hid, next, burst.current))
                 pasting.current = false
+                repeating.current = false
                 setHid(next); setProblem(null); setRefused(null); setUnknown(null)
               }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
             {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost

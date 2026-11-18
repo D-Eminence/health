@@ -4,7 +4,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
-import { AUTO_LOOKUP_MS, PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { AUTO_LOOKUP_MS, PatientsWorkspace, fieldClock, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
 import { RecordHeading } from '../../../ehr-blue/clinical/parts/Notices'
@@ -63,8 +63,17 @@ const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health ID
 const CONSENT = { patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true }
 const ENCOUNTER = { id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }
 
+/**
+ * The Health ID field's clock: each change of the field comes `gap` ms after the one before. A person types a letter
+ * 120 ms or so after the last; a scanner types one every few ms. Every test types at a person's pace unless it says.
+ */
+const TYPED_MS = 120
+const fieldTime = { at: 0, gap: TYPED_MS }
+
 beforeEach(() => {
   vi.clearAllMocks()
+  fieldTime.gap = TYPED_MS
+  vi.spyOn(fieldClock, 'now').mockImplementation(() => (fieldTime.at += fieldTime.gap))
   dropOfferedHealthId()
   registry.acceptNeeds = null
   staff.permissions = [...ALL]
@@ -248,6 +257,57 @@ describe('Find a patient', () => {
     fireEvent.change(searchField(), { target: { value: 'HID-ZDEMAA' } })
     await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
     expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  /** A scanner (or a person) puts the letters in one change each, as the browser gives them: one letter, typed. */
+  function typeEach(letters: string, gap: number) {
+    fieldTime.gap = gap
+    for (const letter of letters) {
+      fireEvent.input(searchField(), { target: { value: `${searchField().value}${letter}` }, inputType: 'insertText' })
+    }
+  }
+
+  it('looks up by itself a Health ID a scanner types in a burst, one letter at a time, a few ms apart', async () => {
+    open()
+    typeEach(PATIENT_HID.slice('HID-'.length), 10)
+    expect(searchField().value).toBe(PATIENT_HID)
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    // Only the whole Health ID was looked up: the letters kept coming before the shorter one's wait was over.
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+    expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
+  })
+
+  it('looks up a scanned Health ID by itself when the scanner types the HID- prefix too', async () => {
+    open()
+    typeEach(PATIENT_HID, 8)
+    expect(searchField().value).toBe(PATIENT_HID)
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout: 2000 })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
+  })
+
+  it('does not look up by itself the same letters typed 120 ms apart: typing ends with Find', async () => {
+    open()
+    typeEach(PATIENT_HID.slice('HID-'.length), 120)
+    expect(searchField().value).toBe(PATIENT_HID)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('a burst that stops partway, then slower letters: neither the six letters of the burst nor the whole Health ID is looked up by itself', async () => {
+    open()
+    // HID-ZDEMAA, itself a whole Health ID, arrives in a burst: the start of HID-ZDEMAAA2.
+    typeEach('ZDEMAA', 10)
+    expect(searchField().value).toBe('HID-ZDEMAA')
+    // A pause, shorter than the wait before a lookup, then the rest at a person's pace.
+    fieldTime.at += 200
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 200)) })
+    typeEach('A2', 120)
+    expect(searchField().value).toBe(PATIENT_HID)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    fireEvent.click(findButton())
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
   it('shows a pasted Health ID the live API answers 404 NOT_FOUND for as a refused lookup, with no Register a new patient', async () => {
