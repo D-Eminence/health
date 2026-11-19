@@ -269,18 +269,24 @@ view that ends in a done state. These are not in the API (`/api/v1/outreach/regi
 6. **Member names**: `GET …/campaigns/:id/members` returns membership IDs only; the campaign view can only show
    "Membership abc12345". Send the member's display name.
 
-## Find a patient: telling "no such patient" apart (Q100, pending)
+## Find a patient: telling "no such patient" apart (Q100: decided B, backend built, not live yet)
 
-Find a patient can offer "Register a new patient" when no patient has the Health ID typed. Today it can't tell that
-case apart: `POST /api/v1/identity/patient-lookup` answers **404 with code `NOT_FOUND`** both for a Health ID no
-patient has and for a patient this facility may not see. So the live page shows the lookup as refused, and the page
-guide tells staff to register a new patient from Patient registration instead.
+The owner chose option B on 18 Nov 2026: a Health ID no patient has answers "No such patient" distinctly. The
+backend change is built in hid-system (branch `claude/ecstatic-ramanujan-q4i1eo-akos-w1b`, no migration) and is not
+live until that backend is released:
 
-**Decision needed (Q100, "No such patient")**
+- `POST /api/v1/identity/patient-lookup` answers **404 `PATIENT_NOT_FOUND`**, "No patient has this Health ID.", only
+  when no patient record of any status has the Health ID.
+- A patient that exists but is not available here keeps today's answer (404 `NOT_FOUND`, or 403).
+- 30 lookups that open no patient in 10 minutes answer **429 `PATIENT_LOOKUP_LIMITED`** for 10 minutes ("Too many
+  Health IDs could not be opened. Wait 10 minutes, then try again.").
 
-- Keep one answer for both, so a lookup never reveals whether a Health ID exists (see E10 in
-  `docs/BACKEND_OWNER_HANDOFF.md`). The UI stays as it is now.
-- Or answer a Health ID no patient has with 404 and code `PATIENT_NOT_FOUND`. The UI already has the panel for it
-  (`ehr-blue/clinical/patients/PatientsWorkspace.tsx`); it shows only on that code, so it needs no other change.
+The page shows "No patient has the Health ID ..." with Register a new patient (for roles that register) on
+`PATIENT_NOT_FOUND`, and keeps showing any other 404 as a refused lookup with the ways in. Until the backend is
+released, live answers stay 404 `NOT_FOUND` and the page behaves as before.
 
-The mock gateway answers `HID-NEWPATNT` as the live API does today (404 `NOT_FOUND`).
+The mock gateway answers `HID-NEWPATNT` with 404 `PATIENT_NOT_FOUND` and `HID-FARAWAY` with 404 `NOT_FOUND` (a
+patient this facility can't see).
+
+A 429 shows the site's usual plain "too many tries" words (`plainErrorText`). Access requests, the Access PIN and
+emergency access by Health ID keep their answers.
