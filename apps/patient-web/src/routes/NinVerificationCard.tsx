@@ -96,10 +96,11 @@ export function NinVerificationCard({ profile, onVerified }: {
       // The NIN check's own answers (ninCheck.ts): still checking, on hold until a time, or taking longer than usual.
       const problem = ninCheckProblem(reason)
       if (problem) {
-        const aboutDetails = problem.outcome === 'details'
+        // Details Identity refused, or a NIN QoreID has no record of (422 NIN_NOT_VERIFIED), are marked at the NIN field.
+        const aboutDetails = problem.outcome === 'details' || problem.outcome === 'not_verified'
         setError(problem.text); setFieldError(aboutDetails); setErrorAlert(!aboutDetails || fromField)
         if (problem.outcome === 'held') ninHold.hold(problem.heldUntil)
-        // Details Identity refused are changed before the next check, which is a new request with a new key.
+        // Either is changed before the next check, which is a new request with a new key.
         if (aboutDetails) key.current = null
         return
       }
