@@ -34,6 +34,12 @@ def entries():
     return verify_manifest(manifest,folder,ctx["source_commit"],ROOT/"config/production.json",
                            ROOT/"package-lock.json",ROOT/"infra/cloudflare/src", environment="production")
 
+# A release binds the success of this run's build job and of every vitest shard of production-frontends.yml's test job,
+# each by exact name, so a failed, skipped, cancelled or missing shard refuses the release (GitHub.assert_checks).
+TEST_SHARDS = 6
+RELEASE_CHECKS = {"build":"success", "test":"success",
+                  **{"test (%d/%d)" % (shard, TEST_SHARDS):"success" for shard in range(1, TEST_SHARDS+1)}}
+
 def candidate():
     ctx = context("frontend")
     selected = entries()
@@ -44,7 +50,7 @@ def candidate():
         dependency_commits(dependencies, json.loads((ROOT/"config/production.json").read_text())["backend_contract"])
         dependencies["declaration_sha256"] = file_sha(declarations)
     evidence = {e["app"]:{"sha256":e["sha256"],"size_bytes":e["size_bytes"],"hostname":e["hostname"]} for e in selected}
-    release = make_candidate(ctx,list(HOSTS),evidence,{"build":"success"},dependencies=dependencies)
+    release = make_candidate(ctx,list(HOSTS),evidence,dict(RELEASE_CHECKS),dependencies=dependencies)
     release["manifest_sha256"] = file_sha(ROOT/"build/production/manifest.json")
     # Rebind after adding the manifest digest.
     body = dict(release); body.pop("release_id")

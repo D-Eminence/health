@@ -134,7 +134,8 @@ jobs:
 
   # Only config/production-release-dependencies.json changed, and the base commit passed every check above. Nothing
   # outside the release tools reads that file, so this runs their tests and the npm audit gate (new advisories appear
-  # over time). The release itself (production-frontends.yml on main) still runs every check.
+  # over time). The release itself (production-frontends.yml on main) runs every check again, except that its test
+  # shards reuse the parent commit's release tests when the parent's run proves them and only the pin differs.
   pin:
     needs: classify
     if: ${{ needs.classify.outputs.mode == 'pin' }}
