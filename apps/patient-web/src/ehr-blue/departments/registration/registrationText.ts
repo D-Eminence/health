@@ -103,6 +103,8 @@ export const NAME_DATE_REFUSED = 'Enter the patient’s name and date of birth.'
 export const VERIFY_FAILED = 'NIN verification could not be completed.'
 /** A name or date of birth Identity refused before checking (400 NIN_DETAILS_INVALID), marked at each such field. */
 export const NIN_DETAILS_FIELD = 'Check this against the NIN record.'
+/** A NIN QoreID has no record of (422 NIN_NOT_VERIFIED, owner Q117), marked at the NIN field. */
+export const NIN_NUMBER_FIELD = 'Check this number.'
 export const CASE_CREATED = 'The NIN was checked and the registration was started. Review it before continuing.'
 export const CASE_CREATED_RELOAD = 'The registration was started, but it could not be shown. Choose Load case to open it.'
 
