@@ -6,6 +6,7 @@ import { AssistedRegistrationPanel } from './AssistedRegistration'
 import { FacilityStaffPanel } from './FacilityStaffPanel'
 import { FacilityOrderRoutesPanel, knownSignUp } from './OrderRoutes'
 import { isProblem } from './problems'
+import { adminAuditRow } from './auditWords'
 import { Search } from 'lucide-react'
 import { Button, Field, FilterTabs, Input } from '../kasuwa/ui'
 import {
@@ -186,9 +187,12 @@ function AuditExcerpt({ id, title, description, filters, search, withReason = fa
       <Link to={`/admin/audit?${search}`}>Open in Audit</Link></div>
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result =>
       <Table headings={['When', 'What happened', 'Result', 'Who']}>
-        {result.items.slice(0, 10).map(item => <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
-          <td>{label(item.action)}{withReason && item.reason ? <small>{item.reason}</small> : null}</td>
-          <td><Status value={item.outcome} /></td><td>{item.actorSubject || 'System'}</td></tr>)}
+        {result.items.slice(0, 10).map(item => {
+          const row = adminAuditRow(item)
+          return <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
+            <td>{row.what}{withReason && item.reason ? <small>{item.reason}</small> : null}</td>
+            <td><Status value={row.outcome} text={row.outcomeText} /></td><td>{row.who}</td></tr>
+        })}
       </Table>}</ResourceView>
   </section>
 }
