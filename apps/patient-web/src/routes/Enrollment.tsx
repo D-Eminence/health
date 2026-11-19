@@ -28,6 +28,7 @@ import { HolderCodeStep } from './enrollment/HolderCodeStep'
 import { FacilityStep } from './enrollment/FacilityStep'
 import { AlreadyRegistered, RegistrationCompleted, RegistrationEnded } from './enrollment/Outcomes'
 import { PatientSignup } from './enrollment/Signup'
+import { NIN_STILL_CHECKING, ninCheckProblem, useNinHold, useStillChecking } from '../ninCheck'
 import { signupEmailOf } from './enrollment/signupHandoff'
 
 /**
@@ -243,6 +244,11 @@ export function Enrollment() {
   // A Google sign-up refused because that Google email already has a Health ID (googleAccountExists.tsx).
   const [accountExists, setAccountExists] = useState<ExistingAccount | null>(null)
   const [busy, setBusy] = useState(false)
+  // The NIN start checks the NIN with QoreID, which can take up to half a minute: the page says it is still checking
+  // after a few seconds, and keeps Continue off while Identity holds the NIN (ninCheck.ts).
+  const [ninChecking, setNinChecking] = useState(false)
+  const stillChecking = useStillChecking(ninChecking)
+  const ninHold = useNinHold()
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
@@ -689,9 +695,9 @@ export function Enrollment() {
   const submitNin = async (event: FormEvent) => {
     event.preventDefault()
     const fromField = stepFocus.onTarget()
-    if (!/^\d{11}$/.test(nin) || !turnstileToken || busy) return
+    if (!/^\d{11}$/.test(nin) || !turnstileToken || busy || ninHold.held) return
     if (googleRequired && !googlePending) { setError('Reconnect Google before continuing.'); setFieldError(false); return }
-    setBusy(true); clearError()
+    setBusy(true); setNinChecking(true); clearError()
     const key = startKeys.current.get(nin) ?? crypto.randomUUID()
     startKeys.current.set(nin, key)
     try {
@@ -703,12 +709,20 @@ export function Enrollment() {
         // As an availability read would now say: the closed notice, and no NIN step.
         setNin(''); setRegistration('closed')
       } else if (refusedWith(reason, 409, 'IDEMPOTENCY_KEY_REUSED')) showCompleted()
-      else if (temporarilyUnavailable(reason)) {
+      else if (ninCheckProblem(reason)) {
+        // The NIN check's own answers (ninCheck.ts). The key kept for this NIN makes Continue again pick up the check
+        // already made; details refused are changed first, so the next start is a new request.
+        const problem = ninCheckProblem(reason)!
+        const aboutDetails = problem.outcome === 'details'
+        setError(problem.text); setFieldError(aboutDetails); setErrorAlert(!aboutDetails || fromField)
+        if (problem.outcome === 'held') ninHold.hold(problem.heldUntil)
+        if (aboutDetails) startKeys.current.delete(nin)
+      } else if (temporarilyUnavailable(reason)) {
         // Identity's own text for a lookup it could not complete, said for any outage: the step is kept.
         setError(NIN_CHECK_UNAVAILABLE); setFieldError(false); setErrorAlert(true)
       } else displayError(reason, fromField)
     }
-    finally { setTurnstileToken(null); setResetKey(value => value + 1); setBusy(false); stepFocus.focus() }
+    finally { setTurnstileToken(null); setResetKey(value => value + 1); setBusy(false); setNinChecking(false); stepFocus.focus() }
   }
 
   const submitContact = async (event: FormEvent) => {
@@ -917,9 +931,11 @@ export function Enrollment() {
         <p className="m-0 flex items-center gap-3 text-[13px] text-ink-3 before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">or use your NIN</p>
       </section>}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && googleChosen && googleSection}
-      {ready && stage === 'nin' && registration === 'open' && !googleChosen && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
+      {ready && stage === 'nin' && registration === 'open' && !googleChosen && <NinStep {...stepProps} nin={nin} onNin={value => { setNin(value); ninHold.hold(null) }} onSubmit={event => void submitNin(event)}
         turnstile={<Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
-        checkNeeded={!turnstileToken} blocked={!turnstileToken || (googleRequired && !googlePending)} routes={routes} />}
+        checkNeeded={!turnstileToken} blocked={!turnstileToken || (googleRequired && !googlePending) || ninHold.held} routes={routes} />}
+      {/* Kept mounted, so the line is a change of a live region, not a new one. */}
+      <p role="status" className="m-0 text-sm text-ink-2 empty:hidden">{stillChecking && stage === 'nin' ? NIN_STILL_CHECKING : null}</p>
       {ready && stage === 'holder' && <RouteChoice focusTarget={stepFocus.target} busy={busy} online={onlineOpen} onlineNote={onlineNote}
         facility={facility.available} onSend={() => void sendHolderCode()} onFacility={() => { clearError(); setStage('facility'); stepFocus.focus() }}
         onDifferentNin={startAgain} />}

@@ -16,9 +16,10 @@ import { DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading,
 import { useCommandKey, useFormProblems } from './registrationParts'
 import { deskFormFrom, deskProblems, deskValues } from '../../collected/deskFields'
 import { deskControlId } from '../../collected/DeskFields'
+import { ninCheckProblem, useNinHold, useStillChecking } from '../../../ninCheck'
 import {
   APPROVE_PERMISSION, APPROVED, CAPABILITY_FAILED, CANDIDATE_REFUSED, CASE_CREATED, CASE_CREATED_RELOAD, CASE_ID_REFUSED,
-  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_REFUSED, REGISTRATION_WORK,
+  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_DETAILS_FIELD, NIN_REFUSED, REGISTRATION_WORK,
   REVIEW_FAILED, REVIEW_REASON_REFUSED, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
 } from './registrationText'
 import './registration.css'
@@ -72,6 +73,11 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // Registration.tsx 55: one case read at a time, and which control asked for it.
   const [caseLoading, setCaseLoading] = useState<CaseLoading>(null)
   const [busy, setBusy] = useState(false)
+  // The NIN check under way: it can take up to half a minute, so the form says it is still checking (ninCheck.ts).
+  const [resolving, setResolving] = useState(false)
+  const stillChecking = useStillChecking(resolving)
+  // A NIN Identity holds after a check that could not finish: Verify stays off until the time it named.
+  const ninHold = useNinHold()
   const [message, setMessage] = useState('')
   const [error, setError] = useState<ShownError | null>(null)
   // A value refused before sending is reported at its field (PEHR-04). Each form keeps its own refusals: submitting
@@ -206,7 +212,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // Registration.tsx 129-161: NIN verification.
   async function resolve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!capabilities?.nin.enabled || busy) return
+    if (!capabilities?.nin.enabled || busy || ninHold.held) return
     const form = event.currentTarget
     const data = new FormData(form)
     const nin = String(data.get('nin') ?? '').trim()
@@ -227,7 +233,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     const desk = deskFormFrom(data)
     for (const [field, problem] of deskProblems(desk)) refused.push([deskControlId(DESK_PREFIX, field), problem])
     if (refused.length) { ninProblems.refuse(refused); return }
-    setBusy(true)
+    setBusy(true); setResolving(true)
     try {
       const result = await staffApi.resolveNin(facilityId,
         { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}), ...deskValues(desk) }, resolveKey.current)
@@ -252,8 +258,16 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         show({ kind: 'list' }, FIELD.caseId)
       }
     } catch (caught) {
-      if (live.current) setError({ text: safeError(caught, VERIFY_FAILED), at: 'resolve' })
-    } finally { if (live.current) setBusy(false) }
+      if (!live.current) return
+      // The NIN check's own answers (ninCheck.ts). A retry of the unchanged form sends the same key; a change renews it.
+      const problem = ninCheckProblem(caught)
+      setError({ text: problem?.text ?? safeError(caught, VERIFY_FAILED), at: 'resolve' })
+      if (problem?.outcome === 'held') ninHold.hold(problem.heldUntil)
+      if (problem?.outcome === 'details') {
+        resolveKey.current = crypto.randomUUID()
+        ninProblems.refuse([[FIELD.dob, NIN_DETAILS_FIELD], [FIELD.first, NIN_DETAILS_FIELD], [FIELD.last, NIN_DETAILS_FIELD]])
+      }
+    } finally { if (live.current) { setBusy(false); setResolving(false) } }
   }
 
   // Registration.tsx 163-190: link a listed candidate, or approve a new Health ID.
@@ -341,7 +355,8 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         <Drawer open size="lg" title={NEW_TITLE} titleRef={drawerTitle} onClose={() => { if (!busy) go({ kind: 'list' }) }}>
           <div className="hid-route-drawer">
             <RegistrationNew inDrawer availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
-              onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />
+              stillChecking={stillChecking} held={ninHold.held}
+              onInput={() => { resolveKey.current = crypto.randomUUID(); ninHold.hold(null) }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />
           </div>
         </Drawer>
       </>

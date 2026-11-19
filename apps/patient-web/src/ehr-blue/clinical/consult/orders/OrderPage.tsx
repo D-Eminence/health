@@ -40,6 +40,7 @@ import {
   PHARMACY_NOT_TOLD, prescriptionChanged, PRESCRIPTION_TRANSITIONS, reloadSentence, ROUTED_LAB_CHOICES, rowVersion,
   type Reload, type StatusOption,
 } from './words'
+import { detailLines } from '../../../prescriptionDetails'
 
 const TITLE_ID = 'order-title'
 const ACTIONS_ID = 'order-actions-title'
@@ -538,6 +539,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     { label: 'Dose', value: dose ? <Value value={dose} unit={text(record.doseUnit) || null} /> : '' },
     { label: 'Route', value: <RouteValue code={text(record.routeCode)} /> },
     { label: 'How often', value: text(record.frequency) },
+    // The dispensing details (hid-system 0125), each only where the EHR answered it.
+    ...detailLines(record),
     { label: 'Instructions', value: text(record.instructions) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ]

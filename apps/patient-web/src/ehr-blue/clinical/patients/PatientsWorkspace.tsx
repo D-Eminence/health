@@ -141,9 +141,8 @@ function PatientList() {
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<{ hid: string; message: string } | null>(null)
   // Health ID answered that no patient has this Health ID: the next step is registering them, not asking for access.
-  // Dormant for now: today's identity-api answers 404 NOT_FOUND both for a Health ID no patient has and for a patient
-  // this facility can't see, so a live lookup never says PATIENT_NOT_FOUND. It waits on the backend's answer to Q100
-  // ("No such patient", BACKEND-NEEDS.md); until then a 404 is shown as a refused lookup.
+  // identity-api says so with 404 PATIENT_NOT_FOUND since Q100 B (owner, 18 Nov 2026); a patient that exists but is not
+  // available here still answers 404 NOT_FOUND (or 403), shown as a refused lookup with the ways in.
   const [unknown, setUnknown] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(() => noticeOf(location.state))
