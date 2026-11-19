@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44561173790-1-083d99c0321fbdaa (deployed and verified 2026-11-19 about 16:20 UTC). hid-system #282 (027bff98: Akos wave 0 written answers and HID-LAB codes; the scripts/ change rebuilt every service, no behaviour change) and #286 (da84d595: EHR-C4 chart summary and EHR-C5 one-call consultation in ehr-api, SX-1 modules map in identity-api). No migration, no new setting. Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44599329425-1-a9069e04070da0ba (deployed and verified 2026-11-19 about 19:46 UTC). hid-system #289 (dd0bf4a4: CI speed, changed-path image selection and gate selection; rebuilt every service once, no service behaviour change) and #290 (092cd248: faster deploy controller; rebuilt every service, no service behaviour change). No migration, no new setting. Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "027bff98aa95f972bf5303a9d2c175680155ebb7",
-    "identity-api": "da84d595f91d70481c90fba84df3bb1f42ffc3fa",
-    "ehr-api": "da84d595f91d70481c90fba84df3bb1f42ffc3fa",
-    "lab-api": "027bff98aa95f972bf5303a9d2c175680155ebb7",
-    "pharmacy-api": "027bff98aa95f972bf5303a9d2c175680155ebb7",
-    "ocr-api": "027bff98aa95f972bf5303a9d2c175680155ebb7",
-    "outreach-api": "027bff98aa95f972bf5303a9d2c175680155ebb7",
-    "support-api": "027bff98aa95f972bf5303a9d2c175680155ebb7",
-    "notification-api": "027bff98aa95f972bf5303a9d2c175680155ebb7"
+    "gateway": "092cd248566aaedee897910ded783c7826c79b98",
+    "identity-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "ehr-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "lab-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "pharmacy-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "ocr-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "outreach-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "support-api": "092cd248566aaedee897910ded783c7826c79b98",
+    "notification-api": "092cd248566aaedee897910ded783c7826c79b98"
   }
 }
