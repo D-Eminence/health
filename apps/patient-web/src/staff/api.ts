@@ -18,6 +18,7 @@ import {
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction, type StaffProductKey } from '../productHostname'
+import { NIN_CHECK_TIMEOUT_MS } from '../ninCheck'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
@@ -2362,10 +2363,11 @@ export const staffApi = {
   registrationCapabilities: (facilityId: string) =>
     client.get<RegistrationCapabilities>('/api/v1/identity/registration-capabilities',
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  // A QoreID check where it is switched on (hid-system Q108), which can take longer than the usual 15 s (ninCheck.ts).
   resolveNin: (facilityId: string, input: ResolveNinInput, idempotencyKey: string) =>
     client.post<RegistrationCase>('/api/v1/identity/nin/resolve',
       { ...input, purpose: 'healthcare-operations' },
-      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
   registrationCase: (facilityId: string, caseId: string) =>
     client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),

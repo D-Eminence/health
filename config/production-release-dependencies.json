@@ -3,11 +3,11 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44410720234-1-f14ac5b3031e474b (hid-system #271 merge c0935a62, deployed and verified 2026-11-18 about 23:00 UTC: identity-api waits 12 s for a QoreID NIN answer instead of 5 s; no migration, no browser-facing change). It rebuilt identity-api only; ehr-api, lab-api, pharmacy-api and ocr-api stay at afec3f75 (hid-system #269), gateway, outreach-api, support-api and notification-api at 498e2f82 (hid-system #268). Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit in production. hid-system #277 merge 4a192e45 (deployed and verified 2026-11-19 about 00:40 UTC, run 44428544699) rebuilt ehr-api only: a test-only change that pins the clock in the EHR-C1 open-visit replay spec; no migration, no browser-facing change. identity-api stays at c0935a62 (hid-system #271); lab-api, pharmacy-api and ocr-api at afec3f75 (hid-system #269); gateway, outreach-api, support-api and notification-api at 498e2f82 (hid-system #268). Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
     "gateway": "498e2f822c711a1dd67175cc99a019d81c15bce3",
     "identity-api": "c0935a62d114623bf3db4eb54798ec30c79f4b13",
-    "ehr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
+    "ehr-api": "4a192e454ac996b70d2c01887a9909607677eba0",
     "lab-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
     "pharmacy-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
     "ocr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
