@@ -454,11 +454,12 @@ function staffRoute(method, path, request = {}) {
     outreachLinked.add(id)
     return [200, outreachCases().find(item => item.id === id)]
   }
-  // Preview only: HID-NEWPATNT is a Health ID no patient has; HID-ELSEWHRE a patient whose record this facility can't open.
-  // HID-NEWPATNT answers as today's identity-api does (404 NOT_FOUND, the same answer as for a patient this facility
-  // can't see): a "no such patient" code waits on the backend (Q100, BACKEND-NEEDS.md).
+  // Preview only: HID-NEWPATNT is a Health ID no patient has (404 PATIENT_NOT_FOUND, as identity-api answers since Q100
+  // B); HID-FARAWAY a patient at another facility this one can't see (404 NOT_FOUND, today's answer for a patient that
+  // exists but is not available here); HID-ELSEWHRE a patient whose record this facility can't open.
   const askedHid = String(request.body?.hid ?? '').toUpperCase()
-  if (method === 'POST' && path === '/identity/patient-lookup' && askedHid === 'HID-NEWPATNT') return [404, { code: 'NOT_FOUND', status: 404, detail: 'Patient not found.' }]
+  if (method === 'POST' && path === '/identity/patient-lookup' && askedHid === 'HID-NEWPATNT') return [404, { code: 'PATIENT_NOT_FOUND', status: 404, detail: 'No patient has this Health ID.' }]
+  if (method === 'POST' && path === '/identity/patient-lookup' && askedHid === 'HID-FARAWAY') return [404, { code: 'NOT_FOUND', status: 404, detail: 'Patient was not found or is not available' }]
   if (method === 'POST' && path === '/identity/patient-lookup' && askedHid === 'HID-ELSEWHRE') return [200, { authorization: { decision: 'deny' } }]
   if (method === 'POST' && path === '/identity/patient-lookup') return [200, {
     authorization: { decision: 'allow', consentGrantId: 'grant-1', expiresAt: iso(2 * 60 * MIN), breakGlass: false },
