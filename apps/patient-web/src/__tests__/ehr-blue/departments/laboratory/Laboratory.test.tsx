@@ -467,7 +467,10 @@ describe('the request', () => {
     await waitFor(() => expect(document.activeElement?.id).toBe('lab-record-title'))
     // Only the work item's id is in the address, never anything about the patient.
     expect(where()).toBe(`${WORK_LIST}/work-item-1`)
-    expect(screen.getByRole('region', { name: `Patient: ${MASKED}` }).textContent).toContain('Health ID not sent')
+    // This laboratory's own work, sent without its patient: nothing was left unsent by another facility.
+    const banner = screen.getByRole('region', { name: `Patient: ${MASKED}` })
+    expect(banner.textContent).toContain('Health ID not shown')
+    expect(banner.textContent).not.toContain('Health ID not sent')
     const progress = screen.getByRole('list', { name: 'Progress' })
     expect(within(progress).getAllByRole('listitem').find(step => step.getAttribute('aria-current') === 'step')?.textContent).toBe('Waiting for sample, now')
     fireEvent.click(screen.getByRole('link', { name: 'Back to the work list' }))
@@ -1465,6 +1468,19 @@ describe('work from another facility', () => {
     expect(within(routedLines()).getByText(FROM)).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Patient: Patient One' }).textContent).toContain('Health ID ending AAA2')
     expect(requestFacts()['Ordered by']).toBe('Dr Demo Clinician')
+  })
+
+  it.each([
+    { sent: 'the patient without a Health ID', patient: { ...PERSON, healthIdLast4: null }, region: 'Patient: Patient One' },
+    { sent: 'no patient', patient: undefined, region: `Patient: ${MASKED}` },
+  ])('says the Health ID was not sent when the ordering facility sent $sent', async ({ patient, region }) => {
+    as(ACCESSION)
+    api.labWorkItems.mockResolvedValue(answer([routed({ patient })]))
+    renderPage()
+    await openRecord()
+    const banner = screen.getByRole('region', { name: region })
+    expect(banner.textContent).toContain('Health ID not sent')
+    expect(banner.textContent).not.toContain('Health ID not shown')
   })
 
   it('asks to check the person before a sample is registered, above Register sample', async () => {
