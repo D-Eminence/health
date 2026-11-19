@@ -23,6 +23,8 @@ These files are copies of parts of the backend contract, for frontend developers
 
 - Section text is copied word for word, with its original headings and in its original order.
 - Some backend details are not shared outside the backend team: database internals, audit internals, security limits and infrastructure details. Where one was removed, the text reads "[backend detail omitted]". The removed details are backend-side ones; if something you need seems to be missing, ask the coordinator.
+- Some paragraphs and subsections are omitted whole, so a "below" or "above" in the kept text can point at an omitted part.
+- Only the EHR sections of the live contract are copied. The planned contract also cites other numbered live sections (for example sections 21-24, 44 or 46); those are not all copied here, and the coordinator can send them.
 - File paths in the text, such as `services/...` or `docs/...`, are paths in the backend repository.
 
 ## Keeping them up to date

@@ -1,4 +1,4 @@
-> Source: `docs/EHR_PLANNED_CONTRACT.md` in the backend repository D-Eminence/hid-system, branch `staging-novu-ci-20261005`, commit `092cd248566aaedee897910ded783c7826c79b98` (19 Nov 2026). Reviewed copy for frontend developers; the backend repository is the source of truth (see [README.md](README.md)). Text is copied exactly, except that backend detail not shared outside the backend team reads "[backend detail omitted]", and the link to `INTERFACE_CONTRACT.md` points to [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md), the copy of its EHR sections in this folder. Other file paths (`docs/...`, `services/...`) are paths in the backend repository; `docs/codes/hid-lab-codes.json` is copied here as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
+> Source: `docs/EHR_PLANNED_CONTRACT.md` in the backend repository D-Eminence/hid-system, branch `staging-novu-ci-20261005`, commit `092cd248566aaedee897910ded783c7826c79b98` (19 Nov 2026). Reviewed copy for frontend developers; the backend repository is the source of truth (see [README.md](README.md)). Text is copied exactly, except that backend detail not shared outside the backend team reads "[backend detail omitted]", and the link to `INTERFACE_CONTRACT.md` points to [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md), the copy of its EHR sections in this folder. That copy holds only the EHR sections of the live contract: numbered live-contract sections cited here (for example sections 21-24, 44 or 46) are not all copied, and are available from the coordinator. Other file paths (`docs/...`, `services/...`) are paths in the backend repository; `docs/codes/hid-lab-codes.json` is copied here as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
 
 # HID planned contract for the rest of Akos's EHR list (Release B and C, not live)
 
@@ -1802,7 +1802,7 @@ The migration writes no rows for existing items. Items sent automatically before
 | POST | `/api/v1/pharmacy/work-items/:workItemId/accept` (new) | A pharmacist at the `X-Facility-Id` facility who may write this work item: for this hospital's own work, on 0133's own-work basis (holds `pharmacy.work-item.read` and `pharmacy.order-route.receive` there) or the member's own consent grant to write records; for a prescription from another facility, its order route. Direct care only; an emergency (break-glass) session is refused, as for a dispensing. Origin and CSRF checks as for other browser writes. | `pharmacy.work-item.accept` (pharmacist role only; no role-table change) |
 | GET | `/api/v1/pharmacy/work-items`, `/api/v1/pharmacy/work-items/:workItemId` (changed) | pharmacy staff, as today | `pharmacy.work-item.read` |
 | POST | `/api/v1/pharmacy/work-items/:workItemId/dispensings` (changed) | pharmacist, as today | `pharmacy.dispensing.create` |
-| POST | `/api/v1/pharmacy/work-items/progress` (changed; internal, ehr-api only, ORD-3) | ehr-api with the clinician's own credentials | `ehr.prescription.read` |
+| POST | [backend detail omitted] (changed; internal, ehr-api only, ORD-3) | ehr-api with the clinician's own credentials | `ehr.prescription.read` |
 | GET | prescription list and read in ehr-api (changed, ORD-3) | as today | `ehr.prescription.read` |
 
 **Accept.** Headers: `X-Facility-Id`, `X-Purpose-Of-Use: direct-care`, and a required `Idempotency-Key`. UUIDs only in the path; never a Health ID. Body, exactly this field:
@@ -2108,7 +2108,7 @@ What happens, in one transaction:
 
 Afterwards:
 - A single sign-on provider session from before the change opens nothing. Section 54 already refuses one older than `password_changed_at` (`stale_provider_sign_in`).
-- The "Your Health ID password was updated" email is sent through notification-api's existing `password-updated` route (`notification-otp.client.ts:260`), keyed by the change's id. This is best-effort and never fails the change.
+- The "Your Health ID password was updated" email is sent [backend detail omitted]. This is best-effort and never fails the change.
 - A replay with the same key and body answers the same `200` with `replayed: true` and changes nothing.
 
 **Edit own profile**

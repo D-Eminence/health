@@ -6,6 +6,7 @@ This is a reviewed copy of the live contract sections the EHR screens use, for f
 
 - Only the sections below are copied: the ones named in the EHR message, plus section 53, which SX-5 cites. They keep their original headings and their order in the source file.
 - Section text is copied exactly. Where the source held backend detail that is not shared outside the backend team, the text reads "[backend detail omitted]".
+- Some paragraphs and subsections are omitted whole and read only "[backend detail omitted]", so a "below" or "above" in the kept text can point at an omitted part. Ask the coordinator if you need to know what it says.
 - Other sections of the source (for example sections 21-24, 44 or 46, or "Current browser and notification boundary") are not copied here. Labels such as ID-2, ID-4, EHR-C7 or 0132 are Release A sections, which reach the live contract once signed. Labels such as EHR-C6, EHR-C8b, SX-6 or SX-7 are in [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md). For anything not here, ask the coordinator.
 - File paths such as `services/...` or `docs/codes/hid-lab-codes.json` are paths in the backend repository. The HID-LAB code list is copied in this folder as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
 
@@ -144,7 +145,17 @@ accept any organisation type with any product) keeps that product's site for
 its administrator, and the administrator awaiting review of a pharmacy that
 signed itself up on `migrate.` can sign in there again.
 
-[backend detail omitted]
+[backend detail omitted] The answer
+holds only `clinic`, `hospital`, `laboratory` and `pharmacy`, and is empty
+when nothing is recorded: [backend detail omitted] `organization_products` is the distinct product codes, sorted, of
+the organisation's active [backend detail omitted] (a suspended
+product is not held, but its application's kind stays recorded, so
+suspending a laboratory's only product narrows its administrator to `lab.`
+instead of widening it to every site). The staff context reads it [backend detail omitted]
+and adds `organizationKinds` (sorted, once each)
+to that facility only when it is not empty, and `organizationProducts`
+(sorted, once each) only beside `organizationKinds` and when it is not empty,
+so a membership with no recorded kind answers exactly as before.
 
 [backend detail omitted] The org_admin of a laboratory-only
 organisation is refused (`403 PRODUCT_NOT_AUTHORISED`) on every site but
@@ -846,18 +857,7 @@ migration, no new setting and no new secret: [backend detail omitted]
 
 ### Internal routes (ehr-api only)
 
-`POST /api/v1/pharmacy/work-items/progress` and
-`POST /api/v1/lab/work-items/progress`. Read-only: they change nothing.
-[backend detail omitted] Answer `200`, `Cache-Control: no-store`.
-
-Request (ids only, in the body; never a Health ID, never in the URL):
-
-| Field | Pharmacy | Lab |
-| --- | --- | --- |
-| `patientId` | the patient's UUID | the patient's UUID |
-| ids | `sourceEhrPrescriptionIds`: 1-100 distinct UUIDs | `sourceEhrOrderIds`: 1-100 distinct UUIDs |
-
-Any other field is refused (`400 VALIDATION_FAILED`).
+[backend detail omitted]
 
 Answer: `{ "items": [...] }`, one item per id asked, in the order asked.
 
@@ -887,11 +887,7 @@ entered in error (the laboratory work list's rule). Only this facility's
 own work is read: work on an order route to another facility is left out
 (its progress is on the EHR item's `orderRoute`).
 
-Refusals: `401` without the internal caller proof; `403 PERMISSION_DENIED`
-without the EHR read permission; `403 PHARMACY_ACCESS_DENIED` or
-`403 LAB_WORK_ITEM_ACCESS_DENIED` when Identity refuses the patient read,
-or Identity's own `403` passed on (both audited with outcome `denied`); `400`
-for a bad body or purpose.
+[backend detail omitted]
 
 Runtime proof: `services/ehr-api/scripts/verify-order-routes-runtime.mjs`
 step 10b signs a doctor in with the cookie, reads through ehr-api a
@@ -1082,11 +1078,18 @@ Body unchanged (`hid` in the body, never in a URL; `purpose`). Answers:
 | The patient can be seen here but this lookup is not authorized | `403` | today's answer, unchanged; never counted toward the limit below |
 | [backend detail omitted] | `404` | today's answer (`404` `NOT_FOUND`) [backend detail omitted], never `PATIENT_NOT_FOUND` and never a `429`; a `403` stays today's `403` |
 
-[backend detail omitted]
+[backend detail omitted] A limited account keeps getting today's `404`,
+never a new status: the website ends access and closes an open record on any
+`403` or `404` from this lookup (its check before every save), so a `429`
+there would leave a record open after access has ended. [backend detail omitted]
 
 ### The seals (demo 0098, QA 0123)
 
-[backend detail omitted]
+Nothing in a sealed tenant ever finds a real patient, and nothing real finds
+a sealed one (0098 D2, 0123). [backend detail omitted] So a demo or QA member learns nothing about
+real Health IDs, a real member nothing about demo or QA ones, and the demo
+and QA tenants nothing about each other; each learns only whether a Health
+ID of its own side is issued. [backend detail omitted]
 
 ### Audit
 
@@ -1264,7 +1267,19 @@ No per-route limit applies to the reads a page makes (visits, vitals,
 diagnoses, notes, lab requests, prescriptions, allergies, access requests,
 registration cases, pharmacy work items). [backend detail omitted]
 
-[backend detail omitted]
+Every limit on the path from the website to the services:
+
+| Where | What is limited | Limit | Counts a drawer re-read? | Source |
+| --- | --- | --- | --- | --- |
+| [backend detail omitted] | | | | |
+| Gateway | Patient record chat `POST /api/v1/ehr/me/chat` and support chat `POST /api/v1/support/chat` | [backend detail omitted], then `429` | No | [backend detail omitted] |
+| Gateway | Staff record chat `POST /api/v1/ehr/patients/:patientId/chat` | [backend detail omitted], then `429` | No | [backend detail omitted] |
+| Identity | Health ID lookups answered `404` (no such patient, or a patient this facility may not see) | [backend detail omitted] (never `429`). | No | [backend detail omitted] |
+| Identity | Order destination search `GET /api/v1/identity/order-destinations` | [backend detail omitted], then `429` | No: it is a typed search, not re-read when a drawer closes | [backend detail omitted] |
+| Identity | Emergency access activation | [backend detail omitted], then `429 EMERGENCY_RATE_LIMITED` | No | [backend detail omitted] |
+| EHR | Sending orders to another facility | [backend detail omitted], then `429` | No | [backend detail omitted] |
+| Services | Other actions: sign-in and sign-up codes, enrolment, invitations, outreach sign-up and Health IDs, contact changes, share searches, shares and share invitations, web push, offline key escrow, the patient record chat, and accepting, correcting or ending orders at Lab and Pharmacy | Each its own limit, then `429` (or `404` as above) | No: none of these is a page read | [backend detail omitted] |
+| Gateway and services | The page reads listed above | None | — | [backend detail omitted] |
 
 [backend detail omitted] Re-reading only after a drawer saved something keeps the load lower
 still.
@@ -1294,7 +1309,9 @@ Facts, as configured:
 | Region | Production runs in AWS `eu-west-1` (Ireland), in two zones, `eu-west-1a` and `eu-west-1b`. Releases deploy there. | `infra/terraform/environments/production.tfvars:19,50` (dev); `scripts/production_deployment_core.py:21` |
 | Database | PostgreSQL 16 on RDS, not reachable from the internet, storage encrypted with its own KMS key (key rotation on), a standby copy in a second zone, automated backups kept 30 days. | `infra/terraform/modules/data/main.tf:2-6,368-394` (dev); `infra/terraform/variables.tf:125-128` (dev); `production.tfvars:301` (dev) |
 | Documents | S3, encrypted with a KMS key, versioned, all public access blocked. | `modules/data/main.tf:75-108` (dev) |
+| In transit | The public and internal load balancers listen only on HTTPS, with the TLS 1.2 and 1.3 policy. [backend detail omitted] The database refuses connections without TLS (`rds.force_ssl`), and services connect with the RDS certificate. | [backend detail omitted] |
 | [backend detail omitted] | | |
+| Logs | Application logs are kept 90 days, Identity and security logs 365 days. | [backend detail omitted] |
 
 Data that leaves `eu-west-1`, as configured:
 
