@@ -1,4 +1,4 @@
-> Source: `docs/EHR_PLANNED_CONTRACT.md` in the backend repository D-Eminence/hid-system, branch `staging-novu-ci-20261005`, commit `092cd248566aaedee897910ded783c7826c79b98` (19 Nov 2026). Reviewed copy for frontend developers; the backend repository is the source of truth (see [README.md](README.md)). Text is copied exactly, except that backend detail not shared outside the backend team reads "[backend detail omitted]", and the link to `INTERFACE_CONTRACT.md` points to [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md), the copy of its EHR sections in this folder. That copy holds only the EHR sections of the live contract: numbered live-contract sections cited here (for example sections 21-24, 44 or 46) are not all copied, and are available from the coordinator. Other file paths (`docs/...`, `services/...`) are paths in the backend repository; `docs/codes/hid-lab-codes.json` is copied here as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
+> Source: `docs/EHR_PLANNED_CONTRACT.md` in the backend repository D-Eminence/hid-system, branch `staging-novu-ci-20261005`, commit `092cd248566aaedee897910ded783c7826c79b98` (19 Nov 2026). Reviewed copy for frontend developers; the backend repository is the source of truth (see [README.md](README.md)). Text is copied exactly, except that backend detail not shared outside the backend team reads "[backend detail omitted]", and the link to `INTERFACE_CONTRACT.md` points to [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md), the copy of its EHR sections in this folder. That copy holds the EHR sections of the live contract and the numbered live sections this file cites for behaviour the EHR, laboratory and pharmacy screens call or show (sections 9, 13, 21-24, 29 (cited by its migration label, 0101), 43, 44, 46, 53 and 54, and section 8 without its patient-portal and Outreach subsections); each mention of one of those sections here is a link to its heading there, the only other change to the text. Sections cited here for the Outreach site (8 "Outreach registration boundary", 40, 48, 49), the platform administration console (19) or the sealed QA tenant (52), and the patient portal's "Current browser and notification boundary" (its "Patient sessions and self service" is cited here only for the line quoted with it), are not copied, and section 56 and section 0136 are not in the live contract yet; ask the coordinator for any of them. Other file paths (`docs/...`, `services/...`) are paths in the backend repository; `docs/codes/hid-lab-codes.json` is copied here as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
 
 # HID planned contract for the rest of Akos's EHR list (Release B and C, not live)
 
@@ -383,7 +383,7 @@ Support sends the same bodies, with these differences:
 - A remove revokes that one role. The revocation reason is "Role removed by the facility administrator" or "Role removed by Health ID support".
 - Other roles are untouched.
 - Permissions are read on every request (see section 0136), so the change applies from the member's next request. Nobody is signed out.
-- Sign-in sites follow section 53's gate. For example, adding `lab` to a hospital doctor also admits them on `lab.`.
+- Sign-in sites follow [section 53](EHR_LIVE_CONTRACT.md#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97)'s gate. For example, adding `lab` to a hospital doctor also admits them on `lab.`.
 - Removing a role closes any open records-processing request the member can no longer use. This is done the way 0136 does it: status `expired`, [backend detail omitted].
 
 **The last role**
@@ -474,7 +474,7 @@ The owner's default "Open patient remembered for 8 hours" applies unless the own
 
 ### Routes
 
-All routes are under `/api/v1`. Identity's API allows only GET and POST (section 43.4), so every write is a POST.
+All routes are under `/api/v1`. Identity's API allows only GET and POST ([section 43.4](EHR_LIVE_CONTRACT.md#434-setup-wizard-and-facility-profile-after-activation)), so every write is a POST.
 
 | Method and path | Who may call | Permission |
 |---|---|---|
@@ -821,14 +821,14 @@ Answer `200`, `Cache-Control: no-store`:
 
 - `display`: `testDisplay` or `medicationDisplay` (as stored).
 - `priority`: the lab request's priority; for a prescription, 0125's
-  `priority` when set, else `null` (section 46).
+  `priority` when set, else `null` ([section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)).
 - `ownProgress`: exactly ORD-3's shapes and statuses (pharmacy: `received`,
   `accepted` once ORD-4 ships, `dispensed`, `dispensing_reversed`, `withdrawn`; lab: `received`,
   `sample_collected`, `some_results_ready`, `results_ready`; plus
   `not_received` and `unknown`). Result values are not in this list; the row
   opens the lab request.
 - `orderRoute`: the existing order summary for an order sent to another
-  facility (sections 21-24), or `null`.
+  facility ([sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person)), or `null`.
 - The patient fields are the waiting-list card's (EHR-C7). The list never
   carries a Health ID, only `healthIdLast4`.
 - **Access ended:** a row is listed only while the member may read that
@@ -1121,13 +1121,13 @@ policy change, tests).
 
 ## ORD-12: Refills on prescriptions (planned, Release B, needs a migration: yes)
 
-Akos items: N-9 (refills only; strength, form, duration and quantity are live in 0125, section 46; create-as-active already works; formulary search is ORD-7).
+Akos items: N-9 (refills only; strength, form, duration and quantity are live in 0125, [section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125); create-as-active already works; formulary search is ORD-7).
 
 Status: planned, not live. Owner decision Q131 A, 19 Nov 2026: yes to refills.
 
 (ORD-12 is a new package id; the build plan lists this under its gaps as "N-9b refills".)
 
-Today one pharmacy work item takes one dispensing only. [backend detail omitted], and a second dispensing answers 409 `PHARMACY_WORK_ITEM_ALREADY_DISPENSED` (`pharmacy.service.ts:368`). Section 13 says it too: "partial fills and refills are not modeled".
+Today one pharmacy work item takes one dispensing only. [backend detail omitted], and a second dispensing answers 409 `PHARMACY_WORK_ITEM_ALREADY_DISPENSED` (`pharmacy.service.ts:368`). [Section 13](EHR_LIVE_CONTRACT.md#13-pharmacy) says it too: "partial fills and refills are not modeled".
 
 ### Routes
 
@@ -1157,7 +1157,7 @@ Own pharmacy work items (no order route) gain:
 Dispensing: the body is unchanged (`CreateDispensingDto`: `expectedWorkItemVersion`, `quantityDispensed`, `quantityUnit`, `reason` 8-500), and the `Idempotency-Key` is required as today.
 - A work item now takes up to `1 + refillsAllowed` dispensings (owner decision Q131 A, 19 Nov 2026).
 - The answer gains `fillNumber`: 1 is the first fill, 2 and above are refills.
-- A refill also needs the prescription to be active and not past its `endsOn` (Lagos day). It is checked by 0101's guard, as the first fill is.
+- A refill also needs the prescription to be active and not past its `endsOn` (Lagos day). It is checked by [0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101)'s guard, as the first fill is.
 - A reversed fill still counts as used. A reversal never gives a refill back, as today a reversed dispensing counts as done.
 
 Routed prescriptions (an outside pharmacy) do not carry refills in this package, as the 0125 details don't ("item 4b, later"). After the hospital pharmacy's first fill, refills stay at the hospital pharmacy. The prescriber may route to an outside pharmacy only until the hospital pharmacy starts dispensing (Q119 and Q121 A). Splitting one prescription across several pharmacies is a later project.
@@ -1176,7 +1176,7 @@ Pharmacy work list:
 | 409 | `PHARMACY_NO_REFILLS_LEFT` | No refills are left on this prescription. Ask the prescriber for a new one. |
 | 409 | `PHARMACY_REFILL_PRESCRIPTION_ENDED` | This prescription has ended. Ask the prescriber for a new one. |
 | 409 | `PHARMACY_WORK_ITEM_ALREADY_DISPENSED` | Unchanged, for a prescription with no refills. |
-| 409 | `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE` | Unchanged (0101): held, stopped, changed or entered in error. |
+| 409 | `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE` | Unchanged ([0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101)): held, stopped, changed or entered in error. |
 | 412 | `PHARMACY_WORK_ITEM_VERSION_CONFLICT` | Unchanged. |
 
 ### Screen notes
@@ -1190,7 +1190,7 @@ Pharmacy work list:
 
 ### Depends on
 
-- 0125 (section 46) and 0101 (dispensing guard).
+- 0125 ([section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)) and [0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101) (dispensing guard).
 - ORD-2 (0133, own pharmacy work) and ORD-3.
 - Q123 A and Q119 and Q121 A (decided). Q131 A (decided 19 Nov 2026).
 - ORD-11 does not notify for refills, only for the first fill and reversals.
@@ -1199,7 +1199,7 @@ Pharmacy work list:
 
 Release B (lane D), as the build plan's default ("refills are added to the 0125 prescription details"). Size **M**:
 - [backend detail omitted]
-- 0101's guard;
+- [0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101)'s guard;
 - the list and progress fields.
 
 If the pharmacy half misses the Release B cut-off, it moves to Release C. Release B then ships the field and its display only, and the screen keeps the "not available yet" line for second fills.
@@ -1249,7 +1249,7 @@ ships it answers 404. ORD-9 and ORD-10 phase 2 fill their own fields.
 ```
 
 **Medicine search.** `q` 2-100 characters after trimming. `limit` 1-25,
-default 10. Optional `doseForm` is one of section 46's values (`tablet`,
+default 10. Optional `doseForm` is one of [section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)'s values (`tablet`,
 `capsule`, `liquid`, `injection`, `cream`, `inhaler`, `drops`, `other`).
 Optional `route` is a plain word up to 100 characters. Each word of `q` must
 start a word of the generic name, another name or a brand name. Other names
@@ -1273,8 +1273,8 @@ items are never offered.
 | `codeSystem`, `code` | `HID-MED` (national) or `HID-FACILITY` (this facility's own). The code is up to 100 characters, fixed, never changed and never reused |
 | `display` | 1-500 characters. It fits `medicationDisplay` |
 | `genericName` | the INN, 1-200 characters |
-| `strength` | up to 80 characters or `null`. It fits section 46's `strength` |
-| `doseForm` | section 46's value; `doseFormText` is the list's own words (up to 80) |
+| `strength` | up to 80 characters or `null`. It fits [section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)'s `strength` |
+| `doseForm` | [section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)'s value; `doseFormText` is the list's own words (up to 80) |
 | `routes` | plain words, each up to 100 characters (R-3) |
 | `atcCode` | text or `null` |
 | `commonAdultDose` | a hint up to 240 characters or `null`. No children's doses in the first version |
@@ -1283,7 +1283,7 @@ items are never offered.
 | `source` | `nigeria-eml-7`, `who-eml` or `facility` |
 | `more` | `true` when more items matched than `limit` |
 
-The prescription create route does not change (R-3, section 46). The screen
+The prescription create route does not change (R-3, [section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)). The screen
 sends `display` as `medicationDisplay`, `codeSystem` and `code` as
 `medicationCodeSystem` and `medicationCode`, `strength` and `doseForm`, and
 one of `routes` as `routeCode`. Every value fits today's limits.
@@ -1317,7 +1317,7 @@ most 500 active items of each kind.
 
 `POST` body. `kind` is required: `medicine` or `lab_test`. `display` is
 required (1-500). For a medicine, `genericName` (1-200) is also required,
-with optional `strength` (up to 80), `doseForm` (section 46's values) and
+with optional `strength` (up to 80), `doseForm` ([section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)'s values) and
 `routes` (at most 5 words, each up to 100). For a test, `specimen` (up to
 100) and `category` are optional. Any other field is refused.
 
@@ -1344,7 +1344,7 @@ new one.
 is `true`, `POST .../encounters/:encounterId/lab-requests` takes
 `testCodeSystem` and `testCode` as optional, both or neither. `testDisplay`
 is still required (1-500). The setting is set in ehr-api and lab-api
-together, like section 46's setting.
+together, like [section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)'s setting.
 
 - Every lab request answer (list, read, create, update, replay) gives
   `"testCodeSystem": null, "testCode": null` for a request saved by name
@@ -1438,7 +1438,7 @@ together, like section 46's setting.
 
 ### Depends on
 
-- 0125 (section 46): `strength` and `doseForm` on prescriptions.
+- 0125 ([section 46](EHR_LIVE_CONTRACT.md#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125)): `strength` and `doseForm` on prescriptions.
 - Wave 0 HID-LAB codes.
 - Q124 A (owner decision, 19 Nov 2026): Health ID's named clinical lead
   approves list changes, including the first load.
@@ -1833,7 +1833,7 @@ Answer `201` the first time, `200` after that:
 
 Rules:
 - **Once per work item, and safe to repeat.** The database keeps one acceptance per work item. Any later accept, by anyone and with any key, answers `200` with the stored acceptance and `alreadyAccepted: true`, and writes nothing except its audit row. The same `Idempotency-Key` with a different body answers 409 `IDEMPOTENCY_CONFLICT`. Two pharmacists at once: one acceptance is recorded, and the other gets the `200` answer (SERIALIZABLE, as a dispensing).
-- **Only while it can still be dispensed.** If the item is not yet accepted, the accept makes the same check that 0101 makes for a dispensing ([backend detail omitted]: the prescription is active and at the version the pharmacy holds), and it refuses an item marked `withdrawn`. Either refusal answers 409 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, "This prescription can no longer be dispensed here".
+- **Only while it can still be dispensed.** If the item is not yet accepted, the accept makes the same check that [0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101) makes for a dispensing ([backend detail omitted]: the prescription is active and at the version the pharmacy holds), and it refuses an item marked `withdrawn`. Either refusal answers 409 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, "This prescription can no longer be dispensed here".
 - **Already dispensed.** If an acceptance is stored, the accept answers it (`200`). An item dispensed before ORD-4 shipped has none, and the accept answers 409 `PHARMACY_WORK_ITEM_ALREADY_DISPENSED` (existing code, `pharmacy.service.ts:389`).
 - **It cannot be undone.** There is no "un-accept". A dispensing reversal does not remove the acceptance.
 - **Dispensing a `received` item accepts it first**, in the dispensing's own transaction, by the dispensing pharmacist (`acceptedWith: "dispensing"`, same time). A dispensing is never refused because there is no acceptance. Today's pharmacy screens, and a pharmacy site rolled back alone, keep working.
@@ -1854,14 +1854,14 @@ Rules:
 - Which status wins: `dispensing_reversed`, then `dispensed`, then `withdrawn`, then `accepted`, then `received`. So an accepted prescription that is then put on hold reads `withdrawn`.
 - ehr-api's `ownProgress` gains `acceptedAt` next to `receivedAt`, `dispensedAt` and `reversedAt`.
 - **Deploy ehr-api first.** Today's ehr-api treats a whole batch as `unknown` when one status is a value it does not know (`parseItems`, same file, `:189`). So the ehr-api that knows `accepted` goes out with or before the pharmacy-api that sends it.
-- A prescription sent to another facility is unchanged. Its `ownProgress` stays `not_received`, and its progress is on `orderRoute`, whose own state already shows the other pharmacy's Accept (sections 21-24).
+- A prescription sent to another facility is unchanged. Its `ownProgress` stays `not_received`, and its progress is on `orderRoute`, whose own state already shows the other pharmacy's Accept ([sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person)).
 - MY-1's "Ordered by me" list carries the same `ownProgress`, so it shows `accepted` too.
 
 **Sending to an outside pharmacy (Q119 and Q121 A).** The prescriber may send a prescription to an outside pharmacy until this hospital's pharmacy starts dispensing it. **An acceptance does not block that. Only a dispensing does.** When Q119 is built, its send must withdraw this hospital's pharmacy item whether or not it was accepted, as 0133 D8 does for a hold. The acceptance stays on record. ORD-4 adds no check of its own to that send. Until Q119 is built, Release A's rule stands: once sent to this hospital's pharmacy, the prescription cannot be sent elsewhere (`ORDER_ROUTE_ORDER_IN_WORK`, ORD-2), accepted or not.
 
-**Stop and hold.** An acceptance does not stop the prescribing team from putting the prescription on hold, cancelling it, entering it in error, editing it or resuming it. 0133 D8 marks the item `withdrawn` exactly as today. The acceptance is kept, `ownProgress` reads `withdrawn`, and Dispense answers 409 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE` (0101, unchanged).
+**Stop and hold.** An acceptance does not stop the prescribing team from putting the prescription on hold, cancelling it, entering it in error, editing it or resuming it. 0133 D8 marks the item `withdrawn` exactly as today. The acceptance is kept, `ownProgress` reads `withdrawn`, and Dispense answers 409 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE` ([0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101), unchanged).
 
-**"We can't complete this order" (D18, section 24).** This is for prescriptions from another facility, and it is unchanged. Such an item is `accepted` when its route is accepted, so the command is offered exactly as today (`POST /api/v1/pharmacy/order-routes/:routeId/cannot-complete`, `pharmacy.order-route.receive`). ORD-4 adds no "can't complete" for this hospital's own prescriptions. A pharmacist who accepted one and then cannot dispense it tells the prescriber, who holds or stops it (the item is then `withdrawn`).
+**"We can't complete this order" (D18, [section 24](EHR_LIVE_CONTRACT.md#24-orders-between-facilities-an-order-the-laboratory-or-pharmacy-accepted-but-cant-complete)).** This is for prescriptions from another facility, and it is unchanged. Such an item is `accepted` when its route is accepted, so the command is offered exactly as today (`POST /api/v1/pharmacy/order-routes/:routeId/cannot-complete`, `pharmacy.order-route.receive`). ORD-4 adds no "can't complete" for this hospital's own prescriptions. A pharmacist who accepted one and then cannot dispense it tells the prescriber, who holds or stops it (the item is then `withdrawn`).
 
 **Database** (number provisional, given in merge order at the Release B cut-off):
 - [backend detail omitted]
@@ -1891,14 +1891,14 @@ Rules:
   - On 409 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, show its message and reload. A withdrawn item stays "Changed or stopped by the prescribing team", with Accept and Dispense disabled (ORD-2).
 - **The prescriber's order row:** "Sent to pharmacy 10:40", "Accepted 10:52", "Dispensed 11:05". Use ORD-3's withdrawn text for `withdrawn`. The prescriber's row shows no pharmacist's name: `ownProgress` carries none.
 - **Before this ships:** show "Sent to pharmacy 10:40", then "Dispensed 11:05". Never show "Accepted" or "Accepted by pharmacist" for this hospital's own prescriptions.
-- **A prescription sent to another facility:** show the route's own states (sections 21-24), as today.
+- **A prescription sent to another facility:** show the route's own states ([sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person)), as today.
 - **A lab request:** "Sample taken 09:30" (`sample_collected`) stays the laboratory's first visible step. There is no laboratory "Accepted" step in this package.
 
 ### Depends on
 
 - ORD-2 (0133) and ORD-3 (Release A).
-- 0101 (the dispensing source check) and section 13.
-- Sections 21-24 for prescriptions from another facility; D18 is unchanged.
+- [0101](EHR_LIVE_CONTRACT.md#29-pharmacy-dispensing-checks-its-ehr-prescription-0101) (the dispensing source check) and [section 13](EHR_LIVE_CONTRACT.md#13-pharmacy).
+- [Sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person) for prescriptions from another facility; D18 is unchanged.
 - Q125 B (owner decision, 19 Nov 2026). Q119 and Q121 A (decided) for the outside send.
 - ORD-12 (one acceptance per work item, refills included), MY-1 (shows `accepted`), ORD-11 (no notice for an acceptance).
 
@@ -1998,7 +1998,7 @@ What a merge does (ID-8b):
   - So nobody gains access to the target through the source. Each member still needs their own basis for the target: Access PIN, approval, 0131 own-facility, or break-glass.
 - **No own-facility basis on the target:** the merge creates none, and moved visits never count toward 0131's "visit here".
 - **The source record:** its `status` becomes `merged` (already a value in the CHECK, `0002_auth_and_canonical_identity.sql:180`). 0132 search already leaves merged records out. A staff lookup of its Health ID gets the answer for any patient who is not active (contract "Q100 B": 404 `NOT_FOUND`, "Patient was not found or is not available"). That answer never points to the target.
-- **Refusals:** a source with an order sent to another facility that is still open (contract sections 21-24) is refused, because the other facility's work would otherwise change patient under it.
+- **Refusals:** a source with an order sent to another facility that is still open (contract [sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person)) is refused, because the other facility's work would otherwise change patient under it.
 - **The target patient's access log:** when the target has a login, `GET /api/v1/identity/me/access-log` gains `records_merged_in` ("Records from <facility> were added to your Health ID") and, after an undo, `records_merge_undone`.
 
 What an undo does:
@@ -2058,7 +2058,7 @@ Audit:
 - ID-6.
 - ID-7.
 - EHR-C7 / 0135, 0133 and every clinical table (the foreign-key coverage check).
-- The order-route sections 21-24.
+- The order-route [sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person).
 - Owner decision Q127 A, 19 Nov 2026. Every line marked above follows it.
 
 ### Target
@@ -2107,7 +2107,7 @@ What happens, in one transaction:
 4. The account token version is raised, and **the current sign-in is renewed in the same answer**: new cookies, as `POST /auth/refresh` gives. The person stays signed in on this device.
 
 Afterwards:
-- A single sign-on provider session from before the change opens nothing. Section 54 already refuses one older than `password_changed_at` (`stale_provider_sign_in`).
+- A single sign-on provider session from before the change opens nothing. [Section 54](EHR_LIVE_CONTRACT.md#54-single-sign-on-on-the-product-sites-staff-with-a-password-only-0127-owner-decision-q92-b) already refuses one older than `password_changed_at` (`stale_provider_sign_in`).
 - The "Your Health ID password was updated" email is sent [backend detail omitted]. This is best-effort and never fails the change.
 - A replay with the same key and body answers the same `200` with `replayed: true` and changes nothing.
 
@@ -2172,7 +2172,7 @@ How the name is stored:
 ### Depends on
 
 - SX-5 (live read; gains `profileVersion`).
-- Section 54 (stale provider sign-in rule).
+- [Section 54](EHR_LIVE_CONTRACT.md#54-single-sign-on-on-the-product-sites-staff-with-a-password-only-0127-owner-decision-q92-b) (stale provider sign-in rule).
 - The owner's default on signing out other devices.
 - No pending owner question.
 
@@ -2333,7 +2333,7 @@ Owner decision Q130 A, 19 Nov 2026. A new Outreach-only role, for field health w
 - Whether to record a community health practitioner registration number is an open point with no decision yet, to be decided before this section is built.
 
 **Sign-in**
-- Admitted on `outreach.` only, under section 53's gate. The role holds no `ehr.encounter.write`, so it is not a hospital clinical role.
+- Admitted on `outreach.` only, under [section 53](EHR_LIVE_CONTRACT.md#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97)'s gate. The role holds no `ehr.encounter.write`, so it is not a hospital clinical role.
 - The release adds a test pinning that a hospital membership holding only this role opens `outreach.` and is refused elsewhere with 403 `PRODUCT_NOT_AUTHORISED`.
 
 **Home**
@@ -2375,7 +2375,7 @@ No new codes. These are the answers this role meets:
 | HTTP | Code | Message |
 |---|---|---|
 | 400 | `STAFF_INVITATION_ROLE_NOT_ALLOWED` (today) | This facility cannot invite that role. (At a laboratory, a pharmacy or an outreach group.) |
-| 403 | `PRODUCT_NOT_AUTHORISED` (today, section 53) | This account cannot sign in to this site. (On `ehr.`, `lab.`, `pharmacy.` or `migrate.`.) |
+| 403 | `PRODUCT_NOT_AUTHORISED` (today, [section 53](EHR_LIVE_CONTRACT.md#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97)) | This account cannot sign in to this site. (On `ehr.`, `lab.`, `pharmacy.` or `migrate.`.) |
 | 403 | `PERMISSION_DENIED` (today) | You don't have permission to do this. (Any non-Outreach route.) |
 | 403 | `OUTREACH_CAMPAIGN_ADMIN_REQUIRED` (today, section 40) | Only this campaign's admins can do this. |
 | 404 | `OUTREACH_REGISTRATION_NOT_FOUND` (today, section 48) | This registration was not found. (Another campaign's registration.) |
@@ -2401,11 +2401,11 @@ No new codes. These are the answers this role meets:
 - SX-1: `modules` and the role-matrix fixture.
 - SX-4.
 - 0136: doctors lose Outreach.
-- Section 53's gate.
+- [Section 53](EHR_LIVE_CONTRACT.md#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97)'s gate.
 
 ### Target
 
-Release C. Size S: role rows, the fence change and the gate test. Treat it as M if section 53's gate needs code beyond the permission rule for a hospital membership with Outreach codes only.
+Release C. Size S: role rows, the fence change and the gate test. Treat it as M if [section 53](EHR_LIVE_CONTRACT.md#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97)'s gate needs code beyond the permission rule for a hospital membership with Outreach codes only.
 
 ## ORD-6: Several tests in one lab request (planned, Release C, needs a migration: yes)
 
@@ -2773,7 +2773,7 @@ Audit:
 
 ### Depends on
 
-- ORD-3, ORD-2 (0133), order routes (sections 21-24), EHR-C7 (card shape), 0131 (own-facility access), MY-1 (0143) and ORD-12 (no refill notices).
+- ORD-3, ORD-2 (0133), order routes ([sections 21-24](EHR_LIVE_CONTRACT.md#21-orders-between-facilities-an-order-accepted-for-the-wrong-person)), EHR-C7 (card shape), 0131 (own-facility access), MY-1 (0143) and ORD-12 (no refill notices).
 - ID-8b (merge, owner decision Q127 A, 19 Nov 2026) must carry the notices table in its foreign-key coverage, so notices follow the kept record.
 - Q128 A (owner decision, 19 Nov 2026).
 
@@ -2798,7 +2798,7 @@ Status: not planned (owner decision Q131 A, 19 Nov 2026). The build plan (sectio
 ### Routes
 
 None. The checks that exist or are planned instead:
-- Allergy check at create, Activate, Resume, send and hand-off: 409 `ALLERGY_ACKNOWLEDGEMENT_REQUIRED` (0117, section 44). Live.
+- Allergy check at create, Activate, Resume, send and hand-off: 409 `ALLERGY_ACKNOWLEDGEMENT_REQUIRED` (0117, [section 44](EHR_LIVE_CONTRACT.md#44-allergies-and-the-allergy-check-at-prescribing-0117)). Live.
 - Same-medicine warning: `POST /api/v1/ehr/patients/:patientId/duplicate-medicine-check` and `duplicateMedicines` on create (ORD-10 phase 1, live contract). It never blocks.
 - Same-class warning (by ATC class): ORD-10 phase 2, alongside Release B.
 
@@ -2828,12 +2828,12 @@ Akos items:
 Status: not planned yet, not live. Nigeria only for now (owner decision Q131 A, 19 Nov 2026: "other countries later"). No route, field or migration is designed. The heading says "after Release C" because no release in A to C includes this work.
 
 What to assume and hard-code today:
-- **The only national ID is the NIN.** It is 11 digits (`^\d{11}$`, in `services/identity-api/src/identity/dto/resolve-nin.dto.ts`). It goes only in POST bodies (`POST /api/v1/identity/nin/resolve`, contract section 43.3). It never goes in a URL, a query string or a log line.
+- **The only national ID is the NIN.** It is 11 digits (`^\d{11}$`, in `services/identity-api/src/identity/dto/resolve-nin.dto.ts`). It goes only in POST bodies (`POST /api/v1/identity/nin/resolve`, contract [section 43.3](EHR_LIVE_CONTRACT.md#433-staff-patient-registration-post-apiv1identityninresolve)). It never goes in a URL, a query string or a log line.
 - **A patient with no NIN, including a foreigner,** is registered through `POST identity/registration-cases/without-nin` (Release A contract, ID-2) with `noNinReason` set to one of `nin_service_unavailable`, `no_nin`, `not_carried`, `child` or `foreign_national`. The screen shows "NIN Not Verified".
 - **Do not collect passport or other ID numbers.** No field stores them. Do not put them in free-text fields either.
 - **NIN status is shown with two labels only.** Show `ninStatus` (`verified` / `not_verified`, Release A ID-0) as "NIN Verified" or "NIN Not Verified". No other label is used.
-- **The company number is the CAC number.** It is `cacRegistrationNumber` on `POST /api/v1/identity/provider-enrollments` (section 43.2, for example `RC1234567`; `BN`/`IT` prefixes are also used, see section 9 near line 879). It is checked by `POST /api/v1/identity/organizations/verification/cac/{hospital|laboratory|pharmacy}`. Label it "CAC registration number".
-- **Facility addresses are Nigerian.** `stateCode` is ISO 3166-2:NG (section 43.5). `lga` is free text. GPS must be within latitude 4 to 14 and longitude 2.5 to 15 (section 43.1).
+- **The company number is the CAC number.** It is `cacRegistrationNumber` on `POST /api/v1/identity/provider-enrollments` ([section 43.2](EHR_LIVE_CONTRACT.md#432-facility-sign-up-post-apiv1identityprovider-enrollments-start), for example `RC1234567`; `BN`/`IT` prefixes are also used, see [section 9](EHR_LIVE_CONTRACT.md#qoreid-self-and-organization-verification) near line 879). It is checked by `POST /api/v1/identity/organizations/verification/cac/{hospital|laboratory|pharmacy}`. Label it "CAC registration number".
+- **Facility addresses are Nigerian.** `stateCode` is ISO 3166-2:NG ([section 43.5](EHR_LIVE_CONTRACT.md#435-state-codes-iso-3166-2ng-as-backend-detail-omitted-holds-them)). `lga` is free text. GPS must be within latitude 4 to 14 and longitude 2.5 to 15 ([section 43.1](EHR_LIVE_CONTRACT.md#431-shared-shape-facilityprofile)).
 
 ### Routes
 
@@ -2848,7 +2848,7 @@ Existing; match on the code and not the text.
 | 400 | `VALIDATION_FAILED` | NIN not 11 digits, or another field rule broken |
 | 422 | `NIN_VERIFICATION_FAILED` | "This NIN could not be verified. Check the number and try again." (owner Q117. The text live today is "The NIN could not be verified".) |
 | 400 | `PHONE_REQUIRED`, `NOT_A_CHILD`, `REGISTRATION_WITHOUT_NIN_INVALID` | Registration without a NIN (Release A ID-2) |
-| 400 | `FACILITY_PROFILE_INVALID` | "Check the facility details and try again" (section 43.2) |
+| 400 | `FACILITY_PROFILE_INVALID` | "Check the facility details and try again" ([section 43.2](EHR_LIVE_CONTRACT.md#432-facility-sign-up-post-apiv1identityprovider-enrollments-start)) |
 
 ### Screen notes
 
@@ -2967,7 +2967,7 @@ What to assume and hard-code today:
 - **Never compute "today" from the device clock's zone.**
 - **Calendar dates** (`dateOfBirth`, `startsOn`, `endsOn`, `day`) are `YYYY-MM-DD` with no time. Show them as they are and never pass them through a time-zone conversion (see the `calendar-date.ts` note in the order-routes section).
 - **Phones:**
-  - Accept what the person types. The server takes E.164 from any country, or a Nigerian `0` and 10 digits, and stores `+234…`. Spaces, dots, dashes and brackets are ignored (sections 43.1 and "International phones at sign-up").
+  - Accept what the person types. The server takes E.164 from any country, or a Nigerian `0` and 10 digits, and stores `+234…`. Spaces, dots, dashes and brackets are ignored ([sections 43.1](EHR_LIVE_CONTRACT.md#431-shared-shape-facilityprofile) and "International phones at sign-up").
   - Show the stored E.164 value, or the masked value the server returns.
   - Hint text: "like 08012345678 or +234 801 234 5678".
 
@@ -3012,7 +3012,7 @@ How:
 - Afterwards, mark completed test visits "entered in error" (Release A EHR-C8a).
 - Confirm that the extra page read each time a drawer closes stays within the published per-route rate limits (plan R-4).
 
-1. **Migrate account test pass.** Sign in as [backend detail omitted] (clinician at QA Hospital) on the staging Migrate site. Run every Migrate screen Akos's frontend uses, end to end. The site admits `ehr.encounter.write` and `organization.manage` only (section 53).
+1. **Migrate account test pass.** Sign in as [backend detail omitted] (clinician at QA Hospital) on the staging Migrate site. Run every Migrate screen Akos's frontend uses, end to end. The site admits `ehr.encounter.write` and `organization.manage` only ([section 53](EHR_LIVE_CONTRACT.md#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97)).
 2. **One real save of each drawer form**, through the routes below.
 
 ### Routes
