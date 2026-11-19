@@ -145,7 +145,9 @@ def check_expected(expected, backend_receipt):
 def check_main_released(head, head_runs, frontend_receipt):
     """A re-pin commit carries everything on main with it. Only re-pin on top of a main commit that is either
     already live or was never put to a website release: one whose release failed, was refused, cancelled or later
-    rolled back is never released again automatically, as part of a re-pin or otherwise."""
+    rolled back is never released again automatically, as part of a re-pin or otherwise. Every push to main starts
+    production-frontends.yml (its push trigger has no path filter), so a main head with no run has never been put to
+    a release; a path filter there would hide the failed release of the commit beneath a skipped one."""
     if not head_runs:
         return
     if any(run.get("status") in ACTIVE for run in head_runs):

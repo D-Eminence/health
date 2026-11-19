@@ -234,5 +234,14 @@ class Main(unittest.TestCase):
             self.assertEqual(self.outputs({'GITHUB_EVENT_NAME': 'pull_request'}, (BASE, [c.PIN_FILE])), 'mode=full\n')
 
 
+class Workflow(unittest.TestCase):
+    """A change to the classifier is always "full", and the full static job must run these tests."""
+
+    def test_full_run_runs_the_classifier_tests(self):
+        text = (pathlib.Path(__file__).resolve().parents[1] / '.github/workflows/ci.yml').read_text()
+        static = text.split('\n  static:\n', 1)[1].split('\n  test:\n', 1)[0]
+        self.assertIn("python3 -m unittest discover -s scripts -p 'test_*.py'", static)
+
+
 if __name__ == '__main__':
     unittest.main()

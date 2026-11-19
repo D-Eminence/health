@@ -67,8 +67,13 @@ python scripts/prepare-staging-workers.py --dry-run
 The GitHub Actions `Staging frontend artifacts` workflow runs these commands and
 uploads eight archives plus `manifest.json`. It runs when started by hand
 (workflow_dispatch, on the branch whose head commit you mean to publish) and on
-pushes to `staging-frontend-*` branches. It no longer runs on pull requests or on
-every push to `main`. It requires no AWS credentials and
+pushes to `staging-frontend-*` branches. On a pull request into `main` it runs
+only when the pull request changes an input that only the staging build reads:
+`config/staging.json`, `scripts/build-staging.py`,
+`scripts/prepare-staging-workers.py`, `scripts/staging_release.py`,
+`packages/config/src/environment.ts` or the workflow itself. It no longer runs on
+every push to `main`. A change elsewhere that breaks only the staging build (not
+the production one) is found when staging is next built. It requires no AWS credentials and
 does not deploy or alter DNS. Artifacts bind the repository commit, lockfile,
 public configuration, edge implementation and every asset's SHA-256. The release
 publisher must validate these fields and a successful run at that exact commit.

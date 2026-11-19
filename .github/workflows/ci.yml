@@ -73,6 +73,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Every Python test under scripts/, including the change classifier that decides when this job and the test
+      # shards are skipped (scripts/test_ci_change_class.py). A change to the classifier is always "full", so it
+      # reaches this step. About five seconds.
+      - name: Release and CI tool tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
       # Builds use placeholder local configuration. No staging or production
       # gateway address is available to CI, and CI never points at production.
       - name: Build applications
@@ -150,6 +156,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_production_deployment*.py'
           python3 -m unittest discover -s scripts -p test_production_release.py
+          python3 -m unittest discover -s scripts -p test_ci_change_class.py
 
       # High and critical advisories fail, except a written, expiring exception in
       # security/npm-audit-exceptions.json (scripts/npm-audit-gate.mjs).

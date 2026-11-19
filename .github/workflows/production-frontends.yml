@@ -1,11 +1,12 @@
 name: Production frontend candidates
-# Root documentation only (never **/*.md: some tests import Markdown that sits next to the code). On pull requests a
-# change to the backend pin alone is also ignored: no build step reads that file, and ci.yml checks it. GitHub still
-# runs the workflow when any changed path is outside the list. Push to main always builds the pin.
+# Every push to main runs, documentation included: a release refuses a candidate that is no longer main's head
+# (CANDIDATE_SUPERSEDED), and the re-pin bot judges main's head by its own run here, so each head needs its own run.
+# Pull requests skip root documentation only (never **/*.md: some tests import Markdown that sits next to the code) and
+# a change to the backend pin alone: no build step reads that file, and ci.yml checks it. GitHub still runs the
+# workflow when any changed path is outside the list. A pull request run never deploys.
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md']
   pull_request:
     branches: [main]
     paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md', 'config/production-release-dependencies.json']
