@@ -54,7 +54,7 @@ export function auditWho(actorType: string): string {
  * Allowed would contradict itself (and the Failed filter would miss it).
  */
 const STATES_ITS_OUTCOME: ReadonlyMap<string, 'denied' | 'failure'> = new Map([
-  ['auth.authorization.denied', 'denied'], ['security.authorization', 'denied'], ['security.authorization.denied', 'denied'],
+  ['auth.authorization.denied', 'denied'], ['auth.login.refused', 'denied'], ['security.authorization', 'denied'], ['security.authorization.denied', 'denied'],
   ['identity.nin.verify', 'denied'], ['identity.nin.protect', 'failure'], ['identity.patient-access-pin.verify-denied', 'denied'],
   ['identity.patient-access-pin.authorization-denied', 'denied'], ['identity.patient.contact-change.verify', 'denied'],
   ['identity.patient.contact-change.delivery', 'failure'], ['ehr.document.scan.rejected', 'failure'],

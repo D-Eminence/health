@@ -147,7 +147,9 @@ describe('an audit event in words', () => {
         }
       }
     }
-    expect(what('ehr.allergy.create')).toBe('Patient record: Added allergy')
+    expect(what('ehr.immunization.create')).toBe('Patient record: Added immunization')
+    expect(what('ehr.allergy.create')).toBe('Recorded an allergy')
+    expect(what('auth.login.refused', { outcome: 'denied' })).toBe('Sign-in refused')
     expect(what('OUTREACH_CASE_CREATED')).toBe('Another action')
     // The request log is never a row on a facility's page; GET /v1/... routes included.
     expect(auditRow(event('api.get./v1/patients/:patientId'))).toBeNull()

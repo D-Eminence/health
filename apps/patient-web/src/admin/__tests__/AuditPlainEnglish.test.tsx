@@ -39,6 +39,7 @@ const EVENTS: AuditEvent[] = [
   event('security.authorization.denied', { outcome: 'denied', purposeOfUse: 'emergency' }),
   event('ocr.publication.fail', { actorType: 'workload', actorSubject: 'workload:ocr-worker' }),
   event('ehr.allergy.create', { purposeOfUse: 'patient-self' }),
+  event('ehr.immunization.create', { purposeOfUse: 'patient-self' }),
   event('api.ehr.note.read.request', { resourceType: 'http-request', purposeOfUse: 'direct-care' }),
   event('api.get./v1/patients/:patientId/encounters', { resourceType: 'http-request', outcome: 'failure' }),
   event('SOMETHING_NEW_HAPPENED', { actorType: 'system', actorSubject: null, purposeOfUse: 'BREAK_GLASS_REVIEW' }),
@@ -79,7 +80,9 @@ describe('platform audit rows in plain English', () => {
       expect(screen.getAllByText(text).length).toBeGreaterThan(0)
     }
     expect(screen.getAllByText(/Patient PIN not accepted/).length).toBeGreaterThan(0)
-    expect(screen.getByText('Patient record: Added allergy')).toBeTruthy()
+    expect(screen.getAllByText('Recorded an allergy').some(element => element.tagName !== 'OPTION')).toBe(true)
+    // A code with no label yet still reads in words.
+    expect(screen.getByText('Patient record: Added immunization')).toBeTruthy()
     for (const who of ['Health ID support', 'Staff member', 'Patient', 'Health ID background service', 'Health ID (automatic)']) {
       expect(screen.getAllByText(who).length).toBeGreaterThan(0)
     }
