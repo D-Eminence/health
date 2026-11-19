@@ -98,6 +98,8 @@ describe('the sign-up’s NIN step', () => {
 
   it('a held NIN says when to try again, and Continue stays off until then', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
+    // At midday, so the hold ends today: near midnight the screen rightly adds "tomorrow" (checked in ninCheckWire).
+    vi.setSystemTime(new Date(2026, 10, 19, 12, 0, 0))
     renderPortal(<Enrollment />, enrollmentGateway(() => refused(409, 'NIN_CHECK_HELD', 'Please try again in 5 minutes.', 300)), anonymous)
     await continueWith()
     const said = await screen.findByText(/^This NIN check is on hold\. Try again after /)
