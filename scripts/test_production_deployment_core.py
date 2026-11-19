@@ -377,4 +377,59 @@ class CoreTests(unittest.TestCase):
         with self.assertRaisesRegex(c.ReleaseError,'INDEX_TASK_DEFINITION_DIFFERS'):c.validate_index(value)
 
 
+class FrontendReleaseChecks(unittest.TestCase):
+    """The website release binds its build job and every test shard by exact name (deploy-production-workers.py)."""
+
+    def setUp(self):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('workers_checks',pathlib.Path(__file__).with_name('deploy-production-workers.py'))
+        self.w=importlib.util.module_from_spec(spec); spec.loader.exec_module(self.w)
+        self.value=c.make_candidate(ctx('frontend'),['web'],{'web':{'sha256':'a'*64}},dict(self.w.RELEASE_CHECKS))
+        self.gh=c.GitHub(self.value['repository'],token='test')
+        self.shards=['test ('+str(i)+'/6)' for i in range(1,7)]
+
+    def rows(self,names,**over):
+        return [dict({'name':name,'status':'completed','conclusion':'success'},**over.get(name,{})) for name in names]
+
+    def check(self,rows):
+        with patch.object(self.gh,'jobs',return_value=rows),patch.object(c.time,'sleep'):
+            self.gh.assert_checks(self.value,settle=0,poll=1)
+
+    def test_candidate_binds_build_test_and_each_shard(self):
+        self.assertEqual(self.w.TEST_SHARDS,6)
+        self.assertEqual(self.value['checks'],{'build':'success','test':'success',**{name:'success' for name in self.shards}})
+        c.validate_candidate(self.value,ctx('frontend'))
+
+    def test_build_and_every_shard_successful_passes_while_deploy_runs(self):
+        self.check(self.rows(['build']+self.shards)+[{'name':'deploy','status':'in_progress','conclusion':None}])
+
+    def test_missing_skipped_failed_or_cancelled_shard_refuses(self):
+        for missing in self.shards+['build']:
+            with self.assertRaisesRegex(c.ReleaseError,'REMOTE_REQUIRED_JOB_FAILED_OR_MISSING'):
+                self.check(self.rows([n for n in ['build']+self.shards if n!=missing]))
+        for name in self.shards+['build']:
+            for conclusion in ('skipped','failure','cancelled','timed_out'):
+                with self.assertRaisesRegex(c.ReleaseError,'REMOTE_REQUIRED_JOB_FAILED_OR_MISSING'):
+                    self.check(self.rows(['build']+self.shards,**{name:{'conclusion':conclusion}}))
+
+    def test_a_skipped_test_matrix_or_no_test_job_refuses(self):
+        # A matrix job skipped as a whole is listed once, without its shard names.
+        for rows in (self.rows(['build'])+[{'name':'test','status':'completed','conclusion':'skipped'}],
+                     self.rows(['build'])+[{'name':'test (${{ matrix.shard }}/6)','status':'completed','conclusion':'skipped'}],
+                     self.rows(['build']),[]):
+            with self.assertRaisesRegex(c.ReleaseError,'REMOTE_REQUIRED_JOB_FAILED_OR_MISSING'): self.check(rows)
+
+    def test_an_extra_failed_test_job_refuses(self):
+        rows=self.rows(['build']+self.shards)+[{'name':'test (7/7)','status':'completed','conclusion':'failure'}]
+        with self.assertRaisesRegex(c.ReleaseError,'REMOTE_REQUIRED_JOB_FAILED_OR_MISSING'): self.check(rows)
+
+    def test_release_workflow_runs_the_bound_shards_before_deploy(self):
+        text=(pathlib.Path(__file__).resolve().parents[1]/'.github/workflows/production-frontends.yml').read_text()
+        job=text[text.index('\n  test:\n'):text.index('\n  deploy:\n')]
+        self.assertIn('name: test (${{ matrix.shard }}/'+str(self.w.TEST_SHARDS)+')',job)
+        self.assertIn('shard: ['+', '.join(str(i) for i in range(1,self.w.TEST_SHARDS+1))+']',job)
+        self.assertIn('npm test -- --shard=${{ matrix.shard }}/'+str(self.w.TEST_SHARDS),job)
+        self.assertIn('needs: [build, test]',text[text.index('\n  deploy:\n'):])
+
+
 if __name__=='__main__': unittest.main()

@@ -1,9 +1,15 @@
 name: Production frontend candidates
+# Every push to main runs, documentation included: a release refuses a candidate that is no longer main's head
+# (CANDIDATE_SUPERSEDED), and the re-pin bot judges main's head by its own run here, so each head needs its own run.
+# Pull requests skip root documentation only (never **/*.md: some tests import Markdown that sits next to the code) and
+# a change to the backend pin alone: no build step reads that file, and ci.yml checks it. GitHub still runs the
+# workflow when any changed path is outside the list. A pull request run never deploys.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md', 'config/production-release-dependencies.json']
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +17,8 @@ env:
   PRODUCTION_APPROVAL_MODE: ${{ vars.PRODUCTION_APPROVAL_MODE || 'protected' }}
 concurrency:
   group: production-frontend-build-${{ github.ref }}
-  cancel-in-progress: false
+  # Only a newer commit on the same pull request cancels a run; release runs on main are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -28,10 +35,11 @@ jobs:
           node-version: '22.23.2'
           package-manager-cache: false
       - run: npm ci
+      # Typecheck, lint and vitest gate every release in the test job below, in parallel with this build; deploy needs
+      # both. On a pull request ci.yml runs them on this same merge commit, and a pull request run never deploys.
       - name: Validate production source and host boundaries
         run: |
           npm run audit:boundaries
-          npm run check
           npm run test:edge
           npm run test:release
           npm run test:production-release
@@ -64,8 +72,69 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+  # Typecheck, lint and vitest for a release, split over six shards; the candidate binds "test" and every shard by
+  # name (scripts/deploy-production-workers.py), so a failed, skipped or missing shard blocks deployment.
+  # Re-pin fast path: when the only change since the parent commit (the push's before commit, or HEAD's first parent on
+  # dispatch) is config/production-release-dependencies.json, and every push or dispatch run of this workflow on main
+  # for exactly that parent (at least one) shows build and all six shards successful, a shard records the newest of
+  # those runs and skips typecheck, lint and vitest: no JavaScript, TypeScript, test or build step reads the pin file.
+  # Anything else, or any git or API error, runs everything (scripts/production_deployment_test_reuse.py). Each shard
+  # uploads what it did; the deploy job refuses a release without all six records, shows the reused run in the
+  # approval step summary and keeps it in the release receipts. The build job, the audit gate, the signed candidate
+  # and approval are the same either way.
+  test:
+    if: github.event_name != 'pull_request'
+    name: test (${{ matrix.shard }}/6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Reuse the parent's tests only for a proven re-pin
+        id: reuse
+        # The script answers "full" on any error; if it cannot run at all, no answer means every step below runs.
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BEFORE_SHA: ${{ github.event.before }}
+          TEST_SHARD: ${{ matrix.shard }}
+          TEST_EVIDENCE_DIR: ${{ runner.temp }}/release-tests
+        run: python3 scripts/production_deployment_test_reuse.py
+      # Runs in both modes: what this shard did (tests run here, or reused from which run) for the deploy job.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-frontend-tests-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/release-tests/release-tests-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: steps.reuse.outputs.mode != 'reuse'
+        with:
+          node-version: '22.23.2'
+          package-manager-cache: false
+      - run: npm ci
+        if: steps.reuse.outputs.mode != 'reuse'
+      - name: Typecheck and lint
+        if: steps.reuse.outputs.mode != 'reuse' && matrix.shard == 1
+        run: |
+          npm run typecheck
+          npm run lint
+      - name: Tests
+        if: steps.reuse.outputs.mode != 'reuse'
+        run: npm test -- --shard=${{ matrix.shard }}/6
+
   deploy:
-    needs: build
+    needs: [build, test]
     if: vars.PRODUCTION_DEPLOYMENT_ENABLED == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1428636965'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -97,8 +166,13 @@ jobs:
         with:
           name: production-frontend-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: production-frontend-tests-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: release/tests
+          merge-multiple: true
       - name: Verify deployment policy and exact candidate
-        run: python scripts/verify-production-approval.py release/candidate.json
+        run: python scripts/verify-production-approval.py release/candidate.json release/tests
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: production-frontends-${{ github.sha }}

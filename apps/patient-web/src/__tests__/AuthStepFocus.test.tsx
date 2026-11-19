@@ -312,7 +312,7 @@ describe('patient enrollment', () => {
     await press('Continue')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
-    expect(described(nin)).toContain('We couldn’t verify that NIN. Check the number and try again.')
+    expect(described(nin)).toContain('This NIN could not be verified. Check the number and try again.')
     expect(described(nin)).toContain('It isn’t stored in this browser.')
   })
 

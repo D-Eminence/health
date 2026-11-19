@@ -1,10 +1,23 @@
 name: Staging frontend artifacts
 
+# Staging artifacts are published by hand (docs/STAGING_DEPLOYMENT.md), so they are built on request and for a
+# staging-frontend-* branch. Pull requests and main are checked by ci.yml and built by production-frontends.yml, so a
+# pull request builds staging only when it changes an input that only the staging build reads: the staging
+# configuration, the staging build and Worker scripts, the environment switch, or this workflow.
+# Root documentation only is ignored on push (never **/*.md: some tests import Markdown that sits next to the code).
 on:
   push:
-    branches: [main, 'staging-frontend-*']
+    branches: ['staging-frontend-*']
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md']
   pull_request:
     branches: [main]
+    paths:
+      - 'config/staging.json'
+      - 'scripts/build-staging.py'
+      - 'scripts/prepare-staging-workers.py'
+      - 'scripts/staging_release.py'
+      - 'packages/config/src/environment.ts'
+      - '.github/workflows/staging-frontends.yml'
   workflow_dispatch:
 
 permissions:
@@ -12,7 +25,7 @@ permissions:
 
 concurrency:
   group: staging-frontends-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

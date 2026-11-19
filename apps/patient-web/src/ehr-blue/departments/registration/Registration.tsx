@@ -19,7 +19,7 @@ import { deskControlId } from '../../collected/DeskFields'
 import { ninCheckProblem, useNinHold, useStillChecking } from '../../../ninCheck'
 import {
   APPROVE_PERMISSION, APPROVED, CAPABILITY_FAILED, CANDIDATE_REFUSED, CASE_CREATED, CASE_CREATED_RELOAD, CASE_ID_REFUSED,
-  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_DETAILS_FIELD, NIN_REFUSED, REGISTRATION_WORK,
+  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_DETAILS_FIELD, NIN_NUMBER_FIELD, NIN_REFUSED, REGISTRATION_WORK,
   REVIEW_FAILED, REVIEW_REASON_REFUSED, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
 } from './registrationText'
 import './registration.css'
@@ -266,6 +266,11 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       if (problem?.outcome === 'details') {
         resolveKey.current = crypto.randomUUID()
         ninProblems.refuse([[FIELD.dob, NIN_DETAILS_FIELD], [FIELD.first, NIN_DETAILS_FIELD], [FIELD.last, NIN_DETAILS_FIELD]])
+      }
+      // A NIN QoreID has no record of (owner Q117): the number is marked, and is changed before a new request.
+      if (problem?.outcome === 'not_verified') {
+        resolveKey.current = crypto.randomUUID()
+        ninProblems.refuse([[FIELD.nin, NIN_NUMBER_FIELD]])
       }
     } finally { if (live.current) { setBusy(false); setResolving(false) } }
   }

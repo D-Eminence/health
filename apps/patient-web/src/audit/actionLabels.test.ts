@@ -4,7 +4,9 @@ import { AUDIT_ACTION_LABELS, LEGACY_ACTION_LABELS, LEGACY_ACTIVITY } from './ac
 
 /**
  * Every audit action the backend writes has its words in docs/AUDIT_ACTION_LABELS.md (D-Eminence/health#75): 335 rows
- * in its main table (two of them rules, not codes: the hid-1.0 catch-all and the request log) and 3 hid-1.0 actions.
+ * in its main table (two of them rules, not codes: the hid-1.0 catch-all and the request log) and 3 hid-1.0 actions,
+ * and 63 rows added on #265 for the actions hid-system afec3f75 writes that the spec did not list yet (398 rows, 396
+ * codes); admin/__tests__/AuditActionOptions.test.ts checks every action the backend writes has one.
  * actionLabels.spec-tables.md holds those two tables' code and label columns as the spec writes them; actionLabels.ts
  * must hold exactly the same labels, none reworded, none missing, none invented.
  */
@@ -24,14 +26,14 @@ const RULES = ['<hid-1.0 legacy action>', 'api.<route action or method.path>']
 
 describe('the audit action labels', () => {
   it('reads the spec’s tables in full', () => {
-    expect(labels).toHaveLength(335)
+    expect(labels).toHaveLength(398)
     expect(legacy).toHaveLength(3)
     expect(labels.filter(([code]) => RULES.includes(code)).map(([code]) => code)).toEqual(RULES)
   })
 
   it('holds every code of the spec’s main table with its label as written, and nothing else', () => {
     const codes = labels.filter(([code]) => !RULES.includes(code))
-    expect(codes).toHaveLength(333)
+    expect(codes).toHaveLength(396)
     expect(Object.entries(AUDIT_ACTION_LABELS)).toEqual(codes)
   })
 
