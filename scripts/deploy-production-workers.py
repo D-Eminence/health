@@ -86,9 +86,12 @@ def rollback_candidate(release_id):
             output.write("candidate_sha256="+file_sha(ROOT/"release/candidate.json")+"\n")
 
 VERSION_ID = r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}"
-# Right after an upload the version list can lag behind it, so a version not listed yet is re-read briefly.
+# A version this run just uploaded can briefly 404 on its detail read and deployment: asked again briefly.
 UPLOAD_LIST_ATTEMPTS = 6
 UPLOAD_LIST_RETRY_SECONDS = 6
+# Right after an upload the version list can lag behind it (run 44628125283 outlasted 30 seconds), so a version
+# not listed yet is re-read after each of these pauses, longer each time: 148 seconds in all, then it fails closed.
+UPLOAD_VERSION_LIST_WAITS = (3, 5, 8, 12, 15, 20, 25, 30, 30)
 
 def printed_version(stdout):
     # Wrangler 4.147.0 logs "Worker Version ID: <id>" to stdout once after an upload. Anything else is not guessed at.
@@ -167,9 +170,13 @@ class Cloudflare:
                 "WORKER_ORIGIN_SECRET_BINDING_REQUIRED")
         return details
 
-    def uploaded_version(self, app, release_id, printed=None):
-        for attempt in range(UPLOAD_LIST_ATTEMPTS):
-            if attempt: time.sleep(UPLOAD_LIST_RETRY_SECONDS)
+    def uploaded_version(self, app, release_id, printed, lease):
+        for attempt, wait in enumerate((0,)+UPLOAD_VERSION_LIST_WAITS, start=1):
+            if attempt > 1:
+                time.sleep(wait)
+                lease.assert_owned()
+                # Progress only, so the log shows how long the list lagged: the app and which read, never an id or tag.
+                print(json.dumps({"app":app,"version_list_attempt":attempt}), flush=True)
             versions = self.read(app,"versions")
             values = versions.get("items",[]) if isinstance(versions,dict) else versions
             require(isinstance(values,list) and all(isinstance(v,dict) for v in values),
@@ -523,7 +530,7 @@ def deploy(mode):
                     except subprocess.TimeoutExpired: raise ReleaseError("WORKER_VERSION_UPLOAD_FAILED") from None
                 # A failed/uncertain upload is inspected, never retried automatically.
                 require(result.returncode == 0, "WORKER_VERSION_UPLOAD_FAILED")
-                target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout))
+                target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout),lease)
                 store.put(prefix+"intent-"+app+".json",{"app":app,"before":before[app],"target_version":target})
                 updated.append(app)
                 cloud.deploy_version(app,target,lease,uploaded=True)
