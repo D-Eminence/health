@@ -143,3 +143,28 @@ describe('problem retryAfter and required', () => {
     expect(error.toLogContext()).not.toHaveProperty('required')
   })
 })
+
+/**
+ * hid-system 0137 (One QoreID check per NIN): 409 NIN_CHECK_IN_PROGRESS, 409 NIN_CHECK_HELD and 504 QOREID_TIMEOUT
+ * carry `retryAfterSeconds`, a problem member (not the Retry-After header), so a page can say when to try again.
+ */
+describe('problem retryAfterSeconds', () => {
+  const HELD = { type: 'about:blank', title: 'Conflict', status: 409, code: 'NIN_CHECK_HELD', correlationId: 'corr-409',
+    detail: 'We could not finish checking this NIN. Please try again in 5 minutes.', retryAfterSeconds: 300 }
+
+  it('keeps the seconds on the error the client throws, and leaves the retry loop\'s header alone', async () => {
+    const problem = new Response(JSON.stringify(HELD), { status: 409, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/identity/patient-enrollments', {}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HidApiError)
+    expect(error).toMatchObject({ status: 409, code: 'NIN_CHECK_HELD', retryInSeconds: 300 })
+  })
+
+  it('is null when absent, or not a whole number of seconds up to a week', () => {
+    expect(parseErrorEnvelope({ code: 'NIN_CHECK_HELD' }, { status: 409 }).retryInSeconds).toBeNull()
+    for (const value of ['300', -1, 1.5, 604_801, null, { seconds: 300 }]) {
+      expect(parseErrorEnvelope({ retryAfterSeconds: value }, { status: 409 }).retryInSeconds).toBeNull()
+    }
+    expect(parseErrorEnvelope({ retryAfterSeconds: 0 }, { status: 409 }).retryInSeconds).toBe(0)
+    expect(new HidApiError(409, 'x').retryInSeconds).toBeNull()
+  })
+})
