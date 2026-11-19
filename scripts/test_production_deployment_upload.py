@@ -333,7 +333,20 @@ class UploadTests(unittest.TestCase):
             self.assertNotIn(value, result.output)
 
     def test_version_listed_only_on_the_last_read_still_deploys(self):
-        result = self.execute(version_case='lagging', case_app='web', lag_reads=len(w.UPLOAD_VERSION_LIST_WAITS))
+        printed_lines = []
+
+        def recording_print(*args, **kwargs):
+            printed_lines.append((args, kwargs))
+            print(*args, **kwargs)
+        # A module-level name shadows the builtin only inside the controller, so this records its own prints.
+        with patch.object(w, 'print', side_effect=recording_print, create=True):
+            result = self.execute(version_case='lagging', case_app='web', lag_reads=len(w.UPLOAD_VERSION_LIST_WAITS))
+        progress_calls = [(args, kwargs) for args, kwargs in printed_lines
+                          if args and isinstance(args[0], str) and '"version_list_attempt"' in args[0]]
+        self.assertEqual(len(progress_calls), len(w.UPLOAD_VERSION_LIST_WAITS))
+        # Each progress line is flushed, so the job log shows the wait while it is still happening.
+        for _, kwargs in progress_calls:
+            self.assertIs(kwargs.get('flush'), True)
         self.assertIsNone(result.error)
         self.assertEqual((result.reads['web'], result.sleeps),
                          (len(w.UPLOAD_VERSION_LIST_WAITS) + 1, list(w.UPLOAD_VERSION_LIST_WAITS)))
