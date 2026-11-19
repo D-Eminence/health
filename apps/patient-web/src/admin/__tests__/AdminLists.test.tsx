@@ -42,65 +42,64 @@ describe('audit filters', () => {
   it('sends only valid filters from the link, with local times as instants', async () => {
     mocks.audit.mockResolvedValue({ items: [event], nextBeforeSequenceId: null })
     open('/admin/audit?actor=staff:ada&outcome=denied&facilityId=not-a-uuid&from=2026-10-01T09:00&to=bogus', <AuditPage />)
-    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(await screen.findByText('Licence lapsed')).toBeTruthy()
     expect(mocks.audit).toHaveBeenCalledWith({ actor: 'staff:ada', outcome: 'denied',
       from: new Date('2026-10-01T09:00').toISOString() }, undefined, expect.anything())
+    // The person is said in words; a facility ID that is not sent is not said.
+    expect(screen.getByText('Showing one person\'s activity.')).toBeTruthy()
+    expect(screen.queryByText('Showing one facility\'s activity.')).toBeNull()
   })
 
-  it('shows actor, target, scope, purpose and reason without inventing missing fields', async () => {
+  it('shows who, scope, purpose and reason in words, without IDs or invented fields', async () => {
     mocks.audit.mockResolvedValue({ items: [event, { ...event, sequenceId: '6', eventId: 'event-6', correlationId: 'corr-6',
       actorSubject: null, actorType: null, facilityId: null, resourceType: null, resourceId: null, purposeOfUse: null, reason: null }],
     nextBeforeSequenceId: null })
     open('/admin/audit', <AuditPage />)
-    await screen.findByText('corr-7')
-    expect(screen.getByText('Licence lapsed')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /Facility/ }).getAttribute('href')).toBe(`/admin/facilities/${FACILITY_ID}`)
-    expect(screen.getByText('System')).toBeTruthy()
+    await screen.findByText('Licence lapsed')
+    expect(screen.getByRole('link', { name: 'A facility' }).getAttribute('href')).toBe(`/admin/facilities/${FACILITY_ID}`)
+    expect(screen.getByRole('cell', { name: 'Staff member' })).toBeTruthy()
+    expect(screen.getByRole('cell', { name: 'Someone' })).toBeTruthy()
     expect(screen.getByText('Platform')).toBeTruthy()
-    expect(screen.getByText('Item: Not recorded')).toBeTruthy()
-    expect(screen.getByText('Purpose: Not recorded')).toBeTruthy()
-    expect(screen.getAllByText(/Not recorded/)).toHaveLength(2)
+    expect(screen.getAllByText('Purpose: another purpose')).toHaveLength(1)
+    expect(screen.getAllByRole('cell', { name: 'Refused' })).toHaveLength(2)
+    expect(document.body.textContent).not.toMatch(/corr-|staff:ada|Request code|Item:|0f8c6d2e|admin\./)
   })
 
   it('sends a target filter from the link, and only a target ID that has a valid type', async () => {
     mocks.audit.mockResolvedValue({ items: [event], nextBeforeSequenceId: null })
     open(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`, <AuditPage />)
-    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(await screen.findByText('Licence lapsed')).toBeTruthy()
     expect(mocks.audit).toHaveBeenCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID }, undefined, expect.anything())
+    expect(screen.getByText('Showing changes to one facility.')).toBeTruthy()
     cleanup()
     vi.clearAllMocks()
     mocks.audit.mockResolvedValue({ items: [event], nextBeforeSequenceId: null })
     open(`/admin/audit?resourceId=${FACILITY_ID}&resourceType=Not%20A%20Type`, <AuditPage />)
-    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(await screen.findByText('Licence lapsed')).toBeTruthy()
     expect(mocks.audit).toHaveBeenCalledWith({}, undefined, expect.anything())
+    expect(screen.queryByText(/Showing changes/)).toBeNull()
   })
 
-  it('refuses a target ID without a target type before searching', async () => {
+  it('never sends a target ID from a link without its type, and offers no ID fields', async () => {
     mocks.audit.mockResolvedValue({ items: [], nextBeforeSequenceId: null })
-    open('/admin/audit', <AuditPage />)
-    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(1))
-    fireEvent.change(screen.getByLabelText('Item ID'), { target: { value: FACILITY_ID } })
-    expect(screen.getByText(/Enter an item type/)).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Apply filters' }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText('Item type'), { target: { value: 'facility' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
-    await waitFor(() => expect(location()).toBe(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`))
-    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID },
-      undefined, expect.anything()))
+    open(`/admin/audit?resourceId=${FACILITY_ID}`, <AuditPage />)
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledWith({}, undefined, expect.anything()))
+    expect(screen.queryByText(/Showing changes/)).toBeNull()
+    for (const name of ['Who', 'Facility ID', 'Item type', 'Item ID', 'Request code']) expect(screen.queryByLabelText(name)).toBeNull()
   })
 
-  it('applies filters into the link and refuses a partial facility ID', async () => {
+  it('applies filters chosen in words into the link, and clears them', async () => {
     mocks.audit.mockResolvedValue({ items: [], nextBeforeSequenceId: null })
-    open('/admin/audit', <AuditPage />)
+    open('/admin/audit?facilityId=0f8c', <AuditPage />)
     await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(1))
-    fireEvent.change(screen.getByLabelText('Facility ID'), { target: { value: '0f8c' } })
-    expect(screen.getByText('Enter a full facility ID.')).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Apply filters' }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText('Facility ID'), { target: { value: FACILITY_ID } })
-    fireEvent.change(screen.getByLabelText('What happened'), { target: { value: ' admin.account.status ' } })
+    expect(mocks.audit).toHaveBeenCalledWith({}, undefined, expect.anything())
+    expect(screen.queryByText('Showing one facility\'s activity.')).toBeNull()
+    fireEvent.change(screen.getByLabelText('What happened'), { target: { value: 'admin.account.disabled' } })
+    expect((screen.getByLabelText('What happened') as HTMLSelectElement).selectedOptions[0]?.textContent).toBe('Support disabled an account')
+    fireEvent.change(screen.getByLabelText('Result'), { target: { value: 'failure' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
-    await waitFor(() => expect(location()).toBe(`/admin/audit?action=admin.account.status&facilityId=${FACILITY_ID}`))
-    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ action: 'admin.account.status', facilityId: FACILITY_ID },
+    await waitFor(() => expect(location()).toBe('/admin/audit?action=admin.account.disabled&outcome=failure'))
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ action: 'admin.account.disabled', outcome: 'failure' },
       undefined, expect.anything()))
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
     await waitFor(() => expect(location()).toBe('/admin/audit'))

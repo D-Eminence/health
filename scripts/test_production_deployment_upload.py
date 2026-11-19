@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import production_deployment_core as c
+import production_deployment_test_reuse as tests_reuse
 from test_production_deployment_core import ctx, index
 
 spec = importlib.util.spec_from_file_location('upload_workers', pathlib.Path(__file__).with_name('deploy-production-workers.py'))
@@ -41,7 +42,7 @@ def dependencies():
 class UploadTests(unittest.TestCase):
     def execute(self, *, failure_app=None, declaration=None, version_case=None, missing_binding=False,
                 case_app=None, printed=('Worker Version ID: ' + TARGET,), faults=None, lost_on_sleep=False,
-                upload_hangs=None, release_fails=None, alert_fails=False):
+                upload_hangs=None, release_fails=None, alert_fails=False, test_modes=('full',) * 6, lag_reads=2):
         baseline = index()
         before = {app: {'version_id': PRIOR, 'hostname': host, 'origin_secret_version_id': 'secret-v1'}
                   for app, host in w.HOSTS.items()}
@@ -49,6 +50,8 @@ class UploadTests(unittest.TestCase):
         objects = {c.INDEX_KEY: copy.deepcopy(baseline)}
         current = {app: PRIOR for app in w.HOSTS}
         uploaded, deployments, health_checks, secret_reads, sleeps = [], [], [], [], []
+        # Every pause and every lease check, in the order the controller made them.
+        timeline = []
         reads = {}
         # (app, route template, version or None) -> what the real Cloudflare.call meets in turn: a status, 'unreachable',
         # an exception, 'not-json' or the bytes of an answer.
@@ -61,7 +64,8 @@ class UploadTests(unittest.TestCase):
                 raise release_fails if isinstance(release_fails, BaseException) else c.ReleaseError(release_fails)
         # lost_on_sleep: the lease is lost once the controller has paused.
         lease = SimpleNamespace(released=None, acquire=lambda: lease, release=release,
-                                assert_owned=lambda: c.require(not (lost_on_sleep and sleeps), 'LEASE_LOST'))
+                                assert_owned=lambda: (timeline.append('lease'),
+                                                      c.require(not (lost_on_sleep and sleeps), 'LEASE_LOST')))
         release_id = None
 
         class FakeAWS:
@@ -115,7 +119,7 @@ class UploadTests(unittest.TestCase):
                     if case == 'wrong-tag': row['annotations']['workers/tag'] = 'other-release'
                     if case == 'bad-id': row['id'] = 'not-a-version'
                     if case == 'nested': row['metadata']['annotations'] = row.pop('annotations')
-                    values = [] if case == 'zero' or (case == 'lagging' and reads[app] <= 2) else [row]
+                    values = [] if case == 'zero' or (case == 'lagging' and reads[app] <= lag_reads) else [row]
                     if case == 'duplicate': values.append(copy.deepcopy(row))
                     # A retried slow upload leaves an earlier version with the same tag beside Wrangler's.
                     if case == 'retried': values.insert(0, {**copy.deepcopy(row), 'id': RETRIED, 'number': 3})
@@ -178,6 +182,13 @@ class UploadTests(unittest.TestCase):
             release_id = 'frontend-42-1-' + c.sha(c.canonical(value))[:16]
             release['release_id'] = release_id
             c.atomic_json(root / 'release/candidate.json', release)
+            # What each test shard did, as the deploy job downloads it into release/tests.
+            run_env = {'GITHUB_SHA': release['source_commit'], 'GITHUB_RUN_ID': release['run_id'],
+                       'GITHUB_RUN_ATTEMPT': release['run_attempt']}
+            for shard, mode in enumerate(test_modes or (), start=1):
+                tests_reuse.write_evidence(root / 'release/tests' / ('production-frontend-tests-42-1-' + str(shard)),
+                    tests_reuse.shard_evidence(shard, mode, 'synthetic', 'b' * 40 if mode == 'reuse' else None,
+                                               41 if mode == 'reuse' else None, run_env))
 
             def upload(command, **kwargs):
                 self.assertEqual(command[2:4], ['versions', 'upload'])
@@ -204,7 +215,7 @@ class UploadTests(unittest.TestCase):
                   patch.object(w, 'notify', side_effect=c.ReleaseError('AWS_REQUEST_UNCERTAIN') if alert_fails else None),
                   patch.object(w, 'entries', return_value=selected), patch.object(w, 'prepared_configs', return_value=configs),
                   patch.object(w, 'verify_assets', side_effect=health), patch.object(w.subprocess, 'run', side_effect=upload),
-                  patch.object(w.time, 'sleep', side_effect=sleeps.append),
+                  patch.object(w.time, 'sleep', side_effect=lambda seconds: (sleeps.append(seconds), timeline.append('sleep'))),
                   contextlib.redirect_stdout(io.StringIO()) as output):
                 error = None
                 try: w.deploy('deploy')
@@ -215,11 +226,14 @@ class UploadTests(unittest.TestCase):
                     error = w.error_code(cause)
         return SimpleNamespace(baseline=baseline, current=current, objects=objects, deployments=deployments,
                                uploaded=uploaded, health=health_checks, secret_reads=secret_reads,
-                               lease=lease, error=error, release_id=release_id, sleeps=sleeps, reads=reads,
+                               lease=lease, error=error, release_id=release_id, sleeps=sleeps, reads=reads, timeline=timeline,
                                output=output.getvalue())
 
     def diagnostics(self, result):
         return [json.loads(line) for line in result.output.splitlines() if '"tagged_versions"' in line]
+
+    def list_progress(self, result):
+        return [json.loads(line) for line in result.output.splitlines() if '"version_list_attempt"' in line]
 
     def refusals(self, result):
         return [json.loads(line) for line in result.output.splitlines() if '"cloudflare_call"' in line]
@@ -246,6 +260,24 @@ class UploadTests(unittest.TestCase):
         receipt = result.objects['production/releases/' + result.release_id + '/complete.json']
         self.assertEqual(receipt['status'], 'success')
         self.assertEqual(receipt['after'], result.objects[c.INDEX_KEY]['frontend'])
+        self.assertEqual((receipt['tests']['mode'], receipt['tests']['reused_from']), ('full', []))
+
+    def test_receipts_name_the_run_whose_tests_a_re_pin_reused(self):
+        result = self.execute(test_modes=('reuse',) * 6)
+        self.assertIsNone(result.error)
+        prefix = 'production/releases/' + result.release_id + '/'
+        for name in ('started.json', 'complete.json'):
+            tests = result.objects[prefix + name]['tests']
+            self.assertEqual(tests['mode'], 'reuse', name)
+            self.assertEqual(tests['reused_from'], [{'parent_commit': 'b' * 40, 'parent_run_id': 41}], name)
+            self.assertEqual(tests['shards']['6'], {'mode': 'reuse', 'parent_commit': 'b' * 40, 'parent_run_id': 41})
+
+    def test_missing_test_shard_records_refuse_before_anything_changes(self):
+        for modes in (None, ('full',) * 5):
+            result = self.execute(test_modes=modes)
+            self.assertEqual(result.error, 'TEST_EVIDENCE_MISSING', modes)
+            self.assertEqual((result.uploaded, result.deployments, result.health), ([], [], []))
+            self.assertFalse([key for key in result.objects if key.startswith('production/releases/')])
 
     def test_failed_health_on_new_deployment_restores_all_attempted_portals_and_index(self):
         result = self.execute(failure_app='web')
@@ -275,13 +307,13 @@ class UploadTests(unittest.TestCase):
                 # Read again only while what selects the version is missing: any tagged row without Wrangler's
                 # id, or a listed row with Wrangler's id.
                 waits = case in ('zero', 'wrong-tag', 'nested') if printed is None else case in ('zero', 'bad-id')
-                self.assertEqual(result.sleeps, [w.UPLOAD_LIST_RETRY_SECONDS] * (w.UPLOAD_LIST_ATTEMPTS - 1) if waits else [])
+                self.assertEqual(result.sleeps, list(w.UPLOAD_VERSION_LIST_WAITS) if waits else [])
                 self.assertEqual(len(self.diagnostics(result)), 1 if code == exact else 0)
 
     def test_tag_missing_from_first_version_reads_is_read_again_then_deploys(self):
         result = self.execute(version_case='lagging', case_app='web')
         self.assertIsNone(result.error)
-        self.assertEqual((result.reads['web'], result.sleeps), (3, [w.UPLOAD_LIST_RETRY_SECONDS] * 2))
+        self.assertEqual((result.reads['web'], result.sleeps), (3, list(w.UPLOAD_VERSION_LIST_WAITS[:2])))
         self.assertEqual(result.deployments, [(app, TARGET) for app in w.HOSTS])
         self.assertEqual(self.diagnostics(result), [])
         receipt = result.objects['production/releases/' + result.release_id + '/complete.json']
@@ -291,13 +323,73 @@ class UploadTests(unittest.TestCase):
         result = self.execute(version_case='zero', case_app='web')
         self.assertEqual(result.error, 'EXACT_UPLOADED_WORKER_VERSION_REQUIRED')
         self.assertEqual(result.uploaded, ['admin', 'web'])
-        # Six reads, five 6-second pauses (patched): about 30 seconds in production, no real wait here.
-        self.assertEqual((result.reads['web'], result.sleeps), (6, [6] * 5))
+        # Ten reads, nine lengthening pauses (patched): 148 seconds in production, no real wait here.
+        self.assertEqual((result.reads['web'], result.sleeps), (10, [3, 5, 8, 12, 15, 20, 25, 30, 30]))
+        self.assertEqual(self.list_progress(result), [{'app': 'web', 'version_list_attempt': n} for n in range(2, 11)])
         self.assert_restored_after(result, ['admin'])
         self.assertEqual(self.diagnostics(result), [{'app': 'web', 'tagged_versions': 0, 'wrangler_version_id_parsed': True,
                                                      'wrangler_version_id_listed': False}])
         for value in ['a' * 32, 'synthetic-token', 'Worker Version ID', 'ORIGIN_AUTH_TOKEN', 'bindings']:
             self.assertNotIn(value, result.output)
+
+    def test_version_listed_only_on_the_last_read_still_deploys(self):
+        printed_lines = []
+
+        def recording_print(*args, **kwargs):
+            printed_lines.append((args, kwargs))
+            print(*args, **kwargs)
+        # A module-level name shadows the builtin only inside the controller, so this records its own prints.
+        with patch.object(w, 'print', side_effect=recording_print, create=True):
+            result = self.execute(version_case='lagging', case_app='web', lag_reads=len(w.UPLOAD_VERSION_LIST_WAITS))
+        progress_calls = [(args, kwargs) for args, kwargs in printed_lines
+                          if args and isinstance(args[0], str) and '"version_list_attempt"' in args[0]]
+        self.assertEqual(len(progress_calls), len(w.UPLOAD_VERSION_LIST_WAITS))
+        # Each progress line is flushed, so the job log shows the wait while it is still happening.
+        for _, kwargs in progress_calls:
+            self.assertIs(kwargs.get('flush'), True)
+        self.assertIsNone(result.error)
+        self.assertEqual((result.reads['web'], result.sleeps),
+                         (len(w.UPLOAD_VERSION_LIST_WAITS) + 1, list(w.UPLOAD_VERSION_LIST_WAITS)))
+        self.assertEqual(result.deployments, [(app, TARGET) for app in w.HOSTS])
+        self.assertEqual(self.diagnostics(result), [])
+        self.assertEqual(self.list_progress(result),
+                         [{'app': 'web', 'version_list_attempt': n} for n in range(2, len(w.UPLOAD_VERSION_LIST_WAITS) + 2)])
+        for value in [TARGET, result.release_id, 'workers/tag']:
+            self.assertNotIn(value, '\n'.join(line for line in result.output.splitlines() if 'version_list_attempt' in line))
+
+    def test_version_listed_one_read_too_late_fails_closed_without_another_read(self):
+        result = self.execute(version_case='lagging', case_app='web', lag_reads=len(w.UPLOAD_VERSION_LIST_WAITS) + 1)
+        self.assertEqual(result.error, 'EXACT_UPLOADED_WORKER_VERSION_REQUIRED')
+        self.assertEqual((result.reads['web'], result.sleeps),
+                         (len(w.UPLOAD_VERSION_LIST_WAITS) + 1, list(w.UPLOAD_VERSION_LIST_WAITS)))
+        self.assert_restored_after(result, ['admin'])
+        self.assertEqual(self.diagnostics(result), [{'app': 'web', 'tagged_versions': 0, 'wrangler_version_id_parsed': True,
+                                                     'wrangler_version_id_listed': False}])
+
+    def test_version_list_waits_are_bounded_and_lengthen(self):
+        waits = w.UPLOAD_VERSION_LIST_WAITS
+        self.assertTrue(all(isinstance(wait, int) and wait > 0 for wait in waits))
+        self.assertEqual(list(waits), sorted(waits))
+        self.assertLessEqual(sum(waits), 150)
+        self.assertGreater(sum(waits), 30)
+        # The 404 retry for a just-uploaded version keeps its own, shorter schedule.
+        self.assertEqual((w.UPLOAD_LIST_ATTEMPTS, w.UPLOAD_LIST_RETRY_SECONDS), (6, 6))
+
+    def test_lease_is_checked_after_every_version_list_pause(self):
+        result = self.execute(version_case='zero', case_app='web')
+        self.assertEqual(result.error, 'EXACT_UPLOADED_WORKER_VERSION_REQUIRED')
+        self.assertEqual(result.sleeps, list(w.UPLOAD_VERSION_LIST_WAITS))
+        pauses = [i for i, event in enumerate(result.timeline) if event == 'sleep']
+        self.assertEqual(len(pauses), len(w.UPLOAD_VERSION_LIST_WAITS))
+        self.assertTrue(all(result.timeline[i + 1] == 'lease' for i in pauses), result.timeline)
+
+    def test_lease_lost_while_waiting_for_the_version_list_stops_before_another_read(self):
+        result = self.execute(version_case='lagging', case_app='web', lost_on_sleep=True)
+        self.assertEqual(result.error, 'LEASE_LOST')
+        self.assertEqual((result.reads['web'], result.sleeps), (1, [w.UPLOAD_VERSION_LIST_WAITS[0]]))
+        self.assertEqual(result.deployments, [('admin', TARGET)])
+        self.assertEqual((self.list_progress(result), self.diagnostics(result)), ([], []))
+        self.assertIs(result.lease.released, False)
 
     def test_duplicate_tag_rows_deploy_exactly_the_version_wrangler_printed(self):
         result = self.execute(version_case='retried')
@@ -322,13 +414,14 @@ class UploadTests(unittest.TestCase):
     def test_retried_upload_listed_before_wranglers_version_is_read_again_then_deploys_wranglers(self):
         result = self.execute(version_case='retried-lagging', case_app='web')
         self.assertIsNone(result.error)
-        self.assertEqual((result.reads['web'], result.sleeps), (3, [w.UPLOAD_LIST_RETRY_SECONDS] * 2))
+        self.assertEqual((result.reads['web'], result.sleeps), (3, list(w.UPLOAD_VERSION_LIST_WAITS[:2])))
         self.assertIn(('web', TARGET), result.deployments)
         self.assertNotIn(('web', RETRIED), result.deployments)
 
     def test_single_tag_row_that_is_not_the_version_wrangler_printed_fails_closed(self):
         # An id never listed is read again until the bounded reads run out; a listed one fails at once.
-        for case, printed, listed, sleeps in [(None, '44444444-4444-4444-4444-444444444444', False, [6] * 5),
+        for case, printed, listed, sleeps in [(None, '44444444-4444-4444-4444-444444444444', False,
+                                               list(w.UPLOAD_VERSION_LIST_WAITS)),
                                               (None, PRIOR, True, []), ('untagged-retried', RETRIED, True, [])]:
             with self.subTest(case=case, printed=printed):
                 result = self.execute(version_case=case, printed=('Worker Version ID: ' + printed,))

@@ -6,6 +6,7 @@ import { PatientRegistration } from '../../../../ehr-blue/departments/registrati
 import {
   NIN_DETAILS_CHECK, NIN_HELD_FEW_MINUTES, NIN_IN_PROGRESS, NIN_STILL_CHECKING, NIN_TAKING_LONGER,
 } from '../../../../ninCheck'
+import { NIN_NUMBER_FIELD, VERIFY_FAILED } from '../../../../ehr-blue/departments/registration/registrationText'
 
 /*
  * The desk's NIN check on the blue Patient registration page (POST /identity/nin/resolve; hid-system Q108 and 0137):
@@ -162,5 +163,53 @@ describe('the desk NIN check', () => {
     await act(async () => { answer(pending) })
     await screen.findByRole('heading', { level: 1, name: 'Registration for Patient One' })
     expect(screen.queryByText(NIN_STILL_CHECKING)).toBeNull()
+  })
+})
+
+describe('a NIN QoreID has no record of, at the desk (owner Q117; hid-system #279)', () => {
+  // Each case starts with an empty answer queue, so one failing case cannot change the next.
+  beforeEach(() => { api.resolveNin.mockReset() })
+  /** The owner's sentence, written out here so a change to it is seen. */
+  const NOT_VERIFIED = 'This NIN could not be verified. Check the number and try again.'
+  const notVerified = () => new HidApiError(422, 'x', { code: 'NIN_NOT_VERIFIED',
+    detail: 'This NIN could not be verified. Check the number and try again.' })
+
+  it('says the owner’s sentence, with no code, and marks the NIN field', async () => {
+    api.resolveNin.mockRejectedValueOnce(notVerified())
+    await openNew()
+    fill()
+    fireEvent.click(verifyButton())
+    expect((await screen.findByText(NOT_VERIFIED)).getAttribute('role')).toBe('alert')
+    expect(document.body.textContent).not.toMatch(/NIN_NOT_VERIFIED|\b422\b/)
+    await waitFor(() => expect(screen.getByLabelText(/^National Identity Number/).getAttribute('aria-invalid')).toBe('true'))
+    expect(screen.getByText(NIN_NUMBER_FIELD)).toBeTruthy()
+    for (const label of [/^Date of birth/, /^First name/, /^Last name/]) {
+      expect(screen.getByLabelText(label).getAttribute('aria-invalid')).not.toBe('true')
+    }
+  })
+
+  it('the next Verify is a new request, with a new key, and the button stays on', async () => {
+    api.resolveNin.mockRejectedValueOnce(notVerified()).mockResolvedValueOnce(pending)
+    await openNew()
+    fill()
+    fireEvent.click(verifyButton())
+    await screen.findByText(NOT_VERIFIED)
+    expect(verifyButton().disabled).toBe(false)
+    fireEvent.click(verifyButton())
+    await waitFor(() => expect(api.resolveNin).toHaveBeenCalledTimes(2))
+    const [first, second] = api.resolveNin.mock.calls
+    expect(second?.[2]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(second?.[2]).not.toBe(first?.[2])
+  })
+
+  it('a name or date of birth that does not match (422 NIN_VERIFICATION_FAILED) keeps its old words', async () => {
+    api.resolveNin.mockRejectedValueOnce(new HidApiError(422, 'x', { code: 'NIN_VERIFICATION_FAILED',
+      detail: 'The name or date of birth does not match the NIN record. Check the spelling and the date of birth.' }))
+    await openNew()
+    fill()
+    fireEvent.click(verifyButton())
+    await screen.findByText(VERIFY_FAILED)
+    expect(document.body.textContent).not.toContain(NOT_VERIFIED)
+    expect(screen.getByLabelText(/^National Identity Number/).getAttribute('aria-invalid')).not.toBe('true')
   })
 })

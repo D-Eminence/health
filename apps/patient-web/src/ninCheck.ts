@@ -15,6 +15,8 @@ import { isHidApiError } from '@hid/http'
  *  - 409 NIN_CHECK_HELD with `retryAfterSeconds`: a check QoreID may have charged left no answer; the NIN is held.
  *  - 504 QOREID_TIMEOUT (or any 504, or this client's own wait ending): the check goes on and its answer is kept.
  *  - 400 NIN_DETAILS_INVALID (the desk): a name or date of birth that cannot be anyone's.
+ *  - 422 NIN_NOT_VERIFIED (owner Q117, all three): QoreID has no record of the NIN. The number is marked; the person
+ *    changes it, so the next check is a new request with a new key.
  *
  * A retry of the same details sends the same Idempotency-Key, so it picks up the check already made; each screen keeps
  * its key in memory only and makes a new one when the details change or the person starts over.
@@ -30,6 +32,8 @@ export const NIN_IN_PROGRESS = 'We’re still checking this NIN. Wait a moment, 
 export const NIN_TAKING_LONGER = 'The NIN check is taking longer than usual. Try again in a minute.'
 export const NIN_HELD_FEW_MINUTES = 'This NIN check is on hold. Try again in a few minutes.'
 export const NIN_DETAILS_CHECK = 'Those details don’t match the NIN record. Check the NIN, name and date of birth, then try again.'
+/** 422 NIN_NOT_VERIFIED: QoreID has no record of the NIN (owner Q117, the same sentence on all three screens). */
+export const NIN_NOT_VERIFIED_TEXT = 'This NIN could not be verified. Check the number and try again.'
 
 /** "This NIN check is on hold. Try again after 14:32." in the person's own time zone, rounded up to the minute. */
 export function ninHeldText(until: number, now = Date.now()): string {
@@ -39,7 +43,7 @@ export function ninHeldText(until: number, now = Date.now()): string {
   return `This NIN check is on hold. Try again after ${clock}${today ? '' : ' tomorrow'}.`
 }
 
-export type NinCheckOutcome = 'in_progress' | 'held' | 'taking_longer' | 'details'
+export type NinCheckOutcome = 'in_progress' | 'held' | 'taking_longer' | 'details' | 'not_verified'
 
 export interface NinCheckProblem {
   readonly outcome: NinCheckOutcome
@@ -68,6 +72,9 @@ export function ninCheckProblem(caught: unknown, now = Date.now()): NinCheckProb
   }
   if (caught.status === 400 && caught.code === 'NIN_DETAILS_INVALID') {
     return { outcome: 'details', text: NIN_DETAILS_CHECK, heldUntil: null }
+  }
+  if (caught.status === 422 && caught.code === 'NIN_NOT_VERIFIED') {
+    return { outcome: 'not_verified', text: NIN_NOT_VERIFIED_TEXT, heldUntil: null }
   }
   return null
 }

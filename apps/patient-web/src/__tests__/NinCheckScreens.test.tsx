@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { ProfilePage } from '../routes/Portal'
+import { PLAIN } from '@hid/http'
 import { NIN_DETAILS_CHECK, NIN_HELD_FEW_MINUTES, NIN_IN_PROGRESS, NIN_STILL_CHECKING, NIN_TAKING_LONGER } from '../ninCheck'
+import { NIN_STATES } from '../routes/NinVerificationCard'
 import { json, openSection, press, problem, renderPortal, shownText, type Handler } from './portalHarness'
 
 vi.mock('../Turnstile', () => ({
@@ -217,5 +219,86 @@ describe('Verify your NIN, on the profile', () => {
     await act(async () => { answer(json(verifiedAnswer)) })
     await screen.findByText('Your NIN is verified.')
     expect(screen.queryByText(NIN_STILL_CHECKING)).toBeNull()
+  })
+})
+
+// ---- A NIN QoreID has no record of (owner Q117; hid-system #279) ---------------------------------------------------
+
+/** The owner's sentence, written out here so a change to it is seen. */
+const NOT_VERIFIED = 'This NIN could not be verified. Check the number and try again.'
+const notVerified = () => refused(422, 'NIN_NOT_VERIFIED', 'This NIN could not be verified. Check the number and try again.')
+function expectNoNotVerifiedCode() {
+  expect(document.body.textContent).not.toMatch(/NIN_NOT_VERIFIED|corr-nin|\b422\b/)
+}
+
+describe('a NIN QoreID has no record of, on the sign-up’s NIN step', () => {
+  it('says the owner’s sentence, with no code, and marks the NIN field', async () => {
+    renderPortal(<Enrollment />, enrollmentGateway(() => notVerified()), anonymous)
+    await continueWith()
+    await waitFor(() => expect(shownText(document.getElementById('enroll-error')!)).toBe(NOT_VERIFIED))
+    expectNoNotVerifiedCode()
+    expect(screen.getByLabelText('National Identification Number (NIN)').getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('the next Continue is a new request, with a new key, and the button stays on', async () => {
+    let calls = 0
+    const { headers } = renderPortal(<Enrollment />, enrollmentGateway(() => (++calls === 1 ? notVerified() : json(holder))), anonymous)
+    await continueWith()
+    await screen.findByText(NOT_VERIFIED)
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(false)
+    await continueWith()
+    await screen.findByRole('heading', { name: 'Prove this NIN is yours' })
+    const keys = keysTo(headers, BASE)
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('another 422 is not said with the sentence', async () => {
+    renderPortal(<Enrollment />, enrollmentGateway(() => refused(422, 'NIN_VERIFICATION_FAILED', 'The NIN could not be verified.')), anonymous)
+    await continueWith()
+    await waitFor(() => expect(shownText(document.getElementById('enroll-error')!)).toBe('Check what you entered and try again.'))
+  })
+})
+
+describe('a NIN QoreID has no record of, on the profile’s Verify your NIN', () => {
+  it('says the owner’s sentence, with no code, and marks the NIN field', async () => {
+    renderPortal(<ProfilePage />, profileGateway(notVerified))
+    const section = await openSection('Verify your NIN')
+    await verify()
+    await waitFor(() => expect(within(section).getByText(NOT_VERIFIED)).toBeTruthy())
+    expectNoNotVerifiedCode()
+    expect(ninField().getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('the next Verify NIN is a new request, with a new key, and the button stays on', async () => {
+    let calls = 0
+    const { headers } = renderPortal(<ProfilePage />, profileGateway(() => (++calls === 1 ? notVerified() : json(verifiedAnswer))))
+    await openSection('Verify your NIN')
+    await verify()
+    await screen.findByText(NOT_VERIFIED)
+    const button = screen.getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    await press(button)
+    await screen.findByText('Your NIN is verified.')
+    const keys = keysTo(headers, VERIFY)
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it.each<[string, () => Response, string, boolean]>([
+    ['200 not_verified', () => json({ ...verifiedAnswer, state: 'not_verified' }), NIN_STATES.not_verified, true],
+    ['200 incomplete', () => json({ ...verifiedAnswer, state: 'incomplete' }), NIN_STATES.incomplete, false],
+    ['409 PATIENT_NIN_DETAILS_MISMATCH', () => refused(409, 'PATIENT_NIN_DETAILS_MISMATCH', 'refused'),
+      'This NIN doesn’t match your name and date of birth. Check them and try again.', false],
+    ['502 QOREID_PROVIDER_REJECTED', () => refused(502, 'QOREID_PROVIDER_REJECTED', 'refused'), PLAIN.unavailable, false],
+  ])('keeps its old words for %s', async (_name, answer, text, marked) => {
+    renderPortal(<ProfilePage />, profileGateway(answer))
+    const section = await openSection('Verify your NIN')
+    await verify()
+    await waitFor(() => expect(within(section).getByText(text)).toBeTruthy())
+    expect(document.body.textContent).not.toContain(NOT_VERIFIED)
+    expect(ninField().getAttribute('aria-invalid')).toBe(marked ? 'true' : null)
   })
 })

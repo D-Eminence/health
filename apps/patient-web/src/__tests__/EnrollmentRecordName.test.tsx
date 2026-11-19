@@ -202,7 +202,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     await press(button()!)
     await submitNin(UNKNOWN_NIN)
-    expect(await screen.findByText('We couldn’t verify that NIN. Check the number and try again.')).toBeTruthy()
+    expect(await screen.findByText('This NIN could not be verified. Check the number and try again.')).toBeTruthy()
     await submitNin()
     await screen.findByLabelText('Phone number')
     expect(verified()?.textContent).toContain(NAME)

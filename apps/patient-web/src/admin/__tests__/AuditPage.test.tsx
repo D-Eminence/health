@@ -19,11 +19,11 @@ describe('platform audit page', () => {
     mocks.audit.mockResolvedValueOnce({ items: [event('51', 'admin.account.disabled')], nextBeforeSequenceId: null })
 
     render(<MemoryRouter><AuditPage /></MemoryRouter>)
-    expect(await screen.findByText('corr-52')).toBeTruthy()
+    expect(await screen.findByRole('cell', { name: 'Support viewed the platform audit log' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
-    expect(await screen.findByText('corr-51')).toBeTruthy()
+    expect(await screen.findByRole('cell', { name: 'Support disabled an account' })).toBeTruthy()
     expect(mocks.audit).toHaveBeenLastCalledWith({}, '52')
-    expect(screen.getByText('corr-52')).toBeTruthy()
+    expect(screen.getByRole('cell', { name: 'Support viewed the platform audit log' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load older events' })).toBeNull()
   })
 
@@ -34,6 +34,6 @@ describe('platform audit page', () => {
     render(<MemoryRouter><AuditPage /></MemoryRouter>)
     expect(await screen.findByText('Audit events could not be loaded. Reference: corr-503')).toBeTruthy()
     fireEvent.click(screen.getAllByRole('button', { name: 'Refresh' }).at(-1)!)
-    await waitFor(() => expect(screen.getByText('corr-60')).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Health ID support activity' })).toBeTruthy())
   })
 })

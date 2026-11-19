@@ -5,7 +5,13 @@ import os
 import pathlib
 import subprocess
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from staging_release import ROOT, SUPPORT_CHAT_APPS, archive_files, chat_features, digest, tree_digest, validate_config
+
+
+# Sites built at once. Each build has its own output folder and log, and Vite names its temporary config bundle with a
+# timestamp and a random suffix, so concurrent builds share nothing they write. GitHub's standard runners have 4 CPUs.
+BUILD_WORKERS = 4
 
 
 def run(*args, env=None):
@@ -56,8 +62,9 @@ def main(environment='staging'):
     node_version = run('node', '--version')
     if int(node_version.lstrip('v').split('.')[0]) < 22:
         raise RuntimeError('Node 22 or newer required')
-    entries = []
-    for app, host in config['hosts'].items():
+    hosts = list(config['hosts'].items())
+
+    def build(app, host):
         env = app_environment(config, environment, app, host, source, os.environ)
         if app == 'public':
             assets = ROOT / 'apps/public-web/out'
@@ -75,10 +82,20 @@ def main(environment='staging'):
                 if path.is_file():
                     z.write(path, path.relative_to(assets).as_posix())
         files = archive_files(archive)
-        entries.append({'app': app, 'hostname': host, 'archive': archive.name,
-                        'sha256': digest(archive), 'size_bytes': archive.stat().st_size, 'files': files,
-                        'chat_features': chat_features(config, app)})
         print(json.dumps({'built': app, 'files': len(files), 'sha256': digest(archive)}), flush=True)
+        return {'app': app, 'hostname': host, 'archive': archive.name,
+                'sha256': digest(archive), 'size_bytes': archive.stat().st_size, 'files': files,
+                'chat_features': chat_features(config, app)}
+
+    # Built in parallel; the manifest lists the entries in the configuration's host order, whatever order they finish
+    # in. Any failed build fails the whole run once the others have stopped.
+    with ThreadPoolExecutor(max_workers=max(1, min(BUILD_WORKERS, len(hosts)))) as pool:
+        builds = [pool.submit(build, app, host) for app, host in hosts]
+        try:
+            entries = [b.result() for b in builds]
+        except BaseException:
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
     manifest = {'schema_version': 1, 'environment': environment, 'source_repository': 'D-Eminence/health' if environment == 'production' else 'D-Eminence/Health-id',
                 'source_commit': source, 'source_branch': run(*git, 'branch', '--show-current'),
                 'node_version': node_version, 'configuration_sha256': digest(config_path),

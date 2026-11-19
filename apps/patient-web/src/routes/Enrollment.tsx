@@ -28,7 +28,7 @@ import { HolderCodeStep } from './enrollment/HolderCodeStep'
 import { FacilityStep } from './enrollment/FacilityStep'
 import { AlreadyRegistered, RegistrationCompleted, RegistrationEnded } from './enrollment/Outcomes'
 import { PatientSignup } from './enrollment/Signup'
-import { NIN_STILL_CHECKING, ninCheckProblem, useNinHold, useStillChecking } from '../ninCheck'
+import { NIN_NOT_VERIFIED_TEXT, NIN_STILL_CHECKING, ninCheckProblem, useNinHold, useStillChecking } from '../ninCheck'
 import { signupEmailOf } from './enrollment/signupHandoff'
 
 /**
@@ -69,7 +69,8 @@ const ENROLLMENT_REFUSALS: Readonly<Record<string, string>> = {
   // 422 OTP_INVALID at the contact code (/contact/verify): wrong, expired, or its failure budget spent (SO-19).
   // The holder code's own OTP_INVALID is said before this (holderRefusal).
   OTP_INVALID: CONTACT_CODE_REFUSED,
-  NIN_NOT_VERIFIED: 'We couldn’t verify that NIN. Check the number and try again.',
+  // 422 NIN_NOT_VERIFIED (owner Q117): QoreID has no record of the NIN. Said by ninCheckProblem first; kept here too.
+  NIN_NOT_VERIFIED: NIN_NOT_VERIFIED_TEXT,
   CONTACT_ALREADY_REGISTERED: 'This email address or phone number is already used by a Health ID. Use another one, or sign in.',
   NIN_HOLDER_ROUTE_UNAVAILABLE: 'We can’t send a code to the phone on your NIN record. Register at a participating facility instead.',
   ASSISTED_REGISTRATION_UNAVAILABLE: 'Registration at a facility isn’t available right now.',
@@ -711,9 +712,10 @@ export function Enrollment() {
       } else if (refusedWith(reason, 409, 'IDEMPOTENCY_KEY_REUSED')) showCompleted()
       else if (ninCheckProblem(reason)) {
         // The NIN check's own answers (ninCheck.ts). The key kept for this NIN makes Continue again pick up the check
-        // already made; details refused are changed first, so the next start is a new request.
+        // already made; details refused, or a NIN QoreID has no record of, are changed first, so the next start is a
+        // new request.
         const problem = ninCheckProblem(reason)!
-        const aboutDetails = problem.outcome === 'details'
+        const aboutDetails = problem.outcome === 'details' || problem.outcome === 'not_verified'
         setError(problem.text); setFieldError(aboutDetails); setErrorAlert(!aboutDetails || fromField)
         if (problem.outcome === 'held') ninHold.hold(problem.heldUntil)
         if (aboutDetails) startKeys.current.delete(nin)

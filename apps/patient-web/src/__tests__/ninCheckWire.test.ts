@@ -4,7 +4,8 @@ import { createApiClient, HidApiError } from '@hid/http'
 import { createPatientApi } from '../api'
 import { registrationErrorText } from '../staff/registrationFlow'
 import {
-  NIN_CHECK_TIMEOUT_MS, NIN_DETAILS_CHECK, NIN_HELD_FEW_MINUTES, NIN_IN_PROGRESS, NIN_TAKING_LONGER, ninCheckProblem, ninHeldText,
+  NIN_CHECK_TIMEOUT_MS, NIN_DETAILS_CHECK, NIN_HELD_FEW_MINUTES, NIN_IN_PROGRESS, NIN_NOT_VERIFIED_TEXT, NIN_TAKING_LONGER, ninCheckProblem,
+  ninHeldText,
 } from '../ninCheck'
 
 vi.mock('../staff/env', () => ({ getEnvironment: () => ({ name: 'test', apiBaseUrl: 'https://gateway.example.test' }) }))
@@ -135,6 +136,8 @@ describe('Identity’s answers for a NIN check it could not finish, in plain wor
     [new HidApiError(0, 'x', { code: 'REQUEST_TIMEOUT' }), 'taking_longer', NIN_TAKING_LONGER],
     [new HidApiError(400, 'x', { code: 'NIN_DETAILS_INVALID' }), 'details', NIN_DETAILS_CHECK],
     [new HidApiError(409, 'x', { code: 'NIN_CHECK_HELD' }), 'held', NIN_HELD_FEW_MINUTES],
+    // Owner Q117: a NIN QoreID has no record of, on sign-up, the profile and the desk.
+    [new HidApiError(422, 'x', { code: 'NIN_NOT_VERIFIED' }), 'not_verified', 'This NIN could not be verified. Check the number and try again.'],
   ])('%s', (caught, outcome, text) => {
     expect(ninCheckProblem(caught, NOW)).toMatchObject({ outcome, text })
   })
@@ -151,7 +154,11 @@ describe('Identity’s answers for a NIN check it could not finish, in plain wor
   it('leaves every other refusal to the screen, and no text has a code, a status or a dash', () => {
     expect(ninCheckProblem(new HidApiError(409, 'x', { code: 'NIN_ALREADY_REGISTERED' }), NOW)).toBeNull()
     expect(ninCheckProblem(new Error('x'), NOW)).toBeNull()
-    for (const text of [NIN_IN_PROGRESS, NIN_TAKING_LONGER, NIN_HELD_FEW_MINUTES, NIN_DETAILS_CHECK, ninHeldText(NOW, NOW)]) {
+    // Only that exact code: the desk's "does not match", and the same code at another status, are left to the screen.
+    expect(ninCheckProblem(new HidApiError(422, 'x', { code: 'NIN_VERIFICATION_FAILED' }), NOW)).toBeNull()
+    expect(ninCheckProblem(new HidApiError(400, 'x', { code: 'NIN_NOT_VERIFIED' }), NOW)).toBeNull()
+    expect(ninCheckProblem(new HidApiError(502, 'x', { code: 'QOREID_PROVIDER_REJECTED' }), NOW)).toBeNull()
+    for (const text of [NIN_IN_PROGRESS, NIN_TAKING_LONGER, NIN_HELD_FEW_MINUTES, NIN_DETAILS_CHECK, NIN_NOT_VERIFIED_TEXT, ninHeldText(NOW, NOW)]) {
       expect(text).not.toMatch(/[A-Z]{2,}_[A-Z]+|\b\d{3}\b|[\u2013\u2014]|unverified/)
     }
   })
@@ -161,7 +168,13 @@ describe('the other desk screens that check a NIN (today’s Registration page, 
   it.each([
     ['NIN_CHECK_IN_PROGRESS', 409, NIN_IN_PROGRESS], ['NIN_CHECK_HELD', 409, NIN_HELD_FEW_MINUTES],
     ['QOREID_TIMEOUT', 504, NIN_TAKING_LONGER], ['NIN_DETAILS_INVALID', 400, NIN_DETAILS_CHECK],
+    ['NIN_NOT_VERIFIED', 422, NIN_NOT_VERIFIED_TEXT],
   ])('say %s in the same plain words', (code, status, text) => {
     expect(registrationErrorText(new HidApiError(status, 'x', { code }), 'NIN verification could not be completed.')).toBe(text)
+  })
+
+  it('keep their own words for a name or date of birth that does not match (422 NIN_VERIFICATION_FAILED)', () => {
+    expect(registrationErrorText(new HidApiError(422, 'x', { code: 'NIN_VERIFICATION_FAILED' }), 'NIN verification could not be completed.'))
+      .toBe('NIN verification could not be completed.')
   })
 })
