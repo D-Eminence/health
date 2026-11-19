@@ -41,7 +41,7 @@ afterEach(() => { vi.unstubAllEnvs() })
 describe('audit filters on Novu', () => {
   it('shows a facility only the activity in its scope, read by facility', async () => {
     open(`/admin/facilities/${FACILITY_ID}`, '/admin/facilities/:facilityId', <FacilityDetailPage actor={actor} />)
-    expect(await screen.findByText('staff:nurse')).toBeTruthy()
+    expect(await screen.findByText('Opened a patient\'s visit')).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Activity inside this facility' })).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Platform changes to this facility' })).toBeNull()
     expect(mocks.audit).toHaveBeenCalledWith({ facilityId: FACILITY_ID }, undefined, expect.anything())
@@ -50,20 +50,18 @@ describe('audit filters on Novu', () => {
 
   it('opens an old target link without sending the target, and offers no target fields', async () => {
     open(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}&outcome=denied`, '/admin/audit', <AuditPage />)
-    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(await screen.findByText('Opened a patient\'s visit')).toBeTruthy()
     expect(mocks.audit).toHaveBeenCalledWith({ outcome: 'denied' }, undefined, expect.anything())
     expect(sentTargets()).toEqual([])
-    expect(screen.queryByLabelText('Item type')).toBeNull()
-    expect(screen.queryByLabelText('Item ID')).toBeNull()
+    expect(screen.queryByText('Showing changes to one facility.')).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('keeps the target filter on the main backend', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     open(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`, '/admin/audit', <AuditPage />)
-    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(await screen.findByText('Opened a patient\'s visit')).toBeTruthy()
     expect(mocks.audit).toHaveBeenCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID }, undefined, expect.anything())
-    expect(screen.getByLabelText('Item type')).toBeTruthy()
-    expect(screen.getByLabelText('Item ID')).toBeTruthy()
+    expect(screen.getByText('Showing changes to one facility.')).toBeTruthy()
   })
 })
