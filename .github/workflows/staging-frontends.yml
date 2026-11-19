@@ -1,10 +1,12 @@
 name: Staging frontend artifacts
 
+# Staging artifacts are published by hand (docs/STAGING_DEPLOYMENT.md), so they are built only on request or for a
+# staging-frontend-* branch. Pull requests and main are checked by ci.yml and built by production-frontends.yml.
+# Root documentation only is ignored (never **/*.md: some tests import Markdown that sits next to the code).
 on:
   push:
-    branches: [main, 'staging-frontend-*']
-  pull_request:
-    branches: [main]
+    branches: ['staging-frontend-*']
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md']
   workflow_dispatch:
 
 permissions:
@@ -12,7 +14,7 @@ permissions:
 
 concurrency:
   group: staging-frontends-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

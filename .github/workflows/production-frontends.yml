@@ -1,9 +1,14 @@
 name: Production frontend candidates
+# Root documentation only (never **/*.md: some tests import Markdown that sits next to the code). On pull requests a
+# change to the backend pin alone is also ignored: no build step reads that file, and ci.yml checks it. GitHub still
+# runs the workflow when any changed path is outside the list. Push to main always builds the pin.
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md', 'config/production-release-dependencies.json']
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +16,8 @@ env:
   PRODUCTION_APPROVAL_MODE: ${{ vars.PRODUCTION_APPROVAL_MODE || 'protected' }}
 concurrency:
   group: production-frontend-build-${{ github.ref }}
-  cancel-in-progress: false
+  # Only a newer commit on the same pull request cancels a run; release runs on main are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -31,7 +37,13 @@ jobs:
       - name: Validate production source and host boundaries
         run: |
           npm run audit:boundaries
-          npm run check
+          # Typecheck, lint and vitest gate every release (push and dispatch). On a pull request ci.yml runs them on
+          # this same merge commit, and a pull request run never deploys.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "Pull request: npm run check runs in ci.yml for this merge commit"
+          else
+            npm run check
+          fi
           npm run test:edge
           npm run test:release
           npm run test:production-release
