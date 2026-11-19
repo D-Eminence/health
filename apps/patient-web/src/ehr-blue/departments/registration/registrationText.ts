@@ -101,6 +101,8 @@ export const VERIFYING = 'Verifying…'
 export const NIN_REFUSED = 'Enter the 11 digit NIN.'
 export const NAME_DATE_REFUSED = 'Enter the patient’s name and date of birth.'
 export const VERIFY_FAILED = 'NIN verification could not be completed.'
+/** A name or date of birth Identity refused before checking (400 NIN_DETAILS_INVALID), marked at each such field. */
+export const NIN_DETAILS_FIELD = 'Check this against the NIN record.'
 export const CASE_CREATED = 'The NIN was checked and the registration was started. Review it before continuing.'
 export const CASE_CREATED_RELOAD = 'The registration was started, but it could not be shown. Choose Load case to open it.'
 

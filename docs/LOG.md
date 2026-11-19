@@ -3151,3 +3151,57 @@ Branch `claude/ehr-frame-parity`, after merging main. Each item was checked agai
 - **Page not found (#21).** Main already shows "Page not found / We can’t find that page." with one way back (Home, or a product's own first page), without the address (`ehr-blue/frame/NotFoundPage.tsx`; `EhrBlueFrame.test.tsx`). Nothing more needed.
 - **Not done here:** "Use the classic EHR" (2.3, owner decision), and the status labels in What's left (#21's other half).
 - **Gates:** typecheck, lint, boundaries, the full vitest (9859 tests; the one stale file above failed and passes after its update, rerun alone), the patient-web build and the launch-build check.
+
+## 2026-11-17: Prescribe form: strength, form, how long for, quantity and priority (hid-system 0125)
+
+Ola's prescription details, on the prescribe form of the blue EHR. Tests first
+(`prescribe-dispensing-details.test.tsx`).
+
+- **Shown only when the EHR takes them.** The form reads this consultation's prescriptions list once; only an answer
+  with `dispensingDetails: true` adds Strength, Form, How long for (with Days, weeks or months), Quantity to dispense
+  (with Quantity unit) and Priority, before Instructions. Without the flag, or if the list cannot be read, the form and
+  its request body are today's, key for key.
+  The form now reads the prescriptions list once when it opens, for every prescriber, to learn whether the details are taken.
+- **Checked as the EHR checks them** (hid-system #255, `CreatePrescriptionWithDetailsDto`): a whole number of 1 to 3650
+  with its unit, a quantity above 0 with up to 4 decimal places (at most 99999999.9999) with its unit, 80 characters
+  for the strength and the quantity unit. Each pair goes together. Only the details given are sent, under the EHR's
+  names (`strength`, `doseForm`, `durationValue`, `durationUnit`, `quantityToDispense`, `quantityUnit`, `priority`).
+- **Refusals in plain words.** A refused detail is marked at its field; an incomplete pair says which; if the EHR has
+  stopped taking the details since the list was read, the form says so, takes them off, and the next save sends
+  today's body.
+- **A saved prescription's page** shows each detail the EHR answered (for example "7 days", "21 capsules"), and none
+  for a prescription without them. Stat reads "Stat", as everywhere else in the app.
+- **Priority's hint** says only what is true: the pharmacy sees it on the prescription, it does not alert them, so
+  phone if it cannot wait (the pharmacy work list is not sorted by priority).
+- **Not verified live.** Component tests only; the backend (0125) is not released yet and its setting is off.
+
+## 2026-11-18: NIN checks wait for QoreID, say plainly why they could not finish
+
+Branch `claude/nin-check-waits`, hid-system #258 hand-over of 18 Nov, item 2. The sign-up's NIN start
+(`POST /identity/patient-enrollments`), the profile's Verify your NIN (`POST /identity/me/verification/nin`) and the
+desk's NIN check (`POST /identity/nin/resolve`) ask QoreID, which Identity waits for up to its QoreID timeout (12 s from
+hid-system #271; 15 s, at most 20 s, on the 0137 "One QoreID check per NIN" branch, where a second request for the same
+NIN waits that long plus 3 s). The gateway gives up at 30 s.
+
+- **Waits.** These three requests wait 30 s (`NIN_CHECK_TIMEOUT_MS`, `ninCheck.ts`); every other request keeps the
+  client's 15 s. After 4 s without an answer each screen says "Still checking the NIN. This can take up to a minute."
+  in a status line.
+- **Plain words, no codes.** 409 `NIN_CHECK_IN_PROGRESS`: "We’re still checking this NIN. Wait a moment, then try
+  again." 409 `NIN_CHECK_HELD`: "This NIN check is on hold. Try again after 14:32." (from `retryAfterSeconds`, in the
+  person's time zone, rounded up to the minute; "tomorrow" past midnight; "Try again in a few minutes." without it), and
+  the button stays off until then. 504 `QOREID_TIMEOUT`, any other 504 and this client's own wait ending: "The NIN check
+  is taking longer than usual. Try again in a minute." 400 `NIN_DETAILS_INVALID`: "Those details don’t match the NIN
+  record. Check the NIN, name and date of birth, then try again.", with the desk's name and date of birth fields marked
+  ("Check this against the NIN record.") and the profile's NIN field. Today's Registration page and a walk-in's New
+  Health ID say the same words (`staff/registrationFlow.ts`).
+- **Idempotency-Key.** A retry of the same details sends the same key, so it picks up the check already made: the
+  sign-up keeps one key per NIN (as before), the desk renews its key on any change to the form (as before), and the
+  profile now sends one per NIN and date of birth (Identity's route does not read it yet; 0137 already asks QoreID once
+  per NIN). Details refused with `NIN_DETAILS_INVALID` get a new key next time. Keys stay in memory only.
+- **`@hid/http`.** A problem's `retryAfterSeconds` member is kept as `HidApiError.retryInSeconds` (whole seconds, 0 to 7
+  days); the retry loop's `Retry-After` header handling is unchanged.
+- **Tests:** `ninCheckWire.test.ts` (fake timers: not given up at 15 s, given up at 30 s, other calls keep 15 s; the
+  answers in words), `NinCheckScreens.test.tsx` (sign-up and profile), `RegistrationNinCheck.test.tsx` (desk),
+  `problem-fields.test.ts`. Fictional data only (Patient One, NIN 12345678901).
+- **Not on staging yet:** `NIN_CHECK_IN_PROGRESS`, `NIN_CHECK_HELD` and the 0137 store are on the 0137 branch; the desk
+  QoreID check (`NIN_DETAILS_INVALID`) is on the desk-qoreid branch. The screens say today's words until they land.

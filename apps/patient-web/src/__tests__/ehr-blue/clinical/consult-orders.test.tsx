@@ -1737,7 +1737,10 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     expect(screen.getByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledTimes(1)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
-    expect(api.records).not.toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+    // The only cached read is the prescribe form's own, before the save (it learns whether the EHR takes the dispensing
+    // details, hid-system 0125); the saved order's page reads afresh.
+    const cached = api.records.mock.calls.flatMap((call, index) => call.length === 4 && call[3] === 'prescriptions' ? [api.records.mock.invocationCallOrder[index]!] : [])
+    expect(cached.every(order => order < api.createRecord.mock.invocationCallOrder[0]!)).toBe(true)
   })
 
   it('blocker: a saved prescription says it was saved when its page does not find it', async () => {
