@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44459404751-1-8ac5b00921f843ed (hid-system #278 merge a9196203, deployed and verified 2026-11-19 about 05:05 UTC): identity-api answers 404 PATIENT_NOT_FOUND \"No patient has this Health ID.\" (Q100 B) and ehr-api drops the typed reason for first steps (Q105); no migration, no new setting. lab-api, pharmacy-api and ocr-api stay at afec3f75 (hid-system #269); gateway, outreach-api, support-api and notification-api at 498e2f82 (hid-system #268). Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-44530446892-1-98af5a70edb3a715 (hid-system #281 merge 964fabdf, deployed and verified 2026-11-19 about 13:45 UTC). #281 rebuilt every service: Node 22.23.5 and gateway nginx 1.30.7 (security advisories); no migration, no browser-facing change. Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "498e2f822c711a1dd67175cc99a019d81c15bce3",
-    "identity-api": "a919620386196429eeff0f587c7731a515c5d2ec",
-    "ehr-api": "a919620386196429eeff0f587c7731a515c5d2ec",
-    "lab-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
-    "pharmacy-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
-    "ocr-api": "afec3f75d6a9f649e62025236766a38bc11cdc44",
-    "outreach-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
-    "support-api": "498e2f822c711a1dd67175cc99a019d81c15bce3",
-    "notification-api": "498e2f822c711a1dd67175cc99a019d81c15bce3"
+    "gateway": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "identity-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "ehr-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "lab-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "pharmacy-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "ocr-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "outreach-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "support-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c",
+    "notification-api": "964fabdf2c8ff6c30044f553aa41663ac2ad0a1c"
   }
 }
