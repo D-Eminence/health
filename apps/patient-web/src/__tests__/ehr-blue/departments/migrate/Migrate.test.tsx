@@ -962,10 +962,11 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     expect(first!.getAttribute('aria-invalid')).toBe('true')
     expect(descriptions(first!)).toEqual(['Choose Keep, Change or Remove for this item.'])
     await press(within(first!).getByRole('button', { name: 'Keep' }))
-    // A change clears what was said, as it clears the field's error.
-    expect(notSaved()).toBeNull()
-    await press(within(second!).getByRole('button', { name: 'Remove' }))
+    // A change clears that field's error, but everything said over Save stays until the next Save: the rest still needs fixing.
     expect(first!.getAttribute('aria-invalid')).toBeNull()
+    expect(notSavedLines()).toEqual(['2 items still need Keep, Change or Remove.', 'The reason must be at least 8 characters.'])
+    await press(within(second!).getByRole('button', { name: 'Remove' }))
+    expect(notSaved()).not.toBeNull()
     await press(submit)
     await waitFor(() => expect(focused()).toBe(notSaved()))
     expect(notSavedLines()).toEqual(['The reason must be at least 8 characters.'])

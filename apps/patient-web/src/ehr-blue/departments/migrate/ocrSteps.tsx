@@ -277,7 +277,8 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
-  // A blocked Save: every thing still to fix, shown over Save while the first is marked at its field.
+  // A blocked Save: every thing still to fix, shown over Save while the first is marked at its field. It stays until the
+  // next Save (or another reading is chosen), so fixing one thing does not hide the rest.
   const [notSaved, setNotSaved] = useState<readonly string[]>([])
   const focus = useFocusById()
   const validating = disposition === 'validated'
@@ -294,7 +295,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     const next = extractions.find(item => item.id === id)
     setExtractionId(id)
     setDecisions(initialDecisions(reviewItems(readingOf(next))))
-    setProblem(null)
+    setProblem(null); setNotSaved([])
     seen.forget(); setMissed(''); setRejectionReason('')
   }
 
@@ -334,7 +335,7 @@ export function ReviewForm({ facilityId, job, extractions, disposition, permissi
     <EhrTextarea name="reason" minLength={8} maxLength={500} required />
   </EhrField>
   const actions = <>
-    {problem && notSaved.length > 0 && <NotSavedSummary lines={notSaved} />}
+    {notSaved.length > 0 && <NotSavedSummary lines={notSaved} />}
     <FormRefusal error={error} />
     <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-review-submit" type="submit" busy={busy}>{busy ? 'Saving…' : validating ? 'Save' : 'Reject reading'}</EhrButton></div>
   </>

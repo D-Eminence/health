@@ -467,7 +467,8 @@ describe('what must be fixed before anything is sent', () => {
     expect(buildValidation(all)).toEqual({ problem: { field, message } })
     // What turns on the items kept waits until each has its choice: every item removed is said only then.
     const removeAll = Object.fromEntries(items.map(item => [item.id, { choice: 'remove' as const, text: readingLine(item) }]))
-    expect(validationProblems(choices('EHR', { decisions: removeAll })).map(problem => problem.field)).toEqual(['ocr-review-domain', 'ocr-review-visit'])
+    // Once Save as must change, no visit is asked for as well: the two would say opposite things.
+    expect(validationProblems(choices('EHR', { decisions: removeAll })).map(problem => problem.field)).toEqual(['ocr-review-domain'])
     expect(validationProblems(choices('EHR', { decisions: { ...removeAll, [METFORMIN]: { choice: null, text: '' } } })).map(problem => problem.field))
       .toEqual([itemCardId(0), 'ocr-review-visit'])
     expect(validationProblems(choices('DOCUMENT_ONLY'))).toEqual([])

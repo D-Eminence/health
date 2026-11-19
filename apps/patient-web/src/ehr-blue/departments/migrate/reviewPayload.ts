@@ -489,10 +489,12 @@ function checkValidation(choices: ReviewChoices): { readonly input: ReviewInput 
   const domainProblem = (message: string) => { add({ field: 'ocr-review-domain', message }) }
   if (saveAs === 'EHR') {
     const nothingKept = itemsPassed && kept.length === 0
-    if (nothingKept) domainProblem('Every item was removed, so there is nothing to put in a clinical note. Choose Keep the document only.')
-    if (!choices.encounterId) add({ field: 'ocr-review-visit', message: 'Choose the visit to attach this note to.' })
     const content = noteContent(kept, reading?.items ?? [])
-    if (itemsPassed && !nothingKept && content.length > 100_000) domainProblem('This is too long for one clinical note. Choose Keep the document only.')
+    const tooLong = itemsPassed && !nothingKept && content.length > 100_000
+    if (nothingKept) domainProblem('Every item was removed, so there is nothing to put in a clinical note. Choose Keep the document only.')
+    if (tooLong) domainProblem('This is too long for one clinical note. Choose Keep the document only.')
+    // A visit is asked for only while a clinical note can still be saved: once Save as must change, it would say the opposite.
+    if (!nothingKept && !tooLong && !choices.encounterId) add({ field: 'ocr-review-visit', message: 'Choose the visit to attach this note to.' })
     domainFields = { encounterId: choices.encounterId, noteType: NOTE_TYPE, title: NOTE_TITLE, content }
   } else if (saveAs === 'LAB') {
     const results = kept.filter(entry => entry.item.kind === 'lab_result')
