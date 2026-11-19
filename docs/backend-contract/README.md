@@ -15,7 +15,7 @@ These files are copies of parts of the backend contract, for frontend developers
 
 | File | What it holds |
 | --- | --- |
-| [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md) | The live contract sections the EHR screens use today, copied from `docs/INTERFACE_CONTRACT.md`, and the numbered live sections the planned contract cites for what the EHR, laboratory and pharmacy screens call or show (sections 8, 9, 13, 21-24, 43, 44, 46 and 54). It starts with a table that shows where each section reference in the EHR message (for example [FR-1, Q105] or [Wave 0]), and each of those cited sections, points. It describes what is live today; a few lines marked **Planned** are not built yet. |
+| [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md) | The live contract sections the EHR screens use today, copied from `docs/INTERFACE_CONTRACT.md`, and the numbered live sections the planned contract cites for what the EHR, laboratory and pharmacy screens call or show (sections 8, 9, 13, 21-24, 29, 43, 44, 46 and 54). It starts with a table that shows where each section reference in the EHR message (for example [FR-1, Q105] or [Wave 0]), and each of those cited sections, points. It describes what is live today; a few lines marked **Planned** are not built yet. |
 | [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md) | The planned contract for the rest of the EHR list (Release B, Release C and later), copied from `docs/EHR_PLANNED_CONTRACT.md`. Nothing in it is live yet. Each section gives the request and answer shapes to build against, and what to show until it ships. |
 | [codes/hid-lab-codes.json](codes/hid-lab-codes.json) | An exact copy of `docs/codes/hid-lab-codes.json`: the HID-LAB codes for the 13 lab tests with no LOINC code. |
 

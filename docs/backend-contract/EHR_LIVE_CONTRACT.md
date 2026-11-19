@@ -4,10 +4,10 @@
 
 This is a reviewed copy of the live contract sections the EHR screens use, for frontend developers who cannot open the backend repository. The backend repository is the source of truth; see [README.md](README.md).
 
-- Only the sections below are copied: the ones named in the EHR message, plus section 53, which SX-5 cites, and the live sections that [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md) cites for behaviour the EHR, laboratory and pharmacy screens call or show (sections 8, 9, 13, 21-24, 43, 44, 46 and 54). They keep their original headings and their order in the source file.
+- Only the sections below are copied: the ones named in the EHR message, plus section 53, which SX-5 cites, and the live sections that [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md) cites for behaviour the EHR, laboratory and pharmacy screens call or show (sections 8, 9, 13, 21-24, 29, 43, 44, 46 and 54). They keep their original headings and their order in the source file.
 - Section text is copied exactly. Where the source held backend detail that is not shared outside the backend team, the text reads "[backend detail omitted]".
 - Some paragraphs and subsections are omitted whole and read only "[backend detail omitted]", so a "below" or "above" in the kept text can point at an omitted part. Ask the coordinator if you need to know what it says. Section 8 is also copied without the subsections that serve only the patient portal ("Patient enrollment activation signs the patient in", "Patient emails", "Patient sign-up without NIN") or only the Outreach site ("Outreach registration boundary"); those are left out without a marker, and so is one table row in section 54 (the identity provider's own back-channel logout route, which the browser never calls).
-- Other sections of the source are not copied here, for example "Current browser and notification boundary" (patient portal and notifications), section 19 (the platform administration console), sections 40, 48 and 49 (the Outreach site) and section 52 (the sealed QA tenant). The planned contract also names a section 56 and a section 0136; neither is in the live contract at the source commit. Labels such as ID-2, ID-4, EHR-C7 or 0132 are Release A sections, which reach the live contract once signed. Labels such as EHR-C6, EHR-C8b, SX-6 or SX-7 are in [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md). For anything not here, ask the coordinator.
+- Other sections of the source are not copied here, for example "Current browser and notification boundary" (patient portal and notifications; the planned contract cites its subsection "Patient sessions and self service" only for the line it quotes, "Staff and platform sessions keep 8 hours"), section 19 (the platform administration console), sections 40, 48 and 49 (the Outreach site) and section 52 (the sealed QA tenant). The planned contract also names a section 56 and a section 0136; neither is in the live contract at the source commit. Labels such as ID-2, ID-4, EHR-C7 or 0132 are Release A sections, which reach the live contract once signed. Labels such as EHR-C6, EHR-C8b, SX-6 or SX-7 are in [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md). For anything not here, ask the coordinator.
 - File paths such as `services/...` or `docs/codes/hid-lab-codes.json` are paths in the backend repository. The HID-LAB code list is copied in this folder as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
 
 ## Where each reference in the EHR message points
@@ -30,8 +30,10 @@ This is a reviewed copy of the live contract sections the EHR screens use, for f
 | (cited by SX-5) section 53 | [53. Each staff product is its own site; the staff reset email (owner decision of 17 November 2026, Q88, Q89 and Q97)](#53-each-staff-product-is-its-own-site-the-staff-reset-email-owner-decision-of-17-november-2026-q88-q89-and-q97) |
 | (cited by the planned contract) section 8 | [8. Identity Resolution](#8-identity-resolution) |
 | (cited by the planned contract) section 9 | [9. Patient Identifier Contract](#9-patient-identifier-contract) |
+| (cited by the planned contract as "section 9 near line 879") the `BN`/`IT` CAC prefixes | [QoreID self and organization verification](#qoreid-self-and-organization-verification), in section 8 (the planned contract's "section 9" here means this paragraph of section 8) |
 | (cited by the planned contract) section 13 | [13. Pharmacy](#13-pharmacy) |
 | (cited by the planned contract) sections 21-24 | [21. Orders between facilities: an order accepted for the wrong person](#21-orders-between-facilities-an-order-accepted-for-the-wrong-person)<br>[22. Orders between facilities: whether a facility receives, when support's Close acts, and what a facility is as a destination](#22-orders-between-facilities-whether-a-facility-receives-when-supports-close-acts-and-what-a-facility-is-as-a-destination)<br>[23. Orders between facilities: correcting an order accepted for the wrong person after it ended](#23-orders-between-facilities-correcting-an-order-accepted-for-the-wrong-person-after-it-ended)<br>[24. Orders between facilities: an order the laboratory or pharmacy accepted but can't complete](#24-orders-between-facilities-an-order-the-laboratory-or-pharmacy-accepted-but-cant-complete) |
+| (cited by the planned contract) 0101 / section 29 | [29. Pharmacy dispensing checks its EHR prescription (0101)](#29-pharmacy-dispensing-checks-its-ehr-prescription-0101) |
 | (cited by the planned contract) section 43 (43.1 to 43.5) | [43. Sign-up, setup wizard and registration desk fields (0114)](#43-sign-up-setup-wizard-and-registration-desk-fields-0114) |
 | (cited by the planned contract) section 44 | [44. Allergies and the allergy check at prescribing (0117)](#44-allergies-and-the-allergy-check-at-prescribing-0117) |
 | (cited by the planned contract) section 46 | [46. Prescription strength, form, duration, quantity and priority for the pharmacy (0125)](#46-prescription-strength-form-duration-quantity-and-priority-for-the-pharmacy-0125) |
@@ -287,9 +289,7 @@ oldest first; `recent` the last 90 days, newest first; `facilityId` the
 reporting (receiving) facility, 404 `ADMIN_FACILITY_NOT_FOUND` when unknown.
 Each item carries the report, both facilities, who reported and who accepted
 (names, `sameMember`, `acceptedWith`), the reason and note, what was
-withdrawn, who recorded the work, `flags` (`something_came_back`,
-`reporter_recorded_work`, `suspected_misuse`, `other_reason_nothing_recorded`),
-the 30-day counts per facility and per accepting member, and `review`. It
+withdrawn, who recorded the work, [backend detail omitted], and `review`. It
 carries no patient and no order content. The admin Overview tile counts the
 `unreviewed` list. The review takes `{ actions, note, removeNote? }`: one or
 more of `ordering_facility_told`, `facility_contacted`,
@@ -573,25 +573,13 @@ present and of the right type.
   `lateCorrection: true`.
 - Identity, support's reports list (`GET /api/v1/admin/wrong-patient-reports`):
   each item gains `late`, `endedKindBefore`, `discoveredBy`, `discoveredOn`
-  (`YYYY-MM-DD`), `reporterLateReportsLast30Days`, `orderingSenderActive` and
-  `requiredActions` (what the review requires: `referred_to_dpo`, then
-  `ordering_facility_told`); `flags` may also hold `late_correction`,
-  `patient_prompted` and `patient_reported_before`; the answer adds
+  (`YYYY-MM-DD`), [backend detail omitted]; the answer adds
   `lateCorrection: true`.
 - Identity, the review (`POST /api/v1/admin/wrong-patient-reports/:reportId/review`):
-  a late report where something had gone back, or a "suspected misuse" one,
-  cannot be marked reviewed without `referred_to_dpo`; where something had
-  gone back and the ordering facility is still on Health ID, also without
-  `ordering_facility_told`. Refused 400
-  `WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED`, problem member `required` (the
-  missing actions, comma-separated, `referred_to_dpo` first). Every other
+  [backend detail omitted] Every other
   refusal is unchanged.
 
-```json
-{ "type": "https://healthidentitydirectory.com/problems/wrong-patient-review-referral-required",
-  "title": "BAD_REQUEST", "status": 400, "detail": "…", "instance": "urn:hid:request:…", "correlationId": "…",
-  "code": "WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED", "required": "referred_to_dpo,ordering_facility_told" }
-```
+[backend detail omitted]
 
 `lateCorrection: true` on any of these answers, a `correctableUntil` key on
 any route, or any answer from the lookup tells the website that this backend
@@ -731,19 +719,7 @@ the right type.
   (`GET /api/v1/admin/facilities/:facilityId/order-route-summary`): the answer
   adds, after its earlier keys, `notCompleted` and `cannotComplete: true`,
   [backend detail omitted] and both left out on
-  any failure (D18-11; counted at the receiving facility over the last 30
-  days):
-
-  ```json
-  { "notCompleted": { "last30Days": 4, "soonAfterAcceptance": 1, "afterSevenDays": 1, "laterReportedWrongPatient": 1,
-      "byReason": { "supplies_unavailable": 2, "other": 1, "out_of_stock": 1 } },
-    "cannotComplete": true }
-  ```
-
-  `soonAfterAcceptance` counts endings within 60 minutes of acceptance with no
-  accession, `afterSevenDays` those 7 days or more after acceptance,
-  `laterReportedWrongPatient` those whose order then got a wrong-patient
-  report; `byReason` holds only the reasons that occur. Counts only. There is
+  any failure (D18-11; [backend detail omitted]). Counts only. There is
   no list across facilities.
 - Identity, support's lookup (`GET /api/v1/admin/order-routes`,
   `POST /api/v1/admin/order-routes/search`): the answer adds
@@ -751,15 +727,36 @@ the right type.
   (`cancelled`, `receiving_unable`, `closable: false`, §23's `correction`).
 - Identity, support's reports list (`GET /api/v1/admin/wrong-patient-reports`):
   unchanged. A report made after such an ending is a late report (D18-12):
-  `late: true`, `endedKindBefore: 'receiving_unable'`, the flag
-  `late_correction`, so it is listed among the flagged reports, first; it is
-  reviewed like any late report where nothing came back (no DPO referral is
-  required unless it is a "suspected misuse" one).
+  `late: true`, `endedKindBefore: 'receiving_unable'`, [backend detail omitted]
 
 `cannotComplete: true` on any of these answers tells the website that this
 backend serves the ending (D18-13: the website ships first and stays
 dormant). An earlier backend sends none of these fields, and its Lab and
 Pharmacy answer the new route 404.
+
+## 29. Pharmacy dispensing checks its EHR prescription (0101)
+
+Migration 0101 ([backend detail omitted], the review of
+0100 under the same owner decision of 2026-11-01, "Fix it now"; main 0080's
+dispensing half; unsigned until the owner signs the declaration) makes the
+database refuse to dispense a same-facility Pharmacy work item once its EHR
+prescription is no longer what Pharmacy accepted. [backend detail omitted]
+
+`POST .../pharmacy/work-items/:id/dispensings` answers that message 409
+`PHARMACY_PRESCRIPTION_NOT_DISPENSABLE` ("This prescription can no longer be
+dispensed here"), the code it already answers for a route-backed work item
+whose prescription changed; the website already handles it (it marks the work
+"Not dispensable"). [backend detail omitted]
+
+Owner decision this carries (as on `main`): once its prescription has changed
+or stopped, a same-facility work item can be neither dispensed nor accepted
+again (one work item per prescription; a second acceptance is answered 409),
+so the prescriber writes a new prescription. A prescription put on hold and
+resumed is a new version, and its work item stays undispensable too. A
+dispensing recorded while the prescription was active can still be reversed
+after it is cancelled: [backend detail omitted]
+
+[backend detail omitted]
 
 ## 43. Sign-up, setup wizard and registration desk fields (0114)
 
@@ -854,7 +851,7 @@ approval), the profile sent with the confirmed code is copied to the facility.
 
 New refusal: **400 `FACILITY_PROFILE_INVALID`** ("Check the facility details and try again").
 The database refused the profile; this should not happen when the DTO rules above are followed.
-**503 `COLLECTED_FIELDS_UNAVAILABLE`** means the server's encryption key is missing. Nothing is
+**503 `COLLECTED_FIELDS_UNAVAILABLE`** [backend detail omitted]. Nothing is
 written or charged.
 
 Suggested website mapping: "Role at facility" is `administratorRole` and "Your phone" is
@@ -1510,7 +1507,7 @@ With `AUTH_SSO_ISSUER` unset (production today), every route below answers
 exactly as a route that does not exist (`404 NOT_FOUND`, no cookie, no audit
 row); sign-in, the session check and sign-out are unchanged. [backend detail omitted] `POST /auth/sso/logout` answers `404` with or without a
 session. The same holds on a host that is not a configured client (`admin.`,
-`auth.` itself, a request that did not come through the edge). [backend detail omitted] Every answer below carries
+`auth.` itself, [backend detail omitted]). [backend detail omitted] Every answer below carries
 `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; redirects are
 `303` to configured addresses or the checked return path, never to an
 address read from the request.
@@ -1522,6 +1519,9 @@ address read from the request.
 | `POST /auth/sso/logout` | Product sign-out. With a live session it is admitted exactly as `POST /auth/logout` (a session, by bearer or by cookie with its Origin and CSRF checks; any session kind, an account-only outreach session included), and today's sign-out runs first (the session ends, the cookies are cleared, [backend detail omitted]). With no live access token (none, or one that no longer verifies) it still answers, as hid-system#142 did and the patient website relies on: the request must come from an allowed Origin (`403 ORIGIN_DENIED` otherwise, unless it names a bearer token); a refresh cookie must come with its CSRF token (`403 CSRF_VALIDATION_FAILED` otherwise; nothing ends, nothing is cleared); a sign-in of the client's kind that the refresh cookie could still renew is ended as today's sign-out ends one ([backend detail omitted]), and with none nothing ends; the cookies are cleared. When a sign-in was ended, every other unrevoked sign-in of that account and kind ends too (reason `sso_logout`). Then `200 { "endSessionUrl": "<end_session_endpoint>?client_id=…&post_logout_redirect_uri=https%3A%2F%2F<host>%2F" }` for the frontend to open. It never carries `id_token_hint`. Provider unreachable: `503 SSO_PROVIDER_UNAVAILABLE` (this product is signed out all the same). `POST /auth/logout` itself is unchanged (`204`) |
 
 [backend detail omitted]
+(2 minutes after start or callback sent the browser to `sign_in_path`; while it
+is present start never hands off quietly, and while the provider stays
+unreachable it sends the browser to `/`, so no page loops).
 
 ### The session: a password sign-in on that site (Q88, Q92 B)
 
