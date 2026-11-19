@@ -234,4 +234,32 @@ class ActiveRunTests(unittest.TestCase):
             r.active(FakeGitHub(endless), r.BACKEND_WORKFLOWS, self.BRANCH)
 
 
+class ReleaseTriggerTests(unittest.TestCase):
+    """check_main_released treats a main head with no production-frontends run as never released, and a release is
+    refused once main moves past its commit (CANDIDATE_SUPERSEDED). Both need every push to main to start its own
+    run, so the push trigger must carry no path or branch filter beyond main."""
+
+    def trigger_block(self, event):
+        text = (pathlib.Path(__file__).resolve().parents[1]/'.github/workflows/production-frontends.yml').read_text()
+        lines = text.split('\n')
+        start = lines.index('on:')
+        block, inside = [], False
+        for line in lines[start+1:]:
+            if line and not line.startswith(' '):
+                break
+            if line.startswith('  ') and not line.startswith('   '):
+                inside = line.strip() == event+':'
+                continue
+            if inside and line.strip():
+                block.append(line.strip())
+        return block
+
+    def test_every_push_to_main_starts_a_release_run(self):
+        self.assertEqual(self.trigger_block('push'), ['branches: [main]'])
+
+    def test_reader_sees_pull_request_filters(self):
+        # Guards the reader above: it must see a filter where one exists.
+        self.assertTrue(any(line.startswith('paths-ignore:') for line in self.trigger_block('pull_request')))
+
+
 if __name__ == '__main__': unittest.main()

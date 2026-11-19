@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import production_deployment_core as c
+import production_deployment_test_reuse as tests_reuse
 from test_production_deployment_core import ctx, index
 
 spec = importlib.util.spec_from_file_location('upload_workers', pathlib.Path(__file__).with_name('deploy-production-workers.py'))
@@ -41,7 +42,7 @@ def dependencies():
 class UploadTests(unittest.TestCase):
     def execute(self, *, failure_app=None, declaration=None, version_case=None, missing_binding=False,
                 case_app=None, printed=('Worker Version ID: ' + TARGET,), faults=None, lost_on_sleep=False,
-                upload_hangs=None, release_fails=None, alert_fails=False):
+                upload_hangs=None, release_fails=None, alert_fails=False, test_modes=('full',) * 6):
         baseline = index()
         before = {app: {'version_id': PRIOR, 'hostname': host, 'origin_secret_version_id': 'secret-v1'}
                   for app, host in w.HOSTS.items()}
@@ -178,6 +179,13 @@ class UploadTests(unittest.TestCase):
             release_id = 'frontend-42-1-' + c.sha(c.canonical(value))[:16]
             release['release_id'] = release_id
             c.atomic_json(root / 'release/candidate.json', release)
+            # What each test shard did, as the deploy job downloads it into release/tests.
+            run_env = {'GITHUB_SHA': release['source_commit'], 'GITHUB_RUN_ID': release['run_id'],
+                       'GITHUB_RUN_ATTEMPT': release['run_attempt']}
+            for shard, mode in enumerate(test_modes or (), start=1):
+                tests_reuse.write_evidence(root / 'release/tests' / ('production-frontend-tests-42-1-' + str(shard)),
+                    tests_reuse.shard_evidence(shard, mode, 'synthetic', 'b' * 40 if mode == 'reuse' else None,
+                                               41 if mode == 'reuse' else None, run_env))
 
             def upload(command, **kwargs):
                 self.assertEqual(command[2:4], ['versions', 'upload'])
@@ -246,6 +254,24 @@ class UploadTests(unittest.TestCase):
         receipt = result.objects['production/releases/' + result.release_id + '/complete.json']
         self.assertEqual(receipt['status'], 'success')
         self.assertEqual(receipt['after'], result.objects[c.INDEX_KEY]['frontend'])
+        self.assertEqual((receipt['tests']['mode'], receipt['tests']['reused_from']), ('full', []))
+
+    def test_receipts_name_the_run_whose_tests_a_re_pin_reused(self):
+        result = self.execute(test_modes=('reuse',) * 6)
+        self.assertIsNone(result.error)
+        prefix = 'production/releases/' + result.release_id + '/'
+        for name in ('started.json', 'complete.json'):
+            tests = result.objects[prefix + name]['tests']
+            self.assertEqual(tests['mode'], 'reuse', name)
+            self.assertEqual(tests['reused_from'], [{'parent_commit': 'b' * 40, 'parent_run_id': 41}], name)
+            self.assertEqual(tests['shards']['6'], {'mode': 'reuse', 'parent_commit': 'b' * 40, 'parent_run_id': 41})
+
+    def test_missing_test_shard_records_refuse_before_anything_changes(self):
+        for modes in (None, ('full',) * 5):
+            result = self.execute(test_modes=modes)
+            self.assertEqual(result.error, 'TEST_EVIDENCE_MISSING', modes)
+            self.assertEqual((result.uploaded, result.deployments, result.health), ([], [], []))
+            self.assertFalse([key for key in result.objects if key.startswith('production/releases/')])
 
     def test_failed_health_on_new_deployment_restores_all_attempted_portals_and_index(self):
         result = self.execute(failure_app='web')
