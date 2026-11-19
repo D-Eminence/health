@@ -18,6 +18,7 @@ from production_deployment_core import (ACCOUNT, REGION, INDEX_KEY, COMPONENTS, 
     READ_ATTEMPTS, READ_RETRY_SECONDS, atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
     require, sha, summarize, validate_candidate, validate_index)
 from staging_release import ROOT, PRODUCTION_HOSTS as HOSTS, verify_manifest, archive_files
+from production_deployment_test_reuse import read_evidence
 
 # All eight portals ship together. These are the Novu gateway and its seven
 # browser-facing upstreams; background workers are optional additional pins.
@@ -437,6 +438,9 @@ def deploy(mode):
     release = json.loads(candidate_path.read_text())
     require(file_sha(candidate_path) == os.environ.get("EXPECTED_CANDIDATE_SHA256"), "APPROVED_ARTIFACT_CHANGED")
     validate_candidate(release,ctx)
+    # Which test shards ran in this run and which reused a parent run's tests (a re-pin): kept in the receipts so a
+    # release can be audited against the run whose tests it relied on. A deploy without all six records is refused.
+    tests = read_evidence(ROOT/"release/tests",ctx) if mode == "deploy" else None
     # The approval step before cloud credentials already waited for GitHub's job records to settle.
     github = GitHub(ctx["repository"]); approval = github.assert_approval(release, settle=120)
     aws = AWS(); aws.account()
@@ -463,7 +467,7 @@ def deploy(mode):
         require(all(row.get("origin_secret_version_id") == origin["VersionId"] for row in before.values()),
                 "PRIOR_WORKER_SECRET_VERSION_NOT_CONFIRMED")
         store.put(prefix+"started.json",{"schema":"hid.release-receipt/v1","kind":"frontend","status":"started",
-            "candidate":release,"approval":approval,"before":before})
+            "candidate":release,"approval":approval,"tests":tests,"before":before})
         started = True
         after = copy.deepcopy(before)
         if mode == "rollback":
@@ -532,7 +536,7 @@ def deploy(mode):
         new = copy.deepcopy(index); new.update(frontend=after,frontend_release=release["release_id"])
         store.put(INDEX_KEY,new,etag=meta["ETag"])
         store.put(prefix+"complete.json",{"schema":"hid.release-receipt/v1","kind":"frontend","status":"success",
-            "candidate":release,"before":before,"after":after})
+            "candidate":release,"tests":tests,"before":before,"after":after})
         reconciled = True
         try: notify(aws,release,"success" if mode == "deploy" else "rollback-success")
         except ReleaseError:
