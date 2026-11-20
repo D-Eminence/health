@@ -1143,7 +1143,7 @@ export const adminApi = {
   },
   /**
    * Closes a campaign whose only admin has gone, for good. Identity needs the campaign's version (If-Match), which the
-   * campaign's page shows its members with its reference.
+   * campaign's page shows with its reference, under "For Health ID support".
    */
   closeOutreachCampaign(campaign: { campaignId: string; version: number }, reason: string) {
     return outreachRead(adminApi.command<{ campaignId: string; status: string; alreadyClosed?: boolean }>(

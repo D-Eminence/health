@@ -97,7 +97,7 @@ describe('a prescription from another facility', () => {
     expect(mine.textContent).toContain('250 mg · Three times daily')
     expect(within(mine).getByText('From Demo Hospital')).toBeTruthy()
     const ours = row('Amoxicillin 500 mg capsule')
-    expect(within(ours).getByText('Patient ••••6f8a10')).toBeTruthy()
+    expect(within(ours).getByText('Patient (name not shown)')).toBeTruthy()
     expect(ours.textContent).not.toMatch(/From |Patient One/)
     expectNoFullPatientIds()
   })

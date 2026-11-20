@@ -138,6 +138,8 @@ function SuspendAction({ organiser, name, onDone }: { organiser: OutreachOrganis
  * A campaign whose only admin has gone (field critique 5): close it, or make another active member of the group its
  * admin. Both need the campaign's reference, and closing needs its version too: the organiser or a member reads both from
  * the campaign's page ("For Health ID support"). Identity refuses a close whose version is not the campaign's current one.
+ * No screen shows a member's reference (no ids on screen), and Identity has no admin route that lists a group's campaigns
+ * or members yet, so for Make admin support takes it from Health ID's records (docs/LOG.md, IDs on screen).
  */
 function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
   const governed = useGovernedSubmit()
@@ -181,7 +183,9 @@ function CampaignRescue({ onDone }: { onDone: (text: string) => void }) {
         aria-describedby="outreach-rescue-version-hint" onChange={event => setVersion(event.target.value.replace(/\D/g, ''))} />
       <small id="outreach-rescue-version-hint" className="admin-note">The number shown with the reference on the campaign’s page, under “For Health ID support”.</small>
       <label htmlFor="outreach-rescue-member">Member reference (to make them admin)</label>
-      <input id="outreach-rescue-member" autoComplete="off" spellCheck={false} value={membershipId} onChange={event => setMembershipId(event.target.value)} />
+      <input id="outreach-rescue-member" autoComplete="off" spellCheck={false} value={membershipId}
+        aria-describedby="outreach-rescue-member-hint" onChange={event => setMembershipId(event.target.value)} />
+      <small id="outreach-rescue-member-hint" className="admin-note">No screen shows it. Take it from Health ID’s records.</small>
       <label htmlFor="outreach-rescue-reason">Why</label>
       <textarea id="outreach-rescue-reason" rows={3} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} />
       <div className="admin-stack">

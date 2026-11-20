@@ -123,9 +123,22 @@ describe('patient access', () => {
     expect(focused()).toBe(running)
     await act(async () => { fireEvent.click(running) })
     expect(api.requestAccess).toHaveBeenCalledTimes(1)
-    await act(async () => { sending.resolve({ accessRequestId: 'request-1', status: 'pending' }) })
-    await waitFor(() => expect(status.textContent).toBe('Request request-1 is pending. The patient must approve before records are available.'))
+    await act(async () => { sending.resolve({ accessRequestId: 'b1111111-1111-4111-8111-111111111111', status: 'pending' }) })
+    await waitFor(() => expect(status.textContent).toBe('Access request sent. The patient must approve it before records are available.'))
     expect(focused()).toBe(button)
+  })
+
+  // Owner rule (IDs on screen): a request is named in words, never by its id or the server's status word.
+  it('says an access request was sent without its id or the server’s status', async () => {
+    api.requestAccess.mockResolvedValueOnce({ accessRequestId: 'b1111111-1111-4111-8111-111111111111', status: 'pending' })
+    render(<MemoryRouter><Patients /></MemoryRouter>)
+    const status = region('patients-status')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.change(screen.getByLabelText(/^Clinical reason/), { target: { value: 'Follow-up consultation' } })
+    await press(screen.getByRole('button', { name: 'Send access request' }))
+    await waitFor(() => expect(status.textContent).toMatch(/^Access request sent\./))
+    expect(document.body.textContent).not.toContain('b1111111')
+    expect(status.textContent).not.toMatch(/\bpending\b/)
   })
 })
 
@@ -143,5 +156,14 @@ describe('access requests', () => {
     expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
     expect(status.isConnected).toBe(true)
     expect(status.textContent).toBe('Access was closed.')
+  })
+
+  // Owner rule (IDs on screen): the list never names a patient, and never by the end of their record id either.
+  it('shows each request’s patient in words, never part of the patient’s or the request’s id', async () => {
+    api.listAccessRequests.mockResolvedValue([request('active')])
+    render(<AccessRequests />)
+    await screen.findByRole('button', { name: 'Close access' })
+    expect(screen.getAllByText('Patient (name not shown)').length).toBe(1)
+    expect(document.body.textContent).not.toMatch(/••••|0001\b|a0000000|b0000000|c0000000/)
   })
 })

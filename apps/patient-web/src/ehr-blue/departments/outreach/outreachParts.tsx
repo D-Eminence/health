@@ -285,6 +285,8 @@ export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
     // Outreach sends its end on every campaign (null: none set); an older answer leaves it out, and so does this.
     ...(campaign.endsAt !== undefined ? [{ label: 'Ends', value: campaign.endsAt ? dateText(campaign.endsAt) : 'No end date' }] : []),
     // What Health ID support asks for when a campaign has lost its only admin: its reference and, to close it, its version.
+    // Kept, though no other id is shown, because no other screen has them: the platform admin site's rescue form needs
+    // both and Identity has no admin route that lists a group's campaigns yet (docs/LOG.md, IDs on screen, left for the owner).
     { label: 'For Health ID support', value: <span className="break-all">Reference {campaign.id}, version {campaign.rowVersion}</span> },
   ]
 }

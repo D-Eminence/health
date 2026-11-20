@@ -16,7 +16,6 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom } from '../../../cannotCompleteServed'
 import { DeptEmbedded } from './DeptEmbedded'
 import { DeptNotice } from './DeptNotice'
-import { shortId } from './format'
 
 /*
  * Work from orders other facilities sent, as today's Laboratory and Pharmacy pages
@@ -24,9 +23,9 @@ import { shortId } from './format'
  * blue look. Logic is ported line for line; only the markup differs.
  */
 
-/** Who the patient is on a work row: named once an order from another facility is accepted, else masked. */
+/** Who the patient is on a work row: named once an order from another facility is accepted, else said in words, never by id. */
 export function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'] }): string {
-  return item.patient ? patientCard(item.patient) : `Patient ${shortId(item.patientId)}`
+  return item.patient ? patientCard(item.patient) : 'Patient (name not shown)'
 }
 
 /**

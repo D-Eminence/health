@@ -6,6 +6,9 @@ import { useStaff } from '../App'
 import { UNAVAILABLE, useFocusById } from '../focus'
 import { accessLevelLabel } from '../../plainLabels'
 
+/** The list names no patient, and never by any part of their record's id (owner rule, IDs on screen). */
+const PATIENT_NOT_NAMED = 'Patient (name not shown)'
+
 /** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 const OUTCOMES: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
   pending: { label: 'Waiting for the patient', tone: 'warning' },
@@ -120,7 +123,7 @@ export function AccessRequests() {
     {/* Mounted throughout, so what a close says is announced. */}
     <div id="access-requests-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && !requests && <p className="staff-muted">Loading requests…</p>}</div>
     {requests && requests.length === 0 && <EmptyState title={status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'} description="Requests you send for this facility will appear here." />}
-    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{new Date(request.requestedAt).toLocaleString()}</td><td data-label="Patient context">Patient ••••{request.patientId.slice(-4)}</td><td data-label="Scope">{accessLevelLabel(request.scope)}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
+    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{new Date(request.requestedAt).toLocaleString()}</td><td data-label="Patient context">{PATIENT_NOT_NAMED}</td><td data-label="Scope">{accessLevelLabel(request.scope)}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
       {request.authorizationMethod && <small className="staff-muted"> {request.authorizationMethod === 'patient_access_pin' ? 'Patient PIN' : 'Patient approval'}</small>}
       {request.effectiveStatus === 'active' && request.grantExpiresAt && <small className="staff-muted"> until {new Date(request.grantExpiresAt).toLocaleString()}</small>}
       {request.status === 'denied' && request.deniedReason && <small className="staff-muted"> {request.deniedReason}</small>}

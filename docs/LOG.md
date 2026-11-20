@@ -3108,6 +3108,56 @@ From the launch audit of the patient Records, Notifications and chat pages (RN-0
 - **Checked** in Chromium on the preview against the mock gateway at 320, 360, 390 and 1366px, light and dark: no sideways scroll, the older-records card readable in dark mode, a download failure in view beside its file, the empty Records page with one designed empty state, notification links and focus after Mark as read, and the chat tab title. Not checked on a real phone or on production.
 - **Not done here.** RN-02 and RN-15 are for the owner and the backend. Still needing the backend: paging (a cursor) for records and notifications and a Mark all as read route (RN-08, RN-11), and a facility name on visits and notes (RN-17). A build switch that keeps patient uploads off until the NDPA sign-off (RN-01, HCS-02) is the owner's call.
 
+## 2026-11-04: IDs on screen (patient app and staff screens)
+
+- Owner rule: screens show a Health ID and lab sample or accession numbers, and
+  no other ids, codes or permission names. Fixed in words:
+  - Patients (classic staff): sending an access request says "Access request
+    sent. The patient must approve it before records are available.", not the
+    request id and the server's status word.
+  - Access request lists (classic and blue) and lab and pharmacy work show a
+    patient the server has not named as "Patient (name not shown)", not the
+    last characters of their record id.
+  - Outreach (classic and blue): main already shows a case without its id or
+    its temporary record's id, and campaign members by role and date added
+    instead of a membership id, and classic Outreach already uses the blue
+    screens' words for a case's and a campaign's status and a member's role
+    (`memberRoleLabel` in `outreachParts.tsx`); the tests here check that.
+  - Document OCR (blue Migrate): main already says a job's patient as "Patient
+    (name not shown)" or "Patient not given" in the list, Quick view and the
+    opened job, with no "Job" reference; the tests here check that no part of
+    either id shows.
+  - Patient Records: lab tests and medicines say their status in words, and a
+    lab test its priority ("As soon as possible", "Immediately"; "Priority not
+    known" for any other value) (`labRequestStatusLabel`, `labPriorityLabel`,
+    `medicineStatusLabel` in `plainLabels.ts`).
+  - Document OCR (blue Migrate and classic): a job no longer shows its
+    document id, version or provider; a job whose file name is not known is
+    named "Scanned document" and the document's number on this page
+    ("Scanned document 2"), so two such documents can be told apart. Classic
+    Document OCR's job status says the blue screen's words ("Checked", "Ready
+    to check"), not OCR's status code. `shortId` (the masked last six
+    characters of an id) is deleted, as nothing uses it now.
+- Tests render fictional UUIDs and assert they, and any part of them, are absent.
+- Left for the owner (not changed): the order and share-invitation references
+  staff and patients read to each other (8 to 16 characters), the staff
+  invitation reference, the Registration ID used to continue a registration,
+  the Document OCR screens that find a job by document id, the outreach
+  "Patient ID" field, a diagnosis code shown when a patient opens a diagnosis,
+  the design sample workspaces (their names come from demo data), and the
+  platform admin site (correlation ids for support work).
+- Left for the owner, kept on purpose: a blue Outreach campaign's page still
+  shows "For Health ID support: Reference <id>, version <n>". It is the only
+  place support can get the two values the admin site's "A campaign has lost
+  its admin" form needs (Close campaign sends the version as If-Match), and
+  Identity has no admin route that lists a group's campaigns. Removing it would
+  leave support needing the database to close an orphaned campaign. "Make
+  admin" already needs the database: no screen has shown a member's reference
+  since main hid membership ids, and the form now says so. The fix is a backend
+  route that lists a group's campaigns (reference, current version) and their
+  members, so the admin site can pick them instead of having them typed; then
+  this support line can go.
+
 ## 2026-11-05: EHR frame parity on the product sites (parity report 2.2, 3.1 #7, #15, #21)
 
 Branch `claude/ehr-frame-parity`, after merging main. Each item was checked against the frame on main first; what main already had is recorded, not rebuilt.

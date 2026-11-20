@@ -273,7 +273,7 @@ describe('Migrate list view', () => {
     expect(region.textContent).toBe('')
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     await press(button('Find job'))
-    await waitFor(() => expect(region.textContent).toBe('No OCR job for this documentDocument ••••000001 has no extraction job yet. Create one for a verified patient document.'))
+    await waitFor(() => expect(region.textContent).toBe('No OCR job for this documentThis document has no extraction job yet. Create one for a verified patient document.'))
     expect(region.isConnected).toBe(true)
     expect(within(region).queryByRole('button')).toBeNull()
     expect(document.getElementById('ocr-create-start')).toBeTruthy()
@@ -282,7 +282,9 @@ describe('Migrate list view', () => {
   it('says when a document has no job, keeps focus on Find job, and offers to create one', async () => {
     await findJob(null)
     expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
-    expect(screen.getByText('Document ••••000001 has no extraction job yet. Create one for a verified patient document.')).toBeTruthy()
+    expect(screen.getByText('This document has no extraction job yet. Create one for a verified patient document.')).toBeTruthy()
+    // No part of the document's id (health #183).
+    expect(document.getElementById('ocr-find-result')?.textContent).not.toMatch(/••••|000001/)
     await waitFor(() => expect(focused()).toBe(button('Find job')))
     expect(screen.getAllByRole('button', { name: 'Create record' })).toHaveLength(2)
   })
@@ -290,7 +292,7 @@ describe('Migrate list view', () => {
   it('without OCR job write, a document with no job offers nothing to create', async () => {
     session.permissions = ['ocr.job.read']
     await findJob(null)
-    expect(screen.getByText('Document ••••000001 has no extraction job yet.')).toBeTruthy()
+    expect(screen.getByText('This document has no extraction job yet.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
   })
 
@@ -318,14 +320,16 @@ describe('Migrate list view', () => {
 describe('Migrate record view', () => {
   it('opens a found job as its record, with focus on its heading, Back to list, its saved record and actions', async () => {
     await findJob(awaiting)
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000001'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Scanned document 1'])
     await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
     expect(button('Back to list')).toBeTruthy()
     expect(within(heading('Progress').closest('section') as HTMLElement).getByText('Ready to check')).toBeTruthy()
     await openDetails()
     const record = detailsCard()
-    expect(within(record).getByText('textract')).toBeTruthy()
     expect(within(record).getByText('Not confirmed')).toBeTruthy()
+    // No document id, version or provider among the job's facts (health #183).
+    expect(within(record).queryByText('textract')).toBeNull()
+    expect(record.textContent).not.toMatch(/••••|000001|Version|Provider|Document/)
     expect(within(record).getByText('1 of 3')).toBeTruthy()
     expect(detailsButtons()).toEqual(['Refresh status', 'Reject reading'])
     expect(screen.getByRole('form', { name: 'Check and save' })).toBeTruthy()
@@ -397,7 +401,7 @@ describe('Migrate record view', () => {
   it('Back to list shows the job in the list, with focus on its name, and Quick view shows its facts', async () => {
     await findJob(validated)
     await press(button('Back to list'))
-    const name = await screen.findByRole('button', { name: 'Document ••••000001' })
+    const name = await screen.findByRole('button', { name: 'Scanned document 1' })
     await waitFor(() => expect(focused()).toBe(name))
     const row = name.closest('tr') as HTMLElement
     expect(within(row).getByText('Checked')).toBeTruthy()
@@ -406,8 +410,10 @@ describe('Migrate record view', () => {
     expect(within(row).queryByText('Job ••••000001')).toBeNull()
     await press(within(row).getByRole('button', { name: 'Quick view' }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
-    expect(within(drawer).getByRole('heading', { name: 'Document ••••000001' })).toBeTruthy()
+    expect(within(drawer).getByRole('heading', { name: 'Scanned document 1' })).toBeTruthy()
     expect(within(drawer).getByText('Not confirmed')).toBeTruthy()
+    // No part of the document's id, no version and no provider (health #183).
+    expect(drawer.textContent).not.toMatch(/••••|000001|Version|Provider|textract/)
     api.findOcrJob.mockResolvedValue({ job: confirmed })
     await press(within(drawer).getByRole('button', { name: 'Open full record' }))
     expect(await screen.findByText(/^Confirmed /)).toBeTruthy()
@@ -415,10 +421,31 @@ describe('Migrate record view', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('never shows any part of the patient’s record id or the job’s id, in the list, Quick view or the opened job', async () => {
+    // Fictional ids with tails of their own, so a masked piece of either would show.
+    const job = { ...validated, id: 'j0000000-0000-4000-8000-00000000f4a9', patientId: 'a0000000-0000-4000-8000-00000000c7e1' }
+    await findJob(job)
+    const page = () => document.body.textContent ?? ''
+    for (const piece of ['f4a9', 'c7e1', 'Job ••••']) expect(page()).not.toContain(piece)
+    expect(screen.getByText('Patient (name not shown)')).toBeTruthy()
+    await press(button('Back to list'))
+    const row = (await screen.findByRole('button', { name: 'Scanned document 1' })).closest('tr') as HTMLElement
+    expect(within(row).getByText('Patient (name not shown)')).toBeTruthy()
+    await press(within(row).getByRole('button', { name: 'Quick view' }))
+    await screen.findByRole('dialog', { name: 'Record quick view' })
+    for (const piece of ['f4a9', 'c7e1', 'Job ••••']) expect(page()).not.toContain(piece)
+  })
+
+  it('says a job with no patient given in words', async () => {
+    await findJob({ ...validated, patientId: undefined })
+    expect(screen.getByText('Patient not given')).toBeTruthy()
+    expect(screen.getByText('Not given')).toBeTruthy()
+  })
+
   it('Quick view closes with Escape, giving focus back to the button that opened it', async () => {
     await findJob(validated)
     await press(button('Back to list'))
-    const quickView = within(screen.getByRole('button', { name: 'Document ••••000001' }).closest('tr') as HTMLElement).getByRole('button', { name: 'Quick view' })
+    const quickView = within(screen.getByRole('button', { name: 'Scanned document 1' }).closest('tr') as HTMLElement).getByRole('button', { name: 'Quick view' })
     await press(quickView)
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
     await act(async () => { fireEvent.keyDown(drawer, { key: 'Escape' }) })
@@ -438,16 +465,37 @@ describe('Migrate record view', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3)
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search Document OCR' }), { target: { value: 'queued' } })
     expect(screen.getAllByRole('row')).toHaveLength(2)
-    expect(screen.getByRole('button', { name: 'Document ••••0000b2' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Scanned document 2' })).toBeTruthy()
+    expect(screen.getByRole('table').textContent).not.toMatch(/••••|0000b2|000001|[Vv]ersion|textract/)
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search Document OCR' }), { target: { value: 'nothing like it' } })
     expect(screen.getByText('Change your search.')).toBeTruthy()
     await press(button('Clear search'))
     expect(screen.getAllByRole('row')).toHaveLength(3)
     api.findOcrJob.mockResolvedValue({ job: validated })
-    const open = within(screen.getByRole('button', { name: 'Document ••••000001' }).closest('tr') as HTMLElement).getByRole('button', { name: /^Open/ })
+    // Each document is named by the order this page first read it, never by any part of its id.
+    const open = within(screen.getByRole('button', { name: 'Scanned document 1' }).closest('tr') as HTMLElement).getByRole('button', { name: /^Open/ })
     await press(open)
     await screen.findByRole('heading', { name: 'Progress' })
     expect(api.findOcrJob).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+  })
+
+  it('tells apart two documents whose jobs have the same status and no known file name', async () => {
+    await findJob(validated)
+    await press(button('Back to list'))
+    api.findOcrJob.mockResolvedValue({ job: { ...validated, id: 'j0000000-0000-4000-8000-0000000000b2', documentId: OTHER_DOCUMENT } })
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: OTHER_DOCUMENT } })
+    await press(button('Find job'))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Scanned document 2'])
+    await press(button('Back to list'))
+    const first = screen.getByRole('button', { name: 'Scanned document 1' }).closest('tr') as HTMLElement
+    const second = screen.getByRole('button', { name: 'Scanned document 2' }).closest('tr') as HTMLElement
+    expect(within(first).getByText('Checked')).toBeTruthy()
+    expect(within(second).getByText('Checked')).toBeTruthy()
+    // Reading the first document's job again keeps its number.
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    await press(within(first).getByRole('button', { name: /^Open/ }))
+    await waitFor(() => expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Scanned document 1']))
+    expect(document.body.textContent).not.toMatch(/••••|0000b2|000001/)
   })
 
   it('Refresh status reads the job again and keeps focus on it', async () => {
@@ -1156,10 +1204,10 @@ describe('Migrate: facility, account and hand-over', () => {
     await press(button('Find job'))
     await screen.findByRole('heading', { name: 'Progress' })
     await press(button('Back to list'))
-    expect(screen.getByRole('button', { name: 'Document ••••000001' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Scanned document 1' })).toBeTruthy()
     session.actorId = 'staff-demo-2'
     view.rerender(<MemoryRouter><div className="hid-ehr"><Migrate /></div></MemoryRouter>)
-    expect(screen.queryByRole('button', { name: 'Document ••••000001' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Scanned document 1' })).toBeNull()
   })
 
   function Where() {
@@ -1240,7 +1288,7 @@ describe('Migrate: Extract with OCR goes straight to the reading', () => {
     await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
     expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
     expect(document.getElementById('ocr-reading')?.textContent).toBe('')
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document ••••000001'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Scanned document 1'])
   })
 
   it('a refused hand-over leaves the line for the list, which says why, with the document in Find document job', async () => {

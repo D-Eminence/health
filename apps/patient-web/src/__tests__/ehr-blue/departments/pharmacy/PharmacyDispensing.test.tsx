@@ -231,8 +231,8 @@ describe('Dispense', () => {
     // Nothing is sent before the patient is confirmed.
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the patient' })
     expect(api.dispense).not.toHaveBeenCalled()
-    expect(within(sheet).getByRole('region', { name: 'Patient: Patient ••••6f8a10' })).toBeTruthy()
-    expect(within(sheet).getByText(`Dispense 21 capsule of ${AMOXICILLIN} to Patient ••••6f8a10?`)).toBeTruthy()
+    expect(within(sheet).getByRole('region', { name: 'Patient: Patient (name not shown)' })).toBeTruthy()
+    expect(within(sheet).getByText(`Dispense 21 capsule of ${AMOXICILLIN} to Patient (name not shown)?`)).toBeTruthy()
     expect(within(sheet).getByText('If this was a mistake, you can reverse the dispensing afterwards.')).toBeTruthy()
     await confirmPatient('Dispense')
     expect(api.dispense).toHaveBeenCalledTimes(1)
@@ -253,7 +253,7 @@ describe('Dispense', () => {
     const handed = done.nextElementSibling as HTMLElement
     // The quantity and its unit are drawn apart (kasuwa Value), then what and to whom.
     expect([within(handed).getByText('21').textContent, within(handed).getByText('capsule').textContent]).toEqual(['21', 'capsule'])
-    expect(handed.textContent).toMatch(new RegExp(`of ${AMOXICILLIN} handed to Patient ••••6f8a10\\.$`))
+    expect(handed.textContent).toMatch(new RegExp(`of ${AMOXICILLIN} handed to Patient \\(name not shown\\)\\.$`))
     expect(screen.queryByRole('form')).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(done))
@@ -545,7 +545,7 @@ describe('Reverse dispensing', () => {
     await openRecord(METFORMIN)
     const form = reverse('  Medication returned unopened by the patient  ')
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the patient' })
-    expect(within(sheet).getByText(`Reverse the dispensing of ${METFORMIN} for Patient ••••a9b3c4?`)).toBeTruthy()
+    expect(within(sheet).getByText(`Reverse the dispensing of ${METFORMIN} for Patient (name not shown)?`)).toBeTruthy()
     expect(api.dispensing).not.toHaveBeenCalled()
     await confirmPatient('Reverse dispensing')
     await waitFor(() => expect(api.reverseDispensing).toHaveBeenCalledTimes(1))
