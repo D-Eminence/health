@@ -90,15 +90,16 @@ const actions = () => screen.getByRole('heading', { level: 2, name: /^(Available
 const statusText = () => screen.getAllByRole('status').map(region => region.textContent ?? '').join(' ')
 
 describe('a campaign’s page', () => {
-  it('shows no reference or version (no ids on screen)', async () => {
+  it('shows its reference and version only for Health ID support, the one place the rescue form can get them', async () => {
     const id = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
-    api.outreachCampaigns.mockResolvedValue([{ ...PLANNED, id }])
+    api.outreachCampaigns.mockResolvedValue([{ ...PLANNED, id, rowVersion: 3 }])
     renderDept(<Outreach />)
     await openCampaign('Demo screening week')
-    const page = document.body.textContent ?? ''
-    expect(page).toContain('Demo screening week')
-    expect(page).not.toContain(id)
-    expect(page).not.toMatch(/For Health ID support|Reference|version 3/)
+    const support = screen.getByText('For Health ID support').closest('.hid-ehr-dept-fact') as HTMLElement
+    expect(support.querySelector('dd')?.textContent).toBe(`Reference ${id}, version 3`)
+    // Nowhere else on the page, whole or in part.
+    const elsewhere = (document.body.textContent ?? '').replace(support.textContent ?? '', '')
+    expect(elsewhere).not.toMatch(/7c9e6679|e07fc1f90ae7|••••/)
   })
 })
 

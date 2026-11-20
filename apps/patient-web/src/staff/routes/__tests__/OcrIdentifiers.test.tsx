@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Ocr } from '../Operations'
@@ -104,9 +104,21 @@ describe('OCR identifiers', () => {
     fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
     fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
     const card = (await screen.findByRole('heading', { name: 'Job status' })).closest('.staff-card') as HTMLElement
-    expect(card.textContent).toContain('validated')
+    // The status in the blue screen's words, never OCR's status code.
+    const badge = within(card).getByText('Checked')
+    expect(badge.closest('.staff-row')?.textContent).toBe('Checked')
     expect(card.textContent).toContain('Source patient confirmed')
     expect(screen.getByRole('button', { name: 'Refresh status' })).toBeTruthy()
     expect(card.textContent).not.toMatch(/••••|000001|Version|Provider|textract/)
+  })
+
+  it('says a job waiting to be checked in words, never as "awaiting validation"', async () => {
+    api.findOcrJob.mockResolvedValue({ job: { ...job, status: 'awaiting_validation' } })
+    renderOcr()
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
+    const card = (await screen.findByRole('heading', { name: 'Job status' })).closest('.staff-card') as HTMLElement
+    expect(within(card).getByText('Ready to check')).toBeTruthy()
+    expect(card.textContent).not.toMatch(/awaiting.validation/i)
   })
 })

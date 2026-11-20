@@ -89,8 +89,11 @@ function PatientAccessLinks({ permissions }: { readonly permissions: readonly st
   </div>
 }
 
-/** A job this page has read, and when. */
-interface OpenedJob { readonly job: OcrJob; readonly readAt: string }
+/**
+ * A job this page has read, and when. `number` counts the documents in the order this page first read a job of theirs
+ * (1, 2, 3), so two documents whose file names are not known are still told apart without any part of their ids.
+ */
+interface OpenedJob { readonly job: OcrJob; readonly readAt: string; readonly number: number }
 
 type View = 'list' | 'new' | 'detail' | 'quality'
 /** The steps opened with a button of their own; Check and save and Confirm the patient are on the page as they come due. */
@@ -127,9 +130,15 @@ function patientWords(job: OcrJob) {
   return job.patientId ? 'Patient (name not shown)' : 'Patient not given'
 }
 
-/** A job's name: the file name of its document when this page knows it, as uploaded; otherwise "Scanned document", never any part of its document's ID (IDs on screen). */
-function jobName(job: OcrJob, fileNames: ReadonlyMap<string, string>) {
-  return fileNames.get(job.documentId) ?? 'Scanned document'
+/**
+ * A job's name: the file name of its document when this page knows it, as uploaded; otherwise "Scanned document" and the
+ * document's number on this page ("Scanned document 2"), never any part of its document's ID (IDs on screen).
+ */
+function jobName(job: OcrJob, fileNames: ReadonlyMap<string, string>, rows: readonly OpenedJob[]) {
+  const named = fileNames.get(job.documentId)
+  if (named) return named
+  const number = rows.find(row => row.job.documentId === job.documentId)?.number
+  return number ? `Scanned document ${number}` : 'Scanned document'
 }
 
 /** A field name OCR read ("dateOfBirth", "test_name") as words: "Date of birth", "Test name". */
@@ -302,8 +311,12 @@ export function Migrate() {
   const scope = JSON.stringify([actorId ?? '', facilityId ?? ''])
   const [opened, setOpened] = useState<{ scope: string; rows: OpenedJob[] }>({ scope: '', rows: [] })
   const rows = opened.scope === scope ? opened.rows : []
-  const remember = useCallback((found: OcrJob) => setOpened(current => ({ scope,
-    rows: [{ job: found, readAt: new Date().toISOString() }, ...(current.scope === scope ? current.rows.filter(row => row.job.id !== found.id) : [])] })), [scope])
+  const remember = useCallback((found: OcrJob) => setOpened(current => {
+    const earlier = current.scope === scope ? current.rows : []
+    // A document keeps the number it was first given here; a document new to this page takes the next one.
+    const number = earlier.find(row => row.job.documentId === found.documentId)?.number ?? Math.max(0, ...earlier.map(row => row.number)) + 1
+    return { scope, rows: [{ job: found, readAt: new Date().toISOString(), number }, ...earlier.filter(row => row.job.id !== found.id)] }
+  }), [scope])
 
   const visibleJob = jobFacilityId === facilityId ? job : null
   const canRetryJob = visibleJob?.status === 'failed' &&
@@ -628,7 +641,7 @@ export function Migrate() {
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
   const creating = view === 'new' && canWrite
   const quality = view === 'quality' && readsQuality
-  const title = detail ? jobName(detail, fileNames) : creating ? 'New document job' : quality ? 'Reading quality' : 'Scan paper records'
+  const title = detail ? jobName(detail, fileNames, rows) : creating ? 'New document job' : quality ? 'Reading quality' : 'Scan paper records'
   // Mounted throughout, in the same place in every view, so a message put in it is announced.
   const status = <div key="status" id="ocr-status" role="status" className="hid-ehr-dept-migrate-status">{notice && <DeptNotice tone="positive">{notice}</DeptNotice>}</div>
   return <>
@@ -646,7 +659,7 @@ export function Migrate() {
         : quality ? <Fragment key="quality"><ReadingQualityView facilityId={facilityId} finishedWeeksOnly={reader === 'facility_manager'} /></Fragment> : <Fragment key="list">{jobList()}</Fragment>}
       <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
         {quick && <div className="hid-ehr-dept-migrate-quick">
-          <h3>{jobName(quick.job, fileNames)}</h3>
+          <h3>{jobName(quick.job, fileNames, rows)}</h3>
           <p className="hid-ehr-dept-muted">{`Last read ${dateText(quick.readAt)}`}</p>
           <DeptFacts facts={jobFacts(quick.job)} />
           <div className="hid-ehr-dept-form-actions"><EhrButton onClick={() => openRecord(quick.job)}>Open full record</EhrButton></div>
@@ -665,7 +678,7 @@ export function Migrate() {
 
   // Render functions, not components: a component declared here would be a new type on each render, and remount.
   function jobList() {
-    const shown = rows.filter(row => matchesSearch(search, [row.job.documentId, fileNames.get(row.job.documentId), row.job.id,
+    const shown = rows.filter(row => matchesSearch(search, [row.job.documentId, jobName(row.job, fileNames, rows), row.job.id,
       statusWords(row.job.status), jobStatusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
     if (!canRead) return <DeptSection title="Scan paper records">
@@ -679,7 +692,7 @@ export function Migrate() {
           emptyTitle="No matching records"
           emptyMessage={rows.length ? 'Change your search.' : 'Find a job by its document ID, or create one when you have the appropriate permission.'}
           columns={[
-            { id: 'record', header: 'Record', cell: row => <DeptRecordName id={`ocr-row-${row.job.id}`} name={jobName(row.job, fileNames)}
+            { id: 'record', header: 'Record', cell: row => <DeptRecordName id={`ocr-row-${row.job.id}`} name={jobName(row.job, fileNames, rows)}
               onOpen={() => openRecord(row.job)} /> },
             { id: 'patient', header: 'Patient / context', cell: row => <div className="hid-ehr-dept-record-name">
               <span>{patientWords(row.job)}</span></div> },

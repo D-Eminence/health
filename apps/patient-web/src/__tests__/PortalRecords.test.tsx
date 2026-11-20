@@ -103,6 +103,16 @@ describe('lab tests and medicines name no ids or codes', () => {
     expect(document.body.textContent).not.toMatch(hidden)
   })
 
+  it('says an urgent lab test’s priority in words, never the priority code', async () => {
+    renderRecords({ ...empty, labRequests: [{ ...lab('active'), priority: 'asap' },
+      { ...lab('active'), id: 'd6666666-6666-4666-8666-666666666666', testDisplay: 'Malaria test', priority: 'stat' },
+      { ...lab('active'), id: 'd7777777-7777-4777-8777-777777777777', testDisplay: 'Blood sugar', priority: 'whenever' }], documents: [] })
+    expect((await screen.findByText('Full blood count')).nextElementSibling?.textContent).toBe('As soon as possible · Requested')
+    expect((await screen.findByText('Malaria test')).nextElementSibling?.textContent).toBe('Immediately · Requested')
+    expect((await screen.findByText('Blood sugar')).nextElementSibling?.textContent).toBe('Priority not known · Requested')
+    expect(document.body.textContent).not.toMatch(/\bAsap\b|\bStat\b|\basap\b|\bstat\b|whenever/i)
+  })
+
   it('says a medicine’s status in words', async () => {
     renderRecords({ ...empty, prescriptions: [medicine('active')], documents: [] })
     expect((await screen.findByText('Paracetamol 500 mg')).nextElementSibling?.textContent).toBe('1 tablet · Three times daily · Active')

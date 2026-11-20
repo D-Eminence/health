@@ -194,3 +194,9 @@ export function priorityLabel(value: string | null | undefined): string | null {
   if (!key) return null
   return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : plainCode(key)
 }
+
+/** How soon a lab test the patient was asked to have is wanted, in words; "Priority not known" for any other value, never the value. */
+export function labPriorityLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase()
+  return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : 'Priority not known'
+}

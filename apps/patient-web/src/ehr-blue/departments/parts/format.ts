@@ -1,8 +1,3 @@
-/** An identifier shown masked, as today's pages show it: its last six characters. */
-export function shortId(value: string) {
-  return `••••${value.slice(-6)}`
-}
-
 /**
  * A server time as "26 Oct 2026, 12:41", or "Not available". Never all numbers ("3/4" is a different day in Lagos and
  * in an American template) and on the 24-hour clock, as the clinical pages write it (clinical/parts/format.ts).

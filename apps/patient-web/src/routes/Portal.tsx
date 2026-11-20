@@ -56,7 +56,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
+import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labPriorityLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
   visitClassLabel, visitStatusLabel } from '../plainLabels'
 import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 import { SignInAgainButton } from './RecentSignIn'
@@ -373,7 +373,7 @@ const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string 
   vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
   diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
   prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, medicineStatusLabel(item.status)],
-  labRequests: item => ['Laboratory request', item.testDisplay, plainCode(item.priority), labRequestStatusLabel(item.status), item.clinicalInformation,
+  labRequests: item => ['Laboratory request', item.testDisplay, labPriorityLabel(item.priority), labRequestStatusLabel(item.status), item.clinicalInformation,
     date(item.createdAt)],
   documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
 }
@@ -660,7 +660,7 @@ export function RecordsPage() {
       extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }),
     prescriptions: item => ({ section: 'prescriptions', title: item.medicationDisplay,
       meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, medicineStatusLabel(item.status)].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }),
-    labRequests: item => ({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${labRequestStatusLabel(item.status)}`, detail: item.clinicalInformation, when: item.createdAt }),
+    labRequests: item => ({ section: 'labRequests', title: item.testDisplay, meta: `${labPriorityLabel(item.priority)} · ${labRequestStatusLabel(item.status)}`, detail: item.clinicalInformation, when: item.createdAt }),
     documents: item => ({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }),
   }
   const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = Object.fromEntries(
