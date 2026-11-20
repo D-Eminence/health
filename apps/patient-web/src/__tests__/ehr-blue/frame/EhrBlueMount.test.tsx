@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { blueForAll, isBlueFacility, isDemoFacility, showsBlueEhr } from '../../../ehr-blue/blueFacilities'
+import { blueForAll, demoFacilitySite, demoFacilitySiteFrom, isBlueFacility, isDemoFacility, showsBlueEhr } from '../../../ehr-blue/blueFacilities'
 import type * as ClinicSwitch from '../../../ehr-blue/clinicSwitch'
 import type * as PageSets from '../../../ehr-blue/pageSets'
 import {
@@ -101,6 +101,30 @@ describe('blueFacilities', () => {
     expect(isDemoFacility(REAL_FACILITY)).toBe(false)
     for (const id of DEMO_IDS) expect(isBlueFacility(id)).toBe(true)
     expect(isBlueFacility(undefined)).toBe(false)
+  })
+
+  it('sends a demo facility from a site it does not work on to its primary site, and no real facility anywhere', () => {
+    const [hospital, laboratory, pharmacy, outreach] = DEMO_IDS as unknown as [string, string, string, string]
+    expect(DEMO_IDS.map(id => demoFacilitySite(id))).toEqual(['ehr', 'lab', 'pharmacy', 'outreach'])
+    // Demo Hospital works on the EHR site and the Migrate site; from any other product site it is sent to the EHR's.
+    expect(demoFacilitySiteFrom(hospital, 'ehr')).toBeNull()
+    expect(demoFacilitySiteFrom(hospital, 'migrate')).toBeNull()
+    expect(demoFacilitySiteFrom(hospital.toUpperCase(), 'migrate')).toBeNull()
+    for (const site of ['lab', 'pharmacy', 'outreach'] as const) expect(demoFacilitySiteFrom(hospital, site)).toBe('ehr')
+    // Every other demo facility works on its one site only, Migrate included.
+    for (const [id, own] of [[laboratory, 'lab'], [pharmacy, 'pharmacy'], [outreach, 'outreach']] as const) {
+      expect(demoFacilitySiteFrom(id, own)).toBeNull()
+      for (const site of ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach'] as const) {
+        if (site !== own) expect(demoFacilitySiteFrom(id, site)).toBe(own)
+      }
+    }
+    // A real facility, or none, is never sent anywhere, on any site.
+    for (const site of ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach', 'web', null, undefined] as const) {
+      expect(demoFacilitySiteFrom(REAL_FACILITY, site)).toBeNull()
+      expect(demoFacilitySiteFrom(undefined, site)).toBeNull()
+    }
+    expect(demoFacilitySiteFrom('98d00002-0000-4000-8000-000000000005', 'migrate')).toBeNull()
+    expect(demoFacilitySite(REAL_FACILITY)).toBeNull()
   })
 
   it('opens blue at a blue facility, and asks in blue only when every facility to choose from is a blue one', () => {
