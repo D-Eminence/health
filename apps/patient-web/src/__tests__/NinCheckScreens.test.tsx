@@ -101,7 +101,7 @@ describe('the sign-up’s NIN step', () => {
     renderPortal(<Enrollment />, enrollmentGateway(() => refused(409, 'NIN_CHECK_HELD', 'Please try again in 5 minutes.', 300)), anonymous)
     await continueWith()
     const said = await screen.findByText(/^This NIN check is on hold\. Try again after /)
-    expect(said.textContent).toMatch(/^This NIN check is on hold\. Try again after \d{1,2}:\d{2}( [AP]M)?\.$/)
+    expect(said.textContent).toMatch(/^This NIN check is on hold\. Try again after \d{1,2}:\d{2}( [AP]M)?( tomorrow)?\.$/)
     expectNoCode()
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     const button = screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement
