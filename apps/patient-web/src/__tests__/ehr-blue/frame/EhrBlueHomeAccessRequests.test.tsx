@@ -71,6 +71,10 @@ describe('Home: the Access requests card, as today\'s Overview', () => {
     home(READS)
     expect(await card().findByText(accessRequestsError(failure))).toBeDefined()
     expect(card().queryByText('Loading requests…')).toBeNull()
+    // Said once: the Needs attention alert keeps its title and Try again, the card carries the message.
+    expect(screen.getAllByText(accessRequestsError(failure))).toHaveLength(1)
+    expect(screen.getByText('Couldn’t load access requests')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeDefined()
   })
 
   it('shows no card, and reads nothing, for a session that may not read access requests', () => {
