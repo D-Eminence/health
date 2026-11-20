@@ -213,6 +213,14 @@ export function BlueHome() {
 
         {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
         {facility ? <FacilityCheckCard facility={facility} /> : null}
+        {/* Today's Overview card, always there for a session that reads access requests, 0 pending included, with its
+            loading and read-error words (classic Dashboard.tsx:272). */}
+        {facility && readsRequests && opens('requests') ? <Card aria-label="Access requests">
+          <CardHeader as="h2" title="Access requests" icon={ShieldAlert} />
+          <p className="m-0 px-5 pb-2 text-sm text-ink-2">{access.state === 'ready' ? `${access.pending} pending request${access.pending === 1 ? '' : 's'}`
+            : access.state === 'failed' ? access.message : 'Loading requests…'}</p>
+          <div className="px-5 pb-4"><Button to="/provider/requests" variant="link" size="sm" iconRight={ChevronRight}>Review requests</Button></div>
+        </Card> : null}
         {facility && usesNovuBackend() && incomingHere.services.length > 0
           ? <IncomingOrdersCard facility={facility} services={incomingHere.services} unsure={incomingHere.unsure} sure={incomingHere.sure} /> : null}
         {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
