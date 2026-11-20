@@ -346,7 +346,7 @@ describe('Patient sharing on Access requests (parity 3.1 #14)', () => {
     expect(screen.getByText(/^Your role at this facility can’t open a patient’s record\./)).toBeTruthy()
     expect(document.body.textContent).not.toContain('identity.patient.read')
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
-    expect(await screen.findByText('Accepted. The patient confirms next, then they appear here with Open.')).toBeTruthy()
+    expect(await screen.findByText('You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.')).toBeTruthy()
     expect(api.acceptShareInvitation).toHaveBeenCalledWith(FACILITY_ID, 'inv-1')
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
