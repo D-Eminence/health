@@ -23,43 +23,56 @@ interface Attention {
 
 const AttentionContext = createContext<Attention>({ read: { state: 'none' }, reload: () => {} })
 
-export function AttentionProvider({ facilityId, permissions, children }: {
-  readonly facilityId: string | undefined; readonly permissions: readonly string[]; readonly children: ReactNode
+export function AttentionProvider({ facilityId, permissions, readOnOpen = true, children }: {
+  readonly facilityId: string | undefined; readonly permissions: readonly string[]
+  /**
+   * False while the frame opens no page for this facility (a demo facility on another site, a product the account may
+   * not use here): those screens read nothing, as they did before the opening read.
+   */
+  readonly readOnOpen?: boolean
+  readonly children: ReactNode
 }) {
   const allowed = permissions.includes('identity.consent.write')
   const [read, setRead] = useState<AccessRequestsRead>({ state: 'none' })
   // How many reads were asked for, and for which facility.
   const [asked, setAsked] = useState<{ readonly facilityId: string | undefined; readonly count: number }>({ facilityId: undefined, count: 0 })
-  // The facility whose opening read is still on its way: Home or the drawer asking meanwhile shares it (each read is
-  // audited), rather than read the same list twice on landing.
-  const landing = useRef<string | undefined>(undefined)
+  // The opening read still on its way: Home or the drawer asking meanwhile shares it (each read is audited), rather
+  // than read the same list twice on landing. Each opening read has its own token, so an earlier read of the same
+  // facility (A, then B, then A again) settling late does not end the share for the one on its way now.
+  const landing = useRef<{ readonly facilityId: string } | undefined>(undefined)
+  // The facility the opening read was done for. The frame keeps this provider mounted across its own redirects
+  // (BlueFrame.tsx), so a redirect does not read again; a facility switch does.
+  const opened = useRef<string | undefined>(undefined)
   const reload = useCallback(() => {
-    if (facilityId && landing.current === facilityId) return
+    if (facilityId && landing.current?.facilityId === facilityId) return
     setAsked(current => ({ facilityId, count: current.count + 1 }))
   }, [facilityId])
   // The opening read, once per facility. Home asking in the same render (its effect runs first) folds into this one,
   // as both updates land in the same render.
   useEffect(() => {
-    if (!facilityId || !allowed) return
-    landing.current = facilityId
+    if (!facilityId || !allowed || !readOnOpen || opened.current === facilityId) return
+    opened.current = facilityId
+    landing.current = { facilityId }
     setAsked(current => ({ facilityId, count: current.count + 1 }))
-  }, [facilityId, allowed])
+  }, [facilityId, allowed, readOnOpen])
   useEffect(() => {
     if (!facilityId || !allowed || asked.facilityId !== facilityId || asked.count === 0) {
       setRead({ state: 'none' })
       return
     }
     let active = true
+    const token = landing.current?.facilityId === facilityId ? landing.current : undefined
+    const settled = () => { if (token && landing.current === token) landing.current = undefined }
     setRead({ state: 'loading' })
     void staffApi.listAccessRequests(facilityId).then(
       requests => {
-        if (landing.current === facilityId) landing.current = undefined
+        settled()
         if (!active) return
         const list = Array.isArray(requests) ? requests : []
         setRead({ state: 'ready', requests: list, pending: list.filter(request => request.status === 'pending').length })
       },
       caught => {
-        if (landing.current === facilityId) landing.current = undefined
+        settled()
         if (active) setRead({ state: 'failed', message: accessRequestsError(caught) })
       })
     return () => { active = false }

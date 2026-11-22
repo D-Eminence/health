@@ -35,6 +35,16 @@ describe('the bell on landing', () => {
     expect(reads(sent)).toBe(0)
   })
 
+  it('reads nothing when Demo Hospital is opened on the Lab site, where the frame opens no page', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com' })
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'lab.work-item.read'], ['ehr', 'lab'])
+    const sent = serve({ [SESSION]: many(sessionAt(demo, [demo])), [REQUESTS]: many(() => json(WAITING)), [LAB_WORK]: many(() => json({ items: [] })) })
+    await openStaffApp('/provider')
+    expect(await screen.findByRole('heading', { level: 1, name: /^Demo Hospital works on / })).toBeDefined()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(reads(sent)).toBe(0)
+  })
+
   it('reads them once when landing on Home, shared by Home and the bell', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
     const sent = serve({ [SESSION]: many(sessionAt(demo, [demo])), [REQUESTS]: many(() => json(WAITING)) })
