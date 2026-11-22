@@ -43,6 +43,9 @@ export function AttentionProvider({ facilityId, permissions, readOnOpen = true, 
   // The facility the opening read was done for. The frame keeps this provider mounted across its own redirects
   // (BlueFrame.tsx), so a redirect does not read again; a facility switch does.
   const opened = useRef<string | undefined>(undefined)
+  // The facility the opening effect last saw. A switch forgets the opening read, so coming back to a facility (A, then
+  // B, which makes no opening read, then A again) reads it again, even where no Home opens to ask.
+  const seen = useRef<string | undefined>(undefined)
   const reload = useCallback(() => {
     if (facilityId && landing.current?.facilityId === facilityId) return
     setAsked(current => ({ facilityId, count: current.count + 1 }))
@@ -50,10 +53,16 @@ export function AttentionProvider({ facilityId, permissions, readOnOpen = true, 
   // The opening read, once per facility. Home asking in the same render (its effect runs first) folds into this one,
   // as both updates land in the same render.
   useEffect(() => {
+    if (seen.current !== facilityId) {
+      seen.current = facilityId
+      opened.current = undefined
+    }
     if (!facilityId || !allowed || !readOnOpen || opened.current === facilityId) return
     opened.current = facilityId
     landing.current = { facilityId }
-    setAsked(current => ({ facilityId, count: current.count + 1 }))
+    // Already asked for this facility (Home asked in this same render, or the last read was this facility's and the
+    // switch back reads it again): that read is the opening read, so it is not asked twice.
+    setAsked(current => current.facilityId === facilityId && current.count > 0 ? current : { facilityId, count: current.count + 1 })
   }, [facilityId, allowed, readOnOpen])
   useEffect(() => {
     if (!facilityId || !allowed || asked.facilityId !== facilityId || asked.count === 0) {

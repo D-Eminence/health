@@ -57,3 +57,53 @@ describe('the bell on landing', () => {
     expect(reads(sent)).toBe(1)
   })
 })
+
+describe('the bell after a facility switch', () => {
+  async function setUp() {
+    const { render, screen: view, waitFor } = await import('@testing-library/react')
+    const { useEffect } = await import('react')
+    const { staffApi } = await import('../../../staff/api')
+    const { AttentionProvider, useAccessRequests, useReloadAccessRequests } = await import('../../../ehr-blue/frame/attention')
+    const list = vi.spyOn(staffApi, 'listAccessRequests').mockResolvedValue(WAITING as never)
+    function Count() {
+      const read = useAccessRequests()
+      return <output>{read.state === 'ready' ? `${read.pending} waiting` : read.state}</output>
+    }
+    /** What Home does on opening: asks for the requests to be read. */
+    function AsksOnOpening() {
+      const reload = useReloadAccessRequests()
+      useEffect(() => { reload() }, [reload])
+      return null
+    }
+    const at = (facilityId: string, permissions: string[], home = false) =>
+      <AttentionProvider facilityId={facilityId} permissions={permissions}>{home ? <AsksOnOpening /> : null}<Count /></AttentionProvider>
+    return { render, view, waitFor, list, at }
+  }
+
+  it('reads again on coming back to a facility, after one where Home asked and nothing could be read', async () => {
+    const { render, view, waitFor, list, at } = await setUp()
+    const { rerender } = render(at('facility-a', ['identity.consent.write']))
+    await waitFor(() => expect(view.getByText('2 waiting')).toBeDefined())
+    expect(list).toHaveBeenCalledTimes(1)
+    // Facility B: no identity.consent.write. Home opens there and asks, but nothing is read.
+    rerender(at('facility-b', [], true))
+    await waitFor(() => expect(view.getByText('none')).toBeDefined())
+    expect(list).toHaveBeenCalledTimes(1)
+    // Back at facility A, on a product page (no Home): read once more, so the bell counts.
+    rerender(at('facility-a', ['identity.consent.write']))
+    await waitFor(() => expect(view.getByText('2 waiting')).toBeDefined())
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(list).toHaveBeenLastCalledWith('facility-a')
+  })
+
+  it('reads once on coming back to a facility when nothing was asked in between', async () => {
+    const { render, view, waitFor, list, at } = await setUp()
+    const { rerender } = render(at('facility-a', ['identity.consent.write']))
+    await waitFor(() => expect(view.getByText('2 waiting')).toBeDefined())
+    rerender(at('facility-b', []))
+    await waitFor(() => expect(view.getByText('none')).toBeDefined())
+    rerender(at('facility-a', ['identity.consent.write']))
+    await waitFor(() => expect(view.getByText('2 waiting')).toBeDefined())
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+})
