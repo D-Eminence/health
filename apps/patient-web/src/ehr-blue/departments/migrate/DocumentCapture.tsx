@@ -342,7 +342,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, ocr,
   return <>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <EhrDataTable caption="Documents on this encounter" captionHidden loading={loading} rows={items} rowKey={item => item.id}
-      emptyTitle="No documents yet" emptyMessage={canWrite ? 'Upload a document for this encounter below.' : 'Documents added to this encounter are listed here.'}
+      emptyTitle="No documents yet" emptyMessage={canWrite && uploadsHere ? 'Upload a document for this encounter below.' : 'Documents added to this encounter are listed here.'}
       columns={[
         { id: 'record', header: 'Record', cell: item => <div className="hid-ehr-dept-record-name">
           <span className="hid-ehr-dept-strong" id={`migrate-document-${item.id}`}>{item.fileName}</span>
