@@ -20,6 +20,7 @@ import {
   checkOutside, EMPTY_OUTSIDE, normalizeHealthId, normalizePhone, OutsideFields, outsideOrder, PickCard, Stepper, useAttemptKey,
   type OutsideDraft, type OutsideErrors, type PickItem,
 } from './walkIn'
+import { printReceipt } from '../../../print/printPaper'
 
 const SEARCH_ID = 'sell-search'
 const BASKET_ID = 'sell-basket-title'
@@ -467,7 +468,7 @@ function DoneStage({ facilityId, sale, settings, permissions, onSale, onNext }: 
     <Receipt bill={sale} receipt={receipt.data} facilityName={facility?.name} hmos={settings?.hmos} footer={settings?.receiptFooter} />
     {canGiveHealthId(sale, permissions) ? <GiveHealthId idBase="sell-after" facilityId={facilityId} bill={sale} onAttached={onSale} /> : null}
     <FormActions>
-      <Button icon={Printer} onClick={() => window.print()}>Print receipt</Button>
+      <Button icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print receipt</Button>
       <Button variant="primary" size="lg" icon={Plus} onClick={onNext}>New sale</Button>
     </FormActions>
   </div>
