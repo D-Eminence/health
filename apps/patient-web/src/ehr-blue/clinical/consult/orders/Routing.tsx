@@ -344,6 +344,34 @@ export function routeStatusClass(tone: keyof typeof TONES): string {
 }
 
 /**
+ * What today's OrderRoutePanel says under its status line (staff/routes/OrderRoutes.tsx:388-393), word for word: what to
+ * do next, why the receiving facility couldn't complete it, its wrong-patient and late reports, and why this page can't
+ * act on it. Shown on the order's page (RouteCard) and under the order's row in the visit's list, from the route
+ * summary the list already carries: it reads nothing.
+ */
+export function RouteNotices({ route, patient }: { route: OrderRouteSummary; patient: string }) {
+  const unavailable = unavailableText(route)
+  const report = wrongPatientReportOf(route)
+  const lateServed = useLateCorrectionServed() === true
+  const lateNotice = lateReportNotice(route, patient)
+  const guidance = routeGuidance(route, patient, lateServed)
+  const notCompleted = notCompletedText(route, patient)
+  return (
+    <>
+      {guidance ? <p className="hid-ehr-clinical-orders-muted">{guidance}</p> : null}
+      {notCompleted ? <p className="hid-ehr-clinical-orders-notice">{notCompleted}</p> : null}
+      {route.endedKind === 'wrong_patient' || report ? (
+        <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">
+          {wrongPatientNotice(route, patient).map((line, index) => <p key={index}>{line}</p>)}
+          {lateNotice ? <p>{lateNotice}</p> : null}
+        </div>
+      ) : null}
+      {unavailable ? <p className="hid-ehr-clinical-orders-notice">{unavailable}</p> : null}
+    </>
+  )
+}
+
+/**
  * Today's OrderRoutePanel as a card under the order: where its latest route went and what became of it (including
  * what the receiving facility reported: the wrong-patient report, a late report, that it couldn't complete it),
  * Withdraw while it waits, and, when asked (each read is audited), who confirmed and what came back.
@@ -358,12 +386,6 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
   loadViews: () => Promise<OrderRouteView[]>
 }) {
   const status = routeStatus(route, context.patient)
-  const unavailable = unavailableText(route)
-  const report = wrongPatientReportOf(route)
-  const lateServed = useLateCorrectionServed() === true
-  const lateNotice = lateReportNotice(route, context.patient)
-  const guidance = routeGuidance(route, context.patient, lateServed)
-  const notCompleted = notCompletedText(route, context.patient)
   const [open, setOpen] = useState(false)
   const [views, setViews] = useState<OrderRouteView[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -404,15 +426,7 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
     <EhrCard title={<span id={titleId} tabIndex={-1}>{lab ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</span>}>
       {route.reference ? <p className="hid-ehr-clinical-orders-muted">Ref {route.reference}</p> : null}
       <p className={routeStatusClass(status.tone)}>{status.text}</p>
-      {guidance ? <p className="hid-ehr-clinical-orders-muted">{guidance}</p> : null}
-      {notCompleted ? <p className="hid-ehr-clinical-orders-notice">{notCompleted}</p> : null}
-      {route.endedKind === 'wrong_patient' || report ? (
-        <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">
-          {wrongPatientNotice(route, context.patient).map((line, index) => <p key={index}>{line}</p>)}
-          {lateNotice ? <p>{lateNotice}</p> : null}
-        </div>
-      ) : null}
-      {unavailable ? <p className="hid-ehr-clinical-orders-notice">{unavailable}</p> : null}
+      <RouteNotices route={route} patient={context.patient} />
       <p>
         <EhrButton variant="secondary" aria-expanded={open} onClick={() => setOpen(value => !value)}>
           {open ? 'Hide details' : lab ? 'Show details and results' : 'Show details and dispensing'}

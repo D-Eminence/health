@@ -328,10 +328,14 @@ describe('Consultation record', () => {
     })
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
+    await act(async () => {})
     const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
-    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
-    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    // The wait line shows only once it is pressed.
+    expect(within(card('Actions')).queryByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeNull()
     fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    await act(async () => {})
     expect(printSpy).not.toHaveBeenCalled()
   })
 
@@ -342,8 +346,10 @@ describe('Consultation record', () => {
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
     const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
-    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
     expect(printSpy).not.toHaveBeenCalled()
   })
 
@@ -444,13 +450,17 @@ describe('Consultation record', () => {
     // The draft is there and still offered for signing; a second note can be written beside it.
     expect(actions().getByRole('button', { name: 'Sign note' })).toBeTruthy()
     fireEvent.click(actions().getByRole('button', { name: 'Add notes' }))
-    expect(actions().getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
+    expect(actions().getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     const type = actions().getByLabelText(labelled('Note type')) as HTMLInputElement
     const title = actions().getByLabelText(labelled('Title')) as HTMLInputElement
     const content = actions().getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement
     expect([type.maxLength, type.placeholder, title.maxLength, content.maxLength]).toEqual([80, 'Consultation', 240, 100_000])
     fireEvent.click(actions().getByRole('button', { name: 'Save draft' }))
-    expect(actions().getAllByText('Complete this field.')).toHaveLength(3)
+    // Classic leaves the required check to the browser (Clinical.tsx RecordForm :558): each empty field says the
+    // browser's own message, never the redesign's "Complete this field.".
+    expect(type.validationMessage).not.toBe('')
+    expect(actions().getAllByText(type.validationMessage)).toHaveLength(3)
+    expect(actions().queryByText('Complete this field.')).toBeNull()
     expect(api.createRecord).not.toHaveBeenCalled()
     fireEvent.change(type, { target: { value: ' Progress ' } })
     fireEvent.change(title, { target: { value: 'Evening review' } })
@@ -949,12 +959,12 @@ describe('Consultation record: diagnoses', () => {
     expect(details.querySelector(':scope > div')?.textContent).toBe('Code: ICD-10 B54')
     // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
     expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
-    const form = diagnoses.getByRole('button', { name: 'Add diagnosis' }).closest('form') as HTMLFormElement
+    const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
     expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification', 'Notes'])
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect((await diagnoses.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
     expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(document.body.textContent).not.toContain('shorter than or equal to 500 characters')
@@ -962,7 +972,7 @@ describe('Consultation record: diagnoses', () => {
     expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
     expect(card('Diagnoses').textContent).not.toContain('Display')
 
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses',
       { codeSystem: 'ICD-10', code: 'R50.9', display: 'Fever', clinicalStatus: 'active', verificationStatus: 'unconfirmed', notes: undefined }, expect.any(String))
@@ -1051,7 +1061,7 @@ describe('Consultation record: diagnoses', () => {
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever (fictional)' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     await waitFor(() => expect(release).not.toBeNull())
     const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
     // Today's disabled={recordsLoading} (Clinical.tsx:1828).
@@ -1115,7 +1125,7 @@ describe('Consultation record: documents', () => {
     Object.defineProperty(large, 'size', { value: 52_428_801 })
     fireEvent.change(input, { target: { files: [large] } })
     fireEvent.click(documents.getByRole('button', { name: 'Upload document' }))
-    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
     expect(document.activeElement).toBe(input)
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
@@ -1171,11 +1181,11 @@ describe('Consultation record: documents', () => {
     expect(document.activeElement).toBe(input)
     fireEvent.change(input, { target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
     fireEvent.click(upload)
-    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
-    expect(await documents.findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    expect(await documents.findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
     expect(api.uploadDocument).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, file)
     expect(api.documents).toHaveBeenCalledTimes(2)
   })
@@ -1183,7 +1193,7 @@ describe('Consultation record: documents', () => {
   it('shows the empty and failed states', async () => {
     api.documents.mockResolvedValue({ items: [], nextCursor: null })
     await openEncounter()
-    expect(within(card('Documents')).getByText('No documents for this consultation.')).toBeTruthy()
+    expect(within(card('Documents')).getByText('No documents for this encounter.')).toBeTruthy()
   })
 
   it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {
@@ -1624,7 +1634,7 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
     api.documents.mockRejectedValue(UNAVAILABLE())
     fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
-    expect(await documents().findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    expect(await documents().findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
     await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}Try again`))
     // The sentence and its Try again are the card's own, as before, and the only ones on the page.
     expect(card('Documents').contains(sentence())).toBe(true)

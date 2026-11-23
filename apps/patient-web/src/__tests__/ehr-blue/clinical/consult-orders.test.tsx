@@ -290,8 +290,8 @@ describe('Connected orders', () => {
   it('says today’s empty sentences, and a refused read', async () => {
     setLists([], [])
     open(ENCOUNTER_ID)
-    expect(await screen.findByText('No prescriptions for this consultation.')).toBeTruthy()
-    expect(screen.getByText('No lab requests for this consultation.')).toBeTruthy()
+    expect(await screen.findByText('No prescriptions for this encounter.')).toBeTruthy()
+    expect(screen.getByText('No lab requests for this encounter.')).toBeTruthy()
   })
 
   it('shows a refused read in the design’s error box', async () => {
@@ -1621,6 +1621,32 @@ describe('Where each order stands, under its row in the orders list', () => {
     expect(within(row).getByText(/^Dispensed by Demo Pharmacy on .+\.$/)).toBeTruthy()
   })
 
+  it('parity row 5: shows classic’s detail line and when each order was recorded (Clinical.tsx recordDetail, :1818-1852)', async () => {
+    setLists([prescription()], [labRequest()])
+    const { row: rx } = await rowOf('Pharmacy · Amoxicillin')
+    expect(within(rx).getByText('Twice daily')).toBeTruthy()
+    expect(within(rx).getByText(`Recorded: ${formatWhen('2026-10-30T09:00:00.000Z')}`)).toBeTruthy()
+    const lab = screen.getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li')!
+    // Classic's test code is left off the row: no codes on facility screens.
+    expect(within(lab as HTMLElement).getByText('Routine')).toBeTruthy()
+    expect(within(lab as HTMLElement).queryByText(/718-7/)).toBeNull()
+    expect(within(lab as HTMLElement).getByText(`Recorded: ${formatWhen('2026-10-30T09:05:00.000Z')}`)).toBeTruthy()
+  })
+
+  it('parity row 5: says under the row why the receiving facility couldn’t complete it, and its wrong-patient report (OrderRoutes.tsx:388-393)', async () => {
+    setLists([prescription({ status: 'active', rowVersion: 4, orderRoute: route({ kind: 'prescription', effectiveState: 'cancelled', acceptedAt: ACCEPTED_AT,
+      endedAt: ENDED_AT, endedKind: 'receiving_unable', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true },
+      notCompleted: { reason: 'controlled_requirements', sampleTaken: null, resultRecorded: null } }) })],
+    [labRequest({ status: 'active', rowVersion: 3, orderRoute: route({ effectiveState: 'completed', acceptedAt: ACCEPTED_AT, completedAt: ENDED_AT,
+      endedAt: ENDED_AT, endedKind: 'wrong_patient' }) })], { crossFacilityOrders: true })
+    const { row } = await rowOf('Pharmacy · Amoxicillin')
+    expect(within(row).getByText('Demo Pharmacy says it needs a signed or paper prescription for this controlled medicine. Give Patient One a signed paper prescription, or write a new prescription and send it to another pharmacy.')).toBeTruthy()
+    const lab = screen.getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li') as HTMLElement
+    expect(lab.querySelector('.hid-ehr-clinical-orders-danger')?.textContent).toBeTruthy()
+    // From the list's answer: no route is read for either.
+    expect(routes.routes).not.toHaveBeenCalled()
+  })
+
   it('says nothing more for an order never sent elsewhere, one whose route the EHR did not send, or a malformed route', async () => {
     setLists([prescription({ orderRoute: null })], [labRequest({ orderRoute: { id: ROUTE, effectiveState: 'sent' } }),
       labRequest({ id: 'c0000000-0000-4000-8000-000000000002', testDisplay: 'Blood glucose' })], { crossFacilityOrders: true })
@@ -2207,6 +2233,8 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     expect(screen.queryByLabelText(labelled('Test display'))).toBeNull()
     refused.unmount()
     staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    // The write check is asked once per open patient (chart.tsx): a read-only grant is a patient opened again.
+    staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ writeAllowed: false })
     const readOnly = open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()

@@ -86,8 +86,15 @@ export function checkFields(fields: readonly FieldDef[], values: FormValues): Fi
  * the submit button. Checks run on submit; the first problem gets focus; a field's problem clears as it changes.
  * `onSubmit` may answer a form error or field errors from the server, shown in the same places.
  */
-export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy, onFieldChange }: {
+export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy, onFieldChange, nativeRequired = false }: {
   fields: readonly FieldDef[]
+  /**
+   * A required field left empty says what the browser itself says of it (its `validationMessage`), as classic's forms
+   * do: they leave the required check to the browser (staff/routes/Clinical.tsx RecordForm :558, :579). A value the
+   * browser accepts but the page refuses (only spaces) keeps "Complete this field.", classic's words when EHR refuses
+   * an empty field (staff/fieldProblem.ts:75-80).
+   */
+  nativeRequired?: boolean
   /** A page with another primary action makes this form's submit secondary (one focal point per screen). */
   submitVariant?: 'primary' | 'secondary'
   /**
@@ -146,7 +153,15 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (sending.current || disabled) return
-    const problems = { ...checkFields(fields, values), ...(validate?.(values) ?? {}) }
+    const problems: Record<string, string> = { ...checkFields(fields, values), ...(validate?.(values) ?? {}) }
+    if (nativeRequired) {
+      for (const [key, problem] of Object.entries(problems)) {
+        const control = controls.current.get(key)
+        const native = problem === COMPLETE_FIELD && control && 'validity' in control && (control as HTMLInputElement).validity.valueMissing
+          ? (control as HTMLInputElement).validationMessage : ''
+        if (native) problems[key] = native
+      }
+    }
     setErrors(problems)
     setFormError(null)
     if (Object.keys(problems).length > 0) {
