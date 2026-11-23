@@ -19,7 +19,7 @@ import {
 } from '../../parts/allergyWarning'
 import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
 import { ErrorBox } from '../../parts/Notices'
-import { ROUTED_DETAILS_NOT_SENT } from '../../../prescriptionDetails'
+import { ROUTED_DETAILS_NOT_SENT, ROUTED_DETAILS_REWRITE } from '../../../prescriptionDetails'
 import { ACK_REFUSED_ERROR } from './prescribingAllergies'
 import { attestationProblem, dispensingLines, resultLines, viewProblem, withdrawnResultLines, type WithdrawnLine } from './routeLines'
 
@@ -206,7 +206,8 @@ export function DestinationFields({ context, kind, priority, value, onChange, re
  * checked.
  *
  * A prescription that carries any dispensing details (hid-system 0125: strength, form, how long for, quantity to
- * dispense, priority; `detailsNotSent`) goes without them: the form says so first, and Send is described by it.
+ * dispense, priority; `detailsNotSent`) goes without them: the form says so first, with what to do when its
+ * instructions don't say them (a saved prescription's can't be changed), and Send is described by it.
  */
 export function SendElsewhere({ kind, context, priority, detailsNotSent = false, onSend, onCancel, warnAboutAllergies }: {
   kind: OrderRouteKind
@@ -283,7 +284,8 @@ export function SendElsewhere({ kind, context, priority, detailsNotSent = false,
   return (
     <form className="hid-ehr-clinical-form hid-ehr-clinical-orders-action-form" noValidate aria-labelledby={titleId} onSubmit={event => void submit(event)}>
       <p className="hid-ehr-clinical-orders-lead"><strong id={titleId}>{sendLabel(kind)}</strong></p>
-      {detailsNote ? <p id={detailsId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-tone-caution">{ROUTED_DETAILS_NOT_SENT}</p> : null}
+      {detailsNote ? <p id={detailsId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-tone-caution">
+        {`${ROUTED_DETAILS_NOT_SENT} ${ROUTED_DETAILS_REWRITE}`}</p> : null}
       <DestinationFields context={context} kind={kind} priority={priority} value={choice} onChange={setChoice}
         reloadAttestation={reload} errors={errors} queryRef={queryRef} attestedRef={attestedRef} />
       {warnAboutAllergies && ack.warning ? <AllergyWarningPanel idPrefix="rx-send" headingLevel={3} warning={ack.warning} ticked={ack.ticked}

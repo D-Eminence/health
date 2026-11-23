@@ -8,7 +8,7 @@ import { ChartProvider } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import {
   DETAILS_NOT_TAKEN, DURATION_NUMBER_TEXT, DURATION_PAIR, PRIORITY_HINT, QUANTITY_HINT, QUANTITY_NUMBER_TEXT, QUANTITY_PAIR, ROUTED_DETAILS_NOT_SENT,
-  STRENGTH_HINT, checkDetails, detailLines, detailsBody, takesDispensingDetails,
+  ROUTED_DETAILS_REWRITE, STRENGTH_HINT, checkDetails, detailLines, detailsBody, fillsDetails, takesDispensingDetails,
 } from '../../../ehr-blue/prescriptionDetails'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
@@ -334,6 +334,8 @@ describe('A prescription’s page', () => {
 
 describe('Sending a prescription to a pharmacy at another facility', () => {
   const ALL_DETAILS = { strength: '500 mg', doseForm: 'capsule', durationValue: 7, durationUnit: 'day', quantityToDispense: 21, quantityUnit: 'capsules', priority: 'urgent' }
+  // The send's note: that the pharmacy there will not see the details, then what to do on a saved prescription.
+  const SEND_NOTE = `${ROUTED_DETAILS_NOT_SENT} ${ROUTED_DETAILS_REWRITE}`
 
   beforeEach(() => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
@@ -351,6 +353,11 @@ describe('Sending a prescription to a pharmacy at another facility', () => {
     vi.unstubAllEnvs()
   })
 
+  /** Whether the page says, anywhere, that a pharmacy elsewhere will not see the details. */
+  function saysDetailsNotSent() {
+    return (document.body.textContent ?? '').includes(ROUTED_DETAILS_NOT_SENT)
+  }
+
   async function openSend(kind: 'pharmacy' | 'laboratory', id: string, action: string, search: string) {
     renderPage(<Consult />, 'consult', `/${orderPath(ENCOUNTER_ID, kind, id)}`)
     await screen.findByRole('heading', { level: 1 })
@@ -358,49 +365,120 @@ describe('Sending a prescription to a pharmacy at another facility', () => {
     expect(await screen.findByLabelText(labelled(search))).toBeTruthy()
   }
 
-  it('says first that the pharmacy there will not see the details this prescription carries, and ties Send to it', async () => {
-    items = [prescription({ orderRoute: null, ...ALL_DETAILS })]
-    await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
-    const note = screen.getByText(ROUTED_DETAILS_NOT_SENT)
-    expect(note.className).toContain('hid-ehr-clinical-orders-notice')
-    expect(ROUTED_DETAILS_NOT_SENT).toBe('A pharmacy at another facility will not see the strength, form, how long for, quantity to dispense or priority. '
-      + 'Write them in the instructions.')
-    expect(screen.getByRole('button', { name: 'Send' }).getAttribute('aria-describedby')).toBe(note.id)
-    // It stays while the pharmacy is chosen, up to Send.
-    change('Search for the pharmacy', 'Demo Pharmacy')
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
-    fireEvent.click(await screen.findByRole('radio', { name: /^Demo Pharmacy/ }))
-    expect(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }).getAttribute('aria-describedby')).toBe(note.id)
-    expect(screen.getByText(ROUTED_DETAILS_NOT_SENT)).toBe(note)
+  describe('from a saved prescription’s page', () => {
+    it('says first that the pharmacy there will not see the details it carries, and what to do, and ties Send to it', async () => {
+      items = [prescription({ orderRoute: null, ...ALL_DETAILS })]
+      await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
+      const note = screen.getByText(SEND_NOTE)
+      expect(note.className).toContain('hid-ehr-clinical-orders-notice')
+      expect(ROUTED_DETAILS_NOT_SENT).toBe('A pharmacy at another facility will not see the strength, form, how long for, quantity to dispense or priority. '
+        + 'Write them in the instructions.')
+      expect(ROUTED_DETAILS_REWRITE).toBe('If the instructions don’t already say them, cancel this prescription and write a new one with them in the instructions.')
+      expect(screen.getByRole('button', { name: 'Send' }).getAttribute('aria-describedby')).toBe(note.id)
+      // It stays while the pharmacy is chosen, up to Send.
+      change('Search for the pharmacy', 'Demo Pharmacy')
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+      fireEvent.click(await screen.findByRole('radio', { name: /^Demo Pharmacy/ }))
+      expect(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }).getAttribute('aria-describedby')).toBe(note.id)
+      expect(screen.getByText(SEND_NOTE)).toBe(note)
+    })
+
+    it('says so for a prescription carrying one detail only', async () => {
+      items = [prescription({ orderRoute: null, priority: 'stat' })]
+      await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
+      expect(screen.getByText(SEND_NOTE)).toBeTruthy()
+    })
+
+    it('says nothing of the details for a prescription without them', async () => {
+      items = [prescription({ orderRoute: null })]
+      await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
+      expect(saysDetailsNotSent()).toBe(false)
+      expect(document.body.textContent).not.toContain(ROUTED_DETAILS_REWRITE)
+      expect(screen.getByRole('button', { name: 'Send' }).hasAttribute('aria-describedby')).toBe(false)
+    })
+
+    it('says nothing of them for a lab request, though it has a priority', async () => {
+      items = [labRequest({ orderRoute: null, priority: 'urgent' })]
+      await openSend('laboratory', LAB, 'Send to another laboratory', 'Search for the laboratory')
+      expect(saysDetailsNotSent()).toBe(false)
+      expect(document.body.textContent).not.toContain(ROUTED_DETAILS_REWRITE)
+    })
   })
 
-  it('says so for a prescription carrying one detail only', async () => {
-    items = [prescription({ orderRoute: null, priority: 'stat' })]
-    await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
-    expect(screen.getByText(ROUTED_DETAILS_NOT_SENT)).toBeTruthy()
-  })
+  describe('while prescribing, beside the hint on sending it elsewhere', () => {
+    function save() {
+      return screen.getByRole('button', { name: 'Save draft' })
+    }
 
-  it('says nothing of the details for a prescription without them', async () => {
-    items = [prescription({ orderRoute: null })]
-    await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
-    expect(screen.queryByText(ROUTED_DETAILS_NOT_SENT)).toBeNull()
-    expect(screen.getByRole('button', { name: 'Send' }).hasAttribute('aria-describedby')).toBe(false)
-  })
+    it('says it once a detail is filled in, and ties Save draft to it', async () => {
+      await form()
+      await screen.findByLabelText(labelled('Strength'))
+      fillToday()
+      const hint = screen.getByText(PRESCRIPTION_ROUTING_HINT)
+      expect(saysDetailsNotSent()).toBe(false)
+      change('Strength', '500 mg')
+      const note = screen.getByText(ROUTED_DETAILS_NOT_SENT)
+      expect(hint.nextElementSibling).toBe(note)
+      expect(note.className).toContain('hid-ehr-clinical-orders-notice')
+      // A new prescription's instructions can still be written: no word of cancelling it.
+      expect(document.body.textContent).not.toContain(ROUTED_DETAILS_REWRITE)
+      expect(save().getAttribute('aria-describedby')).toBe(note.id)
+      // Emptied, it goes; any other detail brings it back.
+      change('Strength', '  ')
+      expect(saysDetailsNotSent()).toBe(false)
+      expect(save().hasAttribute('aria-describedby')).toBe(false)
+      for (const [label, value] of [['Form', 'capsule'], ['How long for', '7'], ['Days, weeks or months', 'day'], ['Quantity to dispense', '21'],
+        ['Quantity unit', 'capsules'], ['Priority', 'urgent']] as const) {
+        change(label, value)
+        expect(screen.getByText(ROUTED_DETAILS_NOT_SENT)).toBeTruthy()
+        change(label, '')
+        expect(saysDetailsNotSent()).toBe(false)
+      }
+    })
 
-  it('says nothing of them for a lab request, though it has a priority', async () => {
-    items = [labRequest({ orderRoute: null, priority: 'urgent' })]
-    await openSend('laboratory', LAB, 'Send to another laboratory', 'Search for the laboratory')
-    expect(screen.queryByText(ROUTED_DETAILS_NOT_SENT)).toBeNull()
-  })
+    it('says nothing with no detail filled in', async () => {
+      await form()
+      await screen.findByLabelText(labelled('Strength'))
+      fillToday()
+      expect(screen.getByText(PRESCRIPTION_ROUTING_HINT)).toBeTruthy()
+      expect(saysDetailsNotSent()).toBe(false)
+      expect(save().hasAttribute('aria-describedby')).toBe(false)
+    })
 
-  it('chooses no pharmacy while prescribing: the prescription is sent elsewhere from its own page, where it says so', async () => {
-    await form()
-    await screen.findByLabelText(labelled('Strength'))
-    change('Strength', '500 mg')
-    change('Priority', 'urgent')
-    expect(screen.getByText(PRESCRIPTION_ROUTING_HINT)).toBeTruthy()
-    expect(screen.queryByLabelText(labelled('Search for the pharmacy'))).toBeNull()
-    expect(screen.queryByText(ROUTED_DETAILS_NOT_SENT)).toBeNull()
+    it('says nothing where the prescription can’t be sent elsewhere', async () => {
+      staff.permissions = [...READ_WRITE]
+      await form()
+      await screen.findByLabelText(labelled('Strength'))
+      change('Strength', '500 mg')
+      expect(screen.queryByText(PRESCRIPTION_ROUTING_HINT)).toBeNull()
+      expect(saysDetailsNotSent()).toBe(false)
+    })
+
+    it('takes it away with the details when the EHR no longer takes them', async () => {
+      await form()
+      await screen.findByLabelText(labelled('Strength'))
+      fillToday()
+      change('Priority', 'urgent')
+      expect(screen.getByText(ROUTED_DETAILS_NOT_SENT)).toBeTruthy()
+      api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
+        code: 'VALIDATION_FAILED', details: [{ field: 'priority', messages: ['property priority should not exist'] }],
+      }))
+      fireEvent.click(save())
+      await confirmAndSave()
+      expect((await screen.findByRole('alert')).textContent).toBe(DETAILS_NOT_TAKEN)
+      expect(screen.queryByLabelText(labelled('Priority'))).toBeNull()
+      expect(saysDetailsNotSent()).toBe(false)
+    })
+
+    it('says nothing on a lab request sent to another laboratory, whatever its priority', async () => {
+      renderPage(<Consult />, 'consult', `/${ENCOUNTER_ID}/orders/new/laboratory`)
+      expect(await screen.findByRole('heading', { level: 1, name: 'Add lab requests' })).toBeTruthy()
+      await waitFor(() => expect(options('Request handling')).toContain('Create and send to another laboratory'))
+      change('Priority', 'stat')
+      change('Request handling', 'route')
+      expect(await screen.findByLabelText(labelled('Search for the laboratory'))).toBeTruthy()
+      expect(saysDetailsNotSent()).toBe(false)
+    })
   })
 })
 
@@ -429,6 +507,19 @@ describe('prescriptionDetails', () => {
     expect(checkDetails({ quantityToDispense: '100000000', quantityUnit: 'tablets' }, true)).toEqual({ quantityToDispense: QUANTITY_NUMBER_TEXT })
     expect(checkDetails({ quantityToDispense: '0.0000', quantityUnit: 'tablets' }, true)).toEqual({ quantityToDispense: QUANTITY_NUMBER_TEXT })
     expect(checkDetails({ quantityToDispense: '21' }, true)).toEqual({ quantityUnit: QUANTITY_PAIR })
+  })
+
+  it('says whether any detail is filled in, only while the EHR takes them', () => {
+    const one: Record<string, string>[] = [{ strength: '500 mg' }, { doseForm: 'capsule' }, { durationValue: '7' }, { durationUnit: 'day' }, { quantityToDispense: '21' },
+      { quantityUnit: 'capsules' }, { priority: 'urgent' }]
+    for (const values of one) {
+      expect(fillsDetails(values, true)).toBe(true)
+      expect(fillsDetails(values, false)).toBe(false)
+    }
+    expect(fillsDetails({}, true)).toBe(false)
+    expect(fillsDetails({ strength: '   ', priority: '' }, true)).toBe(false)
+    // Today's fields are not details.
+    expect(fillsDetails({ medicationDisplay: 'Amoxicillin', doseQuantity: '500', doseUnitChoice: 'mg', instructions: 'After meals' }, true)).toBe(false)
   })
 
   it('says a saved duration in words', () => {

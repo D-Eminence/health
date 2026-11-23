@@ -47,11 +47,14 @@ export const QUANTITY_PAIR = 'Enter both the quantity to dispense and its unit, 
 export const DETAILS_NOT_TAKEN = 'This prescription was not saved. Health ID is not taking strength, form, how long for, '
   + 'quantity to dispense or priority at the moment, so those fields have been taken off the form. Check the prescription and save it again.'
 /**
- * Said where a prescription that carries any of the details is sent to a pharmacy at another facility: what goes there
- * carries none of them (the backend contract, item 4b), only the instructions.
+ * Said where a prescription that carries any of the details is sent to a pharmacy at another facility, and beside the
+ * prescribe form's hint on sending it there once one is filled in: what goes there carries none of them (the backend
+ * contract, item 4b), only the instructions.
  */
 export const ROUTED_DETAILS_NOT_SENT = 'A pharmacy at another facility will not see the strength, form, how long for, quantity to dispense '
   + 'or priority. Write them in the instructions.'
+/** After it, on the send itself: a saved prescription's instructions can't be changed (Ola, clinical owner). */
+export const ROUTED_DETAILS_REWRITE = 'If the instructions don’t already say them, cancel this prescription and write a new one with them in the instructions.'
 
 /** The details' fields, by their request names (a refusal naming one is then marked at it). */
 export const DETAIL_FIELDS: readonly FieldDef[] = [
@@ -76,6 +79,11 @@ export function withDetailFields(fields: readonly FieldDef[], details: boolean):
 function text(values: FormValues, key: string): string {
   const entry = values[key]
   return typeof entry === 'string' ? entry.trim() : ''
+}
+
+/** Whether any of the details is filled in; never while the EHR does not take them (the form then has none). */
+export function fillsDetails(values: FormValues, details: boolean): boolean {
+  return details && DETAIL_FIELDS.some(field => text(values, field.key) !== '')
 }
 
 const WHOLE = /^\d{1,4}$/

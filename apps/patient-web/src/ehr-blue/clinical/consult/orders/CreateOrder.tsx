@@ -19,7 +19,9 @@ import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValue, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
-import { checkDetails, detailsBody, detailsRefusal, takesDispensingDetails, withDetailFields } from '../../../prescriptionDetails'
+import {
+  checkDetails, detailsBody, detailsRefusal, fillsDetails, ROUTED_DETAILS_NOT_SENT, takesDispensingDetails, withDetailFields,
+} from '../../../prescriptionDetails'
 import { KINDS, learnFrom, orderRights, patientWord, sentFrom, useFlash, type CreateWarning, type OrderKind, type Sent } from './orders'
 import { ACK_REFUSED_ERROR, checkAllergies, MEDICINE_CHANGED_ERROR, warnAfterRefusal } from './prescribingAllergies'
 import { DestinationFields, type RouteErrors } from './Routing'
@@ -205,6 +207,17 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
     ack.medicineChanged(medicine)
   }
 
+  // The values as entered (the form keeps them; this follows each change), for the note beside the hint on sending the
+  // prescription elsewhere: once a dispensing detail is filled in, that a pharmacy at another facility will not see it.
+  const [entered, setEntered] = useState<FormValues>({})
+  const fieldChanged = (key: string, next: FormValue) => {
+    medicineEdited(key, next)
+    setEntered(current => ({ ...current, [key]: next }))
+  }
+  const routable = rights.canRoute('pharmacy')
+  const detailsNoteId = useId()
+  const detailsNote = routable && fillsDetails(entered, details)
+
   /** What saving does, said before anything is sent; over a warning, that the reason is saved with it (Ola, wording #8). */
   const confirmSave = (values: FormValues) => {
     const medicine = medicineOf(values)
@@ -276,6 +289,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       }
       setSuccess(SAVED)
       medicineNow.current = { display: '' }
+      setEntered({})
       setForm(count => count + 1)
     } catch (caught) {
       // The EHR's own check refused the save (a draft is checked too): the warning it gives, "changed" when this save
@@ -302,8 +316,9 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       <RecordedAllergies allergies={allergies.state} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       <RecordForm key={form} fields={fields} validate={validate} onSubmit={submit} submitLabel="Save draft"
-        confirm={confirmSave} onFieldChange={medicineEdited}>
-        <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
+        confirm={confirmSave} onFieldChange={fieldChanged} describedBy={detailsNote ? detailsNoteId : undefined}>
+        <p className="hid-ehr-clinical-note">{routable ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
+        {detailsNote ? <p id={detailsNoteId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-tone-caution">{ROUTED_DETAILS_NOT_SENT}</p> : null}
         {ack.warning ? <AllergyWarningPanel idPrefix="rx" headingLevel={2} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
           errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       </RecordForm>
