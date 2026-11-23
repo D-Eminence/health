@@ -23,6 +23,10 @@ import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
 import { SOURCE_DELETED, isSourceDeletedRefusal, type DocumentDownload, type DocumentLink } from '../documentSource'
+import {
+  emergencySearchBody, parsePatientSearchAnswer, patientSearchBody,
+  type EmergencySearchKeys, type OwnFacilityAccess, type PatientSearchAnswer, type PatientSearchKeys,
+} from './patientSearch'
 
 export interface Facility {
   id: string
@@ -2489,6 +2493,25 @@ export const staffApi = {
   breakGlass: (facilityId: string, hid: string, reason: string) =>
     client.post<GrantResult>('/api/v1/identity/break-glass', { hid: hid.trim().toUpperCase(), reason, durationMinutes: 30 },
       { headers: facilityHeaders(facilityId, 'emergency') }),
+  // Break-glass for a card of this member's own emergency search (ID-5, 0132): the card's matchRef stands for the patient,
+  // never with a Health ID. The rest of the request, and the answer, are today's.
+  breakGlassByMatchRef: (facilityId: string, matchRef: string, reason: string) =>
+    client.post<GrantResult>('/api/v1/identity/break-glass', { matchRef, reason, durationMinutes: 30 },
+      { headers: facilityHeaders(facilityId, 'emergency') }),
+  // Staff patient search (0132): the keys in the body, never in an address; cards carry a matchRef, never a Health ID.
+  searchPatients: async (facilityId: string, keys: PatientSearchKeys): Promise<PatientSearchAnswer> =>
+    parsePatientSearchAnswer(await client.post<unknown>('/api/v1/identity/patient-search', patientSearchBody(keys),
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
+  // Emergency search (0132, ID-3b): exact name and date of birth, with the reason typed first; at most 5 cards.
+  emergencySearchPatients: async (facilityId: string, keys: EmergencySearchKeys): Promise<PatientSearchAnswer> =>
+    parsePatientSearchAnswer(await client.post<unknown>('/api/v1/identity/patient-search/emergency', emergencySearchBody(keys),
+      { headers: facilityHeaders(facilityId, 'emergency') })),
+  // Open this facility's own patient for 24 hours without a PIN (0131): doctors, nurses and clinicians. Exactly one of the
+  // Health ID (in the body) or the patient id.
+  openOwnFacilityPatient: (facilityId: string, patient: { hid: string } | { patientId: string }) =>
+    client.post<OwnFacilityAccess>('/api/v1/identity/own-facility-access',
+      'hid' in patient ? { hid: patient.hid.trim().toUpperCase() } : { patientId: patient.patientId },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
   closeGrant: (facilityId: string, grantId: string, reason: string) =>
     client.post<GrantResult>(`/api/v1/identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
       { headers: facilityHeaders(facilityId) }),

@@ -185,6 +185,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.outreachOrganiserActivate', 'enrollment.outreachInvitationAccept'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
+      // Staff patient search and emergency search, and opening this facility's own patient (Release A, 0131 and 0132).
+      'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
       // hid-system 0130: registration at the desk without a NIN.
