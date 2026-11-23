@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit in production release backend-44599329425-1-a9069e04070da0ba (deployed and verified 2026-11-19 about 19:46 UTC). hid-system #289 (dd0bf4a4: CI speed, changed-path image selection and gate selection; rebuilt every service once, no service behaviour change) and #290 (092cd248: faster deploy controller; rebuilt every service, no service behaviour change). No migration, no new setting. Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit in production release backend-45090410506-1-f6809418109f3dbb (deployed 2026-11-23 about 00:59 UTC). This is Release A: migrations 0128-0137 and runtime-grants.sql, signed by the owner (0136 re-signed at 503d85ca under Q134 B), applied by that release (10 pending before, 0 after), plus hid-system #306 (dry-run retry), #309 and #313 (runtime assessments Q133 A, Q135 A; gateway OpenVEX and libxml2 pin, Q136 A) and #308 (api-client: route-backed pharmacy work items no longer answer 502). Every service was rebuilt from 4c843270. Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "092cd248566aaedee897910ded783c7826c79b98",
-    "identity-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "ehr-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "lab-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "pharmacy-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "ocr-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "outreach-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "support-api": "092cd248566aaedee897910ded783c7826c79b98",
-    "notification-api": "092cd248566aaedee897910ded783c7826c79b98"
+    "gateway": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "identity-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "ehr-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "lab-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "pharmacy-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "ocr-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "outreach-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "support-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
+    "notification-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b"
   }
 }
