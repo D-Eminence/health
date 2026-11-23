@@ -11,8 +11,9 @@ import { ListPaging } from '../Notes'
 import { pagerProps, type RecordList } from '../records'
 import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
-import { FlashContext, KINDS, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
-import { routeStatus, routeStatusClass } from './Routing'
+import { formatWhen } from '../../parts/format'
+import { FlashContext, KINDS, orderDetail, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
+import { RouteNotices, routeStatus, routeStatusClass } from './Routing'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
 
@@ -78,25 +79,33 @@ function OrderListPages({ kind, list }: { kind: OrderKind; list: RecordList<Clin
 }
 
 /**
- * One order's row: its link and status and, for an order sent to another facility, today's words under the row for
- * where it went and where it stands (the OrderRoutePanel's heading and status line, Clinical.tsx:1889-1893,
- * OrderRoutes.tsx:384-387), read from the route summary the list already carries, so it costs no read. The rest of
- * that panel (what to do next, the reason it couldn't be completed, the wrong-patient notice, details and Withdraw) is
- * on the order's page. The reference stays there too: the row says no code.
+ * One order's row, as classic's list row (staff/routes/Clinical.tsx:1818-1852): its link and status, classic's detail
+ * line (frequency; test code and priority) and when it was recorded, and, for an order sent to another facility,
+ * classic's OrderRoutePanel words under it (OrderRoutes.tsx:384-393): where it went and where it stands, what to do
+ * next, why it couldn't be completed, and the wrong-patient and late reports (RouteNotices), all read from the route
+ * summary the list already carries, so it costs no read. The details, Withdraw and the order's other changes are on
+ * the order's page; the reference stays there too.
  */
 function OrderRow({ kind, record, to, patient }: { kind: OrderKind; record: ClinicalRecord; to: string; patient: string }) {
   const routeId = useId()
   // As today's list and the order page (rights.novu): only a novu backend's route, well formed (routeOf), is said.
   const route = usesNovuBackend() ? routeOf(record) : null
   const status = route ? routeStatus(route, patient) : null
+  const detail = orderDetail(kind, record)
+  const recorded = formatWhen(text(record.createdAt))
   return (
     <li className="hid-ehr-clinical-history-row">
-      <Link className="hid-ehr-clinical-link" to={to} aria-describedby={status ? routeId : undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+      <span>
+        <Link className="hid-ehr-clinical-link" to={to} aria-describedby={status ? routeId : undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+        {detail ? <span className="hid-ehr-clinical-cell-sub">{detail}</span> : null}
+        {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
+      </span>
       <StatusBadge status={text(record.status) || 'unknown'} />
-      {status ? (
+      {route && status ? (
         <div id={routeId} className="hid-ehr-clinical-orders-row-route">
           <p className="hid-ehr-clinical-orders-muted">{kind === 'laboratory' ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</p>
           <p className={routeStatusClass(status.tone)}>{status.text}</p>
+          <RouteNotices route={route} patient={patient} />
         </div>
       ) : null}
     </li>

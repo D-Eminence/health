@@ -13,7 +13,6 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
-import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical } from '../parts/Workspace'
 import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
@@ -35,14 +34,24 @@ const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here
 const NO_UPLOAD_HERE = 'Documents can be uploaded only in the EHR, Lab, Pharmacy or Migrate.'
 
 /**
- * A listed document's line: its file type, size and scan result, as today; once the types are served, its document
- * type first. A document without one is a clinical document; a type this page does not know is not named.
+ * A listed document's line: its file type, size and scan result, as classic's line (staff/routes/Clinical.tsx Documents,
+ * :950-961) gives them, in plain words, by the house rule that facility screens show no codes: classic prints the media
+ * type ("application/pdf"), sizes in KiB and "scan: <code>" (commit 1122e8a2, 2 Nov 2026). Once the types are served,
+ * its document type first. A document without one is a clinical document; a type this page does not know is not named.
+ * As classic, the row has no status badge: an upload not completed says so in classic's sentence.
  */
 function documentLine(document: DocumentRecord, served: boolean): string {
   const type = served ? documentTypeOf(document) : null
   return [type ? documentTypeLabel(type) : '', fileTypeLabel(document.mediaType), fileSize(document.sizeBytes),
     document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)].filter(Boolean).join(' · ')
 }
+
+/** Classic's upload words (Clinical.tsx Documents, :962-978), word for word: the refusal, the success and the note. */
+export const UPLOAD_REFUSED = 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'
+export const UPLOADED = 'Document uploaded. It can be opened once its virus scan is clean.'
+export const UPLOAD_NOTE = 'Files are scanned before download becomes available.'
+/** Classic's empty list (Clinical.tsx Documents). */
+export const NO_DOCUMENTS = 'No documents for this encounter.'
 
 /**
  * The card's error. After an upload whose list could not be read again it has "Try again" beside it (`again`), and
@@ -123,7 +132,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse(UPLOAD_REFUSED)
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -135,7 +144,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       const failure = await list.reload(true)
       form.reset()
       setDocumentType(DEFAULT_DOCUMENT_TYPE)
-      setNotice('Uploaded. It can be opened once the virus check is done.')
+      setNotice(UPLOADED)
       if (failure !== null) showError(reloadFailed(failure))
     } catch (caught) {
       // A lab result from a host other than the EHR, Lab or Migrate is refused (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE).
@@ -167,7 +176,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       <ListPaging list={list} />
       {list.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
       {list.items === null ? (list.loading ? <Loading label="Loading documents…" /> : null) : list.items.length === 0 ? (
-        <p>No documents for this consultation.</p>
+        <p>{NO_DOCUMENTS}</p>
       ) : (
         <ul className="hid-ehr-clinical-history-list">
           {list.items.map(document => {
@@ -183,7 +192,6 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
                 {deleted ? <span className="hid-ehr-clinical-cell-sub">{SOURCE_DELETED_WORDS}</span> : null}
               </span>
               <span className="hid-ehr-clinical-consult-document-actions">
-                {document.status && !deleted ? <StatusBadge status={document.status} /> : null}
                 {deleted ? null : <EhrButton variant="secondary" size="sm" disabled={document.scanStatus !== 'clean'} busy={opening === document.id}
                   aria-label={`Open file ${document.fileName}`} onClick={() => open(document)}>
                   Open file
@@ -202,7 +210,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {canWrite && uploadsHere ? (
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void upload(event)}>
           <SubHeading>Upload a document</SubHeading>
-          <p className="hid-ehr-clinical-note">Files are checked for viruses before anyone can open them.</p>
+          <p className="hid-ehr-clinical-note">{UPLOAD_NOTE}</p>
           {offersChoice ? (
             <EhrField label="Document type">
               <EhrSelect value={sentType} onChange={event => { if (isDocumentType(event.target.value)) setDocumentType(event.target.value) }}>

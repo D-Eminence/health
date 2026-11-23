@@ -1835,6 +1835,8 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       without.unmount()
       vi.clearAllMocks()
       staff.permissions = [...WITH_ACCESS]
+      // The same patient opened again: its write check is asked afresh, as on the first page (chart.tsx).
+      staff.activePatient = activePatient(purpose)
       openTracked('/open')
       await settle()
       expect(nextSteps()).toContain(purpose === 'emergency' ? 'Use their Access PIN' : 'Emergency access')

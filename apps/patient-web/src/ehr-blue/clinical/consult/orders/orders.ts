@@ -19,18 +19,18 @@ export interface KindInfo {
   readonly title: string
   /** Today's word for one order. */
   readonly what: string
-  /** Today's empty list sentence (Clinical.tsx:1808). */
+  /** Classic's empty list sentence (staff/routes/Clinical.tsx:1853: "No {tab label} for this encounter."), word for word. */
   readonly empty: string
 }
 
 export const KINDS: Readonly<Record<OrderKind, KindInfo>> = {
   pharmacy: {
     record: 'prescriptions', route: 'prescription', read: 'ehr.prescription.read', write: 'ehr.prescription.write',
-    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions for this consultation.',
+    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions for this encounter.',
   },
   laboratory: {
     record: 'lab-requests', route: 'lab_request', read: 'ehr.lab-request.read', write: 'ehr.lab-request.write',
-    title: 'Laboratory', what: 'lab request', empty: 'No lab requests for this consultation.',
+    title: 'Laboratory', what: 'lab request', empty: 'No lab requests for this encounter.',
   },
 }
 
@@ -47,6 +47,15 @@ export function text(value: unknown): string {
 /** "Routine", "As soon as possible": today's priority words. */
 export function priorityText(value: unknown): string {
   return priorityLabel(text(value)) ?? ''
+}
+
+/**
+ * Classic's detail line under an order in the encounter's list (staff/routes/Clinical.tsx recordDetail :427-428): a
+ * prescription's frequency, a lab request's test code and priority (in words). The status is the row's badge.
+ */
+export function orderDetail(kind: OrderKind, record: ClinicalRecord): string {
+  const parts = kind === 'pharmacy' ? [text(record.frequency)] : [text(record.testCode), priorityText(record.priority)]
+  return parts.map(part => part.trim()).filter(Boolean).join(' · ')
 }
 
 /** What today's page learns from a records answer: the served receiving-side reports, and whether orders may be sent elsewhere. */

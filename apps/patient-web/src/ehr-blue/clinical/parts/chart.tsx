@@ -1,6 +1,6 @@
 import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { PatientBanner } from '../../../kasuwa/parts'
 import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
@@ -11,9 +11,18 @@ import { useClinical, useWorkspaceHref } from './Workspace'
 
 /** The chart's wording, in plain words. */
 export const OPEN_FIRST = 'Find the patient first.'
-export const ACCESS_ENDED = 'Patient access has ended. Find the patient again to reopen their record.'
+/** Classic's re-check refusal, word for word (staff/routes/Clinical.tsx verify, :1290 and :1296). */
+export const ACCESS_ENDED = 'Your access to this patient has ended. Open the patient again to keep working.'
+/**
+ * Why changes are off. These keep the redesign's plain words by the coordinator's decision of 2 Nov 2026 (pre-merge
+ * review, recorded in commits a1c93d13, 098b6a77 and db9967ae): classic's "Read-only access. This authorization does not
+ * include changes; …" and "Write access could not be confirmed, so changes are unavailable. …" (Clinical.tsx:1811-1813),
+ * like the rest of classic's chart and encounter words named there ("governed access", "Authorized"), must not ship.
+ */
 export const READ_ONLY = 'You can view this record but not change it.'
 export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
+/** Classic's link to the summary of a patient open under emergency access (staff/routes/Patients.tsx:252), word for word. */
+export const OPEN_EMERGENCY_SUMMARY = 'Open read-only emergency summary →'
 /** Today's page with no patient open, word for word (staff/routes/Clinical.tsx:1375). */
 export const CHOOSE_FIRST = 'Choose a patient first.'
 // The detail sentence and the how-to are shown again, as today's page shows them, in the redesign's words with today's
@@ -35,6 +44,34 @@ interface ChartValue {
 
 const ChartContext = createContext<ChartValue | null>(null)
 
+type WriteAnswer = { readonly allowed: boolean; readonly failed: boolean }
+
+/**
+ * What the current grant permits, asked once per open patient and shared by every workspace's chart, as classic's one
+ * Clinical page asks it once (staff/routes/Clinical.tsx:1400-1409): each workspace mounts its own ChartProvider, and
+ * without this each asked again. Keyed on the open patient as the staff session holds it, so a new grant (a new lookup,
+ * even for the same patient) is asked about afresh. A check that failed is not kept: the next chart asks again.
+ */
+/** The open patients whose re-check passed, at the facility and patient it was for (Chart.checked). */
+const passedChecks = new WeakMap<object, string>()
+
+const writeAnswers = new WeakMap<object, { readonly scope: string; readonly answer: Promise<WriteAnswer> }>()
+
+function askWriteAccess(patient: ActivePatient, facilityId: string, patientId: string): Promise<WriteAnswer> {
+  const scope = JSON.stringify([facilityId, patientId])
+  const held = writeAnswers.get(patient)
+  if (held && held.scope === scope) return held.answer
+  const answer = staffApi.consentStatus(facilityId, patientId).then(
+    status => ({ allowed: status.writeAllowed === true, failed: false }),
+    () => {
+      if (writeAnswers.get(patient)?.answer === answer) writeAnswers.delete(patient)
+      return { allowed: false, failed: true }
+    },
+  )
+  writeAnswers.set(patient, { scope, answer })
+  return answer
+}
+
 /**
  * Holds, for one workspace, whether access to the open patient ended while it was in use, and what the current grant
  * permits (`consentStatus().writeAllowed`, direct care only). Nothing here outlives the page; nothing is stored.
@@ -50,15 +87,12 @@ export function ChartProvider({ children }: { children: ReactNode }) {
   const lookup = activePatient?.lookup
 
   useEffect(() => {
-    if (!facilityId || !patientId || !directCare || !lookup) return
+    if (!facilityId || !patientId || !directCare || !lookup || !activePatient) return
     let current = true
     const scope = JSON.stringify([facilityId, patientId])
-    staffApi.consentStatus(facilityId, patientId).then(
-      status => { if (current) setWriteAccess({ scope, lookup, allowed: status.writeAllowed === true, failed: false }) },
-      () => { if (current) setWriteAccess({ scope, lookup, allowed: false, failed: true }) },
-    )
+    void askWriteAccess(activePatient, facilityId, patientId).then(answer => { if (current) setWriteAccess({ scope, lookup, ...answer }) })
     return () => { current = false }
-  }, [facilityId, patientId, directCare, lookup])
+  }, [activePatient, facilityId, patientId, directCare, lookup])
 
   // A patient opened again (after access ended) clears the notice.
   useEffect(() => { if (patientId) setEnded(false) }, [patientId])
@@ -86,10 +120,17 @@ export interface Chart {
   readonly writeNotice: string | null
   readonly can: (...permissions: string[]) => boolean
   /**
-   * Today's re-check before a change or a list read: a fresh patient lookup. A refusal (403, 404, not allowed, or
-   * another patient) closes the patient and throws ACCESS_ENDED; other failures (503) leave it open and rethrow.
+   * Classic's re-check before a change: a fresh patient lookup. A refusal (403, 404, not allowed, or another patient)
+   * closes the patient and throws ACCESS_ENDED; other failures (503) leave it open and rethrow.
    */
   readonly verify: () => Promise<void>
+  /**
+   * The chart's check, reused: resolves at once when `verify` already passed for the patient as open now (a new grant
+   * or a new lookup is checked afresh), else runs it. For reads only, as a visit opened from the list (which checked):
+   * classic checks on loading the encounters, not again on choosing one (staff/routes/Clinical.tsx:1316, :1838). A
+   * page reached by its address with no check yet made still checks before it reads. Every save calls `verify`.
+   */
+  readonly checked: () => Promise<void>
   /** Close the patient and show "Access to this patient ended", after a refusal seen elsewhere. */
   readonly endAccess: () => void
 }
@@ -126,7 +167,13 @@ export function useChart(): Chart | null {
       endAccess()
       throw new PlainError(ACCESS_ENDED)
     }
+    passedChecks.set(activePatient, JSON.stringify([facilityId, patientId]))
   }, [activePatient, endAccess, facilityId, patientId])
+
+  const checked = useCallback(async () => {
+    if (activePatient && passedChecks.get(activePatient) === JSON.stringify([facilityId, patientId])) return
+    await verify()
+  }, [activePatient, facilityId, patientId, verify])
 
   return useMemo(() => {
     if (!facilityId || !activePatient || !patientId || context.ended) return null
@@ -146,9 +193,10 @@ export function useChart(): Chart | null {
       writeNotice,
       can,
       verify,
+      checked,
       endAccess,
     }
-  }, [activePatient, can, context.ended, endAccess, facilityId, facilityName, patientId, verify, writeAccess])
+  }, [activePatient, can, checked, context.ended, endAccess, facilityId, facilityName, patientId, verify, writeAccess])
 }
 
 /** Whether access ended in this workspace (the patient was closed by a refusal). */
@@ -211,12 +259,16 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
         action={findPatient ? <Button variant="primary" to={findPatient.to}>{findPatient.label}</Button> : undefined} />
     )
   }
+  // Under emergency access the chart is the read-only emergency summary, as classic's Clinical page is
+  // (staff/routes/Clinical.tsx:1413-1415): a role that may open it is taken straight there, with no extra click; one
+  // that may not keeps this notice, with classic's link to it.
+  if (chart.purpose === 'emergency' && !allowEmergency && can('identity.break-glass.write')) return <Navigate replace to={href.to('emergency', 'summary')} />
   if (chart.purpose === 'emergency' && !allowEmergency) {
     return (
       <>
         {banner ? <ChartBanner chart={chart} sticky /> : null}
         <Alert intent="warning" className="mb-4" title="Emergency access shows the emergency summary only"
-          action={<Button size="sm" to={href.to('emergency', 'summary')}>Open the emergency summary</Button>}>
+          action={<Button size="sm" to={href.to('emergency', 'summary')}>{OPEN_EMERGENCY_SUMMARY}</Button>}>
           Nothing can be added or changed.
         </Alert>
       </>

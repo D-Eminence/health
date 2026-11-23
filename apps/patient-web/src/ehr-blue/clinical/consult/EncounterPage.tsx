@@ -1,6 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type DocumentRecord, type Encounter, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
@@ -56,12 +56,17 @@ type Loaded =
   | { readonly phase: 'failed'; readonly message: string }
   | { readonly phase: 'ready'; readonly encounter: Encounter; readonly others: readonly Encounter[] }
 
-/** Reads the encounter after today's access re-check, with the first page of the patient's other encounters. */
+/**
+ * Reads the encounter, with the first page of the patient's other encounters, after the chart's access check: reused
+ * when the chart already passed it (a visit opened from the list, which checked), as classic re-checks on loading the
+ * encounters, not on choosing one (staff/routes/Clinical.tsx:1316, :1838); made when it has not (the page reached by
+ * its address). Every save still re-checks first (chart.verify).
+ */
 function EncounterLoader({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
   const { recordId = '' } = useParams()
   const { facilityId, patientId } = chart
-  const verify = useLatest(chart.verify)
+  const checked = useLatest(chart.checked)
   const [loaded, setLoaded] = useState<Loaded>({ phase: 'loading' })
 
   useEffect(() => {
@@ -69,7 +74,7 @@ function EncounterLoader({ chart }: { chart: Chart }) {
     setLoaded({ phase: 'loading' })
     void (async () => {
       try {
-        await verify.current()
+        await checked.current()
         const [encounter, page] = await Promise.all([
           staffApi.encounter(facilityId, patientId, recordId),
           staffApi.encounters(facilityId, patientId).catch(() => null),
@@ -85,7 +90,7 @@ function EncounterLoader({ chart }: { chart: Chart }) {
       }
     })()
     return () => { current = false }
-  }, [facilityId, patientId, recordId, verify])
+  }, [facilityId, patientId, recordId, checked])
 
   if (loaded.phase === 'loading') return <Loading label="Loading consultation…" />
   if (loaded.phase === 'missing') return <RecordNotFound backHref={href()} />
@@ -115,6 +120,8 @@ interface ActionDef {
   /** The submit button, when it is not the action's label (today's "Save draft"), and its busy label. */
   readonly submit?: string
   readonly busy?: string
+  /** A required field left empty says the browser's own message, as classic's form (RecordForm nativeRequired). */
+  readonly nativeRequired?: boolean
   readonly initial?: FormValues
   readonly validate?: (values: FormValues) => FieldErrors
   readonly run: (values: FormValues) => Promise<SubmitOutcome>
@@ -220,13 +227,21 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // A diagnosis typed with a note change is added as today's Diagnoses tab adds one: that tab needs the read as well as
   // the write (Clinical.tsx:28, 1853), so a role that can't see the diagnoses doesn't add one unseen.
   const addsDiagnosis = writes.diagnoses && reads.diagnoses
+  // Classic reads only the open tab's records (staff/routes/Clinical.tsx:1350-1371). Here the lists the top of the page
+  // shows (the vitals, the note and the diagnoses it summarises) are read as the visit opens; the orders and the
+  // documents only once their card comes into view (or History's, which lists the orders), or a print asks for them.
+  const [ordersRef, ordersSeen] = useSeen()
+  const [documentsRef, documentsSeen] = useSeen()
+  const [historyRef, historySeen] = useSeen()
+  const [printWanted, setPrintWanted] = useState(false)
+  const ordersWanted = ordersSeen || historySeen || printWanted
   const notes = useRecordList(chart, encounterId, 'clinical-notes', reads.notes)
   const diagnoses = useRecordList(chart, encounterId, 'diagnoses', reads.diagnoses)
   const vitals = useRecordList(chart, encounterId, 'vitals', reads.vitals)
   // Today's page learns from its orders answers what the order pages need (receiving-side reports, late corrections).
-  const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions, learnFrom)
-  const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs, learnFrom)
-  const documents = useDocumentList(chart, encounterId, reads.documents)
+  const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions && ordersWanted, learnFrom)
+  const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs && ordersWanted, learnFrom)
+  const documents = useDocumentList(chart, encounterId, reads.documents && documentsSeen)
   // The Saved record summarises the encounter: its consultation note is read from the first page, whichever page the
   // Notes card shows.
   const note = consultationNote(notes.first)
@@ -444,7 +459,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     }
   }
   if (writes.notes && reads.notes) {
-    actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, validate: writeCheck, run: writeNote })
+    actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, nativeRequired: true, validate: writeCheck, run: writeNote })
   }
   if (writes.encounter) {
     const warning = encounterClosesRecords()
@@ -537,7 +552,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // for a part still loading or that failed.
   const summaryReady = [summary.diagnoses, summary.note, summary.tests, summary.drugs].every(part => part.state === 'shown' || part.state === 'no-right' || part.state === 'later-page')
   const printDischarge = () => {
-    if (!summaryReady) return
+    // A press before the orders were read asks for them; the summary prints once they are (DISCHARGE_WAIT says so).
+    if (!summaryReady) { setPrintWanted(true); return }
     print('discharge', <DischargeSummaryPaper summary={{ ...summary, printedAt: printedAt() }} />)
   }
 
@@ -619,6 +635,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
               submitLabel={action.submit ?? action.label}
               busyLabel={action.busy}
               validate={action.validate}
+              nativeRequired={action.nativeRequired}
               disabled={(action.id === 'sign' || action.id === 'note-error') && revisions.loading}
               // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:615-618).
               describedBy={action.warning ? warningId : undefined}
@@ -648,17 +665,23 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no
           empty card. */}
       {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId)) ? (
-        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
+        <div ref={ordersRef}>
+          <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
+        </div>
       ) : null}
       {reads.documents ? (
-        <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
+        <div ref={documentsRef}>
+          <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
+        </div>
       ) : null}
       {/* Every record of the visit that opens on its own page, and the patient's other consultations here. Notes,
           diagnoses and documents are read in full in their own sections above, so they are not listed again (owner,
           18 Nov 2026: nothing said twice). */}
-      <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs })}>
-        <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
-      </HistoryCard>
+      <div ref={historyRef}>
+        <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs })}>
+          <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
+        </HistoryCard>
+      </div>
       <VersionsCard versions={versionItems(note, revisions.items)} />
       <ConfirmAction
         open={asking !== null}
@@ -671,6 +694,30 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {printArea}
     </>
   )
+}
+
+/**
+ * Whether the element given to the callback ref has come into view (or near it), once: from then on it stays true.
+ * Where the browser has no IntersectionObserver it is true at once, so nothing is left unread.
+ */
+function useSeen(): [(element: Element | null) => void, boolean] {
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined')
+  const watching = useRef<IntersectionObserver | null>(null)
+  const ref = useCallback((element: Element | null) => {
+    watching.current?.disconnect()
+    watching.current = null
+    if (!element || seen) return
+    if (typeof IntersectionObserver === 'undefined') { setSeen(true); return }
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return
+      observer.disconnect()
+      setSeen(true)
+    }, { rootMargin: '200px 0px' })
+    observer.observe(element)
+    watching.current = observer
+  }, [seen])
+  useEffect(() => () => watching.current?.disconnect(), [])
+  return [ref, seen]
 }
 
 function noteValue(notes: RecordList<ClinicalRecord>, note: ClinicalRecord | null, revisions: RecordList<NoteRevision>, latest: NoteRevision | null): ReactNode {

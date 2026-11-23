@@ -10,7 +10,7 @@ import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type Subm
 import { useWorkspaceHref } from '../parts/Workspace'
 import { AllergyLines, useAllergies } from '../patients/AllergiesCard'
 import {
-  ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
+  ENCOUNTER_CREATED, ENCOUNTER_NOT_CREATED, ENCOUNTER_TYPES, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
   composeNote, encounterTypeLabel, isoNow, newDiagnosisBody, newDiagnosisCheck, refusedFieldErrors, text,
 } from './encounters'
 
@@ -71,7 +71,9 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
   const [started, setStarted] = useState<Encounter | null>(null)
   // Once the draft note is saved it is never sent again, so its fields go (as the encounter's do once it is started).
   const [noteSaved, setNoteSaved] = useState(false)
-  const writesNote = chart.can('ehr.note.write')
+  // The note saved in the same press is offered only to a role that may read it back as well as write it, as classic's
+  // Notes tab, where a note is added, needs both (staff/routes/Clinical.tsx:28, :1853).
+  const writesNote = chart.can('ehr.note.read', 'ehr.note.write')
   // Today adds a diagnosis only on its Diagnoses tab, which needs the read as well as the write (Clinical.tsx:28, 1853).
   const writesDiagnosis = chart.can('ehr.diagnosis.read', 'ehr.diagnosis.write')
   const canStart = chart.canWrite && chart.can('ehr.encounter.write')
@@ -131,7 +133,7 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
       attempt.current = {}
       navigate(href(encounterId), { state: { created: true } })
     } catch (caught) {
-      const fallback = current.encounter ? 'The rest could not be saved.' : 'The consultation could not be started.'
+      const fallback = current.encounter ? 'The rest could not be saved.' : ENCOUNTER_NOT_CREATED
       return { formError: refusalText(caught, fallback), fieldErrors: refusedFieldErrors(caught, map) }
     }
   }

@@ -121,7 +121,7 @@ describe('Consultation list', () => {
     const link = within(table).getByRole('link', { name: consultationLabel(ENCOUNTER) })
     expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getByText('Fever for two days')).toBeTruthy()
-    expect(within(table).getByText('No complaint recorded')).toBeTruthy()
+    expect(within(table).getByText('No chief complaint provided')).toBeTruthy()
     expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(table).getByText('In progress')).toBeTruthy()
@@ -435,7 +435,7 @@ describe('New consultation', () => {
     expect(within(context).queryByText(/recorded by clinicians/)).toBeNull()
     expect(api.allergies).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 
