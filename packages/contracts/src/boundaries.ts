@@ -224,7 +224,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.patientReportedHealthProfile',
       // Allergies on the chart and the allergy check at prescribing (hid-system 0117; 404 until served, which the chart
       // takes as not offered). Without these the staff client refuses the calls before they are sent.
-      'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck'],
+      'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck',
+      // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
+      // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

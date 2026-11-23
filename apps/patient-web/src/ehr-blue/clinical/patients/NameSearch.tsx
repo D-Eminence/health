@@ -6,6 +6,7 @@ import { staffApi } from '../../../staff/api'
 import type { PatientSearchAnswer, PatientSearchCard } from '../../../staff/patientSearch'
 import { HID_FORMAT, healthIdProblem } from '../consent/access'
 import { SearchCardFacts } from './SearchCards'
+import { CheckInButton } from '../../departments/waiting/WaitingList'
 import { noCardText, searchRefusal, today } from './searchWords'
 
 export const NAME_SEARCH_TITLE = 'Search by name'
@@ -32,9 +33,12 @@ export function healthIdDoesNotMatch(card: PatientSearchCard): string {
  * and clinicians, "Open as this facility’s patient". Identity has no route that opens a patient by a direct-care
  * matchRef, so a card opens with the Health ID typed in the search, or else with the Health ID read from the patient's
  * card, checked against the card's last four first.
+ *
+ * `checksIn`: the member may use the waiting list (hid-system 0135), so each card also offers Check in, which sends the
+ * card's matchRef (departments/waiting CheckInButton).
  */
-export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
-  facilityId: string | undefined; registers: boolean; busy: boolean; onOpen: (hid: string) => void
+export function NameSearchCard({ facilityId, registers, busy, onOpen, checksIn = false }: {
+  facilityId: string | undefined; registers: boolean; busy: boolean; onOpen: (hid: string) => void; checksIn?: boolean
 }) {
   const id = useId()
   const [firstName, setFirstName] = useState('')
@@ -131,7 +135,8 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
           {answer.patients.length === 1 ? '1 patient matches.' : `${answer.patients.length} patients match.`}</p> : null}
       </div>
       {answer && answer.patients.length > 0 ? <ul aria-label="Patients found" className="m-0 flex list-none flex-col gap-2 p-5 pt-3">
-        {answer.patients.map(card => <FoundPatient key={card.matchRef} card={card} searchedHid={searchedHid} busy={busy} onOpen={onOpen} />)}
+        {answer.patients.map(card => <FoundPatient key={card.matchRef} card={card} searchedHid={searchedHid} busy={busy} onOpen={onOpen}
+          checkInAt={checksIn ? facilityId : undefined} />)}
       </ul> : null}
     </Card>
   )
@@ -141,8 +146,10 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
  * One card. Open goes straight to today's lookup with the Health ID the search was made with; otherwise it first asks
  * for the Health ID from the patient's card, which must end in the card's last four.
  */
-function FoundPatient({ card, searchedHid, busy, onOpen }: {
+function FoundPatient({ card, searchedHid, busy, onOpen, checkInAt }: {
   card: PatientSearchCard; searchedHid: string | null; busy: boolean; onOpen: (hid: string) => void
+  /** The facility whose waiting list the card's Check in adds the patient to; none: no Check in. */
+  checkInAt?: string
 }) {
   const id = useId()
   const [asking, setAsking] = useState(false)
@@ -174,6 +181,7 @@ function FoundPatient({ card, searchedHid, busy, onOpen }: {
       <div className="flex flex-wrap items-center gap-3">
         <SearchCardFacts card={card} nameId={`${id}-name`} />
         {asking ? null : <Button iconRight={ArrowRight} aria-describedby={`${id}-name`} aria-disabled={busy || undefined} onClick={open}>Open</Button>}
+        {checkInAt ? <CheckInButton facilityId={checkInAt} card={card} /> : null}
       </div>
       {asking ? <form noValidate className="flex flex-col gap-2" onSubmit={openWithHealthId}>
         <Field label={`${card.fullName}’s Health ID`} htmlFor={`${id}-hid`} hint={askHealthIdHint(card)} hintId={`${id}-hid-hint`}

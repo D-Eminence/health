@@ -114,6 +114,8 @@ const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (
   + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
 /** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
 const PAPER_RECORD_LISTS = 'Not served by hid-system yet (404 until it is). Direct care at the working facility.'
+const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A (migrations 0128-0137); not served by hid-system '
+  + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -944,6 +946,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + '7fbb04aa) means the allergies can\'t be shown here, never "none".'),
   r('ehr.encounters','ehr','/api/v1/ehr/patients/:patientId/encounters',GP,false,{GET:['ehr.encounter.read'],POST:['ehr.encounter.write']}),
   r('ehr.encounter','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId',GPA,false,{GET:['ehr.encounter.read'],PATCH:['ehr.encounter.write']}),
+  // The waiting list (hid-system 0135, EHR-C7, Release A on staging-novu-ci-20261005).
+  proposed(r('ehr.visitQueue','ehr','/api/v1/ehr/visit-queue',G,false,one('GET','ehr.encounter.read','ehr.encounter.write'),
+    `${RELEASE_A} X-Facility-ID, direct-care. Query includeClosedToday=true also lists rows closed today (its only query). `
+    + '200 { items: card[], hasMore, limit: 200 }, most urgent first. No Health ID: a card has healthIdLast4 only.')),
+  proposed(r('ehr.visitQueueCheckIn','ehr','/api/v1/ehr/visit-queue/check-in',P,false,one('POST','ehr.encounter.read','ehr.encounter.write'),
+    `${RELEASE_A} X-Facility-ID, direct-care. Body exactly one of matchRef (this member's own patient search, 10 minutes) or `
+    + 'patientId (a patient already this facility\'s own). 200 { outcome: checked_in | already_on_list, entry: card }; 403 '
+    + 'CHECK_IN_NEEDS_SEARCH for every refused patient.')),
+  proposed(r('ehr.visitQueueEntry','ehr','/api/v1/ehr/visit-queue/:entryId',['PATCH'],false,
+    one('PATCH','ehr.encounter.read','ehr.encounter.write'),
+    `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
+    + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),

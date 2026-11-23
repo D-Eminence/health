@@ -58,6 +58,19 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
       'Select Check the details. Health ID compares them with the NIN record; you never see the record.',
     ],
   },
+  'waiting-list': {
+    purpose: 'Check patients in as they arrive and see where each one is: waiting, in triage, ready to be seen or being seen.',
+    steps: [
+      'Under Check in a patient, enter the full name and date of birth, or the Health ID with the last name, and select Find patient.',
+      'Select Check in on the right patient’s card. A search result can be used for 10 minutes.',
+      'Move each patient on with the button on their card: Start triage, Ready to be seen, Call in to be seen, Finished.',
+      'Select Change to set the triage level, who will see them, or to take them off the list if they left.',
+    ],
+    tips: [
+      'Level 1 is the most urgent: patients are listed by triage level, then by when they checked in.',
+      'Checking a patient in does not open their chart: open it from Patients as usual. “Chart cannot be opened” means the patient has not allowed this facility to see it.',
+    ],
+  },
   triage: {
     purpose: 'Record and review vitals for the open patient: blood pressure, pulse, temperature, breathing, oxygen, weight and height.',
     steps: [

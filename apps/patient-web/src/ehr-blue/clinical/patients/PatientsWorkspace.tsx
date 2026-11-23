@@ -20,6 +20,7 @@ import {
 import { staffApi } from '../../../staff/api'
 import { plainErrorText } from '@hid/http'
 import { NameSearchCard } from './NameSearch'
+import { canUseWaitingList } from '../../departments/waiting/waitingRules'
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { SharedWithYouCard } from './SharingCards'
@@ -377,7 +378,8 @@ function PatientList() {
         <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
       </Card>
 
-      {searchesByName ? <NameSearchCard facilityId={facility?.id} registers={registers} busy={busy} onOpen={openFound} /> : null}
+      {searchesByName ? <NameSearchCard facilityId={facility?.id} registers={registers} busy={busy} onOpen={openFound}
+        checksIn={canUseWaitingList(permissions)} /> : null}
 
       {/* Shown only while a patient is open: a section shows only when it has something in it. */}
       {activePatient && open_ ? <section aria-labelledby="patients-open" className="flex flex-col gap-3">
