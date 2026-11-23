@@ -8,9 +8,11 @@ import { NIN_STILL_CHECKING } from '../../../ninCheck'
 import { DeskFields } from '../../collected/DeskFields'
 import {
   BACK_TO_LIST, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, DISTINCT_PERSON, DOB_LABEL,
-  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NO_OVERRIDE, START_TEXT,
-  START_TITLE, VERIFY, VERIFYING,
+  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NIN_OFF_FORM_NOTICE, NO_OVERRIDE, START_TEXT,
+  START_TITLE, VERIFY, VERIFYING, WITHOUT_NIN_TITLE,
 } from './registrationText'
+import { RegistrationWithoutNin } from './RegistrationWithoutNin'
+import { offersWithoutNin, withoutNinReasons } from './withoutNin'
 
 /** A required field's label, as the design marks it: the star is not read out (the control is required). */
 function required(label: string): ReactNode {
@@ -24,7 +26,8 @@ function required(label: string): ReactNode {
  * identity" are not asked (owner decisions D11, D12). Without NIN verification enabled, the form says so in today's
  * words and nothing can be sent.
  */
-export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false, stillChecking = false, held = false }: {
+export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false, stillChecking = false, held = false,
+  without }: {
   /** In the side drawer over the list: the drawer's own X closes it, so no Back to list. */
   readonly inDrawer?: boolean
   readonly availability: Availability
@@ -40,16 +43,27 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
   readonly onInput: () => void
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void
   readonly onBack: () => void
+  /**
+   * Register without a NIN (hid-system 0130): shown in place of the NIN form while NIN checks are off and Identity
+   * takes a registration without one. Its own refusals, error and submit.
+   */
+  readonly without?: {
+    readonly problems: FormProblems
+    readonly error: string
+    readonly onInput: () => void
+    readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  }
 }) {
   const { capabilities } = availability
   const enabled = capabilities?.nin.enabled === true
+  const withoutNin = without && offersWithoutNin(capabilities) ? without : null
   return (
     <DeptPage title={NEW_TITLE} className="hid-ehr-dept-registration-page" primaryAction={inDrawer ? undefined : (
       // Unavailable while the NIN is verified, so its answer (a refusal to correct, or the case made) is not lost.
       <EhrButton variant="secondary" className="hid-ehr-dept-registration-unavailable" aria-disabled={busy || undefined}
         onClick={() => { if (!busy) onBack() }}>{BACK_TO_LIST}</EhrButton>
     )}>
-      <DeptSection title={START_TITLE} headingId={START_HEADING}>
+      <DeptSection title={withoutNin ? WITHOUT_NIN_TITLE : START_TITLE} headingId={START_HEADING}>
         {capabilities === null ? (
           availability.answered ? (
             // A read that failed, and Check again, which stays where it is while it reads again (today's button keeps
@@ -61,6 +75,13 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
               </EhrButton>
             </div>
           ) : <EhrSkeleton label={CAPABILITY_LOADING} />
+        ) : withoutNin ? (
+          <>
+            {/* NIN checks are off: the desk is told so, and registers the patient without a NIN instead of stopping. */}
+            <DeptNotice tone="caution">{NIN_OFF_FORM_NOTICE}</DeptNotice>
+            <RegistrationWithoutNin reasons={withoutNinReasons(capabilities)} busy={busy} problems={withoutNin.problems}
+              error={withoutNin.error} onInput={withoutNin.onInput} onSubmit={withoutNin.onSubmit} />
+          </>
         ) : (
           <form className="hid-ehr-dept-form" noValidate onInput={onInput} onSubmit={onSubmit}>
             {enabled ? null : <DeptNotice tone="caution">{NIN_NOT_ENABLED}</DeptNotice>}

@@ -133,8 +133,19 @@ export interface StaffMfaActivation extends StaffSession {
   recoveryCodes: string[]
 }
 
+/**
+ * Why the desk registers a patient without a NIN (hid-system 0130, owner Q106; identity-api
+ * dto/register-without-nin.dto.ts NO_NIN_REASONS). Identity lists the ones it takes in `withoutNin.reasons`.
+ */
+export type NoNinReason = 'nin_service_unavailable' | 'no_nin' | 'not_carried' | 'child' | 'foreign_national'
+
 export interface RegistrationCapabilities {
-  nin: { enabled: boolean; state: string }
+  nin: { enabled: boolean; state: string; available?: boolean }
+  /**
+   * hid-system 0130 (ID-2, owner Q106): whether the desk may register a patient without a NIN, and why it may. A
+   * backend before 0130 sends no `withoutNin`, and deferred staging sends `{ enabled: false }` alone.
+   */
+  withoutNin?: { enabled: boolean; phoneRequiredUnlessChild?: boolean; reasons?: string[] }
   newPatientRegistrationRequiresNin: boolean
 }
 
@@ -145,6 +156,42 @@ export interface RegistrationCase {
   version: number
   candidateCount: number
   candidates?: Array<{ patientId: string; fullName: string; dateOfBirth: string | null }>
+  patient?: { patientId: string; hid: string }
+  /** hid-system ID-0: shown as "NIN Verified" or "NIN Not Verified". */
+  ninStatus?: 'verified' | 'not_verified'
+  /** hid-system 0130: 'none' when the desk registered the patient without a NIN. */
+  identityEvidence?: 'nin' | 'none'
+}
+
+/**
+ * POST identity/registration-cases/without-nin (hid-system 0130, docs/INTERFACE_CONTRACT.md ID-2). The phone and address
+ * go together, and are left out only for a child; the existing Health ID only when the patient says they have one.
+ */
+export interface RegisterWithoutNinInput {
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  noNinReason: NoNinReason
+  phone?: string
+  addressLine?: string
+  city?: string
+  stateCode?: string
+  lga?: string
+  hasExistingHealthId: boolean
+  existingHealthId?: string | null
+}
+
+/** Its answer (201): the outcome only, never who might be the same person. */
+export interface RegisteredWithoutNin {
+  caseId: string
+  status: 'approved_new_identity' | 'review_required'
+  version: number
+  outcome: 'registered' | 'sent_for_review'
+  message?: string
+  identityEvidence: 'none'
+  ninStatus: 'verified' | 'not_verified'
+  replayed: boolean
   patient?: { patientId: string; hid: string }
 }
 
@@ -2392,6 +2439,11 @@ export const staffApi = {
     client.post<RegistrationCase>('/api/v1/identity/nin/resolve',
       { ...input, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
+  // hid-system 0130: a patient registered at the desk without a NIN (healthcare operations, one key per request).
+  registerWithoutNin: (facilityId: string, input: RegisterWithoutNinInput, idempotencyKey: string) =>
+    client.post<RegisteredWithoutNin>('/api/v1/identity/registration-cases/without-nin',
+      { ...input, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
   registrationCase: (facilityId: string, caseId: string) =>
     client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),

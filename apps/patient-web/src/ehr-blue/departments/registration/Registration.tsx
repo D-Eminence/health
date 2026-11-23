@@ -9,7 +9,9 @@ import { useDeptAccess } from '../parts/access'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { RegistrationList } from './RegistrationList'
 import { RegistrationNew } from './RegistrationNew'
-import { NEW_TITLE } from './registrationText'
+import { NEW_TITLE, REGISTERED_WITHOUT_NIN, SENT_FOR_REVIEW, WITHOUT_NIN_PHONE_REQUIRED, WITHOUT_NIN_RELOAD, withoutNinErrorText } from './registrationText'
+import { offersWithoutNin, withoutNinInput, withoutNinProblems, type WithoutNinField, type WithoutNinForm } from './withoutNin'
+import { HidApiError } from '@hid/http'
 import { Drawer } from '../../../kasuwa/interactive'
 import { RegistrationRecord } from './RegistrationRecord'
 import { DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
@@ -30,6 +32,17 @@ import './registration.css'
  * pieces and is ported here: the same requests, the same Idempotency-Keys, the same checks before sending and the same
  * words. Where this file names a line, it is a line of that page.
  */
+
+/** The control id of a field of "Register without a NIN": its own fields, or the desk's (DESK_PREFIX). */
+function withoutControlId(field: WithoutNinField): string {
+  switch (field) {
+    case 'firstName': return FIELD.withoutFirst
+    case 'lastName': return FIELD.withoutLast
+    case 'dateOfBirth': return FIELD.withoutDob
+    case 'noNinReason': return FIELD.reason
+    default: return deskControlId(DESK_PREFIX, field)
+  }
+}
 
 /** Where the page is. In memory only: nothing about a case goes in the address or the history. */
 type View = { kind: 'list' } | { kind: 'new' } | { kind: 'case'; caseId: string }
@@ -86,6 +99,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   const caseProblems = useFormProblems()
   const reviewProblems = useFormProblems()
   const enrollProblems = useFormProblems()
+  const withoutProblems = useFormProblems()
   const { clear: clearReview } = reviewProblems
   const { clear: clearEnroll } = enrollProblems
   // Registration.tsx 72, 230: the resolve key is renewed by any change to the form, so an unchanged retry reuses it.
@@ -95,6 +109,8 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   const pendingNames = useRef(new Map<string, string>())
   const reviewKey = useCommandKey()
   const enrollmentKey = useCommandKey()
+  // Register without a NIN (hid-system 0130): one key per set of details, so an unchanged retry replays its answer.
+  const withoutKey = useCommandKey()
 
   const [view, setView] = useState<View>({ kind: 'list' })
   const shown = view.kind === 'case' ? visits.find(visit => visit.item.caseId === view.caseId) ?? null : null
@@ -129,6 +145,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     setFocusRequest({ id: focusId, ifLost: false })
   }, [])
   const { clear: clearNin } = ninProblems
+  const { clear: clearWithout } = withoutProblems
   /**
    * A view the user chose: what the last step said belongs to the view it was said on, and a case's review and
    * enrollment forms start afresh (Registration.tsx 69-71, where the case shown changes, not in an effect after it).
@@ -138,10 +155,11 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     setMessage('')
     setError(null)
     clearNin()
+    clearWithout()
     clearReview()
     clearEnroll()
     show(next, focusId)
-  }, [clearNin, clearReview, clearEnroll, show])
+  }, [clearNin, clearWithout, clearReview, clearEnroll, show])
 
   /**
    * Keeps a case as Identity last answered it, first in the list when it is new to this visit. `name` is the patient's
@@ -275,6 +293,60 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     } finally { if (live.current) { setBusy(false); setResolving(false) } }
   }
 
+  /**
+   * hid-system 0130 (owner Q106): register the patient without a NIN, while NIN checks are off. Registered at once when
+   * nobody already registered could be the same person, otherwise sent for an approver's review; either way the case
+   * opens, as after a NIN check.
+   */
+  async function registerWithoutNin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!offersWithoutNin(capabilities) || busy) return
+    const formElement = event.currentTarget
+    const data = new FormData(formElement)
+    const text = (name: string) => String(data.get(name) ?? '')
+    const form: WithoutNinForm = {
+      firstName: text('firstName'), lastName: text('lastName'), dateOfBirth: text('dateOfBirth'), gender: text('gender'),
+      noNinReason: text('noNinReason'), desk: deskFormFrom(data),
+    }
+    setError(null); setMessage(''); withoutProblems.clear()
+    const problems = withoutNinProblems(form)
+    if (problems.length) { withoutProblems.refuse(problems.map(([field, problem]) => [withoutControlId(field), problem])); return }
+    const input = withoutNinInput(form)
+    const key = withoutKey.forInput(JSON.stringify([facilityId, input]))
+    const name = `${input.firstName} ${input.lastName}`
+    setBusy(true)
+    try {
+      const result = await staffApi.registerWithoutNin(facilityId, input, key)
+      if (!live.current) return
+      formElement.reset()
+      withoutKey.clear()
+      setCaseIdInput(result.caseId)
+      clearReview(); clearEnroll()
+      const said = result.outcome === 'registered' ? REGISTERED_WITHOUT_NIN : SENT_FOR_REVIEW
+      setMessage(said)
+      try {
+        const detail = await staffApi.registrationCase(facilityId, result.caseId)
+        if (!live.current) return
+        remember(detail, name)
+        show({ kind: 'case', caseId: detail.caseId })
+      } catch {
+        if (!live.current) return
+        pendingNames.current.set(result.caseId, name)
+        setMessage(`${said} ${WITHOUT_NIN_RELOAD}`)
+        show({ kind: 'list' }, FIELD.caseId)
+      }
+    } catch (caught) {
+      if (!live.current) return
+      setError({ text: withoutNinErrorText(caught), at: 'without' })
+      const code = caught instanceof HidApiError ? caught.code : ''
+      // Identity's refusals that belong to one field are marked there too.
+      if (code === 'PHONE_REQUIRED') withoutProblems.refuse([[deskControlId(DESK_PREFIX, 'phone'), WITHOUT_NIN_PHONE_REQUIRED]])
+      if (code === 'NOT_A_CHILD') withoutProblems.refuse([[FIELD.reason, withoutNinErrorText(caught)]])
+      // The same key was used for other details: the next request gets a new one.
+      if (code === 'IDEMPOTENCY_KEY_REUSED') withoutKey.clear()
+    } finally { if (live.current) setBusy(false) }
+  }
+
   // Registration.tsx 163-190: link a listed candidate, or approve a new Health ID.
   async function review(event: FormEvent<HTMLFormElement>, action: ReviewAction) {
     event.preventDefault()
@@ -361,7 +433,9 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
           <div className="hid-route-drawer">
             <RegistrationNew inDrawer availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
               stillChecking={stillChecking} held={ninHold.held}
-              onInput={() => { resolveKey.current = crypto.randomUUID(); ninHold.hold(null) }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />
+              onInput={() => { resolveKey.current = crypto.randomUUID(); ninHold.hold(null) }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })}
+              without={{ problems: withoutProblems, error: error?.at === 'without' ? error.text : '', onInput: () => {},
+                onSubmit: event => void registerWithoutNin(event) }} />
           </div>
         </Drawer>
       </>

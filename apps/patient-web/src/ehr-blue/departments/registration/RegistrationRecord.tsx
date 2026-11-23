@@ -16,7 +16,8 @@ import {
   APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE, candidatesText,
   caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText,
   ENROLLING, LINK, LINK_REASON_LABEL, LOADING, NEXT_STEPS, NO_ACTIONS, NO_CANDIDATE_NOTICE, NO_CORRECTION, REFRESH_CASE, REVIEW_NOTICE,
-  MORE_DETAILS, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, statusLabel,
+  MORE_DETAILS, NIN_FACT, ninStatusText, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE,
+  SENT_FOR_REVIEW_NOTICE, statusLabel,
 } from './registrationText'
 
 type OpenForm = ReviewAction | 'enroll'
@@ -96,7 +97,10 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   }
   const shownForm = open && offered[open] ? open : null
   // A refusal is said in the form that sent it while that form is open, and otherwise at the top of the record.
-  const errorHere = error && error.at !== 'find' && error.at !== 'resolve' && error.at !== shownForm ? error.text : ''
+  const errorHere = error && error.at !== 'find' && error.at !== 'resolve' && error.at !== 'without' && error.at !== shownForm ? error.text : ''
+  // hid-system 0130: a registration without a NIN sent for review shows its starter nobody else's details (Identity
+  // sends its candidates only to an approver who did not start it), so it says it waits for that approver.
+  const waitsForApprover = registration.identityEvidence === 'none' && registration.status === 'review_required' && candidates.length === 0
   const errorIn = (form: OpenForm) => (error?.at === form ? error.text : '')
   const refreshing = caseLoading === 'refresh'
   // Back is unavailable while a step or this case's refresh runs, so its answer is not lost.
@@ -107,6 +111,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
     { label: visit.started ? 'Started' : 'Reopened', value: dateText(visit.at) },
     { label: 'Possible matches', value: candidatesText(registration) },
     ...(registration.patient ? [{ label: 'Health ID', value: registration.patient.hid }] : []),
+    ...(registration.ninStatus ? [{ label: NIN_FACT, value: ninStatusText(registration.ninStatus) }] : []),
   ]
 
   const toggle = (form: OpenForm, label: string) => (
@@ -132,7 +137,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
         items={[caseWhen(visit.started, visit.at), registration.patient ? `Health ID ${registration.patient.hid}` : null]} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <ErrorBox message={errorHere} />
-      {registration.status === 'review_required' ? <DeptNotice tone="caution">{REVIEW_NOTICE}</DeptNotice> : null}
+      {registration.status === 'review_required' ? <DeptNotice tone="caution">{waitsForApprover ? SENT_FOR_REVIEW_NOTICE : REVIEW_NOTICE}</DeptNotice> : null}
       {registration.status === 'pending_new_identity_approval' ? <DeptNotice>{NO_CANDIDATE_NOTICE}</DeptNotice> : null}
       {enrollment ? <DeptNotice tone="positive">{enrolledText(enrollment.hid)}</DeptNotice> : null}
       <DeptRecordLayout
@@ -151,7 +156,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                     </li>
                   ))}
                 </ul>
-              ) : <p className="hid-ehr-dept-registration-error">{CANDIDATES_UNAVAILABLE}</p>
+              ) : waitsForApprover ? null : <p className="hid-ehr-dept-registration-error">{CANDIDATES_UNAVAILABLE}</p>
             ) : null}
             {/* The case's reference, out of the way: Health ID keeps no list of registrations, so it is how this one is
                 reopened on a later visit ("Find registration case"). */}

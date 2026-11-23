@@ -4,9 +4,10 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { FIELD, type Availability, type CaseLoading, type VisitCase } from './registrationModel'
 import { ErrorBox, type FormProblems } from './registrationParts'
+import { offersWithoutNin } from './withoutNin'
 import {
   AVAILABILITY_TITLE, candidatesText, CAPABILITY_LOADING, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED,
-  CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TEXT, FIND_TITLE, LOAD_CASE, LOADING, NIN_ENABLED, NIN_NOT_ENABLED, NO_VISIT_MESSAGE,
+  CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TEXT, FIND_TITLE, LOAD_CASE, LOADING, NIN_ENABLED, NIN_NOT_ENABLED, NIN_OFF_WITHOUT_NIN, NO_VISIT_MESSAGE,
   NO_VISIT_TITLE, statusLabel, TITLE, VISIT_CAPTION,
 } from './registrationText'
 
@@ -97,7 +98,7 @@ function AvailabilityNotice({ availability }: { readonly availability: Availabil
         <div>
           {error ? <p role="alert">{error}</p> : null}
           {!capabilities && !error ? <p>{CAPABILITY_LOADING}</p> : null}
-          {capabilities ? <p>{capabilities.nin.enabled ? NIN_ENABLED : NIN_NOT_ENABLED}</p> : null}
+          {capabilities ? <p>{capabilities.nin.enabled ? NIN_ENABLED : offersWithoutNin(capabilities) ? NIN_OFF_WITHOUT_NIN : NIN_NOT_ENABLED}</p> : null}
         </div>
         {/* Unavailable while it reads, not disabled: a disabled button would lose the focus it has. */}
         <EhrButton variant="secondary" size="sm" busy={loading} onClick={refresh}>{loading ? CHECKING : CHECK_AGAIN}</EhrButton>
