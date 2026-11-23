@@ -279,16 +279,19 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
     if (lock === null && session) document.title = `${shownTitle} · Health ID ${info.name}`
   }, [shownTitle, lock, session, info.name])
   if (!session) return null
+  // The access requests the bell counts stay with the frame through its own redirects below: each redirect is wrapped
+  // in the same provider as the page, so it neither forgets them nor reads them again (attention.tsx).
+  const redirect = (to: ReactNode) => <AttentionProvider facilityId={facility?.id} permissions={permissions} readOnOpen={false}>{to}</AttentionProvider>
   const moved = movedAddress(location.pathname)
-  if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
+  if (moved) return redirect(<Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />)
   // A single product's home is its own queue, when this session may open it; otherwise /provider stays Home.
   // The frame's notice (a page this session may not open) goes along, so it shows on the product's first page.
-  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} state={location.state} />
+  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return redirect(<Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} state={location.state} />)
   // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
   // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
   // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
   // (product.ts) still opens; an address no page takes is left to the frame below.
-  if (product !== 'ehr' && match && !pageOpensInProduct(product, match.page, servedHere)) return <Navigate replace to="/provider" />
+  if (product !== 'ehr' && match && !pageOpensInProduct(product, match.page, servedHere)) return redirect(<Navigate replace to="/provider" />)
 
   function leave() {
     if (signingOut) return
@@ -401,8 +404,10 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   ]
 
   return (
-    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={openHere}>
-      <AttentionProvider facilityId={facility?.id} permissions={permissions}>
+    // Outermost, as around the redirects above. A screen that opens nothing (a demo facility on another site, a product
+    // this account may not use here) makes no opening read of the access requests.
+    <AttentionProvider facilityId={facility?.id} permissions={permissions} readOnOpen={!facilitySite && !(cannotUse && here)}>
+      <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={openHere}>
         <EhrAppShell className="hid-ehr-host" sidebar={null} topBar={null}
           // While the session is checked, today's lock screen stands in for the page, as today's <main> hides.
           mainHidden={lock !== null}>
@@ -494,8 +499,8 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
               onGuides={location.pathname.startsWith('/provider/help') ? undefined : () => { setSamplePanel(null); navigate('/provider/help') }} />
           </AppShell>
         </EhrAppShell>
-      </AttentionProvider>
-    </OpenPagesProvider></BluePagesProvider>
+      </OpenPagesProvider></BluePagesProvider>
+    </AttentionProvider>
   )
 }
 
