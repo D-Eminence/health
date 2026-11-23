@@ -82,7 +82,6 @@ function where() {
 
 const SEND = 'Send access request'
 const REASON = labelled('Clinical reason')
-const DURATION = labelled('How long (minutes)')
 const PIN = labelled('Access PIN')
 const OPEN_WITH_PIN = 'Check PIN and open'
 /** The list: a kasuwa list of rows, each a link to its request (once a table). */
@@ -346,55 +345,44 @@ describe('Patient sharing on Access requests (parity 3.1 #14)', () => {
     expect(screen.getByText(/^Your role at this facility can’t open a patient’s record\./)).toBeTruthy()
     expect(document.body.textContent).not.toContain('identity.patient.read')
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
-    expect(await screen.findByText('Accepted. The patient confirms next, then they appear here with Open.')).toBeTruthy()
+    expect(await screen.findByText('You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.')).toBeTruthy()
     expect(api.acceptShareInvitation).toHaveBeenCalledWith(FACILITY_ID, 'inv-1')
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 })
 
 describe('Ask the patient for access (once New external record access)', () => {
-  it('checks the Health ID, reason and duration at their fields before sending anything', async () => {
+  it('checks the Health ID and reason at their fields before sending anything', async () => {
     open('/new')
     const form = screen.getByRole('button', { name: SEND }).closest('form')!
-    // Today always asks for 60 minutes: 60 is the default, and less may be chosen.
-    expect((screen.getByLabelText(DURATION) as HTMLInputElement).value).toBe('60')
     fireEvent.submit(form)
     expect(await screen.findByText('Enter the patient’s Health ID.')).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByLabelText(labelled('Health ID')))
     expect(screen.getByText('Enter a clinical reason of at least 8 characters.')).toBeTruthy()
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdem' } })
-    fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '90' } })
     fireEvent.submit(form)
     expect(await screen.findByText('Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.')).toBeTruthy()
-    expect(screen.getByText('Enter a number of minutes from 5 to 60.')).toBeTruthy()
     expect(api.requestAccess).not.toHaveBeenCalled()
   })
 
-  it('asks for at least 5 minutes, as Health ID refuses less, and says so before sending', async () => {
+  it('always asks for 60 minutes, as today does, and offers no choice of how long (Patients.tsx:183)', async () => {
     open('/new')
-    const duration = screen.getByLabelText(DURATION) as HTMLInputElement
-    expect(duration.min).toBe('5')
-    expect(duration.max).toBe('60')
-    expect(screen.getByText('From 5 to 60 minutes.')).toBeTruthy()
+    expect(screen.queryByLabelText(/How long/)).toBeNull()
+    expect(screen.queryByRole('spinbutton')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/minutes/i)
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.change(duration, { target: { value: '4' } })
-    fireEvent.submit(duration.closest('form')!)
-    expect(await screen.findByText('Enter a number of minutes from 5 to 60.')).toBeTruthy()
-    expect(api.requestAccess).not.toHaveBeenCalled()
-    fireEvent.change(duration, { target: { value: '5' } })
-    fireEvent.submit(duration.closest('form')!)
-    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 5))
+    fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
-  it('sends the request with the chosen scope and duration, and opens it waiting for the patient', async () => {
+  it('sends the request with the chosen scope for 60 minutes, and opens it waiting for the patient', async () => {
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: '  Follow-up consultation ' } })
     fireEvent.click(screen.getByRole('radio', { name: /^Can view and add records/ }))
-    fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '45' } })
     fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
-    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 45))
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 60))
     expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
     expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()

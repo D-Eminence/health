@@ -146,13 +146,13 @@ describe('3. access requests are read where today reads them, each time', () => 
     expect((await screen.findByRole('link', { name: /^1 access request waiting/ })).getAttribute('href')).toBe('/provider/requests')
   })
 
-  it('reads none on another page', async () => {
+  it('reads them once on another page, for the bell, and not again', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'audit.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: many(() => json([])), 'GET /api/v1/audit/events': many(() => json({ items: [] })) })
     await openStaffApp('/provider/audit')
     await screen.findByRole('navigation', { name: 'Main navigation' })
     await waitFor(() => expect(sent.some(call => call.route === 'GET /api/v1/audit/events')).toBe(true))
-    expect(sent.some(call => call.route === REQUESTS)).toBe(false)
+    await waitFor(() => expect(sent.filter(call => call.route === REQUESTS)).toHaveLength(1))
   })
 })
 

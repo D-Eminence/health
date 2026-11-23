@@ -13,14 +13,8 @@ import {
 } from './access'
 import { SCOPE_LABELS } from './requests'
 
-/**
- * Today always asks for 60 minutes, so 60 is the default; the person may choose less, down to 5. Health ID accepts 5 to
- * 1440 minutes, so the box's lowest value is 5 (below that Health ID refuses the request).
- */
-export const MIN_MINUTES = 5
-export const MAX_MINUTES = 60
-export const DEFAULT_MINUTES = '60'
-export const DURATION_PROBLEM = 'Enter a number of minutes from 5 to 60.'
+/** Today always asks for 60 minutes and offers no choice of how long (Patients.tsx:183), so this form asks the same. */
+export const REQUEST_MINUTES = 60
 export const REQUEST_TITLE = 'Ask the patient for access'
 /** Patients.tsx:165. */
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
@@ -31,21 +25,18 @@ function text(values: FormValues, key: string): string {
 }
 
 /**
- * Today's checks for an access request; 5 to 60 minutes for the duration. A Health ID of HID- alone (the
- * field's start) is empty: "Enter the patient’s Health ID.".
+ * Today's checks for an access request. A Health ID of HID- alone (the field's start) is empty: "Enter the patient’s Health ID.".
  */
 export function requestProblems(values: FormValues): FieldErrors {
   const errors: Record<string, string> = {}
   const hidProblem = healthIdProblem(normalizeHealthIdInput(text(values, 'hid')))
   if (hidProblem) errors.hid = hidProblem
   if (text(values, 'reason').trim().length < 8) errors.reason = REASON_PROBLEM
-  const minutes = text(values, 'duration').trim()
-  if (!/^\d{1,2}$/.test(minutes) || Number(minutes) < MIN_MINUTES || Number(minutes) > MAX_MINUTES) errors.duration = DURATION_PROBLEM
   return errors
 }
 
 type Scope = 'read_records' | 'write_records'
-const ORDER = ['hid', 'scope', 'duration', 'reason'] as const
+const ORDER = ['hid', 'scope', 'reason'] as const
 type Key = (typeof ORDER)[number]
 
 const SCOPES: ReadonlyArray<{ value: Scope; label: string; hint: string }> = [
@@ -66,7 +57,6 @@ export function RequestAccess() {
   const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [scope, setScope] = useState<Scope>('read_records')
-  const [duration, setDuration] = useState(DEFAULT_MINUTES)
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<ReactNode>(null)
@@ -93,7 +83,7 @@ export function RequestAccess() {
     event.preventDefault()
     if (sending.current || !facility || unavailable) return
     setFormError(null)
-    const found = requestProblems({ hid, scope, duration, reason })
+    const found = requestProblems({ hid, scope, reason })
     setErrors(found)
     const first = ORDER.find(key => found[key])
     if (first && document.activeElement === document.getElementById(`${id}-${first}`)) {
@@ -105,7 +95,7 @@ export function RequestAccess() {
     sending.current = true
     setBusy(true)
     try {
-      const request = await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), Number(duration.trim()))
+      const request = await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), REQUEST_MINUTES)
       navigate(href(request.accessRequestId), {
         state: { notice: 'Request sent. The patient must approve before records are available.' },
       })
@@ -143,12 +133,6 @@ export function RequestAccess() {
               </label>)}
             </div>
           </fieldset>
-
-          <Field label="How long (minutes)" htmlFor={`${id}-duration`} hint="From 5 to 60 minutes." hintId={`${id}-duration-hint`} error={said('duration')} errorId={`${id}-duration-error`}>
-            <Input id={`${id}-duration`} type="number" inputMode="numeric" min={MIN_MINUTES} max={MAX_MINUTES} step={1} value={duration}
-              className="max-w-32" aria-invalid={errors.duration ? true : undefined} aria-describedby={describe('duration', true)}
-              onChange={event => { setDuration(event.target.value); clear('duration') }} />
-          </Field>
 
           <Field label="Clinical reason" htmlFor={`${id}-reason`} error={said('reason')} errorId={`${id}-reason-error`}>
             <Textarea id={`${id}-reason`} rows={3} maxLength={500} value={reason}

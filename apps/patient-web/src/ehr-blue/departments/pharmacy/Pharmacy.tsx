@@ -24,7 +24,7 @@ import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, patientLabel, readsKept, RefreshButton, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
-  useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, type Said,
+  useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, WorkListSince, type Said,
 } from '../parts/routedWork'
 import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
 import { PaperPrescription } from './PaperPrescription'
@@ -236,6 +236,7 @@ function PrescriptionQueue() {
           dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</DeptNotice>
           {cannotServed === true && lateCorrection && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
         <SaidAboveList id="pharmacy-said" text={said.listSaid} />
+        <WorkListSince since={read.value?.since} />
         <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
           <FilterTabs label="Show prescriptions" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
             // A count only once the list is read: while it loads, or when it couldn't be read, "0" would say nothing is waiting.
