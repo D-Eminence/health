@@ -2,7 +2,8 @@ import { act, fireEvent, screen, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, patientBanner, renderPage } from './harness'
+import { PatientsWorkspace } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, patientBanner, renderPage } from './harness'
 
 /**
  * Today's chart sections on the Consultation encounter page: staff imported history, the patient assistant,
@@ -13,7 +14,7 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, pa
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), records: vi.fn(), noteRevisions: vi.fn(),
   documents: vi.fn(), reportedHealthProfile: vi.fn(), importedHistory: vi.fn(), importedRecords: vi.fn(), recordChatAvailability: vi.fn(),
-  labImports: vi.fn(), pharmacyImports: vi.fn(),
+  labImports: vi.fn(), pharmacyImports: vi.fn(), allergies: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 const builds = vi.hoisted(() => ({ chat: false, importedRecords: false }))
@@ -75,6 +76,29 @@ async function openEncounter() {
 const sections = () => document.querySelector('.hid-ehr-clinical-today')
 
 describe('Consultation record: today’s chart sections', () => {
+  it('8b: opening the patient, then the chart, reads (and logs) what the patient reported once, as today’s chart alone did', async () => {
+    // A backend before the allergies route: the allergies card falls back to the same answer, not a read of its own.
+    api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    const page = renderPage(<PatientsWorkspace />, 'patients', '/open')
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect((await screen.findAllByText('Reported by the patient')).length).toBeGreaterThan(0)
+    await act(async () => {})
+    page.unmount()
+    await openEncounter()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).toBeTruthy()
+    expect(api.reportedHealthProfile).toHaveBeenCalledTimes(1)
+    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+  })
+
+  it('8b: a patient opened again (a new lookup) is read again, once', async () => {
+    renderPage(<PatientsWorkspace />, 'patients', '/open').unmount()
+    await act(async () => {})
+    staff.activePatient = activePatient()
+    await openEncounter()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).toBeTruthy()
+    expect(api.reportedHealthProfile).toHaveBeenCalledTimes(2)
+  })
+
   it('shows "Reported by the patient" as today does, labelled as not clinically verified, in the design’s card', async () => {
     await openEncounter()
     const card = (await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).closest('section')!

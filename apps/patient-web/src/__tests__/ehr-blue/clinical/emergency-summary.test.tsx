@@ -512,19 +512,21 @@ describe('ending my emergency access', () => {
     await act(async () => { answer({ consentGrantId: 'grant-1', status: 'closed' }) })
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
-    const said = await screen.findByText('Your access has ended.')
+    // Today's words once the grant is closed (Patients.tsx:243; parity 3.3-17).
+    const said = await screen.findByText('Access was closed.')
     expect(said.closest('[role="status"]')).toBeTruthy()
     expect(document.activeElement).toBe(said)
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
   })
 
-  it('shows a refused close and keeps the patient open', async () => {
+  it('shows a refused close in today’s words, with no title, and keeps the patient open (parity 3.3-17)', async () => {
     api.closeGrant.mockRejectedValue(new HidApiError(409, 'Consent command conflicts with grant state', { code: 'CONSENT_COMMAND_CONFLICT' }))
     await renderSummary()
     const button = await end()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Couldn’t end access')
-    expect(alert.textContent).toContain('This access had already ended.')
+    // Today maps no code here: the conflict reads in the plain words every refusal of its kind has.
+    expect(alert.textContent).not.toContain('Couldn’t end access')
+    expect(alert.textContent).toContain('This was changed somewhere else. Refresh the page and try again.')
     expect(alert.textContent).not.toMatch(/Consent command|CONSENT_COMMAND_CONFLICT/)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(button)
@@ -537,7 +539,7 @@ describe('ending my emergency access', () => {
     api.closeGrant.mockRejectedValue('offline')
     await renderSummary()
     await end()
-    expect((await screen.findByRole('alert')).textContent).toContain('Couldn’t end your access. Please try again.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Grant could not be closed.')
   })
 
   it('is not offered without a grant to close', async () => {
@@ -552,7 +554,7 @@ describe('ending my emergency access', () => {
     const button = screen.getByRole('button', { name: 'End emergency access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility can’t end your access. Ask your facility administrator.')
+      .toBe('Your role at this facility can’t close this grant. Ask your facility administrator.')
     expect(document.body.textContent).not.toContain('identity.consent.write')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()

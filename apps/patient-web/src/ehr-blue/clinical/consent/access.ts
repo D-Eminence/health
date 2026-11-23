@@ -3,9 +3,12 @@ import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi, type Facility } from '../../../staff/api'
+import type { ActivePatient } from '../../../staff/App'
 import { staffSessionGeneration, staffSessionSignal } from '../../../staff/session'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { useClinical } from '../parts/Workspace'
+import { opensInProduct, productOf } from '../../frame/product'
+import { segmentOf } from '../parts/segments'
+import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 
 /**
  * Today's governed access rules for the blue EHR (staff/routes/Patients.tsx and AccessRequests.tsx), shared by the
@@ -18,24 +21,33 @@ export const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. He
 /** Patients.tsx:142, a lookup answered with anything but an allowed patient. */
 export const NOT_GRANTED = 'Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
-/** AccessRequests.tsx:96 and Patients.tsx:226, once a grant is closed. */
+/** AccessRequests.tsx:100 and Patients.tsx:243, once a grant is closed. */
 export const ACCESS_CLOSED = 'Access was closed.'
+/** Patients.tsx:246, a close of the open record's grant that failed, whatever the reason (classic maps no code here). */
+export const CLOSE_FAILED = 'Grant could not be closed.'
+/** Patients.tsx:226, an access step (a request, a PIN) that failed for a reason the page has no words of its own for. */
+export const COMMAND_FAILED = 'The access command failed.'
 
 export type AccessMethod = 'request' | 'pin' | 'emergency'
 
 interface MethodRoute { readonly route: string; readonly method: EndpointMethod; readonly purpose?: string }
 export interface Action { readonly routes: readonly MethodRoute[]; readonly action: string }
 
-/** Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES). */
+/**
+ * Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES,
+ * Patients.tsx:37-44), with today's action words for the request and the PIN. Emergency access keeps the plain words
+ * the coordinator chose on 2 Nov.
+ */
 export const METHOD_ROUTES: Readonly<Record<AccessMethod, Action>> = {
-  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'ask patients for access' },
+  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
   pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
-    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'use a patient’s Access PIN' },
+    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'verify a patient’s PIN' },
   emergency: { routes: [{ route: 'access.breakGlass', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }], action: 'open emergency access' },
 }
-export const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'end this access' }
+/** Patients.tsx:53, closing the grant that opened the record. */
+export const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 export const OPEN_SHARED: Action = { routes: [{ route: 'identity.patientLookup', method: 'POST' }], action: 'open a patient’s record' }
 
 export type Administrator = 'pending' | 'reviewed' | null
@@ -130,6 +142,24 @@ export function useOpenPatient() {
     }
     return setActivePatient({ hid, lookup, purpose })
   }, [facility, setActivePatient])
+}
+
+/**
+ * Where an opened patient lands, as today's openPatient sends every allowed lookup to the record (Patients.tsx:149,
+ * /provider/clinical): direct care opens the chart (Consultation) for a role that may read it on a site that opens it;
+ * emergency access opens the read-only emergency summary where this site opens Emergency. Any other role, or site,
+ * lands on the patient's page, the one record page it can open.
+ */
+export function useOpenedPatientHref() {
+  const { permissions, can } = useClinical()
+  const href = useWorkspaceHref()
+  return useCallback((purpose: ActivePatient['purpose']) => {
+    const product = productOf(window.location.hostname, permissions)
+    if (purpose === 'emergency') {
+      return opensInProduct(product, segmentOf('emergency')) && can('identity.break-glass.write') ? href.to('emergency', 'summary') : href.to('patients', 'open')
+    }
+    return opensInProduct(product, segmentOf('consult')) && can('ehr.encounter.read') ? href.to('consult') : href.to('patients', 'open')
+  }, [can, href, permissions])
 }
 
 /**

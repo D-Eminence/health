@@ -27,11 +27,11 @@ function openAs(permissions: readonly string[], path: string, selfService?: { re
 }
 
 describe('Access requests without identity.consent.write', () => {
-  it('says plainly that the role can’t ask patients for access, without the permission’s name, and reads nothing', async () => {
+  it('says plainly that the role can’t send access requests, without the permission’s name, and reads nothing', async () => {
     const { sent, opened } = openAs(['identity.patient.read'], '/provider/requests/new')
     await opened
     expect(await screen.findByRole('heading', { level: 1, name: 'Ask the patient for access' })).toBeDefined()
-    expect(screen.getByText('Your role at this facility can’t ask patients for access. Ask your facility administrator.')).toBeDefined()
+    expect(screen.getByText('Your role at this facility can’t send access requests. Ask your facility administrator.')).toBeDefined()
     expect(document.body.textContent).not.toMatch(NO_PERMISSION_NAME)
     expect(where()).toBe('/provider/requests/new')
     expect(screen.queryByText(DENIED_NOTICE)).toBeNull()
@@ -46,7 +46,7 @@ describe('Access requests without identity.consent.write', () => {
     const { sent, opened } = openAs(['workforce.manage'], '/provider/requests/new', { review, organizationType: 'clinic' })
     await opened
     expect(await screen.findByRole('heading', { level: 1, name: 'Ask the patient for access' })).toBeDefined()
-    expect(screen.getByText(`Your role at this facility can’t ask patients for access. ${who}`)).toBeDefined()
+    expect(screen.getByText(`Your role at this facility can’t send access requests. ${who}`)).toBeDefined()
     expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
     expect(document.body.textContent).not.toMatch(NO_PERMISSION_NAME)
     expect(sent.some(call => call.route === REQUESTS)).toBe(false)

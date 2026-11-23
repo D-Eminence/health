@@ -11,6 +11,7 @@ import { refusalText } from '../../../staff/fieldProblem'
 import { NOT_A_SUBSTANCE, isNotASubstanceRefusal } from '../parts/allergyWarning'
 import type { Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
+import { readReportedHealth } from '../parts/reportedHealth'
 
 /**
  * Each severity's badge (Ola, wording #9): severe in red; not known in amber, as moderate, never as quiet as mild (a
@@ -81,7 +82,7 @@ export type AllergiesState =
  * 'failed', with Try again: never hidden, and never "no allergies".
  */
 export function useAllergies(chart: Chart): { state: AllergiesState; reload: () => void } {
-  const { facilityId, patientId, purpose } = chart
+  const { facilityId, patientId, purpose, patient } = chart
   const reads = purpose === 'direct-care' && chart.can('ehr.note.read')
   const [revision, setRevision] = useState(0)
   // Keyed on the patient and facility: an answer for another is never shown. A reload (revision) keeps showing the
@@ -111,7 +112,8 @@ export function useAllergies(chart: Chart): { state: AllergiesState; reload: () 
         if (controller.signal.aborted) return
         if (!isHidApiError(caught) || caught.status !== 404) return failed(true)(caught)
         // Before 0117: the patient's own text only.
-        void Promise.resolve().then(() => staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)).then(
+        // The patient page's own read of it, shared for the open patient, so it is read (and logged) once (parts/reportedHealth.ts).
+        void readReportedHealth(patient, facilityId, patientId, { fresh: revision > 0 }).then(
           profile => {
             if (controller.signal.aborted) return
             setState({ status: 'shown', recordedOffered: false, recorded: [],
@@ -122,7 +124,7 @@ export function useAllergies(chart: Chart): { state: AllergiesState; reload: () 
       },
     )
     return () => controller.abort()
-  }, [reads, scope, facilityId, patientId, revision])
+  }, [reads, scope, facilityId, patientId, patient, revision])
 
   if (!reads) return { state: { status: 'hidden' }, reload }
   if (answer?.scope !== scope) return { state: { status: 'loading' }, reload }

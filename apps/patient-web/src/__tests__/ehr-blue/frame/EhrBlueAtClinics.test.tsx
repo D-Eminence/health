@@ -112,7 +112,10 @@ describe('at a clinic, with the clinic switch on', () => {
 
     fireEvent.click(screen.getByRole('link', { name: 'Sign in again' }))
     await signIn()
-    await expectBlueHome()
+    // Back on the page it was at, the chart (Find a patient opens it, as today's does; parity 13d), with no patient open.
+    expect(await screen.findByText('Choose a patient first.', undefined, { timeout: 5000 })).toBeDefined()
+    expect(where()).toBe('/provider/clinical')
+    expect(document.querySelector('.hid-ehr.hid-ehr-shell')).not.toBeNull()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     // The Patients page has no patient open either: the next person starts from a search.
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Patients' }))
@@ -161,7 +164,8 @@ describe('at a clinic, with the clinic switch on', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
     // The workspace opens again at the facility chosen, on the same page, with no patient open.
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
-    expect(where()).toBe('/provider/patients/open')
+    // Find a patient opened the chart, as today's does (parity 13d).
+    expect(where()).toBe('/provider/clinical')
     expect(screen.getByText('Choose a patient first.')).toBeDefined()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
   })

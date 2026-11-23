@@ -1,10 +1,11 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
-import { isHidApiError } from '@hid/http'
-import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { isHidApiError, plainErrorText } from '@hid/http'
+import { ArrowRight, IdCard, KeyRound, Lock, LogOut, Search, Send, Siren, UserPlus } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
 import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { staffApi } from '../../../staff/api'
 import { ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { opensInProduct, productOf } from '../../frame/product'
@@ -13,11 +14,12 @@ import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, dropOfferedHealthId,
-  healthIdProblem, isRefusedLookup, lookupRefusal, offerHealthId, useOpenPatient, type AccessMethod,
+  ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, HID_FORMAT, METHOD_ROUTES, OPEN_SHARED, actionUnavailable,
+  administratorOf, dropOfferedHealthId, healthIdProblem, isRefusedLookup, lookupRefusal, offerHealthId, useOpenPatient,
+  useOpenedPatientHref, type AccessMethod,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
-import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
+import { PatientPage, accessLabel } from './PatientPage'
 import { SharedWithYouCard } from './SharingCards'
 
 /** How long the Health ID field rests, after a whole Health ID arrived in it at once, before it is looked up by itself. */
@@ -114,10 +116,6 @@ function HandedPatientList() {
   return <PatientList key={typeof handed === 'string' ? location.key : 'list'} />
 }
 
-function noticeOf(state: unknown): string {
-  return state && typeof state === 'object' && 'notice' in state && state.notice === CLOSED_NOTICE ? ACCESS_CLOSED : ''
-}
-
 function PatientList() {
   const { facility, permissions, can, activePatient, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
@@ -125,6 +123,8 @@ function PatientList() {
   const location = useLocation()
   const ended = useAccessEnded()
   const openPatient = useOpenPatient()
+  const landing = useOpenedPatientHref()
+  const title = useRef<HTMLHeadingElement>(null)
   // Registration stays in the EHR only (the owner's decision): on a single product's site (lab., pharmacy., outreach.,
   // migrate.) Find a patient offers no "Register a patient", whatever the role holds. The product is decided as the
   // frame decides it (frame/product.ts), so this page and the menu always agree.
@@ -145,7 +145,7 @@ function PatientList() {
   // available here still answers 404 NOT_FOUND (or 403), shown as a refused lookup with the ways in.
   const [unknown, setUnknown] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState(() => noticeOf(location.state))
+  const [notice, setNotice] = useState('')
   // Whether the Health ID in the field arrived whole at once (pasted, or scanned in one burst): only then is it looked up
   // by itself.
   // A Health ID typed, or handed over from Registration, waits for Find or Enter.
@@ -163,14 +163,29 @@ function PatientList() {
   const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
   const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
   const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
+  // Today's Close my grant on the open record's card (Patients.tsx:239-248, 252), with its reason when the role cannot.
+  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
+  const grantId = activePatient?.lookup.authorization.consentGrantId ?? null
+  const [closed, setClosed] = useState(0)
+  const [closeError, setCloseError] = useState('')
+  // Closing takes the card, and its button, away: focus goes to the page heading unless the user moved it (today's
+  // focus('patients-title', true)).
+  useLayoutEffect(() => {
+    if (!closed) return
+    const focused = document.activeElement
+    if (!focused || focused === document.body || !focused.isConnected) title.current?.focus()
+  }, [closed])
 
-  function clearFeedback() { setNotice(''); setError(''); setRefused(null); setUnknown(null) }
+  function clearFeedback() { setNotice(''); setError(''); setCloseError(''); setRefused(null); setUnknown(null) }
 
-  /** Today's openPatient from a typed or shared Health ID: an allowed lookup opens the patient's page. */
+  /**
+   * Today's openPatient from a typed or shared Health ID: an allowed lookup opens the chart, as today's does
+   * (Patients.tsx:149); a role without the chart gets the patient's page.
+   */
   async function open(candidate: string) {
     setBusy(true)
     try {
-      if (await openPatient(candidate, 'direct-care')) navigate(href('open'))
+      if (await openPatient(candidate, 'direct-care')) navigate(landing('direct-care'))
     } catch (caught) {
       // No grant yet says how to get one; a lab or pharmacy role's 404 says the record isn't open to it here.
       const message = lookupRefusal(caught, facility?.roles ?? [])
@@ -235,6 +250,23 @@ function PatientList() {
     void open(sharedHid)
   }
 
+  /** Today's closeGrant (Patients.tsx:239-248): the open record's grant ends here, and the page stays. */
+  async function closeGrant() {
+    if (!facility || !grantId || busy || closeUnavailable) return
+    clearFeedback()
+    setBusy(true)
+    try {
+      await staffApi.closeGrant(facility.id, grantId, CLOSE_REASON)
+      setActivePatient(null)
+      setNotice(ACCESS_CLOSED)
+      setClosed(value => value + 1)
+    } catch (caught) {
+      setCloseError(plainErrorText(caught, CLOSE_FAILED, { audience: 'facility' }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /**
    * "Obtain access", with or without a lookup, as today's card offers its three methods: Ask the patient is External
    * record access's request form (the frame opens it only with identity.consent.write, which sending a request needs),
@@ -260,7 +292,7 @@ function PatientList() {
   const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
 
   return (
-    <FormPage title="Find a patient" description="Paste or scan their Health ID and it’s checked at once. If you type it, select Find."
+    <FormPage title="Find a patient" titleRef={title} description="Paste or scan their Health ID and it’s checked at once. If you type it, select Find."
       actions={registers ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
       {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 
@@ -302,7 +334,8 @@ function PatientList() {
           <div className="flex items-start gap-3">
             <IconChip icon={Lock} tone="warn" />
             <div role="alert" className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
+              {/* Today's sentence for a lookup Health ID did not allow (Patients.tsx:145), or why else it was refused. */}
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message}</p></div>
           </div>
         </div> : null}
 
@@ -329,9 +362,10 @@ function PatientList() {
         <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
       </Card>
 
-      {/* Shown only while a patient is open: a section shows only when it has something in it. */}
+      {/* Shown only while a patient is open: a section shows only when it has something in it. Today's heading, Open
+          link and Close my grant (Patients.tsx:252). */}
       {activePatient && open_ ? <section aria-labelledby="patients-open" className="flex flex-col gap-3">
-        <SectionHeader id="patients-open" title="Open now" />
+        <SectionHeader id="patients-open" title={activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'} />
         <Card>
           <div className="flex flex-wrap items-center gap-4 p-5">
             <span aria-hidden="true" className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[15px] font-semibold text-brand-ink">{open_.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
@@ -340,8 +374,16 @@ function PatientList() {
               <p className="m-0 mt-0.5 text-[13px] text-ink-3"><span className="font-medium tracking-[.06em] text-ink-2">{open_.hid}</span>{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
             </div>
             <Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'} size="sm">{accessLabel(activePatient)}</Badge>
-            <Button to={href('open')} iconRight={ArrowRight}>Open</Button>
+            <Button to={landing(activePatient.purpose)} iconRight={ArrowRight}>Open</Button>
           </div>
+          {grantId ? <div className="flex flex-col items-start gap-1.5 border-t border-line px-5 py-3">
+            {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's: a second press sends nothing. */}
+            <Button size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
+              aria-disabled={busy || undefined} onClick={() => void closeGrant()}>Close my grant</Button>
+            {/* Today's failure has no title of its own (Patients.tsx:246, 271). */}
+            {closeError ? <Alert intent="error" size="sm">{closeError}</Alert> : null}
+          </div> : null}
         </Card>
       </section> : null}
 

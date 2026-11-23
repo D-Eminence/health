@@ -197,17 +197,18 @@ describe('A clinical page reached by its address alone', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Find a patient' }))
     fireEvent.change(await screen.findByLabelText('Health ID'), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Find' }))
-    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    // An allowed lookup opens the chart, as today's does (parity 13d).
+    await waitFor(() => expect(seen.at(-1)).toBe('/provider/clinical'))
     // The lookup is of what was typed, at the working facility, for direct care: nothing came from the address.
     expect(api('lookupPatient').mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
     expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: allowedLookup, purpose: 'direct-care' })
-    // The patient page checks access again before it reads this facility's visits.
-    await waitFor(() => expect(api('encounters')).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID))
+    // The chart checks access again before it reads this facility's visits.
+    await waitFor(() => expect(api('encounters')).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.anything()))
     expect(api('lookupPatient')).toHaveBeenCalledTimes(2)
     expect(api('lookupPatient').mock.invocationCallOrder[1]!).toBeLessThan(api('encounters').mock.invocationCallOrder[0]!)
     // Nothing of the prescription was read on the way; the addresses named no patient.
     expect(api('records')).not.toHaveBeenCalled()
-    expect(seen).toEqual([PRESCRIPTION_PAGE, '/provider/patients', PATIENT_PAGE])
+    expect(seen).toEqual([PRESCRIPTION_PAGE, '/provider/patients', '/provider/clinical'])
     expectNothingIdentifying()
   })
 })
