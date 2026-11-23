@@ -16,7 +16,8 @@ import { healthIdUnavailable, noConnection } from './offlineQueue'
 import { OutreachNumbers, useOutreachTotals } from './outreachNumbers'
 import {
   CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignOpenNow, campaignStarted, campaignStatusLabel,
-  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, OutreachField, REASON_LENGTH, RETRY_NOTE,
+  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, NO_MEMBERS, OutreachField, REASON_LENGTH,
+  RETRY_NOTE,
   servicesText, STAFF_NOT_LOADED, type FieldErrors, type MembersRead,
 } from './outreachParts'
 
@@ -365,7 +366,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, gr
       <DeptSection title="Members">
         <PageState loading={loading} error={items ? null : members?.error || null} hasData={items !== null} what="members" rows={2}
           onRetry={members ? () => void members.refresh() : undefined}
-          empty={items?.length === 0 ? { icon: Users, title: 'No members yet', description: 'No facility memberships are listed for this campaign.' } : null}>
+          empty={items?.length === 0 ? { icon: Users, title: NO_MEMBERS, description: 'No facility memberships are listed for this campaign.' } : null}>
           <ul className="hid-ehr-dept-rows">
             {(items ?? []).map(member => (
               <li key={member.id}>

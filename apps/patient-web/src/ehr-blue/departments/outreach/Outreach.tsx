@@ -27,7 +27,7 @@ import { keptCampaign, outreachSnapshotOf, saveOutreachSnapshot } from './offlin
 import { noteOutreachRegistrations, outreachServed } from './outreachServed'
 import { offlineShellHere } from '../../../productHostname'
 import {
-  campaignOpenNow, CAMPAIGNS_NOT_LOADED, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
+  campaignOpenNow, CAMPAIGNS_NOT_LOADED, NO_CAMPAIGNS, NO_CASES, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, servicesText, type CampaignsUnread, type MembersRead,
 } from './outreachParts'
 
@@ -499,7 +499,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   const listed = cases.value !== null
   const newButton = canWrite ? <Button variant="primary" icon={UserPlus} onClick={onNew}>New registration</Button> : null
   const canLink = canWrite && !group
-  const emptyAll = { icon: Users, title: 'No registrations yet', description: canWrite
+  const emptyAll = { icon: Users, title: NO_CASES, description: canWrite
     ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
   const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null : search
     ? { icon: Search, title: 'No matching registrations', description: 'Check the spelling, or search by another name.' }
@@ -569,7 +569,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
                 ? { icon: Megaphone, title: 'Create your first campaign', description: 'A campaign is one outreach event or drive: '
                   + 'its name, dates and what you offer. You become its first admin, and people are registered into it.',
                 action: <Button variant="primary" icon={Plus} onClick={onNewCampaign}>Create your first campaign</Button> }
-                : { icon: Megaphone, title: 'No campaigns yet', description: onNewCampaign
+                : { icon: Megaphone, title: NO_CAMPAIGNS, description: onNewCampaign
                   ? 'Create a campaign to plan outreach work. You become its first admin.' : 'Campaigns this facility runs show here.' } : null}>
               <Card as="div">
                 <ul aria-label="Campaigns" className="m-0 list-none divide-y divide-line p-0">

@@ -9,7 +9,6 @@ import { staffReturnPath } from '../../../staff/session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE } from '../../../staff/routes/StaffMfaSteps'
 import { usesNovuBackend } from '../../../backendContract'
 import { capturedStaffInvitation } from '../../../staff/invitationCapture'
-import { Alert } from '../../../kasuwa/ui'
 import { NO_FACILITY_YET, productNotAuthorised } from '../../../staffSignInRefusals'
 import { opensAccountOnly, START_OUTREACH_GROUP_PATH } from '../../../staff/accountOnly'
 
@@ -78,5 +77,6 @@ export function TurnstileChallenge({ onToken, resetKey }: { readonly onToken: (t
   }, [siteKey, resetKey])
 
   if (!siteKey) return null
-  return <div className="flex flex-col gap-2"><div ref={host} />{error ? <Alert intent="error" size="sm">{error}</Alert> : null}</div>
+  // As on the classic page: the check's own line under it, in the same plain words as the sign-in's refusal.
+  return <div><div ref={host} />{error ? <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error}</p> : null}</div>
 }

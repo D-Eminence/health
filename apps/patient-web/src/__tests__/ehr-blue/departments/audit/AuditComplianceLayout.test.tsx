@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { AuditCompliance } from '../../../../ehr-blue/departments/audit/AuditCompliance'
-import { dateText } from '../../../../ehr-blue/departments/parts/format'
 import { valueAt } from '../../../cssRules'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
@@ -74,7 +73,7 @@ describe('Audit trail: the design’s one list card', () => {
     const card = events().parentElement as HTMLElement
     expect(card.tagName).toBe('SECTION')
     expect(card.className).toBe('hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card')
-    const intro = screen.getByText(/^Audit events for Demo Hospital\./)
+    const intro = screen.getByText(/^Review events for Demo Hospital\./)
     expect(intro.nextElementSibling).toBe(card)
     expect(card.nextElementSibling).toBeNull()
     expect(document.querySelectorAll('.hid-ehr-card')).toHaveLength(1)
@@ -83,16 +82,16 @@ describe('Audit trail: the design’s one list card', () => {
     expect(card.children).toHaveLength(2)
     const [controls, list] = Array.from(card.children)
     expect(controls!.className).toBe('hid-ehr-dept-search-row')
-    expect(within(controls as HTMLElement).getByRole('searchbox', { name: 'Search Audit trail' })).toBeTruthy()
-    expect(within(controls as HTMLElement).getByRole('combobox', { name: 'Outcome' })).toBeTruthy()
+    expect(within(controls as HTMLElement).getByRole('searchbox', { name: 'Search this page' })).toBeTruthy()
+    expect(within(controls as HTMLElement).getByRole('combobox', { name: 'Outcome on this page' })).toBeTruthy()
     expect(list).toBe(events())
-    expect(within(card).getByRole('button', { name: 'Older events' })).toBeTruthy()
+    expect(within(card).getByRole('button', { name: 'Older page' })).toBeTruthy()
 
     // Refresh stays in the heading's line, outside the card.
-    const refresh = button('Refresh')
-    expect(within(card).queryByRole('button', { name: 'Refresh' })).toBeNull()
+    const refresh = button('Refresh events')
+    expect(within(card).queryByRole('button', { name: 'Refresh events' })).toBeNull()
     expect(refresh.closest('.hid-ehr-page-heading')).not.toBeNull()
-    expect(screen.getAllByRole('button').map(element => element.textContent)).toEqual(['Refresh', 'Older events'])
+    expect(screen.getAllByRole('button').map(element => element.textContent)).toEqual(['Refresh events', 'Older page'])
     onlyAuditRead()
   })
 
@@ -113,18 +112,17 @@ describe('Audit trail: every event of the page loaded', () => {
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
 
-    expect((screen.getByRole('searchbox', { name: 'Search Audit trail' }) as HTMLInputElement).value).toBe('')
-    expect((screen.getByRole('combobox', { name: 'Outcome' }) as HTMLSelectElement).value).toBe('all')
+    expect((screen.getByRole('searchbox', { name: 'Search this page' }) as HTMLInputElement).value).toBe('')
+    expect((screen.getByRole('combobox', { name: 'Outcome on this page' }) as HTMLSelectElement).value).toBe('all')
     expect(shown()).toEqual(['Looked up a patient by Health ID', 'Patient access and registration activity (refused)', 'Tried to start a new visit'])
-    const when = dateText('2026-01-01T12:00:00.000Z')
-    expect(screen.getByText(`Staff member · ${when} · Allowed`)).toBeTruthy()
-    expect(screen.getByText(`Someone · ${when} · Refused`)).toBeTruthy()
-    expect(screen.getByText(`Staff member · ${when} · Failed`)).toBeTruthy()
+    const when = new Date('2026-01-01T12:00:00.000Z').toLocaleString()
+    expect([...document.querySelectorAll('.hid-ehr-dept-audit-meta')].map(line => line.textContent))
+      .toEqual([`Staff member · ${when} · Allowed`, `Someone · ${when} · Refused`, `Staff member · ${when} · Failed`])
     for (const withheld of ['identity.patient.lookup', 'identity.access.denied', 'ehr.encounter.create', 'Corr-XYZ', 'encounter']) {
       expect(document.body.innerHTML).not.toContain(withheld)
     }
     expect(screen.getByText('Page 1 · 3 events')).toBeTruthy()
-    expect(screen.queryByText('No matching events')).toBeNull()
+    expect(screen.queryByText('No matching events on this page')).toBeNull()
     expect(api.facilityAudit).toHaveBeenCalledTimes(1)
     onlyAuditRead()
   })
@@ -135,12 +133,12 @@ describe('Audit trail: every event of the page loaded', () => {
     ]))
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
-    fireEvent.click(button('Older events'))
+    fireEvent.click(button('Older page'))
 
     await screen.findByRole('list', { name: 'Audit events, page 2' })
     expect(shown(2)).toEqual(['Patient access and registration activity (refused)', 'Tried to open a clinical note'])
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, '51')
-    expect(within(events().parentElement as HTMLElement).getByRole('button', { name: 'Newer events' })).toBeTruthy()
+    expect(within(events().parentElement as HTMLElement).getByRole('button', { name: 'Newer page' })).toBeTruthy()
   })
 
   it('keeps a page already shown while Newer events reads it again, and says so', async () => {
@@ -150,9 +148,9 @@ describe('Audit trail: every event of the page loaded', () => {
       .mockReturnValueOnce(again.promise)
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
-    fireEvent.click(button('Older events'))
+    fireEvent.click(button('Older page'))
     await screen.findByRole('alert')
-    fireEvent.click(button('Newer events'))
+    fireEvent.click(button('Newer page'))
 
     await waitFor(() => expect(api.facilityAudit).toHaveBeenCalledTimes(3))
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, undefined)
@@ -161,14 +159,14 @@ describe('Audit trail: every event of the page loaded', () => {
     expect(status.textContent).toBe('Loading audit events')
     expect(status.className).toBe('hid-ehr-sr-only')
     expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
-    expect(button('Older events').getAttribute('aria-busy')).toBe('true')
+    expect(button('Older page').getAttribute('aria-busy')).toBe('true')
 
     await act(async () => { again.resolve(pageOf([event('54', { action: 'auth.facility.select' })], '54')) })
     expect(shown()).toEqual(['Switched to this facility'])
     expect(screen.queryByText('Tried to start a new visit')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).hasAttribute('aria-busy')).toBe(false)
-    expect(document.activeElement).toBe(button('Older events'))
+    expect(document.activeElement).toBe(button('Older page'))
     onlyAuditRead()
   })
 })

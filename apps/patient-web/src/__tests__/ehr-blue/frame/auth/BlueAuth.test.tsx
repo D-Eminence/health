@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type * as StaffApi from '../../../../staff/api'
-import { BlueSignIn, signInWords } from '../../../../ehr-blue/frame/auth/BlueSignIn'
+import { BlueSignIn, SIGN_IN_DONE, SIGN_IN_LEDE } from '../../../../ehr-blue/frame/auth/BlueSignIn'
 import { BlueRecovery } from '../../../../ehr-blue/frame/auth/BlueRecovery'
 import { BlueStaffInvitation } from '../../../../ehr-blue/frame/auth/BlueStaffInvitation'
 import { siteName } from '../../../../ehr-blue/frame/auth/BlueAuthLayout'
@@ -57,10 +57,12 @@ describe('BlueSignIn', () => {
     staff.login.mockResolvedValue({ kind: 'session', session: SESSION })
     open('/provider/sign-in', <BlueSignIn />)
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
-    expect(screen.getByText('Sign in to your hospital workspace.')).toBeDefined()
-    expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
-    expect(screen.getByRole('link', { name: 'Register a hospital' })).toBeDefined()
-    expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
+    // The classic page's words and links (staff/routes/SignIn.tsx, parity report 3.3-42).
+    expect(screen.getByText('Sign in with your work account.')).toBeDefined()
+    expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
+    expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe('/provider/enroll')
+    for (const gone of ['Register a hospital', 'Accept invitation', 'Forgot password?']) expect(screen.queryByRole('link', { name: gone })).toBeNull()
+    for (const gone of ['New to Health ID?', 'Joining your team?']) expect(document.body.textContent).not.toContain(gone)
     fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: ' demo.nurse@example.test ' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional-password-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
@@ -104,35 +106,29 @@ describe('BlueSignIn', () => {
     })
 
   it.each([
-    ['ehr.healthidentitydirectory.com', 'you@hospital.org'],
-    ['lab.healthidentitydirectory.com', 'you@work.org'],
-    ['pharmacy.healthidentitydirectory.com', 'you@work.org'],
-    ['outreach.healthidentitydirectory.com', 'you@work.org'],
-    ['migrate.healthidentitydirectory.com', 'you@work.org'],
-  ])('on %s asks for the work email as today, with an example address that fits the site, and says who gives accounts', (hostname, example) => {
+    'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com',
+    'outreach.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com',
+  ])('on %s asks for the work email as the classic page does, with no example address, and says who gives accounts', hostname => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
     try {
       open('/provider/sign-in', <BlueSignIn />)
-      expect(screen.getByRole('textbox', { name: 'Work email' }).getAttribute('placeholder')).toBe(example)
-      expect(screen.getByText('Need a staff account? Ask your facility administrator.')).toBeDefined()
+      expect(screen.getByRole('textbox', { name: 'Work email' }).hasAttribute('placeholder')).toBe(false)
+      const recover = screen.getByRole('link', { name: 'Forgot your password?' })
+      expect(recover.parentElement!.textContent).toBe('Forgot your password? Need a staff account? Ask your facility administrator.')
     } finally { vi.unstubAllGlobals() }
   })
 
   it.each([
-    ['ehr.healthidentitydirectory.com', 'Register a hospital'],
-    ['lab.healthidentitydirectory.com', 'Register a laboratory'],
-    ['pharmacy.healthidentitydirectory.com', 'Register a pharmacy'],
-    ['migrate.healthidentitydirectory.com', 'Register a hospital'],
-    // Open sign-up on outreach. (owner decisions of 11 November 2026): outreach.'s way in is the organiser sign-up.
-    ['outreach.staging.healthidentitydirectory.com', 'Start running outreach'],
-    ['lab.staging.healthidentitydirectory.com', 'Register a laboratory'],
-  ])('on %s, every way in stays on the site itself: %s, Forgot password? and Accept invitation', (hostname, register) => {
+    'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com',
+    'migrate.healthidentitydirectory.com', 'outreach.staging.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com',
+  ])('on %s, every way in stays on the site itself: Set up your facility and Forgot your password?', hostname => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
     try {
       open('/provider/sign-in', <BlueSignIn />)
-      expect(screen.getByRole('link', { name: register }).getAttribute('href')).toBe('/provider/enroll')
-      expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
-      expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
+      // The header's one link, as on the classic page: this site's own facility sign-up.
+      expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe('/provider/enroll')
+      expect(screen.getByRole('link', { name: 'Set up your facility' }).closest('header')).not.toBeNull()
+      expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
       // Nothing here leads to another site, except a patient's way to the patient portal's own sign-in (app. is for
       // patients, each product site for its staff).
       const patients = hostname.includes('.staging.') ? 'https://staging.healthidentitydirectory.com/sign-in'
@@ -146,27 +142,40 @@ describe('BlueSignIn', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
-  it.each([
-    ['ehr.healthidentitydirectory.com', 'Sign in to your hospital workspace.'],
-    ['lab.healthidentitydirectory.com', 'Sign in to Health ID Lab.'],
-    ['pharmacy.healthidentitydirectory.com', 'Sign in to Health ID Pharmacy.'],
-    ['outreach.healthidentitydirectory.com', 'Sign in to Health ID Outreach.'],
-    ['migrate.staging.healthidentitydirectory.com', 'Sign in to Health ID Migrate.'],
-  ])('on %s, names that product: %s', (hostname, lede) => {
+  it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com',
+    'outreach.healthidentitydirectory.com', 'migrate.staging.healthidentitydirectory.com'])('on %s, says the classic page\'s welcome line', hostname => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
     try {
       open('/provider/sign-in', <BlueSignIn />)
-      expect(screen.getByText(lede)).toBeDefined()
-      if (!hostname.startsWith('ehr.')) expect(document.body.textContent).not.toMatch(/hospital workspace|Hospital EHR/)
+      expect(SIGN_IN_LEDE).toBe('Sign in with your work account.')
+      expect(screen.getByText(SIGN_IN_LEDE)).toBeDefined()
+      expect(document.body.textContent).not.toMatch(/hospital workspace|Hospital EHR/)
     } finally { vi.unstubAllGlobals() }
   })
 
-  it('ends the authenticator step with each product\'s own name', () => {
-    expect(signInWords('ehr')).toEqual({ lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' })
-    expect(signInWords('lab')).toEqual({ lede: 'Sign in to Health ID Lab.', done: 'Continue to Health ID Lab', emailExample: 'you@work.org' })
-    expect(signInWords('pharmacy').done).toBe('Continue to Health ID Pharmacy')
-    expect(signInWords('outreach').done).toBe('Continue to Health ID Outreach')
-    expect(signInWords('migrate').done).toBe('Continue to Health ID Migrate')
+  // Parity report 3.3-44: the authenticator set-up ends with the classic page's "Continue", on every site.
+  it('ends the authenticator set-up with "Continue", as the classic page does', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com', replace: vi.fn() })
+    try {
+      staff.login.mockResolvedValue({ kind: 'challenge', challenge: { status: 'mfa_enrollment_required', expiresAt: '2026-11-30T12:05:00.000Z' } })
+      staff.sendEnrollmentCode.mockResolvedValue({ accepted: true, channel: 'email', expiresAt: '2026-11-30T12:10:00.000Z' })
+      staff.startEnrollment.mockResolvedValue({ secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/Health%20ID:demo?secret=JBSWY3DPEHPK3PXP',
+        algorithm: 'SHA1', digits: 6, periodSeconds: 30, expiresAt: '2026-11-30T12:10:00.000Z' })
+      staff.activateEnrollment.mockResolvedValue({ ...SESSION, recoveryCodes: ['ABCDE-FGHJK', 'MNPQR-STVWX'] })
+      open('/provider/sign-in', <BlueSignIn />)
+      signInWith('demo.nurse@example.test', 'fictional-password-1')
+      fireEvent.click(await screen.findByRole('button', { name: 'Email me a code' }))
+      fireEvent.change(await screen.findByLabelText(/Email code/), { target: { value: '654321' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      fireEvent.change(await screen.findByLabelText(/Authenticator code/), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+      await screen.findByRole('heading', { level: 1, name: 'Save your recovery codes' })
+      expect(SIGN_IN_DONE).toBe('Continue')
+      expect(screen.queryByRole('button', { name: /^Continue to / })).toBeNull()
+      fireEvent.click(screen.getByLabelText('I have stored these recovery codes somewhere safe'))
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() => expect(staff.completeSignIn).toHaveBeenCalledWith(SESSION))
+    } finally { vi.unstubAllGlobals() }
   })
 
   it.each([
@@ -183,7 +192,7 @@ describe('BlueSignIn', () => {
       expect(document.title).toBe(`Reset your password · ${name}`)
       recoveryPage.unmount()
       open('/provider/invitation', <BlueStaffInvitation />)
-      expect(document.title).toBe(`Accept your invitation · ${name}`)
+      expect(document.title).toBe(`Join your facility · ${name}`)
     } finally { vi.unstubAllGlobals() }
   })
 
@@ -200,14 +209,16 @@ describe('BlueSignIn', () => {
     staff.login.mockRejectedValueOnce(new HidApiError(401, 'Email or password is incorrect.', { code: 'INVALID_CREDENTIALS' }))
     open('/provider/sign-in', <BlueSignIn />)
     signInWith('demo.nurse@example.test', 'fictional-password-1')
-    // One alert (the redesign's boxed Alert, which names itself "Error:" to a screen reader), in Identity's words.
+    // One alert, in the portal's words, below the human check and above the button, as on the classic page (3.3-42).
     const refusal = await screen.findByRole('alert')
-    expect(refusal.textContent).toBe('Error: That email address or password isn’t right. Try again.')
+    expect(refusal.textContent).toBe('That email address or password isn’t right. Try again.')
     expect(document.body.textContent).not.toContain('Email or password is incorrect.')
-    expect(refusal.getAttribute('data-intent')).toBe('error')
+    expect(refusal.closest('form')).not.toBeNull()
+    expect(refusal.nextElementSibling).toBe(screen.getByRole('button', { name: 'Sign in' }))
+    expect(screen.getByLabelText('Password').compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     staff.login.mockRejectedValueOnce(new HidApiError(403, 'Factor unproven', { code: 'STAFF_MFA_FACTOR_UNPROVEN' }))
     signInWith('demo.nurse@example.test', 'fictional-password-1')
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(`Error: ${STAFF_MFA_FACTOR_UNPROVEN}`))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(STAFF_MFA_FACTOR_UNPROVEN))
   })
 
   // Owner's answer to Q88 (17 Nov 2026): a right password with no facility here is told so, never "isn't right".
@@ -224,7 +235,7 @@ describe('BlueSignIn', () => {
       open('/provider/sign-in', <BlueSignIn />)
       signInWith('demo.scientist@example.test', 'fictional-password-1')
       const refusal = await screen.findByRole('alert')
-      expect(refusal.textContent).toBe(`Error: This account isn’t set up for ${name}.`)
+      expect(refusal.textContent).toBe(`This account isn’t set up for ${name}.`)
       expect(document.body.textContent).not.toContain('Not authorised for this product.')
       expect(document.body.textContent).not.toContain('isn’t right')
       expect(staff.completeSignIn).not.toHaveBeenCalled()
@@ -239,7 +250,7 @@ describe('BlueSignIn', () => {
       open('/provider/sign-in', <BlueSignIn />)
       signInWith('demo.new@example.test', 'fictional-password-1')
       const refusal = await screen.findByRole('alert')
-      expect(refusal.textContent).toMatch(/^Error: You aren’t part of a facility or outreach group yet\./)
+      expect(refusal.textContent).toMatch(/^You aren’t part of a facility or outreach group yet\./)
       expect(document.body.textContent).not.toContain('No active facility membership.')
       expect(staff.completeSignIn).not.toHaveBeenCalled()
     } finally { vi.unstubAllGlobals() }
@@ -251,7 +262,7 @@ describe('BlueSignIn', () => {
       staff.login.mockRejectedValueOnce(new HidApiError(401, 'Invalid credentials', { code: 'INVALID_CREDENTIALS' }))
       open('/provider/sign-in', <BlueSignIn />)
       signInWith('demo.organiser@example.test', 'not-the-password')
-      expect((await screen.findByRole('alert')).textContent).toBe('Error: That email address or password isn’t right. Try again.')
+      expect((await screen.findByRole('alert')).textContent).toBe('That email address or password isn’t right. Try again.')
     } finally { vi.unstubAllGlobals() }
   })
 
@@ -446,7 +457,7 @@ describe('BlueStaffInvitation', () => {
       inviteeName: 'Demo Nurse', email: 'new.nurse@example.test', expiresAt: '2026-11-02T12:00:00.000Z', accountCase: 'new', linkRequired: false })
     invitations.accept.mockResolvedValue({ accepted: true, facilityName: 'Demo Hospital', roleCode: 'nurse' })
     open('/provider/invitation', <BlueStaffInvitation />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Accept your invitation' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: 'Join your facility.' })).toBeDefined()
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     expect(screen.getByRole('alert').textContent).toBe('Error: Enter the email address the invitation was sent to, and the 6-digit code from the email.')
     fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: 'New.Nurse@example.test' } })
@@ -502,7 +513,7 @@ describe('BlueStaffInvitation', () => {
         open('/provider/invitation', <BlueStaffInvitation />)
         // The invitation page, not the signed-in join page a product site used to send it to.
         expect(screen.getByTestId('where').textContent).toBe('/provider/invitation')
-        expect(screen.getByRole('heading', { level: 1, name: 'Accept your invitation' })).toBeDefined()
+        expect(screen.getByRole('heading', { level: 1, name: 'Join your facility.' })).toBeDefined()
         expect(screen.getByRole('heading', { level: 2, name: 'Enter your invitation code' })).toBeDefined()
         expect(screen.getByRole('textbox', { name: 'Email address' })).toBeDefined()
         expect(screen.getByRole('textbox', { name: 'Invitation code' })).toBeDefined()

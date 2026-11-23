@@ -99,12 +99,42 @@ describe('with the clinic switch on', () => {
     expect(sent.some(call => call.route.startsWith('GET /api/v1/commercial/'))).toBe(false)
   })
 
-  it('says billing is not switched on yet where Health ID does not serve it', async () => {
+  // Parity report 3.3-64: the classic page's words (staff/routes/Billing.tsx) where Health ID does not serve billing.
+  it('says billing is not set up, in the classic page\'s words, where Health ID does not serve it', async () => {
     const at = riverside(READ)
     serve({ [SESSION]: [sessionAt(at, [at])], [PLAN]: [() => problem(404, 'NOT_FOUND', 'Not found'), () => problem(404, 'NOT_FOUND', 'Not found')],
       [INVOICES]: [() => problem(404, 'NOT_FOUND', 'Not found')] })
     await openStaffApp('/provider/billing')
-    expect(await screen.findByText('Billing isn\'t available yet')).toBeDefined()
+    const description = await screen.findByText('Billing isn’t set up for your facility. Contact support.')
+    expect(description.parentElement!.textContent).toContain('Billing')
+    expect(document.body.textContent).not.toContain('Billing isn\'t available yet')
+    expect(document.body.textContent).not.toContain('switched on yet')
     await waitFor(() => expect(screen.queryByRole('heading', { level: 2, name: 'Current plan' })).toBeNull())
+  })
+
+  it('says no invoices in the classic page\'s words when Health ID serves the plan but not the invoices', async () => {
+    const at = riverside(READ)
+    const trialing = plan('trialing', { trialEndsAt: '2026-11-13T09:00:00Z' })
+    serve({ [SESSION]: [sessionAt(at, [at])], [PLAN]: [trialing, trialing], [INVOICES]: [() => problem(404, 'NOT_FOUND', 'Not found')] })
+    await openStaffApp('/provider/billing')
+    const history = (await screen.findByRole('heading', { level: 2, name: 'Subscription history' })).closest('section') as HTMLElement
+    expect(await within(history).findByText('No invoices.')).toBeDefined()
+  })
+
+  it('says the first invoice appears after paying, in the classic page\'s words', async () => {
+    const at = riverside(READ)
+    const trialing = plan('trialing', { trialEndsAt: '2026-11-13T09:00:00Z' })
+    serve({ [SESSION]: [sessionAt(at, [at])], [PLAN]: [trialing, trialing], [INVOICES]: [() => json({ items: [] })] })
+    await openStaffApp('/provider/billing')
+    expect(await screen.findByText('No invoices yet. Your first invoice appears here after you pay.')).toBeDefined()
+  })
+
+  // Parity report 3.3-65: Pay now keeps the classic page's sentence about card details.
+  it('says card details never pass through Health ID beside Pay now', async () => {
+    const at = riverside(MANAGE)
+    serve({ [SESSION]: [sessionAt(at, [at])], [PLAN]: [plan('past_due'), plan('past_due')], [INVOICES]: [() => json({ items: [] })] })
+    await openStaffApp('/provider/billing')
+    expect(await screen.findByRole('button', { name: 'Pay now' })).toBeDefined()
+    expect(screen.getByText('Payment opens Paystack’s secure checkout. Card details never pass through Health ID.')).toBeDefined()
   })
 })

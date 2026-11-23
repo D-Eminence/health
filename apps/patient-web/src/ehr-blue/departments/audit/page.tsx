@@ -21,8 +21,8 @@ export const auditPage: EhrBluePage = {
   group: 'Insight',
   label: 'Audit trail',
   permission: 'audit.read',
-  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
-  status: 'partial',
+  // Live: it works on Health ID, in the classic page's words and steps throughout (parity report 3.3-74).
+  status: 'live',
   icon: <HistoryIcon />,
   element: <AuditCompliance />,
   refusal: <AuditUnavailable />,

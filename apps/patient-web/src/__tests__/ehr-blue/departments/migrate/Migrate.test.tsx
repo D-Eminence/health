@@ -310,6 +310,15 @@ describe('Migrate list view', () => {
     expect(screen.queryByText('No OCR job for this document')).toBeNull()
   })
 
+  // Parity report 3.3-71: a failure with no shared words says the classic Document OCR page's own sentence.
+  it('says a lookup that failed for no known reason in the classic page\'s words', async () => {
+    api.findOcrJob.mockRejectedValue('boom')
+    renderMigrate()
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    await press(button('Find job'))
+    expect((await screen.findByRole('alert')).textContent).toBe('OCR job could not be found.')
+  })
+
   it('says plainly when the OCR module is not in service on this deployment', async () => {
     api.findOcrJob.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
     renderMigrate()
@@ -1152,6 +1161,24 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     const alert = await screen.findByRole('alert')
     expect(submit.closest('form')?.contains(alert)).toBe(true)
     await waitFor(() => expect(focused()).toBe(submit))
+  })
+
+  it('retry: a retry that failed for no known reason says the classic page\'s words', async () => {
+    await findJob(failed)
+    await openAction('Retry job')
+    fireEvent.change(screen.getByLabelText(/^Retry reason/), { target: { value: 'The scan was replaced with a clearer copy' } })
+    api.retryOcrJob.mockRejectedValue('boom')
+    await press(within(screen.getByRole('form', { name: 'Retry job' })).getByRole('button', { name: 'Retry job' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('OCR job could not be retried.')
+  })
+
+  it('confirm: a confirmation that failed for no known reason says the classic page\'s words', async () => {
+    session.activePatient = PATIENT_ONE
+    await findJob(validated)
+    await pickPatientAndReason()
+    api.confirmOcrPatient.mockRejectedValue('boom')
+    await press(confirmButton())
+    expect((await screen.findByRole('alert')).textContent).toBe('Patient confirmation could not be recorded.')
   })
 
   it('retry: a job at its attempt limit offers no retry, and says why', async () => {

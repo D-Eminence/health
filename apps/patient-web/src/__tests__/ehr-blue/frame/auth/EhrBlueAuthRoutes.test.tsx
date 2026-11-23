@@ -85,7 +85,7 @@ describe('with the clinic switch on', () => {
 
   it('signs in on the blue page, with today\'s steps, into the blue EHR', async () => {
     await open('/provider/sign-in')
-    expect(await screen.findByText('Sign in to your hospital workspace.')).toBeDefined()
+    expect(await screen.findByText('Sign in with your work account.')).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.signIn).toBe(1)
     fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'next.clinician@example.test' } })
@@ -106,7 +106,7 @@ describe('with the clinic switch on', () => {
   it('opens an invitation on the blue page (Novu)', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { unmount } = await open('/provider/invitation')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Accept your invitation' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility.' })).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.invitation).toBe(1)
     unmount()

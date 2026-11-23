@@ -132,7 +132,10 @@ describe('sending again', () => {
     resend.focus()
     fireEvent.click(resend)
     await waitFor(() => expect(api.resend).toHaveBeenCalledWith(HOSPITAL, expect.objectContaining({ invitationId: 'invitation-demo-2', version: 1 })))
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Invitation sent again'))
+    // The classic Staff page's delivery sentence (3.3-73), in the banner, with no toast.
+    await waitFor(() => expect(pageNotice()).toBe('Invitation sent again to demo.pharmacist@example.test.'))
+    expect(document.getElementById('ehr-staff-notice')!.querySelector('.hid-ehr-dept-notice-caution')).toBeNull()
+    expect(toasts.success).not.toHaveBeenCalled()
     await waitFor(() => expect(api.read).toHaveBeenCalledTimes(2))
     onlyInvitationCalls()
   })
@@ -157,7 +160,7 @@ describe('sending again', () => {
     ['definitive_failure', 'The invitation to demo.doctor@example.test couldn’t be delivered. Check the address: if it’s wrong, revoke '
       + 'this invitation and invite the right one.'],
     ['unknown', 'The invitation was renewed, but we couldn’t confirm that the email to demo.doctor@example.test was delivered. If it '
-      + 'doesn’t arrive, resend it in a minute.'],
+      + 'doesn’t arrive, send it again in a minute.'],
   ])('says in a caution banner, with no toast, when the email was %s', async (outcome, text) => {
     api.read.mockResolvedValue(staff())
     api.resend.mockResolvedValueOnce({ version: 2, expiresAt: null, deliveryOutcome: outcome })

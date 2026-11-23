@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
-import { toast } from '@hid/ui'
 import { EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { facilityStaffApi } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -14,7 +13,8 @@ import { DeptNotice } from '../parts/DeptNotice'
 import type { StaffShared } from './shared'
 import { FormFooter, RequiredLabel, StaffCheck, StaffPassword } from './StaffFields'
 import {
-  attestationText, deliveryNotice, EMAIL, EMAIL_PROBLEM, holders, licenceNumberProblem, REQUIRED, type StaffNotice,
+  attestationText, deliverySentence, EMAIL, EMAIL_PROBLEM, holders, licenceNumberProblem, licenceSavedSentence, REQUIRED,
+  type StaffNotice,
 } from './staffText'
 
 /**
@@ -107,10 +107,9 @@ export function InviteCard({ shared, onSent }: { readonly shared: StaffShared; r
         name: normalizePersonName(name), email: address, role,
         ...(body ? { licenceBody: body, licenceNumber: normalizeLicenceNumber(number) } : {}), currentPassword: password,
       }, idempotencyKey)
-      // A toast carries a generic title only; what the administrator must know about this address stays in a banner.
-      const notice: StaffNotice | null = created.replayed ? { tone: 'info', text: `This invitation was already sent to ${address}.` }
-        : deliveryNotice(created.deliveryOutcome, address, false)
-      if (!notice) toast.success('Invitation created')
+      // The classic Staff page's full sentence, in the page's banner: who it went to, and whether the email was delivered.
+      const notice: StaffNotice = created.replayed ? { tone: 'info', text: `This invitation was already sent to ${address}.` }
+        : deliverySentence(created.deliveryOutcome, address, false)
       onSent(notice)
     } catch (caught) {
       setPassword('')
@@ -177,12 +176,11 @@ export function OwnLicenceCard({ shared }: { readonly shared: StaffShared }) {
     if (found.body || found.number) { focus(found.body ? 'ehr-staff-own-licence-body' : 'ehr-staff-own-licence-number'); return }
     setBusy(true)
     try {
-      await facilityStaffApi.recordAdministratorLicence(facilityId, body, normalizeLicenceNumber(number))
+      const recorded = await facilityStaffApi.recordAdministratorLicence(facilityId, body, normalizeLicenceNumber(number))
       setNumber('')
-      // The card itself says what was saved once the list is read again ("Saved: NMCN ending 4321…"): the toast is generic.
-      toast.success('Licence saved')
       announceFacilityStaffChanged()
-      done()
+      // The classic Staff page's sentence, in the page's banner: what was saved, and that Health ID support checks it.
+      done(undefined, { tone: 'info', text: licenceSavedSentence(recorded.licenceBody, recorded.numberHint, facilityName) })
     } catch (caught) { setError(refused(caught)) }
     finally { setBusy(false) }
   }
