@@ -19,6 +19,7 @@ import { fileSizeLabel, fileTypeLabel, scanStatusLabel, visitClassLabel, visitSt
 import { dateText } from '../parts/format'
 import { FormRefusal } from './ocrSteps'
 import { PaperRecords } from './PaperRecords'
+import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS, scanAccess } from '../../../scanAccess'
 
 /*
  * Document capture: a file uploaded into a patient's documents, on the encounter it belongs to, as today's clinical
@@ -95,7 +96,10 @@ function uploadedNotice(type: DocumentType | undefined): string {
   return 'Document uploaded. It can be opened once its virus scan is clean.'
 }
 
-/** "Patient documents": shown to a membership that reads documents, as the clinical record's Documents tab is. */
+/**
+ * "Patient documents": shown to a membership that reads documents, as the clinical record's Documents tab is, or reads
+ * only the documents it uploaded (the front desk, ehr.document.read-own, hid-system 0136: the list then holds those).
+ */
 export function DocumentCapture({ facilityId, permissions, onExtract, paused = false }: {
   readonly facilityId: string
   readonly permissions: readonly string[]
@@ -109,7 +113,7 @@ export function DocumentCapture({ facilityId, permissions, onExtract, paused = f
   const [ended, setEnded] = useState(false)
   useEffect(() => { if (activePatient) setEnded(false) }, [activePatient])
   const accessEnded = useCallback(() => setEnded(true), [])
-  if (!permissions.includes('ehr.document.read')) return null
+  if (!scanAccess(permissions).readsDocuments) return null
   const actorId = state.status === 'ready' ? state.session.actor.id : ''
   return <DeptSection title="Patient documents" headingId="migrate-documents-title" className="hid-ehr-dept-migrate-capture">
     {!activePatient ? <>
@@ -191,7 +195,8 @@ function PatientDocuments({ facilityId, permissions, onExtract, paused, onAccess
   // Only encounters of the patient open, at the working facility, as the clinical record lists them.
   const items = (encounters?.items ?? []).filter(item => item.patientId === patientId && item.facilityId === facilityId)
   const selected = items.find(item => item.id === chosen) ?? items[0]
-  const canWrite = writeAccess?.allowed === true && permissions.includes('ehr.document.write')
+  const access = scanAccess(permissions)
+  const canWrite = writeAccess?.allowed === true && access.uploadsDocuments
   const cursors = encounters?.cursors ?? FIRST_PAGE
   const previousOff = loading || cursors.length < 2
   const nextOff = loading || !encounters?.next
@@ -201,6 +206,7 @@ function PatientDocuments({ facilityId, permissions, onExtract, paused, onAccess
       ? 'Write access could not be confirmed, so uploads are unavailable. Refresh the page to try again.'
       : 'Read-only access. This authorization does not include changes. Ask the patient to approve a read-and-write request to add documents.'}</DeptNotice>}
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+    {access.ownDocumentsOnly && <p id="migrate-own-documents" className="hid-ehr-dept-muted">{OWN_DOCUMENTS_ONLY}</p>}
     {pageNotice && <DeptNotice role="status">{pageNotice}</DeptNotice>}
     {loading && !encounters && <EhrSkeleton label="Loading encounters…" />}
     {encounters && items.length === 0 && <EhrEmptyState title="No encounters yet"
@@ -220,7 +226,7 @@ function PatientDocuments({ facilityId, permissions, onExtract, paused, onAccess
       </nav>}
     </div>}
     {selected && <EncounterDocuments key={selected.id} facilityId={facilityId} patientId={patientId} encounterId={selected.id}
-      canWrite={canWrite} canOcr={permissions.includes('ocr.job.read')} verify={verify} onExtract={onExtract} paused={paused} />}
+      canWrite={canWrite} ocr={access.startsReadings ? 'start' : access.followsReadings ? 'follow' : null} verify={verify} onExtract={onExtract} paused={paused} />}
     {/* What was added to the record from paper: shown once Lab or Pharmacy serves its list, and hidden until then. */}
     <PaperRecords facilityId={facilityId} patientId={patientId} permissions={permissions} />
   </>
@@ -230,8 +236,14 @@ function PatientDocuments({ facilityId, permissions, onExtract, paused, onAccess
  * One encounter's documents, and the upload into them. Since hid-system #59 only the account that created an upload
  * intent completes it, and the list shows every intent: one left `initiated` is never scanned.
  */
-function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canOcr, verify, onExtract, paused }: {
-  readonly facilityId: string; readonly patientId: string; readonly encounterId: string; readonly canWrite: boolean; readonly canOcr: boolean
+function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, ocr, verify, onExtract, paused }: {
+  readonly facilityId: string; readonly patientId: string; readonly encounterId: string; readonly canWrite: boolean
+  /**
+   * What a clean document offers: 'start', "Extract with OCR" (OCR job write and start); 'follow', "Find its reading", which
+   * finds the reading someone else started, and a sentence saying who starts one (a doctor since hid-system 0136); null,
+   * nothing.
+   */
+  readonly ocr: 'start' | 'follow' | null
   readonly verify: () => Promise<void>; readonly onExtract: (documentId: string, patientId: string, fileName?: string) => void
   readonly paused: boolean
 }) {
@@ -330,7 +342,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
   return <>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <EhrDataTable caption="Documents on this encounter" captionHidden loading={loading} rows={items} rowKey={item => item.id}
-      emptyTitle="No documents yet" emptyMessage="Upload a document for this encounter when you have the appropriate permission."
+      emptyTitle="No documents yet" emptyMessage={canWrite ? 'Upload a document for this encounter below.' : 'Documents added to this encounter are listed here.'}
       columns={[
         { id: 'record', header: 'Record', cell: item => <div className="hid-ehr-dept-record-name">
           <span className="hid-ehr-dept-strong" id={`migrate-document-${item.id}`}>{item.fileName}</span>
@@ -345,10 +357,12 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
         { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => sourceDeleted(item) ? null : <div className="hid-ehr-dept-table-actions">
           <EhrButton variant="secondary" size="sm" disabled={item.scanStatus !== 'clean'} aria-describedby={`migrate-document-${item.id}`}
             onClick={() => download(item.id)}>Open file</EhrButton>
-          {canOcr && item.scanStatus === 'clean' && <DeptLinkButton describedBy={`migrate-document-${item.id}`}
-            onClick={() => onExtract(item.id, patientId, item.fileName)}>Extract with OCR</DeptLinkButton>}
+          {ocr && item.scanStatus === 'clean' && <DeptLinkButton describedBy={`migrate-document-${item.id}`}
+            onClick={() => onExtract(item.id, patientId, item.fileName)}>{ocr === 'start' ? 'Extract with OCR' : 'Find its reading'}</DeptLinkButton>}
         </div> },
       ]} />
+    {ocr === 'follow' && items.some(item => item.scanStatus === 'clean' && !sourceDeleted(item))
+      && <p id="migrate-starts-with-others" className="hid-ehr-dept-muted">{STARTS_WITH_OTHERS}</p>}
     <div className="hid-ehr-dept-form-actions hid-ehr-dept-migrate-refresh">
       {items.some(beingChecked) && <p className="hid-ehr-dept-muted">A document is being checked for viruses. This list updates by itself every few seconds.</p>}
       <EhrButton id="migrate-documents-refresh" variant="secondary" size="sm" busy={loading} onClick={() => { if (!loading) void load() }}>Refresh list</EhrButton>

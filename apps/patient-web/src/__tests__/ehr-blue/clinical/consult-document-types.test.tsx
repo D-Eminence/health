@@ -292,7 +292,7 @@ describe('Consultation documents with types: once served', () => {
   })
 
   it('hands a clean lab result to today’s OCR page with exactly today’s router state, whatever its type', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
     function OcrPage() {
       const location = useLocation()
       return <p data-testid="ocr-state">{JSON.stringify(location.state)}</p>

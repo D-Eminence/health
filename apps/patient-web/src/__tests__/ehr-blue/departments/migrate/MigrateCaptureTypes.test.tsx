@@ -57,7 +57,7 @@ const sheet = { ...clean, id: 'd0000000-0000-4000-8000-000000000003', fileName: 
 // A type a later contract might add: not named.
 const unknown = { ...clean, id: 'd0000000-0000-4000-8000-000000000004', fileName: 'imaging.pdf', documentType: 'imaging_report' }
 const allowed = { authorization: { decision: 'allow' }, patient: { patientId: PATIENT, fullName: 'Patient One' } }
-const OCR = ['ocr.job.read', 'ocr.job.write']
+const OCR = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start']
 const DOCUMENTS = ['ehr.document.read', 'ehr.document.write']
 const FILE_LIMITS = '(PDF, JPEG, PNG or TIFF, max 50 MiB)'
 const TODAY_HINT = 'Files are scanned for viruses before they can be opened or sent to OCR.'

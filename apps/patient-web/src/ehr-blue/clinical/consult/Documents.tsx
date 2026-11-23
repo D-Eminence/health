@@ -19,6 +19,7 @@ import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
+import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS, scanAccess } from '../../../scanAccess'
 
 const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
 /** 50 MiB, today's limit (staff/routes/Clinical.tsx Documents). */
@@ -29,6 +30,11 @@ const MAX_BYTES = 52_428_800
  */
 const OCR_PATH = '/provider/ocr'
 const OCR_LABEL = 'Extract with OCR'
+/**
+ * The same hand-off for someone who follows readings but does not start them (a doctor since hid-system 0136): Migrate
+ * holds the document in Find document job, to look its reading up, and reads nothing by itself.
+ */
+const OCR_FIND_LABEL = 'Find its reading'
 /** Said when EHR holds more documents than today's read answers (it takes no cursor). */
 const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here.'
 /** Said in place of the upload, once the types are served, on a host that uploads none (as blue Migrate says it). */
@@ -57,9 +63,12 @@ function reloadFailed(failure: string): CardError {
 
 /**
  * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
- * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may read OCR jobs
- * (the ids go in router state, never in the address, as today), and "Upload a document". Opening and uploading
- * re-check access first, as today.
+ * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may start a reading
+ * (OCR job write and start, and OCR job read or its own uploads' read: hid-system 0136, Q112 A), and "Find its reading"
+ * with a sentence saying who starts them when it follows readings but may not start one (a doctor), never a link that
+ * would only be refused (the ids go in router state, never in the address, as today), and "Upload a document".
+ * Opening and uploading re-check access first, as today. The front desk lists only the documents it uploaded, and the
+ * card says so.
  *
  * Document types (documentTypes.ts, the owner's rule of 31 Oct), as blue Migrate asks them: once the document list has
  * answered `documentTypes: true`, the upload asks for the document's type among those this host may upload (the
@@ -76,7 +85,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   const { state } = useClinical()
   // Today's OCR handoff names who made it and where, since the history entry holding it outlives both.
   const actorId = state.status === 'ready' ? state.session.actor.id : undefined
-  const canOcr = chart.can('ocr.job.read')
+  const access = scanAccess(code => chart.can(code))
+  const ocrLabel = access.startsReadings ? OCR_LABEL : access.followsReadings ? OCR_FIND_LABEL : null
   const [error, showError] = useState<CardError>(NO_ERROR)
   const setError = (text: string) => showError(text ? { text, again: false } : NO_ERROR)
   const [notice, setNotice] = useState('')
@@ -166,6 +176,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
       {list.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
+      {access.ownDocumentsOnly ? <p className="hid-ehr-clinical-note">{OWN_DOCUMENTS_ONLY}</p> : null}
       {list.items === null ? (list.loading ? <Loading label="Loading documents…" /> : null) : list.items.length === 0 ? (
         <p>No documents for this consultation.</p>
       ) : (
@@ -188,9 +199,9 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
                   aria-label={`Open file ${document.fileName}`} onClick={() => open(document)}>
                   Open file
                 </EhrButton>}
-                {canOcr && !deleted && document.scanStatus === 'clean' ? (
+                {ocrLabel && !deleted && document.scanStatus === 'clean' ? (
                   <Link className="hid-ehr-clinical-link" to={OCR_PATH} state={{ ocrDocumentId: document.id, ocrPatientId: patientId, actorId, facilityId }}>
-                    {OCR_LABEL}
+                    {ocrLabel}
                   </Link>
                 ) : null}
               </span>
@@ -198,6 +209,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
           })}
         </ul>
       )}
+      {ocrLabel === OCR_FIND_LABEL && list.items?.some(item => item.scanStatus === 'clean' && !sourceDeleted(item))
+        ? <p className="hid-ehr-clinical-note">{STARTS_WITH_OTHERS}</p> : null}
       {canWrite && !uploadsHere ? <p className="hid-ehr-clinical-note" role="status">{NO_UPLOAD_HERE}</p> : null}
       {canWrite && uploadsHere ? (
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void upload(event)}>

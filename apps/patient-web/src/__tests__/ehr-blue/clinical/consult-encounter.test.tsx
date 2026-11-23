@@ -10,6 +10,7 @@ import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { COLLEAGUE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, SIGNED_IN, activePatient, allowedLookup, labelled, patientBanner, renderPage, type SignedIn } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
+import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS } from '../../../scanAccess'
 
 /**
  * Consultation, one encounter: the design's record page (Saved record, Available actions with the typed SIGN
@@ -1187,7 +1188,7 @@ describe('Consultation record: documents', () => {
   })
 
   it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
     renderWithOcr()
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const link = await within(card('Documents')).findByRole('link', { name: 'Extract with OCR' })
@@ -1211,13 +1212,43 @@ describe('Consultation record: documents', () => {
   })
 
   it('item 3: links only the clean document when the role may read OCR jobs', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
     api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'lab-scan.pdf', scanStatus: 'pending' }], nextCursor: null })
     await openEncounter()
     const documents = within(card('Documents'))
     expect(documents.getAllByRole('link', { name: 'Extract with OCR' })).toHaveLength(1)
     expect(within(documents.getByText('lab-scan.pdf').closest('li') as HTMLElement).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
     expect(within(documents.getByText('referral-letter.pdf').closest('li') as HTMLElement).getByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
+  })
+
+  // hid-system 0136 (Q112 A): starting a reading needs ocr.job.start, which doctors no longer hold.
+  it('item 3: gives a doctor who may not start a reading Find its reading and a plain sentence, never Extract with OCR', async () => {
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+    renderWithOcr()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    const documents = within(card('Documents'))
+    const link = await documents.findByRole('link', { name: 'Find its reading' })
+    expect(documents.queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(documents.getByText(STARTS_WITH_OTHERS)).toBeTruthy()
+    // The same hand-off as today's link: the ids in router state, none in the address.
+    expect(link.getAttribute('href')).toBe('/provider/ocr')
+    fireEvent.click(link)
+    expect(await screen.findByTestId('ocr-page')).toBeTruthy()
+    expect(JSON.parse(screen.getByTestId('ocr-state').textContent ?? 'null')).toEqual({
+      ocrDocumentId: 'doc-1', ocrPatientId: PATIENT_ID, actorId: 'staff-1', facilityId: FACILITY_ID,
+    })
+  })
+
+  it('item 3: shows the front desk its own uploads, the upload and Extract with OCR, and no sentence about who starts readings', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.document.write', 'ehr.document.read-own', 'ocr.job.write', 'ocr.job.start', 'ocr.job.read-own', 'ehr.vital.read']
+    renderWithOcr()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    const documents = within(card('Documents'))
+    expect(await documents.findByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
+    expect(documents.getByText(OWN_DOCUMENTS_ONLY)).toBeTruthy()
+    expect(documents.getByRole('button', { name: 'Upload document' })).toBeTruthy()
+    expect(documents.queryByText(STARTS_WITH_OTHERS)).toBeNull()
+    expect(card('Documents').textContent).not.toMatch(/permission|read-own|unverified/i)
   })
 
   it('shows a refused document list as an alert', async () => {

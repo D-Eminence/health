@@ -12,6 +12,7 @@ import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, renderDept } from '../harness'
 import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
 import { handwrittenPage, hardHandwrittenPage, medicinesPaper, paperReading, unreadablePage, unreadPaper } from './paperReadingPayload'
 import { REVIEW_NOT_ALLOWED } from '../../../../ehr-blue/departments/migrate/ocrSteps'
+import { STARTS_WITH_OTHERS } from '../../../../scanAccess'
 
 /**
  * The blue Migrate page: today's Document OCR flow (staff/routes/Operations.tsx Ocr) in the design's list, new and
@@ -40,7 +41,7 @@ vi.mock('../../../../staff/App', async () => {
   }
 })
 
-const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
+const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
 /** Document OCR's refusal, at its address and on the page: no role holds the OCR work yet, so nobody is told to ask anyone. */
 const OCR_REFUSAL = 'Reading scanned documents isn’t available at your facility yet.'
 /** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
@@ -233,7 +234,7 @@ describe('Migrate list view', () => {
     expect(descriptions(screen.getByRole('searchbox', { name: 'Search Document OCR' })))
       .toEqual(['OCR has no facility-wide job list: jobs you find or create here are listed until you leave this page.'])
     expect(screen.getByText('No matching records')).toBeTruthy()
-    expect(screen.getByText('Find a job by its document ID, or create one when you have the appropriate permission.')).toBeTruthy()
+    expect(screen.getByText('Find a job by its document ID, or create one.')).toBeTruthy()
     expect(button('Create record')).toBeTruthy()
     expect(statusRegion().getAttribute('role')).toBe('status')
     expect(statusRegion().textContent).toBe('')
@@ -295,7 +296,7 @@ describe('Migrate list view', () => {
   it('without OCR job write, a document with no job offers nothing to create', async () => {
     session.permissions = ['ocr.job.read']
     await findJob(null)
-    expect(screen.getByText('This document has no extraction job yet.')).toBeTruthy()
+    expect(screen.getByText(`This document has no extraction job yet. ${STARTS_WITH_OTHERS}`)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
   })
 
@@ -383,7 +384,8 @@ describe('Migrate record view', () => {
     expect(screen.queryByRole('form', { name: 'Check and save' })).toBeNull()
     // A reading ready to check says who can check it, instead of showing nothing.
     expect(screen.getByRole('heading', { name: 'Check and save' })).toBeTruthy()
-    expect(screen.getByText('Ready to check. A doctor, clinician, nurse or lab scientist at this facility must check and save it.'))
+    // Laboratory staff no longer check readings (hid-system 0136).
+    expect(screen.getByText('Ready to check. A doctor, clinician or nurse at this facility must check and save it.'))
       .toBeTruthy()
     session.permissions = ['ocr.job.read']
   })
