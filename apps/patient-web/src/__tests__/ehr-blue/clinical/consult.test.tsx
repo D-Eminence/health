@@ -848,7 +848,7 @@ describe('New consultation in one call (EHR-C5)', () => {
     }
     expect((screen.getByLabelText(labelled('Presenting complaint')) as HTMLTextAreaElement).maxLength).toBe(4000)
     expect((screen.getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement).maxLength).toBe(100000)
-    expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
   })
 
   it('keeps the key and the body when pressed again after no answer or a server failure', async () => {

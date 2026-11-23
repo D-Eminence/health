@@ -41,7 +41,8 @@ const NIN_OFF = {
 const NIN_ON = { ...NIN_OFF, nin: { enabled: true, state: 'test-only', available: true } }
 /** A backend before 0130: no registration without a NIN. */
 const NEITHER = { nin: { enabled: false, state: 'deferred' }, withoutNin: { enabled: false }, newPatientRegistrationRequiresNin: true }
-const OLD_DEAD_END = 'NIN checks are not available right now, so new registrations cannot be started here. Try again later.'
+/** The dead end, in classic's words under "NIN checks are off". */
+const OLD_DEAD_END = 'New registrations can’t start until they’re back on.'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -99,7 +100,7 @@ describe('Register without a NIN', () => {
   it('replaces the NIN form while NIN checks are off, with Identity’s reasons in plain words', async () => {
     const drawer = await openNew()
     expect(await drawer.findByRole('heading', { name: 'Register without a NIN' })).toBeTruthy()
-    expect(drawer.queryByLabelText(/^National Identity Number/)).toBeNull()
+    expect(drawer.queryByLabelText(/^NIN \(11 digits\)/)).toBeNull()
     expect(drawer.queryByText(OLD_DEAD_END)).toBeNull()
     expect(drawer.getByText(/this patient is registered without a NIN\. Their record will show NIN Not Verified\./)).toBeTruthy()
     const reason = drawer.getByLabelText(/^Why is there no NIN/) as HTMLSelectElement
@@ -111,7 +112,7 @@ describe('Register without a NIN', () => {
   it('keeps the NIN form while NIN checks work', async () => {
     api.registrationCapabilities.mockResolvedValue(NIN_ON)
     const drawer = await openNew()
-    expect(await drawer.findByLabelText(/^National Identity Number/)).toBeTruthy()
+    expect(await drawer.findByLabelText(/^NIN \(11 digits\)/)).toBeTruthy()
     expect(drawer.queryByRole('heading', { name: 'Register without a NIN' })).toBeNull()
   })
 
