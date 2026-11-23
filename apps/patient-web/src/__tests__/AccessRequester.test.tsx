@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import type { AccessRequest } from '../api'
 import { AccessPage } from '../routes/Portal'
-import { requester } from '../routes/whoHasAccess'
+import { requester, requesterKnown } from '../routes/whoHasAccess'
 import { ToastProvider } from '../kasuwa/toast'
 import { json, press, renderPortal } from './portalHarness'
 
@@ -36,6 +36,14 @@ describe('who asked, in words', () => {
     // A role Health ID has no words for is left out, never shown as its code.
     expect(requester({ requesterName: 'Dr Ada Example', requesterRole: 'chief_wizard' })).toBe('Dr Ada Example')
   })
+
+  it('knows who asked only from a name, or a role Health ID has words for', () => {
+    expect(requesterKnown({ requesterName: 'Dr Ada Example', requesterRole: null })).toBe(true)
+    expect(requesterKnown({ requesterName: null, requesterRole: 'pharmacist' })).toBe(true)
+    expect(requesterKnown({ requesterName: '  ', requesterRole: 'chief_wizard' })).toBe(false)
+    expect(requesterKnown({ requesterName: null, requesterRole: null })).toBe(false)
+    expect(requesterKnown({})).toBe(false)
+  })
 })
 
 describe('the request cards on Access & sharing', () => {
@@ -63,6 +71,24 @@ describe('the request cards on Access & sharing', () => {
     await press(row!)
     await screen.findByRole('dialog')
     expect(screen.queryByText('Asked by')).toBeNull()
+  })
+
+  it('adds no Asked by line when Identity sends only a role Health ID has no words for', async () => {
+    accessPage([request('1', { requesterName: null, requesterRole: 'chief_wizard' })])
+    const [row] = await screen.findAllByRole('button', { name: /^Demo Hospital/ })
+    expect(row!.textContent).toContain('A staff member wants to view your records for 60 minutes')
+    await press(row!)
+    await screen.findByRole('dialog')
+    expect(screen.queryByText('Asked by')).toBeNull()
+    expect(document.body.textContent).not.toContain('chief_wizard')
+  })
+
+  it('says Asked by with the role alone when Health ID has words for it', async () => {
+    accessPage([request('1', { requesterName: null, requesterRole: 'pharmacist' })])
+    const [row] = await screen.findAllByRole('button', { name: /^Demo Hospital/ })
+    await press(row!)
+    const drawer = within(await screen.findByRole('dialog'))
+    expect(drawer.getByText('Asked by').nextElementSibling?.textContent).toBe('A staff member (Pharmacist)')
   })
 
   it('names the staff member who used the Access PIN', async () => {

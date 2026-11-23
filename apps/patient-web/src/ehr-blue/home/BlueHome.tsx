@@ -18,6 +18,7 @@ import { useAccessRequests } from '../frame/attention'
 import { basePath } from '../frame/pageHref'
 import type { LabWorkItem, PharmacyWorkItem, ReceivingService } from '../../staff/api'
 import { STAGE_LABEL, stageOf } from '../departments/laboratory/stage'
+import { withdrawnReasonOf } from '../departments/pharmacy/pharmacyText'
 import { Activity, ChevronRight, ClipboardList, FlaskConical, Pill, RotateCcw, Search, ShieldAlert, ShieldCheck, Stethoscope, Users } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, SectionHeader, Select, StatCard, StatGroup, greeting } from '../../kasuwa/ui'
 import { Drawer } from '../../kasuwa/interactive'
@@ -122,7 +123,8 @@ export function BlueHome() {
 
   const pending = access.state === 'ready' ? access.pending : 0
   const labItems = labRead.state === 'ready' ? labRead.items : []
-  const rxItems = rxRead.state === 'ready' ? rxRead.items.filter(item => !item.dispensing || item.dispensing.reversed) : []
+  // To dispense: not dispensed (or reversed), and not withdrawn by the prescribing team (0133), which can never be dispensed.
+  const rxItems = rxRead.state === 'ready' ? rxRead.items.filter(item => (!item.dispensing || item.dispensing.reversed) && !withdrawnReasonOf(item)) : []
   const urgentLab = labItems.filter(item => (item as { priority?: string }).priority === 'urgent' || (item as { priority?: string }).priority === 'stat').length
   const canFind = candidates.some(page => basePath(page.path) === 'patients')
   // A link from Home leads only to a page this site opens: the frame sends any other back here (product.ts). So on a

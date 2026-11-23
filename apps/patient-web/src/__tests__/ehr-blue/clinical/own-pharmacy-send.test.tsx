@@ -1,14 +1,17 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EncounterOrderPages, orderPath } from '../../../ehr-blue/clinical/consult/orders'
-import { handoffRetryable, ownSendOffered, readPharmacyHandoff } from '../../../ehr-blue/clinical/consult/orders/ownPharmacySend'
+import {
+  handoffRetryable, ownSendOffered, pharmacistHandoffOffered, readPharmacyHandoff,
+} from '../../../ehr-blue/clinical/consult/orders/ownPharmacySend'
+import { ALLERGY_GO_AHEAD_ERROR } from '../../../ehr-blue/clinical/parts/allergyWarning'
 import { ChartProvider } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
-import { COLLEAGUE, ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, SIGNED_IN, activePatient, allowedLookup, renderPage, type SignedIn } from './harness'
+import { COLLEAGUE, ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, PATIENT_NAME, SIGNED_IN, activePatient, allowedLookup, renderPage, type SignedIn } from './harness'
 
 /**
  * "Send to pharmacy" for the prescriber on the blue prescription page (hid-system 0133, ehr-api at 06f98040: `POST
@@ -70,6 +73,12 @@ beforeEach(() => {
   api.allergyCheck.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
 })
 
+// An answer queued for a send or a change a test did not make is never left for the next test.
+afterEach(() => {
+  api.ownPharmacySend.mockReset()
+  api.updateRecord.mockReset()
+})
+
 function Consult() {
   return (
     <Workspace path="consult">
@@ -89,6 +98,20 @@ async function openPrescription() {
 
 const sendButton = () => screen.queryByRole('button', { name: 'Send to pharmacy' })
 const actionsCard = () => screen.getByText('Actions').closest('section') as HTMLElement
+/** The open Send to pharmacy form (its own button is the last of that name). */
+const sendForm = () => screen.getAllByRole('button', { name: 'Send to pharmacy' }).at(-1)!.closest('form')!
+/** Today's pharmacist hand-off, offered beside it to a member who may accept pharmacy work. */
+const handoffButton = () => screen.queryByRole('button', { name: 'Send to Pharmacy' })
+const SENT = { pharmacyHandoff: { status: 'sent', message: 'Sent to this hospital\'s pharmacy.' } }
+const PENDING = { status: 'pending', message: 'Not sent to the pharmacy yet. Use Send to pharmacy to try again.' }
+const RECEIVED = { status: 'received', receivedAt: '2026-11-20T09:05:00.000Z' }
+
+/** Activate, Resume or another status change, with its reason, on the open prescription. */
+function changeStatus(action: string, why: string) {
+  fireEvent.click(screen.getByRole('button', { name: action }))
+  fireEvent.change(screen.getByLabelText(/Reason for change/), { target: { value: why } })
+  fireEvent.submit(screen.getByLabelText(/Reason for change/).closest('form')!)
+}
 
 describe('pharmacyHandoff, read defensively', () => {
   it('reads the contract’s rows, an unknown reason as could not be reached, and nothing else', () => {
@@ -119,6 +142,28 @@ describe('pharmacyHandoff, read defensively', () => {
     expect(offered({ createdByMembershipId: COLLEAGUE.membershipId })).toBe(false)
     expect(offered({}, { canWrite: false })).toBe(false)
     expect(offered({}, { routed: true })).toBe(false)
+  })
+
+  it('after an answer that says to try again, offers the send even where the read could not say the pharmacy has staff', () => {
+    const actor = { accountId: SIGNED_IN.accountId, facility: { id: FACILITY_ID, membershipId: SIGNED_IN.membershipId } }
+    const offered = (record: Record<string, unknown>, handoff: Parameters<typeof ownSendOffered>[0]['handoff']) => ownSendOffered({
+      record: prescription(record) as never, actor, facilityId: FACILITY_ID, canWrite: true, routed: false, handoff })
+    expect(offered({ ownPharmacyStaffed: undefined }, { status: 'pending', message: '' })).toBe(true)
+    expect(offered({ ownPharmacyStaffed: undefined }, { status: 'not_sent', reason: 'unavailable', message: '' })).toBe(true)
+    expect(offered({}, { status: 'not_sent', reason: 'superseded', message: '' })).toBe(false)
+    expect(offered({ status: 'on_hold', ownPharmacyStaffed: undefined }, { status: 'pending', message: '' })).toBe(false)
+  })
+
+  it('offers today’s pharmacist hand-off only while this hospital’s pharmacy has not received the prescription', () => {
+    const offered = (ownProgress: unknown, handoff: Parameters<typeof pharmacistHandoffOffered>[1] = null) =>
+      pharmacistHandoffOffered(prescription({ ownProgress }) as never, handoff)
+    expect(offered({ status: 'not_received' })).toBe(true)
+    // An EHR before ORD-3 sends no progress, and `unknown` is a pharmacy that could not be asked: offered, as before.
+    expect(offered(undefined)).toBe(true)
+    expect(offered({ status: 'unknown' })).toBe(true)
+    for (const status of ['received', 'dispensed', 'dispensing_reversed', 'withdrawn', 'sent_elsewhere']) expect(offered({ status }), status).toBe(false)
+    // Sent on this page (by Activate or Send to pharmacy) before the progress was read again.
+    expect(offered({ status: 'not_received' }, { status: 'sent', message: '' })).toBe(false)
   })
 })
 
@@ -220,5 +265,149 @@ describe('Activate says what became of the send', () => {
     fireEvent.submit(screen.getByLabelText(/Reason for change/).closest('form')!)
     expect(await screen.findByText('Prescription status updated. Sent to this hospital’s pharmacy.')).toBeTruthy()
     await waitFor(() => expect(sendButton()).toBeNull())
+  })
+})
+
+describe('Send to pharmacy refused, in plain words', () => {
+  it('says the visit was entered in error and closes the form (409 VISIT_ENTERED_IN_ERROR)', async () => {
+    api.ownPharmacySend.mockRejectedValueOnce(new HidApiError(409, 'Encounter was entered in error', { code: 'VISIT_ENTERED_IN_ERROR' }))
+    await openPrescription()
+    fireEvent.click(sendButton()!)
+    fireEvent.submit(sendForm())
+    expect(await screen.findByText('This visit was marked entered in error, so nothing more can be sent from it.')).toBeTruthy()
+    // The form closed: only the action's own button is left.
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Send to pharmacy' })).toHaveLength(1))
+    expect(document.body.textContent).not.toContain('could not be completed')
+    expect(document.body.textContent).not.toContain('Encounter was entered in error')
+  })
+
+  it('says the patient’s approval for changes has ended, never to ask an administrator (403 CONSENT_REQUIRED)', async () => {
+    api.ownPharmacySend.mockRejectedValueOnce(new HidApiError(403, 'Active consent and facility membership are required', { code: 'CONSENT_REQUIRED' }))
+    await openPrescription()
+    fireEvent.click(sendButton()!)
+    fireEvent.submit(sendForm())
+    expect(await screen.findByText(`${PATIENT_NAME}’s approval for changes to their record has ended. Ask them to approve a read-and-write request first.`)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/administrator|Active consent/)
+  })
+
+  it('reads the prescription again when it was not found (404), and closes the form', async () => {
+    api.ownPharmacySend.mockRejectedValueOnce(new HidApiError(404, 'Clinical resource was not found', { code: 'CLINICAL_RESOURCE_NOT_FOUND' }))
+    await openPrescription()
+    fireEvent.click(sendButton()!)
+    const reads = api.records.mock.calls.length
+    fireEvent.submit(sendForm())
+    expect(await screen.findByText('This prescription was not found, so it was not sent to the pharmacy. The list was reloaded.')).toBeTruthy()
+    expect(api.records.mock.calls.length).toBeGreaterThan(reads)
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Send to pharmacy' })).toHaveLength(1))
+    expect(document.body.textContent).not.toContain('Clinical resource was not found')
+  })
+})
+
+describe('A pending answer offers the send it asks for', () => {
+  it('after Activate answers pending, offers Send to pharmacy even when the read could not say the pharmacy has staff', async () => {
+    list = [prescription({ status: 'draft' })]
+    api.updateRecord.mockImplementationOnce(async () => {
+      list = [prescription({ rowVersion: 5, ownPharmacyStaffed: undefined })]
+      return { ...prescription({ rowVersion: 5 }), pharmacyHandoff: PENDING }
+    })
+    api.ownPharmacySend.mockResolvedValueOnce(SENT)
+    await openPrescription()
+    changeStatus('Activate', 'Start treatment')
+    expect(await screen.findByText('Prescription status updated. Not sent to the pharmacy yet. Use Send to pharmacy to try again.')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to pharmacy' }))
+    list = [prescription({ rowVersion: 5, ownPharmacyStaffed: undefined, ownProgress: RECEIVED })]
+    fireEvent.submit(sendForm())
+    expect(await screen.findByText('Sent to this hospital’s pharmacy.')).toBeTruthy()
+    expect(api.ownPharmacySend).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 5, null)
+  })
+})
+
+describe('Today’s pharmacist hand-off beside the automatic send', () => {
+  beforeEach(() => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+  })
+
+  // A colleague's prescription: Send to pharmacy (the prescriber's) is not offered, so only the hand-off could be.
+  const colleagues = (extra: Record<string, unknown> = {}) =>
+    prescription({ createdBy: COLLEAGUE.accountId, createdByMembershipId: COLLEAGUE.membershipId, ...extra })
+
+  it.each([
+    ['the pharmacy has it already (sent by itself on activation)', RECEIVED],
+    ['the pharmacy dispensed it', { status: 'dispensed', dispensedAt: '2026-11-20T10:00:00.000Z' }],
+  ])('is not offered when %s', async (_why, ownProgress) => {
+    list = [colleagues({ ownProgress })]
+    await openPrescription()
+    expect(handoffButton()).toBeNull()
+    expect(sendButton()).toBeNull()
+  })
+
+  it.each([
+    ['the pharmacy has not received it', { status: 'not_received' }],
+    ['the EHR sends no progress (before ORD-3)', undefined],
+    ['the pharmacy could not be asked', { status: 'unknown' }],
+  ])('is offered when %s', async (_why, ownProgress) => {
+    list = [colleagues({ ownProgress })]
+    await openPrescription()
+    expect(handoffButton()).toBeTruthy()
+  })
+})
+
+describe('Clinical paths of Send to pharmacy', () => {
+  const TOKEN = 'd'.repeat(64)
+  const SEVERE = {
+    source: 'recorded', allergyId: 'a1240000-0000-4000-8000-000000000001', allergyIds: ['a1240000-0000-4000-8000-000000000001'],
+    substance: 'Penicillin', reaction: 'Anaphylaxis', severity: 'severe', matchKind: 'same_class', className: 'penicillins',
+    recordedHere: true, recordedOn: '2026-04-20T10:00:00.000Z',
+    message: 'Penicillin allergy: SEVERE (Anaphylaxis). This medicine is one of the penicillins, the same group. Recorded by a clinician at this facility on 20 Apr 2026.',
+  }
+  const DETAIL = 'This medicine may match an allergy on the patient\'s record. Check the allergies and give a reason to go ahead.'
+  /** The EHR's 409 as the http client gives it (hid-system#218 at 7fbb04aa): the match, the token, the missing acknowledgement. */
+  const allergyRefused = () => new HidApiError(409, DETAIL, {
+    code: 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED', detail: DETAIL,
+    details: [{ field: 'allergyAcknowledgement', messages: [SEVERE.message] }, { field: 'allergyAcknowledgement.warningToken', messages: [TOKEN] },
+      { field: 'allergyAcknowledgement.rejected', code: 'ALLERGY_ACKNOWLEDGEMENT_MISSING', messages: ['Check the allergies and give a reason to go ahead.'] }],
+  })
+  const REASON = 'Tolerated amoxicillin in 2025 with no reaction; observe for 30 minutes.'
+
+  it('the EHR’s allergy warning, then the same send at the same version with the tick and the reason', async () => {
+    api.ownPharmacySend.mockRejectedValueOnce(allergyRefused()).mockResolvedValueOnce(SENT)
+    api.allergyCheck.mockResolvedValue({ matches: [SEVERE], acknowledgementRequired: true, warningToken: TOKEN })
+    await openPrescription()
+    fireEvent.click(sendButton()!)
+    fireEvent.submit(sendForm())
+    expect((await screen.findByRole('alert')).textContent).toBe(ALLERGY_GO_AHEAD_ERROR)
+    // Sent first with no acknowledgement; nothing was written, so the page does not read the prescription again.
+    expect(api.ownPharmacySend).toHaveBeenNthCalledWith(1, FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 4, null)
+    const panel = screen.getByRole('region', { name: 'Severe allergy warning for Amoxicillin' })
+    expect(within(panel).getAllByRole('listitem').map(line => line.textContent)).toEqual([SEVERE.message])
+    expect(document.body.textContent).not.toContain('Check the allergies')
+    expect(document.body.textContent).not.toContain(TOKEN)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /^I have checked this allergy with the patient/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Why is it safe to go ahead?' }), { target: { value: REASON } })
+    list = [prescription({ ownProgress: RECEIVED })]
+    fireEvent.submit(sendForm())
+    expect(await screen.findByText('Sent to this hospital’s pharmacy.')).toBeTruthy()
+    expect(api.ownPharmacySend).toHaveBeenCalledTimes(2)
+    expect(api.ownPharmacySend).toHaveBeenNthCalledWith(2, FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 4, { reason: REASON, warningToken: TOKEN })
+    await waitFor(() => expect(sendButton()).toBeNull())
+  })
+
+  it('Resume answers that the pharmacy holds an earlier version: the page says so and offers no send', async () => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    list = [prescription({ status: 'on_hold', rowVersion: 6, ownProgress: { status: 'withdrawn', receivedAt: '2026-11-20T09:05:00.000Z' } })]
+    api.updateRecord.mockImplementationOnce(async () => {
+      list = [prescription({ rowVersion: 7, ownProgress: { status: 'withdrawn', receivedAt: '2026-11-20T09:05:00.000Z' } })]
+      return { ...prescription({ rowVersion: 7 }), pharmacyHandoff: { status: 'not_sent', reason: 'superseded', message: 'whatever the server says' } }
+    })
+    await openPrescription()
+    changeStatus('Resume', 'Results are back')
+    expect(await screen.findByText('Prescription status updated. Not sent: this hospital’s pharmacy has an earlier version of this '
+      + 'prescription, which it can no longer dispense.')).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Put on hold' })).toBeTruthy())
+    expect(sendButton()).toBeNull()
+    expect(handoffButton()).toBeNull()
+    expect(api.ownPharmacySend).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toContain('whatever the server says')
   })
 })
