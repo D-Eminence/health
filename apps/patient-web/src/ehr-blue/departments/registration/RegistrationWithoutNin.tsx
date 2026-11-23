@@ -8,7 +8,7 @@ import {
   CHILD_CONTACT_NOTE, DOB_LABEL, FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, REASON_LABEL, REGISTER_WITHOUT_NIN,
   REGISTERING, SELECT_REASON, WITHOUT_NIN_TEXT,
 } from './registrationText'
-import { lagosToday, NO_NIN_REASON_LABELS } from './withoutNin'
+import { EARLIEST_DOB, lagosToday, NO_NIN_REASON_LABELS } from './withoutNin'
 
 function required(label: string): ReactNode {
   return <>{label}<span aria-hidden="true"> *</span></>
@@ -52,7 +52,7 @@ export function RegistrationWithoutNin({ reasons, busy, problems, error, onInput
           <EhrInput name="lastName" maxLength={100} autoComplete="off" readOnly={busy} required />
         </EhrField>
         <EhrField label={required(DOB_LABEL)} controlId={FIELD.withoutDob} error={problems.error(FIELD.withoutDob)}>
-          <EhrInput name="dateOfBirth" type="date" max={lagosToday()} readOnly={busy} required />
+          <EhrInput name="dateOfBirth" type="date" min={EARLIEST_DOB} max={lagosToday()} readOnly={busy} required />
         </EhrField>
         <EhrField label={GENDER_LABEL} controlId={FIELD.withoutGender}>
           <EhrSelect name="gender">

@@ -255,6 +255,15 @@ describe('the rules before sending', () => {
     expect(withoutNinProblems(child, '2026-11-23').map(([field]) => field)).toEqual(['addressLine', 'city', 'stateCode', 'lga'])
   })
 
+  it('refuses a date of birth Identity refuses: before 1900, or a day that does not exist', () => {
+    // 0130 identity.register_patient_without_nin: requested_dob < 1900-01-01 is NO_NIN_REGISTRATION_INVALID; the DTO's
+    // IsDateString is strict.
+    expect(withoutNinProblems(form({ dateOfBirth: '1899-12-31' }), '2026-11-23').map(([field]) => field)).toEqual(['dateOfBirth'])
+    expect(withoutNinProblems(form({ dateOfBirth: '1990-02-30' }), '2026-11-23').map(([field]) => field)).toEqual(['dateOfBirth'])
+    expect(withoutNinProblems(form({ dateOfBirth: '1900-01-01' }), '2026-11-23')).toEqual([])
+    expect(withoutNinProblems(form({ dateOfBirth: '2000-02-29' }), '2026-11-23')).toEqual([])
+  })
+
   it('sends the gender only when given, and no existing Health ID unless the patient has one', () => {
     expect(withoutNinInput(form({ gender: 'female' }))).toMatchObject({ gender: 'female', hasExistingHealthId: false })
     expect(withoutNinInput(form())).not.toHaveProperty('existingHealthId')

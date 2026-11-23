@@ -48,7 +48,7 @@ export interface WithoutNinForm {
 export type WithoutNinField = 'firstName' | 'lastName' | 'dateOfBirth' | 'noNinReason' | DeskField
 
 export const NAME_REFUSED = 'Enter the patient’s name, up to 100 characters.'
-export const DOB_REFUSED = 'Enter the patient’s date of birth. It cannot be in the future.'
+export const DOB_REFUSED = 'Enter the patient’s date of birth. It must be a real date, from 1900 on, and not in the future.'
 export const REASON_REFUSED = 'Choose why the patient is registered without a NIN.'
 /** identity-api WITHOUT_NIN_MESSAGES.notAChild, at the reason. */
 export const NOT_A_CHILD = 'This date of birth makes the patient 18 or older. Choose another reason.'
@@ -57,6 +57,16 @@ export const CHILD_CONTACT_PARTIAL = 'For a child, give the whole phone and addr
 
 const CONTACT: readonly DeskField[] = ['phone', 'addressLine', 'city', 'stateCode', 'lga']
 const DATE = /^\d{4}-\d{2}-\d{2}$/
+/** identity.register_patient_without_nin (0130) refuses a date of birth before this. */
+export const EARLIEST_DOB = '1900-01-01'
+
+/** A real calendar day (YYYY-MM-DD) from EARLIEST_DOB to `today`, as Identity takes it (strict, not after today in Lagos). */
+function dateOfBirthValid(value: string, today: string): boolean {
+  if (!DATE.test(value) || value < EARLIEST_DOB || value > today) return false
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
 
 /** Today's date (YYYY-MM-DD) in Lagos, where Identity checks a date of birth. */
 export function lagosToday(now: Date = new Date()): string {
@@ -86,7 +96,7 @@ export function withoutNinProblems(form: WithoutNinForm, today: string = lagosTo
   const last = form.lastName.trim()
   if (!first || first.length > 100) found.push(['firstName', NAME_REFUSED])
   if (!last || last.length > 100) found.push(['lastName', NAME_REFUSED])
-  const dateValid = DATE.test(form.dateOfBirth) && !Number.isNaN(Date.parse(form.dateOfBirth)) && form.dateOfBirth <= today
+  const dateValid = dateOfBirthValid(form.dateOfBirth, today)
   if (!dateValid) found.push(['dateOfBirth', DOB_REFUSED])
   if (!isReason(form.noNinReason)) found.push(['noNinReason', REASON_REFUSED])
   else if (form.noNinReason === 'child' && dateValid && !isChild(form.dateOfBirth, today)) found.push(['noNinReason', NOT_A_CHILD])
