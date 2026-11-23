@@ -14,7 +14,7 @@ import { LoadingRows } from '../../../kasuwa/parts'
 import { consultationLabel, visitClassLabel } from '../../../plainLabels'
 import { formatDate, formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import type { PatientFacts } from '../parts/PatientHeader'
+import { maskedHealthId, type PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
@@ -41,6 +41,11 @@ function sexText(value: string | undefined) {
 
 /** hid-system 0131's words for a patient opened as this facility's own. */
 export const OWN_FACILITY_LABEL = 'Opened as this facility’s patient'
+/**
+ * The next step for an emergency patient opened from an emergency search card (break-glass by matchRef, 0132 ID-5):
+ * the screen holds no Health ID to hand to the Access PIN or to Ask the patient, so it asks for it instead.
+ */
+export const ASK_FOR_HEALTH_ID = 'Ask the patient for their Health ID to move to direct care'
 
 export function accessLabel(patient: ActivePatient): string {
   if (patient.purpose === 'emergency') return 'Emergency access'
@@ -254,7 +259,8 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
    */
   function accessStep(target: 'pin' | 'request' | 'emergency') {
     const unavailable = target === 'pin' ? pinUnavailable : target === 'request' ? requestUnavailable : emergencyUnavailable
-    if (unavailable) return
+    // Opened from an emergency search card, there is no Health ID to hand over (those steps are not offered then).
+    if (unavailable || !chart.patient.hid) return
     offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     if (target === 'pin') navigate(href('pin'))
     else if (target === 'request') navigate(href.to('consent', 'new'))
@@ -322,8 +328,15 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
         </Card> : <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
           {/* Emergency access is read-only: the patient's Access PIN or their approval moves them to direct care (owner,
-              31 October). A step the role cannot take is turned off, with today's reason. */}
-          <ul className="m-0 list-none divide-y divide-line p-0">
+              31 October). A step the role cannot take is turned off, with today's reason. Opened from an emergency search
+              card, the screen has no Health ID for either step: it asks for it, with the last four it knows. */}
+          {!chart.patient.hid ? <div className="flex items-start gap-3 px-5 py-4">
+            <IconChip size="sm" icon={KeyRound} />
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-medium text-ink">{ASK_FOR_HEALTH_ID}</p>
+              {chart.patient.healthIdLast4 ? <p className="m-0 mt-0.5 text-[13px] text-ink-3">{`Their Health ID ends in ${maskedHealthId(chart.patient.healthIdLast4)}.`}</p> : null}
+            </div>
+          </div> : <ul className="m-0 list-none divide-y divide-line p-0">
             <li>
               <ListRow onClick={() => accessStep('pin')} disabled={pinUnavailable !== null} describedBy={pinUnavailable ? 'pin-step-unavailable' : undefined}
                 leading={<IconChip size="sm" icon={KeyRound} />} title="Use their Access PIN" subtitle="If they’re with you and have set one." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} />
@@ -334,7 +347,7 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
                 leading={<IconChip size="sm" icon={Send} />} title="Ask the patient" subtitle="They approve on their phone. You’re told the moment they do." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} />
               {requestUnavailable ? <p id="request-step-unavailable" className="m-0 px-5 pb-3 text-[12px] text-ink-3">{requestUnavailable}</p> : null}
             </li>
-          </ul>
+          </ul>}
         </Card>}
         {/* The chart in one call (EHR-C4): each section with its link to the visit or order, a section the role may not
             see said where it would be. Its rows open in Consultation, so it shows only where Consultation opens, and only

@@ -164,7 +164,8 @@ export function useChart(): Chart | null {
   const verify = useCallback(async () => {
     if (!facilityId || !activePatient) throw new PlainError(OPEN_FIRST)
     // A patient opened from an emergency search card has no Health ID on screen to look up again (break-glass by
-    // matchRef, 0132 ID-5): the grant's own end is checked here, and every record read is checked by the server.
+    // matchRef, 0132 ID-5): the grant's own end is checked here, and every record read is checked by the server; a read
+    // it refuses ends access (readEndsAccess), as a refused lookup does for everyone else.
     if (!activePatient.hid) {
       const ends = Date.parse(activePatient.lookup.authorization.expiresAt ?? '')
       if (Number.isFinite(ends) && ends <= Date.now()) {
@@ -217,6 +218,15 @@ export function useChart(): Chart | null {
       endAccess,
     }
   }, [activePatient, can, checked, context.ended, endAccess, facilityId, facilityName, patientId, verify, writeAccess])
+}
+
+/**
+ * Whether a refused record read means access has ended, for a patient whose access `verify` cannot look up again (one
+ * opened from an emergency search card, with no Health ID): EHR answers 403 once the grant has ended or been closed
+ * elsewhere, and 404 once the patient is no longer there. The page then calls the chart's `endAccess`.
+ */
+export function readEndsAccess(patient: ActivePatient, caught: unknown): boolean {
+  return !patient.hid && isHidApiError(caught) && (caught.status === 403 || caught.status === 404)
 }
 
 /** Whether access ended in this workspace (the patient was closed by a refusal). */

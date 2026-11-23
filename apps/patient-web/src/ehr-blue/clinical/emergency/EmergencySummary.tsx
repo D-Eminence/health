@@ -10,7 +10,7 @@ import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { NOTHING_REPORTED, RecordedAllergyFacts, RecordedHeading, ReportedHeading, profileUpdated } from '../patients/AllergiesCard'
 import { oldVitalsLine } from '../nursing/observations'
-import { ChartGate, type Chart } from '../parts/chart'
+import { ChartGate, readEndsAccess, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
@@ -323,6 +323,9 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   // The latest re-check, so a new function identity does not read the summary again.
   const verify = useRef(chart.verify)
   useLayoutEffect(() => { verify.current = chart.verify })
+  // The latest chart: opened from an emergency search card (no Health ID to look up again), a refused read ends access.
+  const latest = useRef(chart)
+  useLayoutEffect(() => { latest.current = chart })
 
   useEffect(() => {
     let active = true
@@ -332,7 +335,11 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     verify.current()
       .then(() => staffApi.emergencyRecords(facilityId, patientId))
       .then(result => { if (active) setSummary(result) })
-      .catch((caught: unknown) => { if (active) setError(refusalText(caught, SUMMARY_FAILED)) })
+      .catch((caught: unknown) => {
+        if (!active) return
+        if (readEndsAccess(latest.current.patient, caught)) latest.current.endAccess()
+        else setError(refusalText(caught, SUMMARY_FAILED))
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, patientId, revision])

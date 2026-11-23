@@ -178,6 +178,12 @@ export const OWN_FACILITY_TITLE = 'Open as this facility’s patient'
 export const OWN_FACILITY_HINT = 'If they registered here, or were seen here with their consent in the last 24 months. Opens for 24 hours.'
 export const OWN_FACILITY_REFUSED = 'This patient can’t be opened as this facility’s patient. Use their Access PIN or ask the patient.'
 export const OWN_FACILITY_ROLE = 'Your role at this facility can’t open patients this way. Use their Access PIN or ask the patient.'
+/**
+ * identity-api answers 404 PATIENT_NOT_FOUND here for no ACTIVE patient with the Health ID that this facility's seal
+ * allows (0131 open_own_facility_patient: an inactive or merged patient, or a sealed demo or QA one), and the lookup just
+ * before it found the patient: it never means the Health ID is unknown, so it offers no registration.
+ */
+export const OWN_FACILITY_NOT_FOUND = 'This patient can’t be opened here. Check the Health ID with the patient.'
 
 /** The permission POST identity/own-facility-access needs, from the contracts registry; doctors, nurses and clinicians hold it. */
 export function opensOwnFacility(permissions: readonly string[]): boolean {

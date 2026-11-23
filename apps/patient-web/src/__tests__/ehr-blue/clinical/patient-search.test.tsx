@@ -1,10 +1,11 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { OWN_FACILITY_REFUSED, OWN_FACILITY_TITLE, dropOfferedHealthId } from '../../../ehr-blue/clinical/consent/access'
+import { OWN_FACILITY_NOT_FOUND, OWN_FACILITY_REFUSED, OWN_FACILITY_TITLE, dropOfferedHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
-import { OWN_FACILITY_LABEL, accessLabel } from '../../../ehr-blue/clinical/patients/PatientPage'
-import { FACILITY_ID, PATIENT_HID, PATIENT_ID, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
+import { ASK_FOR_HEALTH_ID, OWN_FACILITY_LABEL, accessLabel } from '../../../ehr-blue/clinical/patients/PatientPage'
+import { NAME_SEARCH_DESCRIPTION } from '../../../ehr-blue/clinical/patients/NameSearch'
+import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
  * Find a patient's Search by name (hid-system 0132, ID-3a) and "Open as this facility’s patient" (0131, ID-4). The
@@ -90,6 +91,10 @@ describe('Search by name on Find a patient', () => {
   it('is offered to a role that registers patients, and not to one that does not', () => {
     const { unmount } = open()
     expect(screen.getByRole('heading', { name: 'Search by name' })).toBeTruthy()
+    // It finds the patient, then asks for their Health ID: it promises no way in for a patient without one.
+    expect(nameSearch().textContent).toContain(NAME_SEARCH_DESCRIPTION)
+    expect(NAME_SEARCH_DESCRIPTION).toMatch(/^Find a patient by their first name, last name and date of birth, then ask them for their Health ID/)
+    expect(nameSearch().textContent).not.toMatch(/No Health ID card/)
     unmount()
     staff.permissions = DOCTOR.filter(permission => permission !== 'identity.registration.write')
     open()
@@ -136,7 +141,7 @@ describe('Search by name on Find a patient', () => {
     fillAndSearch({ first: 'Ada', last: 'Fictional', born: '1990-04-12' })
     fireEvent.click(await screen.findByRole('button', { name: 'Open' }))
     const hid = await screen.findByLabelText('Ada Fictional’s Health ID')
-    expect(screen.getByText('Ask to see their Health ID card. It ends in AAA2.')).toBeTruthy()
+    expect(screen.getByText('Ask the patient for their Health ID. It’s on their card or in the Health ID app, and ends in AAA2.')).toBeTruthy()
     fireEvent.change(hid, { target: { value: 'HID-ZDEMQRS3' } })
     fireEvent.click(within(hid.closest('form')!).getByRole('button', { name: 'Open' }))
     expect(await screen.findByText('This Health ID doesn’t end in AAA2. Check it with the patient.')).toBeTruthy()
@@ -146,12 +151,48 @@ describe('Search by name on Find a patient', () => {
     await waitFor(() => expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care'))
   })
 
-  it('says why nobody was found, and offers registering them where the role may', async () => {
+  const registerLink = () => within(nameSearch()).queryByRole('link', { name: 'Register a new patient' })
+
+  it('offers registering only after a search of every facility by first name, last name and date of birth found nobody', async () => {
+    api.searchPatients.mockResolvedValue({ mode: 'standard', outcome: 'no_match', reach: 'everywhere', message: null, patients: [] })
+    open()
+    fillAndSearch({ first: 'Ada', last: 'Fictional', born: '1990-04-12' })
+    expect(await screen.findByText('No patient matches these details.')).toBeTruthy()
+    expect(registerLink()!.getAttribute('href')).toBe('/provider/registration')
+  })
+
+  it('offers no registering after a search of this facility only, and points to the wider search', async () => {
     api.searchPatients.mockResolvedValue({ mode: 'standard', outcome: 'no_match', reach: 'here', message: null, patients: [] })
     open()
     fillAndSearch({ last: 'Fictional', born: '1990-04-12' })
     expect(await screen.findByText('No patient of this facility matches. To search every facility, add the full name and date of birth.')).toBeTruthy()
-    expect(within(nameSearch()).getByRole('link', { name: 'Register a new patient' }).getAttribute('href')).toBe('/provider/registration')
+    expect(registerLink()).toBeNull()
+  })
+
+  it('offers no registering for a Health ID nobody has (likely mistyped)', async () => {
+    api.searchPatients.mockResolvedValue({ mode: 'standard', outcome: 'no_such_patient', reach: 'everywhere', message: null, patients: [] })
+    open()
+    fillAndSearch({ last: 'Fictional', hid: 'HID-ZDEMQRS3' })
+    expect(await screen.findByText('No patient has this Health ID.')).toBeTruthy()
+    expect(registerLink()).toBeNull()
+  })
+
+  it('offers no registering when the name and date of birth were narrowed by a phone, and says how to search more widely', async () => {
+    api.searchPatients.mockResolvedValue({ mode: 'standard', outcome: 'no_match', reach: 'everywhere', message: null, patients: [] })
+    open()
+    fillAndSearch({ first: 'Ada', last: 'Fictional', born: '1990-04-12', phone: '0803 000 0001' })
+    expect(await screen.findByText('No patient matches these details. To search more widely, search with only the first name, last name and date of birth.')).toBeTruthy()
+    expect(registerLink()).toBeNull()
+  })
+
+  it('says the search limit with the real numbers, and promises no wait of a few minutes', async () => {
+    api.searchPatients.mockRejectedValue(new HidApiError(429, 'Too Many Requests', { code: 'PATIENT_SEARCH_LIMITED' }))
+    open()
+    fillAndSearch({ first: 'Ada', last: 'Fictional', born: '1990-04-12' })
+    const said = await within(nameSearch()).findByText(/^You’ve reached the search limit/)
+    expect(said.textContent).toBe('You’ve reached the search limit: 30 searches in 10 minutes for each person, and 300 an hour for this '
+      + 'facility. Try again later (it can take up to an hour), or use the patient’s Health ID.')
+    expect(said.textContent).not.toMatch(/few minutes/)
   })
 
   it('says a search that is too broad in plain words', async () => {
@@ -212,11 +253,16 @@ describe('Open as this facility’s patient', () => {
     expect(staff.setActivePatient).not.toHaveBeenCalledWith(expect.objectContaining({ basis: 'own-facility' }))
   })
 
-  it('says there is no such patient on 404 PATIENT_NOT_FOUND', async () => {
+  it('keeps the refused panel on 404 PATIENT_NOT_FOUND, which here never means an unknown Health ID, and offers no registering', async () => {
     api.openOwnFacilityPatient.mockRejectedValue(new HidApiError(404, 'Not Found', { code: 'PATIENT_NOT_FOUND' }))
     const ways = await refusedLookup()
     fireEvent.click(within(ways).getByRole('button', { name: new RegExp(OWN_FACILITY_TITLE) }))
-    expect(await screen.findByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeTruthy()
+    expect(await screen.findByText(OWN_FACILITY_NOT_FOUND)).toBeTruthy()
+    expect(OWN_FACILITY_NOT_FOUND).toBe('This patient can’t be opened here. Check the Health ID with the patient.')
+    expect(screen.getByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeTruthy()
+    expect(screen.queryByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Register a new patient' })).toBeNull()
+    expect(screen.getByRole('group', { name: 'Obtain access' })).toBeTruthy()
   })
 
   it('is offered after a search card’s lookup is refused, for that card’s patient', async () => {
@@ -227,5 +273,37 @@ describe('Open as this facility’s patient', () => {
     const ways = await screen.findByRole('group', { name: 'Obtain access' })
     fireEvent.click(within(ways).getByRole('button', { name: new RegExp(OWN_FACILITY_TITLE) }))
     await waitFor(() => expect(api.openOwnFacilityPatient).toHaveBeenCalledWith(FACILITY_ID, { hid: PATIENT_HID }))
+  })
+})
+
+describe('An emergency patient opened from an emergency search card', () => {
+  const GRANT_END = '2099-01-01T00:30:00.000Z'
+  const fromCard = () => ({
+    hid: '', healthIdLast4: 'AAA2', purpose: 'emergency',
+    lookup: {
+      authorization: { decision: 'allow', expiresAt: GRANT_END, consentGrantId: 'grant-emergency', breakGlass: true, scope: 'read_records' },
+      patient: { patientId: PATIENT_ID, hid: '', fullName: PATIENT_NAME, dateOfBirth: '1990-04-12', gender: 'female' },
+    },
+  })
+
+  it('asks for their Health ID to move to direct care, with its last four, and hands over no empty Health ID', async () => {
+    staff.permissions = [...DOCTOR, 'identity.break-glass.write']
+    staff.activePatient = fromCard()
+    renderPage(<PatientsWorkspace />, 'patients', '/open')
+    const steps = (await screen.findByRole('heading', { level: 2, name: 'Next steps' })).closest('section') as HTMLElement
+    expect(within(steps).getByText(ASK_FOR_HEALTH_ID)).toBeTruthy()
+    expect(within(steps).getByText('Their Health ID ends in •••• AAA2.')).toBeTruthy()
+    expect(within(steps).queryByRole('button', { name: /Use their Access PIN/ })).toBeNull()
+    expect(within(steps).queryByRole('button', { name: /Ask the patient/ })).toBeNull()
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('keeps the Access PIN and Ask the patient for an emergency patient opened with their Health ID', async () => {
+    staff.permissions = [...DOCTOR, 'identity.break-glass.write']
+    staff.activePatient = { hid: PATIENT_HID, purpose: 'emergency', lookup: allowedLookup }
+    renderPage(<PatientsWorkspace />, 'patients', '/open')
+    const steps = (await screen.findByRole('heading', { level: 2, name: 'Next steps' })).closest('section') as HTMLElement
+    expect(within(steps).getByRole('button', { name: /Use their Access PIN/ })).toBeTruthy()
+    expect(within(steps).queryByText(ASK_FOR_HEALTH_ID)).toBeNull()
   })
 })
