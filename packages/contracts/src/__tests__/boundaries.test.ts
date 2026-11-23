@@ -937,6 +937,17 @@ describe('application boundaries', () => {
     expect(findEndpoint('ehr.allergies')?.note).toMatch(/ALLERGY_NOT_A_SUBSTANCE/)
   })
 
+  it('lets New consultation save in one call (EHR-C5), and no patient application reach it', () => {
+    const name = 'ehr.consultations'
+    expect(findEndpoint(name)?.note).toMatch(/direct-care/)
+    expect(findEndpoint(name)?.permissions).toEqual({ POST: ['ehr.encounter.write'] })
+    expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+    expect(() => assertEndpointAllowed('ehr-web', name)).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web', name)).toThrow(BoundaryViolationError)
+    expect(assertRegisteredBrowserRequest('POST', '/api/v1/ehr/patients/patient-1/consultations').name).toBe(name)
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/ehr/patients/patient-1/consultations')).toThrow(BrowserRouteError)
+  })
+
   it('refuses an admin endpoint in a patient application', () => {
     expect(() => assertEndpointAllowed('patient-web','admin.overview')).toThrow(BoundaryViolationError)
   })

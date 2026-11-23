@@ -190,7 +190,12 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const location = useLocation()
   const { facilityId, patientId } = chart
   const [encounter, setEncounter] = useState(initial)
-  const [success, setSuccess] = useState(() => (location.state as { created?: unknown } | null)?.created === true ? ENCOUNTER_CREATED : '')
+  // New consultation's own line when it saved on the open visit today (EHR-C5), else today's.
+  const [success, setSuccess] = useState(() => {
+    const state = location.state as { created?: unknown; notice?: unknown } | null
+    if (state?.created !== true) return ''
+    return typeof state.notice === 'string' && state.notice ? state.notice : ENCOUNTER_CREATED
+  })
   const [pageError, showPageError] = useState<PageError>(NO_ERROR)
   const setPageError = (text: string) => showPageError(text ? { text, again: {} } : NO_ERROR)
   // A failed re-read joins the reads not yet made again, so "Try again" reads every list still unread, each once.

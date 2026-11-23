@@ -966,6 +966,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'patient page asks under direct care; an EHR before EHR-C4 answers 404 and the page reads today\'s lists instead.'),
   r('ehr.encounters','ehr','/api/v1/ehr/patients/:patientId/encounters',GP,false,{GET:['ehr.encounter.read'],POST:['ehr.encounter.write']}),
   r('ehr.encounter','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId',GPA,false,{GET:['ehr.encounter.read'],PATCH:['ehr.encounter.write']}),
+  // The part write permissions (ehr.note.write, ehr.diagnosis.write) are needed only for the parts sent.
+  proposed(r('ehr.consultations','ehr','/api/v1/ehr/patients/:patientId/consultations',P,false,one('POST','ehr.encounter.write'),
+    'EHR-C5 (hid-system 4c843270): direct-care, with an Idempotency-Key of 16 to 128 URL-safe characters. Body { visit, '
+    + 'note?, vitals?, diagnoses? (at most 20) }, each part the body of its own route; all saved in one transaction or none. '
+    + 'Always on the open visit today (EHR-C1). 201 { encounter (with reusedOpenVisit), note, vitals, diagnoses }. A backend '
+    + 'before it answers 404, and New consultation then saves with the separate routes.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
