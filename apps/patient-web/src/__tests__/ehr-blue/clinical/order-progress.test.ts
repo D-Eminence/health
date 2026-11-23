@@ -37,7 +37,7 @@ describe('a prescription’s own pharmacy progress (ORD-3)', () => {
 
   it('names the pharmacy a prescription sent elsewhere went to, from its own route', () => {
     const orderRoute = { id: 'route-1', effectiveState: 'accepted', receivingFacility: { id: 'f-1', name: 'Demo Pharmacy', available: true } }
-    expect(rx(pharmacy('sent_elsewhere', { receivedAt: AT_1040 }), { orderRoute })).toBe('Sent to Demo Pharmacy by the prescribing team, instead of this hospital’s pharmacy')
+    expect(rx(pharmacy('sent_elsewhere', { receivedAt: AT_1040 }), { orderRoute })).toBe('Sent to Demo Pharmacy instead of this hospital’s pharmacy')
     // A route with no name says the contract's fallback.
     expect(rx(pharmacy('sent_elsewhere'), { orderRoute: { ...orderRoute, receivingFacility: { id: 'f-1', name: ' ', available: true } } })).toBe(SENT_ELSEWHERE)
   })

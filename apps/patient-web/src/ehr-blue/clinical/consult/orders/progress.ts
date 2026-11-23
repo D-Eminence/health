@@ -20,18 +20,17 @@ export const PROGRESS_UNAVAILABLE = 'Progress not available right now'
 
 /**
  * ORD-3 `withdrawn` (0133): sent by itself, then held, cancelled, entered in error, edited or resumed before it was
- * dispensed, whatever stopped or changed it. Said in the words the pharmacy's own screen uses for it (pharmacyText.ts
- * WITHDRAWN_WORDS `changed`), with what follows for the prescriber. `withdrawn` and `sent_elsewhere`, and
+ * dispensed. The words of ORD-3's screen change, whatever stopped or changed it. `withdrawn` and `sent_elsewhere`, and
  * their words, are in the backend's contract at the live commit (hid-system 4c843270) but not yet in this repo's copy
  * (docs/backend-contract, copied at 092cd248, before 0133); the coordinator's next refresh of the copy brings them.
  */
-export const PHARMACY_WITHDRAWN = 'Changed or stopped by the prescribing team, so the pharmacy can no longer dispense it'
+export const PHARMACY_WITHDRAWN = 'The pharmacy can no longer dispense this prescription'
 
 /**
  * ORD-3 `sent_elsewhere` (0133, Q121 A; in the live contract at 4c843270, see above) when the prescription carries no
- * route naming where it went: the pharmacy's own screen's words for it (pharmacyText.ts WITHDRAWN_WORDS `sent_elsewhere`).
+ * route naming where it went.
  */
-export const SENT_ELSEWHERE = 'Sent to another pharmacy by the prescribing team'
+export const SENT_ELSEWHERE = 'Sent to another pharmacy instead'
 
 /**
  * The pharmacy statuses ORD-3 names, with `accepted` from ORD-4 (planned contract, Release B): a backend that sends
@@ -90,7 +89,7 @@ export function ownProgressText(kind: OrderKind, record: ClinicalRecord, now: Da
       default: {
         // sent_elsewhere: where it went is the prescription's own route, when it carries one.
         const facility = readOrderRoute(record.orderRoute)?.receivingFacility.name?.trim()
-        return facility ? `Sent to ${facility} by the prescribing team, instead of this hospital’s pharmacy` : SENT_ELSEWHERE
+        return facility ? `Sent to ${facility} instead of this hospital’s pharmacy` : SENT_ELSEWHERE
       }
     }
   }

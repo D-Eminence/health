@@ -134,8 +134,8 @@ export const REGISTERING = 'Registering…'
 export const REGISTERED_WITHOUT_NIN = 'The patient was registered and given a Health ID. Their record shows NIN Not Verified.'
 /** outcome `sent_for_review`: no other person's details are shown. */
 export const SENT_FOR_REVIEW = 'This may be someone who is already registered, so it was sent for review. An approver at this facility will decide before a record is made.'
-/** Its case ID is put in Find registration case, whose button is LOAD_CASE ("Open"). */
-export const WITHOUT_NIN_RELOAD = 'The registration was saved, but it could not be shown. Choose Open next to its case ID to see it.'
+/** Its ID is put in the Registration ID field (CASE_ID_LABEL), whose button is LOAD_CASE ("Open"). */
+export const WITHOUT_NIN_RELOAD = 'The registration was saved, but it could not be shown. Choose Open next to its Registration ID to see it.'
 export const WITHOUT_NIN_FAILED = 'The patient could not be registered. Check the details and try again.'
 /** On the record of a registration without a NIN that waits for an approver who did not start it. */
 export const SENT_FOR_REVIEW_NOTICE = 'Sent for review. This may be someone who is already registered. An approver at this facility, other than the person who started it, will decide.'

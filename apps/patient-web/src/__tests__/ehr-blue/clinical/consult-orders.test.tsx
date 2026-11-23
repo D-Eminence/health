@@ -4366,8 +4366,8 @@ describe('ORD-3: where each order is in this facility’s own pharmacy or labora
   it.each([
     ['received', rxProgress('received', { receivedAt: AT_1040 }), 'Received 30 Oct 2026, 10:40'],
     ['dispensing reversed', rxProgress('dispensing_reversed', { receivedAt: AT_1040, dispensedAt: AT_1040, reversedAt: AT_1105 }), 'Dispensing reversed 30 Oct 2026, 11:05'],
-    ['withdrawn', rxProgress('withdrawn', { receivedAt: AT_1040 }), 'Changed or stopped by the prescribing team, so the pharmacy can no longer dispense it'],
-    ['sent elsewhere', rxProgress('sent_elsewhere', { receivedAt: AT_1040 }), 'Sent to another pharmacy by the prescribing team'],
+    ['withdrawn', rxProgress('withdrawn', { receivedAt: AT_1040 }), 'The pharmacy can no longer dispense this prescription'],
+    ['sent elsewhere', rxProgress('sent_elsewhere', { receivedAt: AT_1040 }), 'Sent to another pharmacy instead'],
     ['unknown', rxProgress('unknown'), 'Progress not available right now'],
   ])('says a prescription %s on its row', async (_name, ownProgress, words) => {
     setLists([prescription({ status: 'active', ownProgress })], [])
@@ -4407,7 +4407,7 @@ describe('ORD-3: where each order is in this facility’s own pharmacy or labora
       orderRoute: route({ kind: 'prescription', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
     const rowOf = await rows()
     const { row } = rowOf('Pharmacy · Amoxicillin')
-    expect(within(row).getByText('Sent to Demo Pharmacy by the prescribing team, instead of this hospital’s pharmacy')).toBeTruthy()
+    expect(within(row).getByText('Sent to Demo Pharmacy instead of this hospital’s pharmacy')).toBeTruthy()
     expect(within(row).getByText('Sent to a pharmacy')).toBeTruthy()
   })
 
