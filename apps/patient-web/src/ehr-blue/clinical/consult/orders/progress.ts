@@ -20,11 +20,16 @@ export const PROGRESS_UNAVAILABLE = 'Progress not available right now'
 
 /**
  * ORD-3 `withdrawn` (0133): sent by itself, then held, cancelled, entered in error, edited or resumed before it was
- * dispensed. The contract's words, whatever stopped or changed it.
+ * dispensed. The words of ORD-3's screen change, whatever stopped or changed it. `withdrawn` and `sent_elsewhere`, and
+ * their words, are in the backend's contract at the live commit (hid-system 4c843270) but not yet in this repo's copy
+ * (docs/backend-contract, copied at 092cd248, before 0133); the coordinator's next refresh of the copy brings them.
  */
 export const PHARMACY_WITHDRAWN = 'The pharmacy can no longer dispense this prescription'
 
-/** ORD-3 `sent_elsewhere` (0133, Q121 A) when the prescription carries no route naming where it went. */
+/**
+ * ORD-3 `sent_elsewhere` (0133, Q121 A; in the live contract at 4c843270, see above) when the prescription carries no
+ * route naming where it went.
+ */
 export const SENT_ELSEWHERE = 'Sent to another pharmacy instead'
 
 /**
