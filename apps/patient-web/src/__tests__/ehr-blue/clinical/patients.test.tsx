@@ -1025,7 +1025,7 @@ describe('Patient sharing', () => {
     api.acceptShareInvitation.mockResolvedValue({ invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false })
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
-    const result = await screen.findByText('Accepted. The patient confirms next, then they appear here with Open.')
+    const result = await screen.findByText(ACCEPTED)
     expect(result.closest('[role="status"]')).toBeTruthy()
     expect(document.activeElement).toBe(result)
     expect(api.acceptShareInvitation).toHaveBeenCalledTimes(1)
@@ -1064,7 +1064,8 @@ describe('Patient sharing', () => {
 
 const SHARE = { consentGrantId: 'grant-9', patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME, level: 'view_only', duration: '7d', scope: 'read_records', startsAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
 const INVITATION = { invitationId: 'inv-1', reference: 'AB12', inviteeName: null, level: 'clinical_review', duration: '24h', createdAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
-const ACCEPTED = 'Accepted. The patient confirms next, then they appear here with Open.'
+// Classic's sentence (SharedPatients.tsx:128), with the invitation's reference.
+const ACCEPTED = 'You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.'
 const ACCEPT_ANSWER = { invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false }
 const OPEN_SHARED_UNAVAILABLE = 'Your role at this facility can’t open a patient’s record. Ask your facility administrator.'
 const PATIENT_TWO_ID = 'a0000000-0000-4000-8000-000000000002'
@@ -1302,10 +1303,28 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [{ ...INVITATION, inviteeName: 'Dr Fictional Example' }] })
     api.acceptShareInvitation.mockResolvedValue(ACCEPT_ANSWER)
     open()
-    expect(await screen.findByText(`24 hours · open until ${shareDay(INVITATION.expiresAt)}`)).toBeTruthy()
+    expect(await screen.findByText(`24 hours · sent ${shareDay(INVITATION.createdAt)} · open until ${shareDay(INVITATION.expiresAt)}`)).toBeTruthy()
+    expect(screen.getByText('To Dr Fictional Example')).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
     expect(await screen.findByText(ACCEPTED)).toBeTruthy()
     expect(screen.getByText('No patient has shared their record with you here yet.')).toBeTruthy()
+  })
+
+  it('an invitation says who it was sent to and when, as classic does; no "To" line when the name is not given', async () => {
+    api.sharedWithMe.mockResolvedValue([])
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [{ ...INVITATION, inviteeName: 'Dr Patient One' }, { ...INVITATION, invitationId: 'inv-2', reference: 'CD34' }] })
+    open()
+    expect(await screen.findByText('To Dr Patient One')).toBeTruthy()
+    expect(screen.getAllByText(`24 hours · sent ${shareDay(INVITATION.createdAt)} · open until ${shareDay(INVITATION.expiresAt)}`)).toHaveLength(2)
+    expect(screen.getAllByText(/^To /)).toHaveLength(1)
+  })
+
+  it('after Accept says classic’s sentence, with "to share" when the invitation has no reference', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [{ ...INVITATION, reference: '' }] })
+    api.acceptShareInvitation.mockResolvedValue(ACCEPT_ANSWER)
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation' }))
+    expect(await screen.findByText('You accepted invitation to share. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.')).toBeTruthy()
   })
 
   it('a refused Accept focuses today’s refusal and keeps a still-waiting invitation', async () => {

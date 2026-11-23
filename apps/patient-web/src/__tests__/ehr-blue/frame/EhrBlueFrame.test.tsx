@@ -234,14 +234,15 @@ describe('the blue frame', () => {
 
   it('says Page not found at a facility that is not a demo one, with the same way Home', async () => {
     const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', ['identity.consent.write'])
-    const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])] })
+    const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     expect(screen.getByText('We can’t find that page.')).toBeDefined()
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
     expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
     expect(within(page).getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
-    expect(sent.every(call => call.route === SESSION)).toBe(true)
+    // Besides the session, only the bell's one read of the access requests on opening.
+    expect(sent.every(call => call.route === SESSION || call.route === REQUESTS)).toBe(true)
   })
 
   it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {
@@ -306,14 +307,11 @@ describe('the blue frame', () => {
     await waitFor(() => expect(where()).toBe('/provider/requests'))
   })
 
-  it('counts pending access requests on the bell once they are read: on opening its drawer, or Home', async () => {
+  it('counts pending access requests on the bell from landing, away from Home, without opening its drawer', async () => {
     const sent = await openDemo('/provider/whats-left')
-    // Away from Home nothing reads them, as today: only Overview and Requests do.
-    expect(sent.some(call => call.route === REQUESTS)).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
-    const drawer = screen.getByRole('dialog', { name: 'Notifications' })
-    expect(await within(drawer).findByText('1 access request waiting')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Notifications, 1 waiting' })).toBeDefined()
+    // The frame reads them once on opening, as today's Overview did (staff/routes/Dashboard.tsx:251-257).
+    expect(await screen.findByRole('button', { name: 'Notifications, 1 waiting' })).toBeDefined()
+    expect(screen.queryByRole('dialog', { name: 'Notifications' })).toBeNull()
     expect(sent.filter(call => call.route === REQUESTS)).toHaveLength(1)
   })
 })
