@@ -76,6 +76,8 @@ const NOT_ON_MAIN = [
   'outreach.caseScreening',
   // Assisted Health ID (outreach-api 0119, and the unverified Health ID after it).
   'outreach.healthIdStart', 'outreach.healthIdConfirm', 'outreach.healthIdCreateUnverified',
+  // Release A (0131, 0132): staff patient search, emergency search, and opening this facility's own patient.
+  'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

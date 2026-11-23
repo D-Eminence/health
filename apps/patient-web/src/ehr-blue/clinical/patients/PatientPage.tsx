@@ -36,8 +36,12 @@ function sexText(value: string | undefined) {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
+/** hid-system 0131's words for a patient opened as this facility's own. */
+export const OWN_FACILITY_LABEL = 'Opened as this facility’s patient'
+
 export function accessLabel(patient: ActivePatient): string {
-  return patient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'
+  if (patient.purpose === 'emergency') return 'Emergency access'
+  return patient.basis === 'own-facility' ? OWN_FACILITY_LABEL : 'Access allowed'
 }
 
 /** What the allowed lookup told us, as the design's key and value list prints it. Nothing else is known here. */

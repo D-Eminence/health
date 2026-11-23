@@ -15,10 +15,18 @@ export function patientFacts(patient: ActivePatient): PatientFacts {
   const joined = [summary.firstName, summary.lastName].filter(Boolean).join(' ')
   return {
     name: summary.fullName?.trim() || joined || patient.hid,
-    hid: summary.hid || patient.hid,
+    hid: summary.hid || patient.hid || maskedHealthId(patient.healthIdLast4),
     dateOfBirth: summary.dateOfBirth,
     sex: summary.gender,
   }
+}
+
+/**
+ * A Health ID the screen holds only the end of (a search card's last four), as the waiting list shows it: "•••• AA22".
+ * Empty when nothing is known.
+ */
+export function maskedHealthId(last4: string | null | undefined): string {
+  return last4 ? `•••• ${last4}` : ''
 }
 
 /** "Taylor Fiction · HID-…", the design's patient line on a record. */

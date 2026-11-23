@@ -72,9 +72,17 @@ type SessionState =
   | { status: 'offline'; session: null; snapshot: OutreachSnapshot }
 
 export interface ActivePatient {
+  /**
+   * The Health ID the patient was opened with. Empty for a patient opened from an emergency search card (break-glass by
+   * matchRef, hid-system 0132 ID-5), whose full Health ID the screen never holds: `healthIdLast4` is shown instead.
+   */
   hid: string
   lookup: Extract<PatientLookup, { patient: object }>
   purpose: 'direct-care' | 'emergency'
+  /** The last characters of the Health ID, from a search card, when `hid` is empty. */
+  healthIdLast4?: string | null
+  /** 'own-facility': opened as this facility's own patient (hid-system 0131), shown as "Opened as this facility’s patient". */
+  basis?: 'own-facility'
 }
 
 /**

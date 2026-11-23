@@ -579,6 +579,27 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.facilityAudit','identity','/api/v1/audit/events',G,false,one('GET','audit.read'),
     'Gateway routes this path to Identity. Requires healthcare-operations purpose and active facility.'),
   r('identity.patientLookup','identity','/api/v1/identity/patient-lookup',P,false,one('POST','identity.patient.read')),
+  // Release A on hid-system staging-novu-ci-20261005 (identity-api 4c843270, migrations 0131 and 0132): staff patient search,
+  // emergency search, and opening this facility's own patient without a PIN. Keys and Health IDs go in the POST bodies,
+  // never in an address; a search card carries a matchRef, never a Health ID or a patient id.
+  proposed(r('identity.patientSearch','identity','/api/v1/identity/patient-search',P,false,one('POST','identity.registration.write'),
+    'Release A (0132, ID-3a) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
+    + 'direct-care. Body { firstName?, lastName?, dateOfBirth?, healthId?, phone? } (the strong and weak key rule); 200 '
+    + '{ mode, outcome: found | no_match | no_such_patient | too_many, reach: everywhere | here, message, patients: [{ matchRef, '
+    + 'matchRefExpiresAt, fullName, sex, dateOfBirth, healthIdLast4, ninStatus }] }. 400 PATIENT_SEARCH_TOO_BROAD, '
+    + 'PATIENT_SEARCH_PHONE_INVALID, PATIENT_SEARCH_DATE_INVALID; 429 PATIENT_SEARCH_LIMITED; 503 PATIENT_SEARCH_UNAVAILABLE.')),
+  proposed(r('identity.patientEmergencySearch','identity','/api/v1/identity/patient-search/emergency',P,false,
+    one('POST','identity.break-glass.write'),
+    'Release A (0132, ID-3b) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
+    + 'emergency. Body exactly { firstName, lastName, dateOfBirth, reason (8-500) }; the same answer with mode emergency and '
+    + 'at most 5 cards. The cards give no access: break-glass sends a card\'s matchRef with its own reason (ID-5). 400 '
+    + 'EMERGENCY_SEARCH_REASON_REQUIRED, 423 BREAK_GLASS_DISABLED, 429 PATIENT_SEARCH_LIMITED.')),
+  proposed(r('identity.ownFacilityAccess','identity','/api/v1/identity/own-facility-access',P,false,
+    one('POST','identity.patient.open-own-facility'),
+    'Release A (0131, ID-4) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
+    + 'direct-care. Body exactly one of { hid } or { patientId }; 200 { consentGrantId, patientId, status, expiresAt, '
+    + 'existingGrant, authorization: { basis: own-facility, scope: write_records, purpose: direct-care } } for 24 hours. '
+    + 'Doctors, nurses and clinicians only. 404 PATIENT_NOT_FOUND; 403 OWN_FACILITY_ACCESS_REFUSED.')),
   r('identity.authorization','identity','/api/v1/identity/authorization/check',P,false,one('POST','identity.authorization.check')),
   r('identity.consentStatus','identity','/api/v1/identity/consent-status',P,false,one('POST','identity.consent.read')),
   // The clinician's side of patient sharing (hid-1.0 parity B4, hid-system 0095 on Novu): the provider portal's Patients page.

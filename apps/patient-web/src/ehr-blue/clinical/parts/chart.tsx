@@ -112,6 +112,16 @@ export function useChart(): Chart | null {
 
   const verify = useCallback(async () => {
     if (!facilityId || !activePatient) throw new PlainError(OPEN_FIRST)
+    // A patient opened from an emergency search card has no Health ID on screen to look up again (break-glass by
+    // matchRef, 0132 ID-5): the grant's own end is checked here, and every record read is checked by the server.
+    if (!activePatient.hid) {
+      const ends = Date.parse(activePatient.lookup.authorization.expiresAt ?? '')
+      if (Number.isFinite(ends) && ends <= Date.now()) {
+        endAccess()
+        throw new PlainError(ACCESS_ENDED)
+      }
+      return
+    }
     let answer
     try {
       answer = await staffApi.lookupPatient(facilityId, activePatient.hid, activePatient.purpose)

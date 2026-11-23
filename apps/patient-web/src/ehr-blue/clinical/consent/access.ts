@@ -121,15 +121,36 @@ export function isRefusedLookup(caught: unknown): boolean {
  */
 export function useOpenPatient() {
   const { facility, setActivePatient } = useClinical()
-  return useCallback(async (hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') => {
+  return useCallback(async (hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care', basis?: 'own-facility') => {
     if (!facility) throw new PlainError('Select an active facility first.')
     const lookup = await staffApi.lookupPatient(facility.id, hid, purpose)
     if (!isAllowedPatientLookup(lookup)) {
       setActivePatient(null)
       throw new PlainError(NOT_GRANTED)
     }
-    return setActivePatient({ hid, lookup, purpose })
+    return setActivePatient(basis ? { hid, lookup, purpose, basis } : { hid, lookup, purpose })
   }, [facility, setActivePatient])
+}
+
+/**
+ * "Open as this facility’s patient" (hid-system 0131, ID-4): what it says, and its refusals in plain words. Doctors,
+ * nurses and clinicians open a patient registered at this facility, or seen here with their consent in the last 24
+ * months, for 24 hours without a PIN; the patient sees each opening in their access history.
+ */
+export const OWN_FACILITY_TITLE = 'Open as this facility’s patient'
+export const OWN_FACILITY_HINT = 'If they registered here, or were seen here with their consent in the last 24 months. Opens for 24 hours.'
+export const OWN_FACILITY_REFUSED = 'This patient can’t be opened as this facility’s patient. Use their Access PIN or ask the patient.'
+export const OWN_FACILITY_ROLE = 'Your role at this facility can’t open patients this way. Use their Access PIN or ask the patient.'
+
+/** The permission POST identity/own-facility-access needs, from the contracts registry; doctors, nurses and clinicians hold it. */
+export function opensOwnFacility(permissions: readonly string[]): boolean {
+  return roleMay('identity.ownFacilityAccess', 'POST', permissions)
+}
+
+/** What a refused "Open as this facility’s patient" says, or null for a failure that is not a refusal. */
+export function ownFacilityRefusal(caught: unknown): string | null {
+  if (!isHidApiError(caught) || caught.status !== 403) return null
+  return caught.code === 'OWN_FACILITY_ACCESS_REFUSED' ? OWN_FACILITY_REFUSED : OWN_FACILITY_ROLE
 }
 
 /**

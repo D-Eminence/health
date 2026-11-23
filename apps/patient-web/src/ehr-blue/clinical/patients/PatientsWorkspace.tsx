@@ -1,6 +1,6 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
-import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
+import { ArrowRight, Building2, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
 import { FormPage } from '../../../kasuwa/parts'
@@ -13,9 +13,13 @@ import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, dropOfferedHealthId,
-  healthIdProblem, isRefusedLookup, lookupRefusal, offerHealthId, useOpenPatient, type AccessMethod,
+  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, OWN_FACILITY_HINT, OWN_FACILITY_TITLE, actionUnavailable,
+  administratorOf, dropOfferedHealthId, healthIdProblem, isRefusedLookup, lookupRefusal, offerHealthId, opensOwnFacility,
+  ownFacilityRefusal, useOpenPatient, type AccessMethod,
 } from '../consent/access'
+import { staffApi } from '../../../staff/api'
+import { plainErrorText } from '@hid/http'
+import { NameSearchCard } from './NameSearch'
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { SharedWithYouCard } from './SharingCards'
@@ -163,6 +167,10 @@ function PatientList() {
   const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
   const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
   const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
+  // "Open as this facility’s patient" (0131) is offered only to the roles that may take it: doctors, nurses and clinicians.
+  const ownFacility = opensOwnFacility(permissions)
+  // Search by name (0132) needs what registration needs; a role without it keeps the Health ID search only.
+  const searchesByName = canLook && can('identity.registration.write')
 
   function clearFeedback() { setNotice(''); setError(''); setRefused(null); setUnknown(null) }
 
@@ -227,6 +235,44 @@ function PatientList() {
     setProblem(null)
     lookedUp.current = normalized
     void open(normalized)
+  }
+
+  /**
+   * "Open as this facility’s patient" for the refused Health ID (0131): Identity opens it for 24 hours when the patient is
+   * this facility's own, then today's lookup opens the patient's page. A refusal keeps every other way in on offer.
+   */
+  async function openOwnFacility() {
+    if (busy || !facility || !refused || !ownFacility) return
+    const candidate = refused.hid
+    setBusy(true)
+    try {
+      await staffApi.openOwnFacilityPatient(facility.id, { hid: candidate })
+      if (await openPatient(candidate, 'direct-care', 'own-facility')) navigate(href('open'))
+    } catch (caught) {
+      const refusal = ownFacilityRefusal(caught)
+      if (isHidApiError(caught) && caught.status === 404 && caught.code === 'PATIENT_NOT_FOUND') {
+        setRefused(null)
+        setUnknown(candidate)
+      } else if (refusal) setRefused({ hid: candidate, message: refusal })
+      else if (isRefusedLookup(caught)) setRefused({ hid: candidate, message: lookupRefusal(caught, facility.roles ?? []) })
+      else {
+        setRefused(null)
+        setError(plainErrorText(caught, 'Patient access could not be verified.', { audience: 'facility' }))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** A card of Search by name opens with today's lookup, as a Health ID typed in the field does. */
+  function openFound(foundHid: string) {
+    if (busy) return
+    clearFeedback()
+    setProblem(null)
+    lookedUp.current = foundHid
+    // What the lookup says (a refusal and the ways in, or no such patient) shows in the Health ID card: it is brought
+    // into view. An allowed lookup has left the page by then.
+    void open(foundHid).then(() => searchBox.current?.scrollIntoView?.({ block: 'nearest' }))
   }
 
   function openShared(sharedHid: string) {
@@ -315,8 +361,10 @@ function PatientList() {
           {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
           {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
           {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
-          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
-            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." primary busy={busy}
+          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency && !ownFacility ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
+            {ownFacility ? <AccessWay icon={Building2} title={OWN_FACILITY_TITLE} hint={OWN_FACILITY_HINT} primary busy={busy}
+              onClick={() => void openOwnFacility()} /> : null}
+            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." primary={!ownFacility} busy={busy}
               unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
             <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." busy={busy}
               unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => otherWay('request')} />
@@ -328,6 +376,8 @@ function PatientList() {
         {/* Mounted throughout, so what an access step says is announced. */}
         <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
       </Card>
+
+      {searchesByName ? <NameSearchCard facilityId={facility?.id} registers={registers} busy={busy} onOpen={openFound} /> : null}
 
       {/* Shown only while a patient is open: a section shows only when it has something in it. */}
       {activePatient && open_ ? <section aria-labelledby="patients-open" className="flex flex-col gap-3">
