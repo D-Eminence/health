@@ -23,16 +23,9 @@ export const DOCUMENT_READ = 'ehr.document.read'
 export const DOCUMENT_READ_OWN = 'ehr.document.read-own'
 export const DOCUMENT_WRITE = 'ehr.document.write'
 
-/** Any one of these opens Scan paper records (the page registry's entry, frame/pages.ts and migrate/page.tsx). */
-export const FOLLOWS_READINGS: readonly string[] = [OCR_JOB_READ, OCR_JOB_READ_OWN]
-/** Any one of these lists a visit's documents. */
-export const READS_DOCUMENTS: readonly string[] = [DOCUMENT_READ, DOCUMENT_READ_OWN]
-
 export interface ScanAccess {
   /** Follows readings: the page opens, and a document's reading can be found and its progress seen. */
   readonly followsReadings: boolean
-  /** Sees only the readings of documents this login uploaded (the "-own" code without the full one). */
-  readonly ownReadingsOnly: boolean
   /** Sees what was read, its checks and its publications. */
   readonly readsText: boolean
   /** Starts (and retries) a reading. */
@@ -52,7 +45,6 @@ export function scanAccess(held: readonly string[] | ((code: string) => boolean)
   const readsDocuments = has(DOCUMENT_READ) || has(DOCUMENT_READ_OWN)
   return {
     followsReadings,
-    ownReadingsOnly: followsReadings && !has(OCR_JOB_READ),
     readsText: has(OCR_JOB_READ),
     startsReadings: followsReadings && has(OCR_JOB_WRITE) && has(OCR_JOB_START),
     readsDocuments,

@@ -58,6 +58,8 @@ vi.mock('@hid/contracts', async importOriginal => {
 })
 
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.consent.read', 'ehr.encounter.read', 'ehr.note.read']
+/** A role that starts readings of paper records (a nurse's or clinician's OCR codes since hid-system 0136). */
+const STARTS_READINGS = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start']
 const NOT_FOUND = new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 const CONSENT = { patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true }
@@ -635,7 +637,7 @@ describe('The open patient’s page', () => {
 
   it('tells a role that brings in paper records that this access covers them, only for an adult under direct care', async () => {
     const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, ...STARTS_READINGS]
     staff.activePatient = activePatient()
     const view = open('/open')
     expect(await screen.findByText(LINE)).toBeTruthy()
@@ -648,7 +650,7 @@ describe('The open patient’s page', () => {
     await screen.findByText('You have access')
     expect(screen.queryByText(LINE)).toBeNull()
     noRole.unmount()
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, ...STARTS_READINGS]
     staff.activePatient = activePatient('emergency')
     const emergency = open('/open')
     await screen.findByText('Emergency access')
@@ -665,6 +667,21 @@ describe('The open patient’s page', () => {
     staff.activePatient = { ...activePatient(), lookup: { ...activePatient().lookup, patient: { ...activePatient().lookup.patient, dateOfBirth: `${child}-01-01` } } }
     open('/open')
     await screen.findByText('You have access')
+    expect(screen.queryByText(LINE)).toBeNull()
+  })
+
+  it('says it to the front desk, which starts readings of its own uploads, and not to a doctor, who no longer starts them (hid-system 0136)', async () => {
+    const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
+    staff.permissions = [...ALL, 'ehr.document.write', 'ehr.document.read-own', 'ocr.job.write', 'ocr.job.start', 'ocr.job.read-own']
+    staff.activePatient = activePatient()
+    const frontDesk = open('/open')
+    expect(await screen.findByText(LINE)).toBeTruthy()
+    frontDesk.unmount()
+
+    staff.permissions = [...ALL, 'ehr.document.read', 'ehr.document.write', 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+    open('/open')
+    await screen.findByText('You have access')
+    await act(async () => {})
     expect(screen.queryByText(LINE)).toBeNull()
   })
 
@@ -1129,7 +1146,7 @@ describe('Patient sharing', () => {
 
   it('tells a role that brings in paper records that a share covers them too (owner, 5 Nov 2026), as it does for a request or PIN', async () => {
     const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, ...STARTS_READINGS]
     // The record a share opens: the lookup names the share's grant, and nothing on it says how access came, so the line
     // asks nothing about it (the grant is what Identity answers for).
     const viaShare = (writeAllowed: boolean) => {

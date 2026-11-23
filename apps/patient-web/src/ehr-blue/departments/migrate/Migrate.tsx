@@ -50,12 +50,11 @@ import {
 interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
 
 /**
- * The refusal for a role without OCR job read, on this page and at its address (page.tsx). Screens name no permission
- * (the owner's rule), so today's words, which named the one lacking, give way to a plain sentence. No role holds the OCR
- * work (hid-system 0091), so nobody is told to ask anyone for it: it isn't available yet. It names the reading of scanned
- * documents, not document capture: a clinician refused here may still add documents to a visit.
+ * The refusal for a role that follows no reading (neither OCR job read nor the front desk's read of its own uploads'
+ * readings), on this page and at its address (page.tsx). Screens name no permission (the owner's rule), so it says
+ * plainly who does this work since hid-system 0136 (Q112 A): the roles that start readings.
  */
-export const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
+export const NO_DOCUMENT_OCR = 'Scanning paper records is done by the front desk, nurses and clinicians here.'
 
 /**
  * Whether OCR refused to make a job because the patient's own OK does not cover bringing in their paper records: its
@@ -345,15 +344,17 @@ export function Migrate() {
     resetFor.current = facilityId
     openRequest.current += 1; setReading(false)
   }, [facilityId])
-  // The clinical record's hand-off, with OCR job write: sent for reading at once, exactly once. Declared after the reset
-  // above, which also runs on mount, so the reset cannot wipe it. The router state it came in is spent above (replaced
-  // with none), so Back, Forward and a reload bring nothing back to send; this ref stops a second run in the same mount.
-  // Without OCR job write, Find document job holds the document, to look it up, as before.
+  // The clinical record's hand-off, exactly once. To someone who starts readings it is sent for reading at once; to
+  // someone who only follows them (a doctor since hid-system 0136, "Find its reading") its reading is looked up, and
+  // opened when it has one, or Find document job holds the document and says who starts readings. Declared after the
+  // reset above, which also runs on mount, so the reset cannot wipe it. The router state it came in is spent above
+  // (replaced with none), so Back, Forward and a reload bring nothing back; this ref stops a second run in the same mount.
   const handedOver = useRef(false)
   useEffect(() => {
     if (handedOver.current) return
     handedOver.current = true
-    if (canWrite && handedDocument) extract(handedDocument, handedPatient)
+    // Starting a reading needs following them too (scanAccess.ts), so this covers both.
+    if (canRead && handedDocument) extract(handedDocument, handedPatient)
   }, [])
   useEffect(() => {
     if (!facilityId || !visibleJob?.id || !readsText) return
@@ -614,9 +615,10 @@ export function Migrate() {
   }
 
   /**
-   * A clean document from Patient documents. With OCR job write it is sent for reading at once, as Create record would
-   * (its job is looked up first, and opened if it has one), and its record opens without a form to fill in. Without,
-   * Find document job holds it, to look it up.
+   * A clean document from Patient documents, or handed over by the clinical record. To someone who starts readings it is
+   * sent for reading at once, as Create record would (its job is looked up first, and opened if it has one), and its
+   * record opens without a form to fill in. To someone who only follows readings, Find document job holds it and its
+   * reading is looked up, and opened when it has one.
    */
   function extract(documentId: string, documentPatientId: string, fileName?: string) {
     if (busy) return
@@ -627,6 +629,8 @@ export function Migrate() {
     // the page says it has none yet and who starts one.
     if (!canWrite) {
       setReading(false)
+      // An ID OCR would refuse is not sent: Find document job holds it, and says what is wrong with it on Find job.
+      if (!UUID_V4.test(documentId)) { focus('ocr-document'); return }
       void lookup(documentId).then(result => {
         if (result?.job) { setView('detail'); setAction(null); focus('migrate-view-title') }
         else focus('ocr-find-submit', true)

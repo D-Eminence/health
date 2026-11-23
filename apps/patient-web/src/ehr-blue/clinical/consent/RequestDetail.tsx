@@ -8,6 +8,7 @@ import { outcome } from '../../../staff/routes/AccessRequests'
 import { RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import { scanAccess } from '../../../scanAccess'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
 import { closable, closeError, latest, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
 import { formatWhen } from '../parts/format'
@@ -25,9 +26,10 @@ function StateNote({ request }: { request: AccessRequest }) {
   const href = useWorkspaceHref()
   const { activePatient, permissions } = useClinical()
   // The paper records line only once this patient's age is known here (their record is open for direct care) and they
-  // are an adult, to a role that brings in paper records, on a request that allows adding to the record.
+  // are an adult, to a role that brings in paper records (one that starts readings, hid-system 0136), on a request that
+  // allows adding to the record.
   const open = activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === request.patientId ? activePatient : null
-  const coversPaper = open !== null && request.scope === 'write_records' && permissions.includes('ocr.job.read') && isAdult(open.lookup.patient.dateOfBirth)
+  const coversPaper = open !== null && request.scope === 'write_records' && scanAccess(permissions).startsReadings && isAdult(open.lookup.patient.dateOfBirth)
   const key = request.effectiveStatus ?? request.status
   if (key === 'pending') return <Alert intent="info" live={false} title="Waiting for the patient">You can see their records once they approve.</Alert>
   if (key === 'active' || key === 'approved') {
