@@ -22,12 +22,17 @@ function isReason(value: string): value is NoNinReason {
 }
 
 /**
- * Whether the desk is offered registration without a NIN: only while NIN checks are off and Identity says it takes
- * one (INTERFACE_CONTRACT.md "Do not offer registration without a NIN until withoutNin.enabled is true").
+ * Whether the desk is offered registration without a NIN: whenever Identity says it takes one (INTERFACE_CONTRACT.md
+ * ID-2, "Do not offer registration without a NIN until withoutNin.enabled is true"), NIN checks on or off, as a child or
+ * someone with no NIN is registered either way.
  */
 export function offersWithoutNin(capabilities: RegistrationCapabilities | null): boolean {
-  return capabilities !== null && capabilities.nin.enabled !== true && capabilities.withoutNin?.enabled === true
-    && withoutNinReasons(capabilities).length > 0
+  return capabilities !== null && capabilities.withoutNin?.enabled === true && withoutNinReasons(capabilities).length > 0
+}
+
+/** Whether it is the new form itself: while NIN checks are off. While they work, the NIN form comes first. */
+export function withoutNinFirst(capabilities: RegistrationCapabilities | null): boolean {
+  return offersWithoutNin(capabilities) && capabilities?.nin.enabled !== true
 }
 
 /** The reasons Identity takes, in its order: only those this page can put in plain words. */

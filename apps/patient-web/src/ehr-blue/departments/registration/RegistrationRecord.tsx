@@ -14,10 +14,10 @@ import { FIELD, type CaseLoading, type ReviewAction, type ShownError, type Visit
 import { ErrorBox, UnavailableAction, type FormProblems } from './registrationParts'
 import {
   APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE, candidatesText,
-  caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText,
-  ENROLLING, LINK, LINK_REASON_LABEL, LOADING, NEXT_STEPS, NO_ACTIONS, NO_CANDIDATE_NOTICE, NO_CORRECTION, REFRESH_CASE, REVIEW_NOTICE,
-  MORE_DETAILS, NIN_FACT, ninStatusText, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE,
-  SENT_FOR_REVIEW_NOTICE, statusLabel,
+  caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_NEEDS_NIN, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE,
+  enrolledText, ENROLLING, GIVE_NEW_HID, LINK, LINK_REASON_LABEL, LOADING, NEXT_STEPS, NO_ACTIONS, NO_CANDIDATE_NOTICE, NO_CORRECTION,
+  REFRESH_CASE, REVIEW_NOTICE, MORE_DETAILS, NIN_FACT, ninStatusText, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING,
+  SELECT_CANDIDATE, SENT_FOR_REVIEW_NOTICE, statusLabel, WITHOUT_NIN_REVIEW_NOTICE, WITHOUT_NIN_UNLISTED_NOTICE,
 } from './registrationText'
 
 type OpenForm = ReviewAction | 'enroll'
@@ -89,18 +89,29 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const findPatient = completed && hid && patientsHref ? hid : null
   const nextHere = registration.patient ? next : []
   const candidates = registration.candidates ?? []
+  // hid-system 0130: a registration without a NIN. Identity sets up a patient account only for a checked NIN
+  // (0032 identity.enroll_registered_patient), so one without is never offered enrollment, and says why.
+  const withoutNin = registration.identityEvidence === 'none'
+  const ninChecked = !withoutNin && registration.ninStatus !== 'not_verified'
+  // 0130 identity.review_patient_without_nin: an approver other than the person who started a registration without a
+  // NIN sent for review decides it (a new Health ID, or a link to a listed patient). Identity shows the person who
+  // started it nobody else's details, so a case started on this visit waits for another approver.
+  const reviewWithoutNin = withoutNin && registration.status === 'review_required'
+  const decidesWithoutNin = canApprove && reviewWithoutNin && !visit.started
+  const waitsForApprover = reviewWithoutNin && !decidesWithoutNin
   // Registration.tsx 253, 255, 256: who may decide, and what this state of the case allows.
   const offered: Record<OpenForm, boolean> = {
     link: canApprove && registration.status === 'review_required' && candidates.length > 0,
-    approve: canApprove && registration.status === 'pending_new_identity_approval',
-    enroll: canApprove && completed && !enrollment,
+    approve: canApprove && (registration.status === 'pending_new_identity_approval' || decidesWithoutNin),
+    enroll: canApprove && completed && !enrollment && ninChecked,
   }
+  const enrollNeedsNin = canApprove && completed && !enrollment && !ninChecked
+  const approveLabel = decidesWithoutNin ? GIVE_NEW_HID : APPROVE
   const shownForm = open && offered[open] ? open : null
   // A refusal is said in the form that sent it while that form is open, and otherwise at the top of the record.
   const errorHere = error && error.at !== 'find' && error.at !== 'resolve' && error.at !== 'without' && error.at !== shownForm ? error.text : ''
-  // hid-system 0130: a registration without a NIN sent for review shows its starter nobody else's details (Identity
-  // sends its candidates only to an approver who did not start it), so it says it waits for that approver.
-  const waitsForApprover = registration.identityEvidence === 'none' && registration.status === 'review_required' && candidates.length === 0
+  const reviewNotice = waitsForApprover ? SENT_FOR_REVIEW_NOTICE
+    : decidesWithoutNin ? (candidates.length ? WITHOUT_NIN_REVIEW_NOTICE : WITHOUT_NIN_UNLISTED_NOTICE) : REVIEW_NOTICE
   const errorIn = (form: OpenForm) => (error?.at === form ? error.text : '')
   const refreshing = caseLoading === 'refresh'
   // Back is unavailable while a step or this case's refresh runs, so its answer is not lost.
@@ -137,7 +148,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
         items={[caseWhen(visit.started, visit.at), registration.patient ? `Health ID ${registration.patient.hid}` : null]} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <ErrorBox message={errorHere} />
-      {registration.status === 'review_required' ? <DeptNotice tone="caution">{waitsForApprover ? SENT_FOR_REVIEW_NOTICE : REVIEW_NOTICE}</DeptNotice> : null}
+      {registration.status === 'review_required' ? <DeptNotice tone="caution">{reviewNotice}</DeptNotice> : null}
       {registration.status === 'pending_new_identity_approval' ? <DeptNotice>{NO_CANDIDATE_NOTICE}</DeptNotice> : null}
       {enrollment ? <DeptNotice tone="positive">{enrolledText(enrollment.hid)}</DeptNotice> : null}
       <DeptRecordLayout
@@ -156,7 +167,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                     </li>
                   ))}
                 </ul>
-              ) : waitsForApprover ? null : <p className="hid-ehr-dept-registration-error">{CANDIDATES_UNAVAILABLE}</p>
+              ) : reviewWithoutNin ? null : <p className="hid-ehr-dept-registration-error">{CANDIDATES_UNAVAILABLE}</p>
             ) : null}
             {/* The case's reference, out of the way: Health ID keeps no list of registrations, so it is how this one is
                 reopened on a later visit ("Find registration case"). */}
@@ -172,8 +183,9 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
             {/* The design's Available actions: its action buttons, then the form of the one chosen under them all, then
                 its line when no action is open to this permission and record state, then Next steps. */}
             {offered.link ? toggle('link', LINK) : null}
-            {offered.approve ? toggle('approve', APPROVE) : null}
+            {offered.approve ? toggle('approve', approveLabel) : null}
             {offered.enroll ? toggle('enroll', ENROLL_TITLE) : null}
+            {enrollNeedsNin ? <p className="hid-ehr-dept-muted">{ENROLL_NEEDS_NIN}</p> : null}
             <UnavailableAction label={CORRECT_DEMOGRAPHICS} reason={NO_CORRECTION} wide />
             {shownForm === 'link' ? (
               <form id="registration-link-form" className="hid-ehr-dept-action-form" noValidate aria-label={LINK}
@@ -194,13 +206,13 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
               </form>
             ) : null}
             {shownForm === 'approve' ? (
-              <form id="registration-approve-form" className="hid-ehr-dept-action-form" noValidate aria-label={APPROVE}
+              <form id="registration-approve-form" className="hid-ehr-dept-action-form" noValidate aria-label={approveLabel}
                 onSubmit={event => onReview(event, 'approve')}>
                 <EhrField label={APPROVE_REASON_LABEL} controlId={FIELD.approveReason} error={reviewProblems.error(FIELD.approveReason)}>
                   <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required />
                 </EhrField>
                 <ErrorBox message={errorIn('approve')} />
-                <EhrButton type="submit" busy={busy}>{busy ? SAVING : APPROVE}</EhrButton>
+                <EhrButton type="submit" busy={busy}>{busy ? SAVING : approveLabel}</EhrButton>
               </form>
             ) : null}
             {shownForm === 'enroll' ? (
@@ -216,7 +228,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                 <EhrButton type="submit" busy={busy}>{busy ? ENROLLING : ENROLL}</EhrButton>
               </form>
             ) : null}
-            {offered.link || offered.approve || offered.enroll ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
+            {offered.link || offered.approve || offered.enroll || enrollNeedsNin ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
             {findPatient || nextHere.length ? (
               <div className="hid-ehr-dept-registration-next">
                 <h3>{NEXT_STEPS}</h3>
