@@ -34,8 +34,12 @@ const CONTRACT_SENTENCES: readonly string[] = [LEFT_OUT_PERMISSION, LEFT_OUT_EME
 export const PROGRESS_UNKNOWN = 'Progress not available right now'
 
 export interface PharmacyProgress {
-  /** ORD-3: not_received, received, dispensed, dispensing_reversed, or unknown (any value not known here too). */
-  readonly status: 'not_received' | 'received' | 'dispensed' | 'dispensing_reversed' | 'unknown'
+  /**
+   * ORD-3: not_received, received, dispensed, dispensing_reversed, or unknown (any value not known here too). The live
+   * EHR also answers withdrawn (sent, then held, cancelled, edited or resumed before it was dispensed) and sent_elsewhere
+   * (sent on to another facility's pharmacy before it was dispensed): hid-system 4c843270 work-item-progress.service.ts.
+   */
+  readonly status: 'not_received' | 'received' | 'dispensed' | 'dispensing_reversed' | 'withdrawn' | 'sent_elsewhere' | 'unknown'
   readonly receivedAt: string | null
   readonly dispensedAt: string | null
   readonly reversedAt: string | null
@@ -151,7 +155,8 @@ function list<Item>(value: unknown, item: (row: unknown) => Item): ChartList<Ite
   return { items: section.items.map(item), more: section.more }
 }
 
-const PHARMACY_STATES: readonly PharmacyProgress['status'][] = ['not_received', 'received', 'dispensed', 'dispensing_reversed', 'unknown']
+const PHARMACY_STATES: readonly PharmacyProgress['status'][] = ['not_received', 'received', 'dispensed', 'dispensing_reversed',
+  'withdrawn', 'sent_elsewhere', 'unknown']
 const LAB_STATES: readonly LabProgress['status'][] = ['not_received', 'received', 'sample_collected', 'some_results_ready', 'results_ready', 'unknown']
 
 /** ORD-3's progress; a status not known here is said as not available, never guessed. Absent: null (an EHR before ORD-3). */

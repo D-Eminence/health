@@ -305,6 +305,45 @@ describe('The chart summary on the patient page', () => {
     expect(section('Visits here').textContent).toBe(`Visits here${LEFT_OUT_PERMISSION}`)
     await waitFor(() => expect(api.encounters).not.toHaveBeenCalled())
   })
+
+  it.each([
+    ['a diagnosis-only role', 'ehr.diagnosis.read'],
+    ['a laboratory role', 'ehr.lab-request.read'],
+  ])('shows %s its rows with no link into Consultation, which it cannot open', async (_role, permission) => {
+    staff.permissions = ['identity.patient.read', permission]
+    const answer = fullAnswer()
+    answer.sections.problems.more = true
+    answer.sections.openLabRequests.more = true
+    api.chartSummary.mockResolvedValue(answer)
+    openPatient()
+    await summaryShown()
+    for (const [title, row] of [['Active problems', 'Malaria'], ['Current medicines', 'Artemether and lumefantrine'],
+      ['Open lab requests', 'Malaria parasite smear'], ['Visits here', consultationLabel(ENCOUNTER)]] as const) {
+      expect(section(title).textContent).toContain(row)
+      expect(within(section(title)).queryAllByRole('link')).toEqual([])
+    }
+    // Where the rest are is not said as a visit to open: Consultation does not open for this role.
+    expect(section('Active problems').textContent).toContain('Showing the newest 50.')
+    expect(section('Active problems').textContent).not.toContain('Open a visit')
+    expect(section('Open lab requests').textContent).not.toContain('Open a visit')
+    expect(within(summaryCard()).queryByRole('link', { name: 'See all visits' })).toBeNull()
+  })
+
+  it.each([
+    ['withdrawn', 'Withdrawn from the pharmacy'],
+    ['sent_elsewhere', 'Sent to another pharmacy'],
+  ])('says a medicine the pharmacy answered %s in plain words, not as progress not available', async (status, words) => {
+    const answer = fullAnswer()
+    answer.sections.medications.items[0]!.status = 'on_hold'
+    answer.sections.medications.items[0]!.ownProgress = { status, receivedAt: '2026-11-18T09:00:00.000Z', dispensedAt: null, reversedAt: null }
+    api.chartSummary.mockResolvedValue(answer)
+    openPatient()
+    await summaryShown()
+    const medicine = within(section('Current medicines')).getByRole('link', { name: /^Artemether/ })
+    expect(medicine.textContent).toContain(words)
+    expect(medicine.textContent).not.toContain(PROGRESS_UNKNOWN)
+    expect(section('Current medicines').textContent).not.toContain(status)
+  })
 })
 
 describe('Reading the chart summary', () => {
@@ -327,6 +366,14 @@ describe('Reading the chart summary', () => {
     const summary = parseChartSummary(answer, PATIENT_ID)
     expect(summary.openLabRequests.shown && summary.openLabRequests.value.items[0]!.ownProgress?.status).toBe('unknown')
     expect(summary.medications.shown && summary.medications.value.items[0]!.ownProgress).toBeNull()
+  })
+
+  it.each(['withdrawn', 'sent_elsewhere'])('reads the live pharmacy answer %s as itself, not as unknown', status => {
+    const answer = fullAnswer()
+    answer.sections.medications.items[0]!.ownProgress = { status, receivedAt: '2026-11-18T09:00:00.000Z', dispensedAt: null, reversedAt: null }
+    const summary = parseChartSummary(answer, PATIENT_ID)
+    expect(summary.medications.shown && summary.medications.value.items[0]!.ownProgress).toEqual(
+      { status, receivedAt: '2026-11-18T09:00:00.000Z', dispensedAt: null, reversedAt: null })
   })
 
   it('throws on an answer that is not a chart summary for this patient', () => {

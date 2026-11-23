@@ -97,28 +97,39 @@ export function ChartSummary({ chart, canStart, opens, fallback }: {
       actions={read.status === 'shown' ? <Button size="sm" icon={RotateCcw} aria-disabled={busy || undefined} aria-busy={busy || undefined}
         onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</Button> : undefined} />
     {read.status === 'loading' ? <LoadingRows rows={3} label="Loading the chart summary" />
-      : <SummarySections summary={read.summary} canStart={canStart} opens={opens} />}
+      : <SummarySections summary={read.summary} canStart={canStart}
+        consultOpen={opens('consult') && chart.can('ehr.encounter.read')} vitalsOpen={opens('triage')} />}
     {problem ? <div className="border-t border-line px-5 py-3"><Alert intent="error" title={REFRESH_FAILED}>{problem}</Alert></div> : null}
   </Card>
 }
 
-function SummarySections({ summary, canStart, opens }: { summary: Summary; canStart: boolean; opens: (workspace: string) => boolean }) {
+function SummarySections({ summary, canStart, consultOpen, vitalsOpen }: {
+  summary: Summary
+  canStart: boolean
+  /**
+   * Whether Consultation opens here for this role (it needs ehr.encounter.read). The summary is shown to a role holding
+   * any one of its reads (EHR-C4), so a lab or diagnosis-only role sees these rows without a link, as TriageRecord does.
+   */
+  consultOpen: boolean
+  vitalsOpen: boolean
+}) {
   const href = useWorkspaceHref()
   const back = fromPatient(href('open'))
   const { limits } = summary
-  const vitalsOpen = opens('triage')
+  /** A row's link into Consultation, or none where Consultation does not open for this role. */
+  const consult = (path: string) => consultOpen ? { to: href.to('consult', path), state: back } : {}
   return <div className="divide-y divide-line">
     <Section title="Active problems" section={summary.problems} empty="No active problems recorded here."
-      more={list => newest(list, limits.problems, 'Open a visit to see all its diagnoses.')}>
+      more={list => newest(list, limits.problems, consultOpen ? 'Open a visit to see all its diagnoses.' : null)}>
       {list => list.items.map(item => <li key={item.id}>
-        <ListRow to={href.to('consult', item.encounterId)} state={back} title={item.display}
+        <ListRow {...consult(item.encounterId)} title={item.display}
           subtitle={[statusWords(item.clinicalStatus), item.createdAt ? `Recorded ${formatDate(item.createdAt)}` : ''].filter(Boolean).join(' · ')} />
       </li>)}
     </Section>
     <Section title="Current medicines" section={summary.medications} note={summary.progressNotes.medications} empty="No current medicines prescribed here."
-      more={list => newest(list, limits.medications, 'Open a visit to see all its prescriptions.')}>
+      more={list => newest(list, limits.medications, consultOpen ? 'Open a visit to see all its prescriptions.' : null)}>
       {list => list.items.map(item => <li key={item.id}>
-        <ListRow to={href.to('consult', orderPath(item.encounterId, 'pharmacy', item.id))} state={back} title={item.medicationDisplay}
+        <ListRow {...consult(orderPath(item.encounterId, 'pharmacy', item.id))} title={item.medicationDisplay}
           subtitle={[item.doseQuantity ? [decimalText(item.doseQuantity), item.doseUnit].filter(Boolean).join(' ') : '', routeLabel(item.routeCode) ?? '', item.frequency ?? '']
             .filter(Boolean).join(' · ') || undefined}
           trailing={<Trailing status={item.status} progress={pharmacyWords(item.ownProgress)} />} />
@@ -134,9 +145,9 @@ function SummarySections({ summary, canStart, opens }: { summary: Summary; canSt
       </li>)}
     </Section>
     <Section title="Open lab requests" section={summary.openLabRequests} note={summary.progressNotes.openLabRequests} empty="No open lab requests here."
-      more={list => newest(list, limits.openLabRequests, 'Open a visit to see all its lab requests.')}>
+      more={list => newest(list, limits.openLabRequests, consultOpen ? 'Open a visit to see all its lab requests.' : null)}>
       {list => list.items.map(item => <li key={item.id}>
-        <ListRow to={href.to('consult', orderPath(item.encounterId, 'laboratory', item.id))} state={back} title={item.testDisplay}
+        <ListRow {...consult(orderPath(item.encounterId, 'laboratory', item.id))} title={item.testDisplay}
           subtitle={item.priority && item.priority !== 'routine' ? priorityLabel(item.priority) ?? undefined : undefined}
           trailing={<Trailing status={item.status} progress={labWords(item.ownProgress)} />} />
       </li>)}
@@ -152,13 +163,13 @@ function SummarySections({ summary, canStart, opens }: { summary: Summary; canSt
       </li>)}
     </Section>
     <Section title="Visits here" section={summary.recentVisits} empty={`No visits at this facility yet.${canStart ? ' Start a consultation to begin one.' : ''}`}
-      more={list => <>
+      more={list => list.more || consultOpen ? <>
         {list.more ? <p className="m-0">{`Showing the newest ${limits.recentVisits ?? list.items.length}.`}</p> : null}
-        {/* The visits' full list, as before: Consultation lists them all, page by page. */}
-        <p className="m-0"><Link className="font-medium text-brand-ink underline underline-offset-2" to={href.to('consult')}>See all visits</Link></p>
-      </>}>
+        {/* The visits' full list, as before: Consultation lists them all, page by page (where it opens for this role). */}
+        {consultOpen ? <p className="m-0"><Link className="font-medium text-brand-ink underline underline-offset-2" to={href.to('consult')}>See all visits</Link></p> : null}
+      </> : null}>
       {list => list.items.map(item => <li key={item.id}>
-        <ListRow to={href.to('consult', item.id)} state={back} leading={<IconChip size="sm" icon={Stethoscope} />} title={consultationLabel(item)}
+        <ListRow {...consult(item.id)} leading={<IconChip size="sm" icon={Stethoscope} />} title={consultationLabel(item)}
           subtitle={visitSubtitle(item)}
           trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{statusWords(item.status)}</Badge>} />
       </li>)}
@@ -193,9 +204,12 @@ function Section<Value>({ title, section, empty, note, more, children }: {
   </section>
 }
 
-/** Under a list cut at the summary's limit: how many are shown, and where the rest are. Nothing when none were cut. */
-function newest<Item>(list: ChartList<Item>, limit: number | undefined, rest: string): ReactNode {
-  return list.more ? <p className="m-0">{`Showing the newest ${limit ?? list.items.length}. ${rest}`}</p> : null
+/**
+ * Under a list cut at the summary's limit: how many are shown, and where the rest are (none where Consultation does not
+ * open for this role). Nothing when none were cut.
+ */
+function newest<Item>(list: ChartList<Item>, limit: number | undefined, rest: string | null): ReactNode {
+  return list.more ? <p className="m-0">{[`Showing the newest ${limit ?? list.items.length}.`, rest].filter(Boolean).join(' ')}</p> : null
 }
 
 /** An order's status, then where this facility's own pharmacy or laboratory is with it (ORD-3), when there is something to say. */
@@ -213,6 +227,9 @@ export function pharmacyWords(progress: PharmacyProgress | null): string | null 
     case 'received': return withTime('Received', progress.receivedAt)
     case 'dispensed': return withTime('Dispensed', progress.dispensedAt)
     case 'dispensing_reversed': return withTime('Dispensing reversed', progress.reversedAt)
+    // Answers the pharmacy gave (live EHR, ORD-3 with 0133), so never "not available"; they carry no time of their own.
+    case 'withdrawn': return 'Withdrawn from the pharmacy'
+    case 'sent_elsewhere': return 'Sent to another pharmacy'
     case 'unknown': return PROGRESS_UNKNOWN
     default: return null
   }
