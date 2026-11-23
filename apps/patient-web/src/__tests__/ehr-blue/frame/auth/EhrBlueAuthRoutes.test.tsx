@@ -92,7 +92,7 @@ describe('with the clinic switch on', () => {
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Demo Clinician$/ })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Good to see you, Demo.' })).toBeDefined()
     expect(document.querySelector('.hid-ehr.hid-ehr-shell')).not.toBeNull()
   })
 

@@ -76,14 +76,24 @@ export function withFramePages(extra: () => readonly EhrBluePage[] = () => []) {
 }
 
 
-/** Home's heading: the time of day's greeting and the person's name (kasuwa greeting()). */
-export const homeHeading = (name = 'Demo Clinician') => new RegExp(`^Good (morning|afternoon|evening), ${name}$`)
+/** Home's heading: classic's greeting with the first word of the person's name (staff/routes/Dashboard.tsx). */
+export const homeHeading = (name = 'Demo Clinician') => new RegExp(`^Good to see you, ${name.split(' ')[0]}\\.$`)
 
 /** The account menu is the sidebar's: the person's ⋯ button, which holds Sign out. */
 export const accountButton = (name = 'Demo Clinician') => screen.getByRole('button', { name: `${name}: account` })
 
-/** Switching facility is the sidebar's switcher: it lists the person's facilities, and one leads to Switch facility. */
+/** Answers "Where are you working?" as classic's question is answered: the facility's radio, then Continue. */
+export function chooseFacility(name: string) {
+  fireEvent.click(screen.getByRole('radio', { name: new RegExp(name.replace(/[()]/g, '\\$&')) }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
+/**
+ * Switching facility is the sidebar's switcher: it lists the person's facilities, and choosing one asks in place
+ * ("You are working at X. Switch to Y?"), which Switch facility confirms, as classic's "Working at" did.
+ */
 export function switchFacilityTo(current: string, next: string) {
   fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${current.replace(/[()]/g, '\\$&')}`) }))
   fireEvent.click(screen.getByRole('button', { name: next }))
+  fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
 }

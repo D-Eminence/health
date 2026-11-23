@@ -132,7 +132,7 @@ describe('3. the page is hidden under the lock screen', () => {
     const laboratory = facility(DEMO_LABORATORY, 'Demo Laboratory', [])
     serve({ [SESSION]: [sessionAt(undefined, [hospital, laboratory], 'default'), () => json({})] })
     await openStaffApp('/provider')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working?' })).toBeDefined()
     const main = document.getElementById('main-content')!
     expect(main.tagName).toBe('MAIN')
     expect(main.hidden).toBe(false)
@@ -142,14 +142,14 @@ describe('3. the page is hidden under the lock screen', () => {
 })
 
 describe('5. today\'s page refuses only where it reads nothing first', () => {
-  const NOTICE = 'Your current permissions no longer allow that page. Choose an authorized workflow.'
+  const NOTICE = 'Your role at this facility doesn’t include this page. Ask your facility administrator.'
 
   async function standIns() {
     const { TODAY_PATHS } = await import('../../../ehr-blue/frame/pages')
     return [...TODAY_PATHS]
   }
 
-  it('leaves Access requests and Clinical record to the frame, which sends Home: they read before refusing', async () => {
+  it('leaves Access requests and Clinical record to the frame, which refuses in their place: they read before refusing', async () => {
     for (const path of ['requests', 'clinical']) {
       vi.resetModules()
       withFramePages()
@@ -157,7 +157,7 @@ describe('5. today\'s page refuses only where it reads nothing first', () => {
       const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
       const { unmount } = await openStaffApp(`/provider/${path}`)
       expect(await screen.findByText(NOTICE)).toBeDefined()
-      expect(where()).toBe('/provider')
+      expect(where()).toBe(`/provider/${path}`)
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
       expect(sent.map(call => call.route)).toEqual([SESSION])
       unmount()

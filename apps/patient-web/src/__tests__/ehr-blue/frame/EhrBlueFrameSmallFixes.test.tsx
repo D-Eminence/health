@@ -50,13 +50,14 @@ describe('the browser tab on a product site', () => {
 })
 
 describe('a page opened without permission on a product site', () => {
-  it('keeps the frame\'s notice on the product\'s own first page', async () => {
-    // The frame's own registry: its Access requests reads before refusing, so the frame sends Home with its notice. The
-    // lab's Home is its queue.
+  it('refuses in its place, as classic\'s pages did, not with a trip to the product\'s first page (parity report 3.3-50)', async () => {
+    // The frame's own registry: its Access requests reads before refusing, so the frame refuses for it, in place.
     withFramePages()
     await openLab('/provider/requests', ['lab.work-item.read'])
-    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
-    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access requests unavailable' })).toBeDefined()
+    expect(where()).toBe('/provider/requests')
+    expect(screen.getByText('Your role at this facility doesn’t include this page. Ask your facility administrator.')).toBeDefined()
+    expect(document.querySelector('.hid-ehr-blue-page')!.textContent).not.toMatch(/permission/i)
   })
 })
 
@@ -69,6 +70,15 @@ describe('the Facility check on a product site', () => {
     // Within the card: the lab's own page may have a "Done" tab of its own.
     expect(within(check).getByText('Done')).toBeDefined()
     expect(within(check).getByText(/Health ID support has checked Demo Laboratory/)).toBeDefined()
+  })
+
+  it('shows "Pending" above the lab\'s own first page while Health ID support checks the facility (parity report 3.3-27)', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    await openLab('/provider', ['lab.work-item.read'], { selfService: { review: 'pending', organizationType: 'laboratory' } } as never)
+    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
+    const check = (await screen.findByRole('heading', { name: 'Facility check' })).closest('.staff-card') as HTMLElement
+    expect(within(check).getByText('Pending')).toBeDefined()
+    expect(within(check).getByText(/Health ID support is checking Demo Laboratory/)).toBeDefined()
   })
 
   it('is shown once on Home', async () => {
@@ -97,7 +107,7 @@ describe('the Facility check on a product site', () => {
     await waitFor(() => expect(where()).toBe('/provider/patients'))
     expect(screen.queryByRole('heading', { name: 'Facility check' })).toBeNull()
     // Back on the lab's first page: "Done" was said once, and is not said again.
-    fireEvent.click(screen.getAllByRole('link', { name: 'Health ID Lab home' })[0]!)
+    fireEvent.click(document.querySelector<HTMLAnchorElement>('nav[aria-label="Main navigation"] a[href^="/provider/laboratory"]')!)
     await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
     expect(screen.queryByRole('heading', { name: 'Facility check' })).toBeNull()
   })
@@ -124,7 +134,7 @@ describe('switching facility from the account menu on a product site', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Demo Laboratory/ }))
     const waiting = screen.getByRole('button', { name: /Demo Hospital/ }) as HTMLButtonElement
     expect(waiting.disabled).toBe(true)
-    expect(waiting.textContent).toContain('Opening…')
+    expect(waiting.textContent).toContain('Switching…')
     fireEvent.click(waiting)
     await waitFor(() => expect(sent.filter(call => call.route === FACILITY)).toHaveLength(1))
     answer(problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at the facility.'))

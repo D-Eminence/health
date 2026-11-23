@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DEMO_LABORATORY, LAB_WORK, REAL_FACILITY, SESSION, facility, homeHeading, json, openStaffApp, serve, sessionAt, where } from './blueHarness'
 
 /**
@@ -59,8 +59,8 @@ describe('a product site whose own page this session may not open', () => {
     expect(where()).toBe('/provider')
     expect(screen.queryByRole('heading', { name: refusal })).toBeNull()
     expect(heading!.textContent).toMatch(homeHeading())
-    // Home says what today's Overview says to a role without clinical work, in plain words.
-    expect(screen.getByText('You have no clinical work at this facility yet. Ask an administrator to check your role.')).toBeDefined()
+    // Home says what today's Overview says to a role without clinical work, in plain words (its Workspaces card).
+    expect(screen.getByText('Your active facility has no clinical modules for your role. Ask an administrator to review your assignment.')).toBeDefined()
     expect(sent.some(call => call.route.includes(api))).toBe(false)
   })
 
@@ -133,11 +133,21 @@ describe('a product site whose own page this session may open', () => {
     expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 
-  it('keeps its first tab on the product\'s own page, under the product\'s name, and lists no Home', async () => {
+  it('keeps its first tab on the product\'s own page, under the product\'s name, and lists Home too, as classic listed its Overview', async () => {
     await openOn('lab.healthidentitydirectory.com', ['lab.work-item.read'], { [LAB_WORK]: many(() => json({ items: [] })) })
     await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
-    expect(menuLink('Home')).toBeNull()
+    // Parity report 3.3-53: Home is in every site's menu, and opens Home, not the product's page.
+    expect(menuLink('Home')?.getAttribute('href')).toBe('/provider')
     expect(firstTab().getAttribute('href')).toBe('/provider/laboratory')
     expect(firstTab().textContent).toBe('Lab')
+  })
+
+  it('opens Home from the menu and stays there, as classic\'s Overview did on a product site', async () => {
+    await openOn('lab.healthidentitydirectory.com', ['lab.work-item.read'], { [LAB_WORK]: many(() => json({ items: [] })) })
+    await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
+    fireEvent.click(menuLink('Home')!)
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(where()).toBe('/provider')
   })
 })
