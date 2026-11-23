@@ -31,7 +31,7 @@ import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import {
   doseMissing, incomingCountText, inTab, isWithdrawn, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH,
-  prescriptionsIntro, queueOrder, queueTone, routeAlert, statusOf, withdrawnReasonOf, withdrawnWords, type PharmacyTab,
+  prescriptionsIntro, queueOrder, queueTone, routeAlert, statusOf, WITHDRAWN_WORDS, withdrawnReasonOf, type PharmacyTab,
 } from './pharmacyText'
 import { useStaffNameLookup } from './staffNames'
 import { BillBadge } from '../commerce/BillBadge'
@@ -288,18 +288,19 @@ function PrescriptionQueue() {
               const status = statusOf(item, notDispensable(item.id))
               const text = selected ? null : said.rowSaid(item.orderRoute?.id)
               const alert = routeAlert(item.orderRoute, late)
-              // ORD-2's words for a withdrawn item, by its own reason; nothing for a reason this page does not know.
-              const withdrawn = isWithdrawn(item) ? withdrawnWords(item.withdrawnReason) : null
+              // Withdrawn by the prescribing team (ORD-2, 0133): who withdrew it and why, said once, under the card.
+              const reason = withdrawnReasonOf(item)
+              const withdrawn = reason ? WITHDRAWN_WORDS[reason] : null
               const bill = billOf(item)
               const stock = stockOf(item)
               // Work withdrawn by the prescribing team (0133) is not waiting: no bill, stock or missing dose is said of it.
-              const waiting = !item.dispensing && !withdrawnReasonOf(item)
+              const workable = !item.dispensing && !reason
               return <PharmacyCard key={item.id} item={item} buttonId={`pharmacy-${item.id}-name`} status={status} tone={queueTone(status)}
-                badges={waiting && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
+                badges={workable && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
                   {bill !== undefined ? <BillBadge bill={bill} /> : null}
                   {stock && stock.onHand <= 0 ? <StockLine stock={stock} className="rounded-md bg-danger-soft px-2 py-0.5 text-[12px]" /> : null}
                 </> : undefined}
-                missing={waiting && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
+                missing={workable && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
                 onOpen={() => open(item)}
                 below={item.orderRoute || alert || withdrawn ? <>
                   {withdrawn && <small className="hid-ehr-dept-pharmacy-alert">{withdrawn}</small>}

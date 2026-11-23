@@ -7,6 +7,7 @@ import { consultationLabel, priorityLabel, routeLabel, visitClassLabel } from '.
 import { staffApi } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { orderPath } from '../consult/orders'
+import { PHARMACY_WITHDRAWN, SENT_ELSEWHERE } from '../consult/orders/progress'
 import { fromPatient } from '../parts/cameFrom'
 import type { Chart } from '../parts/chart'
 import { decimalText, formatDate, formatWhen, statusWords } from '../parts/format'
@@ -228,8 +229,9 @@ export function pharmacyWords(progress: PharmacyProgress | null): string | null 
     case 'dispensed': return withTime('Dispensed', progress.dispensedAt)
     case 'dispensing_reversed': return withTime('Dispensing reversed', progress.reversedAt)
     // Answers the pharmacy gave (live EHR, ORD-3 with 0133), so never "not available"; they carry no time of their own.
-    case 'withdrawn': return 'Withdrawn from the pharmacy'
-    case 'sent_elsewhere': return 'Sent to another pharmacy'
+    // The order's own page says them in the same words (orders/progress.ts).
+    case 'withdrawn': return PHARMACY_WITHDRAWN
+    case 'sent_elsewhere': return SENT_ELSEWHERE
     case 'unknown': return PROGRESS_UNKNOWN
     default: return null
   }

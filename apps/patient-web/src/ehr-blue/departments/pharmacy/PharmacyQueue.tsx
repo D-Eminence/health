@@ -5,7 +5,7 @@ import type { PharmacyWorkItem } from '../../../staff/api'
 import { isUrgent, PriorityBadge, QueuePatient } from '../parts/WorkQueue'
 import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
-import { DOSE_MISSING, doseText, durationText, statusWord, stepText, WITHDRAWN_TITLE, withdrawnReasonOf, type PharmacyStatus } from './pharmacyText'
+import { DOSE_MISSING, doseText, durationText, isWithdrawn, statusWord, stepText, type PharmacyStatus } from './pharmacyText'
 
 /*
  * The pharmacy queue as large cards, one per prescription, made for a counter tablet and a phone. Each card leads with
@@ -40,8 +40,8 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
   const dose = doseText(item)
   const duration = durationText(item)
   const detailId = `${buttonId}-detail`
-  // Withdrawn by the prescribing team before it was dispensed (0133): said under the status, and it waits no more.
-  const withdrawn = withdrawnReasonOf(item)
+  // Withdrawn by the prescribing team before it was dispensed (0133): it waits no more. Why is said under the card.
+  const withdrawn = isWithdrawn(item)
   // Received or accepted by a pharmacist (ORD-4), beside the status; nothing when the backend sends no step.
   const step = stepText(item)
   return (
@@ -59,7 +59,6 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
               <TriangleAlert className="size-3.5" aria-hidden />{DOSE_MISSING}</span> : null}
             {badges}
           </span>
-          {withdrawn ? <span className="text-[13px] font-medium text-ink-2">{WITHDRAWN_TITLE[withdrawn]}</span> : null}
           <span className="text-[19px] font-semibold leading-tight text-ink break-words @sm:text-[21px]"><Breakable text={name} /></span>
           <span className="text-[14px] text-ink-2">{[strength, FORM_WORD[form]].filter(Boolean).join(' · ')}</span>
           <span className="mt-1 text-[15px] font-medium text-ink tabular break-words">

@@ -88,7 +88,8 @@ export const NIN_OFF_TITLE = 'NIN checks are off'
 /** Only where Identity offers no registration without a NIN either (a backend before hid-system 0130). */
 export const NIN_NOT_ENABLED = 'New registrations can’t start until they’re back on.'
 /** NIN checks are off and Identity takes a registration without a NIN (hid-system 0130): the desk is pointed to it. */
-export const NIN_OFF_WITHOUT_NIN = 'NIN checks are not available right now. You can still register a new patient without a NIN: choose Create record, then Register without a NIN. Their record will show NIN Not Verified.'
+/** Said under NIN_OFF_TITLE, so it does not say again that NIN checks are off. */
+export const NIN_OFF_WITHOUT_NIN = 'You can still register a new patient without a NIN: choose Create record, then Register without a NIN. Their record will show NIN Not Verified.'
 /** The same, on the new form itself, above the form it points to. */
 export const NIN_OFF_FORM_NOTICE = 'NIN checks are not available right now, so this patient is registered without a NIN. Their record will show NIN Not Verified.'
 
@@ -133,7 +134,8 @@ export const REGISTERING = 'Registering…'
 export const REGISTERED_WITHOUT_NIN = 'The patient was registered and given a Health ID. Their record shows NIN Not Verified.'
 /** outcome `sent_for_review`: no other person's details are shown. */
 export const SENT_FOR_REVIEW = 'This may be someone who is already registered, so it was sent for review. An approver at this facility will decide before a record is made.'
-export const WITHOUT_NIN_RELOAD = 'The registration was saved, but it could not be shown. Choose Load case to open it.'
+/** Its case ID is put in Find registration case, whose button is LOAD_CASE ("Open"). */
+export const WITHOUT_NIN_RELOAD = 'The registration was saved, but it could not be shown. Choose Open next to its case ID to see it.'
 export const WITHOUT_NIN_FAILED = 'The patient could not be registered. Check the details and try again.'
 /** On the record of a registration without a NIN that waits for an approver who did not start it. */
 export const SENT_FOR_REVIEW_NOTICE = 'Sent for review. This may be someone who is already registered. An approver at this facility, other than the person who started it, will decide.'

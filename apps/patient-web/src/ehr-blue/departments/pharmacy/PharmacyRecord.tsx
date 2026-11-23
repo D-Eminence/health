@@ -28,9 +28,9 @@ import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
 import {
-  ACCEPT_PERMISSION, acceptable, acceptedText, DOSE_MISSING, doseMissing, doseText, durationText, isWithdrawn, labelText,
-  notDispensableText, pharmacyRefusalText, prescribedQuantity, queueTone, statusOf, statusWord, stepText, WITHDRAWN_TEXT,
-  WITHDRAWN_TITLE, withdrawnReasonOf, withdrawnText,
+  ACCEPT_PERMISSION, acceptable, acceptedText, DOSE_MISSING, doseMissing, doseText, durationText, labelText,
+  notDispensableText, pharmacyRefusalText, prescribedQuantity, queueTone, statusOf, statusWord, stepText,
+  withdrawnReasonFrom, withdrawnReasonOf, withdrawnText,
 } from './pharmacyText'
 import { useAcceptorName, type StaffNameLookup } from './staffNames'
 import { useAttemptKey } from './walkIn'
@@ -361,7 +361,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   // Withdrawn by the prescribing team before it was dispensed (0133, ORD-2): Dispense answers 409, so it is never
   // offered; it is not dispensable from the start, as one Pharmacy refused is.
   const withdrawn = withdrawnReasonOf(item)
-  const notWorkable = undispensable || isWithdrawn(item)
+  const notWorkable = undispensable || withdrawn !== null
   const canDispense = !closed && !item.dispensing && !notWorkable && mayDispense
   const canReverse = !closed && Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
   const route = item.orderRoute
@@ -564,11 +564,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   // Why nothing can be dispensed here, said where the Dispense button would be.
   const blocked = !canDispense && !done && !item.dispensing && <Card>
     <div className="flex flex-col gap-3 p-5">
-      {withdrawn
-        ? <DeptNotice tone="caution" title={WITHDRAWN_TITLE[withdrawn]}>{WITHDRAWN_TEXT[withdrawn]}</DeptNotice>
-        : notWorkable
-        ? <DeptNotice tone="critical" role="alert" title="Not dispensable">{withdrawnText(withdrawnReason ?? (withdrawn ? item.withdrawnReason : null))
-          ?? notDispensableText(item)}</DeptNotice>
+      {notWorkable
+        ? <DeptNotice tone="critical" role="alert" title="Not dispensable">{withdrawnReason !== null ? withdrawnText(withdrawnReasonFrom(withdrawnReason))
+          : withdrawn ? withdrawnText(withdrawn) : notDispensableText(item)}</DeptNotice>
         : closed ? <DeptNotice tone="caution" title="This order is closed">No more work can be recorded on it.</DeptNotice>
           : !mayDispense ? <DeptNotice title="You can’t dispense here">Your role can see prescriptions but not dispense them. Ask a pharmacist.</DeptNotice>
             : null}
