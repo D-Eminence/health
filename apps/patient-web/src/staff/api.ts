@@ -462,7 +462,19 @@ export type LabHandoff =
  * request also carries Lab's work item and `labHandoff`, both null unless the
  * request is active; an earlier EHR sends neither.
  */
-export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null }
+export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null; pharmacyHandoff?: unknown }
+
+/**
+ * What became of sending a prescription to this hospital's own pharmacy (hid-system 0133, INTERFACE_CONTRACT.md "EHR
+ * API: pharmacyHandoff"): on the answer to Activate, an edit or a resume, and to "Send to pharmacy" (own-pharmacy-send).
+ * `pending`, or `not_sent` with reason `unavailable`, may be sent again; every other answer may not until the
+ * prescription is read again. Read defensively (ehr-blue orders/ownPharmacySend.ts readPharmacyHandoff).
+ */
+export interface PharmacyHandoff {
+  readonly status: 'sent' | 'pending' | 'not_sent'
+  readonly reason?: 'no_pharmacy' | 'routed' | 'not_prescriber' | 'changed' | 'superseded' | 'not_allowed' | 'unavailable'
+  readonly message: string
+}
 
 export type VitalMeasurement = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC'
   | 'respiratoryRate' | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm'
@@ -911,6 +923,17 @@ export interface PharmacyWorkItem {
   quantityUnit?: string | null
   /** Novu since P4c, only on work from a prescription another facility sent here. */
   orderRoute?: WorkItemOrderRoute
+  /**
+   * Present (always true) only on this facility's own item withdrawn before it was dispensed (hid-system 0133, pharmacy-api
+   * at 06f98040): Dispense answers 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE, so it is never offered.
+   */
+  withdrawn?: boolean
+  /**
+   * Why, only with `withdrawn`: `changed` (the prescribing team put it on hold, cancelled, corrected, edited or resumed
+   * it after it was sent) or `sent_elsewhere` (sent to another facility's pharmacy before it was dispensed). Left out by
+   * pharmacy-api for any other value.
+   */
+  withdrawnReason?: string
   /**
    * Who the patient is: on work from another facility (Novu since P4c) and, with the patient card on this facility's own
    * work (proposed, hid-system 0106), on own work too.
@@ -2572,6 +2595,15 @@ export const staffApi = {
       { expectedRowVersion, reason, ...(allergyAcknowledgement
         ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // "Send to pharmacy" for the prescriber (hid-system 0133): sends their active prescription to this hospital's own
+  // pharmacy at the version read, or tries a pending send again. No Idempotency-Key: sending twice sends once. The
+  // allergy acknowledgement goes only after the EHR's allergy warning (0117). Answers `{ pharmacyHandoff }`.
+  ownPharmacySend: (facilityId: string, patientId: string, encounterId: string, prescriptionId: string,
+    expectedRowVersion: number, allergyAcknowledgement?: AllergyAcknowledgement | null) =>
+    client.post<{ pharmacyHandoff?: unknown }>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/own-pharmacy-send`,
+      { expectedRowVersion, ...(allergyAcknowledgement
+        ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
+      { headers: facilityHeaders(facilityId) }),
   // Sends (or sends again) a saved active lab request to Lab at the version read
   // (hid-system #56). The body is exactly SendLabRequestToLabDto; the caller keeps
   // one key per attempt, so pressing again after no answer is the same send.
