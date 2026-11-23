@@ -429,6 +429,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         retryAt: envelope.retryAt,
         required: envelope.required,
         retryInSeconds: envelope.retryInSeconds,
+        withdrawnReason: envelope.withdrawnReason,
       })
 
       // Attach transport hints the retry loop needs without widening HidApiError.

@@ -1,7 +1,7 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
 import { routeLabel } from '../../../plainLabels'
-import type { Facility, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
+import type { Facility, PharmacistAcceptance, PharmacyStep, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { priorityLabel, routedWorkEndedText } from '../../../staff/orderRoutes'
 import { PHARMACY_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { matchesSearch } from '../parts/format'
@@ -18,6 +18,64 @@ export type PharmacyStatus = 'accepted' | 'dispensed' | 'reversed' | 'not dispen
  */
 export function statusOf(item: PharmacyWorkItem, undispensable: boolean): PharmacyStatus {
   return item.dispensing?.reversed ? 'reversed' : item.dispensing ? 'dispensed' : undispensable ? 'not dispensable' : 'accepted'
+}
+
+/** hid-system ORD-4: who may accept a prescription (the pharmacist role only). */
+export const ACCEPT_PERMISSION = 'pharmacy.work-item.accept'
+
+/**
+ * A step as a pharmacist says it (ORD-4). Only "Received" and "Accepted" add to the status badge: a dispensed or reversed
+ * item already says so there, in the same words the page used before the step existed.
+ */
+const STEP_WORD: Readonly<Record<PharmacyStep, string>> = {
+  received: 'Received', accepted: 'Accepted', dispensed: 'Dispensed', dispensing_reversed: 'Dispensing reversed',
+}
+
+/** Lagos is where the pharmacy works, so a time is said on its clock whatever the device's own zone (staff/orderRoutes.ts). */
+const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' })
+const LAGOS_CLOCK = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Africa/Lagos' })
+
+/** "10:52" today, else "12 Nov 2026, 10:52" (ORD-4 screen notes write the time alone); empty when it is not a time. */
+export function clockText(value: string, now = Date.now()): string {
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return ''
+  const clock = LAGOS_CLOCK.format(at)
+  return LAGOS_DAY.format(at) === LAGOS_DAY.format(new Date(now)) ? clock : `${LAGOS_DAY.format(at)}, ${clock}`
+}
+
+/**
+ * What the step adds beside the status, or null: nothing with no step (today's backend, ORD-4 "show no step"), nor for a
+ * dispensed or reversed item (its status says it). An acceptance names no one: this page has no staff names to read
+ * (SX-9 is not in this app), so it says "Accepted 10:52".
+ */
+export function stepText(item: Pick<PharmacyWorkItem, 'pharmacyStep' | 'pharmacistAcceptance'>, now = Date.now()): string | null {
+  if (item.pharmacyStep === 'received') return STEP_WORD.received
+  if (item.pharmacyStep !== 'accepted') return null
+  return item.pharmacistAcceptance ? acceptedText(item.pharmacistAcceptance, false, now) : STEP_WORD.accepted
+}
+
+/** "Accepted 10:52", or "Already accepted 10:52" when someone had accepted it first (ORD-4 screen notes, with no name). */
+export function acceptedText(acceptance: PharmacistAcceptance | null | undefined, already: boolean, now = Date.now()): string {
+  const said = already ? 'Already accepted' : 'Accepted'
+  const time = acceptance ? clockText(acceptance.acceptedAt, now) : ''
+  return time ? `${said} ${time}` : said
+}
+
+/**
+ * Whether Accept is offered (ORD-4 screen notes): on a received item that is not withdrawn (ORD-2), not refused by
+ * Pharmacy since it was opened, and not dispensed. Who may press it is checked by the record (ACCEPT_PERMISSION).
+ */
+export function acceptable(item: PharmacyWorkItem, undispensable: boolean): boolean {
+  return item.pharmacyStep === 'received' && item.withdrawn !== true && !undispensable && !item.dispensing
+}
+
+/**
+ * Why Pharmacy refused to take on a prescription, by the refusal's `withdrawnReason` (ORD-2 words, ORD-4 409
+ * PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), never by its text; null for a refusal with no reason.
+ */
+export function withdrawnText(reason: string | null): string | null {
+  return reason === 'changed' ? 'Changed or stopped by the prescribing team. It can no longer be dispensed here.'
+    : reason === 'sent_elsewhere' ? 'Sent to another pharmacy by the prescribing team. It can no longer be dispensed here.' : null
 }
 
 /** The design has one badge; only work that can't be dispensed is marked apart. */

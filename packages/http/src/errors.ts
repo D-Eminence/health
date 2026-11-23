@@ -48,6 +48,8 @@ export interface HidApiErrorOptions {
   readonly required?: readonly string[] | null
   /** The problem's `retryAfterSeconds` member: seconds until the refused command may be tried again (hid-system 0137). */
   readonly retryInSeconds?: number | null
+  /** The problem's `withdrawnReason` member: why a pharmacy item can no longer be worked (hid-system ORD-2, ORD-4). */
+  readonly withdrawnReason?: string | null
   readonly cause?: unknown
 }
 
@@ -96,6 +98,12 @@ export class HidApiError extends Error {
    * value; null when the problem has none. Not the `Retry-After` header, which the retry loop reads (retryAfterSeconds).
    */
   readonly retryInSeconds: number | null
+  /**
+   * The problem's `withdrawnReason` member: why Pharmacy refused to work an item it holds, as a code (hid-system ORD-2
+   * and ORD-4, 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE: `changed` or `sent_elsewhere`), so a page branches on it and
+   * never on the text. A code only; null when the problem has none.
+   */
+  readonly withdrawnReason: string | null
 
   constructor(status: number, message: string, options: HidApiErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -111,6 +119,7 @@ export class HidApiError extends Error {
     this.retryAt = options.retryAt ?? null
     this.required = options.required ?? null
     this.retryInSeconds = options.retryInSeconds ?? null
+    this.withdrawnReason = options.withdrawnReason ?? null
   }
 
   /** True when the caller should send the user back through authentication. */

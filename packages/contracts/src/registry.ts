@@ -1075,6 +1075,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
+  // ORD-4 (hid-system #303, Release B, migration 0147): a pharmacist accepts a prescription before dispensing. Only a
+  // work item answering `pharmacyStep: "received"` offers it, so on today's backend it is never sent.
+  proposed(r('pharmacy.acceptWorkItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId/accept',P,false,one('POST','pharmacy.work-item.accept'),
+    'hid-system ORD-4 (#303, Release B, migration 0147); not served by hid-system main until Release B is signed. X-Facility-Id, '
+    + 'X-Purpose-Of-Use direct-care and Idempotency-Key; body exactly { expectedWorkItemVersion }. 201 recorded or 200 '
+    + '{ alreadyAccepted: true }, each { workItemId, pharmacyStep, pharmacistAcceptance, alreadyAccepted }; 409 '
+    + 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE with withdrawnReason; 503 PHARMACY_ACCEPTANCE_UNAVAILABLE.')),
   // Point of care (docs/POINT_OF_CARE_SPEC.md): walk-ins and stock at the pharmacy. Proposed; 404 until served.
   proposed(r('pharmacy.saleHandOver','pharmacy','/api/v1/pharmacy/sales/:billId/hand-over',P,false,one('POST','pharmacy.dispensing.create'),
     `${POINT_OF_CARE} A counter sale handed over: takes stock (first to expire); 409 PAYMENT_REQUIRED or OUT_OF_STOCK.`)),

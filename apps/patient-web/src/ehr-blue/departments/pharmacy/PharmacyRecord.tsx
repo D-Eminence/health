@@ -29,9 +29,10 @@ import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
 import {
-  DOSE_MISSING, doseMissing, doseText, durationText, labelText, notDispensableText, pharmacyRefusalText, prescribedQuantity, queueTone,
-  statusOf, statusWord,
+  ACCEPT_PERMISSION, acceptable, acceptedText, DOSE_MISSING, doseMissing, doseText, durationText, labelText, notDispensableText,
+  pharmacyRefusalText, prescribedQuantity, queueTone, statusOf, statusWord, stepText, withdrawnText,
 } from './pharmacyText'
+import { useAttemptKey } from './walkIn'
 import type { PaymentSettings, WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
 import { pointOfCareOpen } from '../commerce/served'
@@ -56,15 +57,17 @@ interface Failure { readonly text: string; readonly retry: boolean }
  * services also go by code (errorText), given the error without the server's words or the fields it names. Anything
  * else says ACTION_FAILED, never the words every page shares for its status: those don't say what failed.
  */
-function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string) => string): Failure {
+function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string) => string, accept = false): Failure {
   if (!isHidApiError(caught)) return { text: ACTION_FAILED, retry: true }
   switch (caught.code) {
+    // Accept's own refusal (ORD-4): the one 5xx whose words are sent as written, and they already say to try again.
+    case 'PHARMACY_ACCEPTANCE_UNAVAILABLE': return { text: 'Accepting is not available right now. Please try again.', retry: false }
     case 'NETWORK_ERROR': return { text: 'We couldn’t reach Health ID. Check your internet connection and try again.', retry: true }
     // Pharmacy may have recorded it before the wait ran out: the list says so before anything is pressed again.
     case 'REQUEST_TIMEOUT': return { text: 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
       + 'and refresh the list to check before you try again.', retry: false }
     case 'AUTHENTICATION_REQUIRED': return { text: 'Your session has ended. Sign in again to continue.', retry: false }
-    case 'PHARMACY_ACCESS_DENIED': return { text: refusedFor(reverse ? 'reversing a dispensing' : 'dispensing medicines'), retry: false }
+    case 'PHARMACY_ACCESS_DENIED': return { text: refusedFor(accept ? 'accepting prescriptions' : reverse ? 'reversing a dispensing' : 'dispensing medicines'), retry: false }
     case 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED': return { text: 'This prescription is already recorded as dispensed. Go back to '
       + 'Prescriptions and refresh the list before you hand anything over.', retry: false }
     case 'PHARMACY_WORK_ITEM_VERSION_CONFLICT':
@@ -120,7 +123,10 @@ export function recordFacts(item: PharmacyWorkItem, status: string, withPatient 
     ...(item.instructions ? [{ label: 'Instructions', value: item.instructions }] : []),
     { label: 'Dispensed', value: item.dispensing ? (item.dispensing.reversed ? 'Reversed' : 'Yes') : 'No' },
     ...(withPatient ? [{ label: 'Status', value: statusTitle(status) }] : []),
-    { label: 'Accepted', value: dateText(item.acceptedAt) },
+    // With a step (ORD-4), `acceptedAt` is when the pharmacy got it, and "Accepted" is a pharmacist's acceptance.
+    ...(item.pharmacyStep ? [{ label: 'Received', value: dateText(item.acceptedAt) },
+      ...(item.pharmacistAcceptance ? [{ label: 'Accepted', value: dateText(item.pharmacistAcceptance.acceptedAt) }] : [])]
+      : [{ label: 'Accepted', value: dateText(item.acceptedAt) }]),
   ]
 }
 
@@ -204,6 +210,13 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     dateOfBirth={item.patient?.dateOfBirth} sex={item.patient?.sex} />
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
+  // Accept (ORD-4): its own press, failure and key, so a retry of the same press sends the same Idempotency-Key.
+  const [accepting, setAccepting] = useState(false)
+  const [acceptError, setAcceptError] = useState<Failure | null>(null)
+  const [acceptedNow, setAcceptedNow] = useState(false)
+  // Pharmacy's reason for refusing to take it on (409 withdrawnReason), said in the "Not dispensable" notice.
+  const [withdrawnReason, setWithdrawnReason] = useState<string | null>(null)
+  const acceptKey = useAttemptKey()
   const { form, name: drugName, strength } = drugOf(item)
   const missing = doseMissing(item)
   // How much the prescriber said to hand over, when sent: the form starts with it, and the pharmacist confirms it (D9).
@@ -218,7 +231,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   async function submit(event: FormEvent<HTMLFormElement>, reverse = false) {
     event.preventDefault()
     // The button stays focusable while the request runs; a second press does nothing.
-    if (busy || asking.current) return
+    if (busy || accepting || asking.current) return
     setError(null); setSuccess(''); problems.clear()
     if (!reverse) {
       const left = steps.find(step => !ticked.has(step.key))
@@ -274,6 +287,33 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     finally { setBusy(false); onBusy(false) }
   }
 
+  /**
+   * Accept (INTERFACE_CONTRACT ORD-4): "Accepted 10:52", or "Already accepted 10:52" when someone had, then the list is
+   * read again. A 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE says why by its withdrawnReason, then reloads; anything else
+   * says what Dispense says for the same code (failureOf).
+   */
+  async function accept() {
+    if (accepting || busy) return
+    setAcceptError(null); setError(null); setSuccess('')
+    setAccepting(true)
+    onBusy(true)
+    try {
+      const answer = await staffApi.acceptPharmacyWorkItem(facilityId, item, acceptKey(JSON.stringify([facilityId, item.id, item.version])))
+      setAcceptedNow(true)
+      setSuccess(acceptedText(answer.pharmacistAcceptance, answer.alreadyAccepted === true))
+      focus(title, true)
+      await onChanged()
+    } catch (caught) {
+      if (isHidApiError(caught) && caught.code === 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE') {
+        setWithdrawnReason(caught.withdrawnReason)
+        onUndispensable()
+        focus(title, true)
+        await onChanged()
+      } else setAcceptError(failureOf(caught, false, work => pharmacyRefusalText(work, facility, permissions), true))
+    }
+    finally { setAccepting(false); onBusy(false) }
+  }
+
   // On work from another facility the services refuse a write once its order is closed (item 3, B3): the action goes.
   const closed = routeClosedForWork(item.orderRoute)
   const mayDispense = permissions.includes('pharmacy.dispensing.create')
@@ -284,6 +324,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const cannotComplete = cannotCompleteOffered(route, permissions, 'pharmacy', useCannotCompleteServed())
   const ending = wrongPatientOffered(route, permissions, 'pharmacy')
   const status = statusOf(item, undispensable)
+  // Only on a received item, to a member who may accept (ORD-4); never on a closed order.
+  const canAccept = !closed && !acceptedNow && permissions.includes(ACCEPT_PERMISSION) && acceptable(item, undispensable)
+  const step = stepText(item)
   const reversing = opened === 'reverse' && canReverse
   // Point of care: the bill as the payment step last left it (paid or set to follow), else as the work item carries it.
   const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
@@ -323,13 +366,14 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     <div className="flex min-w-0 flex-col gap-1">
       <span className="flex flex-wrap items-center gap-1.5">
         <Badge size="sm" tone={queueTone(status)}>{statusWord(status)}</Badge>
+        {step ? <Badge size="sm" tone="neutral">{step}</Badge> : null}
         {isUrgent(item.priority) ? <PriorityBadge priority={item.priority} /> : null}
       </span>
       {/* The page's heading names the medicine as prescribed; this says what to look for on the shelf. */}
       <p className="m-0 text-[13px] font-medium text-ink-3">Pick</p>
       <p className="m-0 text-[20px] font-semibold leading-tight text-ink break-words"><Breakable text={drugName} /></p>
       <p className="m-0 text-[16px] font-medium text-ink-2">{[strength, FORM_WORD[form], routeLabel(item.routeCode) ?? item.routeCode?.trim()].filter(Boolean).join(' · ')}</p>
-      <p className="m-0 text-[13px] text-ink-3">Accepted {dateText(item.acceptedAt)}</p>
+      <p className="m-0 text-[13px] text-ink-3">{item.pharmacyStep ? 'Received' : 'Accepted'} {dateText(item.acceptedAt)}</p>
       {stock || (bill !== undefined && !waitsForPayment) ? <div className="mt-1 flex flex-wrap items-center gap-2">
         {stock ? <StockLine stock={stock} /> : null}
         {bill !== undefined && !waitsForPayment ? <BillBadge bill={bill} /> : null}
@@ -423,10 +467,26 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       {failure}
       {/* The one main action, at the bottom where the thumb is, full width on a phone. */}
       <FormActions sticky={false}>
-        <Button type="submit" variant="primary" size="lg" icon={busy ? undefined : Check} aria-busy={busy || undefined} aria-disabled={busy || undefined}
+        <Button type="submit" variant={canAccept ? 'secondary' : 'primary'} size="lg" icon={busy ? undefined : Check} aria-busy={busy || undefined} aria-disabled={busy || undefined}
           className="hid-ehr-dept-pharmacy-busy @sm:min-w-56">{busy ? 'Saving…' : 'Dispense'}</Button>
       </FormActions>
     </form>
+  </Card>
+
+  // Accept leads, then Dispense (ORD-4 screen notes): a dispensing accepts it too, so Dispense stays offered below.
+  const acceptCard = canAccept && !done && <Card>
+    <CardHeader as="h2" title="Accept this prescription" titleId={`pharmacy-${item.id}-accept`}
+      description="Lets the prescriber see that Pharmacy has taken it on. You can also dispense it straight away." />
+    <div className="flex flex-col gap-3 p-5">
+      {acceptError ? <div className="flex flex-col gap-1">
+        <div className="hid-ehr-dept-pharmacy-error" role="alert">{acceptError.text}</div>
+        {acceptError.retry ? <small className="hid-ehr-dept-pharmacy-footnote">Try again with the same button. Nothing is saved until it says so.</small> : null}
+      </div> : null}
+      <FormActions sticky={false}>
+        <Button variant="primary" size="lg" icon={accepting ? undefined : Check} aria-busy={accepting || undefined} aria-disabled={accepting || undefined}
+          className="hid-ehr-dept-pharmacy-busy @sm:min-w-56" onClick={() => void accept()}>{accepting ? 'Saving…' : 'Accept'}</Button>
+      </FormActions>
+    </div>
   </Card>
 
   const otherActions = (canReverse || ending) && <Card>
@@ -459,7 +519,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const blocked = !canDispense && !done && !item.dispensing && <Card>
     <div className="flex flex-col gap-3 p-5">
       {undispensable
-        ? <DeptNotice tone="critical" role="alert" title="Not dispensable">{notDispensableText(item)}</DeptNotice>
+        ? <DeptNotice tone="critical" role="alert" title="Not dispensable">{withdrawnText(withdrawnReason) ?? notDispensableText(item)}</DeptNotice>
         : closed ? <DeptNotice tone="caution" title="This order is closed">No more work can be recorded on it.</DeptNotice>
           : !mayDispense ? <DeptNotice title="You can’t dispense here">Your role can see prescriptions but not dispense them. Ask a pharmacist.</DeptNotice>
             : null}
@@ -490,6 +550,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
           ? <ImportedFromPaper key={`${facilityId}:${item.patientId}`} kind="pharmacy" facilityId={facilityId} patientId={item.patientId} /> : null}
         {empty}
         {payment}
+        {acceptCard}
         {pick}
         {blocked}
         {handedOver}

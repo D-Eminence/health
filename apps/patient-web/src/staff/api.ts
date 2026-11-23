@@ -892,6 +892,67 @@ export interface PharmacyWorkItem {
    * work (proposed, hid-system 0106), on own work too.
    */
   patient?: OrderRoutePatient
+  /**
+   * Where the item is at Pharmacy, and whether a pharmacist accepted it (hid-system ORD-4, Release B). Kept together, and
+   * only for a step and an `acceptedWith` this page knows (pharmacyStepsOf); absent from today's backend, and then every
+   * screen shows what it does today. `status: "accepted"` and `acceptedAt` keep their meaning: the pharmacy has it.
+   */
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  /** The prescription changed or was sent elsewhere after Pharmacy got it (hid-system ORD-2), so it can't be worked. */
+  withdrawn?: boolean
+}
+
+/** hid-system ORD-4: a pharmacy work item's step. */
+export type PharmacyStep = 'received' | 'accepted' | 'dispensed' | 'dispensing_reversed'
+/** hid-system ORD-4: how the item came to be accepted (Accept, its first dispensing, an order route, a hand-off). */
+export type PharmacistAcceptedWith = 'accept' | 'dispensing' | 'order_route' | 'hand_off'
+export interface PharmacistAcceptance {
+  acceptedAt: string
+  acceptedByMembershipId: string
+  acceptedWith: PharmacistAcceptedWith
+}
+/** hid-system ORD-4: POST /pharmacy/work-items/:id/accept answers 201 (recorded) or 200 (`alreadyAccepted: true`). */
+export interface PharmacyAcceptance {
+  workItemId: string
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  alreadyAccepted: boolean
+}
+
+const PHARMACY_STEPS: ReadonlySet<string> = new Set<PharmacyStep>(['received', 'accepted', 'dispensed', 'dispensing_reversed'])
+const ACCEPTED_WITH: ReadonlySet<string> = new Set<PharmacistAcceptedWith>(['accept', 'dispensing', 'order_route', 'hand_off'])
+
+const stepsNotRead = () => new HidApiError(502, 'Prescriptions could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+const filled = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+
+/**
+ * An answer's `pharmacyStep` and `pharmacistAcceptance` by INTERFACE_CONTRACT ORD-4 "Screen change": both kept only for
+ * a step and an `acceptedWith` this page knows; both left out (the item reads as today) when the step is absent or
+ * either value is one it does not know (a newer pharmacy-api), so one such item never fails the whole list. Only a wrong
+ * type is refused, as an unreadable answer: a step that is not a string (null included); next to a known step, an
+ * acceptance missing or neither null nor an object; an `acceptedWith` that is not a string; with a known `acceptedWith`,
+ * an `acceptedAt` or `acceptedByMembershipId` that is not a non-empty string.
+ */
+export function pharmacyStepsOf<T extends object>(answer: T): T {
+  const { pharmacyStep: step, pharmacistAcceptance: acceptance, ...rest } = answer as T & { pharmacyStep?: unknown; pharmacistAcceptance?: unknown }
+  const bare = rest as T
+  if (step === undefined) return bare
+  if (typeof step !== 'string') throw stepsNotRead()
+  if (!PHARMACY_STEPS.has(step)) return bare
+  if (acceptance === null) return { ...bare, pharmacyStep: step as PharmacyStep, pharmacistAcceptance: null }
+  if (typeof acceptance !== 'object' || Array.isArray(acceptance)) throw stepsNotRead()
+  const { acceptedWith, acceptedAt, acceptedByMembershipId } = acceptance as Record<string, unknown>
+  if (typeof acceptedWith !== 'string') throw stepsNotRead()
+  if (!ACCEPTED_WITH.has(acceptedWith)) return bare
+  if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw stepsNotRead()
+  return { ...bare, pharmacyStep: step as PharmacyStep,
+    pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
+}
+
+/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
 }
 
 /**
@@ -2664,7 +2725,13 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(pharmacyListOf),
+  // A pharmacist takes the item on (hid-system ORD-4): the body is exactly the item's version, with no reason. The key is
+  // the caller's, so a retry of the same press sends the same one and records nothing twice.
+  acceptPharmacyWorkItem: (facilityId: string, item: Pick<PharmacyWorkItem, 'id' | 'version'>, idempotencyKey: string) =>
+    client.post<PharmacyAcceptance>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/accept`,
+      { expectedWorkItemVersion: item.version },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }).then(pharmacyStepsOf),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
