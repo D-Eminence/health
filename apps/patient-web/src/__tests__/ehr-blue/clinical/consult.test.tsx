@@ -899,6 +899,56 @@ describe('New consultation in one call (EHR-C5)', () => {
     expect(new Set(api.createConsultation.mock.calls.map(item => item[3])).size).toBe(4)
   })
 
+  it('keeps the key, and never says nothing was saved, when the key may already hold a save', async () => {
+    // hid-system executeCreate: REQUEST_IN_PROGRESS and IDEMPOTENCY_RESULT_UNAVAILABLE mean the key's row exists.
+    for (const code of ['REQUEST_IN_PROGRESS', 'IDEMPOTENCY_RESULT_UNAVAILABLE']) {
+      api.createConsultation.mockReset()
+      api.createConsultation.mockImplementation(saved())
+      api.createConsultation.mockRejectedValueOnce(new HidApiError(409, 'Key in use', { code }))
+      const { view, save } = await openNew()
+      fillAll()
+      fireEvent.click(save)
+      expect((await screen.findByRole('alert')).textContent, code).toBe(
+        'This consultation may already be saved. Open the patient’s consultations to check it before you save again.')
+      expect(document.body.textContent).not.toContain('Nothing was saved')
+      expect(document.body.textContent).not.toContain(code)
+      fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+      expect(await screen.findByText('Consultation started.')).toBeTruthy()
+      expect(call(1)[3]).toBe(call(0)[3])
+      expect(call(1)[2]).toEqual(call(0)[2])
+      view.unmount()
+    }
+  })
+
+  it('after a press with no answer, a 403 keeps the key and never says nothing was saved', async () => {
+    // ConsultationPartsGuard and the consent check run before the key is looked up, so they say nothing of that press.
+    const cases: Array<[HidApiError, string]> = [
+      [new HidApiError(403, 'Required permission is missing', { code: 'PERMISSION_DENIED' }),
+        'This consultation may already be saved. Open the patient’s consultations to check it before you save again. You don’t have access to save all of this now. Ask your facility administrator if you need it.'],
+      [new HidApiError(403, 'Consent required', { code: 'CONSENT_REQUIRED' }),
+        'This consultation may already be saved. Open the patient’s consultations to check it before you save again. The patient has not approved changes to their record by this facility, so it can’t be saved now.'],
+    ]
+    for (const [error, words] of cases) {
+      api.createConsultation.mockReset()
+      api.createConsultation.mockImplementation(saved())
+      api.createConsultation
+        .mockRejectedValueOnce(new HidApiError(0, 'Failed to fetch', { code: 'NETWORK_ERROR' }))
+        .mockRejectedValueOnce(error)
+      const { view, save } = await openNew()
+      fillAll()
+      fireEvent.click(save)
+      expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+      fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+      expect(await screen.findByText(words)).toBeTruthy()
+      expect(document.body.textContent).not.toContain('Nothing was saved')
+      expect(document.body.textContent).not.toContain(error.code)
+      fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+      expect(await screen.findByText('Consultation started.')).toBeTruthy()
+      expect(new Set(api.createConsultation.mock.calls.map(item => item[3])).size).toBe(1)
+      view.unmount()
+    }
+  })
+
   it('says each refusal in plain words, never the server’s text or code, and sends nothing else', async () => {
     const cases: Array<[HidApiError, string]> = [
       [new HidApiError(403, 'Consent required', { code: 'CONSENT_REQUIRED' }),

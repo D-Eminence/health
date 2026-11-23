@@ -69,6 +69,22 @@ const ONE_CALL_REFUSED: Readonly<Record<string, string>> = {
   INVALID_CLINICAL_DATA: 'Nothing was saved. Some details weren’t accepted. Check the details you entered and try again.',
 }
 const ONE_CALL_CONFLICT = 'Nothing was saved. This patient’s record changed meanwhile. Open the patient’s consultations to check it, then try again.'
+/**
+ * Said when a save under this key may be in: hid-system clinical.repository.ts executeCreate answers 409
+ * REQUEST_IN_PROGRESS or IDEMPOTENCY_RESULT_UNAVAILABLE only when the key's row already exists, so the key is kept.
+ */
+const MAY_BE_SAVED = 'This consultation may already be saved. Open the patient’s consultations to check it before you save again.'
+/** The key already holds a save, or a save that is still going in. */
+const KEY_HELD: readonly string[] = ['REQUEST_IN_PROGRESS', 'IDEMPOTENCY_RESULT_UNAVAILABLE']
+/**
+ * A 403 after an earlier press on this key got no answer: ConsultationPartsGuard and the consent check in runParts run
+ * before the key is looked up, so access or consent that changed since says nothing about that press. The reason
+ * without "Nothing was saved".
+ */
+const MAY_BE_SAVED_REFUSED: Readonly<Record<string, string>> = {
+  CONSENT_REQUIRED: `${MAY_BE_SAVED} The patient has not approved changes to their record by this facility, so it can’t be saved now.`,
+  PERMISSION_DENIED: `${MAY_BE_SAVED} You don’t have access to save all of this now. Ask your facility administrator if you need it.`,
+}
 const NOT_STARTED = 'The consultation could not be started.'
 
 /**
@@ -91,7 +107,7 @@ interface Attempt {
    * after no answer sends the same key (and, with the fields unchanged, the same body), which answers the saved
    * consultation instead of saving a second one. Replaced after a final answer.
    */
-  consultation?: { key: string; startedAt: string }
+  consultation?: { key: string; startedAt: string; unanswered?: boolean }
   /** The one-call route answered 404 (a backend before EHR-C5): this form saves with today's separate calls. */
   separate?: boolean
   encounter?: Encounter
@@ -161,7 +177,11 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
       saved = await staffApi.createConsultation(chart.facilityId, chart.patientId, input, current.consultation.key)
     } catch (caught) {
       if (routeNotServed(caught)) return NOT_SERVED
+      if (mayBeSaved(caught, current.consultation.unanswered)) {
+        return { formError: isHidApiError(caught) ? MAY_BE_SAVED_REFUSED[caught.code ?? ''] ?? MAY_BE_SAVED : MAY_BE_SAVED }
+      }
       if (finalAnswer(caught)) current.consultation = undefined
+      else current.consultation.unanswered = true
       return { formError: oneCallRefusal(caught), fieldErrors: partErrors(caught) }
     }
     attempt.current = {}
@@ -250,10 +270,20 @@ function routeNotServed(caught: unknown): boolean {
 /**
  * Whether the server answered with a refusal, after which nothing was saved under the key (all or nothing), so the next
  * press is a new save with a new key. No answer, a timeout, too many tries or a server failure may have saved it: the key
- * is kept.
+ * is kept. Asked only after mayBeSaved, which keeps the key for the refusals that leave that open.
  */
 function finalAnswer(caught: unknown): boolean {
   return isHidApiError(caught) && caught.status >= 400 && caught.status < 500 && caught.status !== 408 && caught.status !== 429
+}
+
+/**
+ * A refusal that leaves open whether this key holds a save: one that says the key's row exists, or a 403 (checked
+ * before the key) after a press on this key that got no answer. The key is kept and nothing is said to be unsaved.
+ */
+function mayBeSaved(caught: unknown, unanswered: boolean | undefined): boolean {
+  if (!isHidApiError(caught)) return false
+  if (caught.status === 409 && KEY_HELD.includes(caught.code ?? '')) return true
+  return caught.status === 403 && Boolean(unanswered)
 }
 
 function oneCallRefusal(caught: unknown): string {
