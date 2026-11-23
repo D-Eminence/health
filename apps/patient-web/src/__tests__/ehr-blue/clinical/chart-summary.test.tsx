@@ -333,8 +333,8 @@ describe('The chart summary on the patient page', () => {
   })
 
   it.each([
-    ['withdrawn', 'The pharmacy can no longer dispense this prescription'],
-    ['sent_elsewhere', 'Sent to another pharmacy instead'],
+    ['withdrawn', 'Changed or stopped by the prescribing team'],
+    ['sent_elsewhere', 'Sent to another pharmacy by the prescribing team'],
     ['accepted', 'Received'],
   ])('says a medicine the pharmacy answered %s in plain words, not as progress not available', async (status, words) => {
     const answer = fullAnswer()
