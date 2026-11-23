@@ -30,7 +30,7 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Find a patient by their Health ID and open their record, or get access when you don’t have it yet.',
     steps: [
       'Paste or scan the Health ID (it starts with HID-) and it’s checked at once. If you type it, select Find or press Enter.',
-      'If you can see the patient, their page opens at once.',
+      'If you can see the patient, their chart opens at once (or their page, if your role can’t open the chart).',
       'If you don’t have access yet, choose Use their Access PIN (if they’re with you), Ask the patient, or Emergency access.',
       'If no patient has that Health ID, check it with them. If they’re new, select Register a new patient. If you don’t see it, ask a colleague who registers patients.',
       'Patients who shared their record with you, and invitations to accept, are under Shared with you.',
@@ -38,7 +38,7 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     tips: [
       'On the patient’s page: Open chart for their consultations, Start a consultation, or Record vitals.',
       'Ask about this patient answers questions from their record, within your access.',
-      'End my access closes the record when you’ve finished.',
+      'Close my grant closes the record when you’ve finished.',
     ],
   },
   registration: {

@@ -485,14 +485,16 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
   })
 
-  it('says today’s words when the failure has no words of its own, with no title of its own (parity 22a)', async () => {
+  it('says the coordinator’s words when the failure has no words of its own, with no title of its own (parity 17g, 22a)', async () => {
     api.requestAccess.mockRejectedValue(new Error(''))
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
     fireEvent.click(screen.getByRole('button', { name: SEND }))
     const alert = await screen.findByRole('alert')
-    expect(shownText(alert)).toContain('The access command failed.')
+    // Not classic's "The access command failed.", which the coordinator's 2 Nov review reverted (db9967ae).
+    expect(shownText(alert)).toBe('Something went wrong. Please try again.')
+    expect(document.body.textContent).not.toContain('The access command failed.')
     expect(alert.textContent).not.toContain('Couldn’t send the request')
   })
 
@@ -636,16 +638,17 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     await waitFor(() => expect(where()).toBe('/provider/patients/open'))
   })
 
-  it('says today’s words when the PIN check fails with no words of its own, with no title of its own (parity 9c)', async () => {
+  it('says the coordinator’s words when the PIN check fails with no words of its own, with no title of its own (parity 9c, 17g)', async () => {
     api.verifyPin.mockRejectedValue(new Error(''))
     open('/pin')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
     const alert = await screen.findByRole('alert')
-    expect(shownText(alert)).toBe('The access command failed.')
+    // Not classic's "The access command failed.", which the coordinator's 2 Nov review reverted (db9967ae).
+    expect(shownText(alert)).toBe('Something went wrong. Please try again.')
+    expect(document.body.textContent).not.toContain('The access command failed.')
     expect(document.body.textContent).not.toContain('Couldn’t open the record')
-    expect(document.body.textContent).not.toContain('Something went wrong')
   })
 
   it('review item 10: the PIN form starts at a Health ID offered from Patients, read once', () => {

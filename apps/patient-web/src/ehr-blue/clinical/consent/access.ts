@@ -25,8 +25,13 @@ export const CLOSE_REASON = 'Clinician closed completed patient access'
 export const ACCESS_CLOSED = 'Access was closed.'
 /** Patients.tsx:246, a close of the open record's grant that failed, whatever the reason (classic maps no code here). */
 export const CLOSE_FAILED = 'Grant could not be closed.'
-/** Patients.tsx:226, an access step (a request, a PIN) that failed for a reason the page has no words of its own for. */
-export const COMMAND_FAILED = 'The access command failed.'
+/**
+ * An access step (a request, a PIN) that failed for a reason the page has no words of its own for. Not classic's
+ * Patients.tsx:226 sentence: the coordinator's 2 Nov review reverted that wording (db9967ae, reverting d8379e1d) as
+ * showing internal names on facility screens, and parity row 17g records this as the coordinator's choice. With it,
+ * rows 9c and 22a count as done for their fallback.
+ */
+export const COMMAND_FAILED = 'Something went wrong. Please try again.'
 
 export type AccessMethod = 'request' | 'pin' | 'emergency'
 
@@ -110,8 +115,8 @@ export const NOT_OPEN_TO_ROLE = 'This patient’s record isn’t open to your ro
 const DEPARTMENT_ROLES: ReadonlySet<string> = new Set(['lab', 'pharmacist'])
 
 /**
- * What a refused lookup says: NOT_GRANTED (shown as "Choose how to get it.", beside Ask the patient and the Access PIN)
- * when Health ID holds no grant; NOT_OPEN_TO_ROLE for a lab or pharmacy role's 404; otherwise today's words, so "ask
+ * What a refused lookup says: NOT_GRANTED (classic's sentence, which the refused-lookup panel shows word for word, parity
+ * 13a) when Health ID holds no grant; NOT_OPEN_TO_ROLE for a lab or pharmacy role's 404; otherwise today's words, so "ask
  * your facility administrator" is said only for a refusal that is about the role, not the patient.
  */
 export function lookupRefusal(caught: unknown, roles: readonly string[]): string {

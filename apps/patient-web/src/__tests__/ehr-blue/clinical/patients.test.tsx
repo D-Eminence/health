@@ -1980,6 +1980,20 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       await settle()
       for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
     })
+
+    it('says the coordinator’s words when the PIN check fails with no words of its own (parity 9c, 17g)', async () => {
+      staff.permissions = [...WITH_ACCESS]
+      api.verifyPin.mockRejectedValue(new Error(''))
+      openTracked('/pin')
+      fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+      fireEvent.change(screen.getByLabelText(labelled('Patient access PIN')), { target: { value: '1234' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
+      const alert = await screen.findByRole('alert')
+      // Not classic's "The access command failed.", which the coordinator's 2 Nov review reverted (db9967ae).
+      expect(alert.textContent).toContain('Something went wrong. Please try again.')
+      expect(document.body.textContent).not.toContain('The access command failed.')
+      expect(staff.setActivePatient).not.toHaveBeenCalled()
+    })
   })
 })
 
