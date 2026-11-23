@@ -29,7 +29,7 @@ import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
 import {
   DOSE_MISSING, doseMissing, doseText, durationText, labelText, notDispensableText, pharmacyRefusalText, prescribedQuantity, queueTone,
-  statusOf, statusWord,
+  statusOf, statusWord, WITHDRAWN_TEXT, WITHDRAWN_TITLE, withdrawnReasonOf,
 } from './pharmacyText'
 import type { PaymentSettings, WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
@@ -257,7 +257,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   // On work from another facility the services refuse a write once its order is closed (item 3, B3): the action goes.
   const closed = routeClosedForWork(item.orderRoute)
   const mayDispense = permissions.includes('pharmacy.dispensing.create')
-  const canDispense = !closed && !item.dispensing && !undispensable && mayDispense
+  // Withdrawn by the prescribing team before it was dispensed (0133): Dispense answers 409, so it is never offered.
+  const withdrawn = withdrawnReasonOf(item)
+  const canDispense = !closed && !item.dispensing && !withdrawn && !undispensable && mayDispense
   const canReverse = !closed && Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
   const route = item.orderRoute
   const ordering = route?.orderingFacilityName ?? 'The ordering facility'
@@ -435,7 +437,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   // Why nothing can be dispensed here, said where the Dispense button would be.
   const blocked = !canDispense && !done && !item.dispensing && <Card>
     <div className="flex flex-col gap-3 p-5">
-      {undispensable
+      {withdrawn
+        ? <DeptNotice tone="caution" title={WITHDRAWN_TITLE[withdrawn]}>{WITHDRAWN_TEXT[withdrawn]}</DeptNotice>
+        : undispensable
         ? <DeptNotice tone="critical" role="alert" title="Not dispensable">{notDispensableText(item)}</DeptNotice>
         : closed ? <DeptNotice tone="caution" title="This order is closed">No more work can be recorded on it.</DeptNotice>
           : !mayDispense ? <DeptNotice title="You can’t dispense here">Your role can see prescriptions but not dispense them. Ask a pharmacist.</DeptNotice>

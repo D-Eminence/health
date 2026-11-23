@@ -31,7 +31,7 @@ import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import {
   doseMissing, incomingCountText, inTab, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH, prescriptionsIntro,
-  queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab,
+  queueOrder, queueTone, routeAlert, statusOf, withdrawnReasonOf, type PharmacyTab,
 } from './pharmacyText'
 import { BillBadge } from '../commerce/BillBadge'
 import { pointOfCareOpen } from '../commerce/served'
@@ -285,12 +285,14 @@ function PrescriptionQueue() {
               const alert = routeAlert(item.orderRoute, late)
               const bill = billOf(item)
               const stock = stockOf(item)
+              // Work withdrawn by the prescribing team (0133) is not waiting: no bill, stock or missing dose is said of it.
+              const waiting = !item.dispensing && !withdrawnReasonOf(item)
               return <PharmacyCard key={item.id} item={item} buttonId={`pharmacy-${item.id}-name`} status={status} tone={queueTone(status)}
-                badges={!item.dispensing && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
+                badges={waiting && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
                   {bill !== undefined ? <BillBadge bill={bill} /> : null}
                   {stock && stock.onHand <= 0 ? <StockLine stock={stock} className="rounded-md bg-danger-soft px-2 py-0.5 text-[12px]" /> : null}
                 </> : undefined}
-                missing={!item.dispensing && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
+                missing={waiting && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
                 onOpen={() => open(item)}
                 below={item.orderRoute || alert ? <>
                   {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}

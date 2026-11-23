@@ -10,14 +10,45 @@ import { urgencyRank } from '../parts/WorkQueue'
 import { billOf, billOwing } from './pocFields'
 
 /** A work item's status as the design writes it: one lowercase word on its badge. */
-export type PharmacyStatus = 'accepted' | 'dispensed' | 'reversed' | 'not dispensable'
+export type PharmacyStatus = 'accepted' | 'dispensed' | 'reversed' | 'not dispensable' | 'withdrawn'
+
+/**
+ * Why this hospital's own item was withdrawn before it was dispensed (hid-system 0133, pharmacy-api at 06f98040):
+ * `changed` (the prescribing team put it on hold, cancelled, corrected, edited or resumed it after it was sent),
+ * `sent_elsewhere` (sent to another facility's pharmacy instead), or `other` when pharmacy-api marked it withdrawn but
+ * sent no reason this page knows. Null when it is not withdrawn. An item already dispensed is never withdrawn.
+ */
+export type WithdrawnReason = 'changed' | 'sent_elsewhere' | 'other'
+
+export function withdrawnReasonOf(item: Pick<PharmacyWorkItem, 'withdrawn' | 'withdrawnReason' | 'dispensing'>): WithdrawnReason | null {
+  if (item.withdrawn !== true || item.dispensing) return null
+  return item.withdrawnReason === 'changed' || item.withdrawnReason === 'sent_elsewhere' ? item.withdrawnReason : 'other'
+}
+
+/** The words of the contract's screen notes (0133): who withdrew it, on the card and the record. */
+export const WITHDRAWN_TITLE: Readonly<Record<WithdrawnReason, string>> = {
+  changed: 'Changed or stopped by the prescribing team',
+  sent_elsewhere: 'Sent to another pharmacy by the prescribing team',
+  other: 'Withdrawn by the prescribing team',
+}
+
+/** What follows, on the record, where Dispense would be. */
+export const WITHDRAWN_TEXT: Readonly<Record<WithdrawnReason, string>> = {
+  changed: 'The prescriber or a colleague put this prescription on hold, cancelled, corrected, edited or resumed it after it '
+    + 'was sent, so it can’t be dispensed here. If treatment is to continue, the prescriber writes a new prescription.',
+  sent_elsewhere: 'The prescribing team sent this prescription to another facility’s pharmacy before it was dispensed '
+    + 'here, so it can’t be dispensed here. That pharmacy dispenses it.',
+  other: 'The prescribing team withdrew this prescription before it was dispensed, so it can’t be dispensed here.',
+}
 
 /**
  * Today's order of precedence (staff/routes/Operations.tsx PharmacyAction): a reversed dispensing, then a dispensing,
- * then work Pharmacy refused to dispense (known only once a dispensing was refused), else accepted.
+ * then work withdrawn by the prescribing team (0133), then work Pharmacy refused to dispense (known only once a
+ * dispensing was refused), else accepted.
  */
 export function statusOf(item: PharmacyWorkItem, undispensable: boolean): PharmacyStatus {
-  return item.dispensing?.reversed ? 'reversed' : item.dispensing ? 'dispensed' : undispensable ? 'not dispensable' : 'accepted'
+  return item.dispensing?.reversed ? 'reversed' : item.dispensing ? 'dispensed' : withdrawnReasonOf(item) ? 'withdrawn'
+    : undispensable ? 'not dispensable' : 'accepted'
 }
 
 /** The design has one badge; only work that can't be dispensed is marked apart. */
@@ -25,9 +56,9 @@ export function statusTone(status: PharmacyStatus): EhrBadgeTone {
   return status === 'not dispensable' ? 'critical' : 'brand'
 }
 
-/** A status's tone in the shared map: dispensed done, reversed ended, not dispensable stopped, accepted waiting. */
+/** A status's tone in the shared map: dispensed done, reversed and withdrawn ended, not dispensable stopped, accepted waiting. */
 export function queueTone(status: PharmacyStatus): Tone {
-  return status === 'not dispensable' ? 'danger' : status === 'dispensed' ? 'success' : status === 'reversed' ? 'neutral' : 'brand'
+  return status === 'not dispensable' ? 'danger' : status === 'dispensed' ? 'success' : status === 'reversed' || status === 'withdrawn' ? 'neutral' : 'brand'
 }
 
 /** A dose's number as written on a label: a leading zero before a decimal point ("0.5", never ".5"). */
@@ -115,8 +146,9 @@ export function notDispensableText(item: PharmacyWorkItem): string {
 export type PharmacyTab = 'todo' | 'payment' | 'dispensed' | 'all'
 
 export function inTab(tab: PharmacyTab, item: PharmacyWorkItem): boolean {
-  if (tab === 'todo') return !item.dispensing
-  if (tab === 'payment') return !item.dispensing && billOwing(billOf(item))
+  // Work withdrawn by the prescribing team (0133) can never be dispensed: it is listed with the done work, in All.
+  if (tab === 'todo') return !item.dispensing && !withdrawnReasonOf(item)
+  if (tab === 'payment') return !item.dispensing && !withdrawnReasonOf(item) && billOwing(billOf(item))
   if (tab === 'dispensed') return Boolean(item.dispensing && !item.dispensing.reversed)
   return true
 }
@@ -128,7 +160,7 @@ export function inTab(tab: PharmacyTab, item: PharmacyWorkItem): boolean {
  * one (proposed hid-system 0107); with none, the order is first come, first served, as before.
  */
 export function queueOrder(items: readonly PharmacyWorkItem[], undispensable: (id: string) => boolean): PharmacyWorkItem[] {
-  const rank = (item: PharmacyWorkItem) => item.dispensing ? 2 : doseMissing(item) || undispensable(item.id) ? 1 : 0
+  const rank = (item: PharmacyWorkItem) => item.dispensing || withdrawnReasonOf(item) ? 2 : doseMissing(item) || undispensable(item.id) ? 1 : 0
   const time = (item: PharmacyWorkItem) => Date.parse(item.acceptedAt) || 0
   return items.map((item, index) => ({ item, index }))
     .sort((a, b) => rank(a.item) - rank(b.item) || urgencyRank(a.item.priority) - urgencyRank(b.item.priority)
@@ -152,7 +184,8 @@ export function labelText(item: PharmacyWorkItem, form: string): string | null {
 
 /** A status as a dispenser says it, on the badge: work waiting is "To dispense". Never colour alone. */
 export function statusWord(status: PharmacyStatus): string {
-  return status === 'accepted' ? 'To dispense' : status === 'not dispensable' ? 'Not dispensable' : status === 'dispensed' ? 'Dispensed' : 'Reversed'
+  return status === 'accepted' ? 'To dispense' : status === 'not dispensable' ? 'Not dispensable' : status === 'dispensed' ? 'Dispensed'
+    : status === 'withdrawn' ? 'Withdrawn' : 'Reversed'
 }
 
 /**
