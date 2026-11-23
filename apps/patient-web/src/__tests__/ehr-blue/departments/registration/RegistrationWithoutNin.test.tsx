@@ -4,7 +4,7 @@ import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
 import {
-  isChild, offersWithoutNin, withoutNinInput, withoutNinProblems, type WithoutNinForm,
+  isChild, offersWithoutNin, withoutNinFirst, withoutNinInput, withoutNinProblems, type WithoutNinForm,
 } from '../../../../ehr-blue/departments/registration/withoutNin'
 import { emptyDeskForm } from '../../../../ehr-blue/collected/deskFields'
 
@@ -29,8 +29,10 @@ const api = vi.hoisted(() => ({
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
 
 const WRITE = 'identity.registration.write'
+const APPROVE = 'identity.registration.approve'
 const CASE = 'c0000000-0000-4000-8000-000000000031'
 const PATIENT = 'a0000000-0000-4000-8000-000000000031'
+const LISTED = 'a0000000-0000-4000-8000-000000000032'
 const REASONS = ['nin_service_unavailable', 'no_nin', 'not_carried', 'child', 'foreign_national']
 /** What the live backend (identity-api 4c843270) answers while NIN checks are off. */
 const NIN_OFF = {
@@ -89,6 +91,16 @@ describe('the list while NIN checks are off', () => {
     expect(screen.queryByText(OLD_DEAD_END)).toBeNull()
   })
 
+  it('names only the button there is: Create record opens the form without a NIN straight away', async () => {
+    renderDept(<PatientRegistration />)
+    expect(await screen.findByText('NIN checks are not available right now. You can still register a new patient without a NIN: '
+      + 'choose Create record. Their record will show NIN Not Verified.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    const drawer = within(await screen.findByRole('dialog'))
+    expect(await drawer.findByRole('heading', { name: 'Register without a NIN' })).toBeTruthy()
+    expect(drawer.queryByRole('button', { name: 'Register without a NIN' })).toBeNull()
+  })
+
   it('keeps the dead end only where Identity takes no registration without a NIN', async () => {
     api.registrationCapabilities.mockResolvedValue(NEITHER)
     renderDept(<PatientRegistration />)
@@ -114,6 +126,34 @@ describe('Register without a NIN', () => {
     const drawer = await openNew()
     expect(await drawer.findByLabelText(/^NIN \(11 digits\)/)).toBeTruthy()
     expect(drawer.queryByRole('heading', { name: 'Register without a NIN' })).toBeNull()
+  })
+
+  it('offers registration without a NIN next to the NIN form while NIN checks work, for a child or someone with no NIN', async () => {
+    api.registrationCapabilities.mockResolvedValue(NIN_ON)
+    api.registerWithoutNin.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, outcome: 'registered',
+      identityEvidence: 'none', ninStatus: 'not_verified', replayed: false, patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
+    api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
+      identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
+    const drawer = await openNew()
+    await drawer.findByLabelText(/^National Identity Number/)
+    // Not the notice for NIN checks being off: they work.
+    expect(drawer.queryByText(/NIN checks are not available/)).toBeNull()
+    fireEvent.click(drawer.getByRole('button', { name: 'Register without a NIN' }))
+    const heading = drawer.getByRole('heading', { name: 'Register without a NIN' })
+    expect(document.activeElement).toBe(heading)
+    expect(drawer.queryByLabelText(/^National Identity Number/)).toBeNull()
+    expect(drawer.queryByText(/NIN checks are not available/)).toBeNull()
+    // And back to the NIN form.
+    fireEvent.click(drawer.getByRole('button', { name: 'Check a NIN instead' }))
+    expect(drawer.getByLabelText(/^National Identity Number/)).toBeTruthy()
+    fireEvent.click(drawer.getByRole('button', { name: 'Register without a NIN' }))
+    fill({ first: 'Child', last: 'Two', dob: '2020-03-04', reason: 'child', contact: false })
+    await register()
+    expect(api.registerWithoutNin).toHaveBeenCalledTimes(1)
+    expect(api.registerWithoutNin.mock.calls[0]![1]).toEqual({ firstName: 'Child', lastName: 'Two', dateOfBirth: '2020-03-04',
+      noNinReason: 'child', hasExistingHealthId: false })
+    expect(api.resolveNin).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Registration for Child Two' })).toBeTruthy()
   })
 
   it('sends the details with an Idempotency-Key, and opens the registered patient’s record as NIN Not Verified', async () => {
@@ -237,12 +277,16 @@ describe('the rules before sending', () => {
     ...overrides,
   })
 
-  it('offers it only while NIN checks are off and Identity takes it', () => {
+  it('offers it whenever Identity takes it, as the new form itself only while NIN checks are off', () => {
     expect(offersWithoutNin(NIN_OFF)).toBe(true)
-    expect(offersWithoutNin(NIN_ON)).toBe(false)
+    expect(offersWithoutNin(NIN_ON)).toBe(true)
     expect(offersWithoutNin(NEITHER)).toBe(false)
     expect(offersWithoutNin({ nin: { enabled: false, state: 'deferred' }, newPatientRegistrationRequiresNin: true })).toBe(false)
     expect(offersWithoutNin(null)).toBe(false)
+    expect(withoutNinFirst(NIN_OFF)).toBe(true)
+    expect(withoutNinFirst(NIN_ON)).toBe(false)
+    expect(withoutNinFirst(NEITHER)).toBe(false)
+    expect(withoutNinFirst(null)).toBe(false)
   })
 
   it('counts a child as under 18 on the day', () => {
@@ -269,5 +313,142 @@ describe('the rules before sending', () => {
     expect(withoutNinInput(form({ gender: 'female' }))).toMatchObject({ gender: 'female', hasExistingHealthId: false })
     expect(withoutNinInput(form())).not.toHaveProperty('existingHealthId')
     expect(withoutNinInput(form())).not.toHaveProperty('gender')
+  })
+})
+
+/*
+ * Deciding a registration without a NIN (0130 identity.review_patient_without_nin): an approver other than the person who
+ * started it gives a new Health ID or links a listed patient. The NIN case's rule ("a new Health ID cannot be given once a
+ * possible match has been found") is not this one's, and would push an approver to put two people on one record.
+ */
+describe('a registration without a NIN, as an approver reads it', () => {
+  const NO_NIN_REVIEW = { caseId: CASE, status: 'review_required', version: 3, candidateCount: 1, identityEvidence: 'none',
+    ninStatus: 'not_verified', candidates: [{ patientId: LISTED, fullName: 'Patient Four', dateOfBirth: '1990-01-02' }] }
+  /** identity-api ReviewedWithoutNin: no candidateCount, no candidates. */
+  const decided = (status: string, patientId: string, hid: string) => ({ caseId: CASE, status, version: 4, identityEvidence: 'none',
+    ninStatus: 'not_verified', replayed: false, patient: { patientId, hid } })
+  const NEEDS_NIN = 'A patient account can be set up once the patient’s NIN has been checked.'
+
+  beforeEach(() => { session.permissions = [WRITE, APPROVE] })
+
+  async function findCase() {
+    renderDept(<PatientRegistration />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    return screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
+  }
+  const actions = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+  const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
+  async function decide(name: string, reason: string) {
+    fireEvent.click(within(actions()).getByRole('button', { name }))
+    const form = screen.getByRole('form', { name })
+    fireEvent.change(within(form).getByRole('textbox'), { target: { value: reason } })
+    await act(async () => { fireEvent.click(within(form).getByRole('button', { name })) })
+  }
+
+  it('with a listed patient: offers a new Health ID and the link, and never says a new one cannot be given', async () => {
+    api.registrationCase.mockResolvedValue(NO_NIN_REVIEW)
+    api.approveNewRegistration.mockResolvedValue(decided('approved_new_identity', PATIENT, 'HID-ZDEMAAB3'))
+    await findCase()
+    expect(document.body.textContent).not.toMatch(/cannot be given/)
+    expect(screen.queryByText(/Only a listed patient may be linked/)).toBeNull()
+    expect(screen.getByText('This may be someone already registered. Link them only if they are the same person. '
+      + 'Otherwise give them a new Health ID.')).toBeTruthy()
+    expect(within(savedRecord()).getByText('Patient Four')).toBeTruthy()
+    expect(within(actions()).getByRole('button', { name: 'Link selected patient' })).toBeTruthy()
+    await decide('Give a new Health ID', '  Not the same person: a twin seen today  ')
+    expect(api.approveNewRegistration).toHaveBeenCalledTimes(1)
+    const [facility, item, reason, key] = api.approveNewRegistration.mock.calls[0]!
+    expect(facility).toBe(DEMO_HOSPITAL_ID)
+    expect(item).toMatchObject({ caseId: CASE, version: 3 })
+    expect(reason).toBe('Not the same person: a twin seen today')
+    expect(key).toMatch(/^[0-9a-f-]{36}$/)
+    expect(api.linkExistingRegistration).not.toHaveBeenCalled()
+    await waitFor(() => expect(within(savedRecord()).getByText('Health ID').nextElementSibling?.textContent).toBe('HID-ZDEMAAB3'))
+    expect(screen.getAllByText('A new Health ID was approved.').length).toBeGreaterThan(0)
+  })
+
+  it('with nobody listed (it matched another registration waiting for review): offers a new Health ID, not "an approver will decide"', async () => {
+    api.registrationCase.mockResolvedValue({ ...NO_NIN_REVIEW, candidateCount: 0, candidates: [] })
+    api.approveNewRegistration.mockResolvedValue(decided('approved_new_identity', PATIENT, 'HID-ZDEMAAB3'))
+    await findCase()
+    expect(screen.queryByText(/will decide/)).toBeNull()
+    expect(screen.queryByText(/possible matches could not be shown/)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/cannot be given/)
+    expect(screen.getByText(/the same person as another registration waiting for review\. Give them a new Health ID only if/)).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Link selected patient' })).toBeNull()
+    expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
+    await decide('Give a new Health ID', 'No existing patient is the same person')
+    expect(api.approveNewRegistration).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, expect.objectContaining({ caseId: CASE, version: 3 }),
+      'No existing patient is the same person', expect.any(String))
+  })
+
+  it.each([
+    ['REGISTRATION_REVIEW_SECOND_PERSON_REQUIRED', 403, 'Another approver must decide this registration, because you started it.'],
+    ['REGISTRATION_CASE_ALREADY_DECIDED', 409, 'This registration has already been decided. Refresh it to see the decision.'],
+  ])('says Identity’s %s refusal of the decision in plain words', async (code, status, words) => {
+    api.registrationCase.mockResolvedValue({ ...NO_NIN_REVIEW, candidateCount: 0, candidates: [] })
+    api.approveNewRegistration.mockRejectedValue(new HidApiError(status, 'Identity’s own text', { code }))
+    await findCase()
+    await decide('Give a new Health ID', 'No existing patient is the same person')
+    const form = screen.getByRole('form', { name: 'Give a new Health ID' })
+    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe(words))
+    expect(document.body.textContent).not.toContain('Identity’s own text')
+  })
+
+  it('started on this visit by an approver: waits for another approver, and offers no decision', async () => {
+    api.registerWithoutNin.mockResolvedValue({ caseId: CASE, status: 'review_required', version: 1, outcome: 'sent_for_review',
+      identityEvidence: 'none', ninStatus: 'not_verified', replayed: false })
+    api.registrationCase.mockResolvedValue({ ...NO_NIN_REVIEW, version: 1, candidates: [] })
+    await openNew()
+    await screen.findByRole('heading', { name: 'Register without a NIN' })
+    fill()
+    await register()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Registration for Patient One' })).toBeTruthy()
+    expect(screen.getByText(/^Sent for review\. This may be someone who is already registered/)).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Give a new Health ID' })).toBeNull()
+    expect(within(actions()).getByText('Nothing else to do here.')).toBeTruthy()
+  })
+
+  it('after a link, still says how many possible matches there were', async () => {
+    api.registrationCase.mockResolvedValue(NO_NIN_REVIEW)
+    api.linkExistingRegistration.mockResolvedValue(decided('linked_existing', LISTED, 'HID-ZDEMAAB4'))
+    await findCase()
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Link selected patient' }))
+    const form = screen.getByRole('form', { name: 'Link selected patient' })
+    fireEvent.change(within(form).getByRole('combobox'), { target: { value: LISTED } })
+    fireEvent.change(within(form).getByRole('textbox'), { target: { value: 'Same person: confirmed with the patient' } })
+    await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Link selected patient' })) })
+    expect(api.linkExistingRegistration).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, expect.objectContaining({ caseId: CASE, version: 3 }),
+      LISTED, 'Same person: confirmed with the patient', expect.any(String))
+    await waitFor(() => expect(within(savedRecord()).getByText('Health ID').nextElementSibling?.textContent).toBe('HID-ZDEMAAB4'))
+    expect(within(savedRecord()).getByText('Possible matches').nextElementSibling?.textContent).toBe('1 possible existing patient.')
+    expect(screen.queryByText('No possible existing patients reported.')).toBeNull()
+  })
+
+  it('registered without a NIN: offers no patient account, and says when one can be set up', async () => {
+    api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
+      identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
+    await findCase()
+    expect(within(actions()).queryByRole('button', { name: 'Enroll patient account' })).toBeNull()
+    expect(within(actions()).getByText(NEEDS_NIN)).toBeTruthy()
+    expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
+    expect(api.enrollRegistration).not.toHaveBeenCalled()
+  })
+
+  it('a NIN case’s enrollment refused as PATIENT_ENROLLMENT_CONFLICT is said in its own words, not as "changed somewhere else"', async () => {
+    api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
+      identityEvidence: 'nin', ninStatus: 'verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
+    api.enrollRegistration.mockRejectedValue(new HidApiError(409, 'Registration or account state changed', { code: 'PATIENT_ENROLLMENT_CONFLICT' }))
+    await findCase()
+    expect(within(actions()).queryByText(NEEDS_NIN)).toBeNull()
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Enroll patient account' }))
+    const form = screen.getByRole('form', { name: 'Enroll patient account' })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Patient email' }), { target: { value: 'patient.one@example.test' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Enrollment reason' }), { target: { value: 'Patient asked for an account' } })
+    await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Create pending patient account' })) })
+    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('A patient account could not be set up for this '
+      + 'registration. The patient may already have one, or their NIN has not been checked. Refresh this registration before trying again.'))
+    expect(document.body.textContent).not.toMatch(/changed somewhere else|account state changed/)
   })
 })

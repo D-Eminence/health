@@ -46,3 +46,30 @@ describe('registerWithoutNin', () => {
       hasExistingHealthId: true, existingHealthId: 'HID-ABC234', purpose: 'healthcare-operations' })
   })
 })
+
+describe('approveNewRegistration on a registration without a NIN', () => {
+  it('posts the case version, the reason and the purpose: identity-api ApproveRegistrationCaseDto, which it answers as create_new', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    const sent: Array<{ url: string; method: string; headers: Headers; body: unknown }> = []
+    const caseId = 'c0000000-0000-4000-8000-0000000000e2'
+    const answer = { caseId, status: 'approved_new_identity', version: 4, identityEvidence: 'none', ninStatus: 'not_verified',
+      replayed: false, patient: { patientId: 'a0000000-0000-4000-8000-0000000000e2', hid: 'HID-ZDEMAAB3' } }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push({ url: String(input), method: init?.method ?? 'GET', headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) })
+      return new Response(JSON.stringify(answer), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    const { setStaffSessionReady } = await import('../staff/session')
+    setStaffSessionReady(true)
+    const { staffApi } = await import('../staff/api')
+    await staffApi.approveNewRegistration(FACILITY, { caseId, status: 'review_required', version: 3, candidateCount: 1,
+      identityEvidence: 'none', ninStatus: 'not_verified' }, 'Not the same person: a twin seen today', KEY)
+    expect(sent).toHaveLength(1)
+    const [request] = sent
+    expect(new URL(request!.url).pathname).toBe(`/api/v1/identity/registration-cases/${caseId}/approve-new`)
+    expect(request!.method).toBe('POST')
+    expect(request!.headers.get('X-Facility-ID')).toBe(FACILITY)
+    expect(request!.headers.get('X-Purpose-Of-Use')).toBe('healthcare-operations')
+    expect(request!.headers.get('Idempotency-Key')).toBe(KEY)
+    expect(request!.body).toEqual({ expectedVersion: 3, reason: 'Not the same person: a twin seen today', purpose: 'healthcare-operations' })
+  })
+})

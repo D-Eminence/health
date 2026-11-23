@@ -87,9 +87,12 @@ export const CAPABILITY_FAILED = 'We couldn’t check whether NIN checks are wor
 export const NIN_OFF_TITLE = 'NIN checks are off'
 /** Only where Identity offers no registration without a NIN either (a backend before hid-system 0130). */
 export const NIN_NOT_ENABLED = 'New registrations can’t start until they’re back on.'
-/** NIN checks are off and Identity takes a registration without a NIN (hid-system 0130): the desk is pointed to it. */
-/** Said under NIN_OFF_TITLE, so it does not say again that NIN checks are off. */
-export const NIN_OFF_WITHOUT_NIN = 'You can still register a new patient without a NIN: choose Create record, then Register without a NIN. Their record will show NIN Not Verified.'
+/**
+ * NIN checks are off and Identity takes a registration without a NIN (hid-system 0130): the desk is pointed to it.
+ * Said under NIN_OFF_TITLE, so it does not say again that NIN checks are off. Create record then opens the form
+ * without a NIN straight away, so no other control is named.
+ */
+export const NIN_OFF_WITHOUT_NIN = 'You can still register a new patient without a NIN: choose Create record. Their record will show NIN Not Verified.'
 /** The same, on the new form itself, above the form it points to. */
 export const NIN_OFF_FORM_NOTICE = 'NIN checks are not available right now, so this patient is registered without a NIN. Their record will show NIN Not Verified.'
 
@@ -123,6 +126,13 @@ export const CASE_CREATED_RELOAD = 'NIN checked. Refresh to see the result.'
 // ---- Register without a NIN (hid-system 0130, owner Q106; identity-api nin-registration.controller.ts) ----------
 
 export const WITHOUT_NIN_TITLE = 'Register without a NIN'
+/**
+ * While NIN checks work, the NIN form stays first and this choice sits next to it: a child or someone with no NIN is
+ * still registered (docs/INTERFACE_CONTRACT.md ID-2 offers it whenever withoutNin.enabled is true).
+ */
+export const CHOOSE_WITHOUT_NIN = 'Register without a NIN'
+export const CHOOSE_WITHOUT_NIN_TEXT = 'No NIN, or the patient is a child without one? Register them without a NIN.'
+export const CHOOSE_NIN = 'Check a NIN instead'
 export const WITHOUT_NIN_TEXT = 'Enter the patient’s name and date of birth as they give them, and why they are registered without a NIN. If nobody already registered could be the same person, the patient is registered straight away. Otherwise an approver at this facility reviews it first.'
 export const REASON_LABEL = 'Why is there no NIN?'
 export const SELECT_REASON = 'Choose a reason'
@@ -139,6 +149,16 @@ export const WITHOUT_NIN_RELOAD = 'The registration was saved, but it could not 
 export const WITHOUT_NIN_FAILED = 'The patient could not be registered. Check the details and try again.'
 /** On the record of a registration without a NIN that waits for an approver who did not start it. */
 export const SENT_FOR_REVIEW_NOTICE = 'Sent for review. This may be someone who is already registered. An approver at this facility, other than the person who started it, will decide.'
+/**
+ * The same registration for an approver who may decide it (0130 identity.review_patient_without_nin: a new Health ID,
+ * or a link to a listed patient, by someone other than the person who started it). Never REVIEW_NOTICE, which is true
+ * of a NIN case only: linking someone who is not the same person would put two people on one record.
+ */
+export const WITHOUT_NIN_REVIEW_NOTICE = 'This may be someone already registered. Link them only if they are the same person. Otherwise give them a new Health ID.'
+/** As above, with nobody listed: it matched another registration waiting for review, or Identity lists nobody to this viewer. */
+export const WITHOUT_NIN_UNLISTED_NOTICE = 'This may be someone already registered, or the same person as another registration waiting for review. Give them a new Health ID only if you are sure they are not already registered.'
+/** The decision for a registration without a NIN (approve-new, which Identity answers as create_new). */
+export const GIVE_NEW_HID = 'Give a new Health ID'
 export const NIN_FACT = 'NIN'
 export const ninStatusText = (status: NonNullable<RegistrationCase['ninStatus']>) => (status === 'verified' ? 'NIN Verified' : 'NIN Not Verified')
 
@@ -214,6 +234,19 @@ export const REVIEW_REASON_REFUSED = 'Enter a review reason between 8 and 500 ch
 export const APPROVED = 'New Health ID created.'
 export const LINKED = 'Linked to the existing patient.'
 export const REVIEW_FAILED = 'That didn’t save. Refresh and try again.'
+/** identity-api registration-without-nin.service.ts translateReview, by code: plain words, never Identity's own text. */
+const REVIEW_REFUSALS: Readonly<Record<string, string>> = {
+  REGISTRATION_REVIEW_SECOND_PERSON_REQUIRED: 'Another approver must decide this registration, because you started it.',
+  REGISTRATION_CASE_ALREADY_DECIDED: 'This registration has already been decided. Refresh it to see the decision.',
+}
+
+/** A case decision's refusal in plain words, or REVIEW_FAILED. */
+export function reviewErrorText(caught: unknown): string {
+  if (caught instanceof HidApiError && Object.prototype.hasOwnProperty.call(REVIEW_REFUSALS, caught.code)) {
+    return REVIEW_REFUSALS[caught.code]!
+  }
+  return safeError(caught, REVIEW_FAILED)
+}
 
 /** Registration.tsx 199, 207, 210, 295-298: "No phone or app? Create their account". */
 export const ENROLL_TITLE = 'Create their account'
@@ -225,6 +258,22 @@ export const ENROLLING = 'Creating…'
 export const ENROLL_REFUSED = 'Enter a valid email and an enrollment reason between 8 and 500 characters.'
 export const ENROLLED = 'Account created. The patient will get an email to set their password.'
 export const ENROLL_FAILED = 'We couldn’t create the account. They may already have one.'
+/**
+ * In place of enrollment on a completed registration whose NIN was not checked (a registration without a NIN, hid-system
+ * 0130): identity.enroll_registered_patient (0032) sets up an account only for a verified NIN, so none is offered.
+ */
+export const ENROLL_NEEDS_NIN = 'A patient account can be set up once the patient’s NIN has been checked.'
+/**
+ * 409 PATIENT_ENROLLMENT_CONFLICT (identity-api nin-registration.service.ts enroll): the patient has an account already,
+ * the case changed, or its NIN is not a checked one. Not the shared "changed somewhere else" words, which name one cause.
+ */
+export const ENROLL_CONFLICT = 'A patient account could not be set up for this registration. The patient may already have one, or their NIN has not been checked. Refresh this registration before trying again.'
+
+/** An enrollment's refusal in plain words, or ENROLL_FAILED. */
+export function enrollErrorText(caught: unknown): string {
+  if (caught instanceof HidApiError && caught.code === 'PATIENT_ENROLLMENT_CONFLICT') return ENROLL_CONFLICT
+  return safeError(caught, ENROLL_FAILED)
+}
 export const enrolledText = (hid: string) => `Account created for ${hid}. They’ll get an email to finish.`
 
 // ---- The design's words (design/ehr-target src/workflows.tsx, catalog.ts) -------------------------------------

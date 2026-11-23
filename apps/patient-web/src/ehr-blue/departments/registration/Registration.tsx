@@ -21,8 +21,8 @@ import { deskControlId } from '../../collected/DeskFields'
 import { ninCheckProblem, useNinHold, useStillChecking } from '../../../ninCheck'
 import {
   APPROVE_PERMISSION, APPROVED, CAPABILITY_FAILED, CANDIDATE_REFUSED, CASE_CREATED, CASE_CREATED_RELOAD, CASE_ID_REFUSED,
-  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_DETAILS_FIELD, NIN_NUMBER_FIELD, NIN_REFUSED, REGISTRATION_WORK,
-  REVIEW_FAILED, REVIEW_REASON_REFUSED, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
+  CASE_LOAD_FAILED, COMPLETED, ENROLL_REFUSED, ENROLLED, enrollErrorText, LINKED, NAME_DATE_REFUSED, NIN_DETAILS_FIELD, NIN_NUMBER_FIELD, NIN_REFUSED,
+  REGISTRATION_WORK, REVIEW_REASON_REFUSED, reviewErrorText, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
 } from './registrationText'
 import './registration.css'
 
@@ -294,7 +294,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   }
 
   /**
-   * hid-system 0130 (owner Q106): register the patient without a NIN, while NIN checks are off. Registered at once when
+   * hid-system 0130 (owner Q106): register the patient without a NIN, whenever Identity takes one. Registered at once when
    * nobody already registered could be the same person, otherwise sent for an approver's review; either way the case
    * opens, as after a NIN check.
    */
@@ -371,12 +371,14 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         ? await staffApi.approveNewRegistration(facilityId, registration, reason, key)
         : await staffApi.linkExistingRegistration(facilityId, registration, patientId, reason, key)
       if (!live.current) return
-      remember(result)
+      // The answer is laid over the case as it was read: a decision on a registration without a NIN answers without its
+      // possible matches (identity-api ReviewedWithoutNin), which the record still shows.
+      remember({ ...registration, ...result })
       setMessage(action === 'approve' ? APPROVED : LINKED)
       setFocusRequest({ ifLost: true })
       reviewKey.clear()
     } catch (caught) {
-      if (live.current) setError({ text: safeError(caught, REVIEW_FAILED), at: action })
+      if (live.current) setError({ text: reviewErrorText(caught), at: action })
     } finally { if (live.current) setBusy(false) }
   }
 
@@ -407,7 +409,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       setMessage(ENROLLED)
       setFocusRequest({ ifLost: true })
     } catch (caught) {
-      if (live.current) setError({ text: safeError(caught, ENROLL_FAILED), at: 'enroll' })
+      if (live.current) setError({ text: enrollErrorText(caught), at: 'enroll' })
     } finally { if (live.current) setBusy(false) }
   }
 
