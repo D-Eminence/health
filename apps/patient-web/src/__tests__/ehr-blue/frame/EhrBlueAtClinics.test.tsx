@@ -159,7 +159,8 @@ describe('at a clinic, with the clinic switch on', () => {
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
 
     fireEvent.click(screen.getByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
-    // The workspace opens again at the facility chosen, on the same page, with no patient open.
+    // The workspace opens again at the facility chosen, on the same page, with no patient open: the patient's page,
+    // where Find a patient lands for every role, never the chart (owner decision Q139 B, 23 Nov; parity 13d).
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
     expect(where()).toBe('/provider/patients/open')
     expect(screen.getByText('Choose a patient first.')).toBeDefined()

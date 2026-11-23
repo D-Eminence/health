@@ -20,13 +20,14 @@ import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
 import { opensInProduct, productOf } from '../../frame/product'
 import { segmentOf } from '../parts/segments'
-import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
-import { CLOSE_REFUSALS } from '../emergency/access'
+import {
+  ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId,
+} from '../consent/access'
+import { readReportedHealth } from '../parts/reportedHealth'
 import type { ActivePatient } from '../../../staff/App'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import { AllergiesCard } from './AllergiesCard'
 
-export const CLOSED_NOTICE = 'closed'
 /** Said where a lab's or a pharmacy's site hides every next step: those pages are the hospital EHR's alone. */
 export const ON_HOSPITAL_EHR = 'Charts, visits and emergency access are on the Hospital EHR.'
 
@@ -79,7 +80,7 @@ type ReportedHealth =
  */
 function useReportedHealth(chart: Chart): ReportedHealth | null {
   const { state, permissions } = useClinical()
-  const { facilityId, patientId, purpose } = chart
+  const { facilityId, patientId, purpose, patient } = chart
   const reads = purpose === 'direct-care' && permissions.includes('ehr.note.read')
   const actorId = state.status === 'ready' ? state.session.actor.id : ''
   const [revision, setRevision] = useState(0)
@@ -90,7 +91,9 @@ function useReportedHealth(chart: Chart): ReportedHealth | null {
     if (!reads) return
     const controller = new AbortController()
     // Run as a promise, as today's component does, so that a read that throws at once is this row's failure, never the page's.
-    void Promise.resolve().then(() => staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)).then(
+    // One read for the open patient, shared with the chart's "Reported by the patient" (parts/reportedHealth.ts), so
+    // opening the patient and then the chart logs one view of their record, as today's chart alone did. A retry reads afresh.
+    void Promise.resolve().then(() => readReportedHealth(patient, facilityId, patientId, { fresh: revision > 0 })).then(
       profile => {
         if (!controller.signal.aborted) setReported(profile ? { scope, status: 'shown', profile } : { scope, status: 'hidden' })
       },
@@ -101,7 +104,7 @@ function useReportedHealth(chart: Chart): ReportedHealth | null {
       },
     )
     return () => controller.abort()
-  }, [reads, scope, facilityId, patientId])
+  }, [reads, scope, facilityId, patientId, patient, revision])
 
   // An answer for an earlier scope (or retry) is never shown: until this one answers, there is no row.
   const current = reads && reported?.scope === scope ? reported : null
@@ -157,14 +160,23 @@ function ageOf(dateOfBirth: string | undefined): string {
  * (Open chart), the next steps, and this facility's visits.
  */
 export function PatientPage() {
+  const { activePatient } = useClinical()
+  // Closing the grant here keeps the page, as today's Close my grant keeps Patients (Patients.tsx:239-248): it says
+  // so, and focus goes to what it says, as the button that had it is gone.
+  const [closed, setClosed] = useState(0)
+  const said = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => { if (closed) said.current?.focus() }, [closed])
   return (
     <div className="flex flex-col gap-5">
-      <ChartGate allowEmergency>{current => <PatientRecord chart={current} />}</ChartGate>
+      <div ref={said} tabIndex={-1} role="status" className="outline-none empty:hidden">
+        {closed && !activePatient ? <Alert intent="success" live={false}>{ACCESS_CLOSED}</Alert> : null}
+      </div>
+      <ChartGate allowEmergency>{current => <PatientRecord chart={current} onClosed={() => setClosed(value => value + 1)} />}</ChartGate>
     </div>
   )
 }
 
-function PatientRecord({ chart }: { chart: Chart }) {
+function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
@@ -186,6 +198,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
   const reported = useReportedHealth(chart)
 
+  /** Today's closeGrant (Patients.tsx:239-248), its words and its refusals: the page stays and says so. */
   async function closeGrant() {
     if (!grantId || closeUnavailable || ending) return
     setEnding(true)
@@ -193,13 +206,13 @@ function PatientRecord({ chart }: { chart: Chart }) {
     try {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setError(plainErrorText(caught, 'Couldn’t end your access. Please try again.', { codes: CLOSE_REFUSALS, audience: 'facility' }))
+      setError(plainErrorText(caught, CLOSE_FAILED, { audience: 'facility' }))
       return
     } finally {
       setEnding(false)
     }
     setActivePatient(null)
-    navigate(href(), { state: { notice: CLOSED_NOTICE } })
+    onClosed()
   }
 
   /**
@@ -266,10 +279,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
           {reported ? <ReportedByPatient reported={reported} /> : null}
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
-            {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Close my grant and the emergency
-                summary's End emergency access: a refused close leaves focus on it, and a second press sends nothing. */}
+            {/* Today's Close my grant (Patients.tsx:252). Busy (aria-busy), it stays focusable (aria-disabled, not disabled),
+                as today's: a refused close leaves focus on it, and a second press sends nothing. */}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-              aria-busy={ending || undefined} aria-disabled={ending || undefined} onClick={() => void closeGrant()}>End my access</Button>
+              aria-busy={ending || undefined} aria-disabled={ending || undefined} onClick={() => void closeGrant()}>Close my grant</Button>
           </div> : null}
         </Card>
       </div>
@@ -281,7 +294,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
         {/* Read only, said once: the chart's own sentence, with no step to ask for more (owner, 10 Nov 2026). */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice}</Alert> : null}
-        {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
+        {/* Today's failure has no title of its own (Patients.tsx:246, 271). */}
+        {error ? <Alert intent="error">{error}</Alert> : null}
         {/* Allergies, recorded by clinicians and reported by the patient, each labelled (hid-system 0117; patient-reported only before it). */}
         {!emergency ? <AllergiesCard chart={chart} /> : null}
 

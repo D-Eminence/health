@@ -38,7 +38,7 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     tips: [
       'On the patient’s page: Open chart for their consultations, Start a consultation, or Record vitals.',
       'Ask about this patient answers questions from their record, within your access.',
-      'End my access closes the record when you’ve finished.',
+      'Close my grant closes the record when you’ve finished.',
     ],
   },
   registration: {

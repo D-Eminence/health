@@ -8,7 +8,8 @@ import { failureText } from '../parts/chart'
 import type { FieldErrors, FormValues } from '../parts/RecordForm'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
-  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
+  COMMAND_FAILED, HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem,
+  offeredHealthId,
 } from './access'
 import { SCOPE_LABELS } from './requests'
 
@@ -19,6 +20,8 @@ export const REQUEST_TITLE = 'Ask the patient for access'
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
 /** Patients.tsx:184. */
 export const REQUEST_SENT = 'Access request sent. The patient must approve it before records are available.'
+/** Patients.tsx:258, today's sentence above the request's fields. */
+export const REQUEST_LEDE = 'Ask the patient to approve access. A pending request does not expose their record.'
 
 function text(values: FormValues, key: string): string {
   const value = values[key]
@@ -40,9 +43,10 @@ type Scope = 'read_records' | 'write_records'
 const ORDER = ['hid', 'scope', 'reason'] as const
 type Key = (typeof ORDER)[number]
 
-const SCOPES: ReadonlyArray<{ value: Scope; label: string; hint: string }> = [
-  { value: 'read_records', label: SCOPE_LABELS.read_records, hint: 'View only' },
-  { value: 'write_records', label: SCOPE_LABELS.write_records, hint: 'For notes, vitals and orders' },
+/** Today's two scopes, named only (Patients.tsx:258): no hint under either. */
+const SCOPES: ReadonlyArray<{ value: Scope; label: string }> = [
+  { value: 'read_records', label: SCOPE_LABELS.read_records },
+  { value: 'write_records', label: SCOPE_LABELS.write_records },
 ]
 
 /**
@@ -109,7 +113,8 @@ export function RequestAccess() {
       setMessage(REQUEST_SENT)
       setSent(value => value + 1)
     } catch (caught) {
-      setFormError(failureText(caught, 'The request couldn’t be sent. Please try again.'))
+      // Today's words for a request that failed (Patients.tsx:226), and the chart's words for an unknown Health ID.
+      setFormError(failureText(caught, COMMAND_FAILED))
     } finally {
       sending.current = false
       setBusy(false)
@@ -120,7 +125,7 @@ export function RequestAccess() {
   const describe = (key: Key, hint?: boolean) => [errors[key] ? `${id}-${key}-error` : hint ? `${id}-${key}-hint` : ''].filter(Boolean).join(' ') || undefined
 
   return (
-    <FormPage title={REQUEST_TITLE} description="They approve on their phone. You see nothing until they do."
+    <FormPage title={REQUEST_TITLE} description={REQUEST_LEDE}
       back={{ to: href(), label: 'Back to access requests' }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
@@ -137,8 +142,7 @@ export function RequestAccess() {
                 scope === option.value ? 'bg-brand-soft ring-brand-line' : 'bg-surface ring-line-control')}>
                 <input id={index === 0 ? `${id}-scope` : undefined} type="radio" name={`${id}-scope`} value={option.value} checked={scope === option.value}
                   onChange={() => setScope(option.value)} className="mt-0.5 size-4 accent-brand-fill" />
-                <span className="min-w-0"><span className="block text-sm font-medium text-ink">{option.label}</span>
-                  <span className="block text-[12px] text-ink-3">{option.hint}</span></span>
+                <span className="min-w-0 text-sm font-medium text-ink">{option.label}</span>
               </label>)}
             </div>
           </fieldset>
@@ -152,10 +156,11 @@ export function RequestAccess() {
           <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
             {message ? <Alert intent="success" live={false}>{message}</Alert> : null}
           </div>
-          {formError ? <Alert intent="error" title="Couldn’t send the request">{formError}</Alert> : null}
+          {/* Today's error has no title of its own (Patients.tsx:271). */}
+          {formError ? <Alert intent="error">{formError}</Alert> : null}
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           <FormActions sticky={false}>
-            {/* Busy, it stays focusable (aria-disabled, not disabled), as Check PIN and open does: focus is not lost while the
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as Verify PIN and open does: focus is not lost while the
                 request is sent, and a second press sends nothing (submit returns while one is on its way). */}
             <Button type="submit" variant="primary" icon={Send} disabled={!facility || unavailable !== null}
               aria-disabled={busy || undefined} aria-busy={busy || undefined}

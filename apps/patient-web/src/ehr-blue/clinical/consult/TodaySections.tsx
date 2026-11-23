@@ -5,6 +5,7 @@ import { PatientReportedHealth } from '../../../staff/routes/PatientReportedHeal
 import { StaffImportedHistory } from '../../../staff/routes/StaffImportedHistory'
 import { importedRecordsEnabled } from '../../../staff/stagingOnlyFeatures'
 import type { Chart } from '../parts/chart'
+import { readReportedHealth } from '../parts/reportedHealth'
 import { useClinical } from '../parts/Workspace'
 
 /**
@@ -28,7 +29,10 @@ export function TodaySections({ chart }: { chart: Chart }) {
       {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
       {!novu && permissions.includes('ehr.imported-history.read')
         ? <StaffImportedHistory key={`staff-imported-history:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
-      {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={`reported-health:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
+      {/* The patient page's read of it, shared for the open patient (parts/reportedHealth.ts): opening the patient, then the
+          chart, reads and logs it once, as today's chart did. Its retry reads afresh. */}
+      {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={`reported-health:${key}`} facilityId={facility.id} patientId={chart.patientId}
+        read={fresh => readReportedHealth(chart.patient, facility.id, chart.patientId, { fresh })} /> : null}
       {permissions.includes('ehr.note.read') && importedRecordsEnabled() ? (
         <ImportedPatientHistory
           key={`imported-records:${key}`}

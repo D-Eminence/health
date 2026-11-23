@@ -14,7 +14,7 @@ import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, CLOSE_REFUSALS, actionUnavailable } from './access'
+import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
 import { emergencyAllergies, type EmergencyAllergies } from './emergencyAllergies'
 import { ReleasedResults } from './ReleasedResults'
 import { plainErrorText } from '@hid/http'
@@ -352,7 +352,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setCloseError(plainErrorText(caught, CLOSE_FAILED, { codes: CLOSE_REFUSALS, audience: 'facility' }))
+      setCloseError(plainErrorText(caught, CLOSE_FAILED, { audience: 'facility' }))
       return
     } finally {
       closing.current = false
@@ -381,7 +381,8 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
               ? <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button> : null}
           </div>
           {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
-          {closeError ? <Alert intent="error" title="Couldn’t end access">{closeError}</Alert> : null}
+          {/* Today's failure has no title of its own (Patients.tsx:246, 271). */}
+          {closeError ? <Alert intent="error">{closeError}</Alert> : null}
         </div>
       </Card>
       {loading && !summary ? <Card><LoadingRows rows={3} label={LOADING_SUMMARY} /></Card> : null}
