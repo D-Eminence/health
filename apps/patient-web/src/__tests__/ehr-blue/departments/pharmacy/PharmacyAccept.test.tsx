@@ -5,7 +5,7 @@ import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
-  accepted, ALL, AMOXICILLIN, dispensed, facts, METFORMIN, PRESCRIPTIONS, READ, recorded, reversed, row, SALBUTAMOL, showTab, Where,
+  accepted, ALL, AMOXICILLIN, dispensed, facts, METFORMIN, PRESCRIPTIONS, recorded, reversed, row, SALBUTAMOL, showTab, Where,
 } from './fixtures'
 
 /**
