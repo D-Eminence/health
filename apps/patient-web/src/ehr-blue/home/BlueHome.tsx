@@ -171,6 +171,10 @@ export function BlueHome() {
     demo ? <StatCard key="created" icon={Users} tone="brand" label="Patients registered" value={sampleRecords('patients').length} hint="Sample · last 7 days" /> : null,
   ].filter(Boolean)
 
+  // The card below carries the read error in classic's words (Dashboard.tsx:272), so the Alert above keeps only its
+  // title and Try again when the card is there, and the message shows once.
+  const requestsCard = Boolean(facility && readsRequests && opens('requests'))
+
   return <div className="flex flex-col gap-8">
     <PageHeader title={`${greeting()}, ${firstName}`} description={`What needs you at ${facility?.name ?? 'your facility'} today.`}
       actions={canFind ? <Button to="/provider/patients" variant="primary" icon={Search}>Find a patient</Button> : undefined} />
@@ -183,7 +187,7 @@ export function BlueHome() {
         <section className="flex flex-col gap-3" aria-labelledby="ehr-home-attention">
           <SectionHeader id="ehr-home-attention" title="Needs attention" count={attention.length} />
           {access.state === 'failed' && <Alert intent="error" title="Couldn’t load access requests"
-            action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{access.message}</Alert>}
+            action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{requestsCard ? null : access.message}</Alert>}
           {attention.length === 0
             ? checking ? <Card><LoadingRows rows={1} label="Loading what needs attention" /></Card>
               : allClear ? <EmptyState compact icon={ShieldCheck} title="All clear" description={clearDescription} />
@@ -213,6 +217,14 @@ export function BlueHome() {
 
         {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
         {facility ? <FacilityCheckCard facility={facility} /> : null}
+        {/* Today's Overview card, always there for a session that reads access requests, 0 pending included, with its
+            loading and read-error words (classic Dashboard.tsx:272). */}
+        {requestsCard ? <Card aria-label="Access requests">
+          <CardHeader as="h2" title="Access requests" icon={ShieldAlert} />
+          <p className="m-0 px-5 pb-2 text-sm text-ink-2">{access.state === 'ready' ? `${access.pending} pending request${access.pending === 1 ? '' : 's'}`
+            : access.state === 'failed' ? access.message : 'Loading requests…'}</p>
+          <div className="px-5 pb-4"><Button to="/provider/requests" variant="link" size="sm" iconRight={ChevronRight}>Review requests</Button></div>
+        </Card> : null}
         {facility && usesNovuBackend() && incomingHere.services.length > 0
           ? <IncomingOrdersCard facility={facility} services={incomingHere.services} unsure={incomingHere.unsure} sure={incomingHere.sure} /> : null}
         {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')

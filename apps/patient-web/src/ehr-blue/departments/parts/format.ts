@@ -16,6 +16,9 @@ export function birthDateText(value: string | null | undefined) {
   return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/** "24 Aug 2026", for a calendar day the server names ("2026-08-24"), as a date of birth is written. */
+export const dayText = birthDateText
+
 /** A count with its noun: "1 order", "3 orders". */
 export function countText(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`

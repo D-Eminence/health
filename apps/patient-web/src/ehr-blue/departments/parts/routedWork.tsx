@@ -16,6 +16,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom } from '../../../cannotCompleteServed'
 import { DeptEmbedded } from './DeptEmbedded'
 import { DeptNotice } from './DeptNotice'
+import { dayText } from './format'
 
 /*
  * Work from orders other facilities sent, as today's Laboratory and Pharmacy pages
@@ -57,6 +58,15 @@ export function WorkListCap({ count, children }: { readonly count: number; reado
   if (count < WORK_LIST_CAP) return null
   return <><DeptNotice>This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</DeptNotice>
     {children}</>
+}
+
+/**
+ * Q123 A (hid-system #298): which finished work a lab or pharmacy list holds, from its `since` (kept by the client only
+ * when it is a real date). Nothing from a backend that sends none, so today's answers show as before.
+ */
+export function WorkListSince({ since }: { readonly since: string | undefined }) {
+  const day = since ? dayText(since) : ''
+  return day ? <p className="hid-ehr-dept-muted">Showing open work, and finished work received since {day}.</p> : null
 }
 
 /** A list's refresh: focusable while its read runs (aria-busy), when a second press does nothing. */

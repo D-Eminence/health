@@ -95,7 +95,10 @@ export function SharedWithYouCard({ facilityId, permissions, openUnavailable, bu
     try {
       await staffApi.acceptShareInvitation(facilityId, item.invitationId)
       withdraw(item.invitationId)
-      setAccepted('Accepted. The patient confirms next, then they appear here with Open.')
+      // Classic's sentence (SharedPatients.tsx:128), with the reference: the share-invitation reference is one staff and
+      // patients read to each other, left on screen by the owner (docs/LOG.md, IDs on screen), and this row shows it too.
+      setAccepted(`You accepted invitation ${item.reference || 'to share'}. The patient must now confirm before you can open their `
+        + 'record. Once they do, they appear under Shared with you.')
     } catch (caught) {
       if (isHidApiError(caught) && ['SHARE_INVITATION_NOT_FOUND', 'SHARE_INVITATION_NOT_PENDING'].includes(caught.code)) withdraw(item.invitationId)
       setError(acceptProblem(caught))
@@ -132,7 +135,9 @@ export function SharedWithYouCard({ facilityId, permissions, openUnavailable, bu
           <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
             <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-soft text-violet-ink"><Mail className="size-4" /></span>
             <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">Invitation{item.reference ? ` ${item.reference}` : ''} · waiting for you</span>
-              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · open until {shareDay(item.expiresAt)}</span></span>
+              {/* Who it was sent to and when, as classic says them (SharedPatients.tsx:150-152). */}
+              {item.inviteeName ? <span className="block truncate text-[12px] text-ink-3">To {item.inviteeName}</span> : null}
+              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · sent {shareDay(item.createdAt)} · open until {shareDay(item.expiresAt)}</span></span>
             <Badge size="sm" tone="violet">{shareLevelLabel(item.level) ?? item.level}</Badge>
             <Button size="sm" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
               aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'} onClick={() => void accept(item)}>
