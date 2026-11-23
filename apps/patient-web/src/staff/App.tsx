@@ -38,6 +38,7 @@ import { dropExpiredClaimCodes, forgetOutreachTab, halfTypedRegistrationFor, rem
 import { NoSignalBanner } from '../ehr-blue/departments/outreach/noSignal'
 import { clearOutreachSnapshot, clearOutreachSnapshotUnlessFor, readOutreachSnapshot, touchOutreachSnapshot, type OutreachSnapshot } from '../ehr-blue/departments/outreach/offlineStart'
 import { offeredHere, otherStaffSites, siteElsewhere, siteHref, siteOf, sitesThisLoginOpens, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
+import { closePrintTabs } from '../print/printPaper'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -328,6 +329,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         startStaffSessionGeneration()
         startPeriod()
         away.current = null
+        // A patient's paper left open in its own PDF tab goes with the session.
+        closePrintTabs()
         setState({ status: 'ended', session: null, reason: staffSessionEndReason(sentIn) })
         setLock(null)
         announceStaffSessionChange()
@@ -511,6 +514,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       // with the last session's facts: "No signal" mode.
       const snapshot = !endsStaffSession(error) && (noConnection(error) || healthIdUnavailable(error)) ? readOutreachSnapshot() : null
       if (endsStaffSession(error)) {
+        closePrintTabs()
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
       } else if (snapshot) {
         setState({ status: 'offline', session: null, snapshot })
@@ -640,6 +644,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // And what outreach kept for this tab: health checks not saved, a registration half typed, a Health ID code step, the
     // group chosen.
     forgetOutreachTab()
+    // And any paper left open in its own PDF tab (Safari, an iPhone or iPad: printPaper.ts).
+    closePrintTabs()
     // So do Outreach's offline facts (offlineStart.ts): nothing opens "No signal" mode after a sign-out.
     clearOutreachSnapshot()
     startStaffSessionGeneration()

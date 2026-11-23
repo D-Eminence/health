@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const paperPdf = vi.fn<(root: Element, options: { size: string; title: string }) => Promise<Blob>>()
 vi.mock('../../print/paperPdf', () => ({ paperPdf: (root: Element, options: { size: string; title: string }) => paperPdf(root, options) }))
 
-const { printReceipt, receiptFor, startPrint } = await import('../../print/printPaper')
+const { closePrintTabs, printReceipt, receiptFor, startPrint } = await import('../../print/printPaper')
 
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
 const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15'
@@ -99,6 +99,36 @@ describe('Safari and every browser on an iPhone or iPad: a PDF in a new tab', ()
     // A second run (React's development double effect) makes no second PDF.
     job.run(root, done)
     expect(paperPdf).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+
+  it('closes the PDF’s tab at sign-out, and when this page goes, so no paper is left open on a shared computer', async () => {
+    browser(SAFARI)
+    vi.spyOn(window, 'print').mockImplementation(() => {})
+    paperPdf.mockResolvedValue(new Blob(['%PDF-1.3'], { type: 'application/pdf' }))
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:https://ehr.example.test/1f2e3d4c'), revokeObjectURL: vi.fn() }))
+    const printed = async () => {
+      const tab = fakeTab()
+      tab.close.mockImplementation(() => { tab.closed = true })
+      vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+      const done = vi.fn()
+      startPrint({ size: 'slip', kind: 'Health ID slip' }).run(paper(), done)
+      await vi.waitFor(() => expect(done).toHaveBeenCalledOnce())
+      expect(tab.location.replace).toHaveBeenCalled()
+      expect(tab.close).not.toHaveBeenCalled()
+      return tab
+    }
+    const first = await printed()
+    const second = await printed()
+    closePrintTabs()
+    expect(first.close).toHaveBeenCalledOnce()
+    expect(second.close).toHaveBeenCalledOnce()
+    // Once closed, it is let go: a later sign-out has nothing left to close.
+    closePrintTabs()
+    expect(first.close).toHaveBeenCalledOnce()
+    const third = await printed()
+    window.dispatchEvent(new Event('pagehide'))
+    expect(third.close).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
   })
 

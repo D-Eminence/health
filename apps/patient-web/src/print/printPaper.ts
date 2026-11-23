@@ -14,6 +14,10 @@ import { printsAddressAnyway } from './printEngine'
  * Health ID, and its address is a blob: address of random letters, made and kept on this device and let go after a
  * few minutes. Where no tab may open, or the PDF cannot be made, the page prints itself after all, with real page
  * margins so every page keeps its margin there too.
+ *
+ * A PDF on screen stays there after its address is let go, so this page keeps hold of every tab it opened and closes
+ * them all when someone signs out or the session ends (closePrintTabs, from staff/App.tsx), and when this page itself
+ * goes: the next person at a shared computer never finds a patient's paper left open.
  */
 
 export interface PaperPrint {
@@ -32,6 +36,19 @@ const logger = createLogger({ minLevel: 'warn', baseContext: { app: 'patient-web
 
 /** How long the PDF's blob: address lasts once the tab has it. */
 const PDF_ADDRESS_MS = 3 * 60 * 1000
+
+/** The tabs this page opened for a paper's PDF, still open as far as it knows. */
+const printTabs = new Set<Window>()
+
+/** Closes every tab this page opened for a paper's PDF: at sign-out, when the session ends, and when this page goes. */
+export function closePrintTabs(): void {
+  for (const tab of printTabs) {
+    try { if (!tab.closed) tab.close() } catch { /* already gone */ }
+  }
+  printTabs.clear()
+}
+
+if (typeof window !== 'undefined') window.addEventListener('pagehide', closePrintTabs)
 
 /** The margin a page keeps when the browser prints the page itself with page margins (a WebKit browser with no tab). */
 const PAGE_MARGIN_MM: Readonly<Record<PaperSize, number>> = { A4: 14, A5: 10, A6: 8, slip: 5 }
@@ -123,6 +140,7 @@ function pdfPrint(paper: PaperPrint, tab: Window): PrintJob {
       if (started) return () => {}
       started = true
       if (!root) {
+        printTabs.delete(tab)
         tab.close()
         done()
         return () => {}
@@ -137,6 +155,7 @@ function pdfPrint(paper: PaperPrint, tab: Window): PrintJob {
         })
         .catch((error: unknown) => {
           logger.warn('A paper could not be made into a PDF; the page prints itself.', { reason: error instanceof Error ? error.name : 'unknown' })
+          printTabs.delete(tab)
           if (!tab.closed) tab.close()
           pagePrint(paper, true).run(root, done)
         })
@@ -154,6 +173,7 @@ export function startPrint(paper: PaperPrint): PrintJob {
   let tab: Window | null = null
   try { tab = window.open('', '_blank') } catch { tab = null }
   if (!tab) return pagePrint(paper, true)
+  printTabs.add(tab)
   try { tab.opener = null } catch { /* the tab keeps no hold on this page either way */ }
   return pdfPrint(paper, tab)
 }

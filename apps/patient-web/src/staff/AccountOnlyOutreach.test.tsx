@@ -10,6 +10,12 @@ import { ORGANISER_TERMS_VERSION } from '../outreachTerms'
  * arrives there keeps today's "No facility assignment". Every account and facility here is fictional.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// The PDF tabs a paper was printed into (Safari, an iPhone or iPad: printPaper.ts) close when the staff member signs out.
+const printTabs = vi.hoisted(() => ({ closed: 0 }))
+vi.mock('../print/printPaper', async importOriginal => ({
+  ...await importOriginal<Record<string, unknown>>(),
+  closePrintTabs: () => { printTabs.closed += 1 },
+}))
 
 const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
 const servedFrom = window.location.href
@@ -109,6 +115,16 @@ describe('a staff login with no facility yet (Q88)', () => {
     await open(hostname, '/provider/start-outreach-group')
     expect(await screen.findByRole('heading', { level: 1, name: 'No facility assignment' }, { timeout: 5000 })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Start an outreach group' })).toBeNull()
+  })
+
+  it('closes any paper left open in its own PDF tab when the staff member signs out', async () => {
+    const calls = serve({ 'GET /api/v1/auth/session': [() => session()],
+      [AVAILABILITY]: [() => json({ open: true, termsVersion: ORGANISER_TERMS_VERSION })], 'POST /api/v1/auth/logout': [() => new Response(null, { status: 204 })] })
+    await open('outreach.healthidentitydirectory.com', '/provider/start-outreach-group')
+    const before = printTabs.closed
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }, { timeout: 5000 }))
+    await waitFor(() => expect(calls.some(call => call.route === 'POST /api/v1/auth/logout')).toBe(true))
+    await waitFor(() => expect(printTabs.closed).toBe(before + 1))
   })
 
   it('keeps today\'s screen for a platform administrator with no facility, even on outreach.', async () => {

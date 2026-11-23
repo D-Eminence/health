@@ -1,5 +1,5 @@
 import type { jsPDF } from 'jspdf'
-import { LEAST_MARGIN_MM, PT_PER_PX, PX_PER_MM, pageOf, pageSizePx, pageStarts, yOnPage, type PaperSize, type Span } from './paperPages'
+import { LEAST_MARGIN_MM, PT_PER_PX, PX_PER_MM, pageHeadings, pageOf, pageSizePx, pageStarts, yOnPage, type Heading, type PaperSize, type Span } from './paperPages'
 import { printCssText } from './printCss'
 import { pdfText } from '../ehr-blue/departments/outreach/outreachExportFiles'
 
@@ -37,7 +37,7 @@ const IMAGE_WAIT_MS = 4000
 
 type Colour = readonly [number, number, number]
 
-interface TextRun {
+export interface TextRun {
   readonly kind: 'text'
   readonly text: string
   readonly left: number
@@ -80,10 +80,17 @@ interface Box {
 
 type Mark = TextRun | Picture | Box
 
+/** A table's heading row, and its marks (marks[from] up to marks[to]), to draw again on each later page of the table. */
+interface TableHeading extends Heading {
+  readonly from: number
+  readonly to: number
+}
+
 /** What the paper holds, read from its layout: the marks to draw, and what must not be cut between pages. */
 interface Reading {
   readonly marks: Mark[]
   readonly whole: Span[]
+  readonly headings: TableHeading[]
   readonly marginTop: number
   readonly marginBottom: number
   readonly width: number
@@ -103,11 +110,32 @@ const base64Of = (dataUrl: string) => dataUrl.slice(dataUrl.indexOf(',') + 1)
 const SUPERSCRIPTS: Readonly<Record<string, string>> = { '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁺': '+', '⁻': '-' }
 
 /**
- * Words as the PDF's font can draw them (pdfText: every Yoruba, Igbo and Hausa letter, ₦; anything else as "?"). A
- * power the font has no raised figure for is written plainly: "×10⁹/L" as "×10^9/L".
+ * Characters a paper may well hold that the PDF's font has no glyph for, written so they keep their meaning rather
+ * than print as "?": a limit's direction ("≤ 5"), a unit's micro (Greek μ, as the micro sign µ the font has), a lowered
+ * figure (T₄, B₁₂, HbA₁c, read as T4, B12, HbA1c), a minus sign, a high or low arrow.
+ */
+const PLAIN: Readonly<Record<string, string>> = {
+  '≤': '<=', '≥': '>=', 'μ': 'µ', '−': '-', '℃': '°C', '℉': '°F', '≈': '~',
+  '↑': '(high)', '↓': '(low)', '→': '->', '←': '<-',
+  '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9', '₊': '+', '₋': '-', '₌': '=', '₍': '(', '₎': ')',
+}
+const PLAIN_PATTERN = new RegExp(`[${Object.keys(PLAIN).join('')}]`, 'gu')
+
+/**
+ * A paper's words with every character `PLAIN` lists written plainly, and a power the font has no raised figure for
+ * written as one: "×10⁹/L" as "×10^9/L". The frame lays out these words, so each line is as long as the PDF draws it.
+ */
+export function plainWords(value: string): string {
+  return value.replace(/[⁰⁴-⁹⁺⁻]+/g, power => `^${[...power].map(character => SUPERSCRIPTS[character] ?? character).join('')}`)
+    .replace(PLAIN_PATTERN, character => PLAIN[character] ?? character)
+}
+
+/**
+ * Words as the PDF's font can draw them (pdfText: every Yoruba, Igbo and Hausa letter, ₦; anything else as "?"), from
+ * plainWords; a tab (pre-wrap notes) as a space.
  */
 export function paperText(value: string): string {
-  return pdfText(value.replace(/[⁰⁴-⁹⁺⁻]+/g, power => `^${[...power].map(character => SUPERSCRIPTS[character] ?? character).join('')}`))
+  return pdfText(plainWords(value).replace(/\t/g, ' '))
 }
 
 /** CSS colours as the PDF takes them, read back from a canvas so any colour the browser knows (oklch too) works. */
@@ -225,6 +253,7 @@ async function readPaper(doc: Document, root: HTMLElement, size: PaperSize, page
   const baseline = baselineOf(doc)
   const marks: Mark[] = []
   const whole: Span[] = []
+  const headings: TableHeading[] = []
   const rootBox = root.getBoundingClientRect()
   const rootStyle = view.getComputedStyle(root)
   const least = LEAST_MARGIN_MM * PX_PER_MM
@@ -263,6 +292,12 @@ async function readPaper(doc: Document, root: HTMLElement, size: PaperSize, page
       const code = data.codePointAt(index)!
       const length = code > 0xffff ? 2 : 1
       let character = data.slice(index, index + length)
+      // A tab where white space is kept (pre-wrap notes) ends the run: what follows starts where the layout put it.
+      if (character === '\t' && !collapse) {
+        index += length
+        flush()
+        continue
+      }
       // A tone mark (ẹ̀, ọ́) sits on the letter before it: it joins that letter's run wherever the layout puts its box.
       if (/\p{M}/u.test(character)) {
         index += length
@@ -334,6 +369,7 @@ async function readPaper(doc: Document, root: HTMLElement, size: PaperSize, page
       }
       return
     }
+    const markedFrom = marks.length
     if (box.height > 0 && box.width > 0) {
       const edge = (side: 'Top' | 'Right' | 'Bottom' | 'Left'): Edge | null => {
         const width = px(style.getPropertyValue(`border-${side.toLowerCase()}-width`))
@@ -369,6 +405,14 @@ async function readPaper(doc: Document, root: HTMLElement, size: PaperSize, page
       }
     }
     await readChildren(element, style)
+    if (style.display === 'table-header-group' && box.height > 0) {
+      // A table's heading row, drawn again at the top of each later page its rows run on to; kept on the page of the
+      // table's first row.
+      const table = element.closest('table') ?? element.parentElement
+      headings.push({ top: box.top, bottom: box.bottom, end: table?.getBoundingClientRect().bottom ?? box.bottom, from: markedFrom, to: marks.length })
+      const firstRow = table?.querySelector(':scope > tbody > tr')
+      if (firstRow) keepWhole({ top: box.top, bottom: firstRow.getBoundingClientRect().bottom })
+    }
   }
 
   const readChildren = async (element: Element, style: CSSStyleDeclaration) => {
@@ -381,29 +425,82 @@ async function readPaper(doc: Document, root: HTMLElement, size: PaperSize, page
   await Promise.all(pictures)
   const width = size === 'slip' ? Math.max(rootBox.right, 1) : pageSizePx(size).width
   const height = size === 'slip' ? Math.max(rootBox.bottom, 1) : pageHeight
-  return { marks, whole, marginTop, marginBottom, width, height }
+  return { marks, whole, headings, marginTop, marginBottom, width, height }
+}
+
+type Weight = 'normal' | 'bold'
+
+/**
+ * Noto Sans's tone and accent marks (in its units, 1000 to the em): where the ink of each mark that sits over a letter
+ * is centred, from where it is drawn (its glyph's box), and how much taller a capital is than a small letter (its
+ * OS/2 cap height less x-height). A font places a mark with its own positioning rules, which jsPDF does not read, so
+ * a mark is drawn where a small letter's would be.
+ */
+const MARK_CENTRE: Readonly<Record<Weight, Readonly<Record<string, number>>>> = {
+  normal: { '\u0300': -392.5, '\u0301': -224.5, '\u0302': 2, '\u0303': -307.5, '\u0304': 0.5, '\u0306': 0.5, '\u0307': 0.5, '\u0308': -0.5, '\u030c': 0 },
+  bold: { '\u0300': -390.5, '\u0301': -221.5, '\u0302': -3, '\u0303': -340.5, '\u0304': 0, '\u0306': 11, '\u0307': 1, '\u0308': -1, '\u030c': 8 },
+}
+const CAPITAL_RISE: Readonly<Record<Weight, number>> = { normal: 714 - 536, bold: 714 - 546 }
+
+/** A mark over a capital, drawn on its own: `before` is the run's text ahead of the capital `base`. */
+interface RaisedMark {
+  readonly mark: string
+  readonly before: string
+  readonly base: string
+}
+
+/**
+ * A run's text, less each tone mark over a capital that Unicode has no single letter for (Ọ́, Ẹ̀, Ṣ́: the capital and
+ * the mark), which is drawn on its own, raised and centred over its capital: drawn as it comes, it would sit at a small
+ * letter's height and run into the top of the capital.
+ */
+export function raisedMarks(text: string): { readonly text: string; readonly marks: readonly RaisedMark[] } {
+  let out = ''
+  let base = ''
+  let baseAt = 0
+  const marks: RaisedMark[] = []
+  for (const character of text) {
+    if (character in MARK_CENTRE.normal && /\p{Lu}/u.test(base)) {
+      marks.push({ mark: character, before: out.slice(0, baseAt), base })
+      continue
+    }
+    if (!/\p{M}/u.test(character)) {
+      base = character
+      baseAt = out.length
+    }
+    out += character
+  }
+  return { text: out, marks }
 }
 
 /** jsPDF draws a marker right-aligned to its left edge; everything else from its own left. */
-function drawText(pdf: jsPDF, run: TextRun, y: number) {
-  pdf.setFont(FONT, run.bold ? 'bold' : 'normal')
-  pdf.setFontSize(run.size * PT_PER_PX)
+export function drawText(pdf: jsPDF, run: TextRun, y: number) {
+  const weight: Weight = run.bold ? 'bold' : 'normal'
+  const fontSize = run.size * PT_PER_PX
+  pdf.setFont(FONT, weight)
+  pdf.setFontSize(fontSize)
   pdf.setTextColor(run.colour[0], run.colour[1], run.colour[2])
   const characterSpace = run.letterSpacing * PT_PER_PX
-  const characters = [...run.text].length
   if (run.width === 0) {
     pdf.text(run.text, run.left * PT_PER_PX, y * PT_PER_PX, { baseline: 'alphabetic', align: 'right' })
     return
   }
-  const natural = pdf.getTextWidth(run.text) + characterSpace * characters
+  const { text, marks } = raisedMarks(run.text)
+  const natural = pdf.getTextWidth(text) + characterSpace * [...text].length
   const wanted = run.width * PT_PER_PX
   // As long as the line was laid out: the same font measures the same, so this only evens out rounding.
-  const scale = natural > 0 ? Math.min(1.25, Math.max(0.8, wanted / natural)) : 1
-  pdf.text(run.text, run.left * PT_PER_PX, y * PT_PER_PX, {
+  const fitted = natural > 0 ? Math.min(1.25, Math.max(0.8, wanted / natural)) : 1
+  const scale = Math.abs(fitted - 1) > 0.002 ? fitted : 1
+  pdf.text(text, run.left * PT_PER_PX, y * PT_PER_PX, {
     baseline: 'alphabetic',
     ...(characterSpace ? { charSpace: characterSpace } : {}),
-    ...(Math.abs(scale - 1) > 0.002 ? { horizontalScale: scale } : {}),
+    ...(scale !== 1 ? { horizontalScale: scale } : {}),
   })
+  for (const { mark, before, base } of marks) {
+    const start = run.left * PT_PER_PX + (pdf.getTextWidth(before) + characterSpace * [...before].length) * scale
+    const centre = start + pdf.getTextWidth(base) * scale / 2
+    pdf.text(mark, centre - MARK_CENTRE[weight][mark]! * fontSize / 1000, y * PT_PER_PX - CAPITAL_RISE[weight] * fontSize / 1000, { baseline: 'alphabetic' })
+  }
   if (run.underline) {
     pdf.setDrawColor(run.colour[0], run.colour[1], run.colour[2])
     pdf.setLineWidth(Math.max(0.5, run.size * 0.06) * PT_PER_PX)
@@ -472,8 +569,11 @@ function drawBox(pdf: jsPDF, box: Box, from: number, to: number, place: (y: numb
 
 /** Writes what was read into a PDF, page by page. */
 function writePdf(JsPdf: typeof jsPDF, fonts: readonly [string, string], reading: Reading, title: string, slip: boolean): jsPDF {
-  const { marks, whole, marginTop, marginBottom, width, height } = reading
-  const starts = slip ? [0] : pageStarts(whole, height, marginTop, marginBottom)
+  const { marks, whole, headings, marginTop, marginBottom, width, height } = reading
+  const starts = slip ? [0] : pageStarts(whole, height, marginTop, marginBottom, headings)
+  // The table heading each later page draws again at its top, above the rows it runs on with.
+  const repeated = slip ? [null] : pageHeadings(starts, headings, height, marginTop, marginBottom)
+  const below = (page: number) => { const heading = repeated[page]; return heading ? heading.bottom - heading.top : 0 }
   const pageWidth = width * PT_PER_PX
   const pageHeight = height * PT_PER_PX
   const pdf = new JsPdf({ unit: 'pt', format: [pageWidth, pageHeight], orientation: pageWidth > pageHeight ? 'landscape' : 'portrait', compress: true })
@@ -484,10 +584,18 @@ function writePdf(JsPdf: typeof jsPDF, fonts: readonly [string, string], reading
   pdf.setProperties({ title, creator: 'Health ID' })
   pdf.setDisplayMode('fullpage', 'continuous')
   for (let page = 1; page < starts.length; page += 1) pdf.addPage([pageWidth, pageHeight], pageWidth > pageHeight ? 'landscape' : 'portrait')
-  const place = (page: number) => (y: number) => yOnPage(starts, page, y, marginTop)
+  const place = (page: number) => (y: number) => yOnPage(starts, page, y, marginTop, below(page))
   // What each page shows of the long column: up to where the next page starts, and no further than its foot margin.
   const ends = starts.map((start, page) => slip ? Infinity
-    : Math.min(starts[page + 1] ?? Infinity, start + height - marginBottom - (page === 0 ? 0 : marginTop)))
+    : Math.min(starts[page + 1] ?? Infinity, start + height - marginBottom - (page === 0 ? 0 : marginTop) - below(page)))
+  const drawOne = (mark: TextRun | Picture, at: (y: number) => number) => {
+    if (mark.kind === 'text') {
+      drawText(pdf, mark, at(mark.baseline))
+    } else if (mark.data) {
+      const height = mark.bottom - mark.top
+      pdf.addImage(mark.data, 'PNG', mark.left * PT_PER_PX, at(mark.top) * PT_PER_PX, mark.width * PT_PER_PX, height * PT_PER_PX, undefined, 'FAST')
+    }
+  }
   for (const mark of marks) {
     if (mark.kind === 'box') {
       for (let page = 0; page < starts.length; page += 1) {
@@ -499,13 +607,18 @@ function writePdf(JsPdf: typeof jsPDF, fonts: readonly [string, string], reading
     }
     const page = pageOf(starts, mark.top)
     pdf.setPage(page + 1)
-    if (mark.kind === 'text') {
-      drawText(pdf, mark, place(page)(mark.baseline))
-    } else if (mark.data) {
-      const height = mark.bottom - mark.top
-      pdf.addImage(mark.data, 'PNG', mark.left * PT_PER_PX, place(page)(mark.top) * PT_PER_PX, mark.width * PT_PER_PX, height * PT_PER_PX, undefined, 'FAST')
-    }
+    drawOne(mark, place(page))
   }
+  // Each table heading again, just below the top margin of every later page its table runs on to.
+  repeated.forEach((heading, page) => {
+    if (!heading) return
+    pdf.setPage(page + 1)
+    const at = (y: number) => marginTop + y - heading.top
+    for (const mark of marks.slice(heading.from, heading.to)) {
+      if (mark.kind === 'box') drawBox(pdf, mark, heading.top, heading.bottom, at)
+      else drawOne(mark, at)
+    }
+  })
   pdf.setLineDashPattern([], 0)
   return pdf
 }
@@ -553,6 +666,13 @@ export async function paperPdf(root: Element, { size, title }: PaperPdfOptions):
       new Face(FRAME_FONT, bytesOf(bold.default), { weight: `${BOLD_FROM} 1000` })]
     for (const face of faces) doc.fonts.add(await face.load())
     const paper = doc.importNode(copy, true) as HTMLElement
+    // The words as the PDF draws them (plainWords), so the frame lays out each line as long as it will be.
+    const words = doc.createTreeWalker(paper, NodeFilter.SHOW_TEXT)
+    for (let node = words.nextNode(); node; node = words.nextNode()) {
+      const text = node as Text
+      const plain = plainWords(text.data)
+      if (plain !== text.data) text.data = plain
+    }
     doc.body.appendChild(paper)
     await doc.fonts.ready
     const reading = await readPaper(doc, paper, size, page.height)

@@ -13,7 +13,8 @@
  * it. So in print the header's ink is black, and in dark theme every line is black on no background.
  *
  * Safari, and every browser on an iPhone or iPad, prints its own header and footer whatever this asks: there the print
- * buttons make the paper into a PDF instead (src/print/printPaper.ts).
+ * buttons make the paper into a PDF instead (src/print/printPaper.ts), and a sample page, which prints as it is, offers
+ * no Print.
  */
 @page { margin: 0; }
 
