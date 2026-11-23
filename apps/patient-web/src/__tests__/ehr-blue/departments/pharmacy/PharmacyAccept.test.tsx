@@ -201,6 +201,23 @@ describe('pressing Accept', () => {
     }
   })
 
+  it('a slow name read holds nothing back: "Accepted 10:52", focus and the reload at once, the name once it answers', async () => {
+    let answerNames: (value: typeof NAMED) => void = () => {}
+    api.facilityStaffNames.mockReturnValue(new Promise<typeof NAMED>(resolve => { answerNames = resolve }))
+    api.acceptPharmacyWorkItem.mockResolvedValue(ACCEPTED_ANSWER)
+    await openRecord(AMOXICILLIN)
+    api.pharmacyWorkItems.mockResolvedValue({ items: [NOW_ACCEPTED, dispensed, reversed] })
+    await pressAccept()
+    await waitFor(() => expect(recorded()).toBe('Accepted 10:52'))
+    await waitFor(() => expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(document.activeElement?.id).toBe(TITLE))
+    expect(screen.queryByRole('button', { name: 'Saving…' })).toBeNull()
+    await act(async () => { answerNames(NAMED) })
+    await waitFor(() => expect(recorded()).toBe(`Accepted by ${PHARMACIST} 10:52`))
+    expect(api.facilityStaffNames).toHaveBeenCalledTimes(1)
+    expect(document.body.innerHTML).not.toContain(ACCEPTANCE.acceptedByMembershipId)
+  })
+
   it('a member with no name (a deleted login) is "a former staff member"', async () => {
     api.facilityStaffNames.mockResolvedValue(names([{ membershipId: ACCEPTANCE.acceptedByMembershipId, name: null, current: false }]))
     api.acceptPharmacyWorkItem.mockResolvedValue(ACCEPTED_ANSWER)

@@ -7,7 +7,7 @@ import { MoreDetails } from '../../clinical/parts/MoreDetails'
 import { routeLabel } from '../../../plainLabels'
 import { HidApiError, isHidApiError, PlainError } from '@hid/http'
 import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
-import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
+import { staffApi, type PharmacistAcceptance, type PharmacyWorkItem } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
 import { useFieldProblems } from '../../../staff/useFieldProblems'
@@ -238,6 +238,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const acceptPress = useRef(0)
   const [acceptError, setAcceptError] = useState<Failure | null>(null)
   const [acceptedNow, setAcceptedNow] = useState(false)
+  // The acceptance just recorded, said at once; the acceptor's name (SX-9) fills in once read, never held back for it.
+  const [justAccepted, setJustAccepted] = useState<{ acceptance: PharmacistAcceptance | null; already: boolean; at: number } | null>(null)
   // Pharmacy's reason for refusing to take it on (409 withdrawnReason), said in the "Not dispensable" notice.
   const [withdrawnReason, setWithdrawnReason] = useState<string | null>(null)
   const acceptKey = useAttemptKey()
@@ -256,7 +258,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     event.preventDefault()
     // The button stays focusable while the request runs; a second press does nothing.
     if (busy || accepting || asking.current) return
-    setError(null); setSuccess(''); problems.clear()
+    setError(null); setSuccess(''); setJustAccepted(null); problems.clear()
     if (!reverse) {
       const left = steps.find(step => !ticked.has(step.key))
       if (left) return problems.refuse(checklistId, 'Tick each step once it’s done.', `${checklistId}-${left.key}`)
@@ -313,23 +315,23 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
 
   /**
    * Accept (INTERFACE_CONTRACT ORD-4): "Accepted by <name> 10:52", or "Already accepted by <name> 10:52" when someone
-   * had, with the name from SX-9 (staffName; with none, "Accepted 10:52"), then the list is read again. A 409
+   * had, said at once and named from SX-9 when that answers (staffName; with none, "Accepted 10:52"), then the list is
+   * read again; the name read never holds back the line, the focus or the reload. A 409
    * PHARMACY_PRESCRIPTION_NOT_DISPENSABLE says why by its withdrawnReason, then reloads; an answer that could not be read
    * may be recorded, so it reloads too; anything else says Accept's own sentence (acceptFailure) or what Dispense says.
    */
   async function accept() {
     if (accepting || busy) return
-    setAcceptError(null); setError(null); setSuccess('')
+    setAcceptError(null); setError(null); setSuccess(''); setJustAccepted(null)
     setAccepting(true)
     onBusy(true)
     let final = true
     try {
       const answer = await staffApi.acceptPharmacyWorkItem(facilityId, item,
         acceptKey(JSON.stringify([facilityId, item.id, item.version, acceptPress.current])))
-      const acceptance = answer.pharmacistAcceptance
-      const who = acceptance && staffName ? await staffName(acceptance.acceptedByMembershipId) : undefined
+      // Recorded: said now, with the name added when SX-9 answers (justAcceptedBy), so a slow name read holds nothing back.
       setAcceptedNow(true)
-      setSuccess(acceptedText(acceptance, answer.alreadyAccepted === true, Date.now(), who))
+      setJustAccepted({ acceptance: answer.pharmacistAcceptance ?? null, already: answer.alreadyAccepted === true, at: Date.now() })
       focus(title, true)
       await onChanged()
       focus(title, true)
@@ -370,6 +372,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   // Who accepted it, by name, asked only when there is an acceptance to show beside the status.
   const acceptor = useAcceptorName(staffName, item.pharmacyStep === 'accepted' ? item.pharmacistAcceptance?.acceptedByMembershipId : null)
   const step = stepText(item, Date.now(), acceptor)
+  const justAcceptedBy = useAcceptorName(staffName, justAccepted?.acceptance?.acceptedByMembershipId)
+  const statusLine = justAccepted ? acceptedText(justAccepted.acceptance, justAccepted.already, justAccepted.at, justAcceptedBy) : success
   const reversing = opened === 'reverse' && canReverse
   // Point of care: the bill as the payment step last left it (paid or set to follow), else as the work item carries it.
   const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
@@ -614,7 +618,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     </div>
     {sheet}
     {/* Mounted throughout, so what was recorded is announced. */}
-    <div id={`pharmacy-status-${item.id}`} role="status">{success && !done && <p className="hid-ehr-dept-pharmacy-success">{success}</p>}
-      {done ? <span className="sr-only">{success}</span> : null}</div>
+    <div id={`pharmacy-status-${item.id}`} role="status">{statusLine && !done && <p className="hid-ehr-dept-pharmacy-success">{statusLine}</p>}
+      {done ? <span className="sr-only">{statusLine}</span> : null}</div>
   </div>
 }
