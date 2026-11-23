@@ -51,7 +51,7 @@ describe('the bell on landing', () => {
     await openStaffApp('/provider')
     expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
     expect(await screen.findByRole('button', { name: 'Notifications, 2 waiting' })).toBeDefined()
-    expect(await screen.findByRole('link', { name: /^2 access requests waiting/ })).toBeDefined()
+    expect(await screen.findByText('2 pending requests')).toBeDefined()
     // Anything Home or the frame would still ask has had its turn.
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
     expect(reads(sent)).toBe(1)

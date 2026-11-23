@@ -33,7 +33,8 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => session)
 
-const SENT = 'Request sent. The patient must approve before records are available.'
+/** Today's sentence for a request sent (Patients.tsx:184). */
+const SENT = 'Access request sent. The patient must approve it before records are available.'
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.patient-access-pin.verify', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
 
 function request(overrides: Record<string, unknown> = {}) {
@@ -376,16 +377,40 @@ describe('Ask the patient for access (once New external record access)', () => {
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
-  it('sends the request with the chosen scope for 60 minutes, and opens it waiting for the patient', async () => {
+  it('sends the request with the chosen scope for 60 minutes, and says so on the form', async () => {
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: '  Follow-up consultation ' } })
     fireEvent.click(screen.getByRole('radio', { name: /^Can view and add records/ }))
     fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 60))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-    expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()
+    expect(await screen.findByText(SENT)).toBeTruthy()
+  })
+
+  it('parity 22c: stays on the form after a send and says today’s sentence there, with focus on it and no request id', async () => {
+    open('/new')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: SEND }))
+    const said = await screen.findByText(SENT)
+    // Still the form, at its own address (the request's page would be a heading of its own).
+    expect(screen.getByRole('heading', { level: 1, name: 'Ask the patient for access' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { level: 1, name: /^Access request/ })).toBeNull()
+    expect(where()).toBeNull()
+    expect(screen.getByRole('button', { name: SEND })).toBeTruthy()
+    // Focus is on what happened, inside the status region, so a screen reader hears it.
+    const status = said.closest('[role="status"]') as HTMLElement
+    expect(document.activeElement).toBe(status)
+    expect(document.body.textContent).not.toContain(request().accessRequestId)
+    // Today's form keeps what was typed after a send (Patients.tsx:181-184).
+    expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
+    // The next press starts afresh: the sentence goes until that request is sent too.
+    let answer: (value: unknown) => void = () => {}
+    api.requestAccess.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send access request' })) })
+    expect(screen.queryByText(SENT)).toBeNull()
+    await act(async () => { answer(request()) })
+    expect(await screen.findByText(SENT)).toBeTruthy()
   })
 
   it('says a Health ID refused from Enter in its own field as an alert, new for each refusal, and sends nothing', async () => {
@@ -448,33 +473,6 @@ describe('Ask the patient for access (once New external record access)', () => {
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
-  it('confirms a request just sent while its page is read, and when it cannot be read', async () => {
-    // Each read gets its own promise, made when the page asks for it, so none is refused before the page holds it.
-    const fails: Array<(reason: unknown) => void> = []
-    api.listAccessRequests.mockImplementation(() => new Promise((_resolve, reject) => { fails.push(reject) }))
-    open('/new')
-    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
-    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(await screen.findByRole('status', { name: 'Loading this request' })).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-    // The page shows "Loading requests…" before its read is asked for: fail the reads only once one has been.
-    await waitFor(() => expect(fails.length).toBeGreaterThan(0))
-    await act(async () => { for (const fail of fails) fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
-    expect(await screen.findByRole('alert')).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-  })
-
-  it('confirms a request just sent that the list does not hold yet', async () => {
-    api.listAccessRequests.mockResolvedValue([ACTIVE])
-    open('/new')
-    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
-    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-  })
-
   it('shows a refusal from the server and keeps what was typed', async () => {
     api.requestAccess.mockRejectedValue(new HidApiError(404, 'Patient was not found or is not available', { code: 'PATIENT_NOT_FOUND' }))
     open('/new')
@@ -512,7 +510,7 @@ describe('Ask the patient for access (once New external record access)', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.requestAccess).toHaveBeenCalledTimes(1)
     await act(async () => { answer(request()) })
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
+    expect(await screen.findByText(SENT)).toBeTruthy()
   })
 
   it('says in plain words that the role can’t ask patients for access, naming no permission, and offers no submit', () => {

@@ -1,7 +1,6 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { Send } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { FormActions, FormPage } from '../../../kasuwa/parts'
 import { Alert, Button, Card, Field, Input, Textarea, cx } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
@@ -18,6 +17,8 @@ export const REQUEST_MINUTES = 60
 export const REQUEST_TITLE = 'Ask the patient for access'
 /** Patients.tsx:165. */
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
+/** Patients.tsx:184. */
+export const REQUEST_SENT = 'Access request sent. The patient must approve it before records are available.'
 
 function text(values: FormValues, key: string): string {
   const value = values[key]
@@ -46,12 +47,12 @@ const SCOPES: ReadonlyArray<{ value: Scope; label: string; hint: string }> = [
 
 /**
  * "Ask the patient for access" (today's "Request" method). A request waiting for the patient shows nothing of their
- * record; the page goes to the new request. One column, the Health ID handed over from Find a patient already in it.
+ * record. Sent, the form stays and says so, as today's does (Patients.tsx:181-184). One column, the Health ID handed over
+ * from Find a patient already in it.
  */
 export function RequestAccess() {
   const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
-  const navigate = useNavigate()
   const id = useId()
   // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
   const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
@@ -60,6 +61,8 @@ export function RequestAccess() {
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<ReactNode>(null)
+  const [message, setMessage] = useState('')
+  const [sent, setSent] = useState(0)
   const [busy, setBusy] = useState(false)
   const [focusRequest, setFocusRequest] = useState<{ key: Key; n: number } | null>(null)
   // A problem refused from Enter in its own field: focus does not move there, so the field's description would not be
@@ -67,11 +70,14 @@ export function RequestAccess() {
   // staff/useFieldProblems.tsx:12-15,25-27,45); as both it would be spoken twice.
   const [alerted, setAlerted] = useState<{ key: Key; n: number } | null>(null)
   const sending = useRef(false)
+  const status = useRef<HTMLDivElement>(null)
   const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))
   const unavailableId = `${id}-unavailable`
 
   // The first problem gets focus as it is shown.
   useLayoutEffect(() => { if (focusRequest) document.getElementById(`${id}-${focusRequest.key}`)?.focus() }, [focusRequest, id])
+  // A request sent: focus goes to what happened, so it is heard.
+  useLayoutEffect(() => { if (sent) status.current?.focus() }, [sent])
   const clear = (key: Key) => setErrors(current => {
     if (!(key in current)) return current
     const next = { ...current }
@@ -82,7 +88,9 @@ export function RequestAccess() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (sending.current || !facility || unavailable) return
+    // Each press starts afresh, as today's clearFeedback does (Patients.tsx:129,168).
     setFormError(null)
+    setMessage('')
     const found = requestProblems({ hid, scope, reason })
     setErrors(found)
     const first = ORDER.find(key => found[key])
@@ -95,10 +103,11 @@ export function RequestAccess() {
     sending.current = true
     setBusy(true)
     try {
-      const request = await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), REQUEST_MINUTES)
-      navigate(href(request.accessRequestId), {
-        state: { notice: 'Request sent. The patient must approve before records are available.' },
-      })
+      // Said in words: never the request's id (owner rule, IDs on screen; Patients.tsx:182). Today's form keeps what was
+      // typed after a send (Patients.tsx:181-184), so this one does too.
+      await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), REQUEST_MINUTES)
+      setMessage(REQUEST_SENT)
+      setSent(value => value + 1)
     } catch (caught) {
       setFormError(failureText(caught, 'The request couldn’t be sent. Please try again.'))
     } finally {
@@ -140,6 +149,9 @@ export function RequestAccess() {
               onChange={event => { setReason(event.target.value); clear('reason') }} />
           </Field>
 
+          <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
+            {message ? <Alert intent="success" live={false}>{message}</Alert> : null}
+          </div>
           {formError ? <Alert intent="error" title="Couldn’t send the request">{formError}</Alert> : null}
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           <FormActions sticky={false}>

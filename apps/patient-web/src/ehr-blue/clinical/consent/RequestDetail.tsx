@@ -1,6 +1,6 @@
 import { Siren } from 'lucide-react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FormPage, LoadingRows } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, DescriptionList, type Tone } from '../../../kasuwa/ui'
 import { staffApi, type AccessRequest } from '../../../staff/api'
@@ -48,17 +48,13 @@ export function RequestDetail() {
   const { recordId = '' } = useParams()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
-  const location = useLocation()
   const { facility, permissions, activePatient, setActivePatient } = useClinical()
   // Read with the list's Status filter when the request was found through it (one older than the 100 newest is read
   // only so). An active grant's request is approved: it is read as approved, so closing it leaves it on this page.
   const [params] = useSearchParams()
   const filter = statusFilter(params.get('status'))
   const list = useAccessRequests(filter === 'active' ? 'approved' : filter)
-  const [notice, setNotice] = useState(() => {
-    const state: unknown = location.state
-    return state && typeof state === 'object' && 'notice' in state && typeof state.notice === 'string' ? state.notice : ''
-  })
+  const [notice, setNotice] = useState('')
   const [failure, setFailure] = useState('')
   const [ended, setEnded] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -127,8 +123,8 @@ export function RequestDetail() {
   // alert, in place of any list error (AccessRequests.tsx:94-95,118).
   const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
 
-  // A request just sent is confirmed ("Request sent.") even while the list is read, cannot be read, or lacks it. The
-  // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
+  // A closed access is confirmed even while the list is read, cannot be read, or lacks it. The page and its heading stay
+  // the same element while the request loads, so the focus the frame gave the heading stays.
   if (!request) {
     if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>
     return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
