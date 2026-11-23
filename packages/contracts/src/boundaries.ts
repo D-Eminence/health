@@ -232,7 +232,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // takes as not offered). Without these the staff client refuses the calls before they are sent.
       'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck',
       // New consultation's one-call save (EHR-C5; 404 before it, when the page saves with the separate routes).
-      'ehr.consultations'],
+      'ehr.consultations',
+      // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
+      // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

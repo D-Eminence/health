@@ -3261,3 +3261,59 @@ export const orderRoutesApi = {
     client.get<SentWrongPatientOrderRoutes>('/api/v1/ehr/order-routes/wrong-patient',
       { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
 }
+
+/**
+ * The waiting list (hid-system 0135, EHR-C7, INTERFACE_CONTRACT.md): this facility's patients checked in today and
+ * where each is. Front desk, nurses, clinicians and doctors (ehr.encounter.read and ehr.encounter.write); direct care
+ * only. No Health ID in any address, query, body or answer: a patient is checked in by a search card's `matchRef`, or by
+ * the id of a patient already this facility's own, in the body.
+ */
+export const VISIT_QUEUE_STAGES = ['waiting', 'triage', 'ready', 'with_clinician', 'finished', 'left', 'cancelled'] as const
+export type VisitQueueStage = (typeof VISIT_QUEUE_STAGES)[number]
+
+export interface VisitQueueCard {
+  entryId: string
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string
+  stage: VisitQueueStage
+  triageLevel: number | null
+  assignedMembershipId: string | null
+  checkInBasis: 'search' | 'own-facility'
+  checkedInAt: string
+  checkInDay: string
+  stageChangedAt: string
+  closedAt: string | null
+  rowVersion: number
+  chartBlocked: boolean
+  /** hid-system 0145 (ID-7): an unknown patient's record ("Unknown patient U-0007" as fullName). Absent before 0145. */
+  recordKind?: 'standard' | 'unknown'
+  /** hid-system 0145 (ID-7): the date of birth is an estimate (an unknown patient's age). Absent before 0145. */
+  dateOfBirthEstimated?: boolean
+}
+
+export interface VisitQueueList { items: VisitQueueCard[]; hasMore: boolean; limit: number }
+export interface VisitQueueCheckIn { outcome: 'checked_in' | 'already_on_list'; entry: VisitQueueCard }
+export type VisitQueueCheckInBy = { matchRef: string } | { patientId: string }
+/** At least one change; null clears the triage level or the person who will see the patient. */
+export interface VisitQueueChange {
+  stage?: VisitQueueStage
+  triageLevel?: number | null
+  assignedMembershipId?: string | null
+}
+
+export const visitQueueApi = {
+  list: (facilityId: string, includeClosedToday = false) =>
+    client.get<VisitQueueList>('/api/v1/ehr/visit-queue',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+        ...(includeClosedToday ? { query: { includeClosedToday: true } } : {}) }),
+  checkIn: (facilityId: string, patient: VisitQueueCheckInBy) =>
+    client.post<VisitQueueCheckIn>('/api/v1/ehr/visit-queue/check-in',
+      'matchRef' in patient ? { matchRef: patient.matchRef } : { patientId: patient.patientId },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
+  update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
+    client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
+      body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
+}

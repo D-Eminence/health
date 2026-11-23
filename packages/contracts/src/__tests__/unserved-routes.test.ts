@@ -78,6 +78,8 @@ const NOT_ON_MAIN = [
   'outreach.healthIdStart', 'outreach.healthIdConfirm', 'outreach.healthIdCreateUnverified',
   // Release A (0131, 0132): staff patient search, emergency search, and opening this facility's own patient.
   'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
+  // Release A (hid-system 0135 on staging-novu-ci-20261005): the waiting list.
+  'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

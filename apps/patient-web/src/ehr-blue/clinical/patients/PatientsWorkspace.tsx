@@ -19,6 +19,7 @@ import {
   opensOwnFacility, ownFacilityRefusal, useOpenPatient, useOpenedPatientHref, type AccessMethod,
 } from '../consent/access'
 import { NameSearchCard } from './NameSearch'
+import { canUseWaitingList } from '../../departments/waiting/waitingRules'
 import { PinAccess } from '../consent/PinAccess'
 import { PatientPage, accessLabel } from './PatientPage'
 import { SharedWithYouCard } from './SharingCards'
@@ -408,7 +409,8 @@ function PatientList() {
         <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
       </Card>
 
-      {searchesByName ? <NameSearchCard facilityId={facility?.id} registers={registers} busy={busy} onOpen={openFound} /> : null}
+      {searchesByName ? <NameSearchCard facilityId={facility?.id} registers={registers} busy={busy} onOpen={openFound}
+        checksIn={canUseWaitingList(permissions)} /> : null}
 
       {/* Shown only while a patient is open: a section shows only when it has something in it. Today's heading, Open
           link and Close my grant (Patients.tsx:252). */}
