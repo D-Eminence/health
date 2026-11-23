@@ -430,6 +430,28 @@ export interface Encounter {
   rowVersion: number | string
 }
 
+/**
+ * EHR-C5, the one-call consultation (EHR_LIVE_CONTRACT.md "EHR-C5: one-call consultation", hid-system 4c843270
+ * CreateConsultationDto): each part is exactly the body of its own route. `vitals` is left out (New consultation takes
+ * none), and so is `reuseOpenVisit`: the call always saves on the open visit today (EHR-C1).
+ */
+export interface ConsultationInput {
+  visit: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }
+  note?: { noteType: string; title: string; status: string; content: string }
+  diagnoses?: Array<{ codeSystem: string; code: string; display: string; clinicalStatus: string; verificationStatus: string }>
+}
+
+/**
+ * Its `201`: the visit with `reusedOpenVisit` (true when the open visit today was used, which keeps its own complaint),
+ * and each part as its own route answers it; `note` and `vitals` are null and `diagnoses` [] when not sent.
+ */
+export interface ConsultationSaved {
+  encounter: Encounter & { reusedOpenVisit: boolean }
+  note: ClinicalRecord | null
+  vitals: ClinicalRecord | null
+  diagnoses: ClinicalRecord[]
+}
+
 export type RecordKind = 'clinical-notes' | 'vitals' | 'diagnoses' | 'prescriptions' | 'lab-requests'
 
 export interface ClinicalRecord {
@@ -2529,6 +2551,12 @@ export const staffApi = {
       { headers: facilityHeaders(facilityId, 'emergency') }),
   createEncounter: (facilityId: string, patientId: string, input: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }, idempotencyKey?: string) =>
     client.post<Encounter>(patientPath(patientId), input,
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // EHR-C5: the visit, its note and its diagnoses in one call, all or nothing (403 CONSENT_REQUIRED, 409
+  // IDEMPOTENCY_KEY_REUSED and the parts' own refusals; nothing is saved on any of them). A backend before it answers 404.
+  // The caller keeps one key per consultation, so pressing again after no answer replays the same save.
+  createConsultation: (facilityId: string, patientId: string, input: ConsultationInput, idempotencyKey: string) =>
+    client.post<ConsultationSaved>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/consultations`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   updateEncounter: (facilityId: string, patientId: string, encounterId: string,
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
