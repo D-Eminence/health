@@ -98,7 +98,8 @@ describe('Home and the bell: access requests wait for the patient', () => {
     const card = home(PERMISSIONS)
     expect(await within(screen.getByLabelText('Access requests')).findByText('0 pending requests')).toBeDefined()
     expect(card.getByText('All clear')).toBeDefined()
-    expect(card.getByText('No patient open.')).toBeDefined()
+    // The open patient is its own Current patient card (parity report 3.3-55), so it is not named here.
+    expect(card.getByText('Nothing is waiting for you.')).toBeDefined()
     expect(screen.queryByText(/No requests waiting/)).toBeNull()
   })
 
@@ -122,7 +123,8 @@ describe('Home and the bell: access requests wait for the patient', () => {
   it('names only what it checked for a role that reads no requests', () => {
     const card = home(['identity.patient.read'])
     expect(card.getByText('All clear')).toBeDefined()
-    expect(card.getByText('No patient open.')).toBeDefined()
+    // The open patient is its own Current patient card (parity report 3.3-55), so it is not named here.
+    expect(card.getByText('Nothing is waiting for you.')).toBeDefined()
     expect(staffApi.listAccessRequests).not.toHaveBeenCalled()
   })
 })

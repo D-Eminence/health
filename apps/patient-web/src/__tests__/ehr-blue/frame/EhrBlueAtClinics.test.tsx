@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { REAL_FACILITY, accountButton, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt, switchFacilityTo, where } from './blueHarness'
+import { REAL_FACILITY, accountButton, chooseFacility, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt, switchFacilityTo, where } from './blueHarness'
 
 /**
  * Today's session rules, on the blue EHR at a clinic: the clinic switch on (BLUE_FOR_ALL, mocked here) and the real,
@@ -154,11 +154,11 @@ describe('at a clinic, with the clinic switch on', () => {
 
     // Another tab's change: the session read no longer lists Riverside.
     fromAnotherTab()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working?' })).toBeDefined()
     expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeDefined()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
+    chooseFacility('Riverside Annex (fictional)')
     // The workspace opens again at the facility chosen, on the same page, with no patient open: the patient's page,
     // where Find a patient lands for every role, never the chart (owner decision Q139 B, 23 Nov; parity 13d).
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
@@ -173,12 +173,12 @@ describe('at a clinic, with the clinic switch on', () => {
       [FACILITY]: [sessionAt(annex(), [riverside(), annex()], 'selected')],
     })
     await openStaffApp('/provider')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working?' })).toBeDefined()
     expect(screen.getByText(/You work at more than one facility\./)).toBeDefined()
     expect(document.querySelector('.hid-ehr-blue-standalone')).not.toBeNull()
     expect(sent.map(call => call.route)).toEqual([SESSION])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
+    chooseFacility('Riverside Annex (fictional)')
     await expectBlueHome()
     expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined()
     expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: ANNEX }])
@@ -196,10 +196,13 @@ describe('at a clinic, with the clinic switch on', () => {
     // The record has opened (its encounters read): every lookup it makes is in.
     await waitFor(() => expect(sent.some(call => call.route === ENCOUNTERS)).toBe(true))
     const lookups = sent.filter(call => call.route === LOOKUP).length
-    // With a patient open, the sidebar's facility switcher leads to Switch facility, which says the record will close.
-    switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
-    expect(await screen.findByText(/The open patient record will close\./)).toBeDefined()
-    fireEvent.click(await screen.findByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
+    // With a patient open, the sidebar's facility switcher asks in place, as classic's "Working at" did, and says the
+    // record will close (parity report 3.3-49).
+    fireEvent.click(screen.getByRole('button', { name: /^Riverside Teaching Hospital \(fictional\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Riverside Annex (fictional)' }))
+    expect(screen.getByText('You are working at Riverside Teaching Hospital (fictional). Switch to Riverside Annex (fictional)? The open patient record will close.')).toBeDefined()
+    expect(sent.some(call => call.route === FACILITY)).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     // Back on Patients, nothing is open: the search, and no further lookup.

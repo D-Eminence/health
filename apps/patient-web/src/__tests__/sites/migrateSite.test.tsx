@@ -65,10 +65,12 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it('opens Migrate’s Home in place of Patient registration, signed in once the clinic switch is on, on this site', async () => {
+  it('opens Home in place of Patient registration, signed in once the clinic switch is on, on this site', async () => {
     clinic.switchedOn = true
     await openPortalSignedInOn(SITE, '/provider/registration', { id: REAL_FACILITY, name: 'Fictional Records Office' }, EVERY_PERMISSION)
-    await waitFor(() => expect(address()).toBe('/provider/ocr'))
+    await waitFor(() => expect(address()).toBe('/provider'))
+    // Classic's Shell sent such a page to its Overview (staff/App.tsx); blue's Home is that Overview (parity report 3.3-53).
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })).toBeTruthy()
     expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })

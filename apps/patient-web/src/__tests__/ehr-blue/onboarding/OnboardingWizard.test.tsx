@@ -220,7 +220,7 @@ describe('at a real facility, the sample steps and Launch are left out', () => {
     const before = sent.length
     fireEvent.click(home)
     await waitFor(() => expect(where()).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })).toBeDefined()
     // It says nothing of a launch: there was none.
     expect(info).not.toHaveBeenCalled()
     // Whatever Home reads, going there wrote nothing.
@@ -491,7 +491,7 @@ describe('the sample steps send nothing', () => {
 
     // Home, then Facility setup again from the sidebar: a new visit, holding none of the last one's choices.
     fireEvent.click(within(nav()).getByRole('link', { name: 'Home' }))
-    await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })
+    await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })
     // Settings folds once its page is left: opened again from its heading.
     fireEvent.click(within(nav()).getByRole('button', { name: 'Settings' }))
     fireEvent.click(within(nav()).getByRole('link', { name: 'Facility setup' }))
@@ -611,7 +611,7 @@ describe('step 9, Launch, at the demo facilities alone', () => {
     press('Launch facility')
     await waitFor(() => expect(where()).toBe('/provider'))
     expect(info).toHaveBeenCalledWith('Health ID has no launch step yet. Your EHR is already open.')
-    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })).toBeDefined()
     // Whatever Home reads, the launch itself wrote nothing.
     expect(sent.slice(before).every(request => request.route.startsWith('GET '))).toBe(true)
     expect(sent.some(request => /onboarding|launch|setup/i.test(request.route))).toBe(false)
