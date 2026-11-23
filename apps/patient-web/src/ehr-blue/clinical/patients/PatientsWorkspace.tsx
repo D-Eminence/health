@@ -13,7 +13,7 @@ import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, OWN_FACILITY_HINT, OWN_FACILITY_TITLE, actionUnavailable,
+  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, OWN_FACILITY_HINT, OWN_FACILITY_NOT_FOUND, OWN_FACILITY_TITLE, actionUnavailable,
   administratorOf, dropOfferedHealthId, healthIdProblem, isRefusedLookup, lookupRefusal, offerHealthId, opensOwnFacility,
   ownFacilityRefusal, useOpenPatient, type AccessMethod,
 } from '../consent/access'
@@ -250,9 +250,10 @@ function PatientList() {
       if (await openPatient(candidate, 'direct-care', 'own-facility')) navigate(href('open'))
     } catch (caught) {
       const refusal = ownFacilityRefusal(caught)
+      // Here a 404 is a patient this facility can't open (not active, or not allowed here), never an unknown Health ID:
+      // the refused panel stays, with no registration on offer.
       if (isHidApiError(caught) && caught.status === 404 && caught.code === 'PATIENT_NOT_FOUND') {
-        setRefused(null)
-        setUnknown(candidate)
+        setRefused({ hid: candidate, message: OWN_FACILITY_NOT_FOUND })
       } else if (refusal) setRefused({ hid: candidate, message: refusal })
       else if (isRefusedLookup(caught)) setRefused({ hid: candidate, message: lookupRefusal(caught, facility.roles ?? []) })
       else {

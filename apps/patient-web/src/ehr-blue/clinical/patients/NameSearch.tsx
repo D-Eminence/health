@@ -9,12 +9,17 @@ import { SearchCardFacts } from './SearchCards'
 import { noCardText, searchRefusal, today } from './searchWords'
 
 export const NAME_SEARCH_TITLE = 'Search by name'
-export const NAME_SEARCH_DESCRIPTION = 'No Health ID card? Search with their first name, last name and date of birth. Add their phone or Health ID if you have it.'
+/**
+ * Every card opens only with the patient's full Health ID (Identity has no route that opens a direct-care card by its
+ * matchRef), so the search finds the patient and the Health ID is asked for next: it never promises a way in without one.
+ */
+export const NAME_SEARCH_DESCRIPTION = 'Find a patient by their first name, last name and date of birth, then ask them for their Health ID to open their record. Add their phone or Health ID if you have it.'
 export const NAME_SEARCH_EMPTY = 'Enter their first name, last name and date of birth.'
 
 /** What opening a card asks for when the search had no Health ID: the card never carries the full one. */
 export function askHealthIdHint(card: PatientSearchCard): string {
-  return card.healthIdLast4 ? `Ask to see their Health ID card. It ends in ${card.healthIdLast4}.` : 'Ask to see their Health ID card.'
+  const where = 'Ask the patient for their Health ID. It’s on their card or in the Health ID app'
+  return card.healthIdLast4 ? `${where}, and ends in ${card.healthIdLast4}.` : `${where}.`
 }
 
 export function healthIdDoesNotMatch(card: PatientSearchCard): string {
@@ -30,8 +35,8 @@ export function healthIdDoesNotMatch(card: PatientSearchCard): string {
  * Opening a card goes through today's lookup (`onOpen` with a Health ID), so every way in stays the same: an allowed
  * patient opens, a refused one is offered the Access PIN, asking the patient, emergency access and, for doctors, nurses
  * and clinicians, "Open as this facility’s patient". Identity has no route that opens a patient by a direct-care
- * matchRef, so a card opens with the Health ID typed in the search, or else with the Health ID read from the patient's
- * card, checked against the card's last four first.
+ * matchRef, so a card opens with the Health ID typed in the search, or else with the Health ID the patient gives (from
+ * their card or the Health ID app), checked against the card's last four first.
  */
 export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
   facilityId: string | undefined; registers: boolean; busy: boolean; onOpen: (hid: string) => void
@@ -48,6 +53,9 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
   const [answer, setAnswer] = useState<PatientSearchAnswer | null>(null)
   // The complete Health ID the shown answer was searched with: every key must match, so it is each card's.
   const [searchedHid, setSearchedHid] = useState<string | null>(null)
+  // Whether the shown answer was searched with exactly the first name, last name and date of birth (no phone, no
+  // Health ID): only such a search, reaching every facility, may end in "Register a new patient".
+  const [nameAndBirthOnly, setNameAndBirthOnly] = useState(false)
   const sending = useRef(false)
 
   async function search(event: FormEvent<HTMLFormElement>) {
@@ -73,6 +81,7 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
       const found = await staffApi.searchPatients(facilityId, { firstName, lastName, dateOfBirth, phone, healthId: hidGiven ? normalizedHid : undefined })
       setAnswer(found)
       setSearchedHid(hidGiven ? normalizedHid : null)
+      setNameAndBirthOnly(!!firstName.trim() && !!lastName.trim() && !!dateOfBirth && !phone.trim() && !hidGiven)
     } catch (caught) {
       setAnswer(null)
       setError(searchRefusal(caught))
@@ -84,7 +93,11 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
 
   const changed = () => { setProblem(null); setError('') }
   const empty = answer !== null && answer.patients.length === 0
-  const offerRegister = registers && empty && (answer.outcome === 'no_match' || answer.outcome === 'no_such_patient')
+  // Registering is offered only when nobody matched a search of every facility by the first name, last name and date
+  // of birth alone. A search of this facility only, one narrowed by a phone or a Health ID, or a Health ID nobody has
+  // (likely mistyped) could miss a patient who is already registered: the words point to the wider search instead.
+  const searchedEverywhere = answer !== null && answer.outcome === 'no_match' && answer.reach === 'everywhere'
+  const offerRegister = registers && empty && searchedEverywhere && nameAndBirthOnly
   const formProblemId = `${id}-problem`
 
   return (
@@ -124,7 +137,7 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
       <div role="status" className="empty:hidden">
         {error ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] font-medium text-danger-ink">{error}</p> : null}
         {empty ? <div className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-4">
-          <p className="m-0 min-w-0 flex-[1_1_16rem] text-[13px] text-ink-2">{noCardText(answer)}</p>
+          <p className="m-0 min-w-0 flex-[1_1_16rem] text-[13px] text-ink-2">{noCardText(answer, searchedEverywhere && !nameAndBirthOnly)}</p>
           {offerRegister ? <Button variant="primary" icon={UserPlus} to="/provider/registration">Register a new patient</Button> : null}
         </div> : null}
         {answer && answer.patients.length > 0 ? <p className="m-0 border-t border-line px-5 pt-3 text-[13px] text-ink-3">
@@ -139,7 +152,7 @@ export function NameSearchCard({ facilityId, registers, busy, onOpen }: {
 
 /**
  * One card. Open goes straight to today's lookup with the Health ID the search was made with; otherwise it first asks
- * for the Health ID from the patient's card, which must end in the card's last four.
+ * for the patient's Health ID, which must end in the card's last four.
  */
 function FoundPatient({ card, searchedHid, busy, onOpen }: {
   card: PatientSearchCard; searchedHid: string | null; busy: boolean; onOpen: (hid: string) => void

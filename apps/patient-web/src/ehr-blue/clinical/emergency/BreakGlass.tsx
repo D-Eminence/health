@@ -12,7 +12,7 @@ import { patientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { offeredHealthId, dropOfferedHealthId, roleMay } from '../consent/access'
 import { isHidApiError } from '@hid/http'
-import { matchRefExpired, type PatientSearchCard } from '../../../staff/patientSearch'
+import type { PatientSearchAnswer, PatientSearchCard } from '../../../staff/patientSearch'
 import { SEARCH_EXPIRED } from '../patients/searchWords'
 import { CHOOSE_PATIENT, EmergencyNameSearch } from './EmergencySearch'
 import {
@@ -22,7 +22,7 @@ import {
 import { PlainError, plainErrorText } from '@hid/http'
 
 const FIELDS = ['hid', 'reason', 'ack'] as const
-/** Found by name, the reason comes first (the search needs it), then the patient chosen from the search. */
+/** Found by name, the reason comes first (the search needs it), then the patient confirmed from the search. */
 const NAME_FIELDS = ['reason', 'patient', 'ack'] as const
 type FieldKey = (typeof FIELDS)[number] | (typeof NAME_FIELDS)[number]
 type FindBy = 'hid' | 'name'
@@ -66,7 +66,14 @@ export function BreakGlassCard() {
   // The emergency search (0132, ID-3b) for a patient without their Health ID card, to staff who may search in an emergency.
   const searches = roleMay('identity.patientEmergencySearch', 'POST', permissions)
   const [findBy, setFindBy] = useState<FindBy>('hid')
+  // The emergency search's answer, and its one card once the clinician confirmed it is the patient in front of them.
+  const [searchAnswer, setSearchAnswer] = useState<PatientSearchAnswer | null>(null)
   const [chosen, setChosen] = useState<PatientSearchCard | null>(null)
+  // Found by name, Open is offered only for an answer of exactly one card (never a choice between several), and is
+  // enabled only once that card is confirmed.
+  const singleCard = findBy === 'name' && searchAnswer?.patients.length === 1
+  const offersOpen = findBy === 'hid' || singleCard
+  const awaitingConfirm = findBy === 'name' && chosen === null
   const fields: readonly FieldKey[] = findBy === 'name' ? NAME_FIELDS : FIELDS
   const [reason, setReason] = useState('')
   const [ack, setAck] = useState(false)
@@ -111,10 +118,9 @@ export function BreakGlassCard() {
       if (hidProblem) found.hid = hidProblem
     }
     if (reason.trim().length < REASON_MIN) found.reason = REASON_TOO_SHORT
-    if (findBy === 'name') {
-      if (!chosen) found.patient = CHOOSE_PATIENT
-      else if (matchRefExpired(chosen)) found.patient = SEARCH_EXPIRED
-    }
+    // A card's expiry is left to Identity (break-glass answers 404 for an expired matchRef): its time is the server's,
+    // and a device clock running fast must never block emergency access.
+    if (findBy === 'name' && !chosen) found.patient = CHOOSE_PATIENT
     if (!ack) found.ack = 'Tick the box to go on.'
     return found
   }
@@ -185,9 +191,11 @@ export function BreakGlassCard() {
       } catch (caught) {
         const known = breakGlassRefusal(caught, facility.name)
         if (known) throw new PlainError(known)
-        // A card's matchRef that no longer resolves (expired, or the patient is no longer active) answers 404.
+        // A card's matchRef that no longer resolves (expired, or the patient is no longer active) answers 404: the old
+        // cards go with it, so only a new search shows any.
         if (isHidApiError(caught) && caught.status === 404) {
           setChosen(null)
+          setSearchAnswer(null)
           throw new PlainError(SEARCH_EXPIRED)
         }
         throw caught
@@ -220,6 +228,7 @@ export function BreakGlassCard() {
     setAlerted(null)
     setError('')
     setChosen(null)
+    setSearchAnswer(null)
   }
 
   const ackError = errorFor('ack')
@@ -251,6 +260,7 @@ export function BreakGlassCard() {
             onChange={event => { setReason(event.target.value); changed('reason') }} />
         </Field>
         {findBy === 'name' ? <EmergencyNameSearch idBase={id} facilityId={facility?.id} reason={reason} chosen={chosen} problem={errorFor('patient')}
+          answer={searchAnswer} onAnswer={setSearchAnswer}
           onChoose={card => { setChosen(card); changed('patient') }}
           onReasonMissing={() => {
             setProblems(current => ({ ...current, reason: REASON_TOO_SHORT }))
@@ -268,13 +278,14 @@ export function BreakGlassCard() {
         </div>
         {error ? <Alert intent="error" title="Couldn’t open emergency access">{error}</Alert> : null}
         {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
-        <FormActions sticky={false}>
+        {offersOpen ? <FormActions sticky={false}>
           {/* Busy, it stays focusable (aria-disabled, not disabled): focus is not lost while the request runs, and a second
-              press sends nothing (submit returns while one is on its way). */}
-          <Button type="submit" variant="destructive" icon={Siren} disabled={!facility || unavailable !== null}
+              press sends nothing (submit returns while one is on its way). Found by name, it is off until the one card is
+              confirmed as the patient in front of the clinician. */}
+          <Button type="submit" variant="destructive" icon={Siren} disabled={!facility || unavailable !== null || awaitingConfirm}
             aria-disabled={busy || undefined}
             aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Opening…' : 'Open emergency access'}</Button>
-        </FormActions>
+        </FormActions> : null}
       </form>
     </Card>
   )
