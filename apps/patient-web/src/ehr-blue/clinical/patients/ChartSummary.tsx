@@ -225,11 +225,13 @@ export function pharmacyWords(progress: PharmacyProgress | null): string | null 
   if (!progress) return null
   switch (progress.status) {
     case 'received': return withTime('Received', progress.receivedAt)
+    // ORD-4 (Release B): "Accepted 10:52" only with its time; without one, what the pharmacy having it says (as #298).
+    case 'accepted': return progress.acceptedAt ? withTime('Accepted', progress.acceptedAt) : withTime('Received', progress.receivedAt)
     case 'dispensed': return withTime('Dispensed', progress.dispensedAt)
     case 'dispensing_reversed': return withTime('Dispensing reversed', progress.reversedAt)
-    // Answers the pharmacy gave (live EHR, ORD-3 with 0133), so never "not available"; they carry no time of their own.
-    case 'withdrawn': return 'Withdrawn from the pharmacy'
-    case 'sent_elsewhere': return 'Sent to another pharmacy'
+    // Answers the pharmacy gave (live EHR, ORD-3 with 0133), so never "not available"; ORD-3's screen words, as #298.
+    case 'withdrawn': return 'The pharmacy can no longer dispense this prescription'
+    case 'sent_elsewhere': return 'Sent to another pharmacy instead'
     case 'unknown': return PROGRESS_UNKNOWN
     default: return null
   }
