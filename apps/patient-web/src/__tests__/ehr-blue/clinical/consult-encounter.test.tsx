@@ -409,6 +409,29 @@ describe('Consultation record', () => {
     }
   })
 
+  it('says each order’s own pharmacy or laboratory progress (ORD-3) under its History row, and nothing for a draft or a backend without it', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read', 'ehr.lab-request.read']
+    records.prescriptions = [
+      { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, medicationDisplay: 'Amoxicillin (fictional)', status: 'active',
+        ownProgress: { status: 'dispensed', receivedAt: '2026-10-30T09:40:00.000Z', dispensedAt: '2026-10-30T10:05:00.000Z', reversedAt: null } },
+      // Today's backend: no ownProgress at all.
+      { id: 'rx-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, medicationDisplay: 'Paracetamol (fictional)', status: 'active' },
+    ]
+    records['lab-requests'] = [
+      { id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, testDisplay: 'Malaria smear (fictional)', status: 'active',
+        ownProgress: { status: 'unknown', receivedAt: null, collectedAt: null, lastResultAt: null } },
+      { id: 'lab-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, testDisplay: 'Haemoglobin (fictional)', status: 'draft',
+        ownProgress: { status: 'not_received', receivedAt: null, collectedAt: null, lastResultAt: null } },
+    ]
+    await openEncounter()
+    const row = (name: string) => within(history().getByRole('link', { name }).closest('li') as HTMLElement)
+    expect(row('Pharmacy · Amoxicillin (fictional)').getByText('Dispensed 30 Oct 2026, 11:05')).toBeTruthy()
+    expect(row('Laboratory · Malaria smear (fictional)').getByText('Progress not available right now')).toBeTruthy()
+    for (const name of ['Pharmacy · Paracetamol (fictional)', 'Laboratory · Haemoglobin (fictional)']) {
+      expect(row(name).queryByText(/Received|Dispensed|Sample taken|Results ready|Progress not available/)).toBeNull()
+    }
+  })
+
   it('gap: vitals past the encounter’s first page are reached with the Vitals card’s record pages, as today’s Vitals tab, History following', async () => {
     const later = { ...VITAL, id: 'vital-2', createdAt: '2026-10-29T08:05:00.000Z', pulseBpm: 88 }
     api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string }) => {

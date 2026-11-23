@@ -37,6 +37,7 @@ import { ACK_REFUSED_ERROR, storedMedicine, warnAfterRefusal } from './prescribi
 import {
   handoffRetryable, handoffText, OWN_SEND_FAILED, OWN_SEND_UNAVAILABLE, ownSendOffered, readPharmacyHandoff,
 } from './ownPharmacySend'
+import { ownProgressText } from './progress'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
 import {
@@ -590,11 +591,16 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   })()
 
   const dose = decimalText(record.doseQuantity)
+  // Where it is in this facility's own pharmacy or laboratory (ORD-3), only when there is something to say: no line
+  // for a draft never sent, or for a backend that sends no progress (today's page).
+  const progress = ownProgressText(kind, record)
+  const progressLine: KeyValue[] = progress ? [{ label: lab ? 'Laboratory progress' : 'Pharmacy progress', value: progress }] : []
   const items: KeyValue[] = lab ? [
     { label: 'Test', value: <TestValue name={text(record.testDisplay)} code={codeText(text(record.testCodeSystem), text(record.testCode))} /> },
     { label: 'Priority', value: priorityText(record.priority) },
     { label: 'Specimen type', value: text(record.specimenTypeCode) },
     { label: 'Clinical information', value: text(record.clinicalInformation) },
+    ...progressLine,
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ] : [
     { label: 'Medicine', value: text(record.medicationDisplay) },
@@ -605,6 +611,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     // The dispensing details (hid-system 0125), each only where the EHR answered it.
     ...detailLines(record),
     { label: 'Instructions', value: text(record.instructions) },
+    ...progressLine,
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ]
 
