@@ -302,6 +302,15 @@ describe('Patient documents with types: once served', () => {
     }
   })
 
+  it('on a host that uploads nothing, an empty list never points to an upload below', async () => {
+    host.name = 'outreach.staging.healthidentitydirectory.com'
+    api.documents.mockResolvedValue(listed([], true))
+    renderDept(<Migrate />)
+    expect(await within(card()).findByText(NO_UPLOAD_HERE)).toBeTruthy()
+    expect(card().textContent).not.toContain('Upload a document for this encounter below.')
+    expect(card().textContent).toContain('Documents added to this encounter are listed here.')
+  })
+
   it('stays served once learned, even when a later answer says nothing of the types', async () => {
     learnDocumentTypesServed(true)
     api.documents.mockResolvedValue(listed([clean]))
