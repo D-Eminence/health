@@ -44,18 +44,18 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
   registration: {
     purpose: 'Register a new patient at the front desk so they get a Health ID.',
     steps: [
-      'Check that NIN checks are working (Verification availability). Select Check again if not.',
+      'If NIN checks are not working, the page says so. Select Check again, or Try again, to check them again.',
       'Select Create record and follow the steps: the NIN check, then the patient’s details.',
-      'To carry on a registration started earlier, enter its reference and select Load case.',
+      'To carry on a registration started earlier, enter its Registration ID and select Open.',
     ],
     tips: ['When the patient has their Health ID, find them on Patients to open their record.'],
   },
   'in-person-check': {
     purpose: 'Check a patient who is registering on their own phone but can’t receive the code sent to the phone on their NIN record.',
     steps: [
-      'Enter the desk code shown on the patient’s phone (10 letters and digits).',
-      'Choose the original photo ID you checked, and copy the name and date of birth as written on it.',
-      'Select Check the details. Health ID compares them with the NIN record; you never see the record.',
+      'Type the code shown on the patient’s phone (10 letters and numbers).',
+      'Choose which original photo ID you looked at, and type the name and date of birth as they are on it.',
+      'Tick all five statements, then select Check details. Health ID compares them with their NIN; you never see the record.',
     ],
   },
   triage: {

@@ -15,7 +15,7 @@ import { ErrorBox, UnavailableAction, type FormProblems } from './registrationPa
 import {
   APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE, candidatesText,
   caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText,
-  ENROLLING, LINK, LINK_REASON_LABEL, LOADING, NEXT_STEPS, NO_ACTIONS, NO_CANDIDATE_NOTICE, NO_CORRECTION, REFRESH_CASE, REVIEW_NOTICE,
+  ENROLLING, LINK, LINK_REASON_LABEL, NEXT_STEPS, NO_ACTIONS, noCandidateNotice, NO_CORRECTION, REFRESH_CASE, REFRESHING, REVIEW_NOTICE,
   MORE_DETAILS, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, statusLabel,
 } from './registrationText'
 
@@ -119,9 +119,9 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   return (
     <DeptPage title={caseTitle(visit.name)} className="hid-ehr-dept-registration-page"
       secondaryActions={(
-        // Today's "Refresh current case" (Registration.tsx 244): unavailable while it reads, keeping its focus.
+        // Classic's "Refresh" (Registration.tsx 264): unavailable while it reads, keeping its focus.
         <EhrButton variant="secondary" busy={refreshing} className="hid-ehr-dept-registration-unavailable"
-          aria-disabled={busy || caseLoading !== null || undefined} onClick={onRefresh}>{refreshing ? LOADING : REFRESH_CASE}</EhrButton>
+          aria-disabled={busy || caseLoading !== null || undefined} onClick={onRefresh}>{refreshing ? REFRESHING : REFRESH_CASE}</EhrButton>
       )}
       primaryAction={(
         // Unavailable while a step runs, so its answer is not lost.
@@ -133,7 +133,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <ErrorBox message={errorHere} />
       {registration.status === 'review_required' ? <DeptNotice tone="caution">{REVIEW_NOTICE}</DeptNotice> : null}
-      {registration.status === 'pending_new_identity_approval' ? <DeptNotice>{NO_CANDIDATE_NOTICE}</DeptNotice> : null}
+      {registration.status === 'pending_new_identity_approval' ? <DeptNotice>{noCandidateNotice(canApprove)}</DeptNotice> : null}
       {enrollment ? <DeptNotice tone="positive">{enrolledText(enrollment.hid)}</DeptNotice> : null}
       <DeptRecordLayout
         main={(

@@ -7,9 +7,9 @@ import { ErrorBox, UnavailableAction, type FormProblems } from './registrationPa
 import { NIN_STILL_CHECKING } from '../../../ninCheck'
 import { DeskFields } from '../../collected/DeskFields'
 import {
-  BACK_TO_LIST, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, DISTINCT_PERSON, DOB_LABEL,
-  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NO_OVERRIDE, START_TEXT,
-  START_TITLE, VERIFY, VERIFYING,
+  BACK_TO_LIST, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CHECKING, DISTINCT_PERSON, DOB_LABEL,
+  FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NIN_OFF_TITLE, NO_OVERRIDE, START_TEXT,
+  START_TITLE, TRY_AGAIN, VERIFY, VERIFYING,
 } from './registrationText'
 
 /** A required field's label, as the design marks it: the star is not read out (the control is required). */
@@ -18,11 +18,10 @@ function required(label: string): ReactNode {
 }
 
 /**
- * The design's create form ("New patients", 02-new and 03-new-patient-validation) as today's "Start with verified
- * identity" (Registration.tsx 229-239): today's fields, checks and words, and the design's phone, address and
- * existing Health ID as required fields (hid-system 0114, DeskFields). The design's allergies and "provisional local
- * identity" are not asked (owner decisions D11, D12). Without NIN verification enabled, the form says so in today's
- * words and nothing can be sent.
+ * The design's create form ("New patients", 02-new and 03-new-patient-validation) as classic's "Check their NIN"
+ * (Registration.tsx 232-257): classic's fields, checks and words, and the design's phone, address and existing Health
+ * ID as required fields (hid-system 0114, DeskFields). The design's allergies and "provisional local identity" are not
+ * asked (owner decisions D11, D12). With NIN checks off, the form says so in classic's words and nothing can be sent.
  */
 export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false, stillChecking = false, held = false }: {
   /** In the side drawer over the list: the drawer's own X closes it, so no Back to list. */
@@ -52,18 +51,20 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
       <DeptSection title={START_TITLE} headingId={START_HEADING}>
         {capabilities === null ? (
           availability.answered ? (
-            // A read that failed, and Check again, which stays where it is while it reads again (today's button keeps
-            // its focus, Registration.tsx 221): the design's skeleton stands in for the error box meanwhile.
+            // A read that failed, under classic's title, and Try again, which stays where it is while it reads again
+            // (classic's button keeps its focus, Registration.tsx 228): the design's skeleton stands in meanwhile.
             <div className="hid-ehr-dept-registration-retry">
-              {availability.error ? <ErrorBox message={availability.error} /> : <EhrSkeleton label={CAPABILITY_LOADING} />}
+              {availability.error
+                ? <DeptNotice role="alert" tone="critical" title={CAPABILITY_FAILED_TITLE}>{availability.error}</DeptNotice>
+                : <EhrSkeleton label={CAPABILITY_LOADING} />}
               <EhrButton variant="secondary" size="sm" busy={availability.loading} onClick={availability.refresh}>
-                {availability.loading ? CHECKING : CHECK_AGAIN}
+                {availability.loading ? CHECKING : TRY_AGAIN}
               </EhrButton>
             </div>
           ) : <EhrSkeleton label={CAPABILITY_LOADING} />
         ) : (
           <form className="hid-ehr-dept-form" noValidate onInput={onInput} onSubmit={onSubmit}>
-            {enabled ? null : <DeptNotice tone="caution">{NIN_NOT_ENABLED}</DeptNotice>}
+            {enabled ? null : <DeptNotice tone="caution" title={NIN_OFF_TITLE}>{NIN_NOT_ENABLED}</DeptNotice>}
             {/* Disabled only while verification is off. While the NIN is verified the fields are read-only, not
                 disabled, which would take focus from the button (Registration.tsx 231). */}
             <fieldset className="hid-ehr-dept-registration-fieldset" disabled={!enabled}>

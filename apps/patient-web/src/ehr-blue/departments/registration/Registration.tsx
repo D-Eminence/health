@@ -35,7 +35,7 @@ import './registration.css'
 type View = { kind: 'list' } | { kind: 'new' } | { kind: 'case'; caseId: string }
 
 /**
- * The refusal without a facility or the write permission (Registration.tsx 215): also the frame's at the address. Its
+ * The refusal without a facility or the write permission (Registration.tsx 214): also the frame's at the address. Its
  * sentence follows who reads it, as the Laboratory's and Pharmacy's do: a self-signed-up facility's administrator is
  * never told to ask themselves.
  */

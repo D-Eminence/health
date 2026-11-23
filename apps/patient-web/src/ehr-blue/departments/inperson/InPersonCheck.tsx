@@ -15,20 +15,23 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
 import { DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import {
-  ANOTHER, ASSISTED_REGISTRATION_PERMISSION, ATTESTATIONS, ATTESTATIONS_ENTRY, CHECK, CHECK_AGAIN, CHECKING, DATE_OF_BIRTH_ENTRY,
-  DESCRIPTION, DESK_CODE_ENTRY, DESK_CODE_NOT_FOUND, DISABLED_FALLBACK, DOCUMENT_TYPE_ENTRY, DOCUMENT_TYPES, EMPTY, EYEBROW,
-  FIRST_NAME_ENTRY, KEY_REUSED, LAST_NAME_ENTRY, METHOD, METHOD_LABEL, MISMATCH_NEXT, MISMATCH_TITLE, NOT_AUTHORIZED, NOT_COMPLETED,
-  NOTHING_RECORDED, PERMISSION_DENIED, REGISTERED_NEXT, REGISTERED_TITLE, RETRY, RETRY_PROOF, SOME_REFUSED, STALE, TITLE,
-  UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, VERIFIED_NEXT, VERIFIED_TITLE, dateOfBirthUnfinished, documentLabel, knownResult,
-  normalizeDeskCode, outcomeUnknown, requestOf, resultWords, signatureOf, type Attestation, type Mismatch, type Values,
+  ANOTHER, ASSISTED_REGISTRATION_PERMISSION, ATTESTATIONS, ATTESTATIONS_ENTRY, CHECK, CHECK_AGAIN, CHECKING, CODE_HINT, CODE_LABEL,
+  CODE_PLACEHOLDER, CONFIRM_LEGEND, DATE_OF_BIRTH_ENTRY, DATE_OF_BIRTH_HINT, DATE_OF_BIRTH_LABEL, DESCRIPTION, DESK_CODE_ENTRY,
+  DESK_CODE_NOT_FOUND, DETAILS_LEGEND, DISABLED, DOCUMENT_CHOOSE, DOCUMENT_LABEL, DOCUMENT_TYPE_ENTRY, DOCUMENT_TYPES, EMPTY,
+  ERROR_TITLE, FIRST_NAME_ENTRY, FORM_TITLE, KEY_REUSED, LAST_NAME_ENTRY, LIMITED, MISMATCH_NEXT, MISMATCH_TITLE, NOT_AUTHORIZED,
+  NOT_COMPLETED, PAGE_TITLE, REGISTERED_NEXT, REGISTERED_TITLE, RETRY, RETRY_PROOF, ROLE_REFUSED, SOME_REFUSED, STALE, STEP_CODE,
+  STEP_CONFIRM, STEP_ID, STEP_ID_HINT, UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, VERIFIED_NEXT, VERIFIED_TITLE, dateOfBirthUnfinished,
+  documentLabel, knownResult, normalizeDeskCode, outcomeUnknown, requestOf, resultWords, signatureOf, type Attestation,
+  type Mismatch, type Values,
 } from './inPersonRules'
 import './inperson.css'
 
 /**
  * The staff in-person check of facility-assisted registration in the blue EHR, drawn in the design's form and record
- * pattern (the design has no screen for it): the form card in the design's two-column grid, the five statements as its
+ * pattern (the design has no screen for it): the form card with classic's three steps, the five statements as its
  * checkbox list, the submit, then the outcome as its record view with "Available actions" and "Next steps". Requests,
- * checks, refusals and words are today's (staff/routes/InPersonCheck.tsx at main a4f5704, ported in inPersonRules.ts).
+ * checks, refusals, steps and words are classic's (staff/routes/InPersonCheck.tsx, ported in inPersonRules.ts). As classic,
+ * the method is fixed, so it is never offered as a choice.
  *
  * A patient without a usable registry phone starts on their own phone, which shows a desk code. A doctor, clinician or
  * nurse types that code and the names and date of birth as written on one original photo ID, and confirms five
@@ -41,14 +44,14 @@ import './inperson.css'
  * answer ends the submission; the next one takes a new key.
  */
 export function InPersonCheck() {
-  // InPersonCheck.tsx:133-141: today's rule, and today's words for a member without the permission.
+  // InPersonCheck.tsx:135-144: classic's rule, and classic's refusal.
   const { facility, permissions } = useDeptAccess()
   if (!facility || !permissions.includes(ASSISTED_REGISTRATION_PERMISSION)) return <InPersonUnavailable />
   // Another facility starts afresh: nothing typed, answered or kept for a retry carries over.
   return <CheckDesk key={facility.id} facilityId={facility.id} />
 }
 
-/** InPersonCheck.tsx:136-137: today's refusal, word for word. The frame shows it at the page's address too. */
+/** InPersonCheck.tsx:139-140: classic's refusal, word for word. The frame shows it at the page's address too. */
 export function InPersonUnavailable() {
   return <DeptUnavailable title={UNAVAILABLE_TITLE} message={UNAVAILABLE_MESSAGE} />
 }
@@ -128,7 +131,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
     } finally { setBusy(false) }
   }
 
-  /** InPersonCheck.tsx:205-255: each answer, said where today's page says it, in today's words. */
+  /** InPersonCheck.tsx:208-257: each answer, said where classic says it, in classic's words. */
   function answer(caught: unknown, form: HTMLFormElement, typedDateOfBirth: boolean, checked: string) {
     const code = isHidApiError(caught) ? caught.code : ''
     switch (code) {
@@ -158,10 +161,10 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
         setError(NOT_AUTHORIZED)
         return
       case 'PERMISSION_DENIED':
-        setError(PERMISSION_DENIED)
+        setError(ROLE_REFUSED)
         return
       case 'ASSISTED_REGISTRATION_DISABLED':
-        setError(`${DISABLED_FALLBACK} ${NOTHING_RECORDED}`)
+        setError(DISABLED)
         return
       case 'IDEMPOTENCY_KEY_REUSED':
         setError(KEY_REUSED)
@@ -177,7 +180,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
     }
     if (outcomeUnknown(caught)) { setError(RETRY); return }
     // Any other refusal in plain words: never Identity's own text (owner's rule, 1 Nov 2026).
-    setError(plainErrorText(caught, NOT_COMPLETED, { codes: { ASSISTED_VERIFICATION_LIMITED: 'The daily limit of in-person checks has been reached. Try again later.' }, audience: 'facility' }))
+    setError(plainErrorText(caught, NOT_COMPLETED, { codes: { ASSISTED_VERIFICATION_LIMITED: LIMITED }, audience: 'facility' }))
   }
 
   /** InPersonCheck.tsx:257-262. */
@@ -203,6 +206,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
       <Page>
         <Outcome status="already registered" tone="caution" titleId="in-person-registered-title" title={REGISTERED_TITLE}
           checked={stage.checked} onAnother={another} patientsHref={patientsHref}>
+          {/* InPersonCheck.tsx:282: the detail line only when there is a detail to say. */}
           {stage.detail ? <p>{stage.detail}</p> : null}
           <p>{REGISTERED_NEXT}</p>
         </Outcome>
@@ -213,66 +217,63 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
   const statementsError = problems.error('in-person-attestations')
   return (
     <Page>
-      <DeptSection title="Check a patient" headingId="in-person-form-title">
-        {/* InPersonCheck.tsx:286-338: today's fields, names, ids and limits, in the design's two-column grid. */}
+      <DeptSection title={FORM_TITLE} headingId="in-person-form-title">
+        {/* InPersonCheck.tsx:288-350: classic's three steps, fields, names, ids, hints and limits, in the design's form. */}
         <form className="hid-ehr-dept-form hid-ehr-dept-inperson-form" noValidate onSubmit={event => void check(event)}>
-          <div className="hid-ehr-dept-form-grid">
-            <EhrField label={<>Desk code<Required /></>} controlId="in-person-desk-code" error={problems.error('in-person-desk-code')}
-              hint="As the patient’s own phone shows it: 10 letters and digits. Spaces, hyphens and case do not matter.">
-              <EhrInput name="deskCode" value={values.deskCode} onChange={event => change({ deskCode: event.target.value })}
+          <Step n={1} title={STEP_CODE}>
+            <EhrField label={<>{CODE_LABEL}<Required /></>} controlId="in-person-desk-code" error={problems.error('in-person-desk-code')}
+              hint={CODE_HINT}>
+              <EhrInput name="deskCode" value={values.deskCode} placeholder={CODE_PLACEHOLDER} onChange={event => change({ deskCode: event.target.value })}
                 autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={20} readOnly={busy} required />
             </EhrField>
-            <fieldset className="hid-ehr-dept-inperson-method">
-              <legend className="hid-ehr-label">Method</legend>
-              <label className="hid-ehr-dept-inperson-choice">
-                <input type="radio" name="method" value={METHOD} checked readOnly />
-                <span>{METHOD_LABEL}</span>
-              </label>
-            </fieldset>
-            <EhrField label={<>Document checked<Required /></>} controlId="in-person-document-type" error={problems.error('in-person-document-type')}>
+          </Step>
+
+          <Step n={2} title={STEP_ID} hint={STEP_ID_HINT}>
+            <EhrField label={<>{DOCUMENT_LABEL}<Required /></>} controlId="in-person-document-type" error={problems.error('in-person-document-type')}>
               <EhrSelect name="documentType" value={values.documentType} required
                 onChange={event => change({ documentType: event.target.value as AssistedDocumentType | '' })}>
-                <option value="">Choose the document</option>
+                <option value="">{DOCUMENT_CHOOSE}</option>
                 {DOCUMENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </EhrSelect>
             </EhrField>
-          </div>
+            <fieldset id="in-person-document" name="document" className="hid-ehr-dept-inperson-group">
+              <legend className="hid-ehr-dept-inperson-note">{DETAILS_LEGEND}</legend>
+              <div className="hid-ehr-dept-form-grid">
+                <EhrField label={<>First name<Required /></>} controlId="in-person-first-name" error={problems.error('in-person-first-name')}>
+                  <EhrInput name="firstName" value={values.firstName} onChange={event => change({ firstName: event.target.value })}
+                    maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
+                </EhrField>
+                <EhrField label={<>Last name<Required /></>} controlId="in-person-last-name" error={problems.error('in-person-last-name')}>
+                  <EhrInput name="lastName" value={values.lastName} onChange={event => change({ lastName: event.target.value })}
+                    maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
+                </EhrField>
+                <EhrField label={DATE_OF_BIRTH_LABEL} controlId="in-person-date-of-birth"
+                  error={problems.error('in-person-date-of-birth')} hint={DATE_OF_BIRTH_HINT}>
+                  <EhrInput name="dateOfBirth" type="date" value={values.dateOfBirth} onChange={event => change({ dateOfBirth: event.target.value })}
+                    autoComplete="off" readOnly={busy} />
+                </EhrField>
+              </div>
+            </fieldset>
+          </Step>
 
-          <fieldset id="in-person-document" name="document" className="hid-ehr-dept-inperson-group">
-            <legend className="hid-ehr-dept-inperson-legend">As written on the document</legend>
-            <div className="hid-ehr-dept-form-grid">
-              <EhrField label={<>First name<Required /></>} controlId="in-person-first-name" error={problems.error('in-person-first-name')}>
-                <EhrInput name="firstName" value={values.firstName} onChange={event => change({ firstName: event.target.value })}
-                  maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
-              </EhrField>
-              <EhrField label={<>Last name<Required /></>} controlId="in-person-last-name" error={problems.error('in-person-last-name')}>
-                <EhrInput name="lastName" value={values.lastName} onChange={event => change({ lastName: event.target.value })}
-                  maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
-              </EhrField>
-              <EhrField label="Date of birth (if the document shows one)" controlId="in-person-date-of-birth"
-                error={problems.error('in-person-date-of-birth')} hint="A check without it does not match a NIN record that has one.">
-                <EhrInput name="dateOfBirth" type="date" value={values.dateOfBirth} onChange={event => change({ dateOfBirth: event.target.value })}
-                  autoComplete="off" readOnly={busy} />
-              </EhrField>
-            </div>
-          </fieldset>
+          <Step n={3} title={STEP_CONFIRM}>
+            <fieldset name="attestations" className="hid-ehr-dept-inperson-group" {...problems.group('in-person-attestations')}>
+              <legend className="hid-ehr-sr-only">{CONFIRM_LEGEND}</legend>
+              <div className="hid-ehr-dept-inperson-checks">
+                {ATTESTATIONS.map(([key, label]) => (
+                  <label key={key} className="hid-ehr-dept-inperson-choice">
+                    <input type="checkbox" id={`in-person-${key}`} name={key} checked={values.attestations[key]}
+                      onChange={event => attest(key, event.target.checked)} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              {statementsError ? <p id="in-person-attestations-error" className="hid-ehr-error">{statementsError}</p> : null}
+            </fieldset>
+          </Step>
 
-          <fieldset name="attestations" className="hid-ehr-dept-inperson-group" {...problems.group('in-person-attestations')}>
-            <legend className="hid-ehr-dept-inperson-legend">Confirm each statement</legend>
-            <div className="hid-ehr-dept-inperson-checks">
-              {ATTESTATIONS.map(([key, label]) => (
-                <label key={key} className="hid-ehr-dept-inperson-choice">
-                  <input type="checkbox" id={`in-person-${key}`} name={key} checked={values.attestations[key]}
-                    onChange={event => attest(key, event.target.checked)} />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
-            {statementsError ? <p id="in-person-attestations-error" className="hid-ehr-error">{statementsError}</p> : null}
-          </fieldset>
-
-          {/* InPersonCheck.tsx:351, as the design's ErrorBox above the form's submit. */}
-          {error ? <DeptNotice role="alert" tone="critical">{error}</DeptNotice> : null}
+          {/* InPersonCheck.tsx:346, as the design's ErrorBox above the form's submit, under classic's title. */}
+          {error ? <DeptNotice role="alert" tone="critical" title={ERROR_TITLE}>{error}</DeptNotice> : null}
           <div className="hid-ehr-dept-form-actions">
             {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
             <EhrButton type="submit" busy={busy}>{busy ? CHECKING : retrying ? CHECK_AGAIN : CHECK}</EhrButton>
@@ -280,7 +281,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
         </form>
       </DeptSection>
 
-      {/* InPersonCheck.tsx:341-349: the result for each detail, never a record value; the typed details stay above. */}
+      {/* InPersonCheck.tsx:337-345: the result for each detail, never a record value; the typed details stay above. */}
       {mismatch ? (
         <DeptSection title={MISMATCH_TITLE} headingId="in-person-mismatch-title">
           <ul aria-label="Result for each detail" className="hid-ehr-dept-inperson-results">
@@ -295,9 +296,25 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
   )
 }
 
-/** The page's heading over each of its views: today's eyebrow, title and line on what the page is for. */
+/** The page's heading over each of its views: classic's title and line on what the page is for (InPersonCheck.tsx:268). */
 function Page({ children }: { readonly children: ReactNode }) {
-  return <DeptPage eyebrow={EYEBROW} title={TITLE} description={DESCRIPTION} className="hid-ehr-dept-inperson">{children}</DeptPage>
+  return <DeptPage title={PAGE_TITLE} description={DESCRIPTION} className="hid-ehr-dept-inperson">{children}</DeptPage>
+}
+
+/** One of classic's numbered steps (kasuwa/parts.tsx Step): its number, its title as an h3, and its hint under it. */
+function Step({ n, title, hint, children }: { readonly n: number; readonly title: string; readonly hint?: string; readonly children: ReactNode }) {
+  return (
+    <div className="hid-ehr-dept-inperson-stepgroup">
+      <div className="hid-ehr-dept-inperson-stephead">
+        <span className="hid-ehr-dept-inperson-n" aria-hidden="true">{n}</span>
+        <div>
+          <h3 className="hid-ehr-dept-inperson-legend">{title}</h3>
+          {hint ? <p className="hid-ehr-dept-inperson-note">{hint}</p> : null}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
 }
 
 /** One detail's result, as "First name: does not match"; its colour only repeats what its words say. */
@@ -312,8 +329,8 @@ function ResultItem({ label, result, children }: { readonly label: string; reado
 
 /**
  * The outcome as the design's record view: its status under the heading, the outcome's card beside "Available actions",
- * and "Next steps" only where one leads to a live page. Its facts are the method and the document checked: never a
- * name, a date of birth or the desk code, which are cleared as the outcome shows.
+ * and "Next steps" only where one leads to a live page. Its one fact is the ID checked: never a name, a date of birth or
+ * the desk code, which are cleared as the outcome shows. The method is fixed, so it is not repeated (classic says none).
  */
 function Outcome({ status, tone, title, titleId, checked, onAnother, patientsHref, children }: {
   readonly status: string
@@ -333,10 +350,7 @@ function Outcome({ status, tone, title, titleId, checked, onAnother, patientsHre
         main={(
           <DeptSection title={title} headingId={titleId}>
             {children}
-            <DeptFacts className="hid-ehr-dept-inperson-facts" facts={[
-              { label: 'Method', value: METHOD_LABEL },
-              { label: 'Document checked', value: checked },
-            ]} />
+            <DeptFacts className="hid-ehr-dept-inperson-facts" facts={[{ label: 'ID checked', value: checked }]} />
           </DeptSection>
         )}
         aside={(

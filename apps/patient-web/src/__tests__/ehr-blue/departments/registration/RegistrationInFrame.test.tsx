@@ -48,7 +48,9 @@ describe('Patient registration in the frame', () => {
     // The blue page's own heading, not today's ("Patient registration." in the stand-in).
     expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Patient registration')
     expect(screen.getByRole('button', { name: 'Create record' })).toBeDefined()
-    expect(await screen.findByText('NIN checks are working.')).toBeDefined()
+    // NIN checks work, so classic's card is not shown: only its loading line, until the answer.
+    await waitFor(() => expect(screen.queryByText('Checking NIN checks are working…')).toBeNull())
+    expect(screen.queryByText(/NIN checks are/)).toBeNull()
     const link = within(nav()).getByRole('link', { name: 'Patient registration' })
     expect(link.getAttribute('aria-current')).toBe('page')
     expect(link.getAttribute('href')).toBe('/provider/registration')
@@ -60,7 +62,7 @@ describe('Patient registration in the frame', () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.approve'], ['nurse'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled) })
     await openStaffApp('/provider/registration')
-    const title = await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })
+    const title = await screen.findByRole('heading', { level: 1, name: 'You can’t register patients here' })
     // The two roles that register patients, by their words (owner's answer, 2 Nov 2026), never their codes.
     expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.')).toBeDefined()
     // The frame names the person's own role, which is neither of them.
@@ -79,7 +81,7 @@ describe('Patient registration in the frame', () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.approve'], ['records_officer'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled) })
     await openStaffApp('/provider/registration')
-    const title = await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })
+    const title = await screen.findByRole('heading', { level: 1, name: 'You can’t register patients here' })
     expect(screen.getAllByText(/^Records officer\b/).length).toBeGreaterThan(0)
     expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator.')).toBeDefined()
     expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/Receptionist|Records officer|\b[a-z]+(?:_[a-z]+)+\b/)
@@ -92,8 +94,8 @@ describe('Patient registration in the frame', () => {
       ['identity.registration.write', 'identity.registration.approve', 'identity.consent.write'], ['records_officer'])
     serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled), [CASE_READ]: [approved], [REQUESTS]: many(() => json([])) })
     await openStaffApp('/provider/registration')
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
-    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Registration ID' }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Next steps' })).toBeDefined()
     // Appointments and Patient visits are samples here: not offered.
@@ -110,8 +112,8 @@ describe('Patient registration in the frame', () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.write', 'identity.registration.approve'], ['records_officer'])
     serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled), [CASE_READ]: [approved] })
     await openStaffApp('/provider/registration')
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
-    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Registration ID' }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
     expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
     // Patients is not open to a role without patient lookup: no way there is offered.
@@ -123,8 +125,8 @@ describe('Patient registration in the frame', () => {
       ['identity.registration.write', 'identity.registration.approve', 'identity.patient.read'], ['records_officer'])
     serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled), [CASE_READ]: [approved] })
     await openStaffApp('/provider/registration')
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
-    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Registration ID' }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Next steps' })).toBeDefined()
     const patients = screen.getByRole('link', { name: 'Open in Patients' })
