@@ -3,6 +3,7 @@ import type { ClinicalRecord, Encounter } from '../../../staff/api'
 import { encounterTitle, recordStatus } from '../consult/encounters'
 import { orderPath } from '../consult/orders'
 import { KINDS, orderTitle, type OrderKind } from '../consult/orders/orders'
+import { progressDetail } from '../consult/orders/progress'
 import { ListPaging } from '../consult/Notes'
 import { pagerProps, useRecordList, type RecordList } from '../consult/records'
 import { TITLE as NURSING_TITLE, isObservation, noteStatus } from '../nursing/observations'
@@ -62,6 +63,8 @@ export function ConnectedHistory({ chart, encounter, owner }: { chart: Chart; en
       label: `${KINDS[kind].title} · ${orderTitle(kind, record)}`,
       href: opensConsultation ? href.to('consult', orderPath(encounterId, kind, record.id)) : undefined,
       status: recordStatus(record),
+      // Its own pharmacy or laboratory progress (ORD-3), as the consultation's order rows say it.
+      detail: progressDetail(kind, record),
     }))),
     ...mine(notes).filter(isObservation).map(record => ({
       key: `observation-${record.id}`,

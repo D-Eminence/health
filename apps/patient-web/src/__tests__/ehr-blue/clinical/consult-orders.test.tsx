@@ -4305,3 +4305,105 @@ describe('Visit rehearsal (11 Nov): a released result in the app’s date format
     expect(document.body.textContent).not.toMatch(/\bunknown\b/)
   })
 })
+
+describe('ORD-3: where each order is in this facility’s own pharmacy or laboratory', () => {
+  /** 10:40, 11:05 and 09:30 in Lagos on 30 Oct 2026 (UTC+1): an earlier day, so each time carries its date. */
+  const AT_1040 = '2026-10-30T09:40:00.000Z'
+  const AT_1105 = '2026-10-30T10:05:00.000Z'
+  const AT_0930 = '2026-10-30T08:30:00.000Z'
+  const rxProgress = (status: string, times: Record<string, unknown> = {}) => ({ status, receivedAt: null, dispensedAt: null, reversedAt: null, ...times })
+  const labProgress = (status: string, times: Record<string, unknown> = {}) => ({ status, receivedAt: null, collectedAt: null, lastResultAt: null, ...times })
+
+  async function rows() {
+    open(ENCOUNTER_ID)
+    const list = await screen.findByRole('list', { name: 'Orders from this consultation' })
+    return (name: string) => {
+      const link = within(list).getByRole('link', { name })
+      return { link, row: link.closest('li')! }
+    }
+  }
+
+  it('says each order’s progress on its row, and the row’s link is described by it', async () => {
+    setLists([prescription({ status: 'active', ownProgress: rxProgress('dispensed', { receivedAt: AT_1040, dispensedAt: AT_1105 }) })],
+      [labRequest({ status: 'active', ownProgress: labProgress('sample_collected', { receivedAt: AT_0930, collectedAt: AT_0930 }) })])
+    const rowOf = await rows()
+    const rx = rowOf('Pharmacy · Amoxicillin')
+    const line = within(rx.row).getByText('Dispensed 30 Oct 2026, 11:05')
+    expect(rx.link.getAttribute('aria-describedby')).toBe(line.id)
+    expect(within(rowOf('Laboratory · Haemoglobin').row).getByText('Sample taken 30 Oct 2026, 09:30')).toBeTruthy()
+    // The order's own status stays beside it.
+    expect(within(rx.row).getByText('Active')).toBeTruthy()
+  })
+
+  it.each([
+    ['received', rxProgress('received', { receivedAt: AT_1040 }), 'Received 30 Oct 2026, 10:40'],
+    ['dispensing reversed', rxProgress('dispensing_reversed', { receivedAt: AT_1040, dispensedAt: AT_1040, reversedAt: AT_1105 }), 'Dispensing reversed 30 Oct 2026, 11:05'],
+    ['withdrawn', rxProgress('withdrawn', { receivedAt: AT_1040 }), 'The pharmacy can no longer dispense this prescription'],
+    ['sent elsewhere', rxProgress('sent_elsewhere', { receivedAt: AT_1040 }), 'Sent to another pharmacy instead'],
+    ['unknown', rxProgress('unknown'), 'Progress not available right now'],
+  ])('says a prescription %s on its row', async (_name, ownProgress, words) => {
+    setLists([prescription({ status: 'active', ownProgress })], [])
+    const rowOf = await rows()
+    expect(within(rowOf('Pharmacy · Amoxicillin').row).getByText(words)).toBeTruthy()
+  })
+
+  it.each([
+    ['received', labProgress('received', { receivedAt: AT_1040 }), 'Received 30 Oct 2026, 10:40'],
+    ['results ready', labProgress('results_ready', { collectedAt: AT_0930, lastResultAt: AT_1105 }), 'Results ready 30 Oct 2026, 11:05'],
+    ['some results ready', labProgress('some_results_ready', { collectedAt: AT_0930, lastResultAt: AT_1105 }), 'Some results ready 30 Oct 2026, 11:05'],
+    ['unknown', labProgress('unknown'), 'Progress not available right now'],
+  ])('says a lab request %s on its row', async (_name, ownProgress, words) => {
+    setLists([], [labRequest({ status: 'active', ownProgress })])
+    const rowOf = await rows()
+    expect(within(rowOf('Laboratory · Haemoglobin').row).getByText(words)).toBeTruthy()
+  })
+
+  it('says nothing for a draft not received, nor for a backend that sends no progress, and a malformed value never fails the list', async () => {
+    setLists([
+      prescription({ status: 'draft', ownProgress: rxProgress('not_received') }),
+      prescription({ id: 'b0000000-0000-4000-8000-000000000002', medicationDisplay: 'Paracetamol', status: 'active' }),
+      prescription({ id: 'b0000000-0000-4000-8000-000000000003', medicationDisplay: 'Ibuprofen', status: 'active', ownProgress: 'dispensed' }),
+    ], [labRequest({ status: 'draft', ownProgress: labProgress('not_received') })])
+    const rowOf = await rows()
+    for (const name of ['Pharmacy · Amoxicillin', 'Pharmacy · Paracetamol', 'Laboratory · Haemoglobin']) {
+      const { link, row } = rowOf(name)
+      expect(row.querySelector('.hid-ehr-clinical-orders-row-progress')).toBeNull()
+      expect(link.getAttribute('aria-describedby')).toBeNull()
+    }
+    expect(within(rowOf('Pharmacy · Ibuprofen').row).getByText('Progress not available right now')).toBeTruthy()
+  })
+
+  it('names the pharmacy a prescription went to instead, from the route its row already carries', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    setLists([prescription({ status: 'active', ownProgress: rxProgress('sent_elsewhere', { receivedAt: AT_1040 }),
+      orderRoute: route({ kind: 'prescription', receivingFacility: { id: PHARMACY_ID, name: 'Demo Pharmacy', available: true } }) })], [], { crossFacilityOrders: true })
+    const rowOf = await rows()
+    const { row } = rowOf('Pharmacy · Amoxicillin')
+    expect(within(row).getByText('Sent to Demo Pharmacy instead of this hospital’s pharmacy')).toBeTruthy()
+    expect(within(row).getByText('Sent to a pharmacy')).toBeTruthy()
+  })
+
+  it('says a prescription’s progress on its own page', async () => {
+    setLists([prescription({ status: 'active', ownProgress: rxProgress('dispensed', { receivedAt: AT_1040, dispensedAt: AT_1105 }) })], [])
+    await openOrder('pharmacy', RX)
+    expect(savedValue('Pharmacy progress').lead).toBe('Dispensed 30 Oct 2026, 11:05')
+  })
+
+  it('says a lab request’s progress on its own page, unknown in the contract’s words', async () => {
+    setLists([], [labRequest({ status: 'active', ownProgress: labProgress('unknown') })])
+    await openOrder('laboratory', LAB)
+    expect(savedValue('Laboratory progress').lead).toBe('Progress not available right now')
+  })
+
+  it('adds no progress line to an order’s page when the backend sends none', async () => {
+    setLists([prescription({ status: 'active' })], [])
+    await openOrder('pharmacy', RX)
+    expect(screen.queryByText('Pharmacy progress')).toBeNull()
+  })
+
+  it('adds no progress line to a draft’s page that was never sent', async () => {
+    setLists([], [labRequest({ ownProgress: labProgress('not_received') })])
+    await openOrder('laboratory', LAB)
+    expect(screen.queryByText('Laboratory progress')).toBeNull()
+  })
+})

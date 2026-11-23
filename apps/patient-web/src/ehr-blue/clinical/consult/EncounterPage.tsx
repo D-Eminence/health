@@ -34,6 +34,7 @@ import {
 import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
 import { KINDS, learnFrom } from './orders/orders'
+import { progressDetail } from './orders/progress'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
 import { VitalsCard } from './Vitals'
 
@@ -699,15 +700,19 @@ type Lists = { readonly [K in 'notes' | 'diagnoses' | 'vitals' | 'prescriptions'
  * note of each "Record pages" page, whatever its type (Clinical.tsx), so paging the card reaches every observation.
  */
 function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, others: readonly Encounter[], lists: Lists): HistoryItem[] {
-  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link: (record: ClinicalRecord) => string) =>
-    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), href: link(record) }))
+  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link: (record: ClinicalRecord) => string,
+    detail?: (record: ClinicalRecord) => readonly string[] | undefined) =>
+    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), href: link(record), detail: detail?.(record) }))
   const notes = lists.notes.items ?? []
   return [
     ...others.map(item => ({ key: `encounter-${item.id}`, label: encounterTitle(item), href: href(item.id), status: item.status })),
     ...rows(notes.filter(isObservation), 'Nursing observations', record => formatWhen(record.createdAt) || 'Observation', observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
     ...rows(lists.vitals.items ?? [], 'Vitals', record => formatWhen(record.createdAt) || 'Vitals', vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
-    ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
-    ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
+    // Each order with its own pharmacy or laboratory progress (ORD-3) under it, as the order rows say it.
+    ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id)),
+      record => progressDetail('pharmacy', record)),
+    ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id)),
+      record => progressDetail('laboratory', record)),
   ]
 }
 

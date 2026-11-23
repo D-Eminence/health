@@ -12,6 +12,7 @@ import { pagerProps, type RecordList } from '../records'
 import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
 import { FlashContext, KINDS, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
+import { ownProgressText } from './progress'
 import { routeStatus, routeStatusClass } from './Routing'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
@@ -82,17 +83,23 @@ function OrderListPages({ kind, list }: { kind: OrderKind; list: RecordList<Clin
  * where it went and where it stands (the OrderRoutePanel's heading and status line, Clinical.tsx:1889-1893,
  * OrderRoutes.tsx:384-387), read from the route summary the list already carries, so it costs no read. The rest of
  * that panel (what to do next, the reason it couldn't be completed, the wrong-patient notice, details and Withdraw) is
- * on the order's page. The reference stays there too: the row says no code.
+ * on the order's page. The reference stays there too: the row says no code. Its own pharmacy or laboratory progress
+ * (ORD-3) is a line under it, from the same list read.
  */
 function OrderRow({ kind, record, to, patient }: { kind: OrderKind; record: ClinicalRecord; to: string; patient: string }) {
   const routeId = useId()
+  const progressId = useId()
   // As today's list and the order page (rights.novu): only a novu backend's route, well formed (routeOf), is said.
   const route = usesNovuBackend() ? routeOf(record) : null
   const status = route ? routeStatus(route, patient) : null
+  // Where it is in this facility's own pharmacy or laboratory (ORD-3), on a line of its own; nothing when not sent here.
+  const progress = ownProgressText(kind, record)
+  const describedBy = [status ? routeId : '', progress ? progressId : ''].filter(Boolean).join(' ')
   return (
     <li className="hid-ehr-clinical-history-row">
-      <Link className="hid-ehr-clinical-link" to={to} aria-describedby={status ? routeId : undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+      <Link className="hid-ehr-clinical-link" to={to} aria-describedby={describedBy || undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
       <StatusBadge status={text(record.status) || 'unknown'} />
+      {progress ? <p id={progressId} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-row-progress">{progress}</p> : null}
       {status ? (
         <div id={routeId} className="hid-ehr-clinical-orders-row-route">
           <p className="hid-ehr-clinical-orders-muted">{kind === 'laboratory' ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</p>
