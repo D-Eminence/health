@@ -22,13 +22,18 @@ export type ChartSection = typeof CHART_SECTIONS[number]
 export const CHART_SUMMARY_PERMISSIONS = ['ehr.encounter.read', 'ehr.diagnosis.read', 'ehr.prescription.read',
   'ehr.lab-request.read', 'ehr.vital.read', 'ehr.note.read'] as const
 
-/** The contract's sentences for a section left out (EHR-C4, "Sections left out"), word for word. */
-export const LEFT_OUT_PERMISSION = 'You do not have permission to see this part of the chart.'
+/**
+ * The sentences for a section left out (EHR-C4, "Sections left out"). The contract's own, word for word, except its
+ * `permission` sentence: staff screens never say "permission" (the owner's rule), so the role is named instead.
+ */
+export const LEFT_OUT_PERMISSION = 'Your role does not show this part of the chart.'
+/** The EHR's `permission` sentence as it answers it: never shown, said as LEFT_OUT_PERMISSION. */
+const EHR_PERMISSION_SENTENCE = 'You do not have permission to see this part of the chart.'
 export const LEFT_OUT_EMERGENCY = 'Emergency access shows allergies and past visits only. This part of the chart is not shown.'
 export const LEFT_OUT_UNAVAILABLE = 'This part of the chart could not be loaded just now. Try again in a moment.'
 export const PHARMACY_PROGRESS_UNAVAILABLE = 'Pharmacy progress could not be loaded just now. The medicines are shown without it.'
 export const LAB_PROGRESS_UNAVAILABLE = 'Laboratory progress could not be loaded just now. The lab requests are shown without it.'
-const CONTRACT_SENTENCES: readonly string[] = [LEFT_OUT_PERMISSION, LEFT_OUT_EMERGENCY, LEFT_OUT_UNAVAILABLE]
+const CONTRACT_SENTENCES: readonly string[] = [LEFT_OUT_EMERGENCY, LEFT_OUT_UNAVAILABLE]
 
 /** ORD-3's words for a progress the pharmacy or laboratory could not tell. */
 export const PROGRESS_UNKNOWN = 'Progress not available right now'
@@ -38,9 +43,13 @@ export interface PharmacyProgress {
    * ORD-3: not_received, received, dispensed, dispensing_reversed, or unknown (any value not known here too). The live
    * EHR also answers withdrawn (sent, then held, cancelled, edited or resumed before it was dispensed) and sent_elsewhere
    * (sent on to another facility's pharmacy before it was dispensed): hid-system 4c843270 work-item-progress.service.ts.
+   * Release B (ORD-4, hid-system 926b1c58) adds accepted: a pharmacist at this hospital's pharmacy accepted it at
+   * `acceptedAt`, not dispensed yet.
    */
-  readonly status: 'not_received' | 'received' | 'dispensed' | 'dispensing_reversed' | 'withdrawn' | 'sent_elsewhere' | 'unknown'
+  readonly status: 'not_received' | 'received' | 'accepted' | 'dispensed' | 'dispensing_reversed' | 'withdrawn' | 'sent_elsewhere' | 'unknown'
   readonly receivedAt: string | null
+  /** ORD-4: when a pharmacist accepted it; null when none, or from an EHR before ORD-4. */
+  readonly acceptedAt: string | null
   readonly dispensedAt: string | null
   readonly reversedAt: string | null
 }
@@ -155,16 +164,17 @@ function list<Item>(value: unknown, item: (row: unknown) => Item): ChartList<Ite
   return { items: section.items.map(item), more: section.more }
 }
 
-const PHARMACY_STATES: readonly PharmacyProgress['status'][] = ['not_received', 'received', 'dispensed', 'dispensing_reversed',
-  'withdrawn', 'sent_elsewhere', 'unknown']
+const PHARMACY_STATES: readonly PharmacyProgress['status'][] = ['not_received', 'received', 'accepted', 'dispensed',
+  'dispensing_reversed', 'withdrawn', 'sent_elsewhere', 'unknown']
 const LAB_STATES: readonly LabProgress['status'][] = ['not_received', 'received', 'sample_collected', 'some_results_ready', 'results_ready', 'unknown']
 
 /** ORD-3's progress; a status not known here is said as not available, never guessed. Absent: null (an EHR before ORD-3). */
 function pharmacyProgress(value: unknown): PharmacyProgress | null {
   if (value === undefined || value === null) return null
-  if (!record(value)) return { status: 'unknown', receivedAt: null, dispensedAt: null, reversedAt: null }
+  if (!record(value)) return { status: 'unknown', receivedAt: null, acceptedAt: null, dispensedAt: null, reversedAt: null }
   const status = PHARMACY_STATES.find(state => state === value.status) ?? 'unknown'
-  return { status, receivedAt: time(value.receivedAt), dispensedAt: time(value.dispensedAt), reversedAt: time(value.reversedAt) }
+  return { status, receivedAt: time(value.receivedAt), acceptedAt: time(value.acceptedAt), dispensedAt: time(value.dispensedAt),
+    reversedAt: time(value.reversedAt) }
 }
 
 function labProgress(value: unknown): LabProgress | null {
@@ -255,6 +265,7 @@ type Read = typeof READERS
 function leftOutMessage(entry: Record<string, unknown> | undefined): string {
   if (!entry) return LEFT_OUT_UNAVAILABLE
   if (typeof entry.message === 'string' && CONTRACT_SENTENCES.includes(entry.message)) return entry.message
+  if (entry.message === EHR_PERMISSION_SENTENCE) return LEFT_OUT_PERMISSION
   return entry.reason === 'permission' ? LEFT_OUT_PERMISSION : LEFT_OUT_UNAVAILABLE
 }
 

@@ -80,10 +80,13 @@ type Full = ReturnType<typeof fullAnswer>
 /** An answer some of whose sections may be left out. */
 type Answer = Omit<Full, 'sections'> & { sections: Partial<Full['sections']> }
 
+/** The EHR's own `permission` sentence (chart-summary.service.ts LEFT_OUT_MESSAGES), never shown on a staff screen. */
+const EHR_PERMISSION_SENTENCE = 'You do not have permission to see this part of the chart.'
+
 /** The answer with `section` left out as the EHR lists it. */
 function without(answer: Answer, section: keyof Full['sections'], reason: 'permission' | 'unavailable'): Answer {
   const { [section]: _dropped, ...sections } = answer.sections
-  return { ...answer, sections, leftOut: [...answer.leftOut, { section, reason, message: reason === 'permission' ? LEFT_OUT_PERMISSION : LEFT_OUT_UNAVAILABLE }] }
+  return { ...answer, sections, leftOut: [...answer.leftOut, { section, reason, message: reason === 'permission' ? EHR_PERMISSION_SENTENCE : LEFT_OUT_UNAVAILABLE }] }
 }
 
 beforeEach(() => {
@@ -330,12 +333,13 @@ describe('The chart summary on the patient page', () => {
   })
 
   it.each([
-    ['withdrawn', 'Withdrawn from the pharmacy'],
-    ['sent_elsewhere', 'Sent to another pharmacy'],
+    ['withdrawn', 'Changed or stopped by the prescribing team'],
+    ['sent_elsewhere', 'Sent to another pharmacy by the prescribing team'],
+    ['accepted', 'Received'],
   ])('says a medicine the pharmacy answered %s in plain words, not as progress not available', async (status, words) => {
     const answer = fullAnswer()
     answer.sections.medications.items[0]!.status = 'on_hold'
-    answer.sections.medications.items[0]!.ownProgress = { status, receivedAt: '2026-11-18T09:00:00.000Z', dispensedAt: null, reversedAt: null }
+    answer.sections.medications.items[0]!.ownProgress = { status, receivedAt: '2026-11-18T09:00:00.000Z', acceptedAt: null, dispensedAt: null, reversedAt: null }
     api.chartSummary.mockResolvedValue(answer)
     openPatient()
     await summaryShown()
@@ -343,6 +347,26 @@ describe('The chart summary on the patient page', () => {
     expect(medicine.textContent).toContain(words)
     expect(medicine.textContent).not.toContain(PROGRESS_UNKNOWN)
     expect(section('Current medicines').textContent).not.toContain(status)
+  })
+
+  it('says a medicine a pharmacist accepted (ORD-4, Release B) as Accepted with its time', async () => {
+    const answer = fullAnswer()
+    answer.sections.medications.items[0]!.ownProgress = { status: 'accepted', receivedAt: '2026-11-18T09:00:00.000Z',
+      acceptedAt: '2026-11-18T09:52:00.000Z', dispensedAt: null, reversedAt: null }
+    api.chartSummary.mockResolvedValue(answer)
+    openPatient()
+    await summaryShown()
+    const medicine = within(section('Current medicines')).getByRole('link', { name: /^Artemether/ })
+    expect(medicine.textContent).toContain('Accepted')
+    expect(medicine.textContent).not.toContain(PROGRESS_UNKNOWN)
+  })
+
+  it('never says "permission" for a section the role does not show', async () => {
+    api.chartSummary.mockResolvedValue(without(without(fullAnswer(), 'problems', 'permission'), 'recentResults', 'permission'))
+    openPatient()
+    await summaryShown()
+    expect(section('Active problems').textContent).toBe(`Active problems${LEFT_OUT_PERMISSION}`)
+    expect(summaryCard().textContent?.toLowerCase()).not.toContain('permission')
   })
 })
 
@@ -368,12 +392,12 @@ describe('Reading the chart summary', () => {
     expect(summary.medications.shown && summary.medications.value.items[0]!.ownProgress).toBeNull()
   })
 
-  it.each(['withdrawn', 'sent_elsewhere'])('reads the live pharmacy answer %s as itself, not as unknown', status => {
+  it.each(['withdrawn', 'sent_elsewhere', 'accepted'])('reads the live pharmacy answer %s as itself, not as unknown', status => {
     const answer = fullAnswer()
     answer.sections.medications.items[0]!.ownProgress = { status, receivedAt: '2026-11-18T09:00:00.000Z', dispensedAt: null, reversedAt: null }
     const summary = parseChartSummary(answer, PATIENT_ID)
     expect(summary.medications.shown && summary.medications.value.items[0]!.ownProgress).toEqual(
-      { status, receivedAt: '2026-11-18T09:00:00.000Z', dispensedAt: null, reversedAt: null })
+      { status, receivedAt: '2026-11-18T09:00:00.000Z', acceptedAt: null, dispensedAt: null, reversedAt: null })
   })
 
   it('throws on an answer that is not a chart summary for this patient', () => {
