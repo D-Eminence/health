@@ -168,3 +168,27 @@ export function pharmacyRefusalText(work: string, facility: Pick<Facility, 'self
   permissions: readonly string[]): string {
   return refusedWorkText(facility, permissions, { ...PHARMACY_WORK, work })
 }
+
+/*
+ * The classic Pharmacy page's list words (staff/routes/Operations.tsx Pharmacy, ListState and PageHead), word for word
+ * (parity row 3.3-69). The tabs, search and paging are the blue page's own; their words are kept for the owner (3.3-66).
+ */
+export const PRESCRIPTIONS_LOAD_FAILED = 'Work could not be loaded.'
+export const PRESCRIPTIONS_REFRESH = 'Refresh work'
+/** Classic's empty list: nothing accepted yet, with a Refresh. */
+export const PRESCRIPTIONS_EMPTY = { title: 'No accepted prescriptions', description: 'Refresh to check for new work at this facility.', retry: 'Refresh' } as const
+
+/** Classic's words under the page heading: `holds`, a pharmacy that is sent prescriptions from other facilities. */
+export function prescriptionsIntro(holds: boolean): string {
+  return holds
+    ? 'Prescriptions accepted here, from this facility and from other facilities, and full dispensing records. The server checks patient authorization before dispensing or reversal.'
+    : 'Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.'
+}
+
+/**
+ * Classic Overview's incoming-orders line (staff/routes/Dashboard.tsx IncomingOrdersCard), shown at the top of
+ * Prescriptions, the pharmacy. site's first page, which has no Overview (parity row 6a).
+ */
+export function incomingCountText(count: number, facilityName: string): string {
+  return `${count} prescription${count === 1 ? '' : 's'} from other facilities waiting at ${facilityName}`
+}
