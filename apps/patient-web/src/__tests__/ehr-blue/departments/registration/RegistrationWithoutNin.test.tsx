@@ -93,7 +93,7 @@ describe('the list while NIN checks are off', () => {
 
   it('names only the button there is: Create record opens the form without a NIN straight away', async () => {
     renderDept(<PatientRegistration />)
-    expect(await screen.findByText('NIN checks are not available right now. You can still register a new patient without a NIN: '
+    expect(await screen.findByText('You can still register a new patient without a NIN: '
       + 'choose Create record. Their record will show NIN Not Verified.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     const drawer = within(await screen.findByRole('dialog'))
@@ -135,17 +135,17 @@ describe('Register without a NIN', () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
       identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
     const drawer = await openNew()
-    await drawer.findByLabelText(/^National Identity Number/)
+    await drawer.findByLabelText(/^NIN \(11 digits\)/)
     // Not the notice for NIN checks being off: they work.
     expect(drawer.queryByText(/NIN checks are not available/)).toBeNull()
     fireEvent.click(drawer.getByRole('button', { name: 'Register without a NIN' }))
     const heading = drawer.getByRole('heading', { name: 'Register without a NIN' })
     expect(document.activeElement).toBe(heading)
-    expect(drawer.queryByLabelText(/^National Identity Number/)).toBeNull()
+    expect(drawer.queryByLabelText(/^NIN \(11 digits\)/)).toBeNull()
     expect(drawer.queryByText(/NIN checks are not available/)).toBeNull()
     // And back to the NIN form.
     fireEvent.click(drawer.getByRole('button', { name: 'Check a NIN instead' }))
-    expect(drawer.getByLabelText(/^National Identity Number/)).toBeTruthy()
+    expect(drawer.getByLabelText(/^NIN \(11 digits\)/)).toBeTruthy()
     fireEvent.click(drawer.getByRole('button', { name: 'Register without a NIN' }))
     fill({ first: 'Child', last: 'Two', dob: '2020-03-04', reason: 'child', contact: false })
     await register()
@@ -195,7 +195,7 @@ describe('Register without a NIN', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Registration for Patient One' })).toBeTruthy()
     expect(screen.getAllByText(/so it was sent for review\. An approver at this facility will decide/).length).toBeGreaterThan(0)
     expect(screen.getByText(/^Sent for review\. This may be someone who is already registered/)).toBeTruthy()
-    expect(screen.queryByText(/possible matches could not be shown/)).toBeNull()
+    expect(screen.queryByText(/Can’t show the matches/)).toBeNull()
     expect(screen.queryByText(/A possible existing patient was found/)).toBeNull()
   })
 
@@ -333,8 +333,9 @@ describe('a registration without a NIN, as an approver reads it', () => {
 
   async function findCase() {
     renderDept(<PatientRegistration />)
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Reference' }), { target: { value: CASE } })
-    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
+    const field = await screen.findByRole('textbox', { name: 'Registration ID' })
+    fireEvent.change(field, { target: { value: CASE } })
+    fireEvent.click(within(field.closest('form') as HTMLElement).getByRole('button', { name: 'Open' }))
     return screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
   }
   const actions = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
@@ -355,7 +356,7 @@ describe('a registration without a NIN, as an approver reads it', () => {
     expect(screen.getByText('This may be someone already registered. Link them only if they are the same person. '
       + 'Otherwise give them a new Health ID.')).toBeTruthy()
     expect(within(savedRecord()).getByText('Patient Four')).toBeTruthy()
-    expect(within(actions()).getByRole('button', { name: 'Link selected patient' })).toBeTruthy()
+    expect(within(actions()).getByRole('button', { name: 'Link to this person' })).toBeTruthy()
     await decide('Give a new Health ID', '  Not the same person: a twin seen today  ')
     expect(api.approveNewRegistration).toHaveBeenCalledTimes(1)
     const [facility, item, reason, key] = api.approveNewRegistration.mock.calls[0]!
@@ -365,7 +366,7 @@ describe('a registration without a NIN, as an approver reads it', () => {
     expect(key).toMatch(/^[0-9a-f-]{36}$/)
     expect(api.linkExistingRegistration).not.toHaveBeenCalled()
     await waitFor(() => expect(within(savedRecord()).getByText('Health ID').nextElementSibling?.textContent).toBe('HID-ZDEMAAB3'))
-    expect(screen.getAllByText('A new Health ID was approved.').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('New Health ID created.').length).toBeGreaterThan(0)
   })
 
   it('with nobody listed (it matched another registration waiting for review): offers a new Health ID, not "an approver will decide"', async () => {
@@ -373,10 +374,10 @@ describe('a registration without a NIN, as an approver reads it', () => {
     api.approveNewRegistration.mockResolvedValue(decided('approved_new_identity', PATIENT, 'HID-ZDEMAAB3'))
     await findCase()
     expect(screen.queryByText(/will decide/)).toBeNull()
-    expect(screen.queryByText(/possible matches could not be shown/)).toBeNull()
+    expect(screen.queryByText(/Can’t show the matches/)).toBeNull()
     expect(document.body.textContent).not.toMatch(/cannot be given/)
     expect(screen.getByText(/the same person as another registration waiting for review\. Give them a new Health ID only if/)).toBeTruthy()
-    expect(within(actions()).queryByRole('button', { name: 'Link selected patient' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'Link to this person' })).toBeNull()
     expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
     await decide('Give a new Health ID', 'No existing patient is the same person')
     expect(api.approveNewRegistration).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, expect.objectContaining({ caseId: CASE, version: 3 }),
@@ -414,11 +415,11 @@ describe('a registration without a NIN, as an approver reads it', () => {
     api.registrationCase.mockResolvedValue(NO_NIN_REVIEW)
     api.linkExistingRegistration.mockResolvedValue(decided('linked_existing', LISTED, 'HID-ZDEMAAB4'))
     await findCase()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Link selected patient' }))
-    const form = screen.getByRole('form', { name: 'Link selected patient' })
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Link to this person' }))
+    const form = screen.getByRole('form', { name: 'Link to this person' })
     fireEvent.change(within(form).getByRole('combobox'), { target: { value: LISTED } })
     fireEvent.change(within(form).getByRole('textbox'), { target: { value: 'Same person: confirmed with the patient' } })
-    await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Link selected patient' })) })
+    await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Link to this person' })) })
     expect(api.linkExistingRegistration).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, expect.objectContaining({ caseId: CASE, version: 3 }),
       LISTED, 'Same person: confirmed with the patient', expect.any(String))
     await waitFor(() => expect(within(savedRecord()).getByText('Health ID').nextElementSibling?.textContent).toBe('HID-ZDEMAAB4'))
@@ -430,7 +431,7 @@ describe('a registration without a NIN, as an approver reads it', () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
       identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
     await findCase()
-    expect(within(actions()).queryByRole('button', { name: 'Enroll patient account' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'Create their account' })).toBeNull()
     expect(within(actions()).getByText(NEEDS_NIN)).toBeTruthy()
     expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
     expect(api.enrollRegistration).not.toHaveBeenCalled()
@@ -442,11 +443,11 @@ describe('a registration without a NIN, as an approver reads it', () => {
     api.enrollRegistration.mockRejectedValue(new HidApiError(409, 'Registration or account state changed', { code: 'PATIENT_ENROLLMENT_CONFLICT' }))
     await findCase()
     expect(within(actions()).queryByText(NEEDS_NIN)).toBeNull()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Enroll patient account' }))
-    const form = screen.getByRole('form', { name: 'Enroll patient account' })
-    fireEvent.change(within(form).getByRole('textbox', { name: 'Patient email' }), { target: { value: 'patient.one@example.test' } })
-    fireEvent.change(within(form).getByRole('textbox', { name: 'Enrollment reason' }), { target: { value: 'Patient asked for an account' } })
-    await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Create pending patient account' })) })
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Create their account' }))
+    const form = screen.getByRole('form', { name: 'Create their account' })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Their email' }), { target: { value: 'patient.one@example.test' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Why (for the record)' }), { target: { value: 'Patient asked for an account' } })
+    await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Create account' })) })
     await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('A patient account could not be set up for this '
       + 'registration. The patient may already have one, or their NIN has not been checked. Refresh this registration before trying again.'))
     expect(document.body.textContent).not.toMatch(/changed somewhere else|account state changed/)
