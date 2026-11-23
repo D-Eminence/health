@@ -138,12 +138,12 @@ describe('3. access requests are read where today reads them, each time', () => 
       status: 'pending', requestedDurationMinutes: 60, requestedAt: '2026-10-29T09:00:00Z', approvedAt: null, deniedAt: null, deniedReason: null }]
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([]), () => json(waiting), () => json(waiting)] })
     await openStaffApp('/provider')
-    // None waiting: Needs attention is all clear once they are read.
-    expect(await screen.findByText('All clear')).toBeDefined()
+    // None waiting: the Access requests card says so once they are read.
+    expect(await screen.findByText('0 pending requests')).toBeDefined()
     follow('Access requests')
     await waitFor(() => expect(where()).toBe('/provider/requests'))
     follow('Home')
-    expect((await screen.findByRole('link', { name: /^1 access request waiting/ })).getAttribute('href')).toBe('/provider/requests')
+    expect(await screen.findByText('1 pending request')).toBeDefined()
   })
 
   it('reads them once on another page, for the bell, and not again', async () => {

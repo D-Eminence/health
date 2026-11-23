@@ -140,8 +140,15 @@ export function BlueHome() {
     ...rxItems.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine', meta: 'Pharmacy · to dispense',
       to: `/provider/pharmacy/prescriptions/${encodeURIComponent(item.id)}`, icon: Pill, urgent: false })),
   ]
+  // "All clear" only for what was read: the access requests (when this role reads them) and, at a demo facility, the
+  // laboratory work. While a read is still on its way Home says it is loading; after one fails it does not say all clear.
+  const readsRequests = permissions.includes('identity.consent.write')
+  // The Access requests card below says the count, its loading and its read error, so Needs attention leaves the
+  // requests out when the card is there (no row, no "No requests waiting", no wait on their read): each said once.
+  const requestsCard = Boolean(facility && readsRequests && opens('requests'))
+  const requestsHere = readsRequests && !requestsCard
   const attention = [
-    ...(pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
+    ...(requestsHere && pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
       title: `${pending} access request${pending === 1 ? '' : 's'} waiting`, subtitle: 'Waiting for the patient to answer' }] : []),
     ...(activePatient && patientTo ? [{ key: 'patient', to: patientTo, icon: Stethoscope, tone: 'brand' as const,
       title: activePatient.lookup.patient.fullName ?? activePatient.hid,
@@ -149,14 +156,11 @@ export function BlueHome() {
     ...(urgentLab > 0 ? [{ key: 'urgent-lab', to: '/provider/laboratory', icon: FlaskConical, tone: 'danger' as const,
       title: `${urgentLab} urgent lab test${urgentLab === 1 ? '' : 's'}`, subtitle: 'Accepted and waiting to be run' }] : []),
   ]
-  // "All clear" only for what was read: the access requests (when this role reads them) and, at a demo facility, the
-  // laboratory work. While a read is still on its way Home says it is loading; after one fails it does not say all clear.
-  const readsRequests = permissions.includes('identity.consent.write')
-  const requestsRead = readsRequests ? access.state : 'ready'
+  const requestsRead = requestsHere ? access.state : 'ready'
   const labState = demo && lab ? labRead.state : 'ready'
   const checking = requestsRead === 'loading' || requestsRead === 'none' || labState === 'loading'
   const allClear = !checking && requestsRead === 'ready' && labState === 'ready'
-  const clearWords = [readsRequests ? 'No requests waiting' : null, 'no patient open', demo && lab ? 'nothing urgent' : null]
+  const clearWords = [requestsHere ? 'No requests waiting' : null, 'no patient open', demo && lab ? 'nothing urgent' : null]
     .filter(Boolean).join(', ')
   const clearDescription = `${clearWords.charAt(0).toUpperCase()}${clearWords.slice(1)}.`
   const firstName = name.replace(/^(dr|mr|mrs|ms|nurse)\.?\s+/i, match => match).split(' ').slice(0, 2).join(' ')
@@ -171,10 +175,6 @@ export function BlueHome() {
     demo ? <StatCard key="created" icon={Users} tone="brand" label="Patients registered" value={sampleRecords('patients').length} hint="Sample · last 7 days" /> : null,
   ].filter(Boolean)
 
-  // The card below carries the read error in classic's words (Dashboard.tsx:272), so the Alert above keeps only its
-  // title and Try again when the card is there, and the message shows once.
-  const requestsCard = Boolean(facility && readsRequests && opens('requests'))
-
   return <div className="flex flex-col gap-8">
     <PageHeader title={`${greeting()}, ${firstName}`} description={`What needs you at ${facility?.name ?? 'your facility'} today.`}
       actions={canFind ? <Button to="/provider/patients" variant="primary" icon={Search}>Find a patient</Button> : undefined} />
@@ -186,8 +186,8 @@ export function BlueHome() {
         {/* The three-second rule: what waits for a decision is the first section, each thing in it once. */}
         <section className="flex flex-col gap-3" aria-labelledby="ehr-home-attention">
           <SectionHeader id="ehr-home-attention" title="Needs attention" count={attention.length} />
-          {access.state === 'failed' && <Alert intent="error" title="Couldn’t load access requests"
-            action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{requestsCard ? null : access.message}</Alert>}
+          {requestsHere && access.state === 'failed' && <Alert intent="error" title="Couldn’t load access requests"
+            action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{access.message}</Alert>}
           {attention.length === 0
             ? checking ? <Card><LoadingRows rows={1} label="Loading what needs attention" /></Card>
               : allClear ? <EmptyState compact icon={ShieldCheck} title="All clear" description={clearDescription} />
@@ -218,11 +218,14 @@ export function BlueHome() {
         {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
         {facility ? <FacilityCheckCard facility={facility} /> : null}
         {/* Today's Overview card, always there for a session that reads access requests, 0 pending included, with its
-            loading and read-error words (classic Dashboard.tsx:272). */}
+            loading and read-error words (classic Dashboard.tsx:272) and Try again. */}
         {requestsCard ? <Card aria-label="Access requests">
           <CardHeader as="h2" title="Access requests" icon={ShieldAlert} />
-          <p className="m-0 px-5 pb-2 text-sm text-ink-2">{access.state === 'ready' ? `${access.pending} pending request${access.pending === 1 ? '' : 's'}`
-            : access.state === 'failed' ? access.message : 'Loading requests…'}</p>
+          {access.state === 'failed'
+            ? <div className="px-5 pb-2"><Alert intent="error" title="Couldn’t load access requests"
+                action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{access.message}</Alert></div>
+            : <p className="m-0 px-5 pb-2 text-sm text-ink-2">{access.state === 'ready' ? `${access.pending} pending request${access.pending === 1 ? '' : 's'}`
+              : 'Loading requests…'}</p>}
           <div className="px-5 pb-4"><Button to="/provider/requests" variant="link" size="sm" iconRight={ChevronRight}>Review requests</Button></div>
         </Card> : null}
         {facility && usesNovuBackend() && incomingHere.services.length > 0

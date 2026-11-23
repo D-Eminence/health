@@ -45,6 +45,7 @@ function home(permissions: readonly string[]) {
   </AttentionProvider></RoleViewProvider></MemoryRouter>)
 }
 const card = () => within(screen.getByLabelText('Access requests'))
+const attention = () => within(screen.getByRole('region', { name: 'Needs attention' }))
 
 describe('Home: the Access requests card, as today\'s Overview', () => {
   it.each([
@@ -71,10 +72,21 @@ describe('Home: the Access requests card, as today\'s Overview', () => {
     home(READS)
     expect(await card().findByText(accessRequestsError(failure))).toBeDefined()
     expect(card().queryByText('Loading requests…')).toBeNull()
-    // Said once: the Needs attention alert keeps its title and Try again, the card carries the message.
+    // Said once, on the card, with Try again: Needs attention says nothing of the requests.
     expect(screen.getAllByText(accessRequestsError(failure))).toHaveLength(1)
-    expect(screen.getByText('Couldn’t load access requests')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeDefined()
+    expect(screen.getAllByText('Couldn’t load access requests')).toHaveLength(1)
+    expect(card().getByRole('button', { name: 'Try again' })).toBeDefined()
+    expect(attention().queryByText(/request/)).toBeNull()
+  })
+
+  it('says the pending count once on Home: on the card, not again in Needs attention', async () => {
+    vi.mocked(staffApi.listAccessRequests).mockResolvedValue([request('r1', 'pending'), request('r2', 'pending')] as unknown as Requests)
+    home(READS)
+    expect(await card().findByText('2 pending requests')).toBeDefined()
+    expect(screen.getAllByText(/\b2\b[^.]*request/)).toHaveLength(1)
+    expect(attention().queryByText(/request/)).toBeNull()
+    expect(attention().queryAllByRole('listitem')).toHaveLength(0)
+    expect(screen.getAllByRole('link', { name: /request/ }).map(link => link.textContent)).toEqual(['Review requests'])
   })
 
   it('shows no card, and reads nothing, for a session that may not read access requests', () => {

@@ -81,37 +81,42 @@ describe('the emergency notice says what the summary really shows and who is rea
 describe('Home and the bell: access requests wait for the patient', () => {
   const PERMISSIONS = ['identity.consent.write', 'identity.patient.read']
 
-  it('says a waiting request waits for the patient, on Home and in the bell', async () => {
+  it('says a waiting request waits for the patient in the bell, and counts it once on Home, on its card', async () => {
     vi.mocked(staffApi.listAccessRequests).mockResolvedValue(WAITING)
     const card = home(PERMISSIONS)
-    expect(await card.findByText('Waiting for the patient to answer')).toBeDefined()
-    expect(card.queryByText('All clear')).toBeNull()
+    expect(await within(screen.getByLabelText('Access requests')).findByText('1 pending request')).toBeDefined()
+    // The card says the count, so Needs attention neither lists the request nor says none waits.
+    expect(card.queryByText(/request/)).toBeNull()
     expect(document.body.textContent).not.toMatch(/Review and send them on|Review them/)
     fireEvent.click(screen.getByRole('button', { name: 'Notifications, 1 waiting' }))
     const drawer = await screen.findByRole('dialog', { name: 'Notifications' })
     expect(await within(drawer).findByText('Waiting for the patient to answer')).toBeDefined()
   })
 
-  it('says all clear once the requests were read and none waits', async () => {
+  it('leaves the requests to their card when none waits: all clear names only what Needs attention checked', async () => {
     vi.mocked(staffApi.listAccessRequests).mockResolvedValue([])
     const card = home(PERMISSIONS)
-    expect(await card.findByText('All clear')).toBeDefined()
-    expect(card.getByText('No requests waiting, no patient open.')).toBeDefined()
+    expect(await within(screen.getByLabelText('Access requests')).findByText('0 pending requests')).toBeDefined()
+    expect(card.getByText('All clear')).toBeDefined()
+    expect(card.getByText('No patient open.')).toBeDefined()
+    expect(screen.queryByText(/No requests waiting/)).toBeNull()
   })
 
-  it('does not say all clear while the requests are still being read', () => {
+  it('says the requests are loading on their card, not in Needs attention', () => {
     vi.mocked(staffApi.listAccessRequests).mockReturnValue(new Promise(() => {}))
     const card = home(PERMISSIONS)
-    expect(card.getByRole('status').textContent).toMatch(/^Loading what needs attention/)
-    expect(card.queryByText('All clear')).toBeNull()
+    expect(within(screen.getByLabelText('Access requests')).getByText('Loading requests…')).toBeDefined()
+    expect(card.queryByRole('status')).toBeNull()
+    expect(card.queryByText(/request/)).toBeNull()
   })
 
-  it('does not say all clear after the read failed', async () => {
+  it('says a failed read on the requests card, and Needs attention says nothing of the requests', async () => {
     vi.mocked(staffApi.listAccessRequests).mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' }))
     const card = home(PERMISSIONS)
-    expect(await card.findByText('Couldn’t load access requests')).toBeDefined()
+    expect(await within(screen.getByLabelText('Access requests')).findByText('Couldn’t load access requests')).toBeDefined()
     await waitFor(() => expect(card.queryByRole('status')).toBeNull())
-    expect(card.queryByText('All clear')).toBeNull()
+    expect(card.queryByText(/request/)).toBeNull()
+    expect(card.queryByText(/No requests waiting/)).toBeNull()
   })
 
   it('names only what it checked for a role that reads no requests', () => {
