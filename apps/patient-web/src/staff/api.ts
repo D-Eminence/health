@@ -723,6 +723,30 @@ export interface WorkList<T> extends ReceivingAnswer {
    * such field.
    */
   cannotComplete?: boolean
+  /**
+   * Q123 A (hid-system #298): the Lagos calendar day ("YYYY-MM-DD") 90 days back. The lab and pharmacy lists hold open
+   * work of any age and done work received on or after it. Kept only when it is a real date (`keptSince`); an earlier
+   * backend sends no such field.
+   */
+  since?: string
+}
+
+/** A "YYYY-MM-DD" that names a real calendar day ("2026-02-30" does not). */
+function isCalendarDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+/**
+ * A work list as answered, with `since` (Q123 A) dropped unless it is a real date: anything else is ignored rather than
+ * failing the list, as an earlier backend's answer without it is shown.
+ */
+function keptSince<T>(list: WorkList<T>): WorkList<T> {
+  if (list.since === undefined || isCalendarDay(list.since)) return list
+  const { since: _ignored, ...rest } = list
+  return rest
 }
 
 /**
@@ -2603,7 +2627,7 @@ export const staffApi = {
   },
 
   labWorkItems: (facilityId: string) =>
-    client.get<WorkList<LabWorkItem>>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<LabWorkItem>>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince),
   createLabAccession: (facilityId: string, workItemId: string, specimenType: string, reason: string) =>
     client.post<LabAccession>(`/api/v1/lab/work-items/${encodeURIComponent(workItemId)}/accession`,
       { requirements: [{ specimenType }], reason },
@@ -2664,7 +2688,7 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
