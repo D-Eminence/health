@@ -104,13 +104,12 @@ describe('Extract with OCR on the EHR’s own site', () => {
     // The first wait loads the real app's lazy pages cold (registration-ehr-only.test.tsx).
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }, { timeout: 25000 }), { target: { value: PATIENT_HID } })
     fireEvent.click(screen.getByRole('button', { name: 'Find' }))
-    // Find a patient opens the chart, as today's does (parity 13d): the patient's consultations here.
-    await waitFor(() => expect(address()).toBe('/provider/clinical'))
-    expect((await screen.findAllByText(PATIENT_NAME)).length).toBeGreaterThan(0)
+    // Find a patient opens the patient's page, not the chart (owner decision Q139 B, 23 Nov; parity 13d).
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(address()).toBe('/provider/patients/open')
 
-    // The visit, from the chart's list, and its Documents card.
-    const row = (await screen.findAllByText(consultationLabel(ENCOUNTER)))[0]!
-    fireEvent.click(row.closest('a, button') ?? row)
+    // The visit, from "Visits here", and its Documents card.
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) }))
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const documents = screen.getByRole('heading', { level: 2, name: 'Documents' }).closest('section') as HTMLElement
     const link = await within(documents).findByRole('link', { name: 'Extract with OCR' })
@@ -149,7 +148,7 @@ describe('Extract with OCR on the EHR’s own site', () => {
       for (const at of seen) expect(at).not.toContain(id)
     }
     // Every address it took: main's own, the encounter's id the only id among them, as before.
-    expect(seen).toEqual(['/provider/patients', '/provider/clinical', `/provider/clinical/${ENCOUNTER_ID}`, '/provider/ocr'])
+    expect(seen).toEqual(['/provider/patients', '/provider/patients/open', `/provider/clinical/${ENCOUNTER_ID}`, '/provider/ocr'])
     // And the rule behind it (#68): the EHR's site serves Document OCR itself.
     expect(servedHere('/provider/ocr', EHR)).toBe(true)
   })

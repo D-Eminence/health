@@ -101,9 +101,14 @@ function where() {
   return screen.queryByTestId('elsewhere')?.textContent ?? null
 }
 
-/** An allowed lookup opens the chart (Consultation), as today's opens /provider/clinical (parity 13d). */
-async function openedChart(timeout = 1000) {
-  await waitFor(() => expect(where()).toBe('/provider/clinical'), { timeout })
+/**
+ * An allowed lookup opens the patient's page, with the chart summary, for every role: never the chart (Consultation)
+ * itself (owner decision Q139 B, 23 Nov; parity 9d, 13c, 13d). Start consultation stays one click away there.
+ */
+async function openedPatientPage(timeout = 1000) {
+  expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME }, { timeout })).toBeTruthy()
+  expect(where()).toBeNull()
+  expect(where()).not.toBe('/provider/clinical')
 }
 
 /**
@@ -200,23 +205,18 @@ describe('Find a patient', () => {
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
-  it('opens an allowed patient (Enter submits) and goes to the chart, as today, whose URL names no patient (parity 13d)', async () => {
+  it.each([
+    ['may open the chart', ALL],
+    ['can’t open the chart', ALL.filter(permission => permission !== 'ehr.encounter.read')],
+  ])('opens an allowed patient (Enter submits) on their page, never the chart, for a role that %s, whose URL names no patient (Q139 B)', async (_label, permissions) => {
+    staff.permissions = permissions
     open()
     fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.submit(searchField().closest('form')!)
-    await openedChart()
+    await openedPatientPage()
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
     expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: allowedLookup, purpose: 'direct-care' })
     expect(document.title).not.toContain(PATIENT_NAME)
-  })
-
-  it('opens the patient’s page instead for a role that can’t open the chart (parity 13d)', async () => {
-    staff.permissions = ALL.filter(permission => permission !== 'ehr.encounter.read')
-    open()
-    fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa2' } })
-    fireEvent.submit(searchField().closest('form')!)
-    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
-    expect(where()).toBeNull()
   })
 
   it('looks a whole Health ID up by itself once it is pasted, with no press of Find', async () => {
@@ -225,7 +225,7 @@ describe('Find a patient', () => {
     // The paste adds only the last four letters to what was typed: it is the paste, not its length, that counts.
     fireEvent.paste(searchField())
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
-    await openedChart(2000)
+    await openedPatientPage(2000)
     // The incomplete one was never looked up; the whole one was, first (the patient's page checks access again after).
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
     expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
@@ -235,14 +235,14 @@ describe('Find a patient', () => {
     open()
     fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa' } })
     fireEvent.input(searchField(), { target: { value: PATIENT_HID }, inputType: 'insertReplacementText' })
-    await openedChart(2000)
+    await openedPatientPage(2000)
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
   it('looks up by itself a Health ID scanned in at once (one change adds six letters or more)', async () => {
     open()
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
-    await openedChart(2000)
+    await openedPatientPage(2000)
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
@@ -260,7 +260,7 @@ describe('Find a patient', () => {
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
     fireEvent.click(findButton())
-    await openedChart()
+    await openedPatientPage()
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
@@ -287,7 +287,7 @@ describe('Find a patient', () => {
     open()
     typeEach(PATIENT_HID.slice('HID-'.length), 10)
     expect(searchField().value).toBe(PATIENT_HID)
-    await openedChart(2000)
+    await openedPatientPage(2000)
     // Only the whole Health ID was looked up: the letters kept coming before the shorter one's wait was over.
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
     expect(api.lookupPatient.mock.calls.every(call => call[1] === PATIENT_HID)).toBe(true)
@@ -297,7 +297,7 @@ describe('Find a patient', () => {
     open()
     typeEach(PATIENT_HID, 8)
     expect(searchField().value).toBe(PATIENT_HID)
-    await openedChart(2000)
+    await openedPatientPage(2000)
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
@@ -322,7 +322,7 @@ describe('Find a patient', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, AUTO_LOOKUP_MS + 300)) })
     expect(api.lookupPatient).not.toHaveBeenCalled()
     fireEvent.click(findButton())
-    await openedChart()
+    await openedPatientPage()
     expect(api.lookupPatient.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
   })
 
@@ -393,7 +393,7 @@ describe('Find a patient', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
     fireEvent.change(screen.getByLabelText(labelled('Patient access PIN')), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
-    // This role can't open the chart, so it lands on the patient's page (parity 9d).
+    // The patient's page, as for every role (Q139 B; parity 9d).
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
     expect(api.verifyPin).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, '1234')
     expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: allowedLookup, purpose: 'direct-care' })
@@ -491,7 +491,7 @@ describe('Find a patient', () => {
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
-  it('shows the open patient under today’s heading, with Open to the chart and Close my grant (parity 3.3-1)', () => {
+  it('shows the open patient under today’s heading, with Open to their page (not the chart, Q139 B) and Close my grant (parity 3.3-1)', () => {
     staff.activePatient = activePatient()
     open()
     const now = screen.getByRole('region', { name: 'Current authorized record' })
@@ -499,11 +499,11 @@ describe('Find a patient', () => {
     expect(within(now).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(now).getByText(PATIENT_HID)).toBeTruthy()
     expect(within(now).getByText('Access allowed')).toBeTruthy()
-    expect(within(now).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/provider/clinical')
+    expect(within(now).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/provider/patients/open')
     expect(within(now).getByRole('button', { name: 'Close my grant' })).toBeTruthy()
   })
 
-  it('opens the patient’s page from the card for a role that can’t open the chart (parity 3.3-1)', () => {
+  it('opens the patient’s page from the card for a role that can’t open the chart too (parity 3.3-1)', () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.encounter.read')
     staff.activePatient = activePatient()
     open()
@@ -1100,8 +1100,8 @@ describe('Patient sharing', () => {
     expect(await screen.findByRole('heading', { name: 'Shared with you' })).toBeTruthy()
     expect(api.staffShareInvitations).toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
-    // Opened, it lands on the chart, as a Find does (parity 13c, 13d).
-    await openedChart()
+    // Opened, it lands on the patient's page, as a Find does, not the chart (Q139 B; parity 13c, 13d).
+    await openedPatientPage()
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
   })
 
@@ -1362,7 +1362,7 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     fireEvent.click(button)
     expect(api.lookupPatient).toHaveBeenCalledTimes(1)
     await act(async () => { answer(allowedLookup) })
-    await openedChart()
+    await openedPatientPage()
   })
 
   it('a role that cannot look a patient up sees each share’s Open turned off with today’s reason', async () => {

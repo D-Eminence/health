@@ -94,8 +94,7 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
       if (!facility) throw new PlainError('Select a facility first.')
       await staffApi.verifyPin(facility.id, normalized, compactPin)
       await untilStaffSessionReady(sentIn)
-      // Straight to the chart, as today's PIN opens the record (Patients.tsx:149, 194); the patient's page for a role
-      // without it.
+      // The patient's page, with the chart summary, for every role (owner decision Q139 B; see useOpenedPatientHref).
       if (await openPatient(normalized, 'direct-care')) navigate(landing('direct-care'))
     } catch (caught) {
       setError(plainErrorText(caught, COMMAND_FAILED, { codes: PIN_REFUSALS, audience: 'facility' }))

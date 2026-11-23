@@ -179,8 +179,8 @@ function PatientList() {
   function clearFeedback() { setNotice(''); setError(''); setCloseError(''); setRefused(null); setUnknown(null) }
 
   /**
-   * Today's openPatient from a typed or shared Health ID: an allowed lookup opens the chart, as today's does
-   * (Patients.tsx:149); a role without the chart gets the patient's page.
+   * Today's openPatient from a typed or shared Health ID: an allowed lookup opens the patient's page, with the chart
+   * summary, for every role (owner decision Q139 B; see useOpenedPatientHref).
    */
   async function open(candidate: string) {
     setBusy(true)

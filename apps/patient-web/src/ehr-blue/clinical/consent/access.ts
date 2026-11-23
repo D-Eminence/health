@@ -150,20 +150,22 @@ export function useOpenPatient() {
 }
 
 /**
- * Where an opened patient lands, as today's openPatient sends every allowed lookup to the record (Patients.tsx:149,
- * /provider/clinical): direct care opens the chart (Consultation) for a role that may read it on a site that opens it;
- * emergency access opens the read-only emergency summary where this site opens Emergency. Any other role, or site,
- * lands on the patient's page, the one record page it can open.
+ * Where an opened patient lands. Direct care (Find, PIN success, a shared record's Open, the open record's Open) lands
+ * on the patient's page for every role, never straight on the chart: owner decision Q139 B (23 Nov 2026), "Find lands
+ * on the patient page with the chart summary". That page shows the chart summary (EHR-C4) and keeps Start consultation
+ * and Open chart one click away. This differs from today's openPatient, which sends an allowed lookup to
+ * /provider/clinical (Patients.tsx:149); parity rows 9d, 13c and 13d follow the decision. Emergency access opens the
+ * read-only emergency summary where this site opens Emergency, and the patient's page anywhere else.
  */
 export function useOpenedPatientHref() {
   const { permissions, can } = useClinical()
   const href = useWorkspaceHref()
   return useCallback((purpose: ActivePatient['purpose']) => {
-    const product = productOf(window.location.hostname, permissions)
     if (purpose === 'emergency') {
+      const product = productOf(window.location.hostname, permissions)
       return opensInProduct(product, segmentOf('emergency')) && can('identity.break-glass.write') ? href.to('emergency', 'summary') : href.to('patients', 'open')
     }
-    return opensInProduct(product, segmentOf('consult')) && can('ehr.encounter.read') ? href.to('consult') : href.to('patients', 'open')
+    return href.to('patients', 'open')
   }, [can, href, permissions])
 }
 

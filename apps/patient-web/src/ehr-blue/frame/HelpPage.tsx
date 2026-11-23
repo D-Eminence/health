@@ -52,7 +52,7 @@ export const GUIDES: readonly Guide[] = [
   // Its last step sends a new patient to Patient registration, the EHR's alone.
   { id: 'find', title: 'Find a patient and get access', permission: 'identity.patient.read', pages: ['patients', 'registration'], steps: [
     'Open Patients and paste or scan the patient’s Health ID (it starts with HID-). If you type it, select Find.',
-    'If you can see the patient, their chart opens at once (or their page, if your role can’t open the chart).',
+    'If you can see the patient, their page opens at once.',
     'If not, choose Use their Access PIN (if they’re with you) or Ask the patient (they approve on their phone).',
     'If no patient has that Health ID, check it with them. If they’re new, select Register a new patient. If you don’t see it, ask a colleague who registers patients.',
   ], note: 'Use Emergency access only when the patient can’t consent and care can’t wait.', notePage: 'emergency' },

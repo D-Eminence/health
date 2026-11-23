@@ -547,7 +547,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(document.body.textContent).not.toMatch(/60 minutes|one hour|read-only|view only/i)
   })
 
-  it('verifies the PIN without spaces, waits for the session, then opens the chart through the lookup, as today (parity 9d)', async () => {
+  it('verifies the PIN without spaces, waits for the session, then opens the patient’s page through the lookup, not the chart (Q139 B)', async () => {
     open('/pin')
     expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
@@ -556,8 +556,9 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(pin.type).toBe('password')
     fireEvent.change(pin, { target: { value: '12 34' } })
     fireEvent.submit(pin.closest('form')!)
-    // Straight to the chart, as today's PIN opens /provider/clinical (Patients.tsx:149).
-    await waitFor(() => expect(where()).toBe('/provider/clinical'))
+    // The patient's page, with the chart summary, not the chart (owner decision Q139 B, 23 Nov; parity 9d).
+    await waitFor(() => expect(where()).toBe('/provider/patients/open'))
+    expect(where()).not.toBe('/provider/clinical')
     expect(api.verifyPin).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, '1234')
     expect(session.untilStaffSessionReady).toHaveBeenCalledWith(3)
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
@@ -629,13 +630,17 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(field().value).toBe(PATIENT_HID)
   })
 
-  it('opens the patient’s page instead for a role that can’t open the chart (parity 9d)', async () => {
-    staff.permissions = ALL.filter(permission => permission !== 'ehr.encounter.read')
+  it.each([
+    ['may open the chart', ALL],
+    ['can’t open the chart', ALL.filter(permission => permission !== 'ehr.encounter.read')],
+  ])('opens the patient’s page for a role that %s, never the chart (Q139 B)', async (_label, permissions) => {
+    staff.permissions = permissions
     open('/pin')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
     await waitFor(() => expect(where()).toBe('/provider/patients/open'))
+    expect(where()).not.toBe('/provider/clinical')
   })
 
   it('says the coordinator’s words when the PIN check fails with no words of its own, with no title of its own (parity 9c, 17g)', async () => {
@@ -682,7 +687,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.verifyPin).toHaveBeenCalledTimes(1)
     await act(async () => { answer({ accessRequestId: 'r1', consentGrantId: 'grant-1', patientId: PATIENT_ID, status: 'active', expiresAt: '2026-10-30T12:00:00.000Z' }) })
-    await waitFor(() => expect(where()).toBe('/provider/clinical'))
+    await waitFor(() => expect(where()).toBe('/provider/patients/open'))
   })
 
   it('says in today’s words that the role can’t verify a patient’s PIN, naming no permission (parity 9c)', () => {
