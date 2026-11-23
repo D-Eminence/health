@@ -218,7 +218,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
 
   const reads = {
     notes: chart.can('ehr.note.read'), diagnoses: chart.can('ehr.diagnosis.read'), vitals: chart.can('ehr.vital.read'),
-    prescriptions: chart.can('ehr.prescription.read'), labs: chart.can('ehr.lab-request.read'), documents: chart.can('ehr.document.read'),
+    prescriptions: chart.can('ehr.prescription.read'), labs: chart.can('ehr.lab-request.read'),
+    // The front desk reads only the documents it uploaded (ehr.document.read-own, hid-system 0136), and adds them.
+    documents: chart.can('ehr.document.read') || chart.can('ehr.document.read-own'),
   }
   const writes = {
     notes: chart.canWrite && chart.can('ehr.note.write'), encounter: chart.canWrite && chart.can('ehr.encounter.write'),

@@ -12,6 +12,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { readDocuments } from './DocumentCapture'
 import { NOT_OPENED_HERE, UUID_V4, choiceFacts, healthIdFrom, patientChoice, type PatientChoice } from './ocrSteps'
+import { scanAccess } from '../../../scanAccess'
 
 /*
  * New document job, picked, never typed (the owner's no-typing rule for Migrate, as Confirm the patient): the patient,
@@ -59,7 +60,8 @@ export function NewJobPick({ facilityId, permissions, preselect, busy, onPick, c
   const openPatient = activePatient && activePatient.purpose !== 'emergency'
     ? patientChoice(activePatient.lookup.patient, activePatient.hid, 'reading') : null
   const canFind = permissions.includes('identity.patient.read')
-  const canReadDocuments = permissions.includes('ehr.document.read')
+  // Every document of the visit, or only those this login uploaded (the front desk, hid-system 0136).
+  const canReadDocuments = scanAccess(permissions).readsDocuments
   const [found, setFound] = useState<PatientChoice | null>(null)
   const choices = [openPatient, found && found.patientId !== openPatient?.patientId ? found : null].filter((choice): choice is PatientChoice => !!choice)
   // The patient open here is whose documents are shown first; another is picked by finding them.

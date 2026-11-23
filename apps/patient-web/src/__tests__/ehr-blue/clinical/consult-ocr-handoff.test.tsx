@@ -27,7 +27,7 @@ afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks();
 const EHR = 'ehr.healthidentitydirectory.com'
 const CLINIC = 'Riverside Clinic (fictional)'
 /** Finding a patient, Consultation, the visit's documents, and Document OCR with its new job: nothing more. */
-const PERMISSIONS = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ocr.job.read', 'ocr.job.write']
+const PERMISSIONS = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
 const ACTOR_ID = 'staff-demo-1'
 const GRANT_ID = 'grant-ocr-c1'
 const PATIENT_ID = 'a0000000-0000-4000-8000-0000000000c1'

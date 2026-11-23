@@ -1031,13 +1031,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
-    'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
+    'ehr.document.read or ehr.document.read-own (hid-system 0136: the front desk; the list then holds only the documents this '
+    + 'login uploaded here). Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
     + 'after 7 days (no download is offered); since hid-system#226 source_deleting while that deletion is under way, '
     + 'treated the same. An earlier backend sends neither.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),
-    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 7 days") '
+    'ehr.document.read or ehr.document.read-own (hid-system 0136; another login\'s upload then answers 404 "Document not found"). 200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 7 days") '
     + 'for a document whose source page was deleted; staffApi.documentDownload answers it as its own outcome, not an error.'),
   // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
   // price-list pictures (imageFileId). Proposed; 404 until served.
@@ -1142,10 +1143,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('pharmacy.orderRouteWrongPatientCorrection','pharmacy','/api/v1/pharmacy/order-routes/:routeId/wrong-patient-correction',P,false,
     one('POST','pharmacy.order-route.receive'),LATE_CORRECTION_ROUTE)),
 
-  { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write']}),
+  // hid-system 0136 (Q112 A): starting or retrying a reading needs ocr.job.write and ocr.job.start; following one takes
+  // ocr.job.read or the front desk's ocr.job.read-own (its own uploads' readings only), which an all-required list can't
+  // say, so the GETs keep the full code and their notes name the other (apps/patient-web/src/scanAccess.ts).
+  { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write','ocr.job.start']},
+    'GET: ocr.job.read or ocr.job.read-own (hid-system 0136); with the "-own" code only, a job whose document this login did '
+    + 'not upload answers as none.'),
     requiredQuery: { GET: ['documentId'] } },
-  r('ocr.job','ocr','/api/v1/ocr/jobs/:jobId',G,false,one('GET','ocr.job.read')),
-  r('ocr.retry','ocr','/api/v1/ocr/jobs/:jobId/retry',P,false,one('POST','ocr.job.write')),
+  r('ocr.job','ocr','/api/v1/ocr/jobs/:jobId',G,false,one('GET','ocr.job.read'),
+    'ocr.job.read or ocr.job.read-own (hid-system 0136); with the "-own" code only, another login\'s upload answers 404 OCR_JOB_NOT_FOUND.'),
+  r('ocr.retry','ocr','/api/v1/ocr/jobs/:jobId/retry',P,false,one('POST','ocr.job.write','ocr.job.start')),
   r('ocr.extractions','ocr','/api/v1/ocr/jobs/:jobId/extractions',G,false,one('GET','ocr.job.read')),
   r('ocr.validation','ocr','/api/v1/ocr/jobs/:jobId/validation',P,false,one('POST','ocr.validation.write')),
   r('ocr.validations','ocr','/api/v1/ocr/jobs/:jobId/validations',GP,false,{GET:['ocr.job.read'],POST:['ocr.validation.write']}),
